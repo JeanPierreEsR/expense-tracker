@@ -97,13 +97,16 @@ function populateCategoryOptions() {
     });
 }
 
-// ---- Expense category icon picker ----
+// ---- Category icon picker (Expense, Income — Investment/Transfer still
+// use the plain dropdown until they get icon sets of their own) ----
+
+const ICON_PICKER_TYPES = ["expense", "income"];
 
 function populateCategoryPicker() {
   const grid = document.getElementById("category-picker");
   grid.innerHTML = "";
   meta.categories
-    .filter((c) => c.type === "expense")
+    .filter((c) => c.type === selectedType)
     .forEach((c) => {
       const tile = document.createElement("button");
       tile.type = "button";
@@ -119,16 +122,17 @@ function populateCategoryPicker() {
 
 function showCategoryPicker() {
   selectedCategoryId = null;
+  populateCategoryPicker();
   document.getElementById("category-picker").hidden = false;
   document.getElementById("entry-form").hidden = true;
 }
 
 function showDetailForm(category) {
-  const isExpense = selectedType === "expense";
+  const usesIconPicker = ICON_PICKER_TYPES.includes(selectedType);
   const banner = document.getElementById("selected-category-banner");
   const selectField = document.getElementById("category-select-field");
 
-  if (isExpense && category) {
+  if (usesIconPicker && category) {
     selectedCategoryId = category.id;
     document.getElementById("selected-category-icon").textContent = category.icon || "•";
     document.getElementById("selected-category-icon").style.background = category.color || "#eee";
@@ -148,7 +152,7 @@ function showDetailForm(category) {
 }
 
 function getCategoryId() {
-  if (selectedType === "expense") return selectedCategoryId;
+  if (ICON_PICKER_TYPES.includes(selectedType)) return selectedCategoryId;
   return document.getElementById("category").value;
 }
 

@@ -103,9 +103,10 @@ function seedIfEmpty(sheetName, rows) {
 var CATEGORY_COLOR_PALETTE = ['#F7C6D9', '#C9E4F7', '#FFE0B2', '#D9F2D9',
   '#E0D9F7', '#FFF3B0', '#F7D9C4', '#D9F7F0'];
 
-// Matches the owner's real category list (from their previous tracking app),
-// with one emoji icon per category so the expense entry screen can show a
-// tappable icon grid instead of a dropdown.
+// Matches the owner's real category lists (from their previous tracking
+// app), with one emoji icon per category so the entry screen can show a
+// tappable icon grid instead of a dropdown. Investment/Transfer don't have
+// icon sets yet and keep the plain dropdown.
 var EXPENSE_CATEGORIES = [
   ['Annual budget', '📅'], ['Car', '🚗'], ['Travel', '✈️'],
   ['Food & Drink', '🍽️'], ['Family & Personal', '👪'], ['Entertainment', '🎭'],
@@ -117,21 +118,30 @@ var EXPENSE_CATEGORIES = [
   ['Psychologist', '🧠'], ['AI', '🤖']
 ];
 
+var INCOME_CATEGORIES = [
+  ['Other', '📦'], ['Gifts', '🎁'], ['Business', '👔'], ['Salary', '💰'],
+  ['Insurance Payout', '🛡️'], ['Parental Leave', '👶'], ['Loan', '🏦'],
+  ['Extra Income', '💵'], ['Savings return', '🪙'], ['Sales', '🏷️']
+];
+
 function seedCategories() {
   var cats = [];
+  function addCatsWithIcons(list, type) {
+    list.forEach(function (c, i) {
+      cats.push({
+        id: Utilities.getUuid(), name: c[0], type: type, icon: c[1],
+        color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+      });
+    });
+  }
   function addCats(names, type) {
     names.forEach(function (name) {
       cats.push({ id: Utilities.getUuid(), name: name, type: type, icon: '', color: '', parent_id: '' });
     });
   }
 
-  EXPENSE_CATEGORIES.forEach(function (c, i) {
-    cats.push({
-      id: Utilities.getUuid(), name: c[0], type: 'expense', icon: c[1],
-      color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: ''
-    });
-  });
-  addCats(['Salary', 'Freelance', 'Gifts Received', 'Other Income'], 'income');
+  addCatsWithIcons(EXPENSE_CATEGORIES, 'expense');
+  addCatsWithIcons(INCOME_CATEGORIES, 'income');
   addCats(['Contribution', 'Withdrawal'], 'investment');
   addCats(['Between Accounts'], 'transfer');
 
@@ -139,26 +149,25 @@ function seedCategories() {
 }
 
 /**
- * Replaces whatever expense categories currently exist with the real list
- * above (name + icon + color). Safe to run any time — non-expense
- * categories (income/investment/transfer) are left untouched. Run this
- * once from the menu after pulling this update.
+ * Replaces whatever categories of the given type currently exist with the
+ * given (name, icon) list, assigning colors from the shared palette.
+ * Categories of every other type are left untouched.
  */
-function resetExpenseCategories() {
+function resetCategoriesForType(type, list) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Categories');
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var typeIdx = headers.indexOf('type');
   var lastRow = sheet.getLastRow();
   var data = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
 
-  var keep = data.filter(function (row) { return row[typeIdx] !== 'expense'; });
+  var keep = data.filter(function (row) { return row[typeIdx] !== type; });
 
-  var newExpenseRows = EXPENSE_CATEGORIES.map(function (c, i) {
-    return [Utilities.getUuid(), c[0], 'expense', c[1],
+  var newRows = list.map(function (c, i) {
+    return [Utilities.getUuid(), c[0], type, c[1],
       CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], ''];
   });
 
-  var allRows = keep.concat(newExpenseRows);
+  var allRows = keep.concat(newRows);
 
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
@@ -166,7 +175,15 @@ function resetExpenseCategories() {
   if (allRows.length) {
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
   }
-  Logger.log('Expense categories reset: ' + newExpenseRows.length + ' categories, ' + keep.length + ' other rows kept.');
+  Logger.log(type + ' categories reset: ' + newRows.length + ' categories, ' + keep.length + ' other rows kept.');
+}
+
+function resetExpenseCategories() {
+  resetCategoriesForType('expense', EXPENSE_CATEGORIES);
+}
+
+function resetIncomeCategories() {
+  resetCategoriesForType('income', INCOME_CATEGORIES);
 }
 
 function seedBanks() {
