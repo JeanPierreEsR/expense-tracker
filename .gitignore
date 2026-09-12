@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+.clasprc.json
+
+# Contains real personal financial screenshots — never commit to a public repo.
+UI references/
