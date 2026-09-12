@@ -21,12 +21,26 @@ function setAccessCode(code) {
   localStorage.setItem("accessCode", code);
 }
 
-async function callApi(action, payload) {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} })
-  });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Apps Script's Web App redirect chain is intermittently flaky right after
+// the script has been idle (its CORS header sometimes doesn't make it back
+// on the first hit) — a quick retry reliably clears it up.
+async function callApi(action, payload, attempt = 1) {
+  let res;
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} })
+    });
+  } catch (networkErr) {
+    if (attempt < 4) {
+      await sleep(500 * attempt);
+      return callApi(action, payload, attempt + 1);
+    }
+    throw new Error("Couldn't reach the server. Check your connection and try again.");
+  }
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || "Unknown error");
   return json.data;
