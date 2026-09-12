@@ -233,7 +233,7 @@ document.querySelectorAll(".type-tab").forEach((tab) => {
     selectedType = tab.dataset.type;
     document.querySelectorAll(".type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     populateCategoryOptions();
-    if (selectedType === "expense") {
+    if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
       showDetailForm(null);
@@ -345,7 +345,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     await refreshEntryList();
 
-    if (selectedType === "expense") {
+    if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
   } catch (err) {
@@ -438,7 +438,7 @@ async function init() {
   try {
     await loadMeta();
     await refreshEntryList();
-    if (selectedType === "expense") {
+    if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
       showDetailForm(null);
