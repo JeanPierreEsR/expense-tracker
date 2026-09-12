@@ -14,6 +14,144 @@ let selectedType = "expense";
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
 
+// ---- Currencies ----
+
+const CURRENCIES = [
+  { code: "PEN", flag: "🇵🇪", name: "Peruvian Sol" },
+  { code: "USD", flag: "🇺🇸", name: "US Dollar" },
+  { code: "EUR", flag: "🇪🇺", name: "Euro" },
+  { code: "ARS", flag: "🇦🇷", name: "Argentine Peso" },
+  { code: "MXN", flag: "🇲🇽", name: "Mexican Peso" },
+  { code: "BRL", flag: "🇧🇷", name: "Brazilian Real" },
+  { code: "CLP", flag: "🇨🇱", name: "Chilean Peso" },
+  { code: "COP", flag: "🇨🇴", name: "Colombian Peso" },
+  { code: "BOB", flag: "🇧🇴", name: "Bolivian Boliviano" },
+  { code: "UYU", flag: "🇺🇾", name: "Uruguayan Peso" },
+  { code: "PYG", flag: "🇵🇾", name: "Paraguayan Guaraní" },
+  { code: "VES", flag: "🇻🇪", name: "Venezuelan Bolívar" },
+  { code: "GTQ", flag: "🇬🇹", name: "Guatemalan Quetzal" },
+  { code: "CRC", flag: "🇨🇷", name: "Costa Rican Colón" },
+  { code: "PAB", flag: "🇵🇦", name: "Panamanian Balboa" },
+  { code: "DOP", flag: "🇩🇴", name: "Dominican Peso" },
+  { code: "HNL", flag: "🇭🇳", name: "Honduran Lempira" },
+  { code: "NIO", flag: "🇳🇮", name: "Nicaraguan Córdoba" },
+  { code: "CUP", flag: "🇨🇺", name: "Cuban Peso" },
+  { code: "GBP", flag: "🇬🇧", name: "British Pound" },
+  { code: "CAD", flag: "🇨🇦", name: "Canadian Dollar" },
+  { code: "CHF", flag: "🇨🇭", name: "Swiss Franc" },
+  { code: "JPY", flag: "🇯🇵", name: "Japanese Yen" },
+  { code: "CNY", flag: "🇨🇳", name: "Chinese Yuan" },
+  { code: "KRW", flag: "🇰🇷", name: "South Korean Won" },
+  { code: "INR", flag: "🇮🇳", name: "Indian Rupee" },
+  { code: "AUD", flag: "🇦🇺", name: "Australian Dollar" },
+  { code: "NZD", flag: "🇳🇿", name: "New Zealand Dollar" },
+  { code: "SGD", flag: "🇸🇬", name: "Singapore Dollar" },
+  { code: "HKD", flag: "🇭🇰", name: "Hong Kong Dollar" },
+  { code: "SEK", flag: "🇸🇪", name: "Swedish Krona" },
+  { code: "NOK", flag: "🇳🇴", name: "Norwegian Krone" },
+  { code: "DKK", flag: "🇩🇰", name: "Danish Krone" },
+  { code: "PLN", flag: "🇵🇱", name: "Polish Złoty" },
+  { code: "TRY", flag: "🇹🇷", name: "Turkish Lira" },
+  { code: "ZAR", flag: "🇿🇦", name: "South African Rand" },
+  { code: "AED", flag: "🇦🇪", name: "UAE Dirham" },
+  { code: "THB", flag: "🇹🇭", name: "Thai Baht" },
+  { code: "RUB", flag: "🇷🇺", name: "Russian Ruble" },
+  { code: "ILS", flag: "🇮🇱", name: "Israeli Shekel" }
+];
+
+const DEFAULT_RECENT_CURRENCIES = ["PEN", "USD", "EUR", "ARS", "MXN"];
+
+function findCurrency(code) {
+  return CURRENCIES.find((c) => c.code === code) || { code, flag: "💱", name: code };
+}
+
+function getRecentCurrencies() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("recentCurrencies"));
+    if (Array.isArray(stored) && stored.length) return stored;
+  } catch (err) {
+    // fall through to defaults
+  }
+  return [...DEFAULT_RECENT_CURRENCIES];
+}
+
+function bumpRecentCurrency(code) {
+  let recent = getRecentCurrencies().filter((c) => c !== code);
+  recent.unshift(code);
+  recent = recent.slice(0, 5);
+  localStorage.setItem("recentCurrencies", JSON.stringify(recent));
+  return recent;
+}
+
+function selectCurrency(code) {
+  document.getElementById("currency").value = code;
+  bumpRecentCurrency(code);
+  renderCurrencyChips();
+  closeCurrencyModal();
+}
+
+function renderCurrencyChips() {
+  const container = document.getElementById("currency-chips");
+  const current = document.getElementById("currency").value;
+  container.innerHTML = "";
+
+  getRecentCurrencies().forEach((code) => {
+    const cur = findCurrency(code);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "currency-chip" + (code === current ? " active" : "");
+    chip.innerHTML = `<span>${cur.flag}</span><span>${cur.code}</span>`;
+    chip.addEventListener("click", () => selectCurrency(code));
+    container.appendChild(chip);
+  });
+
+  const moreChip = document.createElement("button");
+  moreChip.type = "button";
+  moreChip.className = "currency-chip more";
+  moreChip.textContent = "More…";
+  moreChip.addEventListener("click", openCurrencyModal);
+  container.appendChild(moreChip);
+}
+
+function openCurrencyModal() {
+  document.getElementById("currency-modal-backdrop").hidden = false;
+  document.getElementById("currency-search").value = "";
+  renderCurrencyOptionList("");
+  document.getElementById("currency-search").focus();
+}
+
+function closeCurrencyModal() {
+  document.getElementById("currency-modal-backdrop").hidden = true;
+}
+
+function renderCurrencyOptionList(filterText) {
+  const list = document.getElementById("currency-option-list");
+  list.innerHTML = "";
+  const q = filterText.trim().toLowerCase();
+  const filtered = CURRENCIES.filter(
+    (c) => !q || c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+  );
+  filtered.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "currency-option";
+    row.innerHTML = `
+      <span class="currency-option-flag">${c.flag}</span>
+      <span class="currency-option-code">${c.code}</span>
+      <span class="currency-option-name">${escapeHtml(c.name)}</span>
+    `;
+    row.addEventListener("click", () => selectCurrency(c.code));
+    list.appendChild(row);
+  });
+}
+
+document.getElementById("currency-modal-close").addEventListener("click", closeCurrencyModal);
+document.getElementById("currency-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "currency-modal-backdrop") closeCurrencyModal();
+});
+document.getElementById("currency-search").addEventListener("input", (e) => {
+  renderCurrencyOptionList(e.target.value);
+});
+
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
 }
@@ -358,7 +496,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // ---- Entry list ----
 
 function formatAmount(amount, currency) {
-  return `${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const flag = findCurrency(currency).flag;
+  return `${flag} ${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function findCategory(id) {
@@ -434,6 +573,7 @@ async function init() {
   document.getElementById("app").hidden = true;
   document.getElementById("loading-screen").hidden = false;
   document.getElementById("date").value = todayLocalISO();
+  renderCurrencyChips();
 
   try {
     await loadMeta();
