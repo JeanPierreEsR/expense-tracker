@@ -23,9 +23,10 @@ function setAccessCode(code) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Apps Script's Web App redirect chain is intermittently flaky right after
-// the script has been idle (its CORS header sometimes doesn't make it back
-// on the first hit) — a quick retry reliably clears it up.
+// Apps Script's free Web App "falls asleep" after a period of inactivity —
+// the first request after that can take 20+ seconds to wake it up, and
+// sometimes the slow/cold response comes back looking like a CORS failure.
+// Retrying clears it up once the backend is warm.
 async function callApi(action, payload, attempt = 1) {
   let res;
   try {
@@ -35,8 +36,8 @@ async function callApi(action, payload, attempt = 1) {
       body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} })
     });
   } catch (networkErr) {
-    if (attempt < 4) {
-      await sleep(500 * attempt);
+    if (attempt < 6) {
+      await sleep(400 * attempt);
       return callApi(action, payload, attempt + 1);
     }
     throw new Error("Couldn't reach the server. Check your connection and try again.");
@@ -349,17 +350,22 @@ async function init() {
   }
 
   document.getElementById("setup-screen").hidden = true;
-  document.getElementById("app").hidden = false;
+  document.getElementById("app").hidden = true;
+  document.getElementById("loading-screen").hidden = false;
   document.getElementById("date").value = todayLocalISO();
 
   try {
     await loadMeta();
     await refreshEntryList();
+    document.getElementById("loading-screen").hidden = true;
+    document.getElementById("app").hidden = false;
   } catch (err) {
+    document.getElementById("loading-screen").hidden = true;
     if (err.message === "Invalid access code") {
       localStorage.removeItem("accessCode");
       showSetupScreen("That code wasn't accepted. Try again.");
     } else {
+      document.getElementById("app").hidden = false;
       document.getElementById("entry-list").innerHTML =
         `<div class="status-msg">Couldn't load data: ${escapeHtml(err.message)}</div>`;
     }
