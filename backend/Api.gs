@@ -47,15 +47,34 @@ function getHeaders(sheet) {
   return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 }
 
+// Sheets auto-converts recognizable date strings to its own Date type on
+// write, even into columns pre-formatted as plain text — that conversion
+// can't be reliably prevented. Instead, always normalize back to a clean
+// string on the way out, regardless of how the cell actually stored it.
+var DATE_FIELD_FORMATS = {
+  date: 'yyyy-MM-dd',
+  due_date: 'yyyy-MM-dd',
+  sent_at: 'yyyy-MM-dd',
+  month: 'yyyy-MM',
+  period: 'yyyy-MM'
+};
+
 function getAllRows(sheetName) {
   var sheet = getSheet(sheetName);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   var headers = getHeaders(sheet);
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var tz = Session.getScriptTimeZone();
   return values.map(function (row) {
     var obj = {};
-    headers.forEach(function (h, i) { obj[h] = row[i]; });
+    headers.forEach(function (h, i) {
+      var v = row[i];
+      if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
+        v = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]);
+      }
+      obj[h] = v;
+    });
     return obj;
   });
 }

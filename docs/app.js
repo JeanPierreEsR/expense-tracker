@@ -28,13 +28,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // sometimes the slow/cold response comes back looking like a CORS failure.
 // Retrying clears it up once the backend is warm.
 async function callApi(action, payload, attempt = 1) {
-  let res;
+  let json;
   try {
-    res = await fetch(API_URL, {
+    const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} })
     });
+    json = await res.json();
   } catch (networkErr) {
     if (attempt < 6) {
       await sleep(400 * attempt);
@@ -42,7 +43,6 @@ async function callApi(action, payload, attempt = 1) {
     }
     throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
-  const json = await res.json();
   if (!json.ok) throw new Error(json.error || "Unknown error");
   return json.data;
 }
