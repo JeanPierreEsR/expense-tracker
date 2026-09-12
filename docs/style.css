@@ -78,6 +78,7 @@ label {
 
 input, select, textarea {
   width: 100%;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -85,12 +86,17 @@ input, select, textarea {
   background: white;
   color: var(--text);
   font-family: inherit;
+  box-sizing: border-box;
 }
 
 .row {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.row > div {
+  min-width: 0;
 }
 
 .tags-list {
