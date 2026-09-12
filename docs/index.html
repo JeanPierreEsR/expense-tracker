@@ -53,20 +53,12 @@
         <label for="amount">Amount</label>
         <input type="number" id="amount" step="0.01" min="0" placeholder="0.00" required>
 
-        <div class="row">
-          <div>
-            <label for="date">Date</label>
-            <input type="date" id="date" required>
-          </div>
-          <div>
-            <label for="currency">Currency</label>
-            <select id="currency">
-              <option value="PEN">PEN</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </div>
-        </div>
+        <label for="date">Date</label>
+        <input type="date" id="date" required>
+
+        <label>Currency</label>
+        <input type="hidden" id="currency" value="PEN">
+        <div class="currency-chips" id="currency-chips"></div>
 
         <label for="description">Description</label>
         <input type="text" id="description" placeholder="Optional">
@@ -93,6 +85,17 @@
       <div id="entry-list"></div>
     </div>
   </main>
+
+  <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>Choose a currency</span>
+        <button type="button" id="currency-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <input type="text" id="currency-search" placeholder="Search code or name…" autocomplete="off">
+      <div class="currency-option-list" id="currency-option-list"></div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

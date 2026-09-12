@@ -234,6 +234,111 @@ button.primary:disabled {
   margin-top: 8px;
 }
 
+.currency-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  margin-top: 6px;
+}
+
+.currency-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.currency-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.currency-chip.more {
+  color: var(--muted);
+}
+
+.currency-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+
+.currency-modal {
+  background: var(--card);
+  width: 100%;
+  max-width: 480px;
+  max-height: 75vh;
+  border-radius: 18px 18px 0 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.currency-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.currency-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.currency-option-list {
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.currency-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 6px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.currency-option:last-child {
+  border-bottom: none;
+}
+
+.currency-option-flag {
+  font-size: 1.3rem;
+}
+
+.currency-option-code {
+  font-weight: 600;
+  width: 44px;
+  flex-shrink: 0;
+}
+
+.currency-option-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .entry-list h2 {
   font-size: 1rem;
   margin: 4px 0 10px;
