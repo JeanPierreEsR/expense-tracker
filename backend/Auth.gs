@@ -11,6 +11,7 @@ function onOpen() {
     .addItem('2. Seed starter data', 'seedStarterData')
     .addItem('3. Set access code', 'promptSetAccessCode')
     .addItem('4. Reset expense categories', 'resetExpenseCategories')
+    .addItem('5. Fix rows missing an ID', 'backfillMissingIds')
     .addToUi();
 }
 
