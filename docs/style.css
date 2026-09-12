@@ -87,6 +87,16 @@ input, select, textarea {
   color: var(--text);
   font-family: inherit;
   box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"] {
+  /* iOS Safari renders its own control chrome behind the box unless the
+     native appearance is fully stripped, which looks like a doubled
+     border/shadow offset from our own box. */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .row {
