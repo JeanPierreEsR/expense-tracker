@@ -36,7 +36,23 @@
         <div class="type-tab" data-type="transfer">Transfer</div>
       </div>
 
-      <form id="entry-form">
+      <div id="category-picker" class="category-grid" hidden></div>
+
+      <form id="entry-form" hidden>
+        <div id="selected-category-banner" class="category-banner" hidden>
+          <span id="selected-category-icon" class="category-banner-icon"></span>
+          <span id="selected-category-name"></span>
+          <button type="button" class="add-inline" id="change-category-btn">Change</button>
+        </div>
+
+        <div id="category-select-field">
+          <label for="category">Category</label>
+          <select id="category" required></select>
+        </div>
+
+        <label for="amount">Amount</label>
+        <input type="number" id="amount" step="0.01" min="0" placeholder="0.00" required>
+
         <div class="row">
           <div>
             <label for="date">Date</label>
@@ -51,12 +67,6 @@
             </select>
           </div>
         </div>
-
-        <label for="amount">Amount</label>
-        <input type="number" id="amount" step="0.01" min="0" placeholder="0.00" required>
-
-        <label for="category">Category</label>
-        <select id="category" required></select>
 
         <label for="description">Description</label>
         <input type="text" id="description" placeholder="Optional">

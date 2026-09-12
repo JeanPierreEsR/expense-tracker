@@ -10,6 +10,7 @@ function onOpen() {
     .addItem('1. Build sheet tabs', 'setupSpreadsheet')
     .addItem('2. Seed starter data', 'seedStarterData')
     .addItem('3. Set access code', 'promptSetAccessCode')
+    .addItem('4. Reset expense categories', 'resetExpenseCategories')
     .addToUi();
 }
 

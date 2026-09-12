@@ -12,6 +12,7 @@ const TYPE_LABELS = {
 let meta = null;
 let selectedType = "expense";
 let selectedTagIds = new Set();
+let selectedCategoryId = null;
 
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
@@ -77,6 +78,7 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
 async function loadMeta() {
   meta = await callApi("getMeta", {});
   populateCategoryOptions();
+  populateCategoryPicker();
   populatePaidByOptions();
   populatePaymentMethodOptions();
   populateTags();
@@ -94,6 +96,63 @@ function populateCategoryOptions() {
       select.appendChild(opt);
     });
 }
+
+// ---- Expense category icon picker ----
+
+function populateCategoryPicker() {
+  const grid = document.getElementById("category-picker");
+  grid.innerHTML = "";
+  meta.categories
+    .filter((c) => c.type === "expense")
+    .forEach((c) => {
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "category-tile";
+      tile.innerHTML = `
+        <span class="category-tile-icon" style="background:${c.color || "#eee"}">${c.icon || "•"}</span>
+        <span class="category-tile-name">${escapeHtml(c.name)}</span>
+      `;
+      tile.addEventListener("click", () => showDetailForm(c));
+      grid.appendChild(tile);
+    });
+}
+
+function showCategoryPicker() {
+  selectedCategoryId = null;
+  document.getElementById("category-picker").hidden = false;
+  document.getElementById("entry-form").hidden = true;
+}
+
+function showDetailForm(category) {
+  const isExpense = selectedType === "expense";
+  const banner = document.getElementById("selected-category-banner");
+  const selectField = document.getElementById("category-select-field");
+
+  if (isExpense && category) {
+    selectedCategoryId = category.id;
+    document.getElementById("selected-category-icon").textContent = category.icon || "•";
+    document.getElementById("selected-category-icon").style.background = category.color || "#eee";
+    document.getElementById("selected-category-name").textContent = category.name;
+    banner.hidden = false;
+    selectField.hidden = true;
+  } else {
+    banner.hidden = true;
+    selectField.hidden = false;
+  }
+
+  document.getElementById("category-picker").hidden = true;
+  document.getElementById("entry-form").hidden = false;
+
+  const amountInput = document.getElementById("amount");
+  amountInput.focus();
+}
+
+function getCategoryId() {
+  if (selectedType === "expense") return selectedCategoryId;
+  return document.getElementById("category").value;
+}
+
+document.getElementById("change-category-btn").addEventListener("click", showCategoryPicker);
 
 function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
@@ -170,6 +229,11 @@ document.querySelectorAll(".type-tab").forEach((tab) => {
     selectedType = tab.dataset.type;
     document.querySelectorAll(".type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     populateCategoryOptions();
+    if (selectedType === "expense") {
+      showCategoryPicker();
+    } else {
+      showDetailForm(null);
+    }
   });
 });
 
@@ -246,7 +310,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
-    const categoryId = document.getElementById("category").value;
+    const categoryId = getCategoryId();
     const description = document.getElementById("description").value.trim();
     const paidBy = document.getElementById("paid_by").value;
     const paymentMethodId = document.getElementById("payment_method").value;
@@ -276,6 +340,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     populateTags();
 
     await refreshEntryList();
+
+    if (selectedType === "expense") {
+      showCategoryPicker();
+    }
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -289,8 +357,12 @@ function formatAmount(amount, currency) {
   return `${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function findCategory(id) {
+  return meta.categories.find((cat) => cat.id === id);
+}
+
 function categoryName(id) {
-  const c = meta.categories.find((cat) => cat.id === id);
+  const c = findCategory(id);
   return c ? c.name : "(unknown category)";
 }
 
@@ -314,10 +386,15 @@ async function refreshEntryList() {
     const row = document.createElement("div");
     row.className = "entry";
 
+    const cat = findCategory(entry.category_id);
+    const categoryMarker = cat && cat.icon
+      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
+      : `<span class="type-dot" data-type="${entry.type}"></span>`;
+
     const left = document.createElement("div");
     left.className = "entry-left";
     left.innerHTML = `
-      <div class="entry-category"><span class="type-dot" data-type="${entry.type}"></span>${categoryName(entry.category_id)}</div>
+      <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
       ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
       <div class="entry-meta">${entry.date} · ${paidByLabel(entry.paid_by)}</div>
     `;
@@ -357,6 +434,11 @@ async function init() {
   try {
     await loadMeta();
     await refreshEntryList();
+    if (selectedType === "expense") {
+      showCategoryPicker();
+    } else {
+      showDetailForm(null);
+    }
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
   } catch (err) {
