@@ -1,0 +1,228 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #e5e5ea;
+  --accent: #0071e3;
+  --expense: #d64545;
+  --income: #2e9e5b;
+  --investment: #7a5af5;
+  --transfer: #8a8a8e;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding-bottom: 40px;
+}
+
+header {
+  padding: 20px 16px 8px;
+  text-align: center;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.type-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.type-tab {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 8px 4px;
+  font-size: 0.75rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.type-tab.active[data-type="expense"] { background: var(--expense); color: white; border-color: var(--expense); }
+.type-tab.active[data-type="income"] { background: var(--income); color: white; border-color: var(--income); }
+.type-tab.active[data-type="investment"] { background: var(--investment); color: white; border-color: var(--investment); }
+.type-tab.active[data-type="transfer"] { background: var(--transfer); color: white; border-color: var(--transfer); }
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 12px 0 4px;
+}
+
+input, select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1rem;
+  background: white;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 10px;
+}
+
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.tag-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background: white;
+}
+
+.tag-chip.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.add-inline {
+  font-size: 0.8rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+button.primary {
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary:disabled {
+  opacity: 0.5;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.entry-list h2 {
+  font-size: 1rem;
+  margin: 4px 0 10px;
+}
+
+.entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.entry:last-child { border-bottom: none; }
+
+.entry-left { flex: 1; min-width: 0; }
+
+.entry-category {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.entry-desc {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.entry-amount {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+.entry-amount .primary-amt {
+  font-weight: 600;
+}
+
+.entry-amount .pen-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.type-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.type-dot[data-type="expense"] { background: var(--expense); }
+.type-dot[data-type="income"] { background: var(--income); }
+.type-dot[data-type="investment"] { background: var(--investment); }
+.type-dot[data-type="transfer"] { background: var(--transfer); }
+
+.setup-screen {
+  max-width: 400px;
+  margin: 60px auto;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.status-msg {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 20px;
+}
+
+[hidden] { display: none !important; }
