@@ -100,6 +100,23 @@ function seedIfEmpty(sheetName, rows) {
   sheet.getRange(2, 1, values.length, headers.length).setValues(values);
 }
 
+var CATEGORY_COLOR_PALETTE = ['#F7C6D9', '#C9E4F7', '#FFE0B2', '#D9F2D9',
+  '#E0D9F7', '#FFF3B0', '#F7D9C4', '#D9F7F0'];
+
+// Matches the owner's real category list (from their previous tracking app),
+// with one emoji icon per category so the expense entry screen can show a
+// tappable icon grid instead of a dropdown.
+var EXPENSE_CATEGORIES = [
+  ['Annual budget', '📅'], ['Car', '🚗'], ['Travel', '✈️'],
+  ['Food & Drink', '🍽️'], ['Family & Personal', '👪'], ['Entertainment', '🎭'],
+  ['Home', '🏠'], ['Shopping', '🛍️'], ['Healthcare', '🏥'], ['Other', '📦'],
+  ['Transport', '🚌'], ['Groceries', '🛒'], ['Education', '🎓'],
+  ['Gifts', '🎁'], ['Work', '💼'], ['Savings', '💰'], ['Loan', '🏦'],
+  ['Party', '🎉'], ['Mobile Phone', '📱'], ['Donations', '🤲'],
+  ['Credit card', '💳'], ['Gym', '🏋️'], ['AELU', '🏟️'],
+  ['Psychologist', '🧠'], ['AI', '🤖']
+];
+
 function seedCategories() {
   var cats = [];
   function addCats(names, type) {
@@ -108,14 +125,48 @@ function seedCategories() {
     });
   }
 
-  addCats(['Food & Dining', 'Groceries', 'Transport', 'Housing', 'Utilities',
-    'Health', 'Entertainment', 'Shopping', 'Education', 'Travel', 'Gifts',
-    'Other'], 'expense');
+  EXPENSE_CATEGORIES.forEach(function (c, i) {
+    cats.push({
+      id: Utilities.getUuid(), name: c[0], type: 'expense', icon: c[1],
+      color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+    });
+  });
   addCats(['Salary', 'Freelance', 'Gifts Received', 'Other Income'], 'income');
   addCats(['Contribution', 'Withdrawal'], 'investment');
   addCats(['Between Accounts'], 'transfer');
 
   seedIfEmpty('Categories', cats);
+}
+
+/**
+ * Replaces whatever expense categories currently exist with the real list
+ * above (name + icon + color). Safe to run any time — non-expense
+ * categories (income/investment/transfer) are left untouched. Run this
+ * once from the menu after pulling this update.
+ */
+function resetExpenseCategories() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Categories');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var typeIdx = headers.indexOf('type');
+  var lastRow = sheet.getLastRow();
+  var data = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
+
+  var keep = data.filter(function (row) { return row[typeIdx] !== 'expense'; });
+
+  var newExpenseRows = EXPENSE_CATEGORIES.map(function (c, i) {
+    return [Utilities.getUuid(), c[0], 'expense', c[1],
+      CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], ''];
+  });
+
+  var allRows = keep.concat(newExpenseRows);
+
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+  if (allRows.length) {
+    sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
+  }
+  Logger.log('Expense categories reset: ' + newExpenseRows.length + ' categories, ' + keep.length + ' other rows kept.');
 }
 
 function seedBanks() {
