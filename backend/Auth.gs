@@ -13,6 +13,8 @@ function onOpen() {
     .addItem('4. Reset expense categories', 'resetExpenseCategories')
     .addItem('5. Fix rows missing an ID', 'backfillMissingIds')
     .addItem('6. Reset income categories', 'resetIncomeCategories')
+    .addItem('7. Reset banks', 'resetBanks')
+    .addItem('8. Link payment methods to banks', 'linkPaymentMethodsToBanks')
     .addToUi();
 }
 

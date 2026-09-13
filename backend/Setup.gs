@@ -186,11 +186,57 @@ function resetIncomeCategories() {
   resetCategoriesForType('income', INCOME_CATEGORIES);
 }
 
+var BANK_NAMES = ['BCP', 'Interbank', 'Diners', 'SIP', 'Yape', 'Plin'];
+
 function seedBanks() {
-  var names = ['BCP', 'Interbank', 'BBVA', 'Scotiabank', 'Banco de la Nación'];
-  seedIfEmpty('Banks', names.map(function (name) {
+  seedIfEmpty('Banks', BANK_NAMES.map(function (name) {
     return { id: Utilities.getUuid(), name: name };
   }));
+}
+
+/**
+ * Replaces the Banks list with the real set the owner actually uses. Safe
+ * to run any time — nothing currently references a Bank by id, since
+ * Payment Methods' bank_id was never populated during Phase 1.
+ */
+function resetBanks() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Banks');
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+  }
+  var rows = BANK_NAMES.map(function (name) { return [Utilities.getUuid(), name]; });
+  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  Logger.log('Banks reset: ' + BANK_NAMES.join(', '));
+}
+
+/**
+ * Matches each existing Payment Method's nickname to a Bank by name and
+ * fills in bank_id — needed for Phase 2 email parsing to match a
+ * transaction to the right payment method by bank + last_4.
+ */
+function linkPaymentMethodsToBanks() {
+  var banks = getAllRows('Banks');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Payment Methods');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  var nicknameCol = headers.indexOf('nickname');
+  var bankIdCol = headers.indexOf('bank_id');
+  var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var linked = 0;
+
+  rows.forEach(function (row, i) {
+    if (row[bankIdCol]) return;
+    var nickname = String(row[nicknameCol]).toLowerCase();
+    var match = banks.find(function (b) { return nickname.indexOf(String(b.name).toLowerCase()) !== -1; });
+    if (match) {
+      sheet.getRange(2 + i, bankIdCol + 1).setValue(match.id);
+      linked++;
+    }
+  });
+  Logger.log('Linked ' + linked + ' payment method(s) to a bank.');
 }
 
 function seedFriends() {
