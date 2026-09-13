@@ -31,6 +31,8 @@ function routeAction(action, payload) {
     case 'addFriend': return addFriend(payload);
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
+    case 'admin_resetBanks': resetBanks(); return { done: true };
+    case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
     default: throw new Error('Unknown action: ' + action);
   }
 }
