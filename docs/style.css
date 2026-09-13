@@ -23,6 +23,47 @@ body {
   padding-bottom: 40px;
 }
 
+.pull-refresh-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-100%);
+  z-index: 200;
+  pointer-events: none;
+}
+
+.pull-refresh-indicator #pull-refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 1.1rem;
+  color: var(--accent);
+  transition: transform 0.15s ease;
+}
+
+.pull-refresh-indicator.ready #pull-refresh-icon {
+  transform: rotate(180deg);
+}
+
+.pull-refresh-indicator.refreshing #pull-refresh-icon {
+  animation: pull-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes pull-refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 header {
   padding: 20px 16px 8px;
   text-align: center;
@@ -241,7 +282,8 @@ button.primary:disabled {
   padding: 0;
 }
 
-.delete-entry-btn {
+.delete-entry-btn,
+.cancel-edit-btn {
   width: 100%;
   margin-top: 10px;
   padding: 12px;
@@ -252,6 +294,11 @@ button.primary:disabled {
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.cancel-edit-btn {
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 .entry {

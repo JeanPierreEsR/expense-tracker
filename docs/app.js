@@ -422,6 +422,22 @@ document.getElementById("add-tag-btn").addEventListener("click", async () => {
   }
 });
 
+// ---- Amount input: always use a decimal point ----
+// Native number inputs render the decimal separator based on the device's
+// locale (a comma on many non-US locales), which fights with how amounts
+// are parsed/stored everywhere else in the app. Using a plain text input
+// with our own sanitizing keeps "." as the only decimal separator, while
+// still bringing up the numeric keypad on a phone via inputmode="decimal".
+document.getElementById("amount").addEventListener("input", (e) => {
+  let value = e.target.value.replace(/,/g, ".");
+  value = value.replace(/[^\d.]/g, "");
+  const firstDot = value.indexOf(".");
+  if (firstDot !== -1) {
+    value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, "");
+  }
+  if (value !== e.target.value) e.target.value = value;
+});
+
 // ---- Currency & exchange rate ----
 
 async function ensureExchangeRate(currency, dateStr) {
@@ -607,6 +623,7 @@ function startEditEntry(entry) {
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = "Update entry";
+  document.getElementById("cancel-edit-btn-2").hidden = false;
   document.getElementById("delete-entry-btn").hidden = false;
 
   document.getElementById("entry-form").scrollIntoView({ behavior: "smooth" });
@@ -616,19 +633,23 @@ function exitEditMode() {
   editingEntryId = null;
   document.getElementById("edit-mode-banner").hidden = true;
   document.getElementById("submit-btn").textContent = "Save entry";
+  document.getElementById("cancel-edit-btn-2").hidden = true;
   document.getElementById("delete-entry-btn").hidden = true;
   document.getElementById("tags-field").hidden = false;
   document.getElementById("tags-edit-note").hidden = true;
 }
 
-document.getElementById("cancel-edit-btn").addEventListener("click", () => {
+function cancelEdit() {
   exitEditMode();
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
   if (ICON_PICKER_TYPES.includes(selectedType)) {
     showCategoryPicker();
   }
-});
+}
+
+document.getElementById("cancel-edit-btn").addEventListener("click", cancelEdit);
+document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdit);
 
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
@@ -752,5 +773,66 @@ async function init() {
     }
   }
 }
+
+// ---- Pull to refresh ----
+// PWAs in standalone mode lose Safari's native pull-to-refresh, so this
+// gives it back: drag down from the very top of the page to re-fetch data.
+(function setupPullToRefresh() {
+  const indicator = document.getElementById("pull-refresh-indicator");
+  const threshold = 70;
+  const maxPull = 100;
+  const hiddenOffset = -56;
+  let startY = 0;
+  let pulling = false;
+  let refreshing = false;
+
+  function reset() {
+    indicator.style.transform = `translateY(${hiddenOffset}px)`;
+    indicator.classList.remove("ready");
+  }
+
+  function onTouchStart(e) {
+    if (refreshing || document.getElementById("app").hidden || window.scrollY > 0) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }
+
+  function onTouchMove(e) {
+    if (!pulling || refreshing) return;
+    const delta = e.touches[0].clientY - startY;
+    if (delta <= 0) { reset(); return; }
+    const capped = Math.min(delta, maxPull);
+    const offset = Math.min(capped, 56) + hiddenOffset;
+    indicator.style.transform = `translateY(${offset}px)`;
+    indicator.classList.toggle("ready", capped > threshold);
+  }
+
+  async function onTouchEnd() {
+    if (!pulling || refreshing) { pulling = false; return; }
+    const wasReady = indicator.classList.contains("ready");
+    pulling = false;
+
+    if (!wasReady) { reset(); return; }
+
+    refreshing = true;
+    indicator.classList.add("refreshing");
+    indicator.style.transform = "translateY(0)";
+    try {
+      await loadMeta();
+      await refreshEntryList();
+      await refreshReviewQueue();
+    } catch (err) {
+      // Data just doesn't refresh this time — the user can pull again.
+    }
+    indicator.classList.remove("refreshing", "ready");
+    reset();
+    refreshing = false;
+  }
+
+  reset();
+  document.addEventListener("touchstart", onTouchStart, { passive: true });
+  document.addEventListener("touchmove", onTouchMove, { passive: true });
+  document.addEventListener("touchend", onTouchEnd, { passive: true });
+})();
 
 init();
