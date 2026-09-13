@@ -26,7 +26,11 @@ var TABLE_DEFINITIONS = {
   'Period Templates': ['id', 'name', 'recurrence_rule', 'start_anchor'],
   'Import Batches': ['id', 'filename', 'date', 'row_count'],
   'Parsing Rules': ['id', 'bank_id', 'sender', 'pattern', 'field_mappings'],
-  Settings: ['key', 'value']
+  Settings: ['key', 'value'],
+  // Not part of the original spec — needed to know which entry a Telegram
+  // reply is about, since Telegram only tells us which message_id someone
+  // replied to.
+  'Telegram Messages': ['message_id', 'entry_id', 'created_at']
 };
 
 // Columns that hold a date but must stay plain text (YYYY-MM-DD / YYYY-MM),

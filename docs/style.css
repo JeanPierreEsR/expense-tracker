@@ -339,9 +339,85 @@ button.primary:disabled {
   font-size: 0.85rem;
 }
 
-.entry-list h2 {
+.entry-list h2,
+.review-queue h2 {
   font-size: 1rem;
   margin: 4px 0 10px;
+}
+
+.review-queue {
+  border: 1px solid #f5c518;
+  background: #fffdf5;
+}
+
+.review-item {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.review-item:last-child {
+  border-bottom: none;
+}
+
+.review-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.review-item-desc {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.review-item-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.review-item-amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-item-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.review-item-fields select,
+.review-item-fields input {
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+.review-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.review-item-actions button {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.review-confirm-btn {
+  background: var(--income);
+  color: white;
+}
+
+.review-discard-btn {
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border) !important;
 }
 
 .entry {

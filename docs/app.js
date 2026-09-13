@@ -561,6 +561,74 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---- Review queue (entries caught automatically from email) ----
+
+async function refreshReviewQueue() {
+  const entries = await callApi("listPendingEntries", {});
+  const card = document.getElementById("review-queue-card");
+  const list = document.getElementById("review-list");
+  document.getElementById("review-count").textContent = entries.length;
+
+  if (entries.length === 0) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  list.innerHTML = "";
+
+  entries.forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = "review-item";
+
+    const categoryOptions = meta.categories
+      .filter((c) => c.type === entry.type)
+      .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
+      .join("");
+
+    item.innerHTML = `
+      <div class="review-item-top">
+        <div>
+          <div class="review-item-desc">${escapeHtml(entry.description || "(no description)")}</div>
+          <div class="review-item-meta">${entry.date} · ${entry.type}</div>
+        </div>
+        <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
+      </div>
+      <div class="review-item-fields">
+        <select class="review-category">
+          <option value="">Pick a category…</option>
+          ${categoryOptions}
+        </select>
+        <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
+      </div>
+      <div class="review-item-actions">
+        <button type="button" class="review-confirm-btn">✅ Confirm</button>
+        <button type="button" class="review-discard-btn">❌ Discard</button>
+      </div>
+    `;
+
+    item.querySelector(".review-confirm-btn").addEventListener("click", async () => {
+      const categoryId = item.querySelector(".review-category").value;
+      const description = item.querySelector(".review-description").value.trim();
+      if (!categoryId) {
+        alert("Pick a category first.");
+        return;
+      }
+      await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description } });
+      await callApi("confirmEntry", { id: entry.id });
+      await refreshReviewQueue();
+      await refreshEntryList();
+    });
+
+    item.querySelector(".review-discard-btn").addEventListener("click", async () => {
+      if (!confirm("Discard this transaction? This can't be undone.")) return;
+      await callApi("discardEntry", { id: entry.id });
+      await refreshReviewQueue();
+    });
+
+    list.appendChild(item);
+  });
+}
+
 // ---- Init ----
 
 async function init() {
@@ -578,6 +646,7 @@ async function init() {
   try {
     await loadMeta();
     await refreshEntryList();
+    await refreshReviewQueue();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
