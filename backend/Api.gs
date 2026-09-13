@@ -33,6 +33,14 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
+    case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
+    case 'admin_runAutomation':
+      var emailResults = processEmails();
+      pollTelegramUpdates();
+      return emailResults;
+    case 'admin_debugGmail': return debugGmailSearch_(payload.query);
+    case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': setEntryField_(payload.id, 'status', 'confirmed'); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
@@ -65,6 +73,14 @@ var DATE_FIELD_FORMATS = {
   period: 'yyyy-MM'
 };
 
+// Same root cause as dates: a purely-numeric-looking id (a bank operation
+// number, say) gets auto-converted to Sheets' Number type on write, which
+// silently drops leading zeros — that loss happens at write time and can't
+// be recovered by normalizing on read. What CAN be fixed here is the type:
+// always hand back a string, so later strict-equality dedup checks don't
+// break comparing a stored Number against a freshly-extracted String.
+var STRING_FIELDS = { external_id: true, id: true };
+
 function getAllRows(sheetName) {
   var sheet = getSheet(sheetName);
   var lastRow = sheet.getLastRow();
@@ -78,6 +94,8 @@ function getAllRows(sheetName) {
       var v = row[i];
       if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
         v = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]);
+      } else if (STRING_FIELDS[h] && v !== '' && v != null) {
+        v = String(v);
       }
       obj[h] = v;
     });

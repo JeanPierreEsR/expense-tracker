@@ -228,6 +228,36 @@ button.primary:disabled {
   opacity: 0.5;
 }
 
+.edit-mode-banner {
+  background: #fff4d6;
+  border: 1px solid #f0d38a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+}
+
+.edit-mode-banner .add-inline {
+  padding: 0;
+}
+
+.delete-entry-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--expense);
+  border-radius: 12px;
+  background: white;
+  color: var(--expense);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.entry {
+  cursor: pointer;
+}
+
 .hint {
   font-size: 0.75rem;
   color: var(--muted);

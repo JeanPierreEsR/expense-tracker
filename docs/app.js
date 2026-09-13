@@ -13,6 +13,7 @@ let meta = null;
 let selectedType = "expense";
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
+let editingEntryId = null;
 
 // ---- Currencies ----
 
@@ -464,17 +465,34 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     await ensureExchangeRate(currency, date);
 
-    await callApi("createEntry", {
-      type: selectedType,
-      date,
-      amount,
-      currency,
-      category_id: categoryId,
-      description,
-      paid_by: paidBy,
-      payment_method_id: paidBy === "me" ? paymentMethodId : "",
-      tag_ids: Array.from(selectedTagIds)
-    });
+    if (editingEntryId) {
+      await callApi("updateEntry", {
+        id: editingEntryId,
+        fields: {
+          type: selectedType,
+          date,
+          amount,
+          currency,
+          category_id: categoryId,
+          description,
+          paid_by: paidBy,
+          payment_method_id: paidBy === "me" ? paymentMethodId : ""
+        }
+      });
+      exitEditMode();
+    } else {
+      await callApi("createEntry", {
+        type: selectedType,
+        date,
+        amount,
+        currency,
+        category_id: categoryId,
+        description,
+        paid_by: paidBy,
+        payment_method_id: paidBy === "me" ? paymentMethodId : "",
+        tag_ids: Array.from(selectedTagIds)
+      });
+    }
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
@@ -551,9 +569,77 @@ async function refreshEntryList() {
 
     row.appendChild(left);
     row.appendChild(amount);
+    row.addEventListener("click", () => startEditEntry(entry));
     list.appendChild(row);
   });
 }
+
+// ---- Editing a previously confirmed entry ----
+
+function startEditEntry(entry) {
+  editingEntryId = entry.id;
+
+  selectedType = entry.type;
+  document.querySelectorAll(".type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
+  populateCategoryOptions();
+
+  const category = findCategory(entry.category_id);
+  if (ICON_PICKER_TYPES.includes(entry.type)) {
+    showDetailForm(category || null);
+  } else {
+    showDetailForm(null);
+    document.getElementById("category").value = entry.category_id || "";
+  }
+
+  document.getElementById("amount").value = entry.amount;
+  document.getElementById("date").value = entry.date;
+  document.getElementById("description").value = entry.description || "";
+  selectCurrency(entry.currency);
+
+  document.getElementById("paid_by").value = entry.paid_by;
+  togglePaymentMethodVisibility();
+  if (entry.paid_by === "me") {
+    document.getElementById("payment_method").value = entry.payment_method_id || "";
+  }
+
+  document.getElementById("tags-field").hidden = true;
+  document.getElementById("tags-edit-note").hidden = false;
+
+  document.getElementById("edit-mode-banner").hidden = false;
+  document.getElementById("submit-btn").textContent = "Update entry";
+  document.getElementById("delete-entry-btn").hidden = false;
+
+  document.getElementById("entry-form").scrollIntoView({ behavior: "smooth" });
+}
+
+function exitEditMode() {
+  editingEntryId = null;
+  document.getElementById("edit-mode-banner").hidden = true;
+  document.getElementById("submit-btn").textContent = "Save entry";
+  document.getElementById("delete-entry-btn").hidden = true;
+  document.getElementById("tags-field").hidden = false;
+  document.getElementById("tags-edit-note").hidden = true;
+}
+
+document.getElementById("cancel-edit-btn").addEventListener("click", () => {
+  exitEditMode();
+  document.getElementById("amount").value = "";
+  document.getElementById("description").value = "";
+  if (ICON_PICKER_TYPES.includes(selectedType)) {
+    showCategoryPicker();
+  }
+});
+
+document.getElementById("delete-entry-btn").addEventListener("click", async () => {
+  if (!editingEntryId) return;
+  if (!confirm("Delete this entry? This can't be undone.")) return;
+  await callApi("discardEntry", { id: editingEntryId });
+  exitEditMode();
+  await refreshEntryList();
+  if (ICON_PICKER_TYPES.includes(selectedType)) {
+    showCategoryPicker();
+  }
+});
 
 function escapeHtml(str) {
   const div = document.createElement("div");

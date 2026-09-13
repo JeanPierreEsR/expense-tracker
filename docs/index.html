@@ -38,6 +38,10 @@
 
       <div id="category-picker" class="category-grid" hidden></div>
 
+      <div id="edit-mode-banner" class="edit-mode-banner" hidden>
+        ✏️ Editing entry — <button type="button" class="add-inline" id="cancel-edit-btn">Cancel</button>
+      </div>
+
       <form id="entry-form" hidden>
         <div id="selected-category-banner" class="category-banner" hidden>
           <span id="selected-category-icon" class="category-banner-icon"></span>
@@ -71,12 +75,16 @@
           <select id="payment_method"></select>
         </div>
 
-        <label>Tags</label>
-        <div class="tags-list" id="tags-list"></div>
-        <div class="add-inline" id="add-tag-btn">+ Add tag…</div>
+        <div id="tags-field">
+          <label>Tags</label>
+          <div class="tags-list" id="tags-list"></div>
+          <div class="add-inline" id="add-tag-btn">+ Add tag…</div>
+        </div>
+        <p class="hint" id="tags-edit-note" hidden>Tags can't be edited here yet — they're left as they were.</p>
 
         <p class="hint" id="form-error" style="color:#d64545;"></p>
         <button type="submit" class="primary" id="submit-btn">Save entry</button>
+        <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden>Delete this entry</button>
       </form>
     </div>
 
