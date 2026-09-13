@@ -30,7 +30,13 @@ var TABLE_DEFINITIONS = {
   // Not part of the original spec — needed to know which entry a Telegram
   // reply is about, since Telegram only tells us which message_id someone
   // replied to.
-  'Telegram Messages': ['message_id', 'entry_id', 'created_at']
+  'Telegram Messages': ['message_id', 'entry_id', 'created_at'],
+  // Not part of the original spec — default-category guessing for
+  // auto-captured expenses (see EmailParser.gs guessCategoryId_). Grows on
+  // its own: confirming a pending email-sourced entry with a category
+  // remembers that description for next time. category_name (not
+  // category_id) so this stays easy to edit by hand in the Sheet.
+  'Category Keywords': ['id', 'keyword', 'category_name']
 };
 
 // Columns that hold a date but must stay plain text (YYYY-MM-DD / YYYY-MM),
@@ -89,7 +95,20 @@ function seedStarterData() {
   seedBanks();
   seedFriends();
   seedSettings();
+  seedCategoryKeywords();
   Logger.log('Starter data seeded.');
+}
+
+// A few confident starting points, based on merchants already seen in
+// real sample emails. Keep this list short — a wrong guess is worse than
+// no guess, since it'd need noticing and correcting. It grows on its own
+// from here (see learnCategoryKeyword_ in Telegram.gs).
+function seedCategoryKeywords() {
+  seedIfEmpty('Category Keywords', [
+    { id: Utilities.getUuid(), keyword: 'rappi', category_name: 'Food & Drink' },
+    { id: Utilities.getUuid(), keyword: 'plaza vea', category_name: 'Groceries' },
+    { id: Utilities.getUuid(), keyword: 'claro', category_name: 'Mobile Phone' }
+  ]);
 }
 
 function seedIfEmpty(sheetName, rows) {

@@ -41,8 +41,9 @@ function routeAction(action, payload) {
       return emailResults;
     case 'admin_debugGmail': return debugGmailSearch_(payload.query);
     case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
+    case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'listPendingEntries': return listPendingEntries();
-    case 'confirmEntry': setEntryField_(payload.id, 'status', 'confirmed'); return { done: true };
+    case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
     case 'updateEntry': return updateEntryFields(payload.id, payload.fields);
     default: throw new Error('Unknown action: ' + action);

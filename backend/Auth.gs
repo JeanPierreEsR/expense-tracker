@@ -20,6 +20,7 @@ function onOpen() {
     .addItem('11. Run automation now (manual test)', 'runAutomationNow')
     .addItem('12. Enable automatic scanning (every 15 min)', 'enableAutomaticScanning')
     .addItem('13. Disable automatic scanning', 'disableAutomaticScanning')
+    .addItem('14. Seed category keywords', 'seedCategoryKeywords')
     .addToUi();
 }
 
