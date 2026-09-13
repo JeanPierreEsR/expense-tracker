@@ -48,10 +48,24 @@ function extractLast4_(text) {
   return m ? m[1] : null;
 }
 
+// Real emails often glue "Label" straight onto its value with no space
+// (e.g. "Enviado aJean Pierre..."), and some senders' "plain text" body
+// still carries markdown-style *bold* markers or a stray <br>. The
+// connector below tolerates a colon, an asterisk, and/or a newline in any
+// combination between the label and the value.
 function afterLabel_(body, label) {
-  var re = new RegExp(label + '\\s*:?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
+  var re = new RegExp(label + '\\s*:?\\s*\\*?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
   var m = body.match(re);
-  return m ? m[1].trim() : null;
+  return m ? cleanText_(m[1]) : null;
+}
+
+function cleanText_(text) {
+  if (!text) return text;
+  return text
+    .replace(/<[^>]+>/g, ' ')   // stray HTML tags some senders leave in
+    .replace(/\*/g, '')         // markdown-style bold markers
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function fallbackExternalId_(sender, dateStr, amount, extra) {
@@ -122,7 +136,7 @@ var EMAIL_RULES = [
         type: 'expense', needsReview: true,
         amount: amt.amount, currency: amt.currency, description: 'Yape a ' + recipient,
         last4: null,
-        externalId: afterLabel_(body, 'N. de operaci') || afterLabel_(body, 'operaci')
+        externalId: afterLabel_(body, 'de operación')
       };
     }
   },
@@ -154,7 +168,7 @@ var EMAIL_RULES = [
         type: 'transfer', amount: amt.amount, currency: amt.currency,
         description: 'Pago tarjeta Diners',
         last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body),
-        externalId: afterLabel_(body, 'Operaci')
+        externalId: afterLabel_(body, 'Operación:')
       };
     }
   },
@@ -214,9 +228,11 @@ var EMAIL_RULES = [
       var amt = extractAmount_(afterLabel_(body, 'Monto y moneda') || body);
       if (!amt) return null;
       var recipient = afterLabel_(body, 'Destinatario');
+      var own = isOwnAccount_(recipient);
       return {
-        type: 'expense', needsReview: true,
-        amount: amt.amount, currency: amt.currency, description: 'Plin a ' + recipient,
+        type: own ? 'transfer' : 'expense', needsReview: !own,
+        amount: amt.amount, currency: amt.currency,
+        description: own ? 'Plin (propio)' : 'Plin a ' + recipient,
         last4: extractLast4_(afterLabel_(body, 'Cuenta cargo') || body),
         externalId: afterLabel_(body, 'Código de operación')
       };
@@ -289,7 +305,7 @@ var EMAIL_RULES = [
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
         last4: null,
-        externalId: afterLabel_(body, 'Nro. de Operaci')
+        externalId: afterLabel_(body, 'Nro. de Operación')
       };
     }
   },
@@ -301,11 +317,13 @@ var EMAIL_RULES = [
       var amt = extractAmount_(afterLabel_(body, 'Monto') || body);
       if (!amt) return null;
       var recipient = afterLabel_(body, 'Enviado a');
+      var own = isOwnAccount_(recipient);
       return {
-        type: 'expense', needsReview: true,
-        amount: amt.amount, currency: amt.currency, description: 'Envío a celular: ' + recipient,
+        type: own ? 'transfer' : 'expense', needsReview: !own,
+        amount: amt.amount, currency: amt.currency,
+        description: own ? 'Envío a celular (propio)' : 'Envío a celular: ' + recipient,
         last4: null,
-        externalId: afterLabel_(body, 'Nro. de Operaci')
+        externalId: afterLabel_(body, 'Nro. de Operación')
       };
     }
   }
@@ -387,6 +405,34 @@ function processOneMessage_(message, sender, results) {
   results.created++;
 
   sendTelegramEntryNotification_(entry, null);
+}
+
+/**
+ * Temporary debug helper: removes the "processed" label from the newest
+ * message matching a search, so it can be re-scanned after a rule fix.
+ */
+function debugUnlabel_(query) {
+  var threads = GmailApp.search(query, 0, 1);
+  if (!threads.length) return { found: false };
+  threads[0].removeLabel(getProcessedLabel_());
+  return { found: true, subject: threads[0].getMessages()[0].getSubject() };
+}
+
+/**
+ * Temporary debug helper: returns the raw plain-text body of the newest
+ * matching message so extraction regexes can be fixed against real data.
+ */
+function debugGmailSearch_(query) {
+  var threads = GmailApp.search(query, 0, 1);
+  if (!threads.length) return { found: false };
+  var messages = threads[0].getMessages();
+  var msg = messages[messages.length - 1];
+  return {
+    found: true,
+    subject: msg.getSubject(),
+    from: msg.getFrom(),
+    body: msg.getPlainBody()
+  };
 }
 
 /**
