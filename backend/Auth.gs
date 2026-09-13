@@ -15,6 +15,11 @@ function onOpen() {
     .addItem('6. Reset income categories', 'resetIncomeCategories')
     .addItem('7. Reset banks', 'resetBanks')
     .addItem('8. Link payment methods to banks', 'linkPaymentMethodsToBanks')
+    .addItem('9. Set Telegram bot token', 'promptSetTelegramToken')
+    .addItem('10. Document parsing rules', 'seedParsingRulesDoc')
+    .addItem('11. Run automation now (manual test)', 'runAutomationNow')
+    .addItem('12. Enable automatic scanning (every 15 min)', 'enableAutomaticScanning')
+    .addItem('13. Disable automatic scanning', 'disableAutomaticScanning')
     .addToUi();
 }
 

@@ -33,6 +33,10 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'listPendingEntries': return listPendingEntries();
+    case 'confirmEntry': setEntryField_(payload.id, 'status', 'confirmed'); return { done: true };
+    case 'discardEntry': deleteEntry_(payload.id); return { done: true };
+    case 'updateEntry': return updateEntryFields(payload.id, payload.fields);
     default: throw new Error('Unknown action: ' + action);
   }
 }
@@ -150,7 +154,7 @@ function createEntry(payload) {
 }
 
 function listEntries(payload) {
-  var entries = getAllRows('Entries');
+  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
   if (payload && payload.startDate) {
     entries = entries.filter(function (e) { return e.date >= payload.startDate; });
   }
@@ -162,6 +166,28 @@ function listEntries(payload) {
   });
   entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
   return entries;
+}
+
+function listPendingEntries() {
+  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'pending'; });
+  entries.forEach(function (entry) {
+    entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
+  });
+  entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+  return entries;
+}
+
+function updateEntryFields(entryId, fields) {
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, entryId);
+  if (rowIndex === -1) throw new Error('Entry not found');
+
+  Object.keys(fields || {}).forEach(function (key) {
+    setCellByRow_(sheet, headers, rowIndex, key, fields[key]);
+  });
+
+  return getEntryById_(entryId);
 }
 
 function computeAmountPen(amount, currency, dateStr) {
