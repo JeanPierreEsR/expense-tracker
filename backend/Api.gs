@@ -42,6 +42,11 @@ function routeAction(action, payload) {
     case 'admin_debugGmail': return debugGmailSearch_(payload.query);
     case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
+    case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
+    case 'addCategoryKeyword':
+      var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
+      appendRowObject('Category Keywords', kw);
+      return kw;
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
