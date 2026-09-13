@@ -329,6 +329,71 @@ var EMAIL_RULES = [
   }
 ];
 
+// ---- Default category for auto-captured entries ----
+// Transfers only ever have one possible category ("Between Accounts"), so
+// that's not a guess — just assign it. Expenses use a small keyword list
+// that grows on its own (see learnCategoryKeyword_) every time a pending
+// email-sourced entry gets confirmed with a category chosen.
+
+function guessCategoryId_(type, description) {
+  if (type === 'transfer') {
+    var transferCat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
+    return transferCat ? transferCat.id : '';
+  }
+  if (type === 'expense') {
+    return guessExpenseCategoryId_(description);
+  }
+  return '';
+}
+
+function guessExpenseCategoryId_(description) {
+  if (!description) return '';
+  var lower = description.toLowerCase();
+  var rule = getAllRows('Category Keywords')
+    .find(function (r) { return r.keyword && lower.indexOf(String(r.keyword).toLowerCase()) !== -1; });
+  if (!rule) return '';
+  var cat = getAllRows('Categories').find(function (c) { return c.type === 'expense' && c.name === rule.category_name; });
+  return cat ? cat.id : '';
+}
+
+/**
+ * Called when a pending, email-sourced entry gets confirmed. If its exact
+ * description isn't already a known keyword, remembers it — so the same
+ * merchant defaults correctly next time. Deliberately simple (an exact,
+ * case-insensitive match on the whole description) rather than trying to
+ * strip payment-gateway prefixes or guess at merchant names — those are
+ * still reachable by adding a short, broad keyword (like "rappi") by hand
+ * in the Category Keywords sheet, which this never overrides.
+ */
+function learnCategoryKeyword_(description, categoryId) {
+  if (!description || !categoryId) return;
+  var keyword = String(description).toLowerCase().trim();
+  if (!keyword) return;
+
+  var already = getAllRows('Category Keywords')
+    .some(function (r) { return String(r.keyword).toLowerCase() === keyword; });
+  if (already) return;
+
+  var cat = getAllRows('Categories').find(function (c) { return c.id === categoryId; });
+  if (!cat || cat.type !== 'expense') return;
+
+  appendRowObject('Category Keywords', { id: Utilities.getUuid(), keyword: keyword, category_name: cat.name });
+}
+
+/**
+ * Confirms a pending entry and, if it came from email, teaches the
+ * category-keyword list from whatever category it was confirmed with.
+ * Shared by both the app's Confirm button and the Telegram bot's Confirm
+ * tap, so the learning happens no matter which interface is used.
+ */
+function confirmEntryWithLearning_(entryId) {
+  var entry = getEntryById_(entryId);
+  if (entry && entry.source === 'email') {
+    learnCategoryKeyword_(entry.description, entry.category_id);
+  }
+  setEntryField_(entryId, 'status', 'confirmed');
+}
+
 function uniqueSenders_() {
   var seen = {};
   EMAIL_RULES.forEach(function (r) { seen[r.sender] = true; });
@@ -391,7 +456,7 @@ function processOneMessage_(message, sender, results) {
     date: dateStr,
     amount: fields.amount,
     currency: fields.currency,
-    category_id: '',
+    category_id: guessCategoryId_(fields.type, fields.description),
     description: fields.description || '',
     payment_method_id: paymentMethod ? paymentMethod.id : '',
     paid_by: 'me',

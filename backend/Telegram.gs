@@ -120,7 +120,7 @@ function handleTelegramCallback_(cb) {
   var entryId = parts[1];
 
   if (action === 'confirm') {
-    setEntryField_(entryId, 'status', 'confirmed');
+    confirmEntryWithLearning_(entryId);
     telegramApi_('sendMessage', { chat_id: cb.message.chat.id, text: '✅ Confirmed.' });
   } else if (action === 'discard') {
     deleteEntry_(entryId);
