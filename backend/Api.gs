@@ -26,6 +26,7 @@ function routeAction(action, payload) {
     case 'getMeta': return getMeta();
     case 'createEntry': return createEntry(payload);
     case 'listEntries': return listEntries(payload);
+    case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
     case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
     case 'addFriend': return addFriend(payload);
@@ -33,6 +34,30 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'admin_setTelegramToken':
+      var newToken = String(payload.token || '').trim();
+      if (!newToken) throw new Error('No token provided');
+      PropertiesService.getScriptProperties().setProperty('TELEGRAM_BOT_TOKEN', newToken);
+      PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_UPDATE_OFFSET');
+      return { done: true };
+    case 'admin_telegramStatus':
+      var token = getTelegramToken_();
+      return {
+        tokenSet: !!token,
+        tokenLength: token ? token.length : 0,
+        chatIdSet: !!getOwnerTelegramChatId_(),
+        updateOffset: PropertiesService.getScriptProperties().getProperty('TELEGRAM_UPDATE_OFFSET') || null
+      };
+    case 'admin_telegramGetUpdatesRaw': return telegramApi_('getUpdates', { offset: 0, timeout: 0 });
+    case 'admin_automationStatus':
+      var triggers = ScriptApp.getProjectTriggers().filter(function (t) {
+        return t.getHandlerFunction() === 'runAutomation';
+      });
+      return {
+        active: triggers.length > 0,
+        triggerCount: triggers.length,
+        eventType: triggers.length ? String(triggers[0].getEventType()) : null
+      };
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
     case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
     case 'admin_runAutomation':
@@ -177,6 +202,12 @@ function createEntry(payload) {
   return entry;
 }
 
+// With thousands of historical entries now imported, an unbounded fetch
+// hangs both the request and the browser trying to render it. Until Phase
+// 3 (proper period filtering) exists, cap to the most recent N when no
+// explicit date range is given, rather than returning everything.
+var DEFAULT_ENTRY_LIMIT = 100;
+
 function listEntries(payload) {
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
   if (payload && payload.startDate) {
@@ -185,10 +216,16 @@ function listEntries(payload) {
   if (payload && payload.endDate) {
     entries = entries.filter(function (e) { return e.date <= payload.endDate; });
   }
+
+  entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+
+  var hasRange = payload && (payload.startDate || payload.endDate);
+  var limit = (payload && payload.limit) || (hasRange ? null : DEFAULT_ENTRY_LIMIT);
+  if (limit) entries = entries.slice(0, limit);
+
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
   });
-  entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
   return entries;
 }
 
