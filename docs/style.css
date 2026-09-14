@@ -710,6 +710,10 @@ button.primary:disabled {
   font-size: 0.85rem;
 }
 
+.review-item-fields .review-category {
+  grid-column: 1 / -1;
+}
+
 .review-item-actions {
   display: flex;
   gap: 8px;

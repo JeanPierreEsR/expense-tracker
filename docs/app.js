@@ -438,14 +438,20 @@ document.getElementById("add-tag-btn").addEventListener("click", async () => {
 // are parsed/stored everywhere else in the app. Using a plain text input
 // with our own sanitizing keeps "." as the only decimal separator, while
 // still bringing up the numeric keypad on a phone via inputmode="decimal".
-document.getElementById("amount").addEventListener("input", (e) => {
-  let value = e.target.value.replace(/,/g, ".");
-  value = value.replace(/[^\d.]/g, "");
-  const firstDot = value.indexOf(".");
+// Shared with the review-queue amount field below.
+function sanitizeAmountInputValue(value) {
+  let v = value.replace(/,/g, ".");
+  v = v.replace(/[^\d.]/g, "");
+  const firstDot = v.indexOf(".");
   if (firstDot !== -1) {
-    value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, "");
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, "");
   }
-  if (value !== e.target.value) e.target.value = value;
+  return v;
+}
+
+document.getElementById("amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
 });
 
 // ---- Currency & exchange rate ----
@@ -716,6 +722,7 @@ async function refreshReviewQueue() {
           ${categoryOptions}
         </select>
         <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
+        <input class="review-amount" type="text" inputmode="decimal" value="${entry.amount}" placeholder="Amount">
       </div>
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
@@ -723,14 +730,28 @@ async function refreshReviewQueue() {
       </div>
     `;
 
+    const amountInput = item.querySelector(".review-amount");
+    amountInput.addEventListener("input", (e) => {
+      const sanitized = sanitizeAmountInputValue(e.target.value);
+      if (sanitized !== e.target.value) e.target.value = sanitized;
+    });
+
     item.querySelector(".review-confirm-btn").addEventListener("click", async () => {
       const categoryId = item.querySelector(".review-category").value;
       const description = item.querySelector(".review-description").value.trim();
+      const amountStr = amountInput.value.trim();
+      const amount = parseFloat(amountStr);
+
       if (!categoryId) {
         alert("Pick a category first.");
         return;
       }
-      await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description } });
+      if (!amountStr || isNaN(amount) || amount <= 0) {
+        alert("Enter a valid amount.");
+        return;
+      }
+
+      await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description, amount } });
       await callApi("confirmEntry", { id: entry.id });
       await refreshReviewQueue();
       await refreshEntryList();
