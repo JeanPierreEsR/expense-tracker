@@ -102,11 +102,20 @@ function currencyFieldIds(target) {
 }
 
 function selectCurrency(code, target) {
-  const ids = currencyFieldIds(target || currencyPickerTarget);
+  const resolvedTarget = target || currencyPickerTarget;
+  const ids = currencyFieldIds(resolvedTarget);
   document.getElementById(ids.input).value = code;
   bumpRecentCurrency(code);
-  renderCurrencyChips(target || currencyPickerTarget);
+  renderCurrencyChips(resolvedTarget);
   closeCurrencyModal();
+
+  // Entries already resolve their rate at save time (ensureExchangeRate,
+  // tied to that entry's specific date) — this is budget-only, a gentle
+  // nudge rather than a requirement, since a budget has no single date to
+  // resolve a rate against.
+  if (resolvedTarget === "budget") {
+    maybeOfferBudgetRate_(code);
+  }
 }
 
 function renderCurrencyChips(target) {
@@ -482,15 +491,108 @@ async function ensureExchangeRate(currency, dateStr) {
   const existing = await callApi("getExchangeRate", { currency, month });
   if (existing) return;
 
-  const rateStr = prompt(
-    `No exchange rate on file for ${currency} in ${month}.\n1 ${currency} = how many PEN?`
-  );
-  const rate = parseFloat(rateStr);
-  if (!rateStr || isNaN(rate) || rate <= 0) {
+  const rate = await openRateModal(currency, month, /* required */ true);
+  if (rate == null) {
     throw new Error("An exchange rate is required to save this entry.");
   }
-  await callApi("setExchangeRate", { currency, month, rate });
 }
+
+// Only offered when actively picking a budget's currency (see
+// selectCurrency below) — a budget doesn't strictly need a rate the way
+// an entry does (there's no one date to resolve it against), so this is a
+// convenience nudge, not a requirement. Silently does nothing if the user
+// skips it; the budget just shows "needs an exchange rate" until one exists.
+async function maybeOfferBudgetRate_(currency) {
+  if (currency === "PEN") return;
+  const month = todayLocalISO().slice(0, 7);
+  let existing;
+  try {
+    existing = await callApi("getExchangeRate", { currency, month });
+  } catch (err) {
+    return; // network hiccup — not worth interrupting the budget form over
+  }
+  if (existing) return;
+  await openRateModal(currency, month, /* required */ false);
+}
+
+// One shared modal for entering a rate, used by both the entry flow
+// (required — see ensureExchangeRate) and the budget flow (optional — see
+// maybeOfferBudgetRate_). Always stores the rate in its canonical meaning,
+// "1 currency = rate PEN" (per CLAUDE.md's Exchange Rates section), even
+// though the UI defaults to that same orientation for readability (the
+// foreign currency's "1" on the left) and lets the owner flip it to enter
+// "1 PEN = __ <currency>" instead if that's more natural for them —
+// inverted back to the canonical meaning before saving either way.
+let rateModalState = null; // { currency, month, inverted, resolve }
+
+function renderRateModalLabels_() {
+  const { currency, inverted } = rateModalState;
+  document.getElementById("rate-left-label").textContent = inverted ? "1 PEN" : `1 ${currency}`;
+  document.getElementById("rate-right-label").textContent = inverted ? currency : "PEN";
+  document.getElementById("rate-value-input").value = "";
+}
+
+function openRateModal(currency, month, required) {
+  return new Promise((resolve) => {
+    rateModalState = { currency, month, inverted: false, resolve };
+    document.getElementById("rate-modal-title").textContent = `Exchange rate — ${currency}`;
+    document.getElementById("rate-modal-subtitle").textContent = `No rate on file for ${currency} in ${month} yet.`;
+    document.getElementById("rate-cancel-btn").hidden = !!required;
+    document.getElementById("rate-form-error").textContent = "";
+    renderRateModalLabels_();
+    document.getElementById("rate-modal-backdrop").hidden = false;
+    document.getElementById("rate-value-input").focus();
+  });
+}
+
+function closeRateModal_(result) {
+  document.getElementById("rate-modal-backdrop").hidden = true;
+  const resolve = rateModalState && rateModalState.resolve;
+  rateModalState = null;
+  if (resolve) resolve(result);
+}
+
+document.getElementById("rate-invert-btn").addEventListener("click", () => {
+  if (!rateModalState) return;
+  rateModalState.inverted = !rateModalState.inverted;
+  renderRateModalLabels_();
+});
+
+document.getElementById("rate-value-input").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+
+document.getElementById("rate-modal-close").addEventListener("click", () => closeRateModal_(null));
+document.getElementById("rate-cancel-btn").addEventListener("click", () => closeRateModal_(null));
+document.getElementById("rate-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "rate-modal-backdrop") closeRateModal_(null);
+});
+
+document.getElementById("rate-save-btn").addEventListener("click", async () => {
+  if (!rateModalState) return;
+  const errorEl = document.getElementById("rate-form-error");
+  errorEl.textContent = "";
+
+  const raw = parseFloat(document.getElementById("rate-value-input").value);
+  if (!raw || raw <= 0) {
+    errorEl.textContent = "Enter a valid number.";
+    return;
+  }
+
+  const { currency, month, inverted } = rateModalState;
+  const rate = inverted ? 1 / raw : raw;
+  const saveBtn = document.getElementById("rate-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await callApi("setExchangeRate", { currency, month, rate });
+    closeRateModal_(rate);
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
 
 // ---- Submit ----
 
@@ -579,10 +681,8 @@ function formatAmount(amount, currency) {
 // number. The review queue (formatAmount above) is left as original-first,
 // since a pending entry's PEN value can still be provisional.
 function renderEntryAmountHtml(entry) {
-  const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   if (entry.currency === "PEN") {
-    return `<span class="primary-amt">PEN ${money(entry.amount)}</span>`;
+    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
   }
 
   const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
@@ -1009,8 +1109,15 @@ document.querySelectorAll("#overview-type-tabs .type-tab").forEach((tab) => {
 
 // ---- Overview: fetch + render ----
 
+// Shared everywhere an amount is displayed — always 2 decimals with a
+// thousands separator (a raw .toFixed(2) doesn't add one, which is what
+// let a 4-digit budget render as "4000.00" instead of "4,000.00").
+function moneyFmt(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function formatPen(n) {
-  return `PEN ${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `PEN ${moneyFmt(n)}`;
 }
 
 async function refreshOverview() {
@@ -1248,7 +1355,7 @@ async function openBudgetDrilldown(budget) {
   await openDrilldownWithPayload_(
     { startDate: p.startDate, endDate: p.endDate, type: "expense", categoryId: budget.category_id },
     `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
-    `${p.effectivePeriodType === "yearly" ? "Year" : "Month"} · Budget ${budget.currency} ${Number(p.effectiveAmount).toFixed(2)}`
+    `${p.effectivePeriodType === "yearly" ? "Year" : "Month"} · Budget ${budget.currency} ${moneyFmt(p.effectiveAmount)}`
   );
 }
 
@@ -1473,8 +1580,6 @@ async function refreshBudgets() {
   }
   emptyNote.hidden = true;
 
-  const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   budgets.forEach((b) => {
     const p = b.progress;
     const pct = p.percent;
@@ -1485,10 +1590,10 @@ async function refreshBudgets() {
     }
     const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
 
-    const amountLabel = `${b.currency} ${money(p.effectiveAmount)}`;
+    const amountLabel = `${b.currency} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
       ? "Needs an exchange rate for " + b.currency
-      : `${b.currency} ${money(p.spent)} / ${amountLabel}`;
+      : `${b.currency} ${moneyFmt(p.spent)} / ${amountLabel}`;
     const periodLabel = (p.effectivePeriodType === "yearly" ? "this year" : "this month") +
       (p.annualized ? " (monthly × 12)" : "");
 
