@@ -436,7 +436,12 @@ function processEmails() {
 function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods) {
   var subject = message.getSubject();
   var body = message.getPlainBody();
-  var dateStr = Utilities.formatDate(message.getDate(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var tz = Session.getScriptTimeZone();
+  var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
+  // The email's own timestamp, not "now" — automation runs on a delay
+  // (up to 15 min), so this is closer to when the transaction actually
+  // happened and is what same-day entries sort by.
+  var createdAt = Utilities.formatDate(message.getDate(), tz, "yyyy-MM-dd'T'HH:mm:ss");
 
   var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
     .find(function (r) { return r.match(subject, body); });
@@ -473,7 +478,8 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     status: 'pending',
     source: 'email',
     external_id: externalId,
-    import_batch_id: ''
+    import_batch_id: '',
+    created_at: createdAt
   };
 
   appendRowObject('Entries', entry);

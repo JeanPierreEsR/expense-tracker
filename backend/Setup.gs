@@ -8,7 +8,7 @@
 var TABLE_DEFINITIONS = {
   Entries: ['id', 'type', 'date', 'amount', 'currency', 'category_id',
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
-    'external_id', 'import_batch_id'],
+    'external_id', 'import_batch_id', 'created_at'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id'],
   Tags: ['id', 'name', 'color'],
@@ -43,13 +43,28 @@ var TABLE_DEFINITIONS = {
 // otherwise Sheets silently converts them to its own Date type and every
 // string comparison in the API (>=, substring, etc.) breaks.
 var DATE_LIKE_COLUMNS = {
-  Entries: ['date'],
+  Entries: ['date', 'created_at'],
   Loans: ['date', 'due_date'],
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
   'Import Batches': ['date']
 };
+
+// One-time migration for the Entries sheet from before `created_at`
+// existed — setupSpreadsheet() only writes headers to a brand-new tab, so
+// a sheet that already has headers never picks up a newly added column on
+// its own. Safe to call more than once.
+function addCreatedAtColumnToEntries() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Entries');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('created_at') !== -1) return { done: true, alreadyExisted: true };
+
+  var col = headers.length + 1;
+  sheet.getRange(1, col).setValue('created_at').setFontWeight('bold');
+  sheet.getRange(1, col, sheet.getMaxRows(), 1).setNumberFormat('@');
+  return { done: true, alreadyExisted: false, column: col };
+}
 
 function setupSpreadsheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
