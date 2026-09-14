@@ -6,6 +6,7 @@
 function runAutomation() {
   processEmails();
   pollTelegramUpdates();
+  checkBudgets();
 }
 
 function enableAutomaticScanning() {
@@ -33,8 +34,9 @@ function removeAutomationTriggers_() {
 function runAutomationNow() {
   var results = processEmails();
   pollTelegramUpdates();
+  var budgetResults = checkBudgets();
   SpreadsheetApp.getUi().alert(
     'Done. Created ' + results.created + ', skipped ' + results.skipped +
-    ', duplicates ' + results.duplicates + '.'
+    ', duplicates ' + results.duplicates + '. Budget alerts sent: ' + budgetResults.alertsSent + '.'
   );
 }
