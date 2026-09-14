@@ -587,7 +587,10 @@ button.primary:disabled {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 100;
+  /* Above the bottom nav (150) and pull-refresh indicator (200) — otherwise
+     the nav bar's opaque background sits on top of the sheet's bottom edge
+     and it reads as never finishing its slide-up. */
+  z-index: 250;
 }
 
 .currency-modal {
