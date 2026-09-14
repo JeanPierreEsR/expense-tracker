@@ -59,6 +59,7 @@ function routeAction(action, payload) {
         eventType: triggers.length ? String(triggers[0].getEventType()) : null
       };
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
+    case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
     case 'admin_runAutomation':
       var emailResults = processEmails();
@@ -102,7 +103,10 @@ var DATE_FIELD_FORMATS = {
   due_date: 'yyyy-MM-dd',
   sent_at: 'yyyy-MM-dd',
   month: 'yyyy-MM',
-  period: 'yyyy-MM'
+  period: 'yyyy-MM',
+  // Full timestamp (not date-only) — lets same-day entries sort by the
+  // exact moment they were captured, not just insertion order.
+  created_at: "yyyy-MM-dd'T'HH:mm:ss"
 };
 
 // Same root cause as dates: a purely-numeric-looking id (a bank operation
@@ -189,7 +193,8 @@ function createEntry(payload) {
     status: 'confirmed',
     source: 'manual',
     external_id: '',
-    import_batch_id: ''
+    import_batch_id: '',
+    created_at: nowTimestamp_()
   };
   appendRowObject('Entries', entry);
 
@@ -208,6 +213,25 @@ function createEntry(payload) {
 // 3 (proper period filtering) exists, cap to the most recent N when no
 // explicit date range is given, rather than returning everything.
 var DEFAULT_ENTRY_LIMIT = 100;
+
+function nowTimestamp_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+// Newest date first; entries sharing a date fall back to created_at
+// (when to-the-minute or truer time is known) instead of whatever order
+// they happen to sit in the sheet — e.g. two same-day purchases showing
+// in the order they actually happened rather than a coin flip. Rows from
+// before created_at existed (the historical Spendee import) just have no
+// tiebreaker and keep their relative sheet order for entries on that date.
+function compareEntriesRecency_(a, b) {
+  var dateDiff = new Date(b.date) - new Date(a.date);
+  if (dateDiff !== 0) return dateDiff;
+  var aTs = a.created_at || '';
+  var bTs = b.created_at || '';
+  if (aTs === bTs) return 0;
+  return bTs > aTs ? 1 : -1;
+}
 
 function listEntries(payload) {
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
@@ -234,7 +258,7 @@ function listEntries(payload) {
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
 
-  entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+  entries.sort(compareEntriesRecency_);
 
   // A category/tag/payment-method drill-down is always a small, specific
   // slice — never cap it, even without a date range (e.g. "All-time").
@@ -254,7 +278,7 @@ function listPendingEntries() {
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
   });
-  entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+  entries.sort(compareEntriesRecency_);
   return entries;
 }
 
