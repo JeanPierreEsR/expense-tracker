@@ -703,6 +703,12 @@ button.primary:disabled {
 .edit-entry-modal-body {
   overflow-y: auto;
   margin-top: 10px;
+  /* Without these, a flex child's default minimum size can keep it from
+     ever shrinking below its own content height, so overflow-y: auto
+     never gets the chance to actually kick in — the form just gets
+     clipped by the modal's max-height with no way to reach the rest. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* The moved-in entry card already sits inside this sheet's own white
@@ -719,6 +725,12 @@ button.primary:disabled {
   width: 100%;
   max-width: 480px;
   max-height: 75vh;
+  /* iOS Safari's "vh" is sized against the largest possible viewport
+     (browser chrome hidden), not what's actually visible right now —
+     "dvh" tracks the real visible height, so the sheet can't end up
+     taller than the screen actually showing it. Harmless no-op on
+     browsers that don't support dvh; they just keep using vh above. */
+  max-height: 75dvh;
   border-radius: 18px 18px 0 0;
   padding: 16px;
   display: flex;
@@ -746,6 +758,8 @@ button.primary:disabled {
 .currency-option-list {
   overflow-y: auto;
   margin-top: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .currency-option {
@@ -1036,6 +1050,18 @@ button.primary:disabled {
   background: var(--accent);
   color: white;
   border-color: var(--accent);
+}
+
+/* This never had a scroll rule at all — unlike the other bottom-sheet
+   forms, the budget form's content (now a full category chip grid on top
+   of the rest) can genuinely exceed the modal's max-height, and without
+   this, the bottom of the form (Period, thresholds, Save/Delete) is
+   simply clipped with no way to reach it. */
+.budget-modal-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 10px;
 }
 
 .budget-modal-body .primary { margin-top: 18px; }
