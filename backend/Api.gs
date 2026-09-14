@@ -77,7 +77,7 @@ function routeAction(action, payload) {
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);
       return kw;
-    case 'listBudgets': return listBudgets();
+    case 'listBudgets': return listBudgets(payload);
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
