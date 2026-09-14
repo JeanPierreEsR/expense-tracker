@@ -67,6 +67,8 @@ function buildBudgetContext_() {
     return {
       category_id: e.category_id,
       date: e.date,
+      currency: e.currency,
+      ownAmount: ownAmount, // in the entry's own original currency
       ownAmountPen: rate != null ? ownAmount * rate : null
     };
   });
@@ -80,6 +82,38 @@ function categorySpendPenFromContext_(ctx, categoryId, startDate, endDate) {
     if (e.category_id !== categoryId || e.ownAmountPen == null) return;
     if (e.date < startDate || e.date > endDate) return;
     total += e.ownAmountPen;
+  });
+  return total;
+}
+
+// Sums a category's spend directly in a target currency (a budget's own
+// currency) rather than always going PEN total -> re-divide by a rate.
+// An entry already recorded in the target currency contributes exactly
+// what was paid, no conversion at all — the most accurate figure there
+// is, and the whole reason this exists: for a USD budget, USD entries
+// (the common case) no longer get converted PEN -> USD through today's
+// rate only to drift from what was actually paid whenever that differs
+// from the rate used when the entry itself was saved. Anything in a
+// different currency still goes through PEN, same as everywhere else.
+function categorySpendInCurrencyFromContext_(ctx, categoryId, startDate, endDate, targetCurrency, cutoffMonth) {
+  var rate = null;
+  if (targetCurrency !== 'PEN') {
+    rate = latestRateAtOrBefore_(ctx, targetCurrency, cutoffMonth);
+    if (rate == null) return null; // no rate for the budget's own currency at all — can't produce a figure
+  }
+
+  var total = 0;
+  ctx.spendEntries.forEach(function (e) {
+    if (e.category_id !== categoryId) return;
+    if (e.date < startDate || e.date > endDate) return;
+
+    if (e.currency === targetCurrency) {
+      total += e.ownAmount;
+    } else if (e.ownAmountPen != null) {
+      total += targetCurrency === 'PEN' ? e.ownAmountPen : e.ownAmountPen / rate;
+    }
+    // else: no rate on file for THIS entry's own month — silently
+    // excluded, same as the plain-PEN sum above has always done.
   });
   return total;
 }
@@ -134,9 +168,9 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   var effectiveAmount = Number(budget.amount) * (annualized ? 12 : 1);
 
   var currency = budget.currency || 'PEN';
-  var rate = latestRateAtOrBefore_(ctx, currency, bounds.endDate.substring(0, 7));
-  var spent = rate != null ? spentPen / rate : null;
-  var percent = (rate != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
+  var cutoffMonth = bounds.endDate.substring(0, 7);
+  var spent = categorySpendInCurrencyFromContext_(ctx, budget.category_id, bounds.startDate, bounds.endDate, currency, cutoffMonth);
+  var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
   return {
     effectivePeriodType: effectivePeriodType,
@@ -148,7 +182,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     spent: spent,
     effectiveAmount: effectiveAmount,
     percent: percent,
-    rateAvailable: rate != null
+    rateAvailable: spent != null
   };
 }
 
