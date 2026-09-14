@@ -1123,6 +1123,13 @@ function renderDrilldownEntries(entries) {
         <span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>${penLine}
       </div>
     `;
+    // Same edit flow as tapping a row in "Recent entries" — jump to the
+    // Entries screen with this transaction already loaded into the form.
+    row.addEventListener("click", () => {
+      document.getElementById("drilldown-modal-backdrop").hidden = true;
+      showScreen("entries");
+      startEditEntry(entry);
+    });
     list.appendChild(row);
   });
 }
