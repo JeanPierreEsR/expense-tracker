@@ -276,6 +276,14 @@ function listEntries(payload) {
   if (payload && payload.categoryId !== undefined && payload.categoryId !== null) {
     entries = entries.filter(function (e) { return e.category_id === payload.categoryId; });
   }
+  // Multi-category budget drill-down (see openBudgetDrilldown in app.js) —
+  // an "ALL categories" budget passes neither this nor categoryId, so
+  // every category matches, same as no filter at all.
+  if (payload && payload.categoryIds && payload.categoryIds.length) {
+    var wantedCategoryIds = {};
+    payload.categoryIds.forEach(function (id) { wantedCategoryIds[id] = true; });
+    entries = entries.filter(function (e) { return wantedCategoryIds[e.category_id]; });
+  }
   if (payload && payload.paymentMethodId) {
     entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
   }
@@ -292,7 +300,8 @@ function listEntries(payload) {
   // A category/tag/payment-method drill-down is always a small, specific
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
-    payload.categoryId !== undefined || payload.tagId || payload.paymentMethodId);
+    payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
+    payload.tagId || payload.paymentMethodId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   if (limit) entries = entries.slice(0, limit);
 

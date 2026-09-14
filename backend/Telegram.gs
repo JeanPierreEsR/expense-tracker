@@ -127,16 +127,15 @@ function formatEntryForTelegram_(entry, categoryName) {
 // Phase 4: budget threshold alerts, same bot as the review queue. Returns
 // false (without throwing) when Telegram isn't linked yet, so checkBudgets
 // knows not to mark the threshold as alerted — it'll try again next cycle.
-function sendTelegramBudgetAlert_(budget, category, threshold, progress) {
+function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progress) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
 
-  var catName = category ? category.name : '(unknown category)';
   var periodLabel = budget.period_type === 'yearly' ? 'this year' : 'this month';
   var emoji = threshold >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? Number(progress.spent).toFixed(2) : '?';
   var amountStr = Number(budget.amount).toFixed(2);
-  var text = emoji + ' ' + catName + ': ' + threshold + '% of your ' + budget.currency + ' ' +
+  var text = emoji + ' ' + categoryDisplayName + ': ' + threshold + '% of your ' + budget.currency + ' ' +
     amountStr + ' budget (' + budget.currency + ' ' + spentStr + ' spent ' + periodLabel + ').';
 
   telegramApi_('sendMessage', { chat_id: chatId, text: text });

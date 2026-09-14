@@ -268,8 +268,12 @@
         <button type="button" id="budget-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <label for="budget-category">Category</label>
-        <select id="budget-category" required></select>
+        <label>Categories</label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="budget-all-categories-checkbox">
+          <span>All expense categories</span>
+        </label>
+        <div class="tags-list" id="budget-category-chips"></div>
 
         <label for="budget-amount">Amount</label>
         <input type="text" inputmode="decimal" id="budget-amount" placeholder="0.00">
@@ -277,6 +281,10 @@
         <label>Currency</label>
         <input type="hidden" id="budget-currency" value="PEN">
         <div class="currency-chips" id="budget-currency-chips"></div>
+        <p class="hint" id="budget-rate-warning" hidden>
+          ⚠️ No exchange rate on file for <span id="budget-rate-warning-currency"></span> yet.
+          <span class="add-inline" id="budget-rate-warning-link">Set one</span>
+        </p>
 
         <label>Period</label>
         <div class="type-tabs budget-period-tabs" id="budget-period-tabs">

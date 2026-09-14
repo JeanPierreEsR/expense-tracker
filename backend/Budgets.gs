@@ -76,10 +76,25 @@ function buildBudgetContext_() {
   return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency };
 }
 
-function categorySpendPenFromContext_(ctx, categoryId, startDate, endDate) {
+// A budget's `category_id` column holds either a single id, a
+// comma-separated list of ids (several categories), or the literal string
+// 'ALL' (every expense category) — null return means "no filter, match
+// anything", an array means "match only these". Existing budgets already
+// hold exactly one id, which is just a one-item list under this reading,
+// so no migration was needed to support this.
+function parseBudgetCategoryIds_(raw) {
+  if (raw === 'ALL') return null;
+  return String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+function categoryIdMatches_(categoryIds, entryCategoryId) {
+  return categoryIds === null || categoryIds.indexOf(entryCategoryId) !== -1;
+}
+
+function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate) {
   var total = 0;
   ctx.spendEntries.forEach(function (e) {
-    if (e.category_id !== categoryId || e.ownAmountPen == null) return;
+    if (!categoryIdMatches_(categoryIds, e.category_id) || e.ownAmountPen == null) return;
     if (e.date < startDate || e.date > endDate) return;
     total += e.ownAmountPen;
   });
@@ -95,7 +110,7 @@ function categorySpendPenFromContext_(ctx, categoryId, startDate, endDate) {
 // rate only to drift from what was actually paid whenever that differs
 // from the rate used when the entry itself was saved. Anything in a
 // different currency still goes through PEN, same as everywhere else.
-function categorySpendInCurrencyFromContext_(ctx, categoryId, startDate, endDate, targetCurrency, cutoffMonth) {
+function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDate, targetCurrency, cutoffMonth) {
   var rate = null;
   if (targetCurrency !== 'PEN') {
     rate = latestRateAtOrBefore_(ctx, targetCurrency, cutoffMonth);
@@ -104,7 +119,7 @@ function categorySpendInCurrencyFromContext_(ctx, categoryId, startDate, endDate
 
   var total = 0;
   ctx.spendEntries.forEach(function (e) {
-    if (e.category_id !== categoryId) return;
+    if (!categoryIdMatches_(categoryIds, e.category_id)) return;
     if (e.date < startDate || e.date > endDate) return;
 
     if (e.currency === targetCurrency) {
@@ -116,6 +131,29 @@ function categorySpendInCurrencyFromContext_(ctx, categoryId, startDate, endDate
     // excluded, same as the plain-PEN sum above has always done.
   });
   return total;
+}
+
+// Display name/icon/color for a budget's category set — a real category's
+// own icon/color for one category, a generic "combined budget" marker for
+// several or ALL (a joined name list gets long, and the row's own CSS
+// already ellipsizes long names — see budget-row-name in style.css).
+function resolveBudgetCategoryDisplay_(categoryIds, categoryById) {
+  if (categoryIds === null) {
+    return { name: 'All expense categories', icon: '🗂️', color: '' };
+  }
+  if (categoryIds.length === 1) {
+    var cat = categoryById[categoryIds[0]];
+    return {
+      name: cat ? cat.name : '(unknown category)',
+      icon: cat ? cat.icon : '',
+      color: cat ? cat.color : ''
+    };
+  }
+  var names = categoryIds.map(function (id) {
+    var c = categoryById[id];
+    return c ? c.name : '(unknown category)';
+  });
+  return { name: names.join(', '), icon: '🗂️', color: '' };
 }
 
 // A budget set in a foreign currency compares against the best-known rate
@@ -156,8 +194,9 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   var usesAnchor = (displayPeriodType === 'month' || displayPeriodType === 'year') && anchorDate;
   var refDate = usesAnchor ? new Date(anchorDate + 'T00:00:00') : new Date();
 
+  var categoryIds = parseBudgetCategoryIds_(budget.category_id);
   var bounds = getBudgetPeriodBounds_(effectivePeriodType, refDate);
-  var spentPen = categorySpendPenFromContext_(ctx, budget.category_id, bounds.startDate, bounds.endDate);
+  var spentPen = categorySpendPenFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate);
 
   // A monthly budget's amount is a per-month figure — shown across a full
   // year, its natural yearly equivalent is that figure times 12. (Never
@@ -169,7 +208,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
 
   var currency = budget.currency || 'PEN';
   var cutoffMonth = bounds.endDate.substring(0, 7);
-  var spent = categorySpendInCurrencyFromContext_(ctx, budget.category_id, bounds.startDate, bounds.endDate, currency, cutoffMonth);
+  var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth);
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
   return {
@@ -204,15 +243,18 @@ function listBudgets(payload) {
   var currentMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
 
   var budgets = rawBudgets.map(function (b) {
-    var cat = categoryById[b.category_id];
+    var categoryIds = parseBudgetCategoryIds_(b.category_id);
+    var display = resolveBudgetCategoryDisplay_(categoryIds, categoryById);
     var currency = b.currency || 'PEN';
     var rate = latestRateAtOrBefore_(ctx, currency, currentMonth);
     return {
       id: b.id,
       category_id: b.category_id,
-      category_name: cat ? cat.name : '(unknown category)',
-      category_icon: cat ? cat.icon : '',
-      category_color: cat ? cat.color : '',
+      category_ids: categoryIds, // array of specific ids, or null for "ALL"
+      all_categories: categoryIds === null,
+      category_name: display.name,
+      category_icon: display.icon,
+      category_color: display.color,
       amount: Number(b.amount),
       amount_pen: rate != null ? Number(b.amount) * rate : null,
       currency: currency,
@@ -339,7 +381,8 @@ function checkBudgets() {
       var key = budget.id + '|' + progress.periodKey + '|' + threshold;
       if (alertedSet[key]) return;
 
-      var sent = sendTelegramBudgetAlert_(budget, categoryById[budget.category_id], threshold, progress);
+      var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
+      var sent = sendTelegramBudgetAlert_(budget, display.name, threshold, progress);
       if (!sent) return; // Telegram not configured — don't mark as alerted, try again next cycle
 
       appendRowObject('Budget Alert Log', {
