@@ -82,7 +82,8 @@ function formatEntryForTelegram_(entry, categoryName) {
   lines.push(entry.currency + ' ' + Number(entry.amount).toFixed(2) + ' — ' + (categoryName || 'needs category'));
   lines.push(entry.date + ' · ' + entry.type);
   lines.push('');
-  lines.push('Reply to change something, e.g. "category groceries" or "amount 45.50".');
+  lines.push('Reply to edit — category, amount, description, paid by, currency, or date. ' +
+    'E.g. "category groceries", "amount 45.50", or "description Uber to airport".');
   return lines.join('\n');
 }
 
