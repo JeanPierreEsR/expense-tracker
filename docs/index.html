@@ -32,78 +32,179 @@
   </div>
 
   <main id="app" hidden>
-    <div class="card">
-      <div class="type-tabs">
-        <div class="type-tab active" data-type="expense">Expense</div>
-        <div class="type-tab" data-type="income">Income</div>
-        <div class="type-tab" data-type="investment">Investment</div>
-        <div class="type-tab" data-type="transfer">Transfer</div>
+    <div id="screen-entries" class="screen">
+      <div class="card">
+        <div class="type-tabs" id="entry-type-tabs">
+          <div class="type-tab active" data-type="expense">Expense</div>
+          <div class="type-tab" data-type="income">Income</div>
+          <div class="type-tab" data-type="investment">Investment</div>
+          <div class="type-tab" data-type="transfer">Transfer</div>
+        </div>
+
+        <div id="category-picker" class="category-grid" hidden></div>
+
+        <div id="edit-mode-banner" class="edit-mode-banner" hidden>
+          ✏️ Editing entry — <button type="button" class="add-inline" id="cancel-edit-btn">Cancel</button>
+        </div>
+
+        <form id="entry-form" hidden>
+          <div id="selected-category-banner" class="category-banner" hidden>
+            <span id="selected-category-icon" class="category-banner-icon"></span>
+            <span id="selected-category-name"></span>
+            <button type="button" class="add-inline" id="change-category-btn">Change</button>
+          </div>
+
+          <div id="category-select-field">
+            <label for="category">Category</label>
+            <select id="category" required></select>
+          </div>
+
+          <label for="amount">Amount</label>
+          <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
+
+          <label for="date">Date</label>
+          <input type="date" id="date" required>
+
+          <label>Currency</label>
+          <input type="hidden" id="currency" value="PEN">
+          <div class="currency-chips" id="currency-chips"></div>
+
+          <label for="description">Description</label>
+          <input type="text" id="description" placeholder="Optional">
+
+          <label for="paid_by">Paid by</label>
+          <select id="paid_by"></select>
+
+          <div id="payment-method-field">
+            <label for="payment_method">Payment method</label>
+            <select id="payment_method"></select>
+          </div>
+
+          <div id="tags-field">
+            <label>Tags</label>
+            <div class="tags-list" id="tags-list"></div>
+            <div class="add-inline" id="add-tag-btn">+ Add tag…</div>
+          </div>
+          <p class="hint" id="tags-edit-note" hidden>Tags can't be edited here yet — they're left as they were.</p>
+
+          <p class="hint" id="form-error" style="color:#d64545;"></p>
+          <button type="submit" class="primary" id="submit-btn">Save entry</button>
+          <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden>Cancel edit</button>
+          <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden>Delete this entry</button>
+        </form>
       </div>
 
-      <div id="category-picker" class="category-grid" hidden></div>
-
-      <div id="edit-mode-banner" class="edit-mode-banner" hidden>
-        ✏️ Editing entry — <button type="button" class="add-inline" id="cancel-edit-btn">Cancel</button>
+      <div class="card review-queue" id="review-queue-card" hidden>
+        <h2>Needs review (<span id="review-count">0</span>)</h2>
+        <p class="hint">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
+        <div id="review-list"></div>
       </div>
 
-      <form id="entry-form" hidden>
-        <div id="selected-category-banner" class="category-banner" hidden>
-          <span id="selected-category-icon" class="category-banner-icon"></span>
-          <span id="selected-category-name"></span>
-          <button type="button" class="add-inline" id="change-category-btn">Change</button>
-        </div>
-
-        <div id="category-select-field">
-          <label for="category">Category</label>
-          <select id="category" required></select>
-        </div>
-
-        <label for="amount">Amount</label>
-        <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
-
-        <label for="date">Date</label>
-        <input type="date" id="date" required>
-
-        <label>Currency</label>
-        <input type="hidden" id="currency" value="PEN">
-        <div class="currency-chips" id="currency-chips"></div>
-
-        <label for="description">Description</label>
-        <input type="text" id="description" placeholder="Optional">
-
-        <label for="paid_by">Paid by</label>
-        <select id="paid_by"></select>
-
-        <div id="payment-method-field">
-          <label for="payment_method">Payment method</label>
-          <select id="payment_method"></select>
-        </div>
-
-        <div id="tags-field">
-          <label>Tags</label>
-          <div class="tags-list" id="tags-list"></div>
-          <div class="add-inline" id="add-tag-btn">+ Add tag…</div>
-        </div>
-        <p class="hint" id="tags-edit-note" hidden>Tags can't be edited here yet — they're left as they were.</p>
-
-        <p class="hint" id="form-error" style="color:#d64545;"></p>
-        <button type="submit" class="primary" id="submit-btn">Save entry</button>
-        <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden>Cancel edit</button>
-        <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden>Delete this entry</button>
-      </form>
+      <div class="card entry-list">
+        <h2>Recent entries</h2>
+        <div id="entry-list"></div>
+      </div>
     </div>
 
-    <div class="card review-queue" id="review-queue-card" hidden>
-      <h2>Needs review (<span id="review-count">0</span>)</h2>
-      <p class="hint">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
-      <div id="review-list"></div>
+    <div id="screen-overview" class="screen" hidden>
+      <div class="card">
+        <div class="period-selector">
+          <button type="button" class="period-nav-btn" id="period-prev" aria-label="Previous period">‹</button>
+          <div id="period-label">Month</div>
+          <button type="button" class="period-nav-btn" id="period-next" aria-label="Next period">›</button>
+        </div>
+        <div class="period-type-chips" id="period-type-chips">
+          <button type="button" class="period-type-chip active" data-period-type="month">Month</button>
+          <button type="button" class="period-type-chip" data-period-type="year">Year</button>
+          <button type="button" class="period-type-chip" data-period-type="alltime">All-time</button>
+          <button type="button" class="period-type-chip" data-period-type="custom">Custom</button>
+        </div>
+        <div id="custom-range-fields" class="row" hidden>
+          <div>
+            <label for="custom-start">From</label>
+            <input type="date" id="custom-start">
+          </div>
+          <div>
+            <label for="custom-end">To</label>
+            <input type="date" id="custom-end">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="summary-grid">
+          <div class="summary-item">
+            <span class="summary-label">Income</span>
+            <span class="summary-value income" id="summary-income">PEN 0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Expenses</span>
+            <span class="summary-value expense" id="summary-expense">PEN 0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Investments</span>
+            <span class="summary-value investment" id="summary-investment">PEN 0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Net</span>
+            <span class="summary-value" id="summary-net">PEN 0.00</span>
+          </div>
+        </div>
+        <p class="hint" id="overview-excluded-note" hidden></p>
+        <p class="hint" id="overview-empty-note" hidden>No entries in this period yet.</p>
+      </div>
+
+      <div class="card">
+        <div class="type-tabs overview-type-tabs" id="overview-type-tabs">
+          <div class="type-tab active" data-type="expense">Expense</div>
+          <div class="type-tab" data-type="income">Income</div>
+        </div>
+
+        <div class="breakdown-section">
+          <h3>By category</h3>
+          <div class="pie-chart-row">
+            <div class="pie-chart" id="pie-category"></div>
+            <div class="pie-legend" id="legend-category"></div>
+          </div>
+        </div>
+
+        <div class="breakdown-section">
+          <h3>By tag</h3>
+          <div class="pie-chart-row">
+            <div class="pie-chart" id="pie-tag"></div>
+            <div class="pie-legend" id="legend-tag"></div>
+          </div>
+        </div>
+
+        <div class="breakdown-section">
+          <h3>By payment method</h3>
+          <div class="pie-chart-row">
+            <div class="pie-chart" id="pie-paymentMethod"></div>
+            <div class="pie-legend" id="legend-paymentMethod"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="card entry-list">
-      <h2>Recent entries</h2>
-      <div id="entry-list"></div>
+    <div id="screen-budgets" class="screen" hidden>
+      <div class="card">
+        <h2>Budgets</h2>
+        <p class="hint">Coming in the next phase — this is where you'll set monthly limits per category and get alerted as you approach them.</p>
+      </div>
     </div>
   </main>
+
+  <nav id="bottom-nav" class="bottom-nav" hidden>
+    <button type="button" class="nav-btn active" data-screen="entries">
+      <span class="nav-icon">📝</span><span>Entries</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="overview">
+      <span class="nav-icon">📊</span><span>Overview</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="budgets">
+      <span class="nav-icon">🎯</span><span>Budgets</span>
+    </button>
+  </nav>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">

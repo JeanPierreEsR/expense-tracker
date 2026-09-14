@@ -367,10 +367,10 @@ function togglePaymentMethodVisibility() {
 
 // ---- Type tabs ----
 
-document.querySelectorAll(".type-tab").forEach((tab) => {
+document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     selectedType = tab.dataset.type;
-    document.querySelectorAll(".type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     populateCategoryOptions();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
@@ -596,7 +596,7 @@ function startEditEntry(entry) {
   editingEntryId = entry.id;
 
   selectedType = entry.type;
-  document.querySelectorAll(".type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
+  document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
   populateCategoryOptions();
 
   const category = findCategory(entry.category_id);
@@ -736,6 +736,210 @@ async function refreshReviewQueue() {
   });
 }
 
+// ---- Screens / bottom nav ----
+
+const FALLBACK_PALETTE = ["#C9E4F7", "#F7C6D9", "#D9F2D9", "#FFE0B2", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0"];
+
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach((el) => {
+    el.hidden = el.id !== `screen-${name}`;
+  });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === name);
+  });
+  if (name === "overview") refreshOverview();
+}
+
+document.querySelectorAll(".nav-btn").forEach((btn) => {
+  btn.addEventListener("click", () => showScreen(btn.dataset.screen));
+});
+
+// ---- Overview: period selector ----
+
+let periodType = "month";
+let periodAnchor = new Date();
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function monthBounds(d) {
+  const y = d.getFullYear(), m = d.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return {
+    startDate: `${y}-${pad2(m + 1)}-01`,
+    endDate: `${y}-${pad2(m + 1)}-${pad2(lastDay)}`,
+    label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+  };
+}
+
+function yearBounds(d) {
+  const y = d.getFullYear();
+  return { startDate: `${y}-01-01`, endDate: `${y}-12-31`, label: String(y) };
+}
+
+function getPeriodBounds() {
+  if (periodType === "month") return monthBounds(periodAnchor);
+  if (periodType === "year") return yearBounds(periodAnchor);
+  if (periodType === "alltime") return { startDate: null, endDate: null, label: "All-time" };
+  if (periodType === "custom") {
+    const start = document.getElementById("custom-start").value;
+    const end = document.getElementById("custom-end").value;
+    return { startDate: start || null, endDate: end || null, label: "Custom range" };
+  }
+  return { startDate: null, endDate: null, label: "" };
+}
+
+function renderPeriodSelector() {
+  const bounds = getPeriodBounds();
+  document.getElementById("period-label").textContent = bounds.label;
+
+  document.querySelectorAll(".period-type-chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.periodType === periodType);
+  });
+
+  const navVisible = periodType === "month" || periodType === "year";
+  document.getElementById("period-prev").hidden = !navVisible;
+  document.getElementById("period-next").hidden = !navVisible;
+  document.getElementById("custom-range-fields").hidden = periodType !== "custom";
+}
+
+function movePeriod(delta) {
+  if (periodType === "month") {
+    periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() + delta, 1);
+  } else if (periodType === "year") {
+    periodAnchor = new Date(periodAnchor.getFullYear() + delta, periodAnchor.getMonth(), 1);
+  } else {
+    return;
+  }
+  refreshOverview();
+}
+
+document.getElementById("period-prev").addEventListener("click", () => movePeriod(-1));
+document.getElementById("period-next").addEventListener("click", () => movePeriod(1));
+
+document.querySelectorAll(".period-type-chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    periodType = chip.dataset.periodType;
+    renderPeriodSelector();
+    if (periodType !== "custom") refreshOverview();
+  });
+});
+
+document.getElementById("custom-start").addEventListener("change", refreshOverview);
+document.getElementById("custom-end").addEventListener("change", refreshOverview);
+
+// Swipe left/right over the Overview screen to move a month/year at a
+// time — same touch-gesture spirit as pull-to-refresh below.
+(function setupPeriodSwipe() {
+  const el = document.getElementById("screen-overview");
+  let startX = 0, startY = 0, tracking = false;
+
+  el.addEventListener("touchstart", (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+
+  el.addEventListener("touchend", (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      movePeriod(dx < 0 ? 1 : -1);
+    }
+  }, { passive: true });
+})();
+
+// ---- Overview: expense/income toggle ----
+
+let overviewType = "expense";
+let lastOverviewData = null;
+
+document.querySelectorAll("#overview-type-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    overviewType = tab.dataset.type;
+    document.querySelectorAll("#overview-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    if (lastOverviewData) renderBreakdowns(lastOverviewData.breakdowns[overviewType]);
+  });
+});
+
+// ---- Overview: fetch + render ----
+
+function formatPen(n) {
+  return `PEN ${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+async function refreshOverview() {
+  renderPeriodSelector();
+  const bounds = getPeriodBounds();
+  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
+
+  const data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+  lastOverviewData = data;
+
+  document.getElementById("summary-income").textContent = formatPen(data.totals.income);
+  document.getElementById("summary-expense").textContent = formatPen(data.totals.expense);
+  document.getElementById("summary-investment").textContent = formatPen(data.totals.investment);
+  document.getElementById("summary-net").textContent = formatPen(data.totals.net);
+
+  const excludedNote = document.getElementById("overview-excluded-note");
+  if (data.excludedCount > 0) {
+    excludedNote.hidden = false;
+    excludedNote.textContent = `${data.excludedCount} entr${data.excludedCount === 1 ? "y" : "ies"} excluded — missing an exchange rate for that month.`;
+  } else {
+    excludedNote.hidden = true;
+  }
+
+  const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0;
+  document.getElementById("overview-empty-note").hidden = hasAny;
+
+  renderBreakdowns(data.breakdowns[overviewType]);
+}
+
+function renderBreakdowns(breakdown) {
+  renderPie("category", breakdown.byCategory);
+  renderPie("tag", breakdown.byTag);
+  renderPie("paymentMethod", breakdown.byPaymentMethod);
+}
+
+function renderPie(key, items) {
+  const pieEl = document.getElementById(`pie-${key}`);
+  const legendEl = document.getElementById(`legend-${key}`);
+
+  if (!items.length) {
+    pieEl.style.background = "var(--bg)";
+    legendEl.innerHTML = '<div class="status-msg">Nothing here yet.</div>';
+    return;
+  }
+
+  let cumulative = 0;
+  const stops = items.map((item, i) => {
+    const color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+    const start = cumulative;
+    cumulative += item.percent;
+    return `${color} ${start}% ${cumulative}%`;
+  });
+  pieEl.style.background = `conic-gradient(${stops.join(", ")})`;
+
+  legendEl.innerHTML = "";
+  items.forEach((item, i) => {
+    const color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+    const row = document.createElement("div");
+    row.className = "legend-row";
+    row.innerHTML = `
+      <span class="legend-swatch" style="background:${color}"></span>
+      <div class="legend-text">
+        <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
+        <div class="legend-sub">
+          <span class="legend-amount">${formatPen(item.amount_pen)}</span>
+          <span class="legend-percent">${item.percent.toFixed(1)}%</span>
+        </div>
+      </div>
+    `;
+    legendEl.appendChild(row);
+  });
+}
+
 // ---- Init ----
 
 async function init() {
@@ -759,8 +963,10 @@ async function init() {
     } else {
       showDetailForm(null);
     }
+    renderPeriodSelector();
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
+    document.getElementById("bottom-nav").hidden = false;
   } catch (err) {
     document.getElementById("loading-screen").hidden = true;
     if (err.message === "Invalid access code") {
@@ -768,6 +974,7 @@ async function init() {
       showSetupScreen("That code wasn't accepted. Try again.");
     } else {
       document.getElementById("app").hidden = false;
+      document.getElementById("bottom-nav").hidden = false;
       document.getElementById("entry-list").innerHTML =
         `<div class="status-msg">Couldn't load data: ${escapeHtml(err.message)}</div>`;
     }
@@ -821,6 +1028,9 @@ async function init() {
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
+      if (!document.getElementById("screen-overview").hidden) {
+        await refreshOverview();
+      }
     } catch (err) {
       // Data just doesn't refresh this time — the user can pull again.
     }

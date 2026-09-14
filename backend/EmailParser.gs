@@ -409,11 +409,21 @@ function processEmails() {
   var results = { created: 0, skipped: 0, duplicates: 0 };
   var label = getProcessedLabel_();
 
+  // Read the entries table once per run rather than once per message —
+  // with thousands of historical rows now imported, re-reading it for
+  // every candidate email would add up fast.
+  var existingExternalIds = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.external_id) existingExternalIds[e.external_id] = true;
+  });
+  var banks = getAllRows('Banks');
+  var paymentMethods = getAllRows('Payment Methods');
+
   uniqueSenders_().forEach(function (sender) {
     var threads = GmailApp.search('from:' + sender + ' -label:ExpenseTracker-Processed newer_than:3d');
     threads.forEach(function (thread) {
       thread.getMessages().forEach(function (message) {
-        processOneMessage_(message, sender, results);
+        processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods);
       });
       thread.addLabel(label);
     });
@@ -423,7 +433,7 @@ function processEmails() {
   return results;
 }
 
-function processOneMessage_(message, sender, results) {
+function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods) {
   var subject = message.getSubject();
   var body = message.getPlainBody();
   var dateStr = Utilities.formatDate(message.getDate(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -438,13 +448,13 @@ function processOneMessage_(message, sender, results) {
 
   var externalId = fields.externalId || fallbackExternalId_(sender, dateStr, fields.amount, fields.description);
 
-  var existing = getAllRows('Entries').find(function (e) { return e.external_id === externalId; });
-  if (existing) { results.duplicates++; return; }
+  if (existingExternalIds[externalId]) { results.duplicates++; return; }
+  existingExternalIds[externalId] = true;
 
-  var bank = getAllRows('Banks').find(function (b) { return b.name === rule.bank; });
+  var bank = banks.find(function (b) { return b.name === rule.bank; });
   var paymentMethod = null;
   if (bank) {
-    var pms = getAllRows('Payment Methods').filter(function (pm) { return pm.bank_id === bank.id; });
+    var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
       ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
       : (pms.length === 1 ? pms[0] : null);
