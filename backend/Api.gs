@@ -17,12 +17,18 @@ function doPost(e) {
     var body = JSON.parse(e.postData.contents);
 
     if (body && body.update_id !== undefined) {
-      try {
-        handleTelegramUpdate_(body);
-      } catch (err) {
-        // Never let one bad update fail the webhook delivery — repeated
-        // failures make Telegram back off and eventually stop retrying.
-        Logger.log('Telegram webhook error: ' + err.message);
+      // Telegram webhooks are "at least once" delivery — if doPost is slow
+      // to respond (Apps Script cold start, a slow Sheet write), Telegram
+      // can retry the same update, which would otherwise run
+      // handleTelegramUpdate_ (and its Confirm/Discard reply) twice.
+      if (!isDuplicateTelegramUpdate_(body.update_id)) {
+        try {
+          handleTelegramUpdate_(body);
+        } catch (err) {
+          // Never let one bad update fail the webhook delivery — repeated
+          // failures make Telegram back off and eventually stop retrying.
+          Logger.log('Telegram webhook error: ' + err.message);
+        }
       }
       return ContentService.createTextOutput(JSON.stringify({ ok: true }))
         .setMimeType(ContentService.MimeType.JSON);
