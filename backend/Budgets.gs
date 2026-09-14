@@ -162,8 +162,17 @@ function listBudgets(payload) {
 
   var categoryById = rowsById_(getAllRows('Categories'));
   var ctx = buildBudgetContext_();
-  var budgets = getAllRows('Budgets').map(function (b) {
+  var rawBudgets = getAllRows('Budgets');
+
+  // "Today's" rate, not the browsed period's — amount_pen and the summary
+  // totals below describe standing budget commitments, not spend against a
+  // specific past period, so there's no period to key the rate to.
+  var currentMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+
+  var budgets = rawBudgets.map(function (b) {
     var cat = categoryById[b.category_id];
+    var currency = b.currency || 'PEN';
+    var rate = latestRateAtOrBefore_(ctx, currency, currentMonth);
     return {
       id: b.id,
       category_id: b.category_id,
@@ -171,23 +180,51 @@ function listBudgets(payload) {
       category_icon: cat ? cat.icon : '',
       category_color: cat ? cat.color : '',
       amount: Number(b.amount),
-      currency: b.currency || 'PEN',
+      amount_pen: rate != null ? Number(b.amount) * rate : null,
+      currency: currency,
       period_type: b.period_type === 'yearly' ? 'yearly' : 'monthly',
       thresholds: b.thresholds || DEFAULT_BUDGET_THRESHOLDS,
       progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate)
     };
   });
 
-  // Highest percent-of-budget-used first — the most useful ordering for an
-  // at-a-glance overview is "what needs my attention," not insertion order.
-  // Budgets with no rate on file yet (percent null) sort last.
+  // Yearly budgets first, largest first; monthly budgets after, largest
+  // first — grouped by the budget's own definition, not by whatever's
+  // currently displayed, so the order doesn't reshuffle as you browse
+  // periods. amount_pen makes "largest" comparable across currencies;
+  // budgets with no rate on file (amount_pen null) sort last within their
+  // group.
   budgets.sort(function (a, b) {
-    var pa = a.progress.percent == null ? -1 : a.progress.percent;
-    var pb = b.progress.percent == null ? -1 : b.progress.percent;
+    var orderA = a.period_type === 'yearly' ? 0 : 1;
+    var orderB = b.period_type === 'yearly' ? 0 : 1;
+    if (orderA !== orderB) return orderA - orderB;
+    var pa = a.amount_pen == null ? -1 : a.amount_pen;
+    var pb = b.amount_pen == null ? -1 : b.amount_pen;
     return pb - pa;
   });
 
-  return budgets;
+  // Two views of the same total: a yearly budget's amount already IS a
+  // yearly figure (divide by 12 for its monthly-equivalent share); a
+  // monthly budget's amount times 12 gives its yearly-equivalent. The
+  // yearly total is always exactly 12x the monthly one by construction —
+  // shown as two numbers anyway since "per month" and "per year" are both
+  // useful at a glance without doing the math.
+  var monthlyPen = 0, yearlyPen = 0, excludedCount = 0;
+  rawBudgets.forEach(function (b) {
+    var currency = b.currency || 'PEN';
+    var rate = latestRateAtOrBefore_(ctx, currency, currentMonth);
+    if (rate == null) { excludedCount++; return; }
+    var amount = Number(b.amount);
+    var monthlyAmount = b.period_type === 'yearly' ? amount / 12 : amount;
+    var yearlyAmount = b.period_type === 'yearly' ? amount : amount * 12;
+    monthlyPen += monthlyAmount * rate;
+    yearlyPen += yearlyAmount * rate;
+  });
+
+  return {
+    budgets: budgets,
+    summary: { monthlyPen: monthlyPen, yearlyPen: yearlyPen, excludedCount: excludedCount }
+  };
 }
 
 function addBudget(payload) {
