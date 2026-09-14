@@ -902,10 +902,50 @@ function renderBreakdowns(breakdown) {
   renderPie("paymentMethod", breakdown.byPaymentMethod);
 }
 
-// Slices below this are still listed in full below the pie, but skipped as
-// an outside label — with a real month's ~14 non-zero categories, labeling
-// every sliver would just overlap into noise on a phone-width screen.
+// Categories below this are folded into a single "Others" pie slice and
+// skipped as an outside label — with a real month's ~14 non-zero
+// categories, giving every sliver its own slice/label would just be noise
+// on a phone-width screen. The full list below always shows everything
+// individually regardless of this cutoff.
 const PIE_OUTSIDE_LABEL_MIN_PERCENT = 4;
+const OTHERS_COLOR = "#B5B5BD";
+
+// Assigns each item a displayColor, nudging any item whose color (its own
+// or a recycled fallback) matches the item immediately before it — two
+// same-colored slices back-to-back are indistinguishable in a pie, or two
+// same-colored swatches back-to-back in a list read as one group.
+function resolveDisplayColors(items) {
+  let prevColor = null;
+  return items.map((item, i) => {
+    let color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+    if (color === prevColor) {
+      color = FALLBACK_PALETTE.find((c) => c !== prevColor) || color;
+    }
+    prevColor = color;
+    return Object.assign({}, item, { displayColor: color });
+  });
+}
+
+// Collapses every item below the outside-label threshold into one
+// "Others" item, so the pie itself stays readable — the full breakdown is
+// still always available in the list below.
+function buildPieSlices(items) {
+  const shown = items.filter((it) => it.percent >= PIE_OUTSIDE_LABEL_MIN_PERCENT);
+  const rest = items.filter((it) => it.percent < PIE_OUTSIDE_LABEL_MIN_PERCENT);
+  const slices = shown.slice();
+  if (rest.length) {
+    slices.push({
+      id: null,
+      name: `Others (${rest.length})`,
+      icon: "⋯",
+      color: OTHERS_COLOR,
+      amount_pen: rest.reduce((sum, it) => sum + it.amount_pen, 0),
+      percent: rest.reduce((sum, it) => sum + it.percent, 0),
+      isOthers: true
+    });
+  }
+  return slices;
+}
 
 function renderPie(key, items) {
   const wrapEl = document.getElementById(`pie-wrap-${key}`);
@@ -920,14 +960,19 @@ function renderPie(key, items) {
     return;
   }
 
+  // Resolved once for the full list (its own adjacency), and again for the
+  // pie's slices (folding small items into Others can create a new
+  // adjacency the list-order pass never saw).
+  const listItems = resolveDisplayColors(items);
+  const slices = resolveDisplayColors(buildPieSlices(items));
+
   let cumulative = 0;
-  const stops = items.map((item, i) => {
-    const color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+  const stops = slices.map((slice) => {
     const start = cumulative;
-    cumulative += item.percent;
-    return { item, color, start, end: cumulative };
+    cumulative += slice.percent;
+    return { slice, start, end: cumulative };
   });
-  pieEl.style.background = `conic-gradient(${stops.map((s) => `${s.color} ${s.start}% ${s.end}%`).join(", ")})`;
+  pieEl.style.background = `conic-gradient(${stops.map((s) => `${s.slice.displayColor} ${s.start}% ${s.end}%`).join(", ")})`;
 
   // Outside labels are placed by angle around the wrap's own measured
   // size (it's responsive, capped at 280px) rather than a hardcoded pixel
@@ -942,7 +987,7 @@ function renderPie(key, items) {
   let useFar = false;
 
   stops.forEach((s) => {
-    if (s.item.percent < PIE_OUTSIDE_LABEL_MIN_PERCENT) return;
+    if (s.slice.percent < PIE_OUTSIDE_LABEL_MIN_PERCENT) return;
     const midPercent = (s.start + s.end) / 2;
     const angleDeg = (midPercent / 100) * 360;
 
@@ -959,20 +1004,24 @@ function renderPie(key, items) {
     label.style.left = `${half + x}px`;
     label.style.top = `${half + y}px`;
     label.innerHTML = `
-      <span class="pie-outside-icon" style="background:${s.color}">${s.item.icon || ""}</span>
-      <span class="pie-outside-pct">${s.item.percent.toFixed(0)}%</span>
+      <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
+      <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
-    label.addEventListener("click", () => openBreakdownDrilldown(key, s.item));
+    // "Others" bundles multiple categories — nothing single to drill into;
+    // every category inside it is still individually clickable in the
+    // list below.
+    if (!s.slice.isOthers) {
+      label.addEventListener("click", () => openBreakdownDrilldown(key, s.slice));
+    }
     wrapEl.appendChild(label);
   });
 
   listEl.innerHTML = "";
-  items.forEach((item) => {
-    const color = item.color || FALLBACK_PALETTE[items.indexOf(item) % FALLBACK_PALETTE.length];
+  listItems.forEach((item) => {
     const row = document.createElement("div");
     row.className = "legend-row";
     row.innerHTML = `
-      <span class="legend-swatch" style="background:${color}"></span>
+      <span class="legend-swatch" style="background:${item.displayColor}"></span>
       <div class="legend-text">
         <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
         <div class="legend-sub">
