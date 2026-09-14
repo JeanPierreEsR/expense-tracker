@@ -295,6 +295,28 @@
     </div>
   </div>
 
+  <div id="rate-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="rate-modal-title">Exchange rate</span>
+        <button type="button" id="rate-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p class="hint" id="rate-modal-subtitle"></p>
+
+      <div class="rate-equation">
+        <span class="rate-equation-label" id="rate-left-label">1 USD</span>
+        <span class="rate-equation-eq">=</span>
+        <input type="text" inputmode="decimal" id="rate-value-input" placeholder="0.00">
+        <span class="rate-equation-label" id="rate-right-label">PEN</span>
+      </div>
+      <button type="button" class="add-inline" id="rate-invert-btn">⇅ Enter it the other way around</button>
+
+      <p class="hint" id="rate-form-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="rate-save-btn">Save rate</button>
+      <button type="button" class="cancel-edit-btn" id="rate-cancel-btn">Skip for now</button>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
