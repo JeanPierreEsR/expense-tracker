@@ -160,6 +160,18 @@ function pollTelegramUpdates() {
   });
 }
 
+// Same idea as pollTelegramUpdates' offset, applied to push delivery
+// instead of pull: Telegram update_ids are monotonically increasing, so
+// remembering the highest one actually processed and skipping anything at
+// or below it is enough to make a retried delivery a no-op.
+function isDuplicateTelegramUpdate_(updateId) {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID') || '0');
+  if (updateId <= last) return true;
+  props.setProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID', String(updateId));
+  return false;
+}
+
 function handleTelegramUpdate_(update) {
   if (update.callback_query) {
     handleTelegramCallback_(update.callback_query);
@@ -177,10 +189,16 @@ function handleTelegramCallback_(cb) {
 
   if (action === 'confirm') {
     confirmEntryWithLearning_(entryId);
-    telegramApi_('sendMessage', { chat_id: cb.message.chat.id, text: '✅ Confirmed.' });
+    telegramApi_('sendMessage', {
+      chat_id: cb.message.chat.id, text: '✅ Confirmed.',
+      reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
+    });
   } else if (action === 'discard') {
     deleteEntry_(entryId);
-    telegramApi_('sendMessage', { chat_id: cb.message.chat.id, text: '🗑️ Discarded.' });
+    telegramApi_('sendMessage', {
+      chat_id: cb.message.chat.id, text: '🗑️ Discarded.',
+      reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
+    });
   }
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
@@ -193,9 +211,15 @@ function handleTelegramMessage_(msg) {
     var code = text.replace('/start', '').trim();
     if (isValidAccessCode(code)) {
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
-      telegramApi_('sendMessage', { chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here." });
+      telegramApi_('sendMessage', {
+        chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",
+        reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+      });
     } else {
-      telegramApi_('sendMessage', { chat_id: msg.chat.id, text: "That code wasn't recognized." });
+      telegramApi_('sendMessage', {
+        chat_id: msg.chat.id, text: "That code wasn't recognized.",
+        reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+      });
     }
     return;
   }
@@ -203,7 +227,10 @@ function handleTelegramMessage_(msg) {
   if (!isOwnerChat_(msg.chat.id)) return;
 
   if (!msg.reply_to_message) {
-    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: 'Reply directly to a transaction message to edit it.' });
+    telegramApi_('sendMessage', {
+      chat_id: msg.chat.id, text: 'Reply directly to a transaction message to edit it.',
+      reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+    });
     return;
   }
 
@@ -211,12 +238,22 @@ function handleTelegramMessage_(msg) {
     .find(function (m) { return String(m.message_id) === String(msg.reply_to_message.message_id); });
 
   if (!mapping) {
-    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: "Couldn't find that transaction — it may be too old." });
+    telegramApi_('sendMessage', {
+      chat_id: msg.chat.id, text: "Couldn't find that transaction — it may be too old.",
+      reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+    });
     return;
   }
 
   var result = applyEditCommand_(mapping.entry_id, text);
-  telegramApi_('sendMessage', { chat_id: msg.chat.id, text: result.message });
+  // Threads to the owner's own edit command, which is itself already a
+  // reply to the transaction card — keeps a clear chain (card -> edit
+  // command -> "Updated X.") instead of a loose message at the bottom of
+  // the chat with no visible connection to what it's about.
+  telegramApi_('sendMessage', {
+    chat_id: msg.chat.id, text: result.message,
+    reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+  });
 
   if (result.entry) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
