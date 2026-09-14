@@ -44,19 +44,21 @@ function buildBudgetContext_() {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
-  // Two lookups built from one Exchange Rates read: exact month (to convert
-  // each entry to PEN, same as Reports.gs) and latest-on-file-so-far per
-  // currency (to convert a PEN total into a budget's own currency — see
-  // note on latestRateFor_ below).
+  // monthRateByKey converts each entry to PEN (exact month, same as
+  // Reports.gs). ratesByCurrency keeps every rate on file per currency,
+  // sorted — unlike a single "latest as of today" cutoff, viewing a past
+  // period (Overview-style navigation, see resolveEffectivePeriodType_)
+  // needs "latest as of THAT period", so the cutoff is resolved per-lookup
+  // rather than baked in here.
   var monthRateByKey = {};
-  var latestByCurrency = {};
-  var currentMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  var ratesByCurrency = {};
   getAllRows('Exchange Rates').forEach(function (r) {
     monthRateByKey[r.currency + '|' + r.month] = Number(r.rate);
-    if (r.month <= currentMonth) {
-      var cur = latestByCurrency[r.currency];
-      if (!cur || r.month > cur.month) latestByCurrency[r.currency] = { month: r.month, rate: Number(r.rate) };
-    }
+    if (!ratesByCurrency[r.currency]) ratesByCurrency[r.currency] = [];
+    ratesByCurrency[r.currency].push({ month: r.month, rate: Number(r.rate) });
+  });
+  Object.keys(ratesByCurrency).forEach(function (c) {
+    ratesByCurrency[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
   });
 
   var spendEntries = entries.map(function (e) {
@@ -69,7 +71,7 @@ function buildBudgetContext_() {
     };
   });
 
-  return { spendEntries: spendEntries, latestByCurrency: latestByCurrency };
+  return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency };
 }
 
 function categorySpendPenFromContext_(ctx, categoryId, startDate, endDate) {
@@ -82,40 +84,85 @@ function categorySpendPenFromContext_(ctx, categoryId, startDate, endDate) {
   return total;
 }
 
-// A budget set in a foreign currency compares against today's best-known
-// rate for it (the most recent month on file, at or before this month) —
-// there's no single "right" rate for a period that can span many months
-// (a yearly budget), so this reads as "what that spend is worth right now"
-// rather than trying to re-derive a period-specific figure.
-function latestRateFromContext_(ctx, currency) {
+// A budget set in a foreign currency compares against the best-known rate
+// for it as of the period being shown (the most recent month on file, at
+// or before that period's own end month) — there's no single "right" rate
+// for a period that can span many months (a yearly budget), so this reads
+// as "what that spend was worth around then" rather than a re-derived
+// period-specific figure. cutoffMonth is the effective period's own end
+// month, per CLAUDE.md's "rates are always keyed to calendar months, even
+// when viewing custom periods" — using today's rate to judge a past period
+// would be inconsistent with how every other rate lookup in the app works.
+function latestRateAtOrBefore_(ctx, currency, cutoffMonth) {
   if (currency === 'PEN') return 1;
-  var entry = ctx.latestByCurrency[currency];
-  return entry ? entry.rate : null;
+  var list = ctx.ratesByCurrency[currency];
+  if (!list) return null;
+  var best = null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].month <= cutoffMonth) best = list[i];
+  }
+  return best ? best.rate : null;
 }
 
-function computeBudgetProgressWithContext_(budget, ctx) {
-  var bounds = getBudgetPeriodBounds_(budget.period_type, new Date());
+// The viewing period (Overview-style Month/Year/All-time/Custom) can widen
+// what a budget is measured over, but never narrow it — a yearly budget
+// always reflects the whole year regardless of what's being browsed, and a
+// monthly budget viewed at yearly granularity shows its progress across
+// the whole year instead of vanishing back to just the current month.
+// All-time/Custom have no month/year size to compare against, so a budget
+// just shows its own native period in that case (same as before periods
+// were browsable here at all).
+function resolveEffectivePeriodType_(budgetPeriodType, displayPeriodType) {
+  if (displayPeriodType === 'year') return 'yearly';
+  return budgetPeriodType;
+}
+
+function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, anchorDate) {
+  var effectivePeriodType = resolveEffectivePeriodType_(budget.period_type, displayPeriodType);
+  var usesAnchor = (displayPeriodType === 'month' || displayPeriodType === 'year') && anchorDate;
+  var refDate = usesAnchor ? new Date(anchorDate + 'T00:00:00') : new Date();
+
+  var bounds = getBudgetPeriodBounds_(effectivePeriodType, refDate);
   var spentPen = categorySpendPenFromContext_(ctx, budget.category_id, bounds.startDate, bounds.endDate);
+
+  // A monthly budget's amount is a per-month figure — shown across a full
+  // year, its natural yearly equivalent is that figure times 12. (Never
+  // the other way around: a yearly budget's amount already IS the whole
+  // year's figure, so it's never divided down for a monthly view — see
+  // resolveEffectivePeriodType_.)
+  var annualized = effectivePeriodType === 'yearly' && budget.period_type === 'monthly';
+  var effectiveAmount = Number(budget.amount) * (annualized ? 12 : 1);
+
   var currency = budget.currency || 'PEN';
-  var rate = latestRateFromContext_(ctx, currency);
+  var rate = latestRateAtOrBefore_(ctx, currency, bounds.endDate.substring(0, 7));
   var spent = rate != null ? spentPen / rate : null;
-  var percent = (rate != null && Number(budget.amount) > 0) ? (spent / Number(budget.amount)) * 100 : null;
+  var percent = (rate != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
   return {
+    effectivePeriodType: effectivePeriodType,
+    annualized: annualized,
     periodKey: bounds.periodKey,
     startDate: bounds.startDate,
     endDate: bounds.endDate,
     spentPen: spentPen,
     spent: spent,
+    effectiveAmount: effectiveAmount,
     percent: percent,
     rateAvailable: rate != null
   };
 }
 
-function listBudgets() {
+// displayPeriodType/anchorDate come from the app's shared period selector
+// (the same one Overview uses) — omitted, budgets fall back to their own
+// native period as of right now, e.g. for the automation trigger (see
+// checkBudgets) where "what's being browsed" doesn't apply.
+function listBudgets(payload) {
+  var displayPeriodType = payload && payload.displayPeriodType;
+  var anchorDate = payload && payload.anchorDate;
+
   var categoryById = rowsById_(getAllRows('Categories'));
   var ctx = buildBudgetContext_();
-  return getAllRows('Budgets').map(function (b) {
+  var budgets = getAllRows('Budgets').map(function (b) {
     var cat = categoryById[b.category_id];
     return {
       id: b.id,
@@ -127,9 +174,20 @@ function listBudgets() {
       currency: b.currency || 'PEN',
       period_type: b.period_type === 'yearly' ? 'yearly' : 'monthly',
       thresholds: b.thresholds || DEFAULT_BUDGET_THRESHOLDS,
-      progress: computeBudgetProgressWithContext_(b, ctx)
+      progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate)
     };
   });
+
+  // Highest percent-of-budget-used first — the most useful ordering for an
+  // at-a-glance overview is "what needs my attention," not insertion order.
+  // Budgets with no rate on file yet (percent null) sort last.
+  budgets.sort(function (a, b) {
+    var pa = a.progress.percent == null ? -1 : a.progress.percent;
+    var pb = b.progress.percent == null ? -1 : b.progress.percent;
+    return pb - pa;
+  });
+
+  return budgets;
 }
 
 function addBudget(payload) {

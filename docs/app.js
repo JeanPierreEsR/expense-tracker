@@ -729,7 +729,7 @@ function closeEditPopup() {
 async function refreshAfterPopupEdit() {
   closeEditPopup();
   if (currentDrilldown) {
-    await openBreakdownDrilldown(currentDrilldown.kind, currentDrilldown.item);
+    await currentDrilldown.refetch();
   }
 }
 
@@ -831,6 +831,19 @@ async function refreshReviewQueue() {
 
 const FALLBACK_PALETTE = ["#C9E4F7", "#F7C6D9", "#D9F2D9", "#FFE0B2", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0"];
 
+// The period selector (#period-selector-card) is one shared DOM node,
+// relocated into whichever of Overview/Budgets is active — both screens
+// read the same periodType/periodAnchor state, so Budgets naturally starts
+// on "whatever Overview was showing" and changing it in either place moves
+// both, rather than keeping two selectors in sync by hand.
+function ensurePeriodSelectorIn(screenName) {
+  const card = document.getElementById("period-selector-card");
+  const target = document.getElementById(`screen-${screenName}`);
+  if (card.parentElement !== target) {
+    target.insertBefore(card, target.firstChild);
+  }
+}
+
 function showScreen(name) {
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
@@ -838,8 +851,23 @@ function showScreen(name) {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
-  if (name === "overview") refreshOverview();
-  if (name === "budgets") refreshBudgets();
+  if (name === "overview") {
+    ensurePeriodSelectorIn("overview");
+    refreshOverview();
+  }
+  if (name === "budgets") {
+    ensurePeriodSelectorIn("budgets");
+    refreshBudgets();
+  }
+}
+
+// Whichever of Overview/Budgets is currently visible re-fetches with the
+// new period — the other picks it up on its own next time it's shown
+// (showScreen already refreshes on every tab switch), so there's no need
+// to eagerly refresh a screen nobody's looking at.
+function refreshCurrentPeriodScreen() {
+  if (!document.getElementById("screen-overview").hidden) refreshOverview();
+  if (!document.getElementById("screen-budgets").hidden) refreshBudgets();
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -902,7 +930,7 @@ function movePeriod(delta) {
   } else {
     return;
   }
-  refreshOverview();
+  refreshCurrentPeriodScreen();
 }
 
 document.getElementById("period-prev").addEventListener("click", () => movePeriod(-1));
@@ -912,17 +940,19 @@ document.querySelectorAll(".period-type-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
     periodType = chip.dataset.periodType;
     renderPeriodSelector();
-    if (periodType !== "custom") refreshOverview();
+    if (periodType !== "custom") refreshCurrentPeriodScreen();
   });
 });
 
-document.getElementById("custom-start").addEventListener("change", refreshOverview);
-document.getElementById("custom-end").addEventListener("change", refreshOverview);
+document.getElementById("custom-start").addEventListener("change", refreshCurrentPeriodScreen);
+document.getElementById("custom-end").addEventListener("change", refreshCurrentPeriodScreen);
 
 // Swipe left/right over the Overview screen to move a month/year at a
 // time — same touch-gesture spirit as pull-to-refresh below.
-(function setupPeriodSwipe() {
-  const el = document.getElementById("screen-overview");
+// Bound to both screens now that they share one period selector — swiping
+// to change the period works "just as in Overview" from Budgets too.
+["screen-overview", "screen-budgets"].forEach((screenId) => {
+  const el = document.getElementById(screenId);
   let startX = 0, startY = 0, tracking = false;
 
   el.addEventListener("touchstart", (e) => {
@@ -940,7 +970,7 @@ document.getElementById("custom-end").addEventListener("change", refreshOverview
       movePeriod(dx < 0 ? 1 : -1);
     }
   }, { passive: true });
-})();
+});
 
 // ---- Overview: expense/income toggle ----
 
@@ -1130,27 +1160,22 @@ function renderPie(key, items) {
 // ---- Breakdown drill-down: transactions behind one category/tag/payment method ----
 
 // Remembered so a pop-up edit launched from this sheet can refresh it
-// afterward (same kind/item/period, re-queried) without the caller having
-// to thread that context through the edit form's save/cancel/delete paths.
+// afterward without the caller (Overview's breakdown, or a budget row)
+// having to thread its own context through the edit form's shared
+// save/cancel/delete paths — each opener just hands back a closure that
+// re-runs its own query.
 let currentDrilldown = null;
 
-async function openBreakdownDrilldown(kind, item) {
-  currentDrilldown = { kind, item };
-  const bounds = getPeriodBounds();
+async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   const backdrop = document.getElementById("drilldown-modal-backdrop");
   const title = document.getElementById("drilldown-title");
   const subtitle = document.getElementById("drilldown-subtitle");
   const list = document.getElementById("drilldown-list");
 
-  title.textContent = `${item.icon ? item.icon + " " : ""}${item.name}`;
-  subtitle.textContent = `${bounds.label} · ${overviewType === "expense" ? "Expense" : "Income"}`;
+  title.textContent = titleText;
+  subtitle.textContent = subtitleText;
   list.innerHTML = '<div class="status-msg">Loading…</div>';
   backdrop.hidden = false;
-
-  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
-  if (kind === "category") payload.categoryId = item.id;
-  else if (kind === "tag") payload.tagId = item.id;
-  else if (kind === "paymentMethod") payload.paymentMethodId = item.id;
 
   try {
     const entries = await callApi("listEntries", payload);
@@ -1158,6 +1183,37 @@ async function openBreakdownDrilldown(kind, item) {
   } catch (err) {
     list.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+async function openBreakdownDrilldown(kind, item) {
+  currentDrilldown = { refetch: () => openBreakdownDrilldown(kind, item) };
+  const bounds = getPeriodBounds();
+
+  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
+  if (kind === "category") payload.categoryId = item.id;
+  else if (kind === "tag") payload.tagId = item.id;
+  else if (kind === "paymentMethod") payload.paymentMethodId = item.id;
+
+  await openDrilldownWithPayload_(
+    payload,
+    `${item.icon ? item.icon + " " : ""}${item.name}`,
+    `${bounds.label} · ${overviewType === "expense" ? "Expense" : "Income"}`
+  );
+}
+
+// Same drill-down sheet, sourced from a budget row instead of an Overview
+// breakdown — budgets are always expense categories, and the date range is
+// the budget's own *effective* period (see computeBudgetProgressWithContext_
+// server-side: a yearly budget stays yearly even while browsing by month).
+async function openBudgetDrilldown(budget) {
+  currentDrilldown = { refetch: () => openBudgetDrilldown(budget) };
+  const p = budget.progress;
+
+  await openDrilldownWithPayload_(
+    { startDate: p.startDate, endDate: p.endDate, type: "expense", categoryId: budget.category_id },
+    `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
+    `${p.effectivePeriodType === "yearly" ? "Year" : "Month"} · Budget ${budget.currency} ${Number(p.effectiveAmount).toFixed(2)}`
+  );
 }
 
 function renderDrilldownEntries(entries) {
@@ -1313,7 +1369,14 @@ document.getElementById("budget-delete-btn").addEventListener("click", async () 
 });
 
 async function refreshBudgets() {
-  const budgets = await callApi("listBudgets", {});
+  // Same period the Overview tab is showing (periodType/periodAnchor are
+  // shared state) — the backend widens a budget's own period to match
+  // when it's the larger of the two (a monthly budget shown across a
+  // year), but never narrows a yearly budget down to a month. All-time
+  // and Custom don't carry a month/year size, so budgets just show their
+  // own current period in those views (anchorDate is ignored server-side).
+  const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
+  const budgets = await callApi("listBudgets", { displayPeriodType: periodType, anchorDate });
   const list = document.getElementById("budgets-list");
   const emptyNote = document.getElementById("budgets-empty-note");
   list.innerHTML = "";
@@ -1325,7 +1388,8 @@ async function refreshBudgets() {
   emptyNote.hidden = true;
 
   budgets.forEach((b) => {
-    const pct = b.progress.percent;
+    const p = b.progress;
+    const pct = p.percent;
     let statusClass = "";
     if (pct != null) {
       if (pct >= 100) statusClass = "over";
@@ -1334,18 +1398,22 @@ async function refreshBudgets() {
     const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
 
     const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const amountLabel = `${b.currency} ${money(b.amount)}`;
+    const amountLabel = `${b.currency} ${money(p.effectiveAmount)}`;
     const subLabel = pct == null
       ? "Needs an exchange rate for " + b.currency
-      : `${b.currency} ${money(b.progress.spent)} / ${amountLabel}`;
-    const periodLabel = b.period_type === "yearly" ? "this year" : "this month";
+      : `${b.currency} ${money(p.spent)} / ${amountLabel}`;
+    const periodLabel = (p.effectivePeriodType === "yearly" ? "this year" : "this month") +
+      (p.annualized ? " (monthly × 12)" : "");
 
     const row = document.createElement("div");
     row.className = "budget-row";
     row.innerHTML = `
       <div class="budget-row-top">
         <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
-        <div class="budget-row-period">${periodLabel}</div>
+        <div class="budget-row-actions">
+          <span class="budget-row-period">${periodLabel}</span>
+          <button type="button" class="budget-edit-btn" aria-label="Edit budget">✏️</button>
+        </div>
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
@@ -1355,7 +1423,14 @@ async function refreshBudgets() {
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
     `;
-    row.addEventListener("click", () => openBudgetModal(b));
+    // Tap the row to see the transactions behind it; the pencil is a
+    // separate tap target so editing the budget itself doesn't require
+    // going through the transaction list first.
+    row.querySelector(".budget-edit-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBudgetModal(b);
+    });
+    row.addEventListener("click", () => openBudgetDrilldown(b));
     list.appendChild(row);
   });
 }
