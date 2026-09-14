@@ -403,9 +403,19 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
       e.target.value = "";
       return;
     }
+    const trimmed = nickname.trim();
+
+    // Reuse an existing one instead of creating a duplicate (e.g. picking
+    // "+ Add payment method…" again and typing "Cash" a second time).
+    const existing = meta.paymentMethods.find((pm) => pm.nickname.trim().toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      document.getElementById("payment_method").value = existing.id;
+      return;
+    }
+
     const type = prompt("Type: credit, debit, cash, transfer, or wallet?", "credit") || "credit";
     const last4 = prompt("Last 4 digits (leave blank if none):") || "";
-    const pm = await callApi("addPaymentMethod", { nickname: nickname.trim(), type: type.trim(), last_4: last4.trim() });
+    const pm = await callApi("addPaymentMethod", { nickname: trimmed, type: type.trim(), last_4: last4.trim() });
     meta.paymentMethods.push(pm);
     populatePaymentMethodOptions();
     document.getElementById("payment_method").value = pm.id;

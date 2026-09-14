@@ -68,6 +68,7 @@ function routeAction(action, payload) {
     case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
+    case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'addCategoryKeyword':
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);
@@ -316,13 +317,104 @@ function addTag(payload) {
 }
 
 function addPaymentMethod(payload) {
+  // Idempotent by nickname — the "+ Add payment method…" flow re-prompts
+  // every time (e.g. tapping it again for "Cash" instead of picking the
+  // one already in the list), and previously created a brand-new row each
+  // time. Reuse an existing match instead of duplicating it.
+  var nickname = String(payload.nickname || '').trim();
+  var existing = getAllRows('Payment Methods').find(function (pm) {
+    return String(pm.nickname).trim().toLowerCase() === nickname.toLowerCase();
+  });
+  if (existing) return existing;
+
   var pm = {
     id: Utilities.getUuid(),
-    nickname: payload.nickname,
+    nickname: nickname,
     type: payload.type,
     bank_id: payload.bank_id || '',
     last_4: payload.last_4 || ''
   };
   appendRowObject('Payment Methods', pm);
   return pm;
+}
+
+// One-time cleanup for payment methods that got duplicated before
+// addPaymentMethod became idempotent by nickname (see above). Groups by
+// nickname, keeps whichever row is actually used by the most Entries (or
+// the first one if none are used), reassigns every Entry pointing at a
+// duplicate to the surviving id, then deletes the duplicate rows.
+function mergeDuplicatePaymentMethods() {
+  var pmSheet = getSheet('Payment Methods');
+  var pmHeaders = getHeaders(pmSheet);
+  var pmRows = getAllRows('Payment Methods');
+
+  var usageCounts = {};
+  var entrySheet = getSheet('Entries');
+  var entryHeaders = getHeaders(entrySheet);
+  var pmIdCol = entryHeaders.indexOf('payment_method_id');
+  var lastRow = entrySheet.getLastRow();
+  var entryValues = lastRow > 1 ? entrySheet.getRange(2, 1, lastRow - 1, entryHeaders.length).getValues() : [];
+  entryValues.forEach(function (row) {
+    var pmId = row[pmIdCol];
+    if (pmId) usageCounts[pmId] = (usageCounts[pmId] || 0) + 1;
+  });
+
+  var groups = {};
+  pmRows.forEach(function (pm) {
+    var key = String(pm.nickname).trim().toLowerCase();
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(pm);
+  });
+
+  var idRemap = {};
+  var idsToDelete = {};
+  var mergedGroups = [];
+
+  Object.keys(groups).forEach(function (key) {
+    var group = groups[key];
+    if (group.length < 2) return;
+
+    group.sort(function (a, b) { return (usageCounts[b.id] || 0) - (usageCounts[a.id] || 0); });
+    var survivor = group[0];
+    var duplicates = group.slice(1);
+    duplicates.forEach(function (dup) {
+      idRemap[dup.id] = survivor.id;
+      idsToDelete[dup.id] = true;
+    });
+    mergedGroups.push({
+      nickname: survivor.nickname,
+      survivorId: survivor.id,
+      removedIds: duplicates.map(function (d) { return d.id; }),
+      reassignedEntries: duplicates.reduce(function (sum, d) { return sum + (usageCounts[d.id] || 0); }, 0)
+    });
+  });
+
+  if (!mergedGroups.length) return { merged: [], entriesReassigned: 0, rowsDeleted: 0 };
+
+  // Reassign affected Entries in one bulk write.
+  var entriesReassigned = 0;
+  entryValues.forEach(function (row, i) {
+    var pmId = row[pmIdCol];
+    if (pmId && idRemap[pmId]) {
+      entryValues[i][pmIdCol] = idRemap[pmId];
+      entriesReassigned++;
+    }
+  });
+  if (entriesReassigned > 0) {
+    entrySheet.getRange(2, 1, entryValues.length, entryHeaders.length).setValues(entryValues);
+  }
+
+  // Delete duplicate Payment Methods rows, bottom-up so row indices stay valid.
+  var idCol = pmHeaders.indexOf('id');
+  var pmLastRow = pmSheet.getLastRow();
+  var rowsDeleted = 0;
+  for (var r = pmLastRow; r >= 2; r--) {
+    var rowId = pmSheet.getRange(r, idCol + 1).getValue();
+    if (idsToDelete[rowId]) {
+      pmSheet.deleteRow(r);
+      rowsDeleted++;
+    }
+  }
+
+  return { merged: mergedGroups, entriesReassigned: entriesReassigned, rowsDeleted: rowsDeleted };
 }
