@@ -62,6 +62,7 @@ function routeAction(action, payload) {
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
     case 'admin_checkBudgetsNow': return checkBudgets();
+    case 'admin_generateTopCategoryBudgets': return generateTopCategoryBudgets(payload);
     case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
     case 'admin_runAutomation':
       var emailResults = processEmails();
