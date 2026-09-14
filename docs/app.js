@@ -902,13 +902,21 @@ function renderBreakdowns(breakdown) {
   renderPie("paymentMethod", breakdown.byPaymentMethod);
 }
 
+// Slices below this are still listed in full below the pie, but skipped as
+// an outside label — with a real month's ~14 non-zero categories, labeling
+// every sliver would just overlap into noise on a phone-width screen.
+const PIE_OUTSIDE_LABEL_MIN_PERCENT = 4;
+
 function renderPie(key, items) {
+  const wrapEl = document.getElementById(`pie-wrap-${key}`);
   const pieEl = document.getElementById(`pie-${key}`);
-  const legendEl = document.getElementById(`legend-${key}`);
+  const listEl = document.getElementById(`list-${key}`);
+
+  wrapEl.querySelectorAll(".pie-outside-label").forEach((el) => el.remove());
 
   if (!items.length) {
     pieEl.style.background = "var(--bg)";
-    legendEl.innerHTML = '<div class="status-msg">Nothing here yet.</div>';
+    listEl.innerHTML = '<div class="status-msg">Nothing here yet.</div>';
     return;
   }
 
@@ -917,13 +925,50 @@ function renderPie(key, items) {
     const color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
     const start = cumulative;
     cumulative += item.percent;
-    return `${color} ${start}% ${cumulative}%`;
+    return { item, color, start, end: cumulative };
   });
-  pieEl.style.background = `conic-gradient(${stops.join(", ")})`;
+  pieEl.style.background = `conic-gradient(${stops.map((s) => `${s.color} ${s.start}% ${s.end}%`).join(", ")})`;
 
-  legendEl.innerHTML = "";
-  items.forEach((item, i) => {
-    const color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+  // Outside labels are placed by angle around the wrap's own measured
+  // size (it's responsive, capped at 280px) rather than a hardcoded pixel
+  // radius, so they land correctly at any phone width. Consecutive small
+  // slices near the threshold can sit close enough in angle to collide —
+  // when that happens, alternate near/far radius to keep them legible.
+  const half = wrapEl.offsetWidth / 2;
+  const nearRadius = half * 0.82;
+  const farRadius = half * 0.98;
+  const minGapDeg = 22;
+  let lastAngleDeg = null;
+  let useFar = false;
+
+  stops.forEach((s) => {
+    if (s.item.percent < PIE_OUTSIDE_LABEL_MIN_PERCENT) return;
+    const midPercent = (s.start + s.end) / 2;
+    const angleDeg = (midPercent / 100) * 360;
+
+    useFar = lastAngleDeg !== null && (angleDeg - lastAngleDeg) < minGapDeg ? !useFar : false;
+    lastAngleDeg = angleDeg;
+
+    const radius = useFar ? farRadius : nearRadius;
+    const angleRad = (angleDeg * Math.PI) / 180;
+    const x = radius * Math.sin(angleRad);
+    const y = -radius * Math.cos(angleRad);
+
+    const label = document.createElement("div");
+    label.className = "pie-outside-label";
+    label.style.left = `${half + x}px`;
+    label.style.top = `${half + y}px`;
+    label.innerHTML = `
+      <span class="pie-outside-icon" style="background:${s.color}">${s.item.icon || ""}</span>
+      <span class="pie-outside-pct">${s.item.percent.toFixed(0)}%</span>
+    `;
+    label.addEventListener("click", () => openBreakdownDrilldown(key, s.item));
+    wrapEl.appendChild(label);
+  });
+
+  listEl.innerHTML = "";
+  items.forEach((item) => {
+    const color = item.color || FALLBACK_PALETTE[items.indexOf(item) % FALLBACK_PALETTE.length];
     const row = document.createElement("div");
     row.className = "legend-row";
     row.innerHTML = `
@@ -936,9 +981,80 @@ function renderPie(key, items) {
         </div>
       </div>
     `;
-    legendEl.appendChild(row);
+    row.addEventListener("click", () => openBreakdownDrilldown(key, item));
+    listEl.appendChild(row);
   });
 }
+
+// ---- Breakdown drill-down: transactions behind one category/tag/payment method ----
+
+async function openBreakdownDrilldown(kind, item) {
+  const bounds = getPeriodBounds();
+  const backdrop = document.getElementById("drilldown-modal-backdrop");
+  const title = document.getElementById("drilldown-title");
+  const subtitle = document.getElementById("drilldown-subtitle");
+  const list = document.getElementById("drilldown-list");
+
+  title.textContent = `${item.icon ? item.icon + " " : ""}${item.name}`;
+  subtitle.textContent = `${bounds.label} · ${overviewType === "expense" ? "Expense" : "Income"}`;
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+  backdrop.hidden = false;
+
+  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
+  if (kind === "category") payload.categoryId = item.id;
+  else if (kind === "tag") payload.tagId = item.id;
+  else if (kind === "paymentMethod") payload.paymentMethodId = item.id;
+
+  try {
+    const entries = await callApi("listEntries", payload);
+    renderDrilldownEntries(entries);
+  } catch (err) {
+    list.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderDrilldownEntries(entries) {
+  const list = document.getElementById("drilldown-list");
+  list.innerHTML = "";
+
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="status-msg">No transactions in this period.</div>';
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const cat = findCategory(entry.category_id);
+    const marker = cat && cat.icon
+      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
+      : `<span class="type-dot" data-type="${entry.type}"></span>`;
+    const penLine = entry.currency !== "PEN" && entry.amount_pen != null
+      ? `<span class="pen-amt">(PEN ${Number(entry.amount_pen).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>`
+      : "";
+
+    const row = document.createElement("div");
+    row.className = "entry";
+    row.innerHTML = `
+      <div class="entry-left">
+        <div class="entry-category">${marker}${categoryName(entry.category_id)}</div>
+        ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+        <div class="entry-meta">${entry.date} · ${paidByLabel(entry.paid_by)}</div>
+      </div>
+      <div class="entry-amount">
+        <span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>${penLine}
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+document.getElementById("drilldown-modal-close").addEventListener("click", () => {
+  document.getElementById("drilldown-modal-backdrop").hidden = true;
+});
+document.getElementById("drilldown-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "drilldown-modal-backdrop") {
+    document.getElementById("drilldown-modal-backdrop").hidden = true;
+  }
+});
 
 // ---- Init ----
 

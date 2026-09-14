@@ -216,11 +216,30 @@ function listEntries(payload) {
   if (payload && payload.endDate) {
     entries = entries.filter(function (e) { return e.date <= payload.endDate; });
   }
+  if (payload && payload.type) {
+    entries = entries.filter(function (e) { return e.type === payload.type; });
+  }
+  if (payload && payload.categoryId !== undefined && payload.categoryId !== null) {
+    entries = entries.filter(function (e) { return e.category_id === payload.categoryId; });
+  }
+  if (payload && payload.paymentMethodId) {
+    entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
+  }
+  if (payload && payload.tagId) {
+    var entryIdsWithTag = {};
+    getAllRows('Entry Tags').forEach(function (et) {
+      if (et.tag_id === payload.tagId) entryIdsWithTag[et.entry_id] = true;
+    });
+    entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
+  }
 
   entries.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
 
-  var hasRange = payload && (payload.startDate || payload.endDate);
-  var limit = (payload && payload.limit) || (hasRange ? null : DEFAULT_ENTRY_LIMIT);
+  // A category/tag/payment-method drill-down is always a small, specific
+  // slice — never cap it, even without a date range (e.g. "All-time").
+  var hasFilter = payload && (payload.startDate || payload.endDate ||
+    payload.categoryId !== undefined || payload.tagId || payload.paymentMethodId);
+  var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   if (limit) entries = entries.slice(0, limit);
 
   entries.forEach(function (entry) {

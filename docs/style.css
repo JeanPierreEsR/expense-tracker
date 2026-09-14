@@ -239,32 +239,75 @@ main {
   margin: 0 0 10px;
 }
 
-.pie-chart-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+.pie-chart-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 1;
+  margin: 8px auto 4px;
 }
 
 .pie-chart {
-  flex: 0 0 auto;
-  width: 120px;
-  height: 120px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 66%;
+  height: 66%;
   border-radius: 50%;
   background: var(--bg);
 }
 
-.pie-legend {
-  flex: 1;
-  min-width: 0;
+.pie-outside-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.pie-outside-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.pie-outside-pct {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--card);
+  padding: 1px 5px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
+
+.pie-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .legend-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.legend-row:active {
+  background: var(--bg);
 }
 
 .legend-swatch {
