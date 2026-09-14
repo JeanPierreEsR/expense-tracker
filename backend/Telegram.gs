@@ -83,7 +83,7 @@ function formatEntryForTelegram_(entry, categoryName) {
   lines.push(entry.date + ' · ' + entry.type);
   lines.push('');
   lines.push('Reply to edit — category, amount, description, paid by, currency, or date. ' +
-    'E.g. "category groceries", "amount 45.50", or "description Uber to airport".');
+    'E.g. "amount 45.50", or combine several: "category groceries, amount 48, description Uber".');
   return lines.join('\n');
 }
 
@@ -184,36 +184,85 @@ var EDIT_COMMAND_PATTERNS = [
   { field: 'date', re: /^date\s+(.+)/i }
 ];
 
+// A reply can combine several edits in one message, comma-separated (e.g.
+// "category groceries, amount 48, description NutriH" — the exact case
+// that motivated this). Only split at a comma that's actually followed by
+// another field keyword, so a comma inside a free-text value (a
+// description like "Rent, September") is left alone rather than being
+// torn in two.
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date)\\s+';
+
+function splitEditCommands_(text) {
+  var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
+  var segments = [];
+  String(text).split(/\r?\n/).forEach(function (line) {
+    line.split(boundaryRe).forEach(function (seg) {
+      var trimmed = seg.trim();
+      if (trimmed) segments.push(trimmed);
+    });
+  });
+  return segments;
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
 
+  var appliedFields = [];
+  var failedSegments = [];
+
+  splitEditCommands_(text).forEach(function (segment) {
+    var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
+    if (field) appliedFields.push(field);
+    else failedSegments.push(segment);
+  });
+
+  var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
+    '"paid by Ana", "currency USD", or "date 2026-09-12" — ' +
+    'combine several separated by commas, e.g. "category groceries, amount 45.50".';
+
+  if (!appliedFields.length) {
+    return { message: 'Didn\'t recognize that. ' + helpText };
+  }
+
+  var messageParts = ['Updated ' + appliedFields.join(', ') + '.'];
+  if (failedSegments.length) {
+    messageParts.push('Couldn\'t apply: ' + failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') + '. ' + helpText);
+  }
+
+  var updated = getEntryById_(entryId);
+  var categoryName = null;
+  if (updated.category_id) {
+    var found = getAllRows('Categories').find(function (c) { return c.id === updated.category_id; });
+    categoryName = found ? found.name : null;
+  }
+
+  return { message: messageParts.join(' '), entry: updated, categoryName: categoryName };
+}
+
+// Applies a single "field value" segment. Returns the field name on
+// success, or null if the segment wasn't recognized or its value didn't
+// resolve (unknown category/friend, unparseable amount) — the caller
+// reports those back to the owner rather than failing the whole message.
+function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
   var field = null, value = null;
   for (var i = 0; i < EDIT_COMMAND_PATTERNS.length; i++) {
     var m = text.match(EDIT_COMMAND_PATTERNS[i].re);
     if (m) { field = EDIT_COMMAND_PATTERNS[i].field; value = m[1].trim(); break; }
   }
-
-  if (!field) {
-    return {
-      message: 'Didn\'t recognize that. Try: "category groceries", "amount 45.50", ' +
-        '"description text", "paid by Ana", "currency USD", or "date 2026-09-12".'
-    };
-  }
+  if (!field) return null;
 
   var entry = getEntryById_(entryId);
-  var categoryName = null;
 
   if (field === 'category') {
     var cat = fuzzyFindCategory_(value, entry.type);
-    if (!cat) return { message: 'No ' + entry.type + ' category matching "' + value + '" found.' };
+    if (!cat) return null;
     setCellByRow_(sheet, headers, rowIndex, 'category_id', cat.id);
-    categoryName = cat.name;
   } else if (field === 'amount') {
     var amt = parseFloat(value.replace(/,/g, ''));
-    if (isNaN(amt) || amt <= 0) return { message: "Couldn't read that amount." };
+    if (isNaN(amt) || amt <= 0) return null;
     setCellByRow_(sheet, headers, rowIndex, 'amount', amt);
   } else if (field === 'description') {
     setCellByRow_(sheet, headers, rowIndex, 'description', value);
@@ -222,7 +271,7 @@ function applyEditCommand_(entryId, text) {
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
     } else {
       var friend = fuzzyFindFriend_(value);
-      if (!friend) return { message: 'No friend matching "' + value + '" found.' };
+      if (!friend) return null;
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', friend.id);
     }
   } else if (field === 'currency') {
@@ -231,13 +280,7 @@ function applyEditCommand_(entryId, text) {
     setCellByRow_(sheet, headers, rowIndex, 'date', value);
   }
 
-  var updated = getEntryById_(entryId);
-  if (!categoryName && updated.category_id) {
-    var found = getAllRows('Categories').find(function (c) { return c.id === updated.category_id; });
-    categoryName = found ? found.name : null;
-  }
-
-  return { message: 'Updated ' + field + '.', entry: updated, categoryName: categoryName };
+  return field;
 }
 
 function fuzzyFindCategory_(text, type) {
