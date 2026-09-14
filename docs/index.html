@@ -162,26 +162,26 @@
 
         <div class="breakdown-section">
           <h3>By category</h3>
-          <div class="pie-chart-row">
+          <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>
-            <div class="pie-legend" id="legend-category"></div>
           </div>
+          <div class="pie-list" id="list-category"></div>
         </div>
 
         <div class="breakdown-section">
           <h3>By tag</h3>
-          <div class="pie-chart-row">
+          <div class="pie-chart-wrap" id="pie-wrap-tag">
             <div class="pie-chart" id="pie-tag"></div>
-            <div class="pie-legend" id="legend-tag"></div>
           </div>
+          <div class="pie-list" id="list-tag"></div>
         </div>
 
         <div class="breakdown-section">
           <h3>By payment method</h3>
-          <div class="pie-chart-row">
+          <div class="pie-chart-wrap" id="pie-wrap-paymentMethod">
             <div class="pie-chart" id="pie-paymentMethod"></div>
-            <div class="pie-legend" id="legend-paymentMethod"></div>
           </div>
+          <div class="pie-list" id="list-paymentMethod"></div>
         </div>
       </div>
     </div>
@@ -214,6 +214,17 @@
       </div>
       <input type="text" id="currency-search" placeholder="Search code or name…" autocomplete="off">
       <div class="currency-option-list" id="currency-option-list"></div>
+    </div>
+  </div>
+
+  <div id="drilldown-modal-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="drilldown-title">Category</span>
+        <button type="button" id="drilldown-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p class="hint" id="drilldown-subtitle"></p>
+      <div class="currency-option-list" id="drilldown-list"></div>
     </div>
   </div>
 
