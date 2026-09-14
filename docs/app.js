@@ -572,6 +572,31 @@ function formatAmount(amount, currency) {
   return `${flag} ${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Confirmed entries lead with PEN (the currency every report/budget
+// actually compares in) and, for a foreign-currency entry, show what was
+// originally paid underneath — smaller, grey, flag included — so the
+// original amount stays visible without competing with PEN as the primary
+// number. The review queue (formatAmount above) is left as original-first,
+// since a pending entry's PEN value can still be provisional.
+function renderEntryAmountHtml(entry) {
+  const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (entry.currency === "PEN") {
+    return `<span class="primary-amt">PEN ${money(entry.amount)}</span>`;
+  }
+
+  const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
+
+  if (entry.amount_pen == null) {
+    // No PEN value on file for this one (can happen on an older imported
+    // entry whose month never got a rate entered) — fall back to the
+    // original amount as the primary line rather than showing nothing.
+    return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
+  }
+
+  return `<span class="primary-amt">PEN ${money(entry.amount_pen)}</span>${originalLine}`;
+}
+
 function findCategory(id) {
   return meta.categories.find((cat) => cat.id === id);
 }
@@ -616,10 +641,7 @@ async function refreshEntryList() {
 
     const amount = document.createElement("div");
     amount.className = "entry-amount";
-    const penLine = entry.currency !== "PEN" && entry.amount_pen != null
-      ? `<span class="pen-amt">(PEN ${Number(entry.amount_pen).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>`
-      : "";
-    amount.innerHTML = `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>${penLine}`;
+    amount.innerHTML = renderEntryAmountHtml(entry);
 
     row.appendChild(left);
     row.appendChild(amount);
@@ -1244,9 +1266,6 @@ function renderDrilldownEntries(entries) {
     const marker = cat && cat.icon
       ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
       : `<span class="type-dot" data-type="${entry.type}"></span>`;
-    const penLine = entry.currency !== "PEN" && entry.amount_pen != null
-      ? `<span class="pen-amt">(PEN ${Number(entry.amount_pen).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>`
-      : "";
 
     const row = document.createElement("div");
     row.className = "entry";
@@ -1257,7 +1276,7 @@ function renderDrilldownEntries(entries) {
         <div class="entry-meta">${entry.date} · ${paidByLabel(entry.paid_by)}</div>
       </div>
       <div class="entry-amount">
-        <span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>${penLine}
+        ${renderEntryAmountHtml(entry)}
       </div>
     `;
     // Opens the same edit form used everywhere else, but as a pop-up on

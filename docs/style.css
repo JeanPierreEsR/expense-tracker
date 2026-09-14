@@ -860,7 +860,7 @@ button.primary:disabled {
   font-weight: 600;
 }
 
-.entry-amount .pen-amt {
+.entry-amount .original-amt {
   display: block;
   font-size: 0.75rem;
   color: var(--muted);
