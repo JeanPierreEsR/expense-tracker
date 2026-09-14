@@ -110,11 +110,11 @@ function selectCurrency(code, target) {
   closeCurrencyModal();
 
   // Entries already resolve their rate at save time (ensureExchangeRate,
-  // tied to that entry's specific date) — this is budget-only, a gentle
-  // nudge rather than a requirement, since a budget has no single date to
-  // resolve a rate against.
+  // tied to that entry's specific date) — for a budget, just refresh the
+  // visible warning + "Set one" link (see refreshBudgetRateWarning_),
+  // since a budget has no single date to resolve a rate against.
   if (resolvedTarget === "budget") {
-    maybeOfferBudgetRate_(code);
+    refreshBudgetRateWarning_(null);
   }
 }
 
@@ -497,27 +497,10 @@ async function ensureExchangeRate(currency, dateStr) {
   }
 }
 
-// Only offered when actively picking a budget's currency (see
-// selectCurrency below) — a budget doesn't strictly need a rate the way
-// an entry does (there's no one date to resolve it against), so this is a
-// convenience nudge, not a requirement. Silently does nothing if the user
-// skips it; the budget just shows "needs an exchange rate" until one exists.
-async function maybeOfferBudgetRate_(currency) {
-  if (currency === "PEN") return;
-  const month = todayLocalISO().slice(0, 7);
-  let existing;
-  try {
-    existing = await callApi("getExchangeRate", { currency, month });
-  } catch (err) {
-    return; // network hiccup — not worth interrupting the budget form over
-  }
-  if (existing) return;
-  await openRateModal(currency, month, /* required */ false);
-}
-
 // One shared modal for entering a rate, used by both the entry flow
 // (required — see ensureExchangeRate) and the budget flow (optional — see
-// maybeOfferBudgetRate_). Always stores the rate in its canonical meaning,
+// refreshBudgetRateWarning_'s "Set one" link, below). Always stores the
+// rate in its canonical meaning,
 // "1 currency = rate PEN" (per CLAUDE.md's Exchange Rates section), even
 // though the UI defaults to that same orientation for readability (the
 // foreign currency's "1" on the left) and lets the owner flip it to enter
@@ -1352,8 +1335,14 @@ async function openBudgetDrilldown(budget) {
 
   const p = budget.progress;
 
+  // budget.category_ids is null for an "All expense categories" budget —
+  // omitting categoryIds entirely then matches every category, same as
+  // no filter at all.
+  const payload = { startDate: p.startDate, endDate: p.endDate, type: "expense" };
+  if (budget.category_ids) payload.categoryIds = budget.category_ids;
+
   await openDrilldownWithPayload_(
-    { startDate: p.startDate, endDate: p.endDate, type: "expense", categoryId: budget.category_id },
+    payload,
     `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
     `${p.effectivePeriodType === "yearly" ? "Year" : "Month"} · Budget ${budget.currency} ${moneyFmt(p.effectiveAmount)}`
   );
@@ -1447,29 +1436,92 @@ document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   });
 });
 
-function populateBudgetCategoryOptions() {
-  const select = document.getElementById("budget-category");
-  select.innerHTML = "";
+// A budget can cover one category, several, or every expense category —
+// same multi-select-chip pattern as tags on the entry form. "All expense
+// categories" supersedes the individual chips (hidden while it's checked)
+// rather than the two being combined.
+let selectedBudgetCategoryIds = new Set();
+let budgetAllCategories = false;
+
+function populateBudgetCategoryChips() {
+  const container = document.getElementById("budget-category-chips");
+  container.innerHTML = "";
+  container.hidden = budgetAllCategories;
   meta.categories
     .filter((c) => c.type === "expense")
     .forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
-      select.appendChild(opt);
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (selectedBudgetCategoryIds.has(c.id) ? " selected" : "");
+      chip.textContent = (c.icon ? c.icon + " " : "") + c.name;
+      chip.addEventListener("click", () => {
+        if (selectedBudgetCategoryIds.has(c.id)) selectedBudgetCategoryIds.delete(c.id);
+        else selectedBudgetCategoryIds.add(c.id);
+        populateBudgetCategoryChips();
+      });
+      container.appendChild(chip);
     });
 }
+
+document.getElementById("budget-all-categories-checkbox").addEventListener("change", (e) => {
+  budgetAllCategories = e.target.checked;
+  populateBudgetCategoryChips();
+});
+
+// Only checks whether a rate exists and shows/hides a visible warning with
+// a "Set one" link — never pops the rate modal automatically, so picking a
+// currency (or opening a budget that already has one) never interrupts
+// the form; the owner acts on it when ready, or not at all.
+async function refreshBudgetRateWarning_(budget) {
+  const warning = document.getElementById("budget-rate-warning");
+  const currency = document.getElementById("budget-currency").value;
+  if (currency === "PEN") {
+    warning.hidden = true;
+    return;
+  }
+
+  let hasRate;
+  if (budget && budget.currency === currency) {
+    // Reuse the already-computed, period-correct signal for an existing
+    // budget rather than re-deriving it against just "today".
+    hasRate = budget.progress.rateAvailable;
+  } else {
+    const month = todayLocalISO().slice(0, 7);
+    try {
+      hasRate = !!(await callApi("getExchangeRate", { currency, month }));
+    } catch (err) {
+      hasRate = true; // don't nag over a network hiccup
+    }
+  }
+
+  // The currency chip may have changed again while the check above was
+  // in flight — only apply the result if it's still relevant.
+  if (document.getElementById("budget-currency").value !== currency) return;
+
+  warning.hidden = hasRate;
+  if (!hasRate) document.getElementById("budget-rate-warning-currency").textContent = currency;
+}
+
+document.getElementById("budget-rate-warning-link").addEventListener("click", async () => {
+  const currency = document.getElementById("budget-currency").value;
+  const month = todayLocalISO().slice(0, 7);
+  await openRateModal(currency, month, /* required */ false);
+  await refreshBudgetRateWarning_(null);
+});
 
 function openBudgetModal(budget) {
   editingBudgetId = budget ? budget.id : null;
   document.getElementById("budget-modal-title").textContent = budget ? "Edit budget" : "Add budget";
   document.getElementById("budget-form-error").textContent = "";
 
-  populateBudgetCategoryOptions();
-  document.getElementById("budget-category").value = budget ? budget.category_id : "";
+  selectedBudgetCategoryIds = new Set(budget && budget.category_ids ? budget.category_ids : []);
+  budgetAllCategories = budget ? !!budget.all_categories : false;
+  document.getElementById("budget-all-categories-checkbox").checked = budgetAllCategories;
+  populateBudgetCategoryChips();
+
   document.getElementById("budget-amount").value = budget ? budget.amount : "";
   document.getElementById("budget-currency").value = budget ? budget.currency : "PEN";
   renderCurrencyChips("budget");
+  refreshBudgetRateWarning_(budget);
 
   budgetPeriodType = budget ? budget.period_type : "monthly";
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
@@ -1507,14 +1559,16 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
   saveBtn.disabled = true;
 
   try {
-    const categoryId = document.getElementById("budget-category").value;
     const amount = parseFloat(document.getElementById("budget-amount").value);
     const currency = document.getElementById("budget-currency").value.toUpperCase();
     const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
 
-    if (!categoryId) throw new Error("Pick a category.");
+    if (!budgetAllCategories && selectedBudgetCategoryIds.size === 0) {
+      throw new Error("Pick at least one category, or choose All expense categories.");
+    }
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
 
+    const categoryId = budgetAllCategories ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
     const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds };
 
     if (editingBudgetId) {
