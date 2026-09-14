@@ -88,16 +88,31 @@ function bumpRecentCurrency(code) {
   return recent;
 }
 
-function selectCurrency(code) {
-  document.getElementById("currency").value = code;
+// Currency picking is shared between the entry form and the budget form —
+// `target` ("entry" or "budget") says which hidden input + chip row is
+// currently being edited. The "More…" search modal is one shared DOM node,
+// so it remembers the target that opened it (currencyPickerTarget) for
+// when a result gets picked.
+let currencyPickerTarget = "entry";
+
+function currencyFieldIds(target) {
+  return target === "budget"
+    ? { input: "budget-currency", chips: "budget-currency-chips" }
+    : { input: "currency", chips: "currency-chips" };
+}
+
+function selectCurrency(code, target) {
+  const ids = currencyFieldIds(target || currencyPickerTarget);
+  document.getElementById(ids.input).value = code;
   bumpRecentCurrency(code);
-  renderCurrencyChips();
+  renderCurrencyChips(target || currencyPickerTarget);
   closeCurrencyModal();
 }
 
-function renderCurrencyChips() {
-  const container = document.getElementById("currency-chips");
-  const current = document.getElementById("currency").value;
+function renderCurrencyChips(target) {
+  const ids = currencyFieldIds(target);
+  const container = document.getElementById(ids.chips);
+  const current = document.getElementById(ids.input).value;
   container.innerHTML = "";
 
   getRecentCurrencies().forEach((code) => {
@@ -106,7 +121,7 @@ function renderCurrencyChips() {
     chip.type = "button";
     chip.className = "currency-chip" + (code === current ? " active" : "");
     chip.innerHTML = `<span>${cur.flag}</span><span>${cur.code}</span>`;
-    chip.addEventListener("click", () => selectCurrency(code));
+    chip.addEventListener("click", () => selectCurrency(code, target));
     container.appendChild(chip);
   });
 
@@ -114,11 +129,12 @@ function renderCurrencyChips() {
   moreChip.type = "button";
   moreChip.className = "currency-chip more";
   moreChip.textContent = "More…";
-  moreChip.addEventListener("click", openCurrencyModal);
+  moreChip.addEventListener("click", () => openCurrencyModal(target));
   container.appendChild(moreChip);
 }
 
-function openCurrencyModal() {
+function openCurrencyModal(target) {
+  currencyPickerTarget = target || "entry";
   document.getElementById("currency-modal-backdrop").hidden = false;
   document.getElementById("currency-search").value = "";
   renderCurrencyOptionList("");
@@ -144,7 +160,7 @@ function renderCurrencyOptionList(filterText) {
       <span class="currency-option-code">${c.code}</span>
       <span class="currency-option-name">${escapeHtml(c.name)}</span>
     `;
-    row.addEventListener("click", () => selectCurrency(c.code));
+    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget));
     list.appendChild(row);
   });
 }
@@ -632,7 +648,7 @@ function startEditEntry(entry) {
   document.getElementById("amount").value = entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
-  selectCurrency(entry.currency);
+  selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
   togglePaymentMethodVisibility();
@@ -823,6 +839,7 @@ function showScreen(name) {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
   if (name === "overview") refreshOverview();
+  if (name === "budgets") refreshBudgets();
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -1190,6 +1207,159 @@ document.getElementById("drilldown-modal-backdrop").addEventListener("click", (e
   }
 });
 
+// ---- Budgets ----
+
+let budgetPeriodType = "monthly";
+let editingBudgetId = null;
+const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
+
+document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    budgetPeriodType = tab.dataset.period;
+    document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+  });
+});
+
+function populateBudgetCategoryOptions() {
+  const select = document.getElementById("budget-category");
+  select.innerHTML = "";
+  meta.categories
+    .filter((c) => c.type === "expense")
+    .forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
+      select.appendChild(opt);
+    });
+}
+
+function openBudgetModal(budget) {
+  editingBudgetId = budget ? budget.id : null;
+  document.getElementById("budget-modal-title").textContent = budget ? "Edit budget" : "Add budget";
+  document.getElementById("budget-form-error").textContent = "";
+
+  populateBudgetCategoryOptions();
+  document.getElementById("budget-category").value = budget ? budget.category_id : "";
+  document.getElementById("budget-amount").value = budget ? budget.amount : "";
+  document.getElementById("budget-currency").value = budget ? budget.currency : "PEN";
+  renderCurrencyChips("budget");
+
+  budgetPeriodType = budget ? budget.period_type : "monthly";
+  document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
+
+  document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+  document.getElementById("budget-delete-btn").hidden = !budget;
+
+  document.getElementById("budget-modal-backdrop").hidden = false;
+}
+
+function closeBudgetModal() {
+  document.getElementById("budget-modal-backdrop").hidden = true;
+  editingBudgetId = null;
+}
+
+document.getElementById("add-budget-btn").addEventListener("click", () => openBudgetModal(null));
+document.getElementById("budget-modal-close").addEventListener("click", closeBudgetModal);
+document.getElementById("budget-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "budget-modal-backdrop") closeBudgetModal();
+});
+
+document.getElementById("budget-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+
+document.getElementById("budget-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("budget-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("budget-save-btn");
+  saveBtn.disabled = true;
+
+  try {
+    const categoryId = document.getElementById("budget-category").value;
+    const amount = parseFloat(document.getElementById("budget-amount").value);
+    const currency = document.getElementById("budget-currency").value.toUpperCase();
+    const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+
+    if (!categoryId) throw new Error("Pick a category.");
+    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+
+    const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds };
+
+    if (editingBudgetId) {
+      await callApi("updateBudget", Object.assign({ id: editingBudgetId }, fields));
+    } else {
+      await callApi("addBudget", fields);
+    }
+    // Only close once the list has actually refreshed — closing first meant
+    // a failure in this refresh (the same intermittent network hiccup this
+    // app already retries around elsewhere) rendered its error into an
+    // already-hidden modal, leaving the screen looking unchanged.
+    await refreshBudgets();
+    closeBudgetModal();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("budget-delete-btn").addEventListener("click", async () => {
+  if (!editingBudgetId) return;
+  if (!confirm("Delete this budget? This can't be undone.")) return;
+  await callApi("deleteBudget", { id: editingBudgetId });
+  await refreshBudgets();
+  closeBudgetModal();
+});
+
+async function refreshBudgets() {
+  const budgets = await callApi("listBudgets", {});
+  const list = document.getElementById("budgets-list");
+  const emptyNote = document.getElementById("budgets-empty-note");
+  list.innerHTML = "";
+
+  if (budgets.length === 0) {
+    emptyNote.hidden = false;
+    return;
+  }
+  emptyNote.hidden = true;
+
+  budgets.forEach((b) => {
+    const pct = b.progress.percent;
+    let statusClass = "";
+    if (pct != null) {
+      if (pct >= 100) statusClass = "over";
+      else if (pct >= 75) statusClass = "warn";
+    }
+    const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
+
+    const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const amountLabel = `${b.currency} ${money(b.amount)}`;
+    const subLabel = pct == null
+      ? "Needs an exchange rate for " + b.currency
+      : `${b.currency} ${money(b.progress.spent)} / ${amountLabel}`;
+    const periodLabel = b.period_type === "yearly" ? "this year" : "this month";
+
+    const row = document.createElement("div");
+    row.className = "budget-row";
+    row.innerHTML = `
+      <div class="budget-row-top">
+        <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
+        <div class="budget-row-period">${periodLabel}</div>
+      </div>
+      <div class="budget-progress-track">
+        <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+      </div>
+      <div class="budget-row-sub">
+        <span>${subLabel}</span>
+        <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
+      </div>
+    `;
+    row.addEventListener("click", () => openBudgetModal(b));
+    list.appendChild(row);
+  });
+}
+
 // ---- Init ----
 
 async function init() {
@@ -1202,7 +1372,7 @@ async function init() {
   document.getElementById("app").hidden = true;
   document.getElementById("loading-screen").hidden = false;
   document.getElementById("date").value = todayLocalISO();
-  renderCurrencyChips();
+  renderCurrencyChips("entry");
 
   try {
     await loadMeta();
@@ -1280,6 +1450,9 @@ async function init() {
       await refreshReviewQueue();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
+      }
+      if (!document.getElementById("screen-budgets").hidden) {
+        await refreshBudgets();
       }
     } catch (err) {
       // Data just doesn't refresh this time — the user can pull again.

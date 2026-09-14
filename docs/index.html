@@ -186,8 +186,12 @@
 
     <div id="screen-budgets" class="screen" hidden>
       <div class="card">
-        <h2>Budgets</h2>
-        <p class="hint">Coming in the next phase — this is where you'll set monthly limits per category and get alerted as you approach them.</p>
+        <div class="budgets-header">
+          <h2>Budgets</h2>
+          <button type="button" class="add-inline" id="add-budget-btn">+ Add budget</button>
+        </div>
+        <div id="budgets-list"></div>
+        <p class="hint" id="budgets-empty-note" hidden>No budgets yet — add one to start tracking a category.</p>
       </div>
     </div>
   </main>
@@ -233,6 +237,40 @@
         <button type="button" id="edit-entry-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="edit-entry-modal-body" id="edit-entry-modal-body"></div>
+    </div>
+  </div>
+
+  <div id="budget-modal-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="budget-modal-title">Add budget</span>
+        <button type="button" id="budget-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="budget-category">Category</label>
+        <select id="budget-category" required></select>
+
+        <label for="budget-amount">Amount</label>
+        <input type="text" inputmode="decimal" id="budget-amount" placeholder="0.00">
+
+        <label>Currency</label>
+        <input type="hidden" id="budget-currency" value="PEN">
+        <div class="currency-chips" id="budget-currency-chips"></div>
+
+        <label>Period</label>
+        <div class="type-tabs budget-period-tabs" id="budget-period-tabs">
+          <div class="type-tab active" data-period="monthly">Monthly</div>
+          <div class="type-tab" data-period="yearly">Yearly</div>
+        </div>
+
+        <label for="budget-thresholds">Alert at (%)</label>
+        <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
+        <p class="hint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
+
+        <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="budget-save-btn">Save budget</button>
+        <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden>Delete this budget</button>
+      </div>
     </div>
   </div>
 

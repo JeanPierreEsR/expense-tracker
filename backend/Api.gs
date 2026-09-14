@@ -60,6 +60,8 @@ function routeAction(action, payload) {
       };
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
+    case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
+    case 'admin_checkBudgetsNow': return checkBudgets();
     case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
     case 'admin_runAutomation':
       var emailResults = processEmails();
@@ -74,6 +76,10 @@ function routeAction(action, payload) {
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);
       return kw;
+    case 'listBudgets': return listBudgets();
+    case 'addBudget': return addBudget(payload);
+    case 'updateBudget': return updateBudget(payload);
+    case 'deleteBudget': return deleteBudget(payload.id);
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
