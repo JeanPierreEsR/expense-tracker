@@ -193,6 +193,18 @@
         <div id="budgets-list"></div>
         <p class="hint" id="budgets-empty-note" hidden>No budgets yet — add one to start tracking a category.</p>
       </div>
+
+      <div class="card" id="budgets-summary-card" hidden>
+        <div class="budgets-summary-row">
+          <span class="budgets-summary-label">Total per month</span>
+          <span class="budgets-summary-value" id="budgets-summary-monthly">PEN 0.00</span>
+        </div>
+        <div class="budgets-summary-row">
+          <span class="budgets-summary-label">Total per year</span>
+          <span class="budgets-summary-value" id="budgets-summary-yearly">PEN 0.00</span>
+        </div>
+        <p class="hint" id="budgets-summary-note" hidden></p>
+      </div>
     </div>
   </main>
 
@@ -223,7 +235,16 @@
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span id="drilldown-title">Category</span>
-        <button type="button" id="drilldown-modal-close" class="currency-modal-close">✕</button>
+        <div class="drilldown-header-actions">
+          <div class="drilldown-menu-wrap">
+            <button type="button" id="drilldown-menu-btn" class="drilldown-menu-btn" aria-label="Budget options" hidden>⋮</button>
+            <div id="drilldown-menu" class="drilldown-menu" hidden>
+              <button type="button" id="drilldown-menu-edit" class="drilldown-menu-item">✏️ Modify budget</button>
+              <button type="button" id="drilldown-menu-delete" class="drilldown-menu-item delete">🗑️ Delete budget</button>
+            </div>
+          </div>
+          <button type="button" id="drilldown-modal-close" class="currency-modal-close">✕</button>
+        </div>
       </div>
       <p class="hint" id="drilldown-subtitle"></p>
       <div class="currency-option-list" id="drilldown-list"></div>
@@ -240,7 +261,7 @@
     </div>
   </div>
 
-  <div id="budget-modal-backdrop" class="currency-modal-backdrop" hidden>
+  <div id="budget-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span id="budget-modal-title">Add budget</span>

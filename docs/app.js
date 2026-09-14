@@ -1166,6 +1166,11 @@ function renderPie(key, items) {
 // re-runs its own query.
 let currentDrilldown = null;
 
+// Which budget (if any) the currently-open drill-down was opened from —
+// null when it was opened from an Overview breakdown instead. Drives
+// whether the ⋮ menu (modify/delete this budget) is shown at all.
+let drilldownBudget = null;
+
 async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   const backdrop = document.getElementById("drilldown-modal-backdrop");
   const title = document.getElementById("drilldown-title");
@@ -1187,6 +1192,10 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
 
 async function openBreakdownDrilldown(kind, item) {
   currentDrilldown = { refetch: () => openBreakdownDrilldown(kind, item) };
+  drilldownBudget = null;
+  document.getElementById("drilldown-menu-btn").hidden = true;
+  document.getElementById("drilldown-menu").hidden = true;
+
   const bounds = getPeriodBounds();
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
@@ -1205,8 +1214,13 @@ async function openBreakdownDrilldown(kind, item) {
 // breakdown — budgets are always expense categories, and the date range is
 // the budget's own *effective* period (see computeBudgetProgressWithContext_
 // server-side: a yearly budget stays yearly even while browsing by month).
+// The ⋮ menu (modify/delete) only makes sense here, not from Overview.
 async function openBudgetDrilldown(budget) {
   currentDrilldown = { refetch: () => openBudgetDrilldown(budget) };
+  drilldownBudget = budget;
+  document.getElementById("drilldown-menu-btn").hidden = false;
+  document.getElementById("drilldown-menu").hidden = true;
+
   const p = budget.progress;
 
   await openDrilldownWithPayload_(
@@ -1254,13 +1268,44 @@ function renderDrilldownEntries(entries) {
   });
 }
 
-document.getElementById("drilldown-modal-close").addEventListener("click", () => {
+function closeDrilldown() {
   document.getElementById("drilldown-modal-backdrop").hidden = true;
-});
+  document.getElementById("drilldown-menu").hidden = true;
+  drilldownBudget = null;
+}
+
+document.getElementById("drilldown-modal-close").addEventListener("click", closeDrilldown);
 document.getElementById("drilldown-modal-backdrop").addEventListener("click", (e) => {
-  if (e.target.id === "drilldown-modal-backdrop") {
-    document.getElementById("drilldown-modal-backdrop").hidden = true;
+  if (e.target.id === "drilldown-modal-backdrop") closeDrilldown();
+});
+
+// ---- Budget drill-down's ⋮ menu (modify / delete this budget) ----
+
+document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const menu = document.getElementById("drilldown-menu");
+  menu.hidden = !menu.hidden;
+});
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("drilldown-menu");
+  if (!menu.hidden && !e.target.closest(".drilldown-menu-wrap")) {
+    menu.hidden = true;
   }
+});
+
+document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
+  document.getElementById("drilldown-menu").hidden = true;
+  if (drilldownBudget) openBudgetModal(drilldownBudget);
+});
+
+document.getElementById("drilldown-menu-delete").addEventListener("click", async () => {
+  document.getElementById("drilldown-menu").hidden = true;
+  if (!drilldownBudget) return;
+  if (!confirm("Delete this budget? This can't be undone.")) return;
+  const id = drilldownBudget.id;
+  closeDrilldown();
+  await callApi("deleteBudget", { id });
+  refreshBudgetsInBackground_();
 });
 
 // ---- Budgets ----
@@ -1309,6 +1354,10 @@ function openBudgetModal(budget) {
   document.getElementById("budget-modal-backdrop").hidden = false;
 }
 
+// Cancelling (✕, backdrop tap) just closes the edit form — if it was
+// opened from a budget's drill-down (its ⋮ menu), that drill-down is still
+// there underneath, same as cancelling an entry edit returns to its
+// drill-down. Saving or deleting, below, close both together instead.
 function closeBudgetModal() {
   document.getElementById("budget-modal-backdrop").hidden = true;
   editingBudgetId = null;
@@ -1347,12 +1396,16 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     } else {
       await callApi("addBudget", fields);
     }
-    // Only close once the list has actually refreshed — closing first meant
-    // a failure in this refresh (the same intermittent network hiccup this
-    // app already retries around elsewhere) rendered its error into an
-    // already-hidden modal, leaving the screen looking unchanged.
-    await refreshBudgets();
+    // Close as soon as the save itself succeeds — that's the fast part.
+    // listBudgets recomputes every budget's progress against the full
+    // Entries sheet (~4s), so waiting for it before closing made every
+    // save feel sluggish; refreshing the list in the background instead
+    // means the modal (and, if this was opened from one, its drill-down)
+    // close right away, and any refresh failure surfaces in the list
+    // itself rather than getting lost behind an already-closed modal.
     closeBudgetModal();
+    closeDrilldown();
+    refreshBudgetsInBackground_();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -1363,10 +1416,22 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
 document.getElementById("budget-delete-btn").addEventListener("click", async () => {
   if (!editingBudgetId) return;
   if (!confirm("Delete this budget? This can't be undone.")) return;
-  await callApi("deleteBudget", { id: editingBudgetId });
-  await refreshBudgets();
+  const id = editingBudgetId;
   closeBudgetModal();
+  closeDrilldown();
+  await callApi("deleteBudget", { id });
+  refreshBudgetsInBackground_();
 });
+
+// Fire-and-forget refresh used after a save/delete already closed its
+// modal(s) — a failure here shows up in the budgets list itself (the one
+// place still on screen) instead of blocking the close that triggered it.
+function refreshBudgetsInBackground_() {
+  refreshBudgets().catch((err) => {
+    document.getElementById("budgets-list").innerHTML =
+      `<div class="status-msg">Couldn't refresh: ${escapeHtml(err.message)}</div>`;
+  });
+}
 
 async function refreshBudgets() {
   // Same period the Overview tab is showing (periodType/periodAnchor are
@@ -1376,16 +1441,20 @@ async function refreshBudgets() {
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
   const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
-  const budgets = await callApi("listBudgets", { displayPeriodType: periodType, anchorDate });
+  const { budgets, summary } = await callApi("listBudgets", { displayPeriodType: periodType, anchorDate });
   const list = document.getElementById("budgets-list");
   const emptyNote = document.getElementById("budgets-empty-note");
+  const summaryCard = document.getElementById("budgets-summary-card");
   list.innerHTML = "";
 
   if (budgets.length === 0) {
     emptyNote.hidden = false;
+    summaryCard.hidden = true;
     return;
   }
   emptyNote.hidden = true;
+
+  const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   budgets.forEach((b) => {
     const p = b.progress;
@@ -1397,7 +1466,6 @@ async function refreshBudgets() {
     }
     const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
 
-    const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const amountLabel = `${b.currency} ${money(p.effectiveAmount)}`;
     const subLabel = pct == null
       ? "Needs an exchange rate for " + b.currency
@@ -1410,10 +1478,7 @@ async function refreshBudgets() {
     row.innerHTML = `
       <div class="budget-row-top">
         <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
-        <div class="budget-row-actions">
-          <span class="budget-row-period">${periodLabel}</span>
-          <button type="button" class="budget-edit-btn" aria-label="Edit budget">✏️</button>
-        </div>
+        <span class="budget-row-period">${periodLabel}</span>
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
@@ -1423,16 +1488,22 @@ async function refreshBudgets() {
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
     `;
-    // Tap the row to see the transactions behind it; the pencil is a
-    // separate tap target so editing the budget itself doesn't require
-    // going through the transaction list first.
-    row.querySelector(".budget-edit-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      openBudgetModal(b);
-    });
+    // Editing/deleting now lives behind the drill-down's ⋮ menu (see
+    // openBudgetDrilldown) rather than a second tap target on the row.
     row.addEventListener("click", () => openBudgetDrilldown(b));
     list.appendChild(row);
   });
+
+  summaryCard.hidden = false;
+  document.getElementById("budgets-summary-monthly").textContent = formatPen(summary.monthlyPen);
+  document.getElementById("budgets-summary-yearly").textContent = formatPen(summary.yearlyPen);
+  const summaryNote = document.getElementById("budgets-summary-note");
+  if (summary.excludedCount > 0) {
+    summaryNote.hidden = false;
+    summaryNote.textContent = `${summary.excludedCount} budget${summary.excludedCount === 1 ? "" : "s"} excluded — missing an exchange rate.`;
+  } else {
+    summaryNote.hidden = true;
+  }
 }
 
 // ---- Init ----
