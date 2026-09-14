@@ -3,12 +3,31 @@
  *   { accessCode, action, payload }
  * Using Content-Type: text/plain avoids a CORS preflight, which Apps
  * Script web apps don't handle — this is the standard workaround.
+ *
+ * This same URL also receives Telegram's webhook deliveries (see
+ * enableTelegramWebhook in Telegram.gs) — a Telegram update always carries
+ * update_id and never our accessCode/action shape, so it's routed to
+ * handleTelegramUpdate_ before the frontend-API handling below even looks
+ * at accessCode. Telegram doesn't read the response body, just needs 200.
  */
 
 function doPost(e) {
   var response;
   try {
     var body = JSON.parse(e.postData.contents);
+
+    if (body && body.update_id !== undefined) {
+      try {
+        handleTelegramUpdate_(body);
+      } catch (err) {
+        // Never let one bad update fail the webhook delivery — repeated
+        // failures make Telegram back off and eventually stop retrying.
+        Logger.log('Telegram webhook error: ' + err.message);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (!isValidAccessCode(body.accessCode)) {
       response = { ok: false, error: 'Invalid access code' };
     } else {
@@ -62,6 +81,9 @@ function routeAction(action, payload) {
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
     case 'admin_checkBudgetsNow': return checkBudgets();
+    case 'admin_setTelegramWebhook': return telegramApi_('setWebhook', { url: WEB_APP_URL });
+    case 'admin_deleteTelegramWebhook': return telegramApi_('deleteWebhook', {});
+    case 'admin_telegramWebhookInfo': return telegramApi_('getWebhookInfo', {});
     case 'admin_generateTopCategoryBudgets': return generateTopCategoryBudgets(payload);
     case 'admin_seedParsingRulesDoc': seedParsingRulesDoc(); return { done: true };
     case 'admin_runAutomation':

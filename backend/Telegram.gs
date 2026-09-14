@@ -13,6 +13,15 @@
  * directly to the transaction message with a short command. This is
  * deliberately NOT free-form AI parsing (the project's $0 budget rules
  * out a paid AI API); it's a small keyword parser. See applyEditCommand_.
+ *
+ * Delivery: a webhook (see "15. Enable instant Telegram replies" in the
+ * menu), not polling — Telegram pushes each update to doPost() in Api.gs
+ * the moment it happens, so Confirm/Discard/edit replies apply and get a
+ * reply back immediately instead of waiting for the 15-minute automation
+ * cycle. pollTelegramUpdates() below is left wired into that cycle as a
+ * harmless fallback: Telegram refuses getUpdates while a webhook is set
+ * (silently returns ok:false, already handled below), so it only ever
+ * does real work if the webhook is ever disabled or drops.
  */
 
 function getTelegramToken_() {
@@ -34,6 +43,34 @@ function promptSetTelegramToken() {
       ui.alert('Saved. Now message your bot on Telegram: /start <your access code>');
     }
   }
+}
+
+// Same URL the app itself calls (docs/app.js's API_URL) — hardcoded rather
+// than derived from ScriptApp.getService().getUrl(), which is ambiguous
+// when a project has more than one Web App deployment (this one does: a
+// @HEAD dev deployment alongside the real one). It's already public, baked
+// into the committed frontend, so there's no new exposure in repeating it
+// here.
+var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec';
+
+function enableTelegramWebhook() {
+  var ui = SpreadsheetApp.getUi();
+  if (!getTelegramToken_()) {
+    ui.alert('Set the Telegram bot token first (menu item 9).');
+    return;
+  }
+  var res = telegramApi_('setWebhook', { url: WEB_APP_URL });
+  ui.alert(res.ok
+    ? 'Done — Confirm/Discard and edit replies now apply and respond instantly.'
+    : 'Could not enable it: ' + (res.description || JSON.stringify(res)));
+}
+
+function disableTelegramWebhook() {
+  var ui = SpreadsheetApp.getUi();
+  var res = telegramApi_('deleteWebhook', {});
+  ui.alert(res.ok
+    ? 'Done — back to checking Telegram every 15 minutes.'
+    : 'Could not disable it: ' + (res.description || JSON.stringify(res)));
 }
 
 function telegramApi_(method, payload) {

@@ -21,6 +21,8 @@ function onOpen() {
     .addItem('12. Enable automatic scanning (every 15 min)', 'enableAutomaticScanning')
     .addItem('13. Disable automatic scanning', 'disableAutomaticScanning')
     .addItem('14. Seed category keywords', 'seedCategoryKeywords')
+    .addItem('15. Enable instant Telegram replies (webhook)', 'enableTelegramWebhook')
+    .addItem('16. Disable instant Telegram replies (back to polling)', 'disableTelegramWebhook')
     .addToUi();
 }
 
