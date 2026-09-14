@@ -14,6 +14,10 @@ let selectedType = "expense";
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
 let editingEntryId = null;
+// True while the entry form is open as a pop-up on top of a drill-down
+// sheet (Overview) rather than inline on the Entries screen — changes
+// where save/cancel/delete land afterward.
+let editingViaPopup = false;
 
 // ---- Currencies ----
 
@@ -533,7 +537,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     await refreshEntryList();
 
-    if (ICON_PICKER_TYPES.includes(selectedType)) {
+    if (editingViaPopup) {
+      await refreshAfterPopupEdit();
+    } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
   } catch (err) {
@@ -659,12 +665,13 @@ function cancelEdit() {
   exitEditMode();
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
-  if (ICON_PICKER_TYPES.includes(selectedType)) {
+  if (editingViaPopup) {
+    closeEditPopup();
+  } else if (ICON_PICKER_TYPES.includes(selectedType)) {
     showCategoryPicker();
   }
 }
 
-document.getElementById("cancel-edit-btn").addEventListener("click", cancelEdit);
 document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdit);
 
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
@@ -673,9 +680,46 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   await callApi("discardEntry", { id: editingEntryId });
   exitEditMode();
   await refreshEntryList();
-  if (ICON_PICKER_TYPES.includes(selectedType)) {
+  if (editingViaPopup) {
+    await refreshAfterPopupEdit();
+  } else if (ICON_PICKER_TYPES.includes(selectedType)) {
     showCategoryPicker();
   }
+});
+
+// ---- Editing as a pop-up (from an Overview drill-down) ----
+// Reuses the exact same entry-card (type tabs, category picker, form) by
+// physically relocating it into the pop-up's body, instead of duplicating
+// all of that logic in a second form. Moving a DOM node preserves its
+// event listeners, so everything above keeps working unchanged.
+
+function openEditPopup(entry) {
+  document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
+  document.getElementById("edit-entry-modal-backdrop").hidden = false;
+  editingViaPopup = true;
+  startEditEntry(entry);
+}
+
+function closeEditPopup() {
+  document.getElementById("edit-entry-modal-backdrop").hidden = true;
+  const screenEntries = document.getElementById("screen-entries");
+  screenEntries.insertBefore(document.getElementById("entry-card"), screenEntries.firstChild);
+  editingViaPopup = false;
+}
+
+// After a save/delete from the pop-up: close it and re-run the same
+// drill-down query so the sheet underneath reflects the change, without
+// closing the drill-down itself or leaving Overview.
+async function refreshAfterPopupEdit() {
+  closeEditPopup();
+  if (currentDrilldown) {
+    await openBreakdownDrilldown(currentDrilldown.kind, currentDrilldown.item);
+  }
+}
+
+document.getElementById("edit-entry-modal-close").addEventListener("click", cancelEdit);
+document.getElementById("edit-entry-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "edit-entry-modal-backdrop") cancelEdit();
 });
 
 function escapeHtml(str) {
@@ -1068,7 +1112,13 @@ function renderPie(key, items) {
 
 // ---- Breakdown drill-down: transactions behind one category/tag/payment method ----
 
+// Remembered so a pop-up edit launched from this sheet can refresh it
+// afterward (same kind/item/period, re-queried) without the caller having
+// to thread that context through the edit form's save/cancel/delete paths.
+let currentDrilldown = null;
+
 async function openBreakdownDrilldown(kind, item) {
+  currentDrilldown = { kind, item };
   const bounds = getPeriodBounds();
   const backdrop = document.getElementById("drilldown-modal-backdrop");
   const title = document.getElementById("drilldown-title");
@@ -1123,13 +1173,10 @@ function renderDrilldownEntries(entries) {
         <span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>${penLine}
       </div>
     `;
-    // Same edit flow as tapping a row in "Recent entries" — jump to the
-    // Entries screen with this transaction already loaded into the form.
-    row.addEventListener("click", () => {
-      document.getElementById("drilldown-modal-backdrop").hidden = true;
-      showScreen("entries");
-      startEditEntry(entry);
-    });
+    // Opens the same edit form used everywhere else, but as a pop-up on
+    // top of this sheet — no need to leave Overview or close the
+    // drill-down to fix a transaction.
+    row.addEventListener("click", () => openEditPopup(entry));
     list.appendChild(row);
   });
 }

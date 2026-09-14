@@ -33,7 +33,7 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
-      <div class="card">
+      <div class="card" id="entry-card">
         <div class="type-tabs" id="entry-type-tabs">
           <div class="type-tab active" data-type="expense">Expense</div>
           <div class="type-tab" data-type="income">Income</div>
@@ -43,9 +43,7 @@
 
         <div id="category-picker" class="category-grid" hidden></div>
 
-        <div id="edit-mode-banner" class="edit-mode-banner" hidden>
-          ✏️ Editing entry — <button type="button" class="add-inline" id="cancel-edit-btn">Cancel</button>
-        </div>
+        <div id="edit-mode-banner" class="edit-mode-banner" hidden>✏️ Editing entry</div>
 
         <form id="entry-form" hidden>
           <div id="selected-category-banner" class="category-banner" hidden>
@@ -225,6 +223,16 @@
       </div>
       <p class="hint" id="drilldown-subtitle"></p>
       <div class="currency-option-list" id="drilldown-list"></div>
+    </div>
+  </div>
+
+  <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>Edit transaction</span>
+        <button type="button" id="edit-entry-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="edit-entry-modal-body" id="edit-entry-modal-body"></div>
     </div>
   </div>
 

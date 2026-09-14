@@ -514,10 +514,6 @@ button.primary:disabled {
   margin-bottom: 16px;
 }
 
-.edit-mode-banner .add-inline {
-  padding: 0;
-}
-
 .delete-entry-btn,
 .cancel-edit-btn {
   width: 100%;
@@ -591,6 +587,26 @@ button.primary:disabled {
      the nav bar's opaque background sits on top of the sheet's bottom edge
      and it reads as never finishing its slide-up. */
   z-index: 250;
+}
+
+/* Stacks on top of the drill-down sheet (250) — editing shouldn't have to
+   close the drill-down to get there. */
+.edit-entry-modal-backdrop {
+  z-index: 260;
+}
+
+.edit-entry-modal-body {
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+/* The moved-in entry card already sits inside this sheet's own white
+   surface — its own card chrome would just double up. */
+.edit-entry-modal-body .card {
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
 }
 
 .currency-modal {
