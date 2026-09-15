@@ -1761,6 +1761,20 @@ async function refreshBudgets() {
       fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} PEN — ${b.category_name}`);
     }
 
+    // A multi-category budget's title is either the joined category list
+    // (which a long list or narrow screen can truncate with an ellipsis)
+    // or, once a custom name is set, doesn't show the category list at
+    // all. Always spelling it out on its own line — allowed to wrap,
+    // unlike the title — is the only way it's reliably visible either way.
+    // "All expense categories" (category_ids === null) is self-explanatory
+    // on its own and doesn't need this.
+    const categoriesLine = (b.category_ids && b.category_ids.length > 1)
+      ? `<div class="budget-row-categories">${b.category_ids.map((id) => {
+          const cat = meta.categories.find((c) => c.id === id);
+          return cat ? `${cat.icon ? cat.icon + " " : ""}${escapeHtml(cat.name)}` : "";
+        }).filter(Boolean).join(", ")}</div>`
+      : "";
+
     const row = document.createElement("div");
     row.className = "budget-row";
     row.innerHTML = `
@@ -1768,6 +1782,7 @@ async function refreshBudgets() {
         <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
         <span class="budget-row-period">${periodLabel}</span>
       </div>
+      ${categoriesLine}
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
       </div>
