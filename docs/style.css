@@ -1029,6 +1029,20 @@ button.primary:disabled {
   color: var(--muted);
 }
 
+/* General rule: wherever a row pairs a label with an amount, the amount
+   never wraps — it shrinks the label instead, not itself. A long label
+   next to a short amount otherwise squeezes the amount just as easily as
+   the label, wrapping "USD 6.50" onto its own line for no reason. */
+.expected-recurring-item-label {
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.expected-recurring-item-amount {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .type-dot {
   display: inline-block;
   width: 8px;
