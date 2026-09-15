@@ -86,6 +86,7 @@ function routeAction(action, payload) {
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
+    case 'admin_addNameColumnToBudgets': return addNameColumnToBudgets();
     case 'admin_checkBudgetsNow': return checkBudgets();
     case 'admin_setTelegramWebhook': return telegramApi_('setWebhook', { url: WEB_APP_URL });
     case 'admin_deleteTelegramWebhook': return telegramApi_('deleteWebhook', {});
