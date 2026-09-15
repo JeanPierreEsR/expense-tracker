@@ -2587,9 +2587,9 @@ async function refreshExpectedRecurring() {
     detail.className = "expected-recurring-detail";
     detail.hidden = true;
     detail.innerHTML = g.items.map((item) => `
-      <div class="expected-recurring-item">
+      <div class="expected-recurring-item${item.overdue ? " overdue" : ""}">
         <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
-        <span class="expected-recurring-item-amount">Day ${item.day} · ${g.currency} ${moneyFmt(item.amount)}</span>
+        <span class="expected-recurring-item-amount">${item.overdue ? "⚠️ " : ""}Day ${item.day} · ${g.currency} ${moneyFmt(item.amount)}</span>
       </div>
     `).join("");
 
