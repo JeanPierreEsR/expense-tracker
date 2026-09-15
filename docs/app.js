@@ -1592,6 +1592,14 @@ function renderBudgetChart_(data, budget) {
     return running;
   });
 
+  // Actual spend only ever draws through today — the rest of the period
+  // has no data yet, and continuing the line flat to the end implied
+  // spending had actually stopped rather than just not having happened
+  // yet. A period entirely in the past draws in full (all of it is
+  // "known"); one that hasn't started yet draws nothing.
+  const todayStr = todayLocalISO();
+  const actualEndIdx = todayStr < p.startDate ? -1 : (todayStr > p.endDate ? n - 1 : days.indexOf(todayStr));
+
   const recurringByDate = {};
   (data.recurringOccurrences || []).forEach((o) => {
     recurringByDate[o.date] = (recurringByDate[o.date] || 0) + o.amount;
@@ -1616,17 +1624,69 @@ function renderBudgetChart_(data, budget) {
   else paceVertices.push([lastIdx, finalTarget]);
 
   const maxY = Math.max(budgetAmount, recurringRunning, ...actualPoints, 1) * 1.08;
-  const W = 300, H = 120, padTop = 8, padBottom = 6;
-  const xFor = (i) => (n <= 1 ? 0 : (i / (n - 1)) * W);
-  const yFor = (v) => H - padBottom - (v / maxY) * (H - padTop - padBottom);
 
-  const actualPath = actualPoints.map((v, i) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+  // Plot area sits inset from the full SVG canvas — a left margin for the
+  // Y-axis' money labels, a bottom margin for the X-axis' date labels.
+  const W = 300, H = 130;
+  const marginLeft = 34, marginTop = 8, marginBottom = 14;
+  const plotRight = W, plotBottom = H - marginBottom;
+  const plotWidth = plotRight - marginLeft;
+  const plotHeight = plotBottom - marginTop;
+
+  const xFor = (i) => marginLeft + (n <= 1 ? 0 : (i / (n - 1)) * plotWidth);
+  const yFor = (v) => plotBottom - (v / maxY) * plotHeight;
+
+  const actualPath = actualPoints
+    .slice(0, actualEndIdx + 1)
+    .map((v, i) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`)
+    .join(" ");
   const pacePath = paceVertices.map(([i, v]) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
   const budgetLineY = yFor(budgetAmount).toFixed(1);
 
+  // Y-axis: 4 evenly spaced labels from 0 up to the top of the scale,
+  // rounded to whole numbers — the exact currency and decimals are
+  // already shown in the header/pace note, so the axis stays compact.
+  const yTicksSvg = [0, 1, 2, 3].map((i) => {
+    const value = (maxY * i) / 3;
+    const y = yFor(value).toFixed(1);
+    return `
+      <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${marginLeft - 6}" y="${y}" dy="2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${Math.round(value).toLocaleString("en-US")}</text>
+    `;
+  }).join("");
+
+  // X-axis ticks: weekly through a monthly period, quarterly through a
+  // yearly one — found by matching actual calendar dates in `days` rather
+  // than a fixed day-count, so it's correct regardless of month length or
+  // which dates a yearly budget's quarters actually fall on.
+  const axisYear = p.startDate.slice(0, 4);
+  let xTickIndices;
+  if (p.effectivePeriodType === "yearly") {
+    xTickIndices = [1, 4, 7, 10]
+      .map((m) => days.indexOf(`${axisYear}-${pad2(m)}-01`))
+      .filter((i) => i !== -1);
+  } else {
+    xTickIndices = [];
+    for (let i = 0; i < n; i += 7) xTickIndices.push(i);
+  }
+  const xTicksSvg = xTickIndices.map((i) => {
+    const x = xFor(i).toFixed(1);
+    const label = p.effectivePeriodType === "yearly"
+      ? MONTH_NAMES_SHORT[parseInt(days[i].slice(5, 7), 10) - 1]
+      : String(parseInt(days[i].slice(8, 10), 10));
+    return `
+      <line x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${x}" y="${plotBottom + 11}" text-anchor="middle" style="font-size:7.5px;fill:var(--muted)">${label}</text>
+    `;
+  }).join("");
+
   document.getElementById("drilldown-chart-svg").innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      <line x1="0" y1="${budgetLineY}" x2="${W}" y2="${budgetLineY}" style="stroke:var(--border);stroke-width:1" />
+      <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
+      <line x1="${marginLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
+      ${yTicksSvg}
+      ${xTicksSvg}
+      <line x1="${marginLeft}" y1="${budgetLineY}" x2="${plotRight}" y2="${budgetLineY}" style="stroke:var(--border);stroke-width:1" />
       <polyline points="${pacePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
       <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
     </svg>
