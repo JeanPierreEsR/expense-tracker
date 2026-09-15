@@ -140,10 +140,15 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   if (!chatId || !getTelegramToken_()) return false;
 
   var periodLabel = budget.period_type === 'yearly' ? 'this year' : 'this month';
-  var emoji = threshold >= 100 ? '🚨' : '⚠️';
+  var emoji = progress.percent >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
   var amountStr = moneyFmt_(budget.amount);
-  var text = emoji + ' ' + categoryDisplayName + ': ' + threshold + '% of your ' + budget.currency + ' ' +
+  // The threshold (e.g. 75%) is only what triggered this check, not what
+  // to report — by the time it's actually noticed and sent, real spend
+  // has usually already moved past it (e.g. 77%), so the message says
+  // where things actually stand, not the round number that tripped it.
+  var actualPercent = Math.round(progress.percent);
+  var text = emoji + ' ' + categoryDisplayName + ': ' + actualPercent + '% of your ' + budget.currency + ' ' +
     amountStr + ' budget (' + budget.currency + ' ' + spentStr + ' spent ' + periodLabel + ').';
 
   telegramApi_('sendMessage', { chat_id: chatId, text: text });
