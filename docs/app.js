@@ -1657,14 +1657,20 @@ function renderBudgetChart_(data, budget) {
   const budgetLineY = yFor(budgetAmount).toFixed(1);
 
   // Y-axis: 4 evenly spaced labels from 0 up to the top of the scale,
-  // rounded to whole numbers — the exact currency and decimals are
-  // already shown in the header/pace note, so the axis stays compact.
+  // rounded to the nearest hundred so they read as round numbers (750,
+  // 1,000…) rather than arbitrary ones (683, 962…) — the exact currency
+  // and decimals are already shown in the header/pace note, so the axis
+  // itself only needs to be a rough scale. Falls back to the nearest ten
+  // (then one) for a small-enough budget that rounding to a hundred would
+  // otherwise flatten every label to 0.
+  const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
   const yTicksSvg = [0, 1, 2, 3].map((i) => {
     const value = (maxY * i) / 3;
+    const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
     const y = yFor(value).toFixed(1);
     return `
       <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
-      <text x="${marginLeft - 6}" y="${y}" dy="2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${Math.round(value).toLocaleString("en-US")}</text>
+      <text x="${marginLeft - 6}" y="${y}" dy="2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${roundedValue.toLocaleString("en-US")}</text>
     `;
   }).join("");
 
