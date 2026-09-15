@@ -317,7 +317,67 @@ function getCategoryProjectionDetail(payload) {
     ? computeCategoryYtdBreakdown_(payload.categoryId)
     : null;
 
-  return { bounds: bounds, projection: match, dailyActualPen: dailyActualPen, ytdBreakdown: ytdBreakdown };
+  var programmedBreakdown = match.recurringAmountPen > 0
+    ? computeCategoryProgrammedBreakdown_(payload.categoryId, bounds, category)
+    : null;
+
+  return {
+    bounds: bounds,
+    projection: match,
+    dailyActualPen: dailyActualPen,
+    ytdBreakdown: ytdBreakdown,
+    programmedBreakdown: programmedBreakdown
+  };
+}
+
+// Traces back the "programmed" figure for one category: which actual
+// recurring items contributed, and how much each one added within the
+// period being viewed — same recurringForPeriod filter
+// computeAllCategoryProjections_ itself applies (a yearly-frequency item
+// excluded from a monthly view has nothing to list here either, since it
+// isn't part of the programmed total being explained). `occurrences` is
+// usually 1 (one billing date within the period) but can be more — a
+// monthly item viewed across a full year occurs 12 times, each one
+// contributing its own converted amount to the item's total.
+function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
+  var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
+    return String(r.active) !== 'false' && r.category_id === categoryId;
+  });
+  var recurringForPeriod = (category && category.type === 'income') || bounds.periodType === 'yearly'
+    ? categoryRecurring
+    : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+
+  var monthRateByKey = {};
+  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  function toPen_(amount, currency, dateStr) {
+    if (currency === 'PEN') return amount;
+    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    return rate != null ? amount * rate : null;
+  }
+
+  var items = recurringForPeriod.map(function (r) {
+    var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate);
+    var amountPen = 0;
+    occDates.forEach(function (occDate) {
+      var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
+      if (pen != null) amountPen += pen;
+    });
+    return {
+      id: r.id,
+      description: r.description || '',
+      amount: Number(r.amount),
+      currency: r.currency || 'PEN',
+      occurrences: occDates.length,
+      amountPen: amountPen
+    };
+  }).filter(function (item) { return item.occurrences > 0; });
+
+  items.sort(function (a, b) { return b.amountPen - a.amountPen; });
+
+  return {
+    items: items,
+    totalPen: items.reduce(function (sum, item) { return sum + item.amountPen; }, 0)
+  };
 }
 
 // Traces back the "expected" figure for one category: its non-recurring

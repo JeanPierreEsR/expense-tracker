@@ -2770,6 +2770,7 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
   document.getElementById("drilldown-projection-amount").textContent = "…";
   document.getElementById("drilldown-projection-override-note").hidden = true;
   document.getElementById("drilldown-projection-split").hidden = true;
+  document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
 
   const bounds = projectionBoundsForDisplay_();
@@ -2831,20 +2832,34 @@ function renderProjectionDrilldownAmount_(detail) {
 // "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
 // shown as two distinct lines only when both actually contribute and
 // nothing's been manually overridden (an override already replaces both
-// with one clear figure above it). Tapping "Expected" traces it back: a
-// one-line formula plus a month-by-month breakdown, so a single unusual
-// month skewing the average is visible instead of hidden inside one
-// blended number.
+// with one clear figure above it). Both trace back on tap: "Programmed"
+// expands to the actual recurring items that make it up (just the
+// Recurring Expenses list filtered to this category and period — see
+// computeCategoryProgrammedBreakdown_), "Expected" expands to a one-line
+// formula plus a month-by-month breakdown, so neither figure is a black
+// box.
 function renderProjectionSplit_(detail) {
   const p = detail.projection;
   const splitEl = document.getElementById("drilldown-projection-split");
   const show = !p.hasOverride && p.recurringAmountPen > 0 && p.baseAmountPen > 0;
   splitEl.hidden = !show;
+  document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
   if (!show) return;
 
   document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.recurringAmountPen);
   document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.baseAmountPen);
+
+  const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
+  const programmed = detail.programmedBreakdown;
+  programmedItemsEl.innerHTML = (programmed && programmed.items.length)
+    ? programmed.items.map((item) => `
+      <div class="projection-month-row">
+        <span>${escapeHtml(item.description || p.category_name)}${item.occurrences > 1 ? ` · ${item.occurrences}×` : ""}</span>
+        <span>${formatPen(item.amountPen)}</span>
+      </div>
+    `).join("")
+    : `<div class="projection-month-row"><span>Nothing on file for this period.</span></div>`;
 
   const breakdown = detail.ytdBreakdown;
   const formulaEl = document.getElementById("drilldown-projection-expected-formula");
@@ -2869,6 +2884,11 @@ function renderProjectionSplit_(detail) {
     </div>
   `).join("");
 }
+
+document.getElementById("drilldown-projection-programmed-row").addEventListener("click", () => {
+  const detailEl = document.getElementById("drilldown-projection-programmed-detail");
+  detailEl.hidden = !detailEl.hidden;
+});
 
 document.getElementById("drilldown-projection-expected-row").addEventListener("click", () => {
   const detailEl = document.getElementById("drilldown-projection-expected-detail");
