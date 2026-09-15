@@ -423,7 +423,17 @@ input[type="date"] {
 }
 
 .checkbox-row input[type="checkbox"] {
-  width: auto;
+  /* The blanket `input, select, textarea` rule above strips every input's
+     native appearance (including a checkbox's checkmark/fill) and nothing
+     here ever restored one — the checkbox's checked state was always set
+     correctly in JS, it just had no visual way to show it. Restoring
+     native rendering (tinted via accent-color) is the simplest fix that's
+     guaranteed to render a real checked/unchecked distinction. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
   margin: 0;
 }
 
