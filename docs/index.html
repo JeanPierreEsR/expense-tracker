@@ -234,6 +234,10 @@
             <span>🔁 Recurring income/expenses</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-exchange-rates-btn">
+            <span>💱 Exchange rates</span>
+            <span class="more-list-chevron">›</span>
+          </button>
         </div>
       </div>
     </div>
@@ -248,6 +252,18 @@
         <p class="hint">Fixed amounts that happen on a schedule — rent, subscriptions, gym, salary. Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
         <div id="recurring-list"></div>
         <p class="hint" id="recurring-empty-note" hidden>No recurring expenses yet.</p>
+      </div>
+    </div>
+
+    <div id="screen-exchange-rates" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="exchange-rates-back-btn">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;">Exchange rates</h2>
+        <p class="hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
+        <div id="exchange-rates-list"></div>
+        <p class="hint" id="exchange-rates-empty-note" hidden>No exchange rates on file yet.</p>
       </div>
     </div>
   </main>

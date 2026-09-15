@@ -543,20 +543,29 @@ async function ensureExchangeRate(currency, dateStr) {
 // foreign currency's "1" on the left) and lets the owner flip it to enter
 // "1 PEN = __ <currency>" instead if that's more natural for them —
 // inverted back to the canonical meaning before saving either way.
-let rateModalState = null; // { currency, month, inverted, resolve }
+let rateModalState = null; // { currency, month, inverted, resolve, existingRate }
 
 function renderRateModalLabels_() {
-  const { currency, inverted } = rateModalState;
+  const { currency, inverted, existingRate } = rateModalState;
   document.getElementById("rate-left-label").textContent = inverted ? "1 PEN" : `1 ${currency}`;
   document.getElementById("rate-right-label").textContent = inverted ? currency : "PEN";
-  document.getElementById("rate-value-input").value = "";
+  // existingRate is always in the canonical "1 currency = rate PEN"
+  // orientation (see the comment above) — flip it for display whenever
+  // the owner has toggled to the "1 PEN = __ currency" view, same as the
+  // save handler flips it back on the way in.
+  const displayValue = existingRate == null ? "" : (inverted ? 1 / existingRate : existingRate);
+  document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(displayValue);
 }
 
-function openRateModal(currency, month, required) {
+// existingRate (optional) pre-fills the input for editing an already-set
+// rate — omitted, the field just starts blank (a brand-new rate).
+function openRateModal(currency, month, required, existingRate) {
   return new Promise((resolve) => {
-    rateModalState = { currency, month, inverted: false, resolve };
+    rateModalState = { currency, month, inverted: false, resolve, existingRate: existingRate != null ? existingRate : null };
     document.getElementById("rate-modal-title").textContent = `Exchange rate — ${currency}`;
-    document.getElementById("rate-modal-subtitle").textContent = `No rate on file for ${currency} in ${month} yet.`;
+    document.getElementById("rate-modal-subtitle").textContent = existingRate != null
+      ? `Editing the rate on file for ${currency} in ${month}.`
+      : `No rate on file for ${currency} in ${month} yet.`;
     document.getElementById("rate-cancel-btn").hidden = !!required;
     document.getElementById("rate-form-error").textContent = "";
     renderRateModalLabels_();
@@ -1117,6 +1126,15 @@ function showRecurringScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   refreshRecurringExpenses();
+}
+
+// Same "More stays highlighted" reasoning as showRecurringScreen, above.
+function showExchangeRatesScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-exchange-rates"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  refreshExchangeRates();
 }
 
 // Whichever of Overview/Budgets is currently visible re-fetches with the
@@ -2216,6 +2234,43 @@ async function init() {
 
 document.getElementById("more-recurring-btn").addEventListener("click", showRecurringScreen);
 document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("more-exchange-rates-btn").addEventListener("click", showExchangeRatesScreen);
+document.getElementById("exchange-rates-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Exchange rates (More tab) ----
+
+async function refreshExchangeRates() {
+  const list = document.getElementById("exchange-rates-list");
+  const emptyNote = document.getElementById("exchange-rates-empty-note");
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+  let rates;
+  try {
+    rates = await callApi("listExchangeRates");
+  } catch (err) {
+    list.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  list.innerHTML = "";
+  emptyNote.hidden = rates.length > 0;
+
+  rates.forEach((r) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
+        <div class="recurring-row-sub">${r.month}</div>
+      </div>
+      <div class="recurring-row-amount">1 ${r.currency} = PEN ${moneyFmt(r.rate)}</div>
+    `;
+    row.addEventListener("click", async () => {
+      const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
+      if (newRate != null) refreshExchangeRates();
+    });
+    list.appendChild(row);
+  });
+}
 
 // ---- Recurring income/expenses ----
 
