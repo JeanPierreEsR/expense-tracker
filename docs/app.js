@@ -1664,6 +1664,14 @@ function renderBudgetChart_(data, budget) {
   // (then one) for a small-enough budget that rounding to a hundred would
   // otherwise flatten every label to 0.
   const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
+  // A faint dotted gridline at each Y label's height, spanning the full
+  // plot width — drawn first so the axes and data lines layer on top of
+  // it, not the other way around.
+  const yGridlinesSvg = [0, 1, 2, 3].map((i) => {
+    const y = yFor((maxY * i) / 3).toFixed(1);
+    return `<line x1="${marginLeft}" y1="${y}" x2="${plotRight}" y2="${y}" style="stroke:rgba(128,128,128,0.25);stroke-width:1;stroke-dasharray:1,2" />`;
+  }).join("");
+
   const yTicksSvg = [0, 1, 2, 3].map((i) => {
     const value = (maxY * i) / 3;
     const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
@@ -1701,6 +1709,7 @@ function renderBudgetChart_(data, budget) {
 
   document.getElementById("drilldown-chart-svg").innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${yGridlinesSvg}
       <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
       <line x1="${marginLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
       ${yTicksSvg}
