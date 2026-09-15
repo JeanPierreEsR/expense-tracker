@@ -2305,7 +2305,7 @@ async function refreshRecurringExpenses() {
         <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
         <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${freqLabel}${re.active ? "" : " · Paused"}</div>
       </div>
-      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${re.currency} ${moneyFmt(re.amount)}</div>
+      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatAmount(re.amount, re.currency)}</div>
     `;
     row.addEventListener("click", () => openRecurringModal(re));
     list.appendChild(row);
