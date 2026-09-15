@@ -691,9 +691,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
 // ---- Entry list ----
 
+// No flag for PEN — it's the default currency (every other one is the
+// exception worth calling out), so a flag on it next to nearly every
+// entry was just noise repeated over and over rather than information.
 function formatAmount(amount, currency) {
-  const flag = findCurrency(currency).flag;
-  return `${flag} ${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const flag = currency === "PEN" ? "" : findCurrency(currency).flag + " ";
+  return `${flag}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Confirmed entries lead with PEN (the currency every report/budget
@@ -704,7 +707,7 @@ function formatAmount(amount, currency) {
 // since a pending entry's PEN value can still be provisional.
 function renderEntryAmountHtml(entry) {
   if (entry.currency === "PEN") {
-    return `<span class="primary-amt">${findCurrency("PEN").flag} PEN ${moneyFmt(entry.amount)}</span>`;
+    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
   }
 
   const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
@@ -716,7 +719,7 @@ function renderEntryAmountHtml(entry) {
     return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
   }
 
-  return `<span class="primary-amt">${findCurrency("PEN").flag} PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+  return `<span class="primary-amt">PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
 }
 
 function findCategory(id) {
