@@ -1023,6 +1023,14 @@ button.primary:disabled {
   margin-bottom: 6px;
 }
 
+.budget-row-categories {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
 .budget-row-name {
   font-weight: 600;
   font-size: 0.95rem;
