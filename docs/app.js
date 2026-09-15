@@ -1606,12 +1606,17 @@ function renderBudgetChart_(data, budget) {
   });
   const recurringDays = Object.keys(recurringByDate).sort();
 
+  // Each recurring expense's day is a datapoint at its cumulative amount
+  // so far — a straight line connects 0 (period start) to the first one,
+  // each to the next, and the last to the budget amount at period end,
+  // rather than a flat-then-vertical staircase. Same logic either way,
+  // monthly or yearly — it just runs over whatever `days`/`recurringDays`
+  // cover for that period.
   const paceVertices = [[0, 0]];
   let recurringRunning = 0;
   recurringDays.forEach((d) => {
     const idx = days.indexOf(d);
     if (idx === -1) return;
-    paceVertices.push([idx, recurringRunning]);
     recurringRunning += recurringByDate[d];
     paceVertices.push([idx, recurringRunning]);
   });
