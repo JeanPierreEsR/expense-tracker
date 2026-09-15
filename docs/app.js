@@ -676,6 +676,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     populateTags();
 
     await refreshEntryList();
+    refreshExpectedRecurring();
 
     if (editingViaPopup) {
       await refreshAfterPopupEdit();
@@ -843,6 +844,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   await callApi("discardEntry", { id: editingEntryId });
   exitEditMode();
   await refreshEntryList();
+  refreshExpectedRecurring();
   if (editingViaPopup) {
     await refreshAfterPopupEdit();
   } else if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -1045,6 +1047,7 @@ async function refreshReviewQueue() {
       try {
         await applyReviewAction_({ id: entry.id, action: "confirm", fields });
         refreshEntryList();
+        refreshExpectedRecurring();
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
@@ -2107,6 +2110,7 @@ async function init() {
     await loadMeta();
     await refreshEntryList();
     await refreshReviewQueue();
+    await refreshExpectedRecurring();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
@@ -2177,6 +2181,7 @@ async function init() {
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
+      await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
       }
@@ -2375,6 +2380,71 @@ document.getElementById("recurring-delete-btn").addEventListener("click", async 
   await callApi("deleteRecurringExpense", { id });
   refreshRecurringExpenses();
 });
+
+// ---- "Expected this month" (Entries tab) ----
+
+// A group's summary row is purely a toggle for its own detail list — no
+// confirm/discard anywhere here. The actual entry only ever gets created
+// the normal way (email arrives, review queue, confirm) — this is just a
+// heads-up of what the server hasn't matched to a real entry yet, and it
+// drops off there on its own once that match exists.
+async function refreshExpectedRecurring() {
+  const card = document.getElementById("expected-recurring-card");
+  const container = document.getElementById("expected-recurring-groups");
+  let groups;
+  try {
+    ({ groups } = await callApi("listExpectedRecurringItems"));
+  } catch (err) {
+    card.hidden = true;
+    return;
+  }
+
+  if (!groups.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  container.innerHTML = "";
+
+  groups.forEach((g) => {
+    const group = document.createElement("div");
+    group.className = "expected-recurring-group";
+
+    const isPen = g.currency === "PEN";
+    let amountHtml;
+    if (isPen) {
+      amountHtml = `<span class="primary-amt">PEN ${moneyFmt(g.total)}</span>`;
+    } else if (g.totalPen != null) {
+      amountHtml = `<span class="primary-amt">PEN ${moneyFmt(g.totalPen)}</span>` +
+        `<span class="original-amt">${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>`;
+    } else {
+      amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>` +
+        `<span class="original-amt">Needs an exchange rate</span>`;
+    }
+
+    const detail = document.createElement("div");
+    detail.className = "expected-recurring-detail";
+    detail.hidden = true;
+    detail.innerHTML = g.items.map((item) => `
+      <div class="expected-recurring-item">
+        <span>${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
+        <span>Day ${item.day} · ${g.currency} ${moneyFmt(item.amount)}</span>
+      </div>
+    `).join("");
+
+    const summary = document.createElement("div");
+    summary.className = "expected-recurring-summary";
+    summary.innerHTML = `
+      <span class="expected-recurring-summary-label">🔁 ${g.items.length} expected</span>
+      <span class="expected-recurring-amount">${amountHtml}</span>
+    `;
+    summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
+
+    group.appendChild(summary);
+    group.appendChild(detail);
+    container.appendChild(group);
+  });
+}
 
 // ---- Projections ----
 

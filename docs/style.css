@@ -981,6 +981,54 @@ button.primary:disabled {
   color: var(--muted);
 }
 
+/* ---- "Expected this month" (Entries tab) ---- */
+
+.expected-recurring-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.expected-recurring-group:last-child { border-bottom: none; }
+
+.expected-recurring-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.expected-recurring-summary-label {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.expected-recurring-amount {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+.expected-recurring-amount .primary-amt { font-weight: 600; }
+
+.expected-recurring-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.expected-recurring-detail {
+  padding-bottom: 10px;
+}
+
+.expected-recurring-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0 6px 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .type-dot {
   display: inline-block;
   width: 8px;
