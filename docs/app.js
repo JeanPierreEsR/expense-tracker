@@ -1032,10 +1032,11 @@ function showScreen(name) {
   if (name === "projections") refreshProjections();
 }
 
-// Recurring expenses lives under More but isn't a bottom-nav tab of its
-// own — reached only via the "Recurring expenses" row, so this keeps
-// "More" highlighted in the nav rather than clearing every tab's active
-// state the way showScreen(name) would for an id with no matching button.
+// Recurring income/expenses lives under More but isn't a bottom-nav tab of
+// its own — reached only via the "Recurring income/expenses" row, so this
+// keeps "More" highlighted in the nav rather than clearing every tab's
+// active state the way showScreen(name) would for an id with no matching
+// button.
 function showRecurringScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-recurring"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -2140,7 +2141,7 @@ async function init() {
 document.getElementById("more-recurring-btn").addEventListener("click", showRecurringScreen);
 document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
 
-// ---- Recurring expenses ----
+// ---- Recurring income/expenses ----
 
 let editingRecurringId = null;
 let recurringFrequency = "monthly";
@@ -2165,6 +2166,7 @@ async function refreshRecurringExpenses() {
     const freqLabel = re.frequency === "yearly"
       ? `Yearly, ${MONTH_NAMES_SHORT[re.month - 1]} ${re.day}`
       : `Monthly, day ${re.day}`;
+    const isIncome = re.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row" + (re.active ? "" : " inactive");
     row.innerHTML = `
@@ -2172,7 +2174,7 @@ async function refreshRecurringExpenses() {
         <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
         <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${freqLabel}${re.active ? "" : " · Paused"}</div>
       </div>
-      <div class="recurring-row-amount">${re.currency} ${moneyFmt(re.amount)}</div>
+      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${re.currency} ${moneyFmt(re.amount)}</div>
     `;
     row.addEventListener("click", () => openRecurringModal(re));
     list.appendChild(row);
@@ -2185,7 +2187,7 @@ function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
   container.innerHTML = "";
   meta.categories
-    .filter((c) => c.type === "expense")
+    .filter((c) => c.type === "expense" || c.type === "income")
     .forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
@@ -2214,7 +2216,7 @@ document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) =
 
 function openRecurringModal(re) {
   editingRecurringId = re ? re.id : null;
-  document.getElementById("recurring-modal-title").textContent = re ? "Edit recurring expense" : "Add recurring expense";
+  document.getElementById("recurring-modal-title").textContent = re ? "Edit recurring item" : "Add recurring item";
   document.getElementById("recurring-form-error").textContent = "";
   document.getElementById("recurring-description").value = re ? re.description : "";
 
@@ -2296,7 +2298,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
 
 document.getElementById("recurring-delete-btn").addEventListener("click", async () => {
   if (!editingRecurringId) return;
-  if (!confirm("Delete this recurring expense? This can't be undone.")) return;
+  if (!confirm("Delete this recurring item? This can't be undone.")) return;
   const id = editingRecurringId;
   closeRecurringModal();
   await callApi("deleteRecurringExpense", { id });
@@ -2322,6 +2324,21 @@ async function refreshProjections() {
   }
 
   monthLabel.textContent = `Projected for ${p.monthLabel}`;
+
+  // Only worth a breakdown line when at least one recurring item actually
+  // contributed to that figure — otherwise it's just "0 + the same total
+  // again", which tells the reader nothing they don't already see above.
+  const breakdownLines = [];
+  if (p.incomeFromRecurring > 0) {
+    breakdownLines.push(`Income: ${formatPen(p.incomeFromRecurring)} from recurring items + ${formatPen(p.incomeFromAverage)} from your recent average.`);
+  }
+  if (p.expensesFromRecurring > 0) {
+    breakdownLines.push(`Expenses: ${formatPen(p.expensesFromRecurring)} from recurring items + ${formatPen(p.expensesFromAverage)} from your recent average.`);
+  }
+  if (p.investmentsFromRecurring > 0) {
+    breakdownLines.push(`Investments: ${formatPen(p.investmentsFromRecurring)} from recurring items + ${formatPen(p.investmentsFromAverage)} from your recent average.`);
+  }
+
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
@@ -2341,9 +2358,9 @@ async function refreshProjections() {
         <span class="summary-value">${formatPen(p.net)}</span>
       </div>
     </div>
-    <p class="projections-breakdown">Expenses: ${formatPen(p.expensesFromRecurring)} from recurring expenses + ${formatPen(p.expensesFromAverage)} from your recent average.</p>
+    ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
-  methodNote.textContent = `Income and investments are the average of your last ${p.averageMonths} complete months. Expenses use each category's recurring expenses when it has any, and the recent average otherwise — never both, so nothing is counted twice.`;
+  methodNote.textContent = `Each figure uses a category's recurring income/expenses when it has any, and the average of your last ${p.averageMonths} complete months otherwise — never both, so nothing is counted twice.`;
 }
 
 (function setupUpdateCheck() {
