@@ -680,29 +680,14 @@ button.primary:disabled {
   min-width: 0;
 }
 
-.drilldown-back-btn {
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 4px 6px 4px 0;
-  line-height: 1;
-}
-
 .drilldown-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* A small nudge right, separating it from the title/back-button group
-     now on the left — still inside the header's own right-side padding,
-     just not hugging the title quite as closely. */
-  margin-left: 8px;
 }
 
 .drilldown-menu-wrap {
   position: relative;
-  margin-left: 4px;
 }
 
 .drilldown-menu-btn {

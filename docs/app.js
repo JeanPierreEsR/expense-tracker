@@ -1478,26 +1478,24 @@ document.getElementById("drilldown-modal-backdrop").addEventListener("click", (e
   if (e.target.id === "drilldown-modal-backdrop") closeDrilldown();
 });
 
-// ---- Drag up on the drill-down's header to expand it full-screen ----
+// ---- Drag on the drill-down's header to expand/collapse it full-screen ----
 // A long transaction list or a budget with many categories can want more
 // room than the normal 75%-height sheet — dragging up on the header (the
-// one part that never scrolls) expands it to fill the screen; the back
-// button that appears in its place returns to the normal sheet size
-// without closing the drill-down itself.
+// one part that never scrolls) expands it to fill the screen; dragging down
+// on it again returns to the normal sheet size without closing the
+// drill-down itself. Same gesture both ways, so no separate button is
+// needed to go back.
 function expandDrilldown_() {
   document.getElementById("drilldown-modal-inner").classList.add("expanded");
-  document.getElementById("drilldown-back-btn").hidden = false;
 }
 
 function collapseDrilldownExpand_() {
   document.getElementById("drilldown-modal-inner").classList.remove("expanded");
-  document.getElementById("drilldown-back-btn").hidden = true;
 }
-
-document.getElementById("drilldown-back-btn").addEventListener("click", collapseDrilldownExpand_);
 
 (function setupDrilldownDragToExpand() {
   const header = document.getElementById("drilldown-header");
+  const inner = document.getElementById("drilldown-modal-inner");
   let startY = 0;
   let tracking = false;
 
@@ -1510,7 +1508,9 @@ document.getElementById("drilldown-back-btn").addEventListener("click", collapse
     if (!tracking) return;
     tracking = false;
     const dy = e.changedTouches[0].clientY - startY;
-    if (dy < -40) expandDrilldown_();
+    const expanded = inner.classList.contains("expanded");
+    if (!expanded && dy < -40) expandDrilldown_();
+    else if (expanded && dy > 40) collapseDrilldownExpand_();
   }, { passive: true });
 })();
 
