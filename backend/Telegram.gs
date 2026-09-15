@@ -112,11 +112,19 @@ function sendTelegramEntryNotification_(entry, categoryName) {
   return res;
 }
 
+// Apps Script's V8 runtime supports toLocaleString same as the browser —
+// matches the frontend's own moneyFmt() so amounts read the same way in
+// Telegram as they do in the app (a bare .toFixed(2) has no thousands
+// separator, e.g. "6000.00" instead of "6,000.00").
+function moneyFmt_(n) {
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function formatEntryForTelegram_(entry, categoryName) {
   var icon = entry.type === 'expense' ? '💸' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
-  lines.push(entry.currency + ' ' + Number(entry.amount).toFixed(2) + ' — ' + (categoryName || 'needs category'));
+  lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category'));
   lines.push(entry.date + ' · ' + entry.type);
   lines.push('');
   lines.push('Reply to edit — category, amount, description, paid by, currency, or date. ' +
@@ -133,8 +141,8 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
 
   var periodLabel = budget.period_type === 'yearly' ? 'this year' : 'this month';
   var emoji = threshold >= 100 ? '🚨' : '⚠️';
-  var spentStr = progress.spent != null ? Number(progress.spent).toFixed(2) : '?';
-  var amountStr = Number(budget.amount).toFixed(2);
+  var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
+  var amountStr = moneyFmt_(budget.amount);
   var text = emoji + ' ' + categoryDisplayName + ': ' + threshold + '% of your ' + budget.currency + ' ' +
     amountStr + ' budget (' + budget.currency + ' ' + spentStr + ' spent ' + periodLabel + ').';
 

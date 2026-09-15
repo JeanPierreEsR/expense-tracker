@@ -673,14 +673,36 @@ button.primary:disabled {
   min-width: 0;
 }
 
+.drilldown-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drilldown-back-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 6px 4px 0;
+  line-height: 1;
+}
+
 .drilldown-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* A small nudge right, separating it from the title/back-button group
+     now on the left — still inside the header's own right-side padding,
+     just not hugging the title quite as closely. */
+  margin-left: 8px;
 }
 
 .drilldown-menu-wrap {
   position: relative;
+  margin-left: 4px;
 }
 
 .drilldown-menu-btn {
@@ -765,6 +787,23 @@ button.primary:disabled {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+}
+
+/* Dragging up from the drill-down's header (see setupDrilldownExpand in
+   app.js) expands it to fill the screen instead of staying capped at 75%
+   — useful for a long transaction list or a budget with many categories.
+   Scoped to the drill-down's own id, not the shared .currency-modal class,
+   so it doesn't affect the currency picker/entry/budget/rate sheets. */
+#drilldown-modal-inner {
+  transition: max-height 0.22s ease;
+}
+
+#drilldown-modal-inner.expanded {
+  max-height: 100vh;
+  max-height: 100dvh;
+  height: 100dvh;
+  border-radius: 0;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
 }
 
 .currency-modal-header {
