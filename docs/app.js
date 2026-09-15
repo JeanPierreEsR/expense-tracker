@@ -716,7 +716,7 @@ function renderEntryAmountHtml(entry) {
     return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
   }
 
-  return `<span class="primary-amt">PEN ${money(entry.amount_pen)}</span>${originalLine}`;
+  return `<span class="primary-amt">${findCurrency("PEN").flag} PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
 }
 
 function findCategory(id) {
