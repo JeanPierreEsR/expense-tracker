@@ -309,7 +309,82 @@ function getCategoryProjectionDetail(payload) {
       dailyActualPen[e.date] = (dailyActualPen[e.date] || 0) + pen;
     });
 
-  return { bounds: bounds, projection: match, dailyActualPen: dailyActualPen };
+  // "Expected" (the YTD-rate portion) only exists for expense/investment
+  // — income's non-recurring portion is just already-confirmed entries in
+  // the period itself, already fully visible in the transaction list
+  // above, so there's no estimate to trace back for it.
+  var ytdBreakdown = (category && (category.type === 'expense' || category.type === 'investment'))
+    ? computeCategoryYtdBreakdown_(payload.categoryId)
+    : null;
+
+  return { bounds: bounds, projection: match, dailyActualPen: dailyActualPen, ytdBreakdown: ytdBreakdown };
+}
+
+// Traces back the "expected" figure for one category: its non-recurring
+// spend for each complete month so far this year (the same exclusion as
+// computeAllCategoryProjections_'s YTD rate — an entry already explained
+// by a recurring item doesn't count here either), so a spike in one
+// particular month is visible rather than hidden inside a single blended
+// average. Every elapsed month gets a row even at 0 — a silent gap is as
+// informative as a number when eyeballing whether the rate makes sense.
+function computeCategoryYtdBreakdown_(categoryId) {
+  var ytd = ytdRangeForProjection_();
+  if (!ytd.ytdStart) return { months: [], totalPen: 0, monthsElapsed: 0, ratePerMonth: 0 };
+
+  var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
+    return String(r.active) !== 'false' && r.category_id === categoryId;
+  });
+  var entriesYtd = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.category_id === categoryId &&
+      e.date >= ytd.ytdStart && e.date <= ytd.ytdEnd;
+  });
+
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+  var monthRateByKey = {};
+  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  function toPen_(amount, currency, dateStr) {
+    if (currency === 'PEN') return amount;
+    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    return rate != null ? amount * rate : null;
+  }
+
+  var matchedEntryIds = {};
+  categoryRecurring.forEach(function (r) {
+    var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
+    entriesYtd.forEach(function (e) {
+      if (matchedEntryIds[e.id]) return;
+      if (entryMatchesRecurringOccurrence_(e, r, occYtd)) matchedEntryIds[e.id] = true;
+    });
+  });
+
+  var monthlyTotals = {};
+  var totalPen = 0;
+  entriesYtd.forEach(function (e) {
+    if (matchedEntryIds[e.id]) return;
+    var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
+    var pen = toPen_(ownAmount, e.currency, e.date);
+    if (pen == null) return;
+    var monthKey = String(e.date).substring(0, 7);
+    monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + pen;
+    totalPen += pen;
+  });
+
+  var year = ytd.ytdStart.substring(0, 4);
+  var months = [];
+  for (var m = 1; m <= ytd.monthsElapsed; m++) {
+    var monthKey = year + '-' + pad2_(m);
+    months.push({ monthKey: monthKey, amountPen: monthlyTotals[monthKey] || 0 });
+  }
+
+  return {
+    months: months,
+    totalPen: totalPen,
+    monthsElapsed: ytd.monthsElapsed,
+    ratePerMonth: totalPen / ytd.monthsElapsed
+  };
 }
 
 function setProjectionOverride(payload) {
