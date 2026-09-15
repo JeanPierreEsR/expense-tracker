@@ -1547,8 +1547,14 @@ async function refreshBudgetRateWarning_(budget) {
 document.getElementById("budget-rate-warning-link").addEventListener("click", async () => {
   const currency = document.getElementById("budget-currency").value;
   const month = todayLocalISO().slice(0, 7);
-  await openRateModal(currency, month, /* required */ false);
+  const rate = await openRateModal(currency, month, /* required */ false);
   await refreshBudgetRateWarning_(null);
+  // Saving a rate here only ever updated this form's own warning line —
+  // the budgets list underneath (percent, spent, progress bar for every
+  // row using this currency) had nothing telling it to recompute, so it
+  // stayed showing "needs an exchange rate" until something else happened
+  // to refresh it. Runs in the background so it doesn't block this modal.
+  if (rate != null) refreshBudgetsInBackground_();
 });
 
 function openBudgetModal(budget) {
@@ -1677,6 +1683,13 @@ async function refreshBudgets() {
   }
   emptyNote.hidden = true;
 
+  // Collected while rendering the rows below, then shown once as a single
+  // footnote under the totals rather than repeated inside every box — a
+  // rate line inside each budget's own box read as if it were part of
+  // that budget's definition, not just a note about how its progress was
+  // computed.
+  const fxNotes = [];
+
   budgets.forEach((b) => {
     const p = b.progress;
     const pct = p.percent;
@@ -1693,13 +1706,10 @@ async function refreshBudgets() {
       : `${b.currency} ${moneyFmt(p.spent)} / ${amountLabel}`;
     const periodLabel = (p.effectivePeriodType === "yearly" ? "this year" : "this month") +
       (p.annualized ? " (monthly × 12)" : "");
-    // Only entries NOT already recorded in the budget's own currency ever
-    // actually use this rate (see categorySpendInCurrencyFromContext_
-    // server-side) — shown anyway whenever it's on file, so it's never a
-    // mystery which rate a foreign-currency budget is comparing against.
-    const fxLine = (b.currency !== "PEN" && p.rate != null)
-      ? `<div class="budget-row-fx">1 ${b.currency} = ${moneyFmt(p.rate)} PEN</div>`
-      : "";
+
+    if (b.currency !== "PEN" && p.rate != null) {
+      fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} PEN — ${b.category_name}`);
+    }
 
     const row = document.createElement("div");
     row.className = "budget-row";
@@ -1715,7 +1725,6 @@ async function refreshBudgets() {
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
-      ${fxLine}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -1732,6 +1741,14 @@ async function refreshBudgets() {
     summaryNote.textContent = `${summary.excludedCount} budget${summary.excludedCount === 1 ? "" : "s"} excluded — missing an exchange rate.`;
   } else {
     summaryNote.hidden = true;
+  }
+
+  const fxNote = document.getElementById("budgets-summary-fx");
+  if (fxNotes.length) {
+    fxNote.hidden = false;
+    fxNote.innerHTML = fxNotes.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
+  } else {
+    fxNote.hidden = true;
   }
 }
 

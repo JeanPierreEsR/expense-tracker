@@ -1058,10 +1058,16 @@ button.primary:disabled {
   flex-shrink: 0;
 }
 
-.budget-row-fx {
-  font-size: 0.7rem;
+.budgets-summary-fx {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
   color: var(--muted);
-  margin-top: 3px;
+}
+
+.budgets-summary-fx div + div {
+  margin-top: 2px;
 }
 
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
