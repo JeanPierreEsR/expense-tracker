@@ -1885,4 +1885,45 @@ async function init() {
   document.addEventListener("touchend", onTouchEnd, { passive: true });
 })();
 
+// ---- Update banner ----
+// A PWA left open (or a stale cached page in general) never re-fetches
+// index.html/app.js on its own — a code change we push is invisible until
+// the owner happens to force-quit and reopen it. This polls a tiny version
+// file instead: remembers whatever version was live when the page loaded,
+// then periodically (and whenever the tab/app comes back to the
+// foreground) checks whether that's changed, and shows a banner rather
+// than silently running stale code indefinitely. docs/version.json needs
+// its value bumped on every deploy that touches docs/*.html, *.js, *.css
+// — nothing else keeps this in sync automatically.
+(function setupUpdateCheck() {
+  const banner = document.getElementById("update-banner");
+  let knownVersion = null;
+
+  async function checkForUpdate() {
+    try {
+      const res = await fetch("version.json?cb=" + Date.now(), { cache: "no-store" });
+      const data = await res.json();
+      if (knownVersion === null) {
+        knownVersion = data.version;
+        return;
+      }
+      if (data.version !== knownVersion) {
+        banner.hidden = false;
+      }
+    } catch (err) {
+      // Offline or a network hiccup — not worth surfacing, next check retries.
+    }
+  }
+
+  banner.addEventListener("click", () => {
+    location.href = location.pathname + "?cb=" + Date.now();
+  });
+
+  checkForUpdate();
+  setInterval(checkForUpdate, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForUpdate();
+  });
+})();
+
 init();

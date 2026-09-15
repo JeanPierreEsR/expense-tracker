@@ -23,6 +23,25 @@ body {
   padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
 }
 
+/* Sits above everything else in the app, including modals (the highest,
+   the rate modal, is 270) — a running instance can have any of those open
+   when a new version becomes available. */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: var(--accent);
+  color: white;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .pull-refresh-indicator {
   position: fixed;
   top: 0;
