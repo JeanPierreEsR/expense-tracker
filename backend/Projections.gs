@@ -168,11 +168,26 @@ function computeAllCategoryProjections_(bounds) {
   var results = categories.map(function (category) {
     var categoryRecurring = recurringByCategory[category.id] || [];
 
+    // A yearly-frequency recurring item, viewed monthly, would otherwise
+    // dump its whole annual amount into whichever single month it happens
+    // to land in — a misleading spike rather than a genuine monthly
+    // figure. Left out of the recurring portion for a monthly view of an
+    // expense/investment category (its real cost still surfaces smoothed
+    // through the YTD rate below, since excluding it here also stops its
+    // matching entries from being excluded there); reinstated for a
+    // yearly view, where a once-a-year cost showing once a year is
+    // exactly correct. Income is never filtered this way — it has no YTD
+    // fallback to catch the amount instead, so excluding it would just
+    // make a real, known, once-a-year payment disappear in its own month.
+    var recurringForPeriod = (category.type === 'income' || bounds.periodType === 'yearly')
+      ? categoryRecurring
+      : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+
     // Recurring portion for the exact period being shown — each
     // occurrence converted at its own actual date's rate, since a yearly
     // period can span months with different rates on file.
     var recurringAmountPen = 0;
-    categoryRecurring.forEach(function (r) {
+    recurringForPeriod.forEach(function (r) {
       recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
         var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
         if (pen != null) recurringAmountPen += pen;
@@ -184,7 +199,7 @@ function computeAllCategoryProjections_(bounds) {
     if (category.type === 'income') {
       entriesInPeriod.forEach(function (e) {
         if (e.category_id !== category.id) return;
-        var matchesRecurring = categoryRecurring.some(function (r) {
+        var matchesRecurring = recurringForPeriod.some(function (r) {
           var occ = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate);
           return entryMatchesRecurringOccurrence_(e, r, occ);
         });
@@ -194,7 +209,7 @@ function computeAllCategoryProjections_(bounds) {
       });
     } else if (ytd.ytdStart) {
       var matchedEntryIds = {};
-      categoryRecurring.forEach(function (r) {
+      recurringForPeriod.forEach(function (r) {
         var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
         entriesYtd.forEach(function (e) {
           if (e.category_id !== category.id || matchedEntryIds[e.id]) return;
