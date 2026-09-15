@@ -35,7 +35,10 @@ function listRecurringExpenses() {
   var categoryById = rowsById_(getAllRows('Categories'));
   return getRecurringExpenseRows_().map(function (r) {
     return recurringExpenseForClient_(r, categoryById);
-  }).sort(function (a, b) { return a.category_name.localeCompare(b.category_name); });
+  }).sort(function (a, b) {
+    if (a.day !== b.day) return a.day - b.day;
+    return a.category_name.localeCompare(b.category_name);
+  });
 }
 
 function recurringExpenseForClient_(r, categoryById) {
@@ -136,17 +139,24 @@ function recurringExpenseOccurrencesInRange_(re, startDate, endDate) {
 // change (an exchange rate jumping month to month) — reused here as the
 // cutoff for "close enough to call this the same payment."
 var RECURRING_MATCH_TOLERANCE = 0.10;
+var RECURRING_MATCH_DAY_WINDOW = 5;
 
 // What's expected this month, minus whatever already has a matching real
 // entry — for the Entries tab's collapsed "Expected this month" line. A
 // recurring item counts as already handled if some confirmed entry this
-// month shares its category and currency and lands within ~10% of its
-// amount; nothing actually links a specific Entry to a specific recurring
-// item (there's no such field), so this is a best-effort match, not a
-// guarantee — see CLAUDE.md. Grouped by currency so each group can show a
-// plain sum in its own currency without needing a rate just to render;
-// a non-PEN group additionally carries its PEN-converted total using the
-// same "latest rate at or before this month" rule as everywhere else.
+// month shares its category and currency, lands within ~10% of its
+// amount, AND falls within a few days of its actual billing date —
+// category+currency+amount alone isn't enough when a category holds
+// several recurring items (e.g. three under "Mobile Phone"), since an
+// unrelated one of them being confirmed could otherwise falsely mark a
+// completely different, not-yet-due item as already handled just for
+// sharing a similar amount somewhere else in the month. Nothing actually
+// links a specific Entry to a specific recurring item (there's no such
+// field), so this is still a best-effort match, not a guarantee — see
+// CLAUDE.md. Grouped by currency so each group can show a plain sum in
+// its own currency without needing a rate just to render; a non-PEN
+// group additionally carries its PEN-converted total using the same
+// "latest rate at or before this month" rule as everywhere else.
 function listExpectedRecurringItems() {
   var now = new Date();
   var year = now.getFullYear();
@@ -159,18 +169,22 @@ function listExpectedRecurringItems() {
     return e.status === 'confirmed' && e.date >= monthStart && e.date <= monthEnd;
   });
 
-  function alreadyHandled(r) {
+  function alreadyHandled(r, occurrenceDates) {
     var amt = Number(r.amount);
     return confirmedThisMonth.some(function (e) {
       if (e.category_id !== r.category_id || e.currency !== (r.currency || 'PEN')) return false;
-      return Math.abs(Number(e.amount) - amt) <= amt * RECURRING_MATCH_TOLERANCE;
+      if (Math.abs(Number(e.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
+      return occurrenceDates.some(function (occDate) {
+        return Math.abs(daysBetweenDates_(e.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
+      });
     });
   }
 
   var stillExpected = getRecurringExpenseRows_().filter(function (r) {
     if (String(r.active) === 'false') return false;
-    if (recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd).length === 0) return false;
-    return !alreadyHandled(r);
+    var occurrenceDates = recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd);
+    if (occurrenceDates.length === 0) return false;
+    return !alreadyHandled(r, occurrenceDates);
   });
 
   var ctx = buildBudgetContext_();
@@ -221,4 +235,11 @@ function clampedCalendarDate_(year, month, day) {
 
 function formatCalendarDate_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function daysBetweenDates_(dateStrA, dateStrB) {
+  var msPerDay = 24 * 60 * 60 * 1000;
+  var a = new Date(dateStrA + 'T00:00:00');
+  var b = new Date(dateStrB + 'T00:00:00');
+  return Math.round((a.getTime() - b.getTime()) / msPerDay);
 }
