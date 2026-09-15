@@ -296,6 +296,50 @@ function listBudgets(payload) {
     return pb - pa;
   });
 
+  // ---- Dedup categories before totaling, so an "all categories" budget
+  // plus narrower budgets inside it don't get added on top of each other —
+  // only the total possible spend matters here, and a budget whose
+  // categories are entirely covered by another budget doesn't raise that
+  // ceiling any further. Applies regardless of period_type: a monthly and
+  // a yearly budget on the very same category are the same case (two caps
+  // on one spend pool), not two independent amounts to add together.
+  var allExpenseCategoryIds = Object.keys(categoryById).filter(function (id) {
+    return categoryById[id].type === 'expense';
+  });
+  function idSetFor_(categoryIds) {
+    var ids = categoryIds === null ? allExpenseCategoryIds : categoryIds;
+    var set = {};
+    ids.forEach(function (id) { set[id] = true; });
+    return set;
+  }
+  function isSubset_(small, big) {
+    for (var id in small) { if (!big[id]) return false; }
+    return true;
+  }
+  function setSize_(set) { return Object.keys(set).length; }
+
+  var budgetSets = budgets.map(function (b) { return idSetFor_(b.category_ids); });
+
+  // dominated[i] === true means budget i's categories are already fully
+  // covered by some other budget j, so i is left out of the total. When
+  // two budgets cover the exact same categories, only one survives (the
+  // larger PEN amount, tie-broken by id) — otherwise an identical pair
+  // would each "contain" the other and both would vanish.
+  var dominated = budgets.map(function () { return false; });
+  for (var i = 0; i < budgets.length; i++) {
+    for (var j = 0; j < budgets.length; j++) {
+      if (i === j || !isSubset_(budgetSets[i], budgetSets[j])) continue;
+      var equalSets = setSize_(budgetSets[i]) === setSize_(budgetSets[j]);
+      if (!equalSets) { dominated[i] = true; break; }
+      var pi = budgets[i].amount_pen == null ? -1 : budgets[i].amount_pen;
+      var pj = budgets[j].amount_pen == null ? -1 : budgets[j].amount_pen;
+      if (pj > pi || (pj === pi && String(budgets[j].id) > String(budgets[i].id))) {
+        dominated[i] = true;
+        break;
+      }
+    }
+  }
+
   // Two views of the same total: a yearly budget's amount already IS a
   // yearly figure (divide by 12 for its monthly-equivalent share); a
   // monthly budget's amount times 12 gives its yearly-equivalent. The
@@ -303,20 +347,45 @@ function listBudgets(payload) {
   // shown as two numbers anyway since "per month" and "per year" are both
   // useful at a glance without doing the math.
   var monthlyPen = 0, yearlyPen = 0, excludedCount = 0;
-  rawBudgets.forEach(function (b) {
-    var currency = b.currency || 'PEN';
-    var rate = latestRateAtOrBefore_(ctx, currency, currentMonth);
-    if (rate == null) { excludedCount++; return; }
-    var amount = Number(b.amount);
-    var monthlyAmount = b.period_type === 'yearly' ? amount / 12 : amount;
-    var yearlyAmount = b.period_type === 'yearly' ? amount : amount * 12;
-    monthlyPen += monthlyAmount * rate;
-    yearlyPen += yearlyAmount * rate;
+  budgets.forEach(function (b, idx) {
+    if (dominated[idx]) return;
+    if (b.amount_pen == null) { excludedCount++; return; }
+    monthlyPen += b.period_type === 'yearly' ? b.amount_pen / 12 : b.amount_pen;
+    yearlyPen += b.period_type === 'yearly' ? b.amount_pen : b.amount_pen * 12;
   });
+
+  // Budgets that survive the dedup above (none fully contains the other)
+  // can still partly overlap — e.g. "Car" and "Monthly essentials" both
+  // including Transport. Unlike full containment, there's no single
+  // correct total then, so this just surfaces it rather than guessing.
+  var overlapNotes = [];
+  for (var a = 0; a < budgets.length; a++) {
+    if (dominated[a]) continue;
+    for (var c = a + 1; c < budgets.length; c++) {
+      if (dominated[c]) continue;
+      var shared = [];
+      for (var sid in budgetSets[a]) {
+        if (budgetSets[c][sid]) shared.push(sid);
+      }
+      if (shared.length === 0) continue;
+      var sharedNames = shared.map(function (id) {
+        return categoryById[id] ? categoryById[id].name : id;
+      }).join(', ');
+      overlapNotes.push(
+        '"' + budgets[a].category_name + '" and "' + budgets[c].category_name +
+        '" both include ' + sharedNames + ' — total may overstate your real ceiling.'
+      );
+    }
+  }
 
   return {
     budgets: budgets,
-    summary: { monthlyPen: monthlyPen, yearlyPen: yearlyPen, excludedCount: excludedCount }
+    summary: {
+      monthlyPen: monthlyPen,
+      yearlyPen: yearlyPen,
+      excludedCount: excludedCount,
+      overlapNotes: overlapNotes
+    }
   };
 }
 

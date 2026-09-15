@@ -1154,6 +1154,18 @@ button.primary:disabled {
   margin-top: 2px;
 }
 
+.budgets-summary-overlap {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: #B8860B;
+}
+
+.budgets-summary-overlap div + div {
+  margin-top: 4px;
+}
+
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
 
 .budget-period-tabs .type-tab.active {

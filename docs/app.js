@@ -1854,6 +1854,18 @@ async function refreshBudgets() {
   } else {
     fxNote.hidden = true;
   }
+
+  // Server already worked out which budgets fully contain others (those
+  // are just left out of the total, silently) and which merely share some
+  // categories without one containing the other — only the latter has no
+  // single correct total, so that's the only case shown here.
+  const overlapNote = document.getElementById("budgets-summary-overlap");
+  if (summary.overlapNotes && summary.overlapNotes.length) {
+    overlapNote.hidden = false;
+    overlapNote.innerHTML = summary.overlapNotes.map((line) => `<div>⚠️ ${escapeHtml(line)}</div>`).join("");
+  } else {
+    overlapNote.hidden = true;
+  }
 }
 
 // ---- Init ----
