@@ -199,6 +199,7 @@ function listExpectedRecurringItems() {
       var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
       group.totalPen = rate != null ? group.total * rate : null;
     }
+    group.items.sort(function (a, b) { return a.day - b.day; });
     return group;
   });
 
