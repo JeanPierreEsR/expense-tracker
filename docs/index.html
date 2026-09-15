@@ -224,6 +224,12 @@
         <div id="projections-body"></div>
         <p class="hint" id="projections-method-note"></p>
       </div>
+
+      <div class="card">
+        <h2>By category</h2>
+        <div id="projections-categories-list"></div>
+        <p class="hint" id="projections-categories-empty-note" hidden>Nothing to project yet — add a recurring item or log some expenses.</p>
+      </div>
     </div>
 
     <div id="screen-more" class="screen" hidden>
@@ -321,9 +327,16 @@
           <div id="drilldown-chart-svg"></div>
           <div class="drilldown-chart-legend">
             <span><span class="legend-swatch legend-actual"></span>Actual spend</span>
-            <span><span class="legend-swatch legend-pace"></span>Pace to stay in budget</span>
+            <span><span class="legend-swatch legend-pace"></span><span id="drilldown-chart-legend-2">Pace to stay in budget</span></span>
           </div>
           <p class="hint" id="drilldown-chart-pace-note"></p>
+        </div>
+        <div class="drilldown-projection-row" id="drilldown-projection-row" hidden>
+          <div class="drilldown-projection-label">
+            <div>🔮 Projected remaining</div>
+            <div class="hint" id="drilldown-projection-override-note" hidden>Manually set</div>
+          </div>
+          <div class="drilldown-projection-amount" id="drilldown-projection-amount">PEN 0.00</div>
         </div>
         <div class="currency-option-list" id="drilldown-list"></div>
       </div>
@@ -448,6 +461,26 @@
       <p class="hint" id="rate-form-error" style="color:#d64545;"></p>
       <button type="button" class="primary" id="rate-save-btn">Save rate</button>
       <button type="button" class="cancel-edit-btn" id="rate-cancel-btn">Skip for now</button>
+    </div>
+  </div>
+
+  <div id="projection-override-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="projection-override-modal-title">Edit projected total</span>
+        <button type="button" id="projection-override-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p class="hint" id="projection-override-modal-subtitle"></p>
+
+      <div class="rate-equation">
+        <span class="rate-equation-label">PEN</span>
+        <input type="text" inputmode="decimal" id="projection-override-value-input" placeholder="0.00">
+      </div>
+
+      <p class="hint" id="projection-override-form-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="projection-override-save-btn">Save</button>
+      <button type="button" class="add-inline" id="projection-override-reset-btn">Reset to calculated</button>
+      <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn">Cancel</button>
     </div>
   </div>
 

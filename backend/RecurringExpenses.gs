@@ -141,6 +141,21 @@ function recurringExpenseOccurrencesInRange_(re, startDate, endDate) {
 var RECURRING_MATCH_TOLERANCE = 0.10;
 var RECURRING_MATCH_DAY_WINDOW = 5;
 
+// Shared by listExpectedRecurringItems (below) and Projections.gs's YTD
+// estimate (which needs to exclude entries already "explained by" a
+// recurring item, so the same spend never counts in both the recurring
+// portion and the YTD-averaged portion of a category's projection).
+// occurrenceDates is that recurring item's actual billing dates within
+// whatever range the caller cares about.
+function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
+  if (entry.category_id !== recurring.category_id || entry.currency !== (recurring.currency || 'PEN')) return false;
+  var amt = Number(recurring.amount);
+  if (Math.abs(Number(entry.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
+  return occurrenceDates.some(function (occDate) {
+    return Math.abs(daysBetweenDates_(entry.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
+  });
+}
+
 // What's expected this month, minus whatever already has a matching real
 // entry — for the Entries tab's collapsed "Expected this month" line. A
 // recurring item counts as already handled if some confirmed entry this
@@ -170,14 +185,7 @@ function listExpectedRecurringItems() {
   });
 
   function alreadyHandled(r, occurrenceDates) {
-    var amt = Number(r.amount);
-    return confirmedThisMonth.some(function (e) {
-      if (e.category_id !== r.category_id || e.currency !== (r.currency || 'PEN')) return false;
-      if (Math.abs(Number(e.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
-      return occurrenceDates.some(function (occDate) {
-        return Math.abs(daysBetweenDates_(e.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
-      });
-    });
+    return confirmedThisMonth.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, occurrenceDates); });
   }
 
   var stillExpected = getRecurringExpenseRows_().filter(function (r) {

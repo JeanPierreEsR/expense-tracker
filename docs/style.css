@@ -1309,6 +1309,31 @@ button.primary:disabled {
 
 .recurring-row-amount.income { color: var(--income); }
 
+/* ---- Projections drill-down's "Projected remaining" row ---- */
+
+.drilldown-projection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  cursor: pointer;
+}
+
+.drilldown-projection-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.drilldown-projection-amount {
+  font-weight: 700;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
 /* ---- Budget drill-down line chart ---- */
 
 #drilldown-chart {

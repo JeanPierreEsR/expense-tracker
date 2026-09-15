@@ -30,6 +30,13 @@ var TABLE_DEFINITIONS = {
   // is only meaningful when frequency is 'yearly'. `active` lets one be
   // paused without deleting its history of use.
   'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active'],
+  // Not part of the original spec — lets the owner manually override a
+  // category's calculated Projections figure (see Projections.gs) for one
+  // specific period, when they know better than the YTD estimate. Deleting
+  // the row (via deleteProjectionOverride) is the "reset to calculated"
+  // action — there's deliberately no other state to represent "no
+  // override," so a missing row always means "use the calculation."
+  'Projection Overrides': ['id', 'category_id', 'period_key', 'amount'],
   'Period Templates': ['id', 'name', 'recurrence_rule', 'start_anchor'],
   'Import Batches': ['id', 'filename', 'date', 'row_count'],
   'Parsing Rules': ['id', 'bank_id', 'sender', 'pattern', 'field_mappings'],
@@ -55,7 +62,8 @@ var DATE_LIKE_COLUMNS = {
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
-  'Import Batches': ['date']
+  'Import Batches': ['date'],
+  'Projection Overrides': ['period_key']
 };
 
 // One-time migration for the Entries sheet from before `created_at`

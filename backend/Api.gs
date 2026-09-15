@@ -117,7 +117,13 @@ function routeAction(action, payload) {
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
     case 'listExpectedRecurringItems': return listExpectedRecurringItems();
-    case 'getProjections': return getProjections();
+    case 'getProjections': return getProjections(payload);
+    case 'listCategoryProjections': return listCategoryProjections(payload);
+    case 'getCategoryProjectionDetail': return getCategoryProjectionDetail(payload);
+    case 'setProjectionOverride': return setProjectionOverride(payload);
+    case 'deleteProjectionOverride': return deleteProjectionOverride(payload);
+    case 'admin_resetProjectionOverridesSheet': return adminResetProjectionOverridesSheet();
+    case 'admin_debugProjectionOverrides': return adminDebugProjectionOverrides();
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
