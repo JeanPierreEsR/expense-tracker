@@ -53,6 +53,7 @@ function routeAction(action, payload) {
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
+    case 'listExchangeRates': return listExchangeRates();
     case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
     case 'addFriend': return addFriend(payload);
     case 'addTag': return addTag(payload);
@@ -355,6 +356,20 @@ function computeAmountPen(amount, currency, dateStr) {
 }
 
 // ---- Exchange rates ----
+
+// For the More > Exchange rates screen — every rate ever set, most recent
+// month first, so an existing one can be found and edited (setExchangeRate
+// already upserts; nothing else needs to change to support editing, since
+// an entry's PEN amount is derived fresh from whatever rate is on file at
+// read time, never stored — see CLAUDE.md's Entries section).
+function listExchangeRates() {
+  return getAllRows('Exchange Rates')
+    .map(function (r) { return { id: r.id, currency: r.currency, month: r.month, rate: Number(r.rate) }; })
+    .sort(function (a, b) {
+      if (a.month !== b.month) return a.month < b.month ? 1 : -1;
+      return a.currency < b.currency ? -1 : 1;
+    });
+}
 
 function getExchangeRate(currency, month) {
   var match = getAllRows('Exchange Rates').filter(function (r) {
