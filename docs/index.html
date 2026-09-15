@@ -332,15 +332,18 @@
           <p class="hint" id="drilldown-chart-pace-note"></p>
         </div>
         <div id="drilldown-projection-split" hidden>
-          <div class="drilldown-projection-split-row">
-            <span>🔁 Programmed</span>
+          <div class="drilldown-projection-split-row expandable" id="drilldown-projection-programmed-row">
+            <span>🔁 Programmed <span class="hint">(tap to trace)</span></span>
             <span id="drilldown-projection-programmed-amount">PEN 0.00</span>
+          </div>
+          <div id="drilldown-projection-programmed-detail" class="drilldown-projection-expandable-detail" hidden>
+            <div id="drilldown-projection-programmed-items"></div>
           </div>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-expected-row">
             <span>📈 Expected <span class="hint">(tap to trace)</span></span>
             <span id="drilldown-projection-expected-amount">PEN 0.00</span>
           </div>
-          <div id="drilldown-projection-expected-detail" hidden>
+          <div id="drilldown-projection-expected-detail" class="drilldown-projection-expandable-detail" hidden>
             <p class="hint" id="drilldown-projection-expected-formula"></p>
             <div id="drilldown-projection-expected-months"></div>
           </div>
