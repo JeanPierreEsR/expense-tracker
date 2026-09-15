@@ -132,6 +132,87 @@ function recurringExpenseOccurrencesInRange_(re, startDate, endDate) {
   return dates;
 }
 
+// Same ~10% tolerance the app already uses elsewhere to flag a notable
+// change (an exchange rate jumping month to month) — reused here as the
+// cutoff for "close enough to call this the same payment."
+var RECURRING_MATCH_TOLERANCE = 0.10;
+
+// What's expected this month, minus whatever already has a matching real
+// entry — for the Entries tab's collapsed "Expected this month" line. A
+// recurring item counts as already handled if some confirmed entry this
+// month shares its category and currency and lands within ~10% of its
+// amount; nothing actually links a specific Entry to a specific recurring
+// item (there's no such field), so this is a best-effort match, not a
+// guarantee — see CLAUDE.md. Grouped by currency so each group can show a
+// plain sum in its own currency without needing a rate just to render;
+// a non-PEN group additionally carries its PEN-converted total using the
+// same "latest rate at or before this month" rule as everywhere else.
+function listExpectedRecurringItems() {
+  var now = new Date();
+  var year = now.getFullYear();
+  var month = now.getMonth() + 1;
+  var monthStart = year + '-' + pad2_(month) + '-01';
+  var monthEnd = year + '-' + pad2_(month) + '-' + pad2_(new Date(year, month, 0).getDate());
+
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var confirmedThisMonth = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.date >= monthStart && e.date <= monthEnd;
+  });
+
+  function alreadyHandled(r) {
+    var amt = Number(r.amount);
+    return confirmedThisMonth.some(function (e) {
+      if (e.category_id !== r.category_id || e.currency !== (r.currency || 'PEN')) return false;
+      return Math.abs(Number(e.amount) - amt) <= amt * RECURRING_MATCH_TOLERANCE;
+    });
+  }
+
+  var stillExpected = getRecurringExpenseRows_().filter(function (r) {
+    if (String(r.active) === 'false') return false;
+    if (recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd).length === 0) return false;
+    return !alreadyHandled(r);
+  });
+
+  var ctx = buildBudgetContext_();
+  var cutoffMonth = monthEnd.substring(0, 7);
+  var groupsByCurrency = {};
+
+  stillExpected.forEach(function (r) {
+    var currency = r.currency || 'PEN';
+    if (!groupsByCurrency[currency]) groupsByCurrency[currency] = { currency: currency, total: 0, items: [] };
+    var cat = categoryById[r.category_id];
+    var group = groupsByCurrency[currency];
+    group.total += Number(r.amount);
+    group.items.push({
+      id: r.id,
+      description: r.description || '',
+      category_name: cat ? cat.name : '(unknown category)',
+      category_icon: cat ? cat.icon : '',
+      amount: Number(r.amount),
+      day: r.day ? Number(r.day) : 1
+    });
+  });
+
+  var groups = Object.keys(groupsByCurrency).map(function (currency) {
+    var group = groupsByCurrency[currency];
+    if (currency !== 'PEN') {
+      var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
+      group.totalPen = rate != null ? group.total * rate : null;
+    }
+    return group;
+  });
+
+  // PEN (the common case) first, then everything else alphabetically —
+  // stable and predictable rather than whatever order object keys land in.
+  groups.sort(function (a, b) {
+    if (a.currency === 'PEN') return -1;
+    if (b.currency === 'PEN') return 1;
+    return a.currency < b.currency ? -1 : 1;
+  });
+
+  return { groups: groups };
+}
+
 function clampedCalendarDate_(year, month, day) {
   var lastDayOfMonth = new Date(year, month, 0).getDate();
   return new Date(year, month - 1, Math.min(day, lastDayOfMonth));

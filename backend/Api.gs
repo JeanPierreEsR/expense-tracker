@@ -115,6 +115,7 @@ function routeAction(action, payload) {
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'listExpectedRecurringItems': return listExpectedRecurringItems();
     case 'getProjections': return getProjections();
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
