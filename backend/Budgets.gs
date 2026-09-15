@@ -156,6 +156,15 @@ function resolveBudgetCategoryDisplay_(categoryIds, categoryById) {
   return { name: names.join(', '), icon: '🗂️', color: '' };
 }
 
+// An optional custom name overrides the category-derived one everywhere a
+// budget's name is shown (its row, drill-down title, Telegram alerts) —
+// blank/whitespace-only falls back to the category name, same as before
+// this field existed.
+function resolveBudgetDisplayName_(budget, categoryDisplayName) {
+  var custom = String(budget.name || '').trim();
+  return custom || categoryDisplayName;
+}
+
 // A budget set in a foreign currency compares against the best-known rate
 // for it as of the period being shown (the most recent month on file, at
 // or before that period's own end month) — there's no single "right" rate
@@ -259,7 +268,8 @@ function listBudgets(payload) {
       category_id: b.category_id,
       category_ids: categoryIds, // array of specific ids, or null for "ALL"
       all_categories: categoryIds === null,
-      category_name: display.name,
+      name: b.name || '', // raw, for the edit form's own input
+      category_name: resolveBudgetDisplayName_(b, display.name), // custom name if set, else the category name
       category_icon: display.icon,
       category_color: display.color,
       amount: Number(b.amount),
@@ -317,7 +327,8 @@ function addBudget(payload) {
     amount: payload.amount,
     currency: payload.currency || 'PEN',
     period_type: payload.period_type === 'yearly' ? 'yearly' : 'monthly',
-    thresholds: payload.thresholds || DEFAULT_BUDGET_THRESHOLDS
+    thresholds: payload.thresholds || DEFAULT_BUDGET_THRESHOLDS,
+    name: payload.name ? String(payload.name).trim() : ''
   };
   appendRowObject('Budgets', budget);
   return budget;
@@ -329,9 +340,10 @@ function updateBudget(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error('Budget not found');
 
-  ['category_id', 'amount', 'currency', 'period_type', 'thresholds'].forEach(function (field) {
+  ['category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'].forEach(function (field) {
     if (payload[field] !== undefined) {
-      setCellByRow_(sheet, headers, rowIndex, field, payload[field]);
+      var value = field === 'name' ? String(payload[field] || '').trim() : payload[field];
+      setCellByRow_(sheet, headers, rowIndex, field, value);
     }
   });
   return { done: true };
@@ -389,7 +401,7 @@ function checkBudgets() {
       if (alertedSet[key]) return;
 
       var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
-      var sent = sendTelegramBudgetAlert_(budget, display.name, threshold, progress);
+      var sent = sendTelegramBudgetAlert_(budget, resolveBudgetDisplayName_(budget, display.name), threshold, progress);
       if (!sent) return; // Telegram not configured — don't mark as alerted, try again next cycle
 
       appendRowObject('Budget Alert Log', {

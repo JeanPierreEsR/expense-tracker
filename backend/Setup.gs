@@ -21,7 +21,7 @@ var TABLE_DEFINITIONS = {
     'currency', 'date', 'due_date', 'payment_method_id', 'description',
     'status'],
   Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id'],
-  Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds'],
+  Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
   'Period Templates': ['id', 'name', 'recurrence_rule', 'start_anchor'],
   'Import Batches': ['id', 'filename', 'date', 'row_count'],
@@ -76,6 +76,18 @@ function addCurrencyColumnToBudgets() {
 
   var col = headers.length + 1;
   sheet.getRange(1, col).setValue('currency').setFontWeight('bold');
+  return { done: true, alreadyExisted: false, column: col };
+}
+
+// Same idea again, for Budgets picking up an optional `name` column —
+// blank means "use the category name," same as before this existed.
+function addNameColumnToBudgets() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Budgets');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('name') !== -1) return { done: true, alreadyExisted: true };
+
+  var col = headers.length + 1;
+  sheet.getRange(1, col).setValue('name').setFontWeight('bold');
   return { done: true, alreadyExisted: false, column: col };
 }
 

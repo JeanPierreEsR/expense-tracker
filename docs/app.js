@@ -1575,6 +1575,7 @@ function openBudgetModal(budget) {
   editingBudgetId = budget ? budget.id : null;
   document.getElementById("budget-modal-title").textContent = budget ? "Edit budget" : "Add budget";
   document.getElementById("budget-form-error").textContent = "";
+  document.getElementById("budget-name").value = budget ? (budget.name || "") : "";
 
   // An "ALL" budget materializes as every current expense category
   // selected, so the chips (and the checkbox, derived from them) show it
@@ -1625,6 +1626,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
   saveBtn.disabled = true;
 
   try {
+    const name = document.getElementById("budget-name").value.trim();
     const amount = parseFloat(document.getElementById("budget-amount").value);
     const currency = document.getElementById("budget-currency").value.toUpperCase();
     const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
@@ -1641,7 +1643,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const allIds = allExpenseCategoryIds_();
     const isEveryCategory = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
     const categoryId = isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
-    const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds };
+    const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds, name };
 
     if (editingBudgetId) {
       await callApi("updateBudget", Object.assign({ id: editingBudgetId }, fields));
