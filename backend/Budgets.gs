@@ -340,17 +340,17 @@ function listBudgets(payload) {
     }
   }
 
-  // Two views of the same total: a yearly budget's amount already IS a
-  // yearly figure (divide by 12 for its monthly-equivalent share); a
-  // monthly budget's amount times 12 gives its yearly-equivalent. The
-  // yearly total is always exactly 12x the monthly one by construction —
-  // shown as two numbers anyway since "per month" and "per year" are both
-  // useful at a glance without doing the math.
+  // Total per month only counts budgets that are actually monthly — a
+  // yearly budget's own amount ÷ 12 is just an average, and folding that
+  // average into "this month's" total implies a per-month cap that isn't
+  // real (a yearly budget lets spending run uneven across months as long
+  // as the year-end total holds). Total per year has no such mismatch, so
+  // it still counts every surviving budget, converting monthly ones ×12.
   var monthlyPen = 0, yearlyPen = 0, excludedCount = 0;
   budgets.forEach(function (b, idx) {
     if (dominated[idx]) return;
     if (b.amount_pen == null) { excludedCount++; return; }
-    monthlyPen += b.period_type === 'yearly' ? b.amount_pen / 12 : b.amount_pen;
+    if (b.period_type !== 'yearly') monthlyPen += b.amount_pen;
     yearlyPen += b.period_type === 'yearly' ? b.amount_pen : b.amount_pen * 12;
   });
 
