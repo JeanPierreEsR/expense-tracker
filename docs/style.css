@@ -933,15 +933,6 @@ button.primary:disabled {
   cursor: default;
 }
 
-/* Applied the instant Confirm/Discard is tapped, before the actual save
-   round-trip even starts — the visible dim + locked inputs is the
-   "something happened" feedback itself, so there's no incentive to tap
-   again while the request is still in flight. */
-.review-item-busy {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
 .entry {
   display: flex;
   justify-content: space-between;

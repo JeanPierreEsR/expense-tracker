@@ -217,13 +217,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function callApi(action, payload, attempt = 1) {
   let json;
   try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} })
-    });
+    // A hard cap per attempt — without one, a request that goes quiet
+    // (the app backgrounded mid-flight, a dropped connection with no
+    // error) leaves its promise unsettled forever, which then blocks
+    // anything awaiting it (retries, and the review-queue's background
+    // flush loop) from ever moving on. 25s comfortably covers Apps
+    // Script's own cold-start delay (up to ~20s, see below).
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    let res;
+    try {
+      res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     json = await res.json();
   } catch (networkErr) {
+    // Apps Script's free Web App "falls asleep" after a period of
+    // inactivity — the first request after that can take 20+ seconds to
+    // wake it up, and sometimes the slow/cold response comes back
+    // looking like a CORS failure. Retrying clears it up once the
+    // backend is warm.
     if (attempt < 6) {
       await sleep(400 * attempt);
       return callApi(action, payload, attempt + 1);
@@ -685,7 +704,7 @@ function formatAmount(amount, currency) {
 // since a pending entry's PEN value can still be provisional.
 function renderEntryAmountHtml(entry) {
   if (entry.currency === "PEN") {
-    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
+    return `<span class="primary-amt">${findCurrency("PEN").flag} PEN ${moneyFmt(entry.amount)}</span>`;
   }
 
   const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
@@ -873,31 +892,78 @@ function escapeHtml(str) {
 
 // ---- Review queue (entries caught automatically from email) ----
 
-// Dims the row, disables every input/button in it, and swaps the tapped
-// button's own label to a "…ing" state — all synchronous, so it shows up
-// before the API call it's guarding even begins. clearReviewItemBusy_
-// undoes it, used only on failure (success just removes the row entirely
-// via the next refreshReviewQueue).
-function setReviewItemBusy_(item, activeBtn, busyLabel) {
-  item.classList.add("review-item-busy");
-  item.querySelectorAll("button, select, input").forEach((el) => { el.disabled = true; });
-  activeBtn.dataset.originalLabel = activeBtn.textContent;
-  activeBtn.textContent = busyLabel;
+// Confirming/discarding used to just disable the row and wait for the API
+// call to finish — on a flaky connection (or the phone getting locked/
+// backgrounded mid-request, which iOS can pause outright) that left it
+// stuck on "Confirming…" with no way to tell whether it had actually gone
+// through, and a reload brought the same item right back since nothing
+// had been recorded anywhere except mid-flight in that one request.
+//
+// Instead, the tap now applies immediately and locally: the row
+// disappears right away, and the action (confirm-with-these-fields, or
+// discard) is written to localStorage BEFORE the network call even
+// starts. Every refresh first tries to flush anything still queued
+// (harmless to retry — confirming/discarding an already-confirmed/gone
+// entry is a no-op) and hides any entry that's still queued even if the
+// flush hasn't landed yet, so nothing reappears asking to be confirmed a
+// second time, on this load or any later one, until the server actually
+// has it.
+const REVIEW_ACTIONS_KEY = "reviewQueueActions";
+
+function getQueuedReviewActions_() {
+  try {
+    return JSON.parse(localStorage.getItem(REVIEW_ACTIONS_KEY) || "[]");
+  } catch (err) {
+    return [];
+  }
 }
 
-function clearReviewItemBusy_(item) {
-  item.classList.remove("review-item-busy");
-  item.querySelectorAll("button, select, input").forEach((el) => { el.disabled = false; });
-  item.querySelectorAll("button").forEach((btn) => {
-    if (btn.dataset.originalLabel) {
-      btn.textContent = btn.dataset.originalLabel;
-      delete btn.dataset.originalLabel;
+function setQueuedReviewActions_(actions) {
+  try {
+    localStorage.setItem(REVIEW_ACTIONS_KEY, JSON.stringify(actions));
+  } catch (err) {
+    // Storage full/unavailable — the action just won't survive a reload
+    // if it doesn't land this session; not worth failing the confirm/
+    // discard itself over.
+  }
+}
+
+function queueReviewAction_(id, action, fields) {
+  const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
+  actions.push({ id, action, fields: fields || null });
+  setQueuedReviewActions_(actions);
+}
+
+function unqueueReviewAction_(id) {
+  setQueuedReviewActions_(getQueuedReviewActions_().filter((a) => a.id !== id));
+}
+
+async function applyReviewAction_(a) {
+  if (a.action === "confirm") {
+    await callApi("updateEntry", { id: a.id, fields: a.fields });
+    await callApi("confirmEntry", { id: a.id });
+  } else {
+    await callApi("discardEntry", { id: a.id });
+  }
+  unqueueReviewAction_(a.id);
+}
+
+// Safe to call anytime, including at the top of every refresh — an
+// action already applied server-side just no-ops the second time.
+async function flushQueuedReviewActions_() {
+  for (const a of getQueuedReviewActions_()) {
+    try {
+      await applyReviewAction_(a);
+    } catch (err) {
+      // Still unreachable — leave it queued, the next flush retries it.
     }
-  });
+  }
 }
 
 async function refreshReviewQueue() {
-  const entries = await callApi("listPendingEntries", {});
+  await flushQueuedReviewActions_();
+  const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
+  const entries = (await callApi("listPendingEntries", {})).filter((e) => !queuedIds.has(e.id));
   const card = document.getElementById("review-queue-card");
   const list = document.getElementById("review-list");
   document.getElementById("review-count").textContent = entries.length;
@@ -964,33 +1030,35 @@ async function refreshReviewQueue() {
         return;
       }
 
-      // Locks the row and swaps the button label immediately, before the
-      // actual save even starts — the API round-trip can take several
-      // seconds, and with no feedback that easily reads as "nothing
-      // happened," inviting a second tap (and a second confirm/update
-      // call racing the first).
-      setReviewItemBusy_(item, confirmBtn, "✅ Confirming…");
+      // Applies immediately and locally — see the note above the queue
+      // helpers. The row is gone the instant you tap, whether or not the
+      // network call behind it has finished (or even started).
+      const fields = { category_id: categoryId, description, amount };
+      queueReviewAction_(entry.id, "confirm", fields);
+      item.remove();
+      document.getElementById("review-count").textContent = list.children.length;
+      if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+
       try {
-        await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description, amount } });
-        await callApi("confirmEntry", { id: entry.id });
-        await refreshReviewQueue();
-        await refreshEntryList();
+        await applyReviewAction_({ id: entry.id, action: "confirm", fields });
+        refreshEntryList();
       } catch (err) {
-        clearReviewItemBusy_(item);
-        alert("Couldn't confirm: " + err.message);
+        // Stays queued — the next refreshReviewQueue (including on the
+        // next app open) retries it automatically, no action needed here.
       }
     });
 
-    discardBtn.addEventListener("click", async () => {
+    discardBtn.addEventListener("click", () => {
       if (!confirm("Discard this transaction? This can't be undone.")) return;
-      setReviewItemBusy_(item, discardBtn, "❌ Discarding…");
-      try {
-        await callApi("discardEntry", { id: entry.id });
-        await refreshReviewQueue();
-      } catch (err) {
-        clearReviewItemBusy_(item);
-        alert("Couldn't discard: " + err.message);
-      }
+
+      queueReviewAction_(entry.id, "discard", null);
+      item.remove();
+      document.getElementById("review-count").textContent = list.children.length;
+      if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+
+      applyReviewAction_({ id: entry.id, action: "discard", fields: null }).catch(() => {
+        // Stays queued, same as above.
+      });
     });
 
     list.appendChild(item);
