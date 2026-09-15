@@ -1254,6 +1254,8 @@ button.primary:disabled {
   white-space: nowrap;
 }
 
+.recurring-row-amount.income { color: var(--income); }
+
 /* ---- Budget drill-down line chart ---- */
 
 #drilldown-chart {
@@ -1294,6 +1296,14 @@ button.primary:disabled {
   font-size: 0.72rem;
   color: var(--muted);
   margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.projections-breakdown + .projections-breakdown {
+  margin-top: 4px;
+}
+
+.projections-breakdown:last-child {
   margin-bottom: 8px;
 }
 

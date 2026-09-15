@@ -225,7 +225,7 @@
         <h2>More</h2>
         <div class="more-list">
           <button type="button" class="more-list-item" id="more-recurring-btn">
-            <span>🔁 Recurring expenses</span>
+            <span>🔁 Recurring income/expenses</span>
             <span class="more-list-chevron">›</span>
           </button>
         </div>
@@ -238,8 +238,8 @@
           <button type="button" class="add-inline" id="recurring-back-btn">‹ Back</button>
           <button type="button" class="add-inline" id="add-recurring-btn">+ Add</button>
         </div>
-        <h2 style="margin-top:0;">Recurring expenses</h2>
-        <p class="hint">Fixed costs that happen on a schedule — rent, subscriptions, gym. Budgets and Projections use these to tell known, certain spending apart from the rest.</p>
+        <h2 style="margin-top:0;">Recurring income/expenses</h2>
+        <p class="hint">Fixed amounts that happen on a schedule — rent, subscriptions, gym, salary. Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
         <div id="recurring-list"></div>
         <p class="hint" id="recurring-empty-note" hidden>No recurring expenses yet.</p>
       </div>
@@ -366,12 +366,12 @@
   <div id="recurring-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="recurring-modal-title">Add recurring expense</span>
+        <span id="recurring-modal-title">Add recurring item</span>
         <button type="button" id="recurring-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
         <label for="recurring-description">Description</label>
-        <input type="text" id="recurring-description" placeholder="e.g. Rent, Netflix, Gym">
+        <input type="text" id="recurring-description" placeholder="e.g. Rent, Netflix, Gym, Salary">
 
         <label>Category</label>
         <div class="tags-list" id="recurring-category-chips"></div>
@@ -402,7 +402,7 @@
 
         <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="recurring-save-btn">Save</button>
-        <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden>Delete this recurring expense</button>
+        <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden>Delete this recurring item</button>
       </div>
     </div>
   </div>

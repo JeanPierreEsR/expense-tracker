@@ -1,10 +1,14 @@
 /**
- * Recurring expenses — known fixed costs (rent, subscriptions, gym) that
- * the owner enters once and the app can then account for ahead of time,
- * instead of only ever knowing about them after they've been logged as a
- * regular Entry. Used by the Budgets chart (Budgets.gs) and the
- * Projections tab (Projections.gs); managed from the More > Recurring
- * expenses screen.
+ * Recurring income/expenses — known fixed amounts (rent, subscriptions,
+ * gym, salary) that the owner enters once and the app can then account
+ * for ahead of time, instead of only ever knowing about them after
+ * they've been logged as a regular Entry. Despite the file/table name
+ * (kept as-is so an already-created sheet tab isn't orphaned by a rename —
+ * see CLAUDE.md), a recurring item's own category decides whether it's
+ * income, expense, or investment; nothing here is expense-only. Used by
+ * the Budgets chart (Budgets.gs, expense categories only, since budgets
+ * themselves are expense-only) and the Projections tab (Projections.gs,
+ * all types); managed from the More > Recurring income/expenses screen.
  */
 
 // This table was added after setupSpreadsheet() was last run for real, so
@@ -42,6 +46,7 @@ function recurringExpenseForClient_(r, categoryById) {
     category_name: cat ? cat.name : '(unknown category)',
     category_icon: cat ? cat.icon : '',
     category_color: cat ? cat.color : '',
+    category_type: cat ? cat.type : 'expense',
     description: r.description || '',
     amount: Number(r.amount),
     currency: r.currency || 'PEN',
