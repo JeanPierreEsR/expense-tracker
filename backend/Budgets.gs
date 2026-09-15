@@ -211,6 +211,12 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth);
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
+  // The actual rate behind spent/percent above, surfaced so a foreign-
+  // currency budget can show what it's using rather than leaving the
+  // conversion invisible — see categorySpendInCurrencyFromContext_ for how
+  // it's applied (only entries NOT already in this currency go through it).
+  var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
+
   return {
     effectivePeriodType: effectivePeriodType,
     annualized: annualized,
@@ -221,7 +227,8 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     spent: spent,
     effectiveAmount: effectiveAmount,
     percent: percent,
-    rateAvailable: spent != null
+    rateAvailable: spent != null,
+    rate: rate
   };
 }
 

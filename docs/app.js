@@ -851,6 +851,29 @@ function escapeHtml(str) {
 
 // ---- Review queue (entries caught automatically from email) ----
 
+// Dims the row, disables every input/button in it, and swaps the tapped
+// button's own label to a "…ing" state — all synchronous, so it shows up
+// before the API call it's guarding even begins. clearReviewItemBusy_
+// undoes it, used only on failure (success just removes the row entirely
+// via the next refreshReviewQueue).
+function setReviewItemBusy_(item, activeBtn, busyLabel) {
+  item.classList.add("review-item-busy");
+  item.querySelectorAll("button, select, input").forEach((el) => { el.disabled = true; });
+  activeBtn.dataset.originalLabel = activeBtn.textContent;
+  activeBtn.textContent = busyLabel;
+}
+
+function clearReviewItemBusy_(item) {
+  item.classList.remove("review-item-busy");
+  item.querySelectorAll("button, select, input").forEach((el) => { el.disabled = false; });
+  item.querySelectorAll("button").forEach((btn) => {
+    if (btn.dataset.originalLabel) {
+      btn.textContent = btn.dataset.originalLabel;
+      delete btn.dataset.originalLabel;
+    }
+  });
+}
+
 async function refreshReviewQueue() {
   const entries = await callApi("listPendingEntries", {});
   const card = document.getElementById("review-queue-card");
@@ -901,7 +924,10 @@ async function refreshReviewQueue() {
       if (sanitized !== e.target.value) e.target.value = sanitized;
     });
 
-    item.querySelector(".review-confirm-btn").addEventListener("click", async () => {
+    const confirmBtn = item.querySelector(".review-confirm-btn");
+    const discardBtn = item.querySelector(".review-discard-btn");
+
+    confirmBtn.addEventListener("click", async () => {
       const categoryId = item.querySelector(".review-category").value;
       const description = item.querySelector(".review-description").value.trim();
       const amountStr = amountInput.value.trim();
@@ -916,16 +942,33 @@ async function refreshReviewQueue() {
         return;
       }
 
-      await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description, amount } });
-      await callApi("confirmEntry", { id: entry.id });
-      await refreshReviewQueue();
-      await refreshEntryList();
+      // Locks the row and swaps the button label immediately, before the
+      // actual save even starts — the API round-trip can take several
+      // seconds, and with no feedback that easily reads as "nothing
+      // happened," inviting a second tap (and a second confirm/update
+      // call racing the first).
+      setReviewItemBusy_(item, confirmBtn, "✅ Confirming…");
+      try {
+        await callApi("updateEntry", { id: entry.id, fields: { category_id: categoryId, description, amount } });
+        await callApi("confirmEntry", { id: entry.id });
+        await refreshReviewQueue();
+        await refreshEntryList();
+      } catch (err) {
+        clearReviewItemBusy_(item);
+        alert("Couldn't confirm: " + err.message);
+      }
     });
 
-    item.querySelector(".review-discard-btn").addEventListener("click", async () => {
+    discardBtn.addEventListener("click", async () => {
       if (!confirm("Discard this transaction? This can't be undone.")) return;
-      await callApi("discardEntry", { id: entry.id });
-      await refreshReviewQueue();
+      setReviewItemBusy_(item, discardBtn, "❌ Discarding…");
+      try {
+        await callApi("discardEntry", { id: entry.id });
+        await refreshReviewQueue();
+      } catch (err) {
+        clearReviewItemBusy_(item);
+        alert("Couldn't discard: " + err.message);
+      }
     });
 
     list.appendChild(item);
@@ -1650,6 +1693,13 @@ async function refreshBudgets() {
       : `${b.currency} ${moneyFmt(p.spent)} / ${amountLabel}`;
     const periodLabel = (p.effectivePeriodType === "yearly" ? "this year" : "this month") +
       (p.annualized ? " (monthly × 12)" : "");
+    // Only entries NOT already recorded in the budget's own currency ever
+    // actually use this rate (see categorySpendInCurrencyFromContext_
+    // server-side) — shown anyway whenever it's on file, so it's never a
+    // mystery which rate a foreign-currency budget is comparing against.
+    const fxLine = (b.currency !== "PEN" && p.rate != null)
+      ? `<div class="budget-row-fx">1 ${b.currency} = ${moneyFmt(p.rate)} PEN</div>`
+      : "";
 
     const row = document.createElement("div");
     row.className = "budget-row";
@@ -1665,6 +1715,7 @@ async function refreshBudgets() {
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${fxLine}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.

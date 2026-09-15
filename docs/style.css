@@ -875,6 +875,20 @@ button.primary:disabled {
   border: 1px solid var(--border) !important;
 }
 
+.review-item-actions button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* Applied the instant Confirm/Discard is tapped, before the actual save
+   round-trip even starts — the visible dim + locked inputs is the
+   "something happened" feedback itself, so there's no incentive to tap
+   again while the request is still in flight. */
+.review-item-busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .entry {
   display: flex;
   justify-content: space-between;
@@ -1042,6 +1056,12 @@ button.primary:disabled {
   font-weight: 600;
   color: var(--text);
   flex-shrink: 0;
+}
+
+.budget-row-fx {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 3px;
 }
 
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
