@@ -1112,7 +1112,10 @@ function showScreen(name) {
     ensurePeriodSelectorIn("budgets");
     refreshBudgets();
   }
-  if (name === "projections") refreshProjections();
+  if (name === "projections") {
+    ensurePeriodSelectorIn("projections");
+    refreshProjectionsScreen();
+  }
 }
 
 // Recurring income/expenses lives under More but isn't a bottom-nav tab of
@@ -1144,6 +1147,7 @@ function showExchangeRatesScreen() {
 function refreshCurrentPeriodScreen() {
   if (!document.getElementById("screen-overview").hidden) refreshOverview();
   if (!document.getElementById("screen-budgets").hidden) refreshBudgets();
+  if (!document.getElementById("screen-projections").hidden) refreshProjectionsScreen();
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -1225,9 +1229,10 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
 
 // Swipe left/right over the Overview screen to move a month/year at a
 // time — same touch-gesture spirit as pull-to-refresh below.
-// Bound to both screens now that they share one period selector — swiping
-// to change the period works "just as in Overview" from Budgets too.
-["screen-overview", "screen-budgets"].forEach((screenId) => {
+// Bound to all three screens now that they share one period selector —
+// swiping to change the period works "just as in Overview" from Budgets
+// and Projections too.
+["screen-overview", "screen-budgets", "screen-projections"].forEach((screenId) => {
   const el = document.getElementById(screenId);
   let startX = 0, startY = 0, tracking = false;
 
@@ -1453,6 +1458,8 @@ let currentDrilldown = null;
 // null when it was opened from an Overview breakdown instead. Drives
 // whether the ⋮ menu (modify/delete this budget) is shown at all.
 let drilldownBudget = null;
+let drilldownProjection = null;
+let drilldownProjectionDetail = null;
 
 async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   const backdrop = document.getElementById("drilldown-modal-backdrop");
@@ -1477,10 +1484,13 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
 async function openBreakdownDrilldown(kind, item) {
   currentDrilldown = { refetch: () => openBreakdownDrilldown(kind, item) };
   drilldownBudget = null;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
   document.getElementById("drilldown-menu-btn").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-categories").hidden = true;
   document.getElementById("drilldown-chart").hidden = true;
+  document.getElementById("drilldown-projection-row").hidden = true;
 
   const bounds = getPeriodBounds();
 
@@ -1504,8 +1514,12 @@ async function openBreakdownDrilldown(kind, item) {
 async function openBudgetDrilldown(budget) {
   currentDrilldown = { refetch: () => openBudgetDrilldown(budget) };
   drilldownBudget = budget;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
   document.getElementById("drilldown-menu-btn").hidden = false;
   document.getElementById("drilldown-menu").hidden = true;
+  document.getElementById("drilldown-projection-row").hidden = true;
+  document.getElementById("drilldown-chart-legend-2").textContent = "Pace to stay in budget";
 
   // Hide immediately (and clear any previous SVG) rather than leaving
   // whatever budget's chart was already on screen — the fetch below is
@@ -1582,6 +1596,58 @@ function enumeratePeriodDates_(startDate, endDate) {
   return dates;
 }
 
+// Shared by both the budget chart and the projections chart: the Y-axis
+// (4 evenly-spaced, round-numbered labels + faint dotted gridlines) and
+// X-axis (weekly for a monthly period, quarterly for a yearly one, found
+// by matching real calendar dates rather than assumed offsets), plus the
+// two axis border lines. Returns raw SVG strings for the caller to
+// interleave with its own data lines/reference lines.
+function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marginTop, plotRight, plotBottom, xFor, yFor) {
+  const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
+  const yGridlinesSvg = [0, 1, 2, 3].map((i) => {
+    const y = yFor((maxY * i) / 3).toFixed(1);
+    return `<line x1="${marginLeft}" y1="${y}" x2="${plotRight}" y2="${y}" style="stroke:rgba(128,128,128,0.25);stroke-width:1;stroke-dasharray:1,2" />`;
+  }).join("");
+
+  const yTicksSvg = [0, 1, 2, 3].map((i) => {
+    const value = (maxY * i) / 3;
+    const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
+    const y = yFor(value).toFixed(1);
+    return `
+      <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${marginLeft - 6}" y="${y}" dy="2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${roundedValue.toLocaleString("en-US")}</text>
+    `;
+  }).join("");
+
+  const axisYear = days[0].slice(0, 4);
+  let xTickIndices;
+  if (effectivePeriodType === "yearly") {
+    xTickIndices = [1, 4, 7, 10]
+      .map((m) => days.indexOf(`${axisYear}-${pad2(m)}-01`))
+      .filter((i) => i !== -1);
+  } else {
+    xTickIndices = [];
+    for (let i = 0; i < n; i += 7) xTickIndices.push(i);
+  }
+  const xTicksSvg = xTickIndices.map((i) => {
+    const x = xFor(i).toFixed(1);
+    const label = effectivePeriodType === "yearly"
+      ? MONTH_NAMES_SHORT[parseInt(days[i].slice(5, 7), 10) - 1]
+      : String(parseInt(days[i].slice(8, 10), 10));
+    return `
+      <line x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${x}" y="${plotBottom + 11}" text-anchor="middle" style="font-size:7.5px;fill:var(--muted)">${label}</text>
+    `;
+  }).join("");
+
+  const axisBordersSvg = `
+    <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
+    <line x1="${marginLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
+  `;
+
+  return { gridlinesSvg: yGridlinesSvg, yTicksSvg, xTicksSvg, axisBordersSvg };
+}
+
 // Draws two lines over the budget's period: actual cumulative spend
 // (solid), and a dashed pacing target from 0 to the budget amount. When
 // recurring expenses fall in this category/period, the pacing line steps
@@ -1656,64 +1722,14 @@ function renderBudgetChart_(data, budget) {
   const pacePath = paceVertices.map(([i, v]) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
   const budgetLineY = yFor(budgetAmount).toFixed(1);
 
-  // Y-axis: 4 evenly spaced labels from 0 up to the top of the scale,
-  // rounded to the nearest hundred so they read as round numbers (750,
-  // 1,000…) rather than arbitrary ones (683, 962…) — the exact currency
-  // and decimals are already shown in the header/pace note, so the axis
-  // itself only needs to be a rough scale. Falls back to the nearest ten
-  // (then one) for a small-enough budget that rounding to a hundred would
-  // otherwise flatten every label to 0.
-  const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
-  // A faint dotted gridline at each Y label's height, spanning the full
-  // plot width — drawn first so the axes and data lines layer on top of
-  // it, not the other way around.
-  const yGridlinesSvg = [0, 1, 2, 3].map((i) => {
-    const y = yFor((maxY * i) / 3).toFixed(1);
-    return `<line x1="${marginLeft}" y1="${y}" x2="${plotRight}" y2="${y}" style="stroke:rgba(128,128,128,0.25);stroke-width:1;stroke-dasharray:1,2" />`;
-  }).join("");
-
-  const yTicksSvg = [0, 1, 2, 3].map((i) => {
-    const value = (maxY * i) / 3;
-    const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
-    const y = yFor(value).toFixed(1);
-    return `
-      <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
-      <text x="${marginLeft - 6}" y="${y}" dy="2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${roundedValue.toLocaleString("en-US")}</text>
-    `;
-  }).join("");
-
-  // X-axis ticks: weekly through a monthly period, quarterly through a
-  // yearly one — found by matching actual calendar dates in `days` rather
-  // than a fixed day-count, so it's correct regardless of month length or
-  // which dates a yearly budget's quarters actually fall on.
-  const axisYear = p.startDate.slice(0, 4);
-  let xTickIndices;
-  if (p.effectivePeriodType === "yearly") {
-    xTickIndices = [1, 4, 7, 10]
-      .map((m) => days.indexOf(`${axisYear}-${pad2(m)}-01`))
-      .filter((i) => i !== -1);
-  } else {
-    xTickIndices = [];
-    for (let i = 0; i < n; i += 7) xTickIndices.push(i);
-  }
-  const xTicksSvg = xTickIndices.map((i) => {
-    const x = xFor(i).toFixed(1);
-    const label = p.effectivePeriodType === "yearly"
-      ? MONTH_NAMES_SHORT[parseInt(days[i].slice(5, 7), 10) - 1]
-      : String(parseInt(days[i].slice(8, 10), 10));
-    return `
-      <line x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" style="stroke:var(--border);stroke-width:1" />
-      <text x="${x}" y="${plotBottom + 11}" text-anchor="middle" style="font-size:7.5px;fill:var(--muted)">${label}</text>
-    `;
-  }).join("");
+  const axes = buildChartAxesSvg_(days, n, maxY, p.effectivePeriodType, marginLeft, marginTop, plotRight, plotBottom, xFor, yFor);
 
   document.getElementById("drilldown-chart-svg").innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      ${yGridlinesSvg}
-      <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
-      <line x1="${marginLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" style="stroke:var(--border);stroke-width:1" />
-      ${yTicksSvg}
-      ${xTicksSvg}
+      ${axes.gridlinesSvg}
+      ${axes.axisBordersSvg}
+      ${axes.yTicksSvg}
+      ${axes.xTicksSvg}
       <line x1="${marginLeft}" y1="${budgetLineY}" x2="${plotRight}" y2="${budgetLineY}" style="stroke:var(--border);stroke-width:1" />
       <polyline points="${pacePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
       <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
@@ -1801,6 +1817,8 @@ function closeDrilldown() {
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
   drilldownBudget = null;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
 }
 
 document.getElementById("drilldown-modal-close").addEventListener("click", closeDrilldown);
@@ -2590,6 +2608,27 @@ async function refreshExpectedRecurring() {
 }
 
 // ---- Projections ----
+//
+// Income: recurring income for the period, plus any already-confirmed
+// income entries in it that aren't already explained by a recurring one
+// (a bonus or paycheck registered in advance) — never averaged from past
+// months, since a category with nothing recurring and nothing yet
+// confirmed for the period genuinely isn't known yet.
+//
+// Expense/investment: recurring for the period, plus a year-to-date rate
+// (confirmed spend since Jan 1, excluding whatever's already explained by
+// a recurring item, divided by complete months elapsed) projected across
+// however many months the period covers.
+//
+// The top summary and the "By category" list below both come from the
+// exact same per-category numbers (listCategoryProjections/getProjections
+// share one calculation on the backend), so they can never disagree with
+// each other — and any category with a manual override uses that instead
+// of the calculation, in both places, until it's reset.
+
+async function refreshProjectionsScreen() {
+  await Promise.all([refreshProjections(), refreshProjectionCategories()]);
+}
 
 async function refreshProjections() {
   const body = document.getElementById("projections-body");
@@ -2601,7 +2640,7 @@ async function refreshProjections() {
 
   let p;
   try {
-    p = await callApi("getProjections");
+    p = await callApi("getProjections", projectionPeriodPayload_());
   } catch (err) {
     body.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
     return;
@@ -2614,13 +2653,13 @@ async function refreshProjections() {
   // again", which tells the reader nothing they don't already see above.
   const breakdownLines = [];
   if (p.incomeFromRecurring > 0) {
-    breakdownLines.push(`Income: ${formatPen(p.incomeFromRecurring)} from recurring items + ${formatPen(p.incomeFromAverage)} from your recent average.`);
+    breakdownLines.push(`Income: ${formatPen(p.incomeFromRecurring)} from recurring items + ${formatPen(p.incomeFromAverage)} already confirmed.`);
   }
   if (p.expensesFromRecurring > 0) {
-    breakdownLines.push(`Expenses: ${formatPen(p.expensesFromRecurring)} from recurring items + ${formatPen(p.expensesFromAverage)} from your recent average.`);
+    breakdownLines.push(`Expenses: ${formatPen(p.expensesFromRecurring)} from recurring items + ${formatPen(p.expensesFromAverage)} from your year-to-date rate.`);
   }
   if (p.investmentsFromRecurring > 0) {
-    breakdownLines.push(`Investments: ${formatPen(p.investmentsFromRecurring)} from recurring items + ${formatPen(p.investmentsFromAverage)} from your recent average.`);
+    breakdownLines.push(`Investments: ${formatPen(p.investmentsFromRecurring)} from recurring items + ${formatPen(p.investmentsFromAverage)} from your year-to-date rate.`);
   }
 
   body.innerHTML = `
@@ -2644,8 +2683,280 @@ async function refreshProjections() {
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
-  methodNote.textContent = `Each figure uses a category's recurring income/expenses when it has any, and the average of your last ${p.averageMonths} complete months otherwise — never both, so nothing is counted twice.`;
+  methodNote.textContent = "Income only ever counts recurring items plus what's already confirmed — never a past average. Expenses and investments use each category's recurring items plus a year-to-date rate for the rest, never both for the same category.";
 }
+
+// {displayPeriodType, anchorDate} matching whatever the shared period
+// selector (Month/Year) is currently showing — All-time/Custom fall back
+// to the current month server-side, since neither means anything for a
+// forward-looking projection.
+function projectionPeriodPayload_() {
+  const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
+  return { displayPeriodType: periodType, anchorDate };
+}
+
+async function refreshProjectionCategories() {
+  const list = document.getElementById("projections-categories-list");
+  const emptyNote = document.getElementById("projections-categories-empty-note");
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+
+  let result;
+  try {
+    result = await callApi("listCategoryProjections", projectionPeriodPayload_());
+  } catch (err) {
+    list.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const categories = result.categories;
+  list.innerHTML = "";
+  emptyNote.hidden = categories.length > 0;
+
+  categories.forEach((c) => {
+    const isIncome = c.category_type === "income";
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
+        <div class="recurring-row-sub">${c.category_type[0].toUpperCase()}${c.category_type.slice(1)}${c.hasOverride ? " · Manually set" : ""}</div>
+      </div>
+      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.amountPen)}</div>
+    `;
+    row.addEventListener("click", () => openCategoryProjectionDrilldown_(c));
+    list.appendChild(row);
+  });
+}
+
+// Month/Year only, mirroring the backend's own projectionPeriodBounds_
+// fallback (All-time/Custom project as the current month server-side, so
+// there's nothing period-specific to reflect for them here either).
+function projectionBoundsForDisplay_() {
+  if (periodType === "year") {
+    const y = periodAnchor.getFullYear();
+    return { startDate: `${y}-01-01`, endDate: `${y}-12-31`, label: String(y), periodType: "yearly" };
+  }
+  const mb = monthBounds(periodAnchor);
+  return { startDate: mb.startDate, endDate: mb.endDate, label: mb.label, periodType: "monthly" };
+}
+
+async function openCategoryProjectionDrilldown_(categoryProjection) {
+  currentDrilldown = { refetch: () => openCategoryProjectionDrilldown_(categoryProjection) };
+  drilldownBudget = null;
+  drilldownProjection = categoryProjection;
+  drilldownProjectionDetail = null;
+  document.getElementById("drilldown-menu-btn").hidden = true;
+  document.getElementById("drilldown-menu").hidden = true;
+  document.getElementById("drilldown-categories").hidden = true;
+  document.getElementById("drilldown-chart").hidden = true;
+  document.getElementById("drilldown-chart-svg").innerHTML = "";
+  document.getElementById("drilldown-chart-legend-2").textContent = "Projected";
+  document.getElementById("drilldown-projection-row").hidden = false;
+  document.getElementById("drilldown-projection-amount").textContent = "…";
+  document.getElementById("drilldown-projection-override-note").hidden = true;
+
+  const bounds = projectionBoundsForDisplay_();
+  const payload = {
+    startDate: bounds.startDate,
+    endDate: bounds.endDate,
+    type: categoryProjection.category_type,
+    categoryId: categoryProjection.category_id
+  };
+
+  await openDrilldownWithPayload_(
+    payload,
+    `${categoryProjection.category_icon ? categoryProjection.category_icon + " " : ""}${categoryProjection.category_name}`,
+    `${bounds.label} · Projected`
+  );
+
+  loadAndRenderProjectionChart_(categoryProjection);
+}
+
+// Fetches this category's projection detail (breakdown + daily actual
+// series) for whatever period the shared selector is showing, and draws
+// the chart — kept separate from the entries fetch above (and not
+// awaited there) so a slow/failed chart never blocks the transaction
+// list from showing, same reasoning as loadAndRenderBudgetChart_.
+async function loadAndRenderProjectionChart_(categoryProjection) {
+  const chartEl = document.getElementById("drilldown-chart");
+  try {
+    const detail = await callApi(
+      "getCategoryProjectionDetail",
+      Object.assign({ categoryId: categoryProjection.category_id }, projectionPeriodPayload_())
+    );
+    // The drill-down may have been closed, or moved on to a different
+    // category, while this was in flight.
+    if (!drilldownProjection || drilldownProjection.category_id !== categoryProjection.category_id) return;
+    drilldownProjectionDetail = detail;
+    renderProjectionChart_(detail);
+    renderProjectionDrilldownAmount_(detail);
+    chartEl.hidden = false;
+  } catch (err) {
+    chartEl.hidden = true;
+  }
+}
+
+// "Projected remaining" — what's left to expect for the rest of the
+// period (the full projected total minus what's already actually
+// happened), floored at 0. Tapping it opens the override editor for the
+// TOTAL (not this delta, which just recomputes on its own once the total
+// or the actual spend changes) pre-filled with the current effective
+// value, whether calculated or manually set.
+function renderProjectionDrilldownAmount_(detail) {
+  const actualSoFar = Object.keys(detail.dailyActualPen || {}).reduce((sum, d) => sum + detail.dailyActualPen[d], 0);
+  const remaining = Math.max(0, detail.projection.amountPen - actualSoFar);
+  document.getElementById("drilldown-projection-amount").textContent = formatPen(remaining);
+  document.getElementById("drilldown-projection-override-note").hidden = !detail.projection.hasOverride;
+}
+
+document.getElementById("drilldown-projection-row").addEventListener("click", () => {
+  if (!drilldownProjection || !drilldownProjectionDetail) return;
+  openProjectionOverrideModal_(drilldownProjection, drilldownProjectionDetail);
+});
+
+// Draws actual cumulative spend for the category (solid, through today —
+// same truncation rule as the budget chart) against a straight
+// "convergence" line from today's actual total to the full period's
+// projected total, rather than a recurring-aware staircase (there's no
+// schedule to trace here, just one number to reach by period end).
+function renderProjectionChart_(detail) {
+  const bounds = detail.bounds;
+  const days = enumeratePeriodDates_(bounds.startDate, bounds.endDate);
+  const n = days.length;
+  const projectedTotal = detail.projection.amountPen;
+
+  let running = 0;
+  const actualPoints = days.map((d) => {
+    running += (detail.dailyActualPen && detail.dailyActualPen[d]) || 0;
+    return running;
+  });
+
+  const todayStr = todayLocalISO();
+  const actualEndIdx = todayStr < bounds.startDate ? -1 : (todayStr > bounds.endDate ? n - 1 : days.indexOf(todayStr));
+  const actualSoFar = actualEndIdx >= 0 ? actualPoints[actualEndIdx] : 0;
+  const startIdx = Math.max(actualEndIdx, 0);
+  const convergenceTarget = Math.max(projectedTotal, actualSoFar);
+  const convergenceVertices = [[startIdx, actualSoFar], [n - 1, convergenceTarget]];
+
+  const maxY = Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08;
+  const W = 300, H = 130;
+  const marginLeft = 34, marginTop = 8, marginBottom = 14;
+  const plotRight = W, plotBottom = H - marginBottom;
+  const plotWidth = plotRight - marginLeft;
+  const plotHeight = plotBottom - marginTop;
+  const xFor = (i) => marginLeft + (n <= 1 ? 0 : (i / (n - 1)) * plotWidth);
+  const yFor = (v) => plotBottom - (v / maxY) * plotHeight;
+
+  const actualPath = actualPoints
+    .slice(0, actualEndIdx + 1)
+    .map((v, i) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`)
+    .join(" ");
+  const convergencePath = convergenceVertices.map(([i, v]) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+  const targetLineY = yFor(projectedTotal).toFixed(1);
+
+  const axes = buildChartAxesSvg_(days, n, maxY, bounds.periodType, marginLeft, marginTop, plotRight, plotBottom, xFor, yFor);
+
+  document.getElementById("drilldown-chart-svg").innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${axes.gridlinesSvg}
+      ${axes.axisBordersSvg}
+      ${axes.yTicksSvg}
+      ${axes.xTicksSvg}
+      <line x1="${marginLeft}" y1="${targetLineY}" x2="${plotRight}" y2="${targetLineY}" style="stroke:var(--border);stroke-width:1" />
+      <polyline points="${convergencePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
+      <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
+    </svg>
+  `.trim();
+
+  const note = document.getElementById("drilldown-chart-pace-note");
+  if (actualEndIdx < 0) {
+    note.textContent = "This period hasn't started yet.";
+  } else if (actualEndIdx >= n - 1) {
+    note.textContent = "This period has ended.";
+  } else {
+    const daysLeft = n - 1 - actualEndIdx;
+    const remaining = Math.max(0, projectedTotal - actualSoFar);
+    note.textContent = `${formatPen(remaining)} projected for the ${daysLeft} day${daysLeft === 1 ? "" : "s"} left.`;
+  }
+}
+
+// ---- Projections: editing a category's projected total ----
+
+let projectionOverrideState = null; // { categoryId, periodKey }
+
+function openProjectionOverrideModal_(categoryProjection, detail) {
+  projectionOverrideState = { categoryId: categoryProjection.category_id, periodKey: detail.bounds.periodKey };
+  document.getElementById("projection-override-modal-title").textContent = "Edit projected total";
+  document.getElementById("projection-override-modal-subtitle").textContent =
+    `${categoryProjection.category_name} — currently ${detail.projection.hasOverride ? "manually set" : "calculated"} at ${formatPen(detail.projection.amountPen)}.`;
+  document.getElementById("projection-override-value-input").value = detail.projection.amountPen.toFixed(2);
+  document.getElementById("projection-override-form-error").textContent = "";
+  document.getElementById("projection-override-reset-btn").hidden = !detail.projection.hasOverride;
+
+  const backdrop = document.getElementById("projection-override-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeProjectionOverrideModal_() {
+  document.getElementById("projection-override-modal-backdrop").hidden = true;
+  projectionOverrideState = null;
+}
+
+document.getElementById("projection-override-modal-close").addEventListener("click", closeProjectionOverrideModal_);
+document.getElementById("projection-override-cancel-btn").addEventListener("click", closeProjectionOverrideModal_);
+document.getElementById("projection-override-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "projection-override-modal-backdrop") closeProjectionOverrideModal_();
+});
+
+document.getElementById("projection-override-value-input").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+
+// Re-fetches whatever's currently visible that could show this number —
+// the open drill-down's own chart/amount, the category list, and the top
+// summary (all three otherwise would keep showing the pre-edit figure
+// until the next unrelated refresh).
+function refreshProjectionAfterOverrideChange_() {
+  if (drilldownProjection) loadAndRenderProjectionChart_(drilldownProjection);
+  refreshProjectionCategories();
+  refreshProjections();
+}
+
+document.getElementById("projection-override-save-btn").addEventListener("click", async () => {
+  if (!projectionOverrideState) return;
+  const errorEl = document.getElementById("projection-override-form-error");
+  errorEl.textContent = "";
+  const amount = parseFloat(document.getElementById("projection-override-value-input").value);
+  if (isNaN(amount) || amount < 0) {
+    errorEl.textContent = "Enter a valid amount.";
+    return;
+  }
+  const saveBtn = document.getElementById("projection-override-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await callApi("setProjectionOverride", {
+      categoryId: projectionOverrideState.categoryId,
+      periodKey: projectionOverrideState.periodKey,
+      amount
+    });
+    closeProjectionOverrideModal_();
+    refreshProjectionAfterOverrideChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("projection-override-reset-btn").addEventListener("click", async () => {
+  if (!projectionOverrideState) return;
+  const { categoryId, periodKey } = projectionOverrideState;
+  closeProjectionOverrideModal_();
+  await callApi("deleteProjectionOverride", { categoryId, periodKey });
+  refreshProjectionAfterOverrideChange_();
+});
 
 (function setupUpdateCheck() {
   const banner = document.getElementById("update-banner");
