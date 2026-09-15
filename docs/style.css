@@ -1334,6 +1334,43 @@ button.primary:disabled {
   padding-left: 10px;
 }
 
+/* ---- Projections drill-down's "Programmed" / "Expected" split ---- */
+
+.drilldown-projection-split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  font-size: 0.85rem;
+}
+
+.drilldown-projection-split-row.expandable {
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+}
+
+.drilldown-projection-split-row .hint {
+  font-size: 0.7rem;
+}
+
+#drilldown-projection-expected-detail {
+  padding: 4px 4px 10px;
+  border-top: 1px dashed var(--border);
+}
+
+#drilldown-projection-expected-formula {
+  margin-top: 8px;
+}
+
+.projection-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* ---- Budget drill-down line chart ---- */
 
 #drilldown-chart {

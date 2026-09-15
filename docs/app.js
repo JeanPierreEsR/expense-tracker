@@ -2695,6 +2695,19 @@ function projectionPeriodPayload_() {
   return { displayPeriodType: periodType, anchorDate };
 }
 
+// "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
+// only worth splitting out for expense/investment when BOTH actually
+// contribute; a category covered by just one source, or overridden
+// outright, is already fully explained by its type label alone.
+function projectionRowSubLabel_(c, typeLabel) {
+  if (c.hasOverride) return `${typeLabel} · Manually set`;
+  const isExpenseOrInvestment = c.category_type === "expense" || c.category_type === "investment";
+  if (isExpenseOrInvestment && c.recurringAmountPen > 0 && c.baseAmountPen > 0) {
+    return `🔁 ${formatPen(c.recurringAmountPen)} programmed + 📈 ${formatPen(c.baseAmountPen)} expected`;
+  }
+  return typeLabel;
+}
+
 async function refreshProjectionCategories() {
   const list = document.getElementById("projections-categories-list");
   const emptyNote = document.getElementById("projections-categories-empty-note");
@@ -2714,12 +2727,14 @@ async function refreshProjectionCategories() {
 
   categories.forEach((c) => {
     const isIncome = c.category_type === "income";
+    const typeLabel = `${c.category_type[0].toUpperCase()}${c.category_type.slice(1)}`;
+    const subLabel = projectionRowSubLabel_(c, typeLabel);
     const row = document.createElement("div");
     row.className = "recurring-row";
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-sub">${c.category_type[0].toUpperCase()}${c.category_type.slice(1)}${c.hasOverride ? " · Manually set" : ""}</div>
+        <div class="recurring-row-sub">${subLabel}</div>
       </div>
       <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.amountPen)}</div>
     `;
@@ -2754,6 +2769,8 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
   document.getElementById("drilldown-projection-row").hidden = false;
   document.getElementById("drilldown-projection-amount").textContent = "…";
   document.getElementById("drilldown-projection-override-note").hidden = true;
+  document.getElementById("drilldown-projection-split").hidden = true;
+  document.getElementById("drilldown-projection-expected-detail").hidden = true;
 
   const bounds = projectionBoundsForDisplay_();
   const payload = {
@@ -2807,7 +2824,56 @@ function renderProjectionDrilldownAmount_(detail) {
   const remaining = Math.max(0, detail.projection.amountPen - actualSoFar);
   document.getElementById("drilldown-projection-amount").textContent = formatPen(remaining);
   document.getElementById("drilldown-projection-override-note").hidden = !detail.projection.hasOverride;
+
+  renderProjectionSplit_(detail);
 }
+
+// "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
+// shown as two distinct lines only when both actually contribute and
+// nothing's been manually overridden (an override already replaces both
+// with one clear figure above it). Tapping "Expected" traces it back: a
+// one-line formula plus a month-by-month breakdown, so a single unusual
+// month skewing the average is visible instead of hidden inside one
+// blended number.
+function renderProjectionSplit_(detail) {
+  const p = detail.projection;
+  const splitEl = document.getElementById("drilldown-projection-split");
+  const show = !p.hasOverride && p.recurringAmountPen > 0 && p.baseAmountPen > 0;
+  splitEl.hidden = !show;
+  document.getElementById("drilldown-projection-expected-detail").hidden = true;
+  if (!show) return;
+
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.recurringAmountPen);
+  document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.baseAmountPen);
+
+  const breakdown = detail.ytdBreakdown;
+  const formulaEl = document.getElementById("drilldown-projection-expected-formula");
+  const monthsEl = document.getElementById("drilldown-projection-expected-months");
+  if (!breakdown || !breakdown.monthsElapsed) {
+    formulaEl.textContent = "Not enough history yet to break this down.";
+    monthsEl.innerHTML = "";
+    return;
+  }
+
+  const monthLabel = (monthKey) => MONTH_NAMES_SHORT[parseInt(monthKey.slice(5, 7), 10) - 1];
+  const firstMonth = monthLabel(breakdown.months[0].monthKey);
+  const lastMonth = monthLabel(breakdown.months[breakdown.months.length - 1].monthKey);
+  const span = breakdown.months.length === 1 ? firstMonth : `${firstMonth}–${lastMonth}`;
+  formulaEl.textContent =
+    `Based on ${formatPen(breakdown.totalPen)} spent over ${breakdown.monthsElapsed} month${breakdown.monthsElapsed === 1 ? "" : "s"} (${span}) → ${formatPen(breakdown.ratePerMonth)}/month.`;
+
+  monthsEl.innerHTML = breakdown.months.map((m) => `
+    <div class="projection-month-row">
+      <span>${monthLabel(m.monthKey)}</span>
+      <span>${formatPen(m.amountPen)}</span>
+    </div>
+  `).join("");
+}
+
+document.getElementById("drilldown-projection-expected-row").addEventListener("click", () => {
+  const detailEl = document.getElementById("drilldown-projection-expected-detail");
+  detailEl.hidden = !detailEl.hidden;
+});
 
 document.getElementById("drilldown-projection-row").addEventListener("click", () => {
   if (!drilldownProjection || !drilldownProjectionDetail) return;
