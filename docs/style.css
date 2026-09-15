@@ -1032,6 +1032,28 @@ button.primary:disabled {
   line-height: 1.5;
 }
 
+/* Only the header (icon/title/⋮/✕) stays pinned — the subtitle, category
+   list, and transactions all scroll together as one region, so a long
+   category list doesn't permanently eat into the space available for the
+   actual transaction list underneath it. */
+#drilldown-scroll-area {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* #drilldown-list reuses .currency-option-list's look, but that class's
+   own scroll/flex rules were written for when IT is the directly-scrolling
+   element (the plain currency picker) — here it's nested one level inside
+   #drilldown-scroll-area instead, which already owns the single scroll
+   region, so those are reset to plain block behavior to avoid a second,
+   nested scrollbar. */
+#drilldown-scroll-area .currency-option-list {
+  overflow-y: visible;
+  flex: initial;
+  min-height: auto;
+}
+
 .budget-row-name {
   font-weight: 600;
   font-size: 0.95rem;
