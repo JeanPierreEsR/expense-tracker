@@ -9,6 +9,22 @@ const TYPE_LABELS = {
   transfer: "Transfer"
 };
 
+// Shared by every pop-up sheet (currency picker, drill-down, entry edit,
+// budget edit, exchange rate) — whichever one was opened most recently
+// gets bumped to the very top, regardless of which other sheets happen to
+// already be open underneath it. A fixed z-index per sheet type can't work
+// here: the currency picker, for instance, is opened from both the plain
+// entry form AND from inside the budget form, so "above X" isn't a fixed
+// fact about the currency picker — it depends on what's already open when
+// it's launched. The CSS z-index values (250/260/270) stay as sensible
+// defaults for a sheet's first paint; this always overrides them once a
+// sheet is actually opened.
+let topModalZIndex = 250;
+function bringModalToFront_(backdropEl) {
+  topModalZIndex += 1;
+  backdropEl.style.zIndex = topModalZIndex;
+}
+
 let meta = null;
 let selectedType = "expense";
 let selectedTagIds = new Set();
@@ -144,7 +160,9 @@ function renderCurrencyChips(target) {
 
 function openCurrencyModal(target) {
   currencyPickerTarget = target || "entry";
-  document.getElementById("currency-modal-backdrop").hidden = false;
+  const backdrop = document.getElementById("currency-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
   document.getElementById("currency-search").value = "";
   renderCurrencyOptionList("");
   document.getElementById("currency-search").focus();
@@ -523,7 +541,9 @@ function openRateModal(currency, month, required) {
     document.getElementById("rate-cancel-btn").hidden = !!required;
     document.getElementById("rate-form-error").textContent = "";
     renderRateModalLabels_();
-    document.getElementById("rate-modal-backdrop").hidden = false;
+    const backdrop = document.getElementById("rate-modal-backdrop");
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
     document.getElementById("rate-value-input").focus();
   });
 }
@@ -816,7 +836,9 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
 
 function openEditPopup(entry) {
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
-  document.getElementById("edit-entry-modal-backdrop").hidden = false;
+  const backdrop = document.getElementById("edit-entry-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
   editingViaPopup = true;
   startEditEntry(entry);
 }
@@ -1335,6 +1357,7 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   title.textContent = titleText;
   subtitle.textContent = subtitleText;
   list.innerHTML = '<div class="status-msg">Loading…</div>';
+  bringModalToFront_(backdrop);
   backdrop.hidden = false;
 
   try {
@@ -1596,7 +1619,9 @@ function openBudgetModal(budget) {
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
   document.getElementById("budget-delete-btn").hidden = !budget;
 
-  document.getElementById("budget-modal-backdrop").hidden = false;
+  const backdrop = document.getElementById("budget-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
 }
 
 // Cancelling (✕, backdrop tap) just closes the edit form — if it was
