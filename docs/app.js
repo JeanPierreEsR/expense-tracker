@@ -1507,6 +1507,14 @@ async function openBudgetDrilldown(budget) {
   document.getElementById("drilldown-menu-btn").hidden = false;
   document.getElementById("drilldown-menu").hidden = true;
 
+  // Hide immediately (and clear any previous SVG) rather than leaving
+  // whatever budget's chart was already on screen — the fetch below is
+  // async, and without this the previous budget's chart stayed visible
+  // for a moment after switching, which could easily read as belonging
+  // to the new budget until it was replaced.
+  document.getElementById("drilldown-chart").hidden = true;
+  document.getElementById("drilldown-chart-svg").innerHTML = "";
+
   // The category list only needs spelling out here for a budget covering
   // 2+ specific categories — a single category is already the title, and
   // "All expense categories" (category_ids === null) is self-explanatory.
