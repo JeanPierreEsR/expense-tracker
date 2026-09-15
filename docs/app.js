@@ -112,9 +112,9 @@ function bumpRecentCurrency(code) {
 let currencyPickerTarget = "entry";
 
 function currencyFieldIds(target) {
-  return target === "budget"
-    ? { input: "budget-currency", chips: "budget-currency-chips" }
-    : { input: "currency", chips: "currency-chips" };
+  if (target === "budget") return { input: "budget-currency", chips: "budget-currency-chips" };
+  if (target === "recurring") return { input: "recurring-currency", chips: "recurring-currency-chips" };
+  return { input: "currency", chips: "currency-chips" };
 }
 
 function selectCurrency(code, target) {
@@ -1029,6 +1029,19 @@ function showScreen(name) {
     ensurePeriodSelectorIn("budgets");
     refreshBudgets();
   }
+  if (name === "projections") refreshProjections();
+}
+
+// Recurring expenses lives under More but isn't a bottom-nav tab of its
+// own — reached only via the "Recurring expenses" row, so this keeps
+// "More" highlighted in the nav rather than clearing every tab's active
+// state the way showScreen(name) would for an id with no matching button.
+function showRecurringScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-recurring"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  refreshRecurringExpenses();
 }
 
 // Whichever of Overview/Budgets is currently visible re-fetches with the
@@ -1374,6 +1387,7 @@ async function openBreakdownDrilldown(kind, item) {
   document.getElementById("drilldown-menu-btn").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-categories").hidden = true;
+  document.getElementById("drilldown-chart").hidden = true;
 
   const bounds = getPeriodBounds();
 
@@ -1429,6 +1443,141 @@ async function openBudgetDrilldown(budget) {
     `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
     `${p.effectivePeriodType === "yearly" ? "Year" : "Month"} · Budget ${budget.currency} ${moneyFmt(p.effectiveAmount)}`
   );
+
+  loadAndRenderBudgetChart_(budget);
+}
+
+// Fetches this budget's daily spend + recurring expenses for its own
+// period and draws the chart — kept separate from the entries fetch above
+// (and not awaited there) so a slow/failed chart never blocks the
+// transaction list from showing.
+async function loadAndRenderBudgetChart_(budget) {
+  const chartEl = document.getElementById("drilldown-chart");
+  const p = budget.progress;
+  try {
+    const data = await callApi("getBudgetChartSeries", {
+      budgetId: budget.id,
+      startDate: p.startDate,
+      endDate: p.endDate
+    });
+    // The drill-down may have been closed, or moved on to a different
+    // budget, while this was in flight.
+    if (!drilldownBudget || drilldownBudget.id !== budget.id) return;
+    renderBudgetChart_(data, budget);
+    chartEl.hidden = false;
+  } catch (err) {
+    chartEl.hidden = true;
+  }
+}
+
+function enumeratePeriodDates_(startDate, endDate) {
+  const dates = [];
+  let cur = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  while (cur <= end) {
+    dates.push(`${cur.getFullYear()}-${pad2(cur.getMonth() + 1)}-${pad2(cur.getDate())}`);
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return dates;
+}
+
+// Draws two lines over the budget's period: actual cumulative spend
+// (solid), and a dashed pacing target from 0 to the budget amount. When
+// recurring expenses fall in this category/period, the pacing line steps
+// up on each one's actual day first — money that's already spoken for —
+// and only then runs a straight line to the budget amount, rather than
+// pretending every day of the period is equally free to spend.
+function renderBudgetChart_(data, budget) {
+  const p = budget.progress;
+  const days = enumeratePeriodDates_(p.startDate, p.endDate);
+  const n = days.length;
+  const budgetAmount = p.effectiveAmount;
+
+  let running = 0;
+  const actualPoints = days.map((d) => {
+    running += (data.dailySpend && data.dailySpend[d]) || 0;
+    return running;
+  });
+
+  const recurringByDate = {};
+  (data.recurringOccurrences || []).forEach((o) => {
+    recurringByDate[o.date] = (recurringByDate[o.date] || 0) + o.amount;
+  });
+  const recurringDays = Object.keys(recurringByDate).sort();
+
+  const paceVertices = [[0, 0]];
+  let recurringRunning = 0;
+  recurringDays.forEach((d) => {
+    const idx = days.indexOf(d);
+    if (idx === -1) return;
+    paceVertices.push([idx, recurringRunning]);
+    recurringRunning += recurringByDate[d];
+    paceVertices.push([idx, recurringRunning]);
+  });
+  const lastIdx = n - 1;
+  // If recurring expenses alone already reach (or exceed) the budget, the
+  // line just goes flat for the rest rather than sloping downward.
+  const finalTarget = Math.max(budgetAmount, recurringRunning);
+  const lastVertex = paceVertices[paceVertices.length - 1];
+  if (lastVertex[0] === lastIdx) lastVertex[1] = finalTarget;
+  else paceVertices.push([lastIdx, finalTarget]);
+
+  const maxY = Math.max(budgetAmount, recurringRunning, ...actualPoints, 1) * 1.08;
+  const W = 300, H = 120, padTop = 8, padBottom = 6;
+  const xFor = (i) => (n <= 1 ? 0 : (i / (n - 1)) * W);
+  const yFor = (v) => H - padBottom - (v / maxY) * (H - padTop - padBottom);
+
+  const actualPath = actualPoints.map((v, i) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+  const pacePath = paceVertices.map(([i, v]) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+  const budgetLineY = yFor(budgetAmount).toFixed(1);
+
+  document.getElementById("drilldown-chart-svg").innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <line x1="0" y1="${budgetLineY}" x2="${W}" y2="${budgetLineY}" style="stroke:var(--border);stroke-width:1" />
+      <polyline points="${pacePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
+      <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
+    </svg>
+  `.trim();
+
+  renderBudgetPaceNote_(budget, recurringByDate, days);
+}
+
+// "What should I do to stay in budget" — only meaningful while the period
+// being shown is the one actually happening right now.
+function renderBudgetPaceNote_(budget, recurringByDate, days) {
+  const p = budget.progress;
+  const note = document.getElementById("drilldown-chart-pace-note");
+  const today = todayLocalISO();
+
+  if (today < p.startDate || today > p.endDate || p.spent == null) {
+    note.textContent = "";
+    return;
+  }
+
+  let upcomingRecurring = 0;
+  days.forEach((d) => { if (d > today && recurringByDate[d]) upcomingRecurring += recurringByDate[d]; });
+
+  const remaining = p.effectiveAmount - p.spent;
+  const periodWord = p.effectivePeriodType === "yearly" ? "year" : "month";
+
+  if (remaining <= 0) {
+    note.textContent = `You're already over budget for this ${periodWord}.`;
+    return;
+  }
+
+  const discretionary = remaining - upcomingRecurring;
+  const daysLeft = days.filter((d) => d >= today).length;
+
+  if (discretionary <= 0) {
+    note.textContent = `${budget.currency} ${moneyFmt(upcomingRecurring)} in upcoming recurring expenses uses up what's left — nothing free to spend for the rest of this ${periodWord}.`;
+    return;
+  }
+
+  const perDay = discretionary / Math.max(daysLeft, 1);
+  const recurringPart = upcomingRecurring > 0
+    ? ` after ${budget.currency} ${moneyFmt(upcomingRecurring)} in upcoming recurring expenses`
+    : "";
+  note.textContent = `${budget.currency} ${moneyFmt(discretionary)} left to spend freely${recurringPart} — about ${budget.currency} ${moneyFmt(perDay)}/day for the ${daysLeft} day${daysLeft === 1 ? "" : "s"} left.`;
 }
 
 function renderDrilldownEntries(entries) {
@@ -1986,6 +2135,217 @@ async function init() {
 // than silently running stale code indefinitely. docs/version.json needs
 // its value bumped on every deploy that touches docs/*.html, *.js, *.css
 // — nothing else keeps this in sync automatically.
+// ---- More tab ----
+
+document.getElementById("more-recurring-btn").addEventListener("click", showRecurringScreen);
+document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Recurring expenses ----
+
+let editingRecurringId = null;
+let recurringFrequency = "monthly";
+let selectedRecurringCategoryId = null;
+
+async function refreshRecurringExpenses() {
+  const list = document.getElementById("recurring-list");
+  const emptyNote = document.getElementById("recurring-empty-note");
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+  let items;
+  try {
+    items = await callApi("listRecurringExpenses");
+  } catch (err) {
+    list.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  list.innerHTML = "";
+  emptyNote.hidden = items.length > 0;
+
+  items.forEach((re) => {
+    const freqLabel = re.frequency === "yearly"
+      ? `Yearly, ${MONTH_NAMES_SHORT[re.month - 1]} ${re.day}`
+      : `Monthly, day ${re.day}`;
+    const row = document.createElement("div");
+    row.className = "recurring-row" + (re.active ? "" : " inactive");
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
+        <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${freqLabel}${re.active ? "" : " · Paused"}</div>
+      </div>
+      <div class="recurring-row-amount">${re.currency} ${moneyFmt(re.amount)}</div>
+    `;
+    row.addEventListener("click", () => openRecurringModal(re));
+    list.appendChild(row);
+  });
+}
+
+const MONTH_NAMES_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function populateRecurringCategoryChips() {
+  const container = document.getElementById("recurring-category-chips");
+  container.innerHTML = "";
+  meta.categories
+    .filter((c) => c.type === "expense")
+    .forEach((c) => {
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
+      chip.textContent = (c.icon ? c.icon + " " : "") + c.name;
+      chip.addEventListener("click", () => {
+        selectedRecurringCategoryId = c.id;
+        populateRecurringCategoryChips();
+      });
+      container.appendChild(chip);
+    });
+}
+
+function setRecurringFrequency_(freq) {
+  recurringFrequency = freq;
+  document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.frequency === freq);
+  });
+  const isYearly = freq === "yearly";
+  document.getElementById("recurring-month-label").hidden = !isYearly;
+  document.getElementById("recurring-month").hidden = !isYearly;
+}
+
+document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => setRecurringFrequency_(tab.dataset.frequency));
+});
+
+function openRecurringModal(re) {
+  editingRecurringId = re ? re.id : null;
+  document.getElementById("recurring-modal-title").textContent = re ? "Edit recurring expense" : "Add recurring expense";
+  document.getElementById("recurring-form-error").textContent = "";
+  document.getElementById("recurring-description").value = re ? re.description : "";
+
+  selectedRecurringCategoryId = re ? re.category_id : null;
+  populateRecurringCategoryChips();
+
+  document.getElementById("recurring-amount").value = re ? re.amount : "";
+  document.getElementById("recurring-currency").value = re ? re.currency : "PEN";
+  renderCurrencyChips("recurring");
+
+  setRecurringFrequency_(re ? re.frequency : "monthly");
+  document.getElementById("recurring-day").value = re ? re.day : 1;
+  document.getElementById("recurring-month").value = re ? re.month : 1;
+  document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
+  document.getElementById("recurring-delete-btn").hidden = !re;
+
+  const backdrop = document.getElementById("recurring-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeRecurringModal() {
+  document.getElementById("recurring-modal-backdrop").hidden = true;
+  editingRecurringId = null;
+}
+
+document.getElementById("add-recurring-btn").addEventListener("click", () => openRecurringModal(null));
+document.getElementById("recurring-modal-close").addEventListener("click", closeRecurringModal);
+document.getElementById("recurring-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "recurring-modal-backdrop") closeRecurringModal();
+});
+
+document.getElementById("recurring-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+
+document.getElementById("recurring-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("recurring-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("recurring-save-btn");
+  saveBtn.disabled = true;
+
+  try {
+    const description = document.getElementById("recurring-description").value.trim();
+    const amount = parseFloat(document.getElementById("recurring-amount").value);
+    const currency = document.getElementById("recurring-currency").value.toUpperCase();
+    const day = Math.min(31, Math.max(1, parseInt(document.getElementById("recurring-day").value, 10) || 1));
+    const month = Math.min(12, Math.max(1, parseInt(document.getElementById("recurring-month").value, 10) || 1));
+    const active = document.getElementById("recurring-active-checkbox").checked;
+
+    if (!selectedRecurringCategoryId) throw new Error("Pick a category.");
+    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+
+    const fields = {
+      category_id: selectedRecurringCategoryId,
+      description,
+      amount,
+      currency,
+      frequency: recurringFrequency,
+      day,
+      month,
+      active
+    };
+
+    if (editingRecurringId) {
+      await callApi("updateRecurringExpense", Object.assign({ id: editingRecurringId }, fields));
+    } else {
+      await callApi("addRecurringExpense", fields);
+    }
+    closeRecurringModal();
+    refreshRecurringExpenses();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("recurring-delete-btn").addEventListener("click", async () => {
+  if (!editingRecurringId) return;
+  if (!confirm("Delete this recurring expense? This can't be undone.")) return;
+  const id = editingRecurringId;
+  closeRecurringModal();
+  await callApi("deleteRecurringExpense", { id });
+  refreshRecurringExpenses();
+});
+
+// ---- Projections ----
+
+async function refreshProjections() {
+  const body = document.getElementById("projections-body");
+  const monthLabel = document.getElementById("projections-month-label");
+  const methodNote = document.getElementById("projections-method-note");
+  body.innerHTML = '<div class="status-msg">Loading…</div>';
+  monthLabel.textContent = "";
+  methodNote.textContent = "";
+
+  let p;
+  try {
+    p = await callApi("getProjections");
+  } catch (err) {
+    body.innerHTML = `<div class="status-msg">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  monthLabel.textContent = `Projected for ${p.monthLabel}`;
+  body.innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-item">
+        <span class="summary-label">Income</span>
+        <span class="summary-value income">${formatPen(p.income)}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Expenses</span>
+        <span class="summary-value expense">${formatPen(p.expenses)}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Investments</span>
+        <span class="summary-value investment">${formatPen(p.investments)}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Net</span>
+        <span class="summary-value">${formatPen(p.net)}</span>
+      </div>
+    </div>
+    <p class="projections-breakdown">Expenses: ${formatPen(p.expensesFromRecurring)} from recurring expenses + ${formatPen(p.expensesFromAverage)} from your recent average.</p>
+  `;
+  methodNote.textContent = `Income and investments are the average of your last ${p.averageMonths} complete months. Expenses use each category's recurring expenses when it has any, and the recent average otherwise — never both, so nothing is counted twice.`;
+}
+
 (function setupUpdateCheck() {
   const banner = document.getElementById("update-banner");
   let knownVersion = null;

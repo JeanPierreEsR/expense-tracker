@@ -210,6 +210,40 @@
         <div class="budgets-summary-overlap" id="budgets-summary-overlap" hidden></div>
       </div>
     </div>
+
+    <div id="screen-projections" class="screen" hidden>
+      <div class="card">
+        <h2>Projections</h2>
+        <p class="hint" id="projections-month-label"></p>
+        <div id="projections-body"></div>
+        <p class="hint" id="projections-method-note"></p>
+      </div>
+    </div>
+
+    <div id="screen-more" class="screen" hidden>
+      <div class="card">
+        <h2>More</h2>
+        <div class="more-list">
+          <button type="button" class="more-list-item" id="more-recurring-btn">
+            <span>🔁 Recurring expenses</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="screen-recurring" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="recurring-back-btn">‹ Back</button>
+          <button type="button" class="add-inline" id="add-recurring-btn">+ Add</button>
+        </div>
+        <h2 style="margin-top:0;">Recurring expenses</h2>
+        <p class="hint">Fixed costs that happen on a schedule — rent, subscriptions, gym. Budgets and Projections use these to tell known, certain spending apart from the rest.</p>
+        <div id="recurring-list"></div>
+        <p class="hint" id="recurring-empty-note" hidden>No recurring expenses yet.</p>
+      </div>
+    </div>
   </main>
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
@@ -221,6 +255,12 @@
     </button>
     <button type="button" class="nav-btn" data-screen="budgets">
       <span class="nav-icon">🎯</span><span>Budgets</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="projections">
+      <span class="nav-icon">🔮</span><span>Projections</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="more">
+      <span class="nav-icon">⋯</span><span>More</span>
     </button>
   </nav>
 
@@ -255,6 +295,14 @@
       <div class="drilldown-scroll-area" id="drilldown-scroll-area">
         <p class="hint" id="drilldown-subtitle"></p>
         <p class="hint" id="drilldown-categories" hidden></p>
+        <div id="drilldown-chart" hidden>
+          <div id="drilldown-chart-svg"></div>
+          <div class="drilldown-chart-legend">
+            <span><span class="legend-swatch legend-actual"></span>Actual spend</span>
+            <span><span class="legend-swatch legend-pace"></span>Pace to stay in budget</span>
+          </div>
+          <p class="hint" id="drilldown-chart-pace-note"></p>
+        </div>
         <div class="currency-option-list" id="drilldown-list"></div>
       </div>
     </div>
@@ -311,6 +359,50 @@
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="budget-save-btn">Save budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden>Delete this budget</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="recurring-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="recurring-modal-title">Add recurring expense</span>
+        <button type="button" id="recurring-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="recurring-description">Description</label>
+        <input type="text" id="recurring-description" placeholder="e.g. Rent, Netflix, Gym">
+
+        <label>Category</label>
+        <div class="tags-list" id="recurring-category-chips"></div>
+
+        <label for="recurring-amount">Amount</label>
+        <input type="text" inputmode="decimal" id="recurring-amount" placeholder="0.00">
+
+        <label>Currency</label>
+        <input type="hidden" id="recurring-currency" value="PEN">
+        <div class="currency-chips" id="recurring-currency-chips"></div>
+
+        <label>Frequency</label>
+        <div class="type-tabs budget-period-tabs" id="recurring-frequency-tabs">
+          <div class="type-tab active" data-frequency="monthly">Monthly</div>
+          <div class="type-tab" data-frequency="yearly">Yearly</div>
+        </div>
+
+        <label for="recurring-day">Day of month (1-31)</label>
+        <input type="number" min="1" max="31" id="recurring-day" placeholder="1">
+
+        <label for="recurring-month" id="recurring-month-label">Month (1-12)</label>
+        <input type="number" min="1" max="12" id="recurring-month" placeholder="1">
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="recurring-active-checkbox" checked>
+          <span>Active</span>
+        </label>
+
+        <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="recurring-save-btn">Save</button>
+        <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden>Delete this recurring expense</button>
       </div>
     </div>
   </div>

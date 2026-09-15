@@ -389,6 +389,66 @@ function listBudgets(payload) {
   };
 }
 
+// Feeds the drill-down's line chart: actual spend per day, plus recurring
+// expenses tied to this budget's categories attributed to their actual
+// calendar day within the period — both in the budget's own currency, same
+// conversion rule as everywhere else in this file (an entry/recurring item
+// already in the budget's currency contributes exactly its own amount, no
+// conversion). startDate/endDate come from the budget's already-computed
+// progress (see computeBudgetProgressWithContext_), so this doesn't
+// re-derive period bounds on its own.
+function getBudgetChartSeries(payload) {
+  var startDate = payload.startDate;
+  var endDate = payload.endDate;
+  var rawBudget = getAllRows('Budgets').filter(function (b) { return b.id === payload.budgetId; })[0];
+  if (!rawBudget) throw new Error('Budget not found');
+
+  var categoryIds = parseBudgetCategoryIds_(rawBudget.category_id);
+  var currency = rawBudget.currency || 'PEN';
+  var ctx = buildBudgetContext_();
+  var cutoffMonth = endDate.substring(0, 7);
+  var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
+
+  var dailySpend = {};
+  ctx.spendEntries.forEach(function (e) {
+    if (!categoryIdMatches_(categoryIds, e.category_id)) return;
+    if (e.date < startDate || e.date > endDate) return;
+    var amt = null;
+    if (e.currency === currency) {
+      amt = e.ownAmount;
+    } else if (e.ownAmountPen != null) {
+      amt = currency === 'PEN' ? e.ownAmountPen : (rate != null ? e.ownAmountPen / rate : null);
+    }
+    if (amt == null) return;
+    dailySpend[e.date] = (dailySpend[e.date] || 0) + amt;
+  });
+
+  var recurringOccurrences = [];
+  getRecurringExpenseRows_().forEach(function (r) {
+    if (String(r.active) === 'false' || !categoryIdMatches_(categoryIds, r.category_id)) return;
+    var reCurrency = r.currency || 'PEN';
+    var amt = null;
+    if (reCurrency === currency) {
+      amt = Number(r.amount);
+    } else {
+      var rePen = null;
+      if (reCurrency === 'PEN') {
+        rePen = Number(r.amount);
+      } else {
+        var reRate = latestRateAtOrBefore_(ctx, reCurrency, cutoffMonth);
+        rePen = reRate != null ? Number(r.amount) * reRate : null;
+      }
+      if (rePen != null) amt = currency === 'PEN' ? rePen : (rate != null ? rePen / rate : null);
+    }
+    if (amt == null) return;
+    recurringExpenseOccurrencesInRange_(r, startDate, endDate).forEach(function (date) {
+      recurringOccurrences.push({ date: date, amount: amt, description: r.description || '' });
+    });
+  });
+
+  return { currency: currency, dailySpend: dailySpend, recurringOccurrences: recurringOccurrences };
+}
+
 function addBudget(payload) {
   var budget = {
     id: Utilities.getUuid(),

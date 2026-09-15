@@ -1202,4 +1202,99 @@ button.primary:disabled {
   padding: 20px;
 }
 
+/* ---- More tab ---- */
+
+.more-list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 14px 4px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.more-list-chevron {
+  color: var(--muted);
+}
+
+/* ---- Recurring expenses screen (reuses the budget row's look) ---- */
+
+.recurring-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.recurring-row:last-child { border-bottom: none; }
+
+.recurring-row.inactive { opacity: 0.5; }
+
+.recurring-row-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.recurring-row-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.recurring-row-amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- Budget drill-down line chart ---- */
+
+#drilldown-chart {
+  margin: 4px 0 12px;
+}
+
+#drilldown-chart-svg svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.drilldown-chart-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.legend-actual { background: var(--accent); }
+
+.legend-pace {
+  background: repeating-linear-gradient(to right, var(--muted) 0 4px, transparent 4px 7px);
+}
+
+/* ---- Projections tab (reuses Overview's .summary-grid) ---- */
+
+.projections-breakdown {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 10px;
+  margin-bottom: 8px;
+}
+
 [hidden] { display: none !important; }

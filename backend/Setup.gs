@@ -23,6 +23,13 @@ var TABLE_DEFINITIONS = {
   Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
+  // Not part of the original spec — added so budgets and Projections can
+  // account for known fixed costs (rent, subscriptions) instead of
+  // treating every expense as unpredictable. `day` is the day of the month
+  // it occurs (1-31, clamped to each month's real length); `month` (1-12)
+  // is only meaningful when frequency is 'yearly'. `active` lets one be
+  // paused without deleting its history of use.
+  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active'],
   'Period Templates': ['id', 'name', 'recurrence_rule', 'start_anchor'],
   'Import Batches': ['id', 'filename', 'date', 'row_count'],
   'Parsing Rules': ['id', 'bank_id', 'sender', 'pattern', 'field_mappings'],
