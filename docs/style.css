@@ -1043,6 +1043,14 @@ button.primary:disabled {
   white-space: nowrap;
 }
 
+/* Its usual day has already passed this month with nothing confirmed yet
+   — same look either way (email hasn't arrived, or it's just late), just
+   a heads-up that it's worth a second look. */
+.expected-recurring-item.overdue .expected-recurring-item-amount {
+  color: #e0932a;
+  font-weight: 600;
+}
+
 .type-dot {
   display: inline-block;
   width: 8px;

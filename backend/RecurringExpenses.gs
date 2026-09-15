@@ -188,18 +188,26 @@ function listExpectedRecurringItems() {
     return confirmedThisMonth.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, occurrenceDates); });
   }
 
-  var stillExpected = getRecurringExpenseRows_().filter(function (r) {
-    if (String(r.active) === 'false') return false;
+  // Kept as {row, occurrenceDate} rather than just the row — a recurring
+  // item can only actually occur once within a single-month range, and
+  // the occurrence's own (clamped) date is what "overdue" below needs,
+  // not the raw day field (a "day 31" item genuinely occurs on the 28th
+  // in February, not the 31st).
+  var stillExpected = [];
+  getRecurringExpenseRows_().forEach(function (r) {
+    if (String(r.active) === 'false') return;
     var occurrenceDates = recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd);
-    if (occurrenceDates.length === 0) return false;
-    return !alreadyHandled(r, occurrenceDates);
+    if (occurrenceDates.length === 0 || alreadyHandled(r, occurrenceDates)) return;
+    stillExpected.push({ row: r, occurrenceDate: occurrenceDates[0] });
   });
 
   var ctx = buildBudgetContext_();
   var cutoffMonth = monthEnd.substring(0, 7);
+  var todayStr = formatCalendarDate_(now);
   var groupsByCurrency = {};
 
-  stillExpected.forEach(function (r) {
+  stillExpected.forEach(function (entry) {
+    var r = entry.row;
     var currency = r.currency || 'PEN';
     if (!groupsByCurrency[currency]) groupsByCurrency[currency] = { currency: currency, total: 0, items: [] };
     var cat = categoryById[r.category_id];
@@ -211,7 +219,8 @@ function listExpectedRecurringItems() {
       category_name: cat ? cat.name : '(unknown category)',
       category_icon: cat ? cat.icon : '',
       amount: Number(r.amount),
-      day: r.day ? Number(r.day) : 1
+      day: r.day ? Number(r.day) : 1,
+      overdue: entry.occurrenceDate < todayStr
     });
   });
 
