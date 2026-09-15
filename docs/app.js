@@ -1481,15 +1481,27 @@ document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
 
 // A budget can cover one category, several, or every expense category —
 // same multi-select-chip pattern as tags on the entry form. "All expense
-// categories" supersedes the individual chips (hidden while it's checked)
-// rather than the two being combined.
+// categories" is a "select all" checkbox, not a separate mode: checking it
+// selects every chip (and stays checked only for as long as every chip
+// stays selected); unchecking a single chip un-checks it again, same as
+// any standard select-all checkbox. Saving still stores the compact "ALL"
+// form whenever the selection happens to cover every category — including
+// a category added later, which an explicit list of today's ids wouldn't.
 let selectedBudgetCategoryIds = new Set();
-let budgetAllCategories = false;
+
+function allExpenseCategoryIds_() {
+  return meta.categories.filter((c) => c.type === "expense").map((c) => c.id);
+}
+
+function updateBudgetAllCategoriesCheckbox_() {
+  const allIds = allExpenseCategoryIds_();
+  document.getElementById("budget-all-categories-checkbox").checked =
+    allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
+}
 
 function populateBudgetCategoryChips() {
   const container = document.getElementById("budget-category-chips");
   container.innerHTML = "";
-  container.hidden = budgetAllCategories;
   meta.categories
     .filter((c) => c.type === "expense")
     .forEach((c) => {
@@ -1499,14 +1511,16 @@ function populateBudgetCategoryChips() {
       chip.addEventListener("click", () => {
         if (selectedBudgetCategoryIds.has(c.id)) selectedBudgetCategoryIds.delete(c.id);
         else selectedBudgetCategoryIds.add(c.id);
+        updateBudgetAllCategoriesCheckbox_();
         populateBudgetCategoryChips();
       });
       container.appendChild(chip);
     });
+  updateBudgetAllCategoriesCheckbox_();
 }
 
 document.getElementById("budget-all-categories-checkbox").addEventListener("change", (e) => {
-  budgetAllCategories = e.target.checked;
+  selectedBudgetCategoryIds = new Set(e.target.checked ? allExpenseCategoryIds_() : []);
   populateBudgetCategoryChips();
 });
 
@@ -1562,9 +1576,12 @@ function openBudgetModal(budget) {
   document.getElementById("budget-modal-title").textContent = budget ? "Edit budget" : "Add budget";
   document.getElementById("budget-form-error").textContent = "";
 
-  selectedBudgetCategoryIds = new Set(budget && budget.category_ids ? budget.category_ids : []);
-  budgetAllCategories = budget ? !!budget.all_categories : false;
-  document.getElementById("budget-all-categories-checkbox").checked = budgetAllCategories;
+  // An "ALL" budget materializes as every current expense category
+  // selected, so the chips (and the checkbox, derived from them) show it
+  // the same way as a budget that happens to cover all of them explicitly.
+  selectedBudgetCategoryIds = new Set(
+    budget ? (budget.all_categories ? allExpenseCategoryIds_() : (budget.category_ids || [])) : []
+  );
   populateBudgetCategoryChips();
 
   document.getElementById("budget-amount").value = budget ? budget.amount : "";
@@ -1612,12 +1629,18 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const currency = document.getElementById("budget-currency").value.toUpperCase();
     const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
 
-    if (!budgetAllCategories && selectedBudgetCategoryIds.size === 0) {
-      throw new Error("Pick at least one category, or choose All expense categories.");
+    if (selectedBudgetCategoryIds.size === 0) {
+      throw new Error("Pick at least one category.");
     }
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
 
-    const categoryId = budgetAllCategories ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
+    // Stores the compact "ALL" form whenever the selection happens to
+    // cover every category that exists right now — whether the owner got
+    // there via the checkbox or by tapping every chip by hand — so a
+    // category added later is automatically included too.
+    const allIds = allExpenseCategoryIds_();
+    const isEveryCategory = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
+    const categoryId = isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
     const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds };
 
     if (editingBudgetId) {
