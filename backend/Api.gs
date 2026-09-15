@@ -110,6 +110,12 @@ function routeAction(action, payload) {
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
+    case 'getBudgetChartSeries': return getBudgetChartSeries(payload);
+    case 'listRecurringExpenses': return listRecurringExpenses();
+    case 'addRecurringExpense': return addRecurringExpense(payload);
+    case 'updateRecurringExpense': return updateRecurringExpense(payload);
+    case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'getProjections': return getProjections();
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
