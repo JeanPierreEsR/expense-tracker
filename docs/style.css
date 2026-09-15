@@ -1023,12 +1023,13 @@ button.primary:disabled {
   margin-bottom: 6px;
 }
 
-.budget-row-categories {
-  font-size: 0.72rem;
-  color: var(--muted);
-  margin-bottom: 8px;
-  white-space: normal;
-  line-height: 1.4;
+/* The category list for a multi-category budget's drill-down — moved here
+   from the budget row itself (see openBudgetDrilldown in app.js), which
+   got unreadably packed for a budget spanning many categories. Shown on
+   demand once the budget is actually opened, instead of always inline. */
+#drilldown-categories {
+  margin-top: -6px;
+  line-height: 1.5;
 }
 
 .budget-row-name {
