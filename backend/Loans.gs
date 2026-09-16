@@ -15,8 +15,11 @@ function getEntrySplits(entryId) {
 // set — the same "recalculate from scratch" approach an exchange-rate
 // edit uses (see CLAUDE.md), so editing a split never leaves a stale
 // split row or a stale loan behind. `splits` is [{friend_id, amount}];
-// sending an empty array is how the frontend clears a split that was
-// turned back off.
+// an empty array is not just "nothing to split" — it's also how a
+// friend-paid expense with the split toggle left off gets its loan: with
+// no splits at all, own_share is the FULL amount (see below), so this
+// still has to run the loan logic even when there's no Entry Splits row
+// to write.
 function saveEntrySplits(entryId, splits) {
   var entry = getEntryById_(entryId);
   if (!entry) throw new Error('Entry not found');
@@ -24,18 +27,21 @@ function saveEntrySplits(entryId, splits) {
   deleteEntrySplitsAndLoansForEntry_(entryId);
 
   splits = (splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
-  if (!splits.length) return { splits: [] };
 
-  var splitsSheet = getSheet('Entry Splits');
-  splits.forEach(function (s) {
-    splitsSheet.appendRow([Utilities.getUuid(), entryId, s.friend_id, Number(s.amount)]);
-  });
+  if (splits.length) {
+    var splitsSheet = getSheet('Entry Splits');
+    splits.forEach(function (s) {
+      splitsSheet.appendRow([Utilities.getUuid(), entryId, s.friend_id, Number(s.amount)]);
+    });
+  }
 
   var splitTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   var ownShare = Number(entry.amount) - splitTotal;
 
   if (entry.paid_by === 'me') {
     // Owner paid — every friend in the split owes the owner their share.
+    // Nothing to do here when splits is empty (a plain, fully-owned
+    // expense — no one else involved).
     splits.forEach(function (s) {
       createLoan_({
         friend_id: s.friend_id,
@@ -50,11 +56,14 @@ function saveEntrySplits(entryId, splits) {
     });
   } else if (ownShare > 0.004) {
     // A friend paid — only that friend gets a loan, for the owner's own
-    // remaining share. A second, non-paying friend in the split (a group
-    // the payer covered) got a split row above for the math, but no loan
-    // of their own — what they owe the payer is a debt between the two of
-    // them, outside this app's scope (see CLAUDE.md's "Loan scope is
-    // owner-centric").
+    // remaining share. With no splits at all, that's the full amount: a
+    // friend-paid expense the owner didn't explicitly split with anyone
+    // else is 100% the owner's, by default — no separate split entry
+    // needed just to say so. A second, non-paying friend in the split (a
+    // group the payer covered) got a split row above for the math, but no
+    // loan of their own — what they owe the payer is a debt between the
+    // two of them, outside this app's scope (see CLAUDE.md's "Loan scope
+    // is owner-centric").
     createLoan_({
       friend_id: entry.paid_by,
       direction: 'i_owe_them',
