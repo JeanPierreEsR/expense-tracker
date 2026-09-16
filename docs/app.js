@@ -1483,6 +1483,9 @@ function showScreen(name) {
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
   }
+  if (name === "loans") {
+    refreshLoans();
+  }
 }
 
 // Recurring income/expenses lives under More but isn't a bottom-nav tab of
@@ -3698,5 +3701,135 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
     if (document.visibilityState === "visible") checkForUpdate();
   });
 })();
+
+// ---- Loans (Phase 5.2) ----
+// Read-only for now — net balance per friend, split into "owes you" /
+// "you owe" by the sign of that net, plus tap-through to the friend's
+// full loan history. Recording a new standalone loan, settlements, and
+// forgiving a loan are later Phase 5 steps (see CLAUDE.md's Build phases
+// table); this only reflects loans the split-entry UI already created.
+
+async function refreshLoans() {
+  const balances = await callApi("listLoanBalances", {});
+
+  const owedToMe = balances
+    .filter((b) => !b.needs_rate && b.display_amount > 0)
+    .sort((a, b) => b.net_pen - a.net_pen);
+  const iOwe = balances
+    .filter((b) => !b.needs_rate && b.display_amount < 0)
+    .sort((a, b) => a.net_pen - b.net_pen);
+  const needsRate = balances.filter((b) => b.needs_rate);
+
+  renderLoanBalanceList_("loans-owed-to-me-list", "loans-owed-to-me-empty-note", owedToMe, "owed-to-me");
+  renderLoanBalanceList_("loans-i-owe-list", "loans-i-owe-empty-note", iOwe, "i-owe");
+
+  const needsRateCard = document.getElementById("loans-needs-rate-card");
+  needsRateCard.hidden = needsRate.length === 0;
+  if (needsRate.length) {
+    const list = document.getElementById("loans-needs-rate-list");
+    list.innerHTML = "";
+    needsRate.forEach((b) => {
+      const row = document.createElement("div");
+      row.className = "loan-row";
+      row.innerHTML = `<span class="loan-row-name">${escapeHtml(b.friend_name)}</span>`;
+      row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
+      list.appendChild(row);
+    });
+  }
+}
+
+function renderLoanBalanceList_(listId, emptyNoteId, balances, kind) {
+  const list = document.getElementById(listId);
+  const emptyNote = document.getElementById(emptyNoteId);
+  list.innerHTML = "";
+
+  if (balances.length === 0) {
+    emptyNote.hidden = false;
+    return;
+  }
+  emptyNote.hidden = true;
+
+  balances.forEach((b) => {
+    const amount = Math.abs(b.display_amount);
+    const label = kind === "owed-to-me"
+      ? `+${b.display_currency} ${moneyFmt(amount)}`
+      : `${b.display_currency} ${moneyFmt(amount)}`;
+
+    const row = document.createElement("div");
+    row.className = "loan-row";
+    row.innerHTML = `
+      <span class="loan-row-name">${escapeHtml(b.friend_name)}</span>
+      <span class="loan-row-amount ${kind}">${label}</span>
+    `;
+    row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
+    list.appendChild(row);
+  });
+}
+
+async function openLoanDetail(friendId, friendName) {
+  const loans = await callApi("getFriendLoanDetail", { friendId });
+  document.getElementById("loan-detail-title").textContent = friendName;
+
+  const outstanding = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
+  const netByCurrency = {};
+  outstanding.forEach((l) => {
+    if (!netByCurrency[l.currency]) netByCurrency[l.currency] = 0;
+    netByCurrency[l.currency] += l.direction === "they_owe_me" ? l.remaining : -l.remaining;
+  });
+  const netParts = Object.keys(netByCurrency)
+    .filter((cur) => Math.abs(netByCurrency[cur]) > 0.004)
+    .map((cur) => {
+      const n = netByCurrency[cur];
+      return (n > 0 ? "+" : "") + `${cur} ${moneyFmt(n)}`;
+    });
+  document.getElementById("loan-detail-subtitle").textContent = netParts.length
+    ? `Net: ${netParts.join(" · ")}`
+    : "All settled up.";
+
+  const list = document.getElementById("loan-detail-list");
+  const emptyNote = document.getElementById("loan-detail-empty-note");
+  list.innerHTML = "";
+
+  if (loans.length === 0) {
+    emptyNote.hidden = false;
+  } else {
+    emptyNote.hidden = true;
+    loans.forEach((l) => {
+      const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
+      const sign = l.direction === "they_owe_me" ? "+" : "";
+      const statusNote = l.status === "forgiven"
+        ? "Forgiven"
+        : l.remaining <= 0.004
+          ? "Fully repaid"
+          : l.settled > 0.004
+            ? `${l.currency} ${moneyFmt(l.settled)} repaid so far`
+            : "";
+
+      const row = document.createElement("div");
+      row.className = "loan-detail-row";
+      row.innerHTML = `
+        <div class="loan-detail-row-top">
+          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}</span>
+          <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+        </div>
+        <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
+      `;
+      list.appendChild(row);
+    });
+  }
+
+  const backdrop = document.getElementById("loan-detail-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeLoanDetail() {
+  document.getElementById("loan-detail-modal-backdrop").hidden = true;
+}
+
+document.getElementById("loan-detail-modal-close").addEventListener("click", closeLoanDetail);
+document.getElementById("loan-detail-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "loan-detail-modal-backdrop") closeLoanDetail();
+});
 
 init();

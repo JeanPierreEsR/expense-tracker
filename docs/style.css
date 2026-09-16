@@ -470,6 +470,62 @@ input[type="date"] {
   text-align: right;
 }
 
+.loan-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.loan-row:last-child { border-bottom: none; }
+
+.loan-row-name {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.loan-row-amount {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.loan-row-amount.owed-to-me { color: var(--income); }
+.loan-row-amount.i-owe { color: var(--text); }
+
+.loan-detail-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.loan-detail-row:last-child { border-bottom: none; }
+
+.loan-detail-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.loan-detail-row-desc {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.loan-detail-row-amount {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.loan-detail-row-amount.owed-to-me { color: var(--income); }
+.loan-detail-row-amount.i-owe { color: var(--text); }
+
+.loan-detail-row-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
 .add-inline {
   font-size: 0.8rem;
   color: var(--accent);
