@@ -246,6 +246,7 @@ function computeAllCategoryProjections_(bounds) {
         programmedRemainingPen: 0,
         expectedRemainingPen: 0,
         remainingTotalPen: 0,
+        totalPen: 0,
         ratePerMonth: 0,
         daysLeft: 0
       };
@@ -373,6 +374,19 @@ function computeAllCategoryProjections_(bounds) {
       ? Math.max(0, overridesByKey[overrideKey] - actualPen)
       : programmedRemainingPen + expectedRemainingPen;
 
+    // The canonical total, everywhere (added 2026-09-16, replacing
+    // `amountPen` as what the row headline, the list's own sort order,
+    // and the top summary all use) — actual so far plus what's genuinely
+    // still left, so it's consistent by construction with the three
+    // breakdown lines a category's own row shows (actual + programmed +
+    // expected always equals this exactly, with an override folding into
+    // it the same way it folds into remainingTotalPen above). `amountPen`
+    // (the old flat full-period figure) is kept only for
+    // openProjectionOverrideModal_'s own pre-fill — an override still
+    // targets "what I think the FULL period will total," a genuinely
+    // different question than "what's happened plus what's left."
+    var totalPen = actualPen + remainingTotalPen;
+
     return {
       category_id: category.id,
       category_name: category.name,
@@ -389,20 +403,18 @@ function computeAllCategoryProjections_(bounds) {
       programmedRemainingPen: programmedRemainingPen,
       expectedRemainingPen: expectedRemainingPen,
       remainingTotalPen: remainingTotalPen,
+      totalPen: totalPen,
       ratePerMonth: ratePerMonth,
       daysLeft: daysLeft
     };
   }).filter(function (c) {
-    // actualPen > 0 added 2026-09-16 — a category with real spend already
-    // logged this period but no recurring/YTD basis to project from
-    // (nothing to go on yet, e.g. a category's very first-ever entry)
-    // used to be invisible here even though there was something genuine
-    // to show, now that "Actual" is its own row rather than folded into
-    // a single projected total.
-    return c.amountPen > 0.005 || c.hasOverride || c.actualPen > 0.005;
+    // totalPen already incorporates both actual spend and what's still
+    // projected, so a single check covers what used to need three
+    // (amountPen > 0, hasOverride, or actualPen > 0 on its own).
+    return c.totalPen > 0.005 || c.hasOverride;
   });
 
-  results.sort(function (a, b) { return b.amountPen - a.amountPen; });
+  results.sort(function (a, b) { return b.totalPen - a.totalPen; });
   return results;
 }
 
@@ -437,7 +449,7 @@ function getCategoryProjectionDetail(payload) {
       recurringAmountPen: 0, baseAmountPen: 0, calculatedAmountPen: 0,
       hasOverride: false, overrideAmountPen: null, amountPen: 0,
       actualPen: 0, programmedRemainingPen: 0, expectedRemainingPen: 0,
-      remainingTotalPen: 0, ratePerMonth: 0, daysLeft: 0
+      remainingTotalPen: 0, totalPen: 0, ratePerMonth: 0, daysLeft: 0
     };
   }
 
@@ -679,22 +691,29 @@ function getProjections(payload) {
     return all.reduce(function (sum, c) { return c.category_type === type ? sum + c[field] : sum; }, 0);
   }
 
-  var income = sumByType_('income', 'amountPen');
-  var expenses = sumByType_('expense', 'amountPen');
-  var investments = sumByType_('investment', 'amountPen');
+  // Rolled up from `totalPen` (added 2026-09-16, replacing `amountPen`) —
+  // actual so far plus what's genuinely still left for every category of
+  // that type, the same reality-aware figure the "By category" list and
+  // each category's own drill-down now use, rather than a flat
+  // full-period estimate that ignores how the period's actually going.
+  var income = sumByType_('income', 'totalPen');
+  var expenses = sumByType_('expense', 'totalPen');
+  var investments = sumByType_('investment', 'totalPen');
 
   return {
     monthLabel: periodLabel,
     periodType: bounds.periodType,
     income: income,
-    incomeFromRecurring: sumByType_('income', 'recurringAmountPen'),
-    incomeFromAverage: sumByType_('income', 'baseAmountPen'),
+    incomeActual: sumByType_('income', 'actualPen'),
+    incomeProgrammed: sumByType_('income', 'programmedRemainingPen'),
     expenses: expenses,
-    expensesFromRecurring: sumByType_('expense', 'recurringAmountPen'),
-    expensesFromAverage: sumByType_('expense', 'baseAmountPen'),
+    expensesActual: sumByType_('expense', 'actualPen'),
+    expensesProgrammed: sumByType_('expense', 'programmedRemainingPen'),
+    expensesExpected: sumByType_('expense', 'expectedRemainingPen'),
     investments: investments,
-    investmentsFromRecurring: sumByType_('investment', 'recurringAmountPen'),
-    investmentsFromAverage: sumByType_('investment', 'baseAmountPen'),
+    investmentsActual: sumByType_('investment', 'actualPen'),
+    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),
+    investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
     net: income - expenses - investments
   };
 }
