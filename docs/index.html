@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-16T12:55:00Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-16T20:37:39Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -78,6 +78,28 @@
           <div id="payment-method-field">
             <label for="payment_method">Payment method</label>
             <select id="payment_method"></select>
+          </div>
+
+          <div id="split-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="split-toggle">
+              <span>Split this expense</span>
+            </label>
+
+            <div id="split-detail" hidden>
+              <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
+                <div class="type-tab active" data-mode="equal">Equal</div>
+                <div class="type-tab" data-mode="custom">Custom</div>
+              </div>
+
+              <label>Shared with</label>
+              <div class="tags-list" id="split-friend-chips"></div>
+              <div class="add-inline" id="split-add-friend-btn">+ Add friend…</div>
+
+              <div id="split-rows"></div>
+              <p class="hint" id="split-summary"></p>
+              <p class="hint" id="split-error" style="color:#d64545;"></p>
+            </div>
           </div>
 
           <div id="tags-field">
@@ -524,6 +546,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-16T12:55:00Z"></script>
+  <script src="app.js?v=2026-09-16T20:37:39Z"></script>
 </body>
 </html>

@@ -35,6 +35,20 @@ let editingEntryId = null;
 // where save/cancel/delete land afterward.
 let editingViaPopup = false;
 
+// ---- Splitting an expense with friends (Phase 5) ----
+// splitFriendIds holds who else is in the split (never the owner — their
+// own share is always the leftover, never stored, per CLAUDE.md's Entry
+// Splits section). customSplitAmounts only matters in "custom" mode.
+let splitFriendIds = new Set();
+let splitMode = "equal";
+let customSplitAmounts = {};
+// True while editing an entry that was type "expense" when the edit
+// started — lets the submit handler still clear its splits/loans if the
+// owner changes its type away from expense mid-edit, even though the
+// split field itself is hidden (and selectedType no longer "expense") by
+// the time they hit Save.
+let editingEntryWasSplittable = false;
+
 // ---- Currencies ----
 
 const CURRENCIES = [
@@ -131,6 +145,8 @@ function selectCurrency(code, target) {
   // since a budget has no single date to resolve a rate against.
   if (resolvedTarget === "budget") {
     refreshBudgetRateWarning_(null);
+  } else if (resolvedTarget === "entry") {
+    renderSplitSummary();
   }
 }
 
@@ -287,6 +303,7 @@ async function loadMeta() {
   populatePaidByOptions();
   populatePaymentMethodOptions();
   populateTags();
+  renderSplitFriendChips();
 }
 
 function populateCategoryOptions() {
@@ -351,6 +368,7 @@ function showDetailForm(category) {
 
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
+  toggleSplitFieldVisibility();
 
   const amountInput = document.getElementById("amount");
   amountInput.focus();
@@ -462,6 +480,205 @@ function togglePaymentMethodVisibility() {
   const paidBy = document.getElementById("paid_by").value;
   document.getElementById("payment-method-field").hidden = paidBy !== "me";
 }
+
+// ---- Splitting an expense (Phase 5) ----
+// Only expenses can be split (Entry Splits is "only used for shared
+// expenses" per CLAUDE.md) — every other type keeps the field hidden and
+// the split state gets cleared so a stale selection can't leak back in if
+// the owner switches back to expense later.
+function toggleSplitFieldVisibility() {
+  const show = selectedType === "expense";
+  document.getElementById("split-field").hidden = !show;
+  if (!show) resetSplitState();
+}
+
+function resetSplitState() {
+  splitFriendIds = new Set();
+  splitMode = "equal";
+  customSplitAmounts = {};
+  document.getElementById("split-toggle").checked = false;
+  document.getElementById("split-detail").hidden = true;
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.mode === "equal");
+  });
+  renderSplitFriendChips();
+  renderSplitRows();
+  document.getElementById("split-summary").textContent = "";
+  document.getElementById("split-error").textContent = "";
+}
+
+function renderSplitFriendChips() {
+  const container = document.getElementById("split-friend-chips");
+  container.innerHTML = "";
+  meta.friends.forEach((f) => {
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
+    chip.textContent = f.name;
+    chip.addEventListener("click", () => {
+      if (splitFriendIds.has(f.id)) {
+        splitFriendIds.delete(f.id);
+        delete customSplitAmounts[f.id];
+      } else {
+        splitFriendIds.add(f.id);
+      }
+      renderSplitFriendChips();
+      renderSplitRows();
+      renderSplitSummary();
+    });
+    container.appendChild(chip);
+  });
+}
+
+// Only custom mode needs a row per friend — equal mode's amounts are
+// computed, not typed, so there's nothing to show below the chips there.
+function renderSplitRows() {
+  const container = document.getElementById("split-rows");
+  container.innerHTML = "";
+  if (splitMode !== "custom") return;
+
+  Array.from(splitFriendIds).forEach((id) => {
+    const friend = meta.friends.find((f) => f.id === id);
+    if (!friend) return;
+
+    const row = document.createElement("div");
+    row.className = "split-row";
+
+    const name = document.createElement("span");
+    name.className = "split-row-name";
+    name.textContent = friend.name;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.placeholder = "0.00";
+    input.value = customSplitAmounts[id] || "";
+    input.addEventListener("input", (e) => {
+      customSplitAmounts[id] = e.target.value;
+      renderSplitSummary();
+    });
+
+    row.appendChild(name);
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+}
+
+// Splits inherit the entry's own currency — Entry Splits has no currency
+// column of its own (see CLAUDE.md's Data model section).
+function computeEqualShares(amount, friendIds) {
+  const n = friendIds.length;
+  if (n === 0 || !amount) return { shareEach: 0, ownerShare: amount || 0 };
+  // Cents-based so the split always sums exactly to the total — any
+  // rounding leftover goes to the owner's own (never-stored) share rather
+  // than to a friend, so no one else ever sees an odd extra cent.
+  const totalCents = Math.round(amount * 100);
+  const shareCentsEach = Math.floor(totalCents / (n + 1));
+  const ownerCents = totalCents - shareCentsEach * n;
+  return { shareEach: shareCentsEach / 100, ownerShare: ownerCents / 100 };
+}
+
+function renderSplitSummary() {
+  const summaryEl = document.getElementById("split-summary");
+  const errorEl = document.getElementById("split-error");
+  errorEl.textContent = "";
+
+  const amount = parseFloat(document.getElementById("amount").value) || 0;
+  const currency = (document.getElementById("currency").value || "PEN").toUpperCase();
+  const friendIds = Array.from(splitFriendIds);
+
+  if (friendIds.length === 0) {
+    summaryEl.textContent = "Pick who else this is shared with.";
+    return;
+  }
+
+  if (splitMode === "equal") {
+    const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
+    summaryEl.textContent = `${currency} ${moneyFmt(shareEach)} each · ${currency} ${moneyFmt(ownerShare)} to you`;
+  } else {
+    const assigned = friendIds.reduce((sum, id) => sum + (parseFloat(customSplitAmounts[id]) || 0), 0);
+    const remaining = amount - assigned;
+    summaryEl.textContent = `${currency} ${moneyFmt(assigned)} of ${currency} ${moneyFmt(amount)} assigned · ${currency} ${moneyFmt(Math.max(remaining, 0))} left to you`;
+    if (remaining < -0.004) errorEl.textContent = "That's more than the total amount.";
+  }
+}
+
+function getSplitPayload() {
+  const amount = parseFloat(document.getElementById("amount").value) || 0;
+  const friendIds = Array.from(splitFriendIds);
+
+  if (splitMode === "equal") {
+    const { shareEach } = computeEqualShares(amount, friendIds);
+    return friendIds.map((id) => ({ friend_id: id, amount: shareEach }));
+  }
+  return friendIds
+    .map((id) => ({ friend_id: id, amount: parseFloat(customSplitAmounts[id]) || 0 }))
+    .filter((s) => s.amount > 0);
+}
+
+// Called from the submit handler, before anything is saved. Returns the
+// split array to send once the entry itself exists, or null when the
+// split toggle is off — throws (same as the other field checks there) so
+// a bad split blocks the save instead of silently saving a broken one.
+function validateSplitIfEnabled() {
+  if (selectedType !== "expense" || !document.getElementById("split-toggle").checked) return null;
+
+  const amount = parseFloat(document.getElementById("amount").value) || 0;
+  const friendIds = Array.from(splitFriendIds);
+  if (friendIds.length === 0) {
+    throw new Error("Pick at least one friend to split with, or turn the split toggle off.");
+  }
+
+  const splits = getSplitPayload();
+  const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
+  if (splitMode === "custom" && assigned <= 0) {
+    throw new Error("Enter at least one friend's amount.");
+  }
+  if (assigned - amount > 0.004) {
+    throw new Error("The split adds up to more than the total amount.");
+  }
+  return splits;
+}
+
+document.getElementById("split-toggle").addEventListener("change", (e) => {
+  document.getElementById("split-detail").hidden = !e.target.checked;
+  // Common case per CLAUDE.md: paying and sharing with just that one
+  // friend — pre-select them so the owner isn't required to re-pick who
+  // they just chose in "Paid by". Only on turning the toggle ON, and only
+  // if nothing's selected yet, so it never overrides a manual edit.
+  if (e.target.checked && splitFriendIds.size === 0) {
+    const paidBy = document.getElementById("paid_by").value;
+    if (paidBy && paidBy !== "me" && meta.friends.some((f) => f.id === paidBy)) {
+      splitFriendIds.add(paidBy);
+    }
+  }
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+});
+
+document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    splitMode = tab.dataset.mode;
+    document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    renderSplitRows();
+    renderSplitSummary();
+  });
+});
+
+document.getElementById("split-add-friend-btn").addEventListener("click", async () => {
+  const name = prompt("Friend's name:");
+  if (!name || !name.trim()) return;
+  const friend = await callApi("addFriend", { name: name.trim() });
+  meta.friends.push(friend);
+  splitFriendIds.add(friend.id);
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+});
+
+document.getElementById("amount").addEventListener("input", () => {
+  if (document.getElementById("split-toggle").checked) renderSplitSummary();
+});
 
 // ---- Type tabs ----
 
@@ -709,6 +926,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
     if (!categoryId) throw new Error("Pick a category.");
     if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
+    const splits = validateSplitIfEnabled();
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -716,10 +934,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // a Programmed, one-time item instead of a confirmed Entry, so it
     // never shows in "Recent entries" until it's actually real. Only for
     // a genuinely new save — editing an existing real entry into a future
-    // date doesn't retroactively un-become a real entry.
+    // date doesn't retroactively un-become a real entry. A split expense
+    // needs the same real Entry/Splits machinery a friend-paid one does,
+    // even when the owner themselves paid, so it's excluded here too.
     const isFutureDate = !editingEntryId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" &&
-      (selectedType === "income" || paidBy === "me");
+      (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
 
     if (editingEntryId) {
@@ -737,6 +957,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           payment_method_id: usesPaymentMethod ? paymentMethodId : ""
         }
       });
+      // Sent for an expense, even with an empty list — that's how turning
+      // the split toggle back off on an already-split entry clears its
+      // splits and linked loan(s) on save (saveEntrySplits in Loans.gs
+      // replaces whatever was there before from scratch). Also sent when
+      // the entry WAS an expense before this edit but got switched to a
+      // different type just now, so its old splits/loans get cleared
+      // instead of silently orphaned.
+      if (selectedType === "expense" || editingEntryWasSplittable) {
+        await callApi("saveEntrySplits", { entryId: editingEntryId, splits: splits || [] });
+      }
       exitEditMode();
     } else if (canProgram) {
       // No ensureExchangeRate here on purpose — a Programmed item's PEN
@@ -756,7 +986,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       programmedInstead = true;
     } else {
       await ensureExchangeRate(currency, date);
-      await callApi("createEntry", {
+      const created = await callApi("createEntry", {
         type: selectedType,
         date,
         amount,
@@ -767,12 +997,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         tag_ids: Array.from(selectedTagIds)
       });
+      if (splits && splits.length) {
+        await callApi("saveEntrySplits", { entryId: created.id, splits });
+      }
     }
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     selectedTagIds.clear();
     populateTags();
+    resetSplitState();
 
     await refreshEntryList();
     refreshExpectedRecurring();
@@ -891,8 +1125,9 @@ async function refreshEntryList() {
 
 // ---- Editing a previously confirmed entry ----
 
-function startEditEntry(entry) {
+async function startEditEntry(entry) {
   editingEntryId = entry.id;
+  editingEntryWasSplittable = entry.type === "expense";
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -921,6 +1156,31 @@ function startEditEntry(entry) {
   document.getElementById("tags-field").hidden = true;
   document.getElementById("tags-edit-note").hidden = false;
 
+  // showDetailForm (above) already showed/hid #split-field via
+  // toggleSplitFieldVisibility; for a non-expense entry that also cleared
+  // the split state, so there's nothing more to do. For an expense, start
+  // from a clean slate and pull in whatever's actually on file — always
+  // loaded as "custom" regardless of how it was originally entered, since
+  // that's the one mode that can represent exactly what's stored without
+  // having to guess whether it started as an equal split.
+  resetSplitState();
+  if (entry.type === "expense") {
+    const splits = await callApi("getEntrySplits", { entryId: entry.id });
+    if (splits.length) {
+      splitMode = "custom";
+      document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+      splits.forEach((s) => {
+        splitFriendIds.add(s.friend_id);
+        customSplitAmounts[s.friend_id] = String(s.amount);
+      });
+      document.getElementById("split-toggle").checked = true;
+      document.getElementById("split-detail").hidden = false;
+      renderSplitFriendChips();
+      renderSplitRows();
+      renderSplitSummary();
+    }
+  }
+
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = "Update entry";
   document.getElementById("cancel-edit-btn-2").hidden = false;
@@ -931,12 +1191,14 @@ function startEditEntry(entry) {
 
 function exitEditMode() {
   editingEntryId = null;
+  editingEntryWasSplittable = false;
   document.getElementById("edit-mode-banner").hidden = true;
   document.getElementById("submit-btn").textContent = "Save entry";
   document.getElementById("cancel-edit-btn-2").hidden = true;
   document.getElementById("delete-entry-btn").hidden = true;
   document.getElementById("tags-field").hidden = false;
   document.getElementById("tags-edit-note").hidden = true;
+  resetSplitState();
 }
 
 function cancelEdit() {
