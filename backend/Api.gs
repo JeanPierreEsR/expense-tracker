@@ -66,6 +66,7 @@ function routeAction(action, payload) {
       if (payorRowIndex !== -1) payorSheet.deleteRow(payorRowIndex);
       return { done: true };
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
+    case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
