@@ -56,6 +56,14 @@ function routeAction(action, payload) {
     case 'listExchangeRates': return listExchangeRates();
     case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
     case 'addFriend': return addFriend(payload);
+    case 'listPayors': return listPayors();
+    case 'addPayor': return addPayor(payload);
+    case 'admin_deletePayor':
+      var payorSheet = getSheet('Payors');
+      var payorHeaders = getHeaders(payorSheet);
+      var payorRowIndex = findRowIndexById(payorSheet, payorHeaders, payload.id);
+      if (payorRowIndex !== -1) payorSheet.deleteRow(payorRowIndex);
+      return { done: true };
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
@@ -226,6 +234,7 @@ function getMeta() {
     paymentMethods: getAllRows('Payment Methods'),
     tags: getAllRows('Tags'),
     friends: getAllRows('Friends'),
+    payors: getPayorRows_(),
     settings: getSettingsMap()
   };
 }
