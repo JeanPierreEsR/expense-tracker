@@ -2939,18 +2939,23 @@ async function refreshProjections() {
 
   monthLabel.textContent = `Projected for ${p.monthLabel}`;
 
-  // Only worth a breakdown line when at least one recurring item actually
-  // contributed to that figure — otherwise it's just "0 + the same total
-  // again", which tells the reader nothing they don't already see above.
+  // Rolled up from the same actual+programmed(+expected) figures each
+  // category's own row and drill-down show (redesigned 2026-09-16,
+  // replacing "from recurring items + from your year-to-date rate" —
+  // this summary now matches that same reality-aware model instead of a
+  // flat full-period estimate). Only shown when the type's own total is
+  // nonzero — otherwise it's just "PEN 0.00 confirmed + PEN 0.00
+  // programmed," which tells the reader nothing the summary above didn't
+  // already.
   const breakdownLines = [];
-  if (p.incomeFromRecurring > 0) {
-    breakdownLines.push(`Income: ${formatPen(p.incomeFromRecurring)} from recurring items + ${formatPen(p.incomeFromAverage)} already confirmed.`);
+  if (p.income > 0) {
+    breakdownLines.push(`Income: ${formatPen(p.incomeActual)} confirmed + ${formatPen(p.incomeProgrammed)} programmed.`);
   }
-  if (p.expensesFromRecurring > 0) {
-    breakdownLines.push(`Expenses: ${formatPen(p.expensesFromRecurring)} from recurring items + ${formatPen(p.expensesFromAverage)} from your year-to-date rate.`);
+  if (p.expenses > 0) {
+    breakdownLines.push(`Expenses: ${formatPen(p.expensesActual)} confirmed + ${formatPen(p.expensesProgrammed)} programmed + ${formatPen(p.expensesExpected)} expected.`);
   }
-  if (p.investmentsFromRecurring > 0) {
-    breakdownLines.push(`Investments: ${formatPen(p.investmentsFromRecurring)} from recurring items + ${formatPen(p.investmentsFromAverage)} from your year-to-date rate.`);
+  if (p.investments > 0) {
+    breakdownLines.push(`Investments: ${formatPen(p.investmentsActual)} confirmed + ${formatPen(p.investmentsProgrammed)} programmed + ${formatPen(p.investmentsExpected)} expected.`);
   }
 
   body.innerHTML = `
@@ -2974,7 +2979,7 @@ async function refreshProjections() {
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
-  methodNote.textContent = "Income only ever counts recurring items plus what's already confirmed — never a past average. Expenses and investments use each category's recurring items plus a year-to-date rate for the rest, never both for the same category.";
+  methodNote.textContent = "Each figure is what's already confirmed this period, plus what's still programmed (recurring, not yet matched to a real entry) and, for expenses and investments, still expected (a year-to-date rate, pro-rated to the days left).";
 }
 
 // {displayPeriodType, anchorDate} matching whatever the shared period
@@ -2997,15 +3002,27 @@ function projectionPeriodPayload_() {
 // Programmed/Expected with one "Manually set" remaining line, same as the
 // drill-down. Income has no Expected line at all — see the per-category
 // rule in CLAUDE.md, it's never had a YTD-rate concept to pro-rate.
+//
+// Each line reads icon, then amount, then label — left-aligned under the
+// category name rather than spread to the row's own right edge (changed
+// 2026-09-16) — with many categories stacked for a general overview, an
+// icon of fixed width puts every line's amount at the same horizontal
+// position regardless of which category it's under, so the actual/
+// programmed/expected FIGURES themselves are what lines up down the
+// page, not just each row's own label/total pairing.
+function projectionRowLine_(icon, amount, label) {
+  return `<div><span class="projection-line-icon">${icon}</span><span class="projection-line-amount">${formatPen(amount)}</span><span class="projection-line-label">${label}</span></div>`;
+}
+
 function projectionRowBreakdown_(c) {
   const isIncome = c.category_type === "income";
-  const lines = [`<div><span>Actual</span><span>${formatPen(c.actualPen)}</span></div>`];
+  const lines = [projectionRowLine_("✅", c.actualPen, "Actual")];
   if (c.hasOverride) {
-    lines.push(`<div><span>Remaining</span><span>${formatPen(c.remainingTotalPen)} · Manually set</span></div>`);
+    lines.push(projectionRowLine_("✏️", c.remainingTotalPen, "Remaining · Manually set"));
   } else {
-    lines.push(`<div><span>🔁 Programmed</span><span>${formatPen(c.programmedRemainingPen)}</span></div>`);
+    lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, "Programmed"));
     if (!isIncome) {
-      lines.push(`<div><span>📈 Expected</span><span>${formatPen(c.expectedRemainingPen)}</span></div>`);
+      lines.push(projectionRowLine_("📈", c.expectedRemainingPen, "Expected"));
     }
   }
   return lines.join("");
@@ -3035,7 +3052,7 @@ async function refreshProjectionCategories() {
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.amountPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;

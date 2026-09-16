@@ -1359,13 +1359,31 @@ button.primary:disabled {
   gap: 2px;
 }
 
+/* Left-aligned icon/amount/label, not spread to the row's own right edge
+   (changed 2026-09-16) — a fixed-width icon column means the amount
+   lands in the same horizontal spot on every line, of every category, so
+   scanning down a whole "By category" list actually lines the FIGURES
+   up, not just each row's own label/total pairing. */
 .projection-row-breakdown div {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.projection-line-icon {
+  display: inline-block;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.projection-line-amount {
+  min-width: 78px;
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-align: right;
 }
 
 /* ---- "Find past entries" link-candidate list (recurring modal) ---- */
