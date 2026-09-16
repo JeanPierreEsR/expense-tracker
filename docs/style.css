@@ -680,6 +680,22 @@ button.primary:disabled {
   min-width: 0;
 }
 
+.drilldown-header-left #drilldown-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Smaller than the main period selector's own nav buttons — this header
+   already has the title plus a ⋮ menu and ✕ competing for space. */
+.drilldown-header-left .period-nav-btn {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
 .drilldown-header-actions {
   display: flex;
   align-items: center;
@@ -1234,6 +1250,11 @@ button.primary:disabled {
   color: white;
   border-color: var(--accent);
 }
+
+/* Programmed items' Frequency tabs: Monthly/Yearly/One-time — three short
+   labels fit one row fine, unlike Budgets' own two-tab Monthly/Yearly
+   period selector that .budget-period-tabs above is really styled for. */
+#recurring-frequency-tabs { grid-template-columns: repeat(3, 1fr); }
 
 /* This never had a scroll rule at all — unlike the other bottom-sheet
    forms, the budget form's content (now a full category chip grid on top
