@@ -777,12 +777,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     await refreshEntryList();
     refreshExpectedRecurring();
 
-    if (programmedInstead) {
-      showFormNotice_(`Programmed for ${date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.`);
-    }
-
     if (editingViaPopup) {
       await refreshAfterPopupEdit();
+    } else if (programmedInstead) {
+      // Stays on the (now-cleared) form instead of jumping back to the
+      // category picker like a normal save does — that jump would hide
+      // #form-error, along with it the only sign this became a Programmed
+      // item instead of a real entry, before the owner ever saw it.
+      showFormNotice_(`Programmed for ${date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.`);
     } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
