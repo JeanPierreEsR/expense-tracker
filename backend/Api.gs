@@ -66,13 +66,19 @@ function routeAction(action, payload) {
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_BOT_TOKEN', newToken);
       PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_UPDATE_OFFSET');
       return { done: true };
+    case 'admin_setTelegramRelayUrl':
+      var relayUrl = String(payload.url || '').trim();
+      if (!relayUrl) throw new Error('No URL provided');
+      PropertiesService.getScriptProperties().setProperty('TELEGRAM_RELAY_URL', relayUrl);
+      return { done: true };
     case 'admin_telegramStatus':
       var token = getTelegramToken_();
       return {
         tokenSet: !!token,
         tokenLength: token ? token.length : 0,
         chatIdSet: !!getOwnerTelegramChatId_(),
-        updateOffset: PropertiesService.getScriptProperties().getProperty('TELEGRAM_UPDATE_OFFSET') || null
+        updateOffset: PropertiesService.getScriptProperties().getProperty('TELEGRAM_UPDATE_OFFSET') || null,
+        relayUrl: PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL') || null
       };
     case 'admin_telegramGetUpdatesRaw': return telegramApi_('getUpdates', { offset: 0, timeout: 0 });
     case 'admin_automationStatus':
@@ -89,7 +95,7 @@ function routeAction(action, payload) {
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
     case 'admin_addNameColumnToBudgets': return addNameColumnToBudgets();
     case 'admin_checkBudgetsNow': return checkBudgets();
-    case 'admin_setTelegramWebhook': return telegramApi_('setWebhook', { url: WEB_APP_URL });
+    case 'admin_setTelegramWebhook': return telegramApi_('setWebhook', { url: getTelegramWebhookTargetUrl_() });
     case 'admin_deleteTelegramWebhook': return telegramApi_('deleteWebhook', {});
     case 'admin_telegramWebhookInfo': return telegramApi_('getWebhookInfo', {});
     case 'admin_generateTopCategoryBudgets': return generateTopCategoryBudgets(payload);

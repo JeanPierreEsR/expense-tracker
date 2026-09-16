@@ -53,13 +53,44 @@ function promptSetTelegramToken() {
 // here.
 var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec';
 
+// Telegram's webhook delivery needs a direct 200 response and will not
+// follow the 302-to-script.googleusercontent.com redirect every Apps
+// Script Web App call answers with (confirmed live 2026-09-15 — see
+// CLAUDE.md's "Incident — webhook silently dropping edits"). A small
+// Cloudflare Worker (cloudflare-worker/telegram-relay.js) sits in front
+// to do that redirect hop itself and hand Telegram back a clean response.
+// When TELEGRAM_RELAY_URL is set (via promptSetTelegramRelayUrl or
+// admin_setTelegramRelayUrl), the webhook points at the relay instead of
+// straight at Apps Script; with nothing set, it falls back to the old
+// direct URL, which is known not to work reliably for webhook delivery
+// but is kept as the default so this never silently points at an empty
+// string.
+function getTelegramWebhookTargetUrl_() {
+  var relayUrl = PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL');
+  return relayUrl || WEB_APP_URL;
+}
+
+function promptSetTelegramRelayUrl() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('Set Telegram Relay URL',
+    'Paste the Cloudflare Worker URL (e.g. https://telegram-relay.<you>.workers.dev):',
+    ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() === ui.Button.OK) {
+    var url = result.getResponseText().trim();
+    if (url) {
+      PropertiesService.getScriptProperties().setProperty('TELEGRAM_RELAY_URL', url);
+      ui.alert('Saved. Re-run "Enable instant Telegram replies" (menu item 15) to point the webhook at it.');
+    }
+  }
+}
+
 function enableTelegramWebhook() {
   var ui = SpreadsheetApp.getUi();
   if (!getTelegramToken_()) {
     ui.alert('Set the Telegram bot token first (menu item 9).');
     return;
   }
-  var res = telegramApi_('setWebhook', { url: WEB_APP_URL });
+  var res = telegramApi_('setWebhook', { url: getTelegramWebhookTargetUrl_() });
   ui.alert(res.ok
     ? 'Done — Confirm/Discard and edit replies now apply and respond instantly.'
     : 'Could not enable it: ' + (res.description || JSON.stringify(res)));
