@@ -352,17 +352,33 @@ var RECURRING_MATCH_DAY_WINDOW = 5;
 // whatever range the caller cares about.
 //
 // An explicit link (entry.recurring_expense_id, see
-// ensureEntriesRecurringLinkColumn_ above) always wins outright, skipping
-// every heuristic check below it — set on specific historical Entries via
-// admin_linkEntryToRecurring when a recurring item's day/currency/amount
-// gets corrected to the owner's real, going-forward intent (a "true-up")
-// and older Entries were logged under a different convention that will
-// never satisfy the heuristic again. The caller has already filtered its
-// own entry list to the date range being queried, so an explicitly-linked
-// entry only ever gets considered by a call whose range genuinely
-// contains its date — no risk of it "matching" some unrelated period.
+// ensureEntriesRecurringLinkColumn_ above) skips the currency/amount/
+// day-window heuristic below, but still only counts for an occurrence in
+// the SAME CALENDAR MONTH as the entry's own date — set on specific
+// historical Entries via admin_linkEntryToRecurring when a recurring
+// item's day/currency/amount gets corrected to the owner's real,
+// going-forward intent (a "true-up") and older Entries were logged under
+// a different convention that will never satisfy the heuristic again.
+// **Bug fixed 2026-09-16:** this used to match unconditionally regardless
+// of occurrenceDates at all — harmless for callers that only ever ask
+// "is this ENTRY explained by something" (matchedEntryIds-style,
+// per-entry, month-scoped ranges), but a real bug for callers that ask
+// "is THIS OCCURRENCE handled" one occurrence at a time across a wider
+// range (programmedRemainingPen/computeCategoryProgrammedBreakdown_,
+// added the same day) — a single Jan-linked entry was satisfying every
+// other month's occurrence too, since nothing checked WHICH occurrence
+// the link was actually for. Caught live: a year view showed PEN 0
+// Programmed remaining for Car insurance despite three genuinely unpaid
+// months (Oct–Dec) still ahead, because one earlier linked entry
+// "explained" all twelve. Month-matching keeps the original tolerance
+// for a linked entry logged on a different DAY than its occurrence
+// (that's the whole point of the link) while stopping it from reaching
+// into unrelated months.
 function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
-  if (entry.recurring_expense_id && entry.recurring_expense_id === recurring.id) return true;
+  if (entry.recurring_expense_id && entry.recurring_expense_id === recurring.id) {
+    var entryMonth = String(entry.date).substring(0, 7);
+    return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
+  }
   if (entry.category_id !== recurring.category_id || entry.currency !== (recurring.currency || 'PEN')) return false;
   var amt = Number(recurring.amount);
   if (Math.abs(Number(entry.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;

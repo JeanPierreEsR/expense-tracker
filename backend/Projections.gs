@@ -160,11 +160,36 @@ function computeAllCategoryProjections_(bounds) {
   var periodMonths = bounds.periodType === 'yearly' ? 12 : 1;
   var ytd = ytdRangeForProjection_();
 
+  // "Remaining" figures (added 2026-09-16) — Actual/Programmed/Expected as
+  // three things that sum to what's left in the period, rather than
+  // Programmed+Expected being the period's FULL total and "remaining"
+  // being a separate total-minus-actual subtraction elsewhere. today,
+  // daysLeft: today itself is the last day already reflected in "actual"
+  // (matches the chart's own truncation and its "N days left" caption —
+  // renderProjectionChart_ in app.js), so daysLeft counts the days AFTER
+  // today through period end, 0 before the period starts. Viewing a
+  // period that hasn't started yet (reachable via the drill-down's own
+  // period nav) treats the whole thing as remaining.
+  var todayStr = formatCalendarDate_(new Date());
+  var daysLeft;
+  if (todayStr < bounds.startDate) {
+    daysLeft = daysBetweenDates_(bounds.endDate, bounds.startDate) + 1;
+  } else if (todayStr > bounds.endDate) {
+    daysLeft = 0;
+  } else {
+    daysLeft = daysBetweenDates_(bounds.endDate, todayStr);
+  }
+
   var categories = getAllRows('Categories').filter(function (c) {
     return c.type === 'income' || c.type === 'expense' || c.type === 'investment';
   });
   var allEntries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
   var entriesInPeriod = allEntries.filter(function (e) { return e.date >= bounds.startDate && e.date <= bounds.endDate; });
+  var entriesInPeriodByCategory = {};
+  entriesInPeriod.forEach(function (e) {
+    if (!entriesInPeriodByCategory[e.category_id]) entriesInPeriodByCategory[e.category_id] = [];
+    entriesInPeriodByCategory[e.category_id].push(e);
+  });
   var entriesYtd = ytd.ytdStart
     ? allEntries.filter(function (e) { return e.date >= ytd.ytdStart && e.date <= ytd.ytdEnd; })
     : [];
@@ -216,11 +241,18 @@ function computeAllCategoryProjections_(bounds) {
         calculatedAmountPen: 0,
         hasOverride: false,
         overrideAmountPen: null,
-        amountPen: 0
+        amountPen: 0,
+        actualPen: 0,
+        programmedRemainingPen: 0,
+        expectedRemainingPen: 0,
+        remainingTotalPen: 0,
+        ratePerMonth: 0,
+        daysLeft: 0
       };
     }
 
     var categoryRecurring = recurringByCategory[category.id] || [];
+    var categoryEntriesInPeriod = entriesInPeriodByCategory[category.id] || [];
 
     // A yearly-frequency recurring item, viewed monthly, would otherwise
     // dump its whole annual amount into whichever single month it happens
@@ -256,6 +288,7 @@ function computeAllCategoryProjections_(bounds) {
     });
 
     var baseAmountPen = 0;
+    var ratePerMonth = 0;
 
     if (category.type === 'income') {
       entriesInPeriod.forEach(function (e) {
@@ -291,13 +324,54 @@ function computeAllCategoryProjections_(bounds) {
         var pen = toPen_(ownAmount_(e), e.currency, e.date);
         if (pen != null) ytdNonRecurringPen += pen;
       });
-      baseAmountPen = (ytdNonRecurringPen / ytd.monthsElapsed) * periodMonths;
+      ratePerMonth = ytd.monthsElapsed > 0 ? ytdNonRecurringPen / ytd.monthsElapsed : 0;
+      baseAmountPen = ratePerMonth * periodMonths;
     }
 
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
     var overrideKey = category.id + '|' + bounds.periodKey;
     var hasOverride = overridesByKey[overrideKey] !== undefined;
     var amountPen = hasOverride ? overridesByKey[overrideKey] : calculatedAmountPen;
+
+    // "Actual" — confirmed spend/income already logged this period,
+    // through today only (a period that hasn't fully elapsed can't have
+    // "all" its actual figure yet — matches the drill-down chart's own
+    // today-truncated solid line).
+    var actualPen = 0;
+    categoryEntriesInPeriod.forEach(function (e) {
+      if (e.date > todayStr) return;
+      var pen = toPen_(ownAmount_(e), e.currency, e.date);
+      if (pen != null) actualPen += pen;
+    });
+
+    // "Programmed remaining" — this period's recurring occurrences that
+    // don't yet have a matching confirmed entry, checked per occurrence
+    // (not per item) so a monthly item viewed across a full year with
+    // some months already paid only counts the ones still outstanding.
+    // Applies to every type, including income (recurring salary already
+    // received this month no longer counts as "remaining" either).
+    var programmedRemainingPen = 0;
+    recurringForPeriod.forEach(function (r) {
+      recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
+        var handled = categoryEntriesInPeriod.some(function (e) {
+          return entryMatchesRecurringOccurrence_(e, r, [occDate]);
+        });
+        if (handled) return;
+        var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
+        if (pen != null) programmedRemainingPen += pen;
+      });
+    });
+
+    // "Expected remaining" — the YTD monthly rate pro-rated down to just
+    // the days actually left in the period (daysLeft/30 "months"), not
+    // the period's full month-equivalent count. Expense/investment only —
+    // income has no YTD-rate concept to pro-rate (see the per-category
+    // rule, above); its "Expected" line has never existed.
+    var expectedRemainingPen = ratePerMonth * (daysLeft / 30);
+
+    var remainingTotalPen = hasOverride
+      ? Math.max(0, overridesByKey[overrideKey] - actualPen)
+      : programmedRemainingPen + expectedRemainingPen;
 
     return {
       category_id: category.id,
@@ -310,10 +384,22 @@ function computeAllCategoryProjections_(bounds) {
       calculatedAmountPen: calculatedAmountPen,
       hasOverride: hasOverride,
       overrideAmountPen: hasOverride ? overridesByKey[overrideKey] : null,
-      amountPen: amountPen
+      amountPen: amountPen,
+      actualPen: actualPen,
+      programmedRemainingPen: programmedRemainingPen,
+      expectedRemainingPen: expectedRemainingPen,
+      remainingTotalPen: remainingTotalPen,
+      ratePerMonth: ratePerMonth,
+      daysLeft: daysLeft
     };
   }).filter(function (c) {
-    return c.amountPen > 0.005 || c.hasOverride;
+    // actualPen > 0 added 2026-09-16 — a category with real spend already
+    // logged this period but no recurring/YTD basis to project from
+    // (nothing to go on yet, e.g. a category's very first-ever entry)
+    // used to be invisible here even though there was something genuine
+    // to show, now that "Actual" is its own row rather than folded into
+    // a single projected total.
+    return c.amountPen > 0.005 || c.hasOverride || c.actualPen > 0.005;
   });
 
   results.sort(function (a, b) { return b.amountPen - a.amountPen; });
@@ -349,7 +435,9 @@ function getCategoryProjectionDetail(payload) {
       category_color: category ? category.color : '',
       category_type: category ? category.type : 'expense',
       recurringAmountPen: 0, baseAmountPen: 0, calculatedAmountPen: 0,
-      hasOverride: false, overrideAmountPen: null, amountPen: 0
+      hasOverride: false, overrideAmountPen: null, amountPen: 0,
+      actualPen: 0, programmedRemainingPen: 0, expectedRemainingPen: 0,
+      remainingTotalPen: 0, ratePerMonth: 0, daysLeft: 0
     };
   }
 
@@ -385,7 +473,7 @@ function getCategoryProjectionDetail(payload) {
     ? computeCategoryYtdBreakdown_(payload.categoryId)
     : null;
 
-  var programmedBreakdown = match.recurringAmountPen > 0
+  var programmedBreakdown = match.programmedRemainingPen > 0
     ? computeCategoryProgrammedBreakdown_(payload.categoryId, bounds, category)
     : null;
 
@@ -398,14 +486,18 @@ function getCategoryProjectionDetail(payload) {
   };
 }
 
-// Traces back the "programmed" figure for one category: which actual
-// recurring items contributed, and how much each one added within the
-// period being viewed — same recurringForPeriod filter
+// Traces back the "programmed remaining" figure for one category: which
+// actual recurring items contributed, and how much each one added within
+// the period being viewed — same recurringForPeriod filter
 // computeAllCategoryProjections_ itself applies (a yearly-frequency item
 // excluded from a monthly view has nothing to list here either, since it
-// isn't part of the programmed total being explained). `occurrences` is
-// usually 1 (one billing date within the period) but can be more — a
-// monthly item viewed across a full year occurs 12 times, each one
+// isn't part of the programmed total being explained). Only occurrences
+// WITHOUT a matching confirmed entry count (fixed 2026-09-16, same as
+// programmedRemainingPen above) — an item already paid this period no
+// longer traces here even before its own "due date" arrives. `occurrences`
+// is usually 1 (one still-outstanding billing date within the period) but
+// can be more — a monthly item viewed across a full year, with several
+// of its 12 occurrences still unpaid, shows the count of THOSE, each
 // contributing its own converted amount to the item's total.
 function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
   var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
@@ -415,6 +507,11 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     ? categoryRecurring
     : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
 
+  var entriesInPeriod = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.category_id === categoryId &&
+      e.date >= bounds.startDate && e.date <= bounds.endDate;
+  });
+
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
@@ -423,7 +520,10 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
   }
 
   var items = recurringForPeriod.map(function (r) {
-    var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate);
+    var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate)
+      .filter(function (occDate) {
+        return !entriesInPeriod.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, [occDate]); });
+      });
     var amountPen = 0;
     occDates.forEach(function (occDate) {
       var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);

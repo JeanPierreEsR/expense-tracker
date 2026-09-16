@@ -1338,6 +1338,36 @@ button.primary:disabled {
 
 .recurring-row-amount.income { color: var(--income); }
 
+/* ---- Projections "By category" 3-line breakdown ---- */
+
+.projection-row-expanded {
+  display: block;
+  cursor: pointer;
+}
+
+.projection-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projection-row-breakdown {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.projection-row-breakdown div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* ---- "Find past entries" link-candidate list (recurring modal) ---- */
 
 .link-candidate-row {

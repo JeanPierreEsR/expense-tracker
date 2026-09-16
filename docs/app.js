@@ -2986,25 +2986,29 @@ function projectionPeriodPayload_() {
   return { displayPeriodType: periodType, anchorDate };
 }
 
-// "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
-// only worth splitting out for expense/investment when BOTH actually
-// contribute; a category covered by just one source, or overridden
-// outright, is already fully explained by its type label alone. Split
-// across two lines (rather than one long "X programmed + Y expected"
-// string) since the combined line was wrapping mid-number in the row's
-// narrow sub-label space — the "+" sits at the end of the Programmed
-// line, reading as "this, plus the next line," rather than getting
-// stranded at the start of a wrapped Expected line.
-function projectionRowSubLabel_(c, typeLabel) {
-  if (c.hasOverride) return `${typeLabel} · Manually set`;
-  const isExpenseOrInvestment = c.category_type === "expense" || c.category_type === "investment";
-  if (isExpenseOrInvestment && c.recurringAmountPen > 0 && c.baseAmountPen > 0) {
-    return `
-      <div>🔁 ${formatPen(c.recurringAmountPen)} programmed +</div>
-      <div>📈 ${formatPen(c.baseAmountPen)} expected</div>
-    `;
+// Three explicit lines per category (added 2026-09-16, replacing the old
+// single collapsed "🔁 X programmed + 📈 Y expected" sub-label) — Actual
+// (confirmed so far this period), Programmed (remaining recurring not yet
+// matched to a real entry), Expected (the YTD rate, pro-rated to just the
+// days left) — chosen specifically so Actual + Programmed + Expected always
+// sums to what's left in the period, matching the same three numbers the
+// category's own drill-down now shows (see renderProjectionSplit_ and
+// renderProjectionDrilldownAmount_, below). An override replaces
+// Programmed/Expected with one "Manually set" remaining line, same as the
+// drill-down. Income has no Expected line at all — see the per-category
+// rule in CLAUDE.md, it's never had a YTD-rate concept to pro-rate.
+function projectionRowBreakdown_(c) {
+  const isIncome = c.category_type === "income";
+  const lines = [`<div><span>Actual</span><span>${formatPen(c.actualPen)}</span></div>`];
+  if (c.hasOverride) {
+    lines.push(`<div><span>Remaining</span><span>${formatPen(c.remainingTotalPen)} · Manually set</span></div>`);
+  } else {
+    lines.push(`<div><span>🔁 Programmed</span><span>${formatPen(c.programmedRemainingPen)}</span></div>`);
+    if (!isIncome) {
+      lines.push(`<div><span>📈 Expected</span><span>${formatPen(c.expectedRemainingPen)}</span></div>`);
+    }
   }
-  return typeLabel;
+  return lines.join("");
 }
 
 async function refreshProjectionCategories() {
@@ -3026,16 +3030,14 @@ async function refreshProjectionCategories() {
 
   categories.forEach((c) => {
     const isIncome = c.category_type === "income";
-    const typeLabel = `${c.category_type[0].toUpperCase()}${c.category_type.slice(1)}`;
-    const subLabel = projectionRowSubLabel_(c, typeLabel);
     const row = document.createElement("div");
-    row.className = "recurring-row";
+    row.className = "recurring-row projection-row-expanded";
     row.innerHTML = `
-      <div>
+      <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-sub">${subLabel}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.amountPen)}</div>
       </div>
-      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.amountPen)}</div>
+      <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
     row.addEventListener("click", () => openCategoryProjectionDrilldown_(c));
     list.appendChild(row);
@@ -3122,62 +3124,60 @@ async function loadAndRenderProjectionChart_(categoryProjection) {
   }
 }
 
-// "Projected remaining" — what's left to expect for the rest of the
-// period (the full projected total minus what's already actually
-// happened), floored at 0. Tapping it opens the override editor for the
-// TOTAL (not this delta, which just recomputes on its own once the total
-// or the actual spend changes) pre-filled with the current effective
-// value, whether calculated or manually set.
-//
-// "Already happened" only counts through TODAY — same cutoff the chart's
-// own solid line uses (renderProjectionChart_, below) — never a
-// future-dated day even if it's already a confirmed Entry (a bonus or
-// payment pre-logged ahead of time, still perfectly valid to do). Without
-// this, a category with any future-dated confirmed entry showed a
-// smaller "remaining" here than the chart's own caption for the exact
-// same period, since the chart already excluded it and this didn't.
+// "Projected remaining" — redesigned 2026-09-16 so it's a plain sum of
+// the two lines below it (Programmed remaining + Expected remaining)
+// rather than a separate "total minus actual" subtraction computed here
+// in JS — the backend now does this once (remainingTotalPen in
+// computeAllCategoryProjections_) so the three numbers can never drift
+// apart the way "the trace lines say one thing, the total says another"
+// used to be possible if this math and that math diverged. An override
+// still replaces it outright (remainingTotalPen already accounts for
+// that server-side: max(0, override − actual so far)). Tapping it still
+// opens the override editor for the FULL period's total (`amountPen`,
+// unchanged), not this remaining figure — see openProjectionOverrideModal_.
 function renderProjectionDrilldownAmount_(detail) {
-  const todayStr = todayLocalISO();
-  const actualSoFar = Object.keys(detail.dailyActualPen || {})
-    .filter((d) => d <= todayStr)
-    .reduce((sum, d) => sum + detail.dailyActualPen[d], 0);
-  const remaining = Math.max(0, detail.projection.amountPen - actualSoFar);
-  document.getElementById("drilldown-projection-amount").textContent = formatPen(remaining);
-  document.getElementById("drilldown-projection-override-note").hidden = !detail.projection.hasOverride;
+  const p = detail.projection;
+  document.getElementById("drilldown-projection-amount").textContent = formatPen(p.remainingTotalPen);
+  document.getElementById("drilldown-projection-override-note").hidden = !p.hasOverride;
 
   renderProjectionSplit_(detail);
 }
 
-// "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
-// shown as two distinct lines only when both actually contribute and
-// nothing's been manually overridden (an override already replaces both
-// with one clear figure above it). Both trace back on tap: "Programmed"
-// expands to the actual recurring items that make it up (just the
-// Recurring Expenses list filtered to this category and period — see
-// computeCategoryProgrammedBreakdown_), "Expected" expands to a one-line
-// formula plus a month-by-month breakdown, so neither figure is a black
-// box.
+// "Programmed" (recurring, not yet matched to a real entry) vs.
+// "expected" (the year-to-date rate, pro-rated to the days actually left)
+// — redesigned 2026-09-16 so both are genuinely forward-looking and sum
+// to "Projected remaining" above, instead of being the FULL period's
+// total regardless of what's already happened. Shown for expense/
+// investment whenever not manually overridden (an override already
+// replaces both with one clear figure above it) — even a 0 is worth
+// showing now, since "Programmed: PEN 0.00" is itself the answer to
+// "did it already recognize I paid this?". Both trace back on tap:
+// "Programmed" expands to the still-outstanding recurring items (see
+// computeCategoryProgrammedBreakdown_, which now excludes anything
+// already matched to a confirmed entry), "Expected" expands to the same
+// month-by-month YTD breakdown as before, PLUS a bridge line showing how
+// the full monthly rate gets pro-rated down to just the remaining days.
 //
-// Income never gets this split (matches projectionRowSubLabel_'s own
-// isExpenseOrInvestment gate for the "By category" row) — its baseAmountPen
-// isn't a year-to-date GUESS the way expense/investment's is, it's
-// already-confirmed income the server just hasn't matched to a recurring
-// item yet (see CLAUDE.md's per-category rule). Calling that "Expected"
-// alongside "Programmed" implied it was a similar kind of estimate, when
-// it's just as real/certain as the recurring portion — so for income the
-// whole total shows as one plain figure instead.
+// Income never gets this split (matches the "By category" row's own
+// isIncome gate) — its baseAmountPen isn't a year-to-date GUESS the way
+// expense/investment's is, it's already-confirmed income the server just
+// hasn't matched to a recurring item yet (see CLAUDE.md's per-category
+// rule). Calling that "Expected" alongside "Programmed" implied it was a
+// similar kind of estimate, when it's just as real/certain as the
+// recurring portion — so for income the whole total shows as one plain
+// figure instead.
 function renderProjectionSplit_(detail) {
   const p = detail.projection;
   const splitEl = document.getElementById("drilldown-projection-split");
   const isExpenseOrInvestment = p.category_type === "expense" || p.category_type === "investment";
-  const show = isExpenseOrInvestment && !p.hasOverride && p.recurringAmountPen > 0 && p.baseAmountPen > 0;
+  const show = isExpenseOrInvestment && !p.hasOverride;
   splitEl.hidden = !show;
   document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
   if (!show) return;
 
-  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.recurringAmountPen);
-  document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.baseAmountPen);
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
+  document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.expectedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;
@@ -3188,7 +3188,7 @@ function renderProjectionSplit_(detail) {
         <span>${formatPen(item.amountPen)}</span>
       </div>
     `).join("")
-    : `<div class="projection-month-row"><span>Nothing on file for this period.</span></div>`;
+    : `<div class="projection-month-row"><span>Nothing outstanding — already matched to a confirmed entry, or nothing due this period.</span></div>`;
 
   const breakdown = detail.ytdBreakdown;
   const formulaEl = document.getElementById("drilldown-projection-expected-formula");
@@ -3203,8 +3203,17 @@ function renderProjectionSplit_(detail) {
   const firstMonth = monthLabel(breakdown.months[0].monthKey);
   const lastMonth = monthLabel(breakdown.months[breakdown.months.length - 1].monthKey);
   const span = breakdown.months.length === 1 ? firstMonth : `${firstMonth}–${lastMonth}`;
-  formulaEl.textContent =
-    `Based on ${formatPen(breakdown.totalPen)} spent over ${breakdown.monthsElapsed} month${breakdown.monthsElapsed === 1 ? "" : "s"} (${span}) → ${formatPen(breakdown.ratePerMonth)}/month.`;
+  // The bridge (added 2026-09-16): the month-by-month table below still
+  // explains the full monthly RATE, unchanged — this second line is what
+  // turns that rate into the "Expected" figure actually shown above,
+  // pro-rated down to just the days left in the period being viewed
+  // (daysLeft — the same count the chart's own "N days left" caption
+  // uses) instead of a full month's worth on top of whatever's already
+  // happened.
+  formulaEl.innerHTML = `
+    <div>Based on ${formatPen(breakdown.totalPen)} spent over ${breakdown.monthsElapsed} month${breakdown.monthsElapsed === 1 ? "" : "s"} (${span}) → ${formatPen(breakdown.ratePerMonth)}/month.</div>
+    <div style="margin-top:4px;">${formatPen(breakdown.ratePerMonth)}/month × ${p.daysLeft} day${p.daysLeft === 1 ? "" : "s"} left ÷ 30 → ${formatPen(p.expectedRemainingPen)} still expected.</div>
+  `;
 
   monthsEl.innerHTML = breakdown.months.map((m) => `
     <div class="projection-month-row">
@@ -3238,7 +3247,6 @@ function renderProjectionChart_(detail) {
   const bounds = detail.bounds;
   const days = enumeratePeriodDates_(bounds.startDate, bounds.endDate);
   const n = days.length;
-  const projectedTotal = detail.projection.amountPen;
 
   let running = 0;
   const actualPoints = days.map((d) => {
@@ -3249,6 +3257,14 @@ function renderProjectionChart_(detail) {
   const todayStr = todayLocalISO();
   const actualEndIdx = todayStr < bounds.startDate ? -1 : (todayStr > bounds.endDate ? n - 1 : days.indexOf(todayStr));
   const actualSoFar = actualEndIdx >= 0 ? actualPoints[actualEndIdx] : 0;
+  // The dashed "Projected" line's endpoint, the target line, and the
+  // caption below all now match "Projected remaining" exactly (redesigned
+  // 2026-09-16): actual so far plus what's genuinely still expected
+  // (Programmed + Expected, pro-rated to the days left) — not the old
+  // flat full-period figure, which could visibly disagree with the
+  // Programmed/Expected/Projected-remaining rows shown right below the
+  // chart once those switched to the same remaining-based math.
+  const projectedTotal = actualSoFar + detail.projection.remainingTotalPen;
   const startIdx = Math.max(actualEndIdx, 0);
   const convergenceTarget = Math.max(projectedTotal, actualSoFar);
   const convergenceVertices = [[startIdx, actualSoFar], [n - 1, convergenceTarget]];
