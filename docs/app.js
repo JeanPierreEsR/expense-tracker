@@ -2446,10 +2446,37 @@ let editingRecurringId = null;
 let recurringFrequency = "monthly";
 let selectedRecurringCategoryId = null;
 
+function recurringFreqLabel_(re) {
+  if (re.frequency === "once") {
+    const d = new Date(re.date + "T00:00:00");
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+  if (re.frequency === "yearly") return `Yearly, ${MONTH_NAMES_SHORT[re.month - 1]} ${re.day}`;
+  return `Monthly, day ${re.day}`;
+}
+
+function renderRecurringRow_(re) {
+  const isIncome = re.category_type === "income";
+  const row = document.createElement("div");
+  row.className = "recurring-row" + (re.active ? "" : " inactive");
+  row.innerHTML = `
+    <div>
+      <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.active ? "" : " · Paused"}</div>
+    </div>
+    <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatAmount(re.amount, re.currency)}</div>
+  `;
+  row.addEventListener("click", () => openRecurringModal(re));
+  return row;
+}
+
 async function refreshRecurringExpenses() {
   const list = document.getElementById("recurring-list");
   const emptyNote = document.getElementById("recurring-empty-note");
+  const onetimeList = document.getElementById("recurring-onetime-list");
+  const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
   list.innerHTML = '<div class="status-msg">Loading…</div>';
+  onetimeList.innerHTML = "";
   let items;
   try {
     items = await callApi("listRecurringExpenses");
@@ -2458,26 +2485,16 @@ async function refreshRecurringExpenses() {
     return;
   }
 
-  list.innerHTML = "";
-  emptyNote.hidden = items.length > 0;
+  const recurring = items.filter((re) => re.frequency !== "once");
+  const onetime = items.filter((re) => re.frequency === "once");
 
-  items.forEach((re) => {
-    const freqLabel = re.frequency === "yearly"
-      ? `Yearly, ${MONTH_NAMES_SHORT[re.month - 1]} ${re.day}`
-      : `Monthly, day ${re.day}`;
-    const isIncome = re.category_type === "income";
-    const row = document.createElement("div");
-    row.className = "recurring-row" + (re.active ? "" : " inactive");
-    row.innerHTML = `
-      <div>
-        <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-        <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${freqLabel}${re.active ? "" : " · Paused"}</div>
-      </div>
-      <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatAmount(re.amount, re.currency)}</div>
-    `;
-    row.addEventListener("click", () => openRecurringModal(re));
-    list.appendChild(row);
-  });
+  list.innerHTML = "";
+  emptyNote.hidden = recurring.length > 0;
+  recurring.forEach((re) => list.appendChild(renderRecurringRow_(re)));
+
+  onetimeList.innerHTML = "";
+  onetimeEmptyNote.hidden = onetime.length > 0;
+  onetime.forEach((re) => onetimeList.appendChild(renderRecurringRow_(re)));
 }
 
 const MONTH_NAMES_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -2502,16 +2519,28 @@ function populateRecurringCategoryChips() {
 // The day/month picker is a native <input type="date"> — the same
 // control (and, on a phone, the same tap-to-open calendar) the main
 // entry form's own date field uses — rather than plain number inputs.
-// Only the day (monthly) or day+month (yearly) actually get stored; the
-// year is a throwaway placeholder (today's) purely so the input holds a
-// valid date to pick from. A monthly item whose day is 29-31 still needs
-// a month with enough days to expose that date in the calendar UI,
-// hence the hint text below the field.
+// For monthly/yearly, only the day (or day+month) actually gets stored;
+// the year is a throwaway placeholder (today's) purely so the input
+// holds a valid date to pick from. A monthly item whose day is 29-31
+// still needs a month with enough days to expose that date in the
+// calendar UI, hence the hint text below the field. A one-time item is
+// different — its real year matters (it only ever happens once), so the
+// picker's actual value is used as-is, with no day/month extraction.
 function setRecurringFrequency_(freq) {
   recurringFrequency = freq;
   document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.frequency === freq);
   });
+  const dateInput = document.getElementById("recurring-occurrence-date");
+  const todayIso = todayLocalISO();
+  if (freq === "once") {
+    document.getElementById("recurring-occurrence-date-label").textContent = "Date";
+    document.getElementById("recurring-occurrence-date-hint").textContent =
+      "A single future payment — once it happens and gets confirmed as a real entry, it drops off the \"Programmed this month\" list on its own.";
+    dateInput.min = todayIso;
+    return;
+  }
+  dateInput.removeAttribute("min");
   const isYearly = freq === "yearly";
   document.getElementById("recurring-occurrence-date-label").textContent = isYearly ? "Day and month" : "Day of month";
   document.getElementById("recurring-occurrence-date-hint").textContent = isYearly
@@ -2525,7 +2554,7 @@ document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) =
 
 function openRecurringModal(re) {
   editingRecurringId = re ? re.id : null;
-  document.getElementById("recurring-modal-title").textContent = re ? "Edit recurring item" : "Add recurring item";
+  document.getElementById("recurring-modal-title").textContent = re ? "Edit programmed item" : "Add programmed item";
   document.getElementById("recurring-form-error").textContent = "";
   document.getElementById("recurring-description").value = re ? re.description : "";
 
@@ -2536,11 +2565,18 @@ function openRecurringModal(re) {
   document.getElementById("recurring-currency").value = re ? re.currency : "PEN";
   renderCurrencyChips("recurring");
 
-  setRecurringFrequency_(re ? re.frequency : "monthly");
-  const neutralYear = new Date().getFullYear();
-  const day = String(re ? re.day : 1).padStart(2, "0");
-  const month = String(re ? re.month : 1).padStart(2, "0");
-  document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
+  const frequency = re ? re.frequency : "monthly";
+  setRecurringFrequency_(frequency);
+  if (frequency === "once") {
+    // Real year matters here — a one-time item only ever happens once,
+    // unlike monthly/yearly's throwaway neutral-year placeholder below.
+    document.getElementById("recurring-occurrence-date").value = re && re.date ? re.date : todayLocalISO();
+  } else {
+    const neutralYear = new Date().getFullYear();
+    const day = String(re ? re.day : 1).padStart(2, "0");
+    const month = String(re ? re.month : 1).padStart(2, "0");
+    document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
+  }
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
 
@@ -2582,19 +2618,23 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
     if (!occurrenceDate) throw new Error("Pick a date.");
 
-    const day = parseInt(occurrenceDate.slice(8, 10), 10);
-    const month = parseInt(occurrenceDate.slice(5, 7), 10);
-
     const fields = {
       category_id: selectedRecurringCategoryId,
       description,
       amount,
       currency,
       frequency: recurringFrequency,
-      day,
-      month,
       active
     };
+    if (recurringFrequency === "once") {
+      fields.date = occurrenceDate; // real date, full year — a single occurrence
+      fields.day = "";
+      fields.month = "";
+    } else {
+      fields.day = parseInt(occurrenceDate.slice(8, 10), 10);
+      fields.month = parseInt(occurrenceDate.slice(5, 7), 10);
+      fields.date = "";
+    }
 
     if (editingRecurringId) {
       await callApi("updateRecurringExpense", Object.assign({ id: editingRecurringId }, fields));
@@ -2612,7 +2652,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
 
 document.getElementById("recurring-delete-btn").addEventListener("click", async () => {
   if (!editingRecurringId) return;
-  if (!confirm("Delete this recurring item? This can't be undone.")) return;
+  if (!confirm("Delete this item? This can't be undone.")) return;
   const id = editingRecurringId;
   closeRecurringModal();
   await callApi("deleteRecurringExpense", { id });
