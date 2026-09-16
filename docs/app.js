@@ -2698,12 +2698,20 @@ function projectionPeriodPayload_() {
 // "Programmed" (recurring) vs. "expected" (the year-to-date estimate) —
 // only worth splitting out for expense/investment when BOTH actually
 // contribute; a category covered by just one source, or overridden
-// outright, is already fully explained by its type label alone.
+// outright, is already fully explained by its type label alone. Split
+// across two lines (rather than one long "X programmed + Y expected"
+// string) since the combined line was wrapping mid-number in the row's
+// narrow sub-label space — the "+" sits at the end of the Programmed
+// line, reading as "this, plus the next line," rather than getting
+// stranded at the start of a wrapped Expected line.
 function projectionRowSubLabel_(c, typeLabel) {
   if (c.hasOverride) return `${typeLabel} · Manually set`;
   const isExpenseOrInvestment = c.category_type === "expense" || c.category_type === "investment";
   if (isExpenseOrInvestment && c.recurringAmountPen > 0 && c.baseAmountPen > 0) {
-    return `🔁 ${formatPen(c.recurringAmountPen)} programmed + 📈 ${formatPen(c.baseAmountPen)} expected`;
+    return `
+      <div>🔁 ${formatPen(c.recurringAmountPen)} programmed +</div>
+      <div>📈 ${formatPen(c.baseAmountPen)} expected</div>
+    `;
   }
   return typeLabel;
 }
