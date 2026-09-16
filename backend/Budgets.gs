@@ -44,25 +44,28 @@ function buildBudgetContext_() {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
-  // monthRateByKey converts each entry to PEN (exact month, same as
-  // Reports.gs). ratesByCurrency keeps every rate on file per currency,
-  // sorted — unlike a single "latest as of today" cutoff, viewing a past
-  // period (Overview-style navigation, see resolveEffectivePeriodType_)
-  // needs "latest as of THAT period", so the cutoff is resolved per-lookup
-  // rather than baked in here.
-  var monthRateByKey = {};
+  // ratesByCurrency keeps every rate on file per currency, sorted — each
+  // entry converts at the most recent rate on file at or before its own
+  // month (see getLatestRateOnOrBefore_/latestRateAtOrBefore_ — the
+  // general fallback rule, since an entry's own PEN figure here is a
+  // derived report value, not the act of saving the entry). Unlike a
+  // single "latest as of today" cutoff, viewing a past period
+  // (Overview-style navigation, see resolveEffectivePeriodType_) needs
+  // "latest as of THAT period" for the budget's OWN currency lookups
+  // below, so the cutoff is resolved per-lookup rather than baked in here.
   var ratesByCurrency = {};
   getAllRows('Exchange Rates').forEach(function (r) {
-    monthRateByKey[r.currency + '|' + r.month] = Number(r.rate);
     if (!ratesByCurrency[r.currency]) ratesByCurrency[r.currency] = [];
     ratesByCurrency[r.currency].push({ month: r.month, rate: Number(r.rate) });
   });
   Object.keys(ratesByCurrency).forEach(function (c) {
     ratesByCurrency[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
   });
+  var ctxForEntryRates = { ratesByCurrency: ratesByCurrency };
 
   var spendEntries = entries.map(function (e) {
-    var rate = e.currency === 'PEN' ? 1 : monthRateByKey[e.currency + '|' + String(e.date).substring(0, 7)];
+    var entryMonth = String(e.date).substring(0, 7);
+    var rate = latestRateAtOrBefore_(ctxForEntryRates, e.currency, entryMonth);
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
     return {
       category_id: e.category_id,
@@ -176,13 +179,7 @@ function resolveBudgetDisplayName_(budget, categoryDisplayName) {
 // would be inconsistent with how every other rate lookup in the app works.
 function latestRateAtOrBefore_(ctx, currency, cutoffMonth) {
   if (currency === 'PEN') return 1;
-  var list = ctx.ratesByCurrency[currency];
-  if (!list) return null;
-  var best = null;
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].month <= cutoffMonth) best = list[i];
-  }
-  return best ? best.rate : null;
+  return latestRateFromList_(ctx.ratesByCurrency[currency], cutoffMonth);
 }
 
 // The viewing period (Overview-style Month/Year/All-time/Custom) can widen

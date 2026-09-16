@@ -2025,7 +2025,13 @@ async function refreshBudgetRateWarning_(budget) {
   } else {
     const month = todayLocalISO().slice(0, 7);
     try {
-      hasRate = !!(await callApi("getExchangeRate", { currency, month }));
+      // Fallback-to-latest, not an exact match on today's month — a budget
+      // reads its own currency's rate the same way (latestRateAtOrBefore_
+      // in Budgets.gs), so this warning should only fire when there's
+      // truly nothing on file yet for this currency, not merely nothing
+      // for the current calendar month.
+      const { rate } = await callApi("getLatestRateOnOrBefore", { currency, month });
+      hasRate = rate != null;
     } catch (err) {
       hasRate = true; // don't nag over a network hiccup
     }
@@ -2613,7 +2619,7 @@ document.getElementById("recurring-delete-btn").addEventListener("click", async 
   refreshRecurringExpenses();
 });
 
-// ---- "Expected this month" (Entries tab) ----
+// ---- "Programmed this month" (Entries tab) ----
 
 // A group's summary row is purely a toggle for its own detail list — no
 // confirm/discard anywhere here. The actual entry only ever gets created
@@ -2627,6 +2633,11 @@ async function refreshExpectedRecurring() {
   try {
     ({ groups } = await callApi("listExpectedRecurringItems"));
   } catch (err) {
+    // Logged rather than swallowed outright — this card hiding with no
+    // sign anything went wrong (a slow cold start, a dropped connection)
+    // has looked, from the outside, identical to "nothing programmed
+    // this month" with nothing in the console to tell the two apart.
+    console.error("refreshExpectedRecurring failed:", err);
     card.hidden = true;
     return;
   }
@@ -2667,7 +2678,7 @@ async function refreshExpectedRecurring() {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">🔁 ${g.items.length} expected</span>
+      <span class="expected-recurring-summary-label">🔁 ${g.items.length} programmed</span>
       <span class="expected-recurring-amount">${amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });

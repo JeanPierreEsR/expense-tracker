@@ -10,7 +10,7 @@ var TABLE_DEFINITIONS = {
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
     'external_id', 'import_batch_id', 'created_at'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
-  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id'],
+  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
   Tags: ['id', 'name', 'color'],
   'Entry Tags': ['entry_id', 'tag_id'],
   'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4'],

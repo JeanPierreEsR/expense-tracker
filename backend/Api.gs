@@ -53,6 +53,7 @@ function routeAction(action, payload) {
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
+    case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
     case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
     case 'addFriend': return addFriend(payload);
@@ -64,6 +65,7 @@ function routeAction(action, payload) {
       var payorRowIndex = findRowIndexById(payorSheet, payorHeaders, payload.id);
       if (payorRowIndex !== -1) payorSheet.deleteRow(payorRowIndex);
       return { done: true };
+    case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
@@ -376,8 +378,8 @@ function updateEntryFields(entryId, fields) {
 function computeAmountPen(amount, currency, dateStr) {
   if (currency === 'PEN') return amount;
   var month = String(dateStr).substring(0, 7);
-  var rate = getExchangeRate(currency, month);
-  return rate ? amount * rate.rate : null;
+  var rate = getLatestRateOnOrBefore_(currency, month);
+  return rate != null ? amount * rate : null;
 }
 
 // ---- Exchange rates ----
@@ -401,6 +403,49 @@ function getExchangeRate(currency, month) {
     return r.currency === currency && r.month === month;
   });
   return match.length ? match[0] : null;
+}
+
+// Every rate on file, grouped by currency and sorted ascending by month —
+// the shared shape latestRateFromList_/getLatestRateOnOrBefore_ read, and
+// the same shape Budgets.gs's buildBudgetContext_ builds independently
+// (rebuilding it there too, since it already has its own Exchange Rates
+// read folded into a larger one-time context for performance).
+function buildRatesByCurrency_() {
+  var map = {};
+  getAllRows('Exchange Rates').forEach(function (r) {
+    if (!map[r.currency]) map[r.currency] = [];
+    map[r.currency].push({ month: r.month, rate: Number(r.rate) });
+  });
+  Object.keys(map).forEach(function (c) {
+    map[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
+  });
+  return map;
+}
+
+// list: this currency's sorted-by-month rate rows (or undefined). Finds
+// the most recent one at or before cutoffMonth — a plain linear scan
+// since a single currency's rate history is always small.
+function latestRateFromList_(list, cutoffMonth) {
+  if (!list) return null;
+  var best = null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].month <= cutoffMonth) best = list[i];
+  }
+  return best ? best.rate : null;
+}
+
+// General rule: anything OTHER than the act of saving an entry (which
+// requires and prompts for its own exact month's rate — see
+// ensureExchangeRate in app.js) uses the most recent rate on file at or
+// before the month it needs, rather than requiring an exact match.
+// amount_pen is always derived fresh at render time, never stored (see
+// CLAUDE.md's Entries section) — entry lists, reports, budgets, and
+// projections all go through this, so a currency/month that was never
+// explicitly rated (common for older imported entries) still resolves
+// to a sensible figure instead of silently dropping the amount.
+function getLatestRateOnOrBefore_(currency, month) {
+  if (currency === 'PEN') return 1;
+  return latestRateFromList_(buildRatesByCurrency_()[currency], month);
 }
 
 function setExchangeRate(currency, month, rate) {

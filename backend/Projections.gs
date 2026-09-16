@@ -127,7 +127,36 @@ function ytdRangeForProjection_() {
 // item, an override, or any YTD/period history) — categories that have
 // simply never been used stay out of the list rather than cluttering it
 // with rows that are always PEN 0.00.
+// Categories was already live with real data when the 'yearly-only'
+// concept (below) was added — unlike a table created fresh via
+// ensureXSheet_, an existing sheet's headers can't just be recreated, so
+// this appends the one missing column in place, idempotently, the first
+// time it's needed. Blank/missing on any existing row reads as 'monthly'
+// (the default, unchanged behavior) — nothing needs backfilling.
+function ensureCategoryPeriodTypeColumn_() {
+  var sheet = getSheet('Categories');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('period_type') !== -1) return;
+  sheet.getRange(1, headers.length + 1).setValue('period_type');
+}
+
+// One-off, same spirit as the other admin_* routes: sets a category's
+// period_type by hand via a scripted call, for cleanup/migration — the
+// normal path is the owner typing 'yearly' directly into the Categories
+// sheet when they create a category that belongs there (see CLAUDE.md's
+// Categories section), not this route.
+function adminSetCategoryPeriodType(categoryId, periodType) {
+  ensureCategoryPeriodTypeColumn_();
+  var sheet = getSheet('Categories');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, categoryId);
+  if (rowIndex === -1) throw new Error('Category not found');
+  sheet.getRange(rowIndex, headers.indexOf('period_type') + 1).setValue(periodType || '');
+  return { done: true };
+}
+
 function computeAllCategoryProjections_(bounds) {
+  ensureCategoryPeriodTypeColumn_();
   var periodMonths = bounds.periodType === 'yearly' ? 12 : 1;
   var ytd = ytdRangeForProjection_();
 
@@ -145,11 +174,10 @@ function computeAllCategoryProjections_(bounds) {
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
-  var monthRateByKey = {};
-  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
-    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
   function ownAmount_(e) { return Number(e.amount) - (splitSumByEntry[e.id] || 0); }
@@ -166,19 +194,52 @@ function computeAllCategoryProjections_(bounds) {
   });
 
   var results = categories.map(function (category) {
+    // A category the owner has explicitly marked 'yearly' (period_type
+    // column, set when the category itself was created — see CLAUDE.md's
+    // Categories section) is for spend that's real but only meaningful as
+    // a once-a-year total — a big irregular annual cost with no natural
+    // recurring schedule of its own (unlike Recurring Expenses' yearly
+    // frequency, which is one fixed, predictable amount on one known
+    // date). It never contributes to a monthly view at all, not even a
+    // YTD-smoothed fraction, and a manual override can't resurrect it
+    // there either — it only ever shows up when actually viewing yearly,
+    // where the normal YTD-rate calculation below applies unchanged.
+    if (String(category.period_type || '').toLowerCase() === 'yearly' && bounds.periodType !== 'yearly') {
+      return {
+        category_id: category.id,
+        category_name: category.name,
+        category_icon: category.icon,
+        category_color: category.color,
+        category_type: category.type,
+        recurringAmountPen: 0,
+        baseAmountPen: 0,
+        calculatedAmountPen: 0,
+        hasOverride: false,
+        overrideAmountPen: null,
+        amountPen: 0
+      };
+    }
+
     var categoryRecurring = recurringByCategory[category.id] || [];
 
     // A yearly-frequency recurring item, viewed monthly, would otherwise
     // dump its whole annual amount into whichever single month it happens
     // to land in — a misleading spike rather than a genuine monthly
     // figure. Left out of the recurring portion for a monthly view of an
-    // expense/investment category (its real cost still surfaces smoothed
-    // through the YTD rate below, since excluding it here also stops its
-    // matching entries from being excluded there); reinstated for a
-    // yearly view, where a once-a-year cost showing once a year is
-    // exactly correct. Income is never filtered this way — it has no YTD
-    // fallback to catch the amount instead, so excluding it would just
-    // make a real, known, once-a-year payment disappear in its own month.
+    // expense/investment category; its matching entries are ALSO excluded
+    // from the YTD pool below regardless of period (see categoryRecurring
+    // used there instead of recurringForPeriod), so a category whose only
+    // spend is that one yearly payment shows nothing at all in a monthly
+    // view rather than a fraction of it smoothed across every month —
+    // its cost only ever surfaces when actually viewing yearly, where a
+    // once-a-year cost showing once a year is exactly correct. A category
+    // with genuine OTHER variable spend alongside the yearly item (e.g. a
+    // car's yearly insurance plus unpredictable gas) is unaffected: only
+    // the insurance-matched entries are excluded, gas still feeds the
+    // monthly rate normally. Income is never filtered this way — it has
+    // no YTD fallback to catch the amount instead, so excluding it would
+    // just make a real, known, once-a-year payment disappear in its own
+    // month.
     var recurringForPeriod = (category.type === 'income' || bounds.periodType === 'yearly')
       ? categoryRecurring
       : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
@@ -208,8 +269,16 @@ function computeAllCategoryProjections_(bounds) {
         if (pen != null) baseAmountPen += pen;
       });
     } else if (ytd.ytdStart) {
+      // Matched against EVERY active recurring item (categoryRecurring),
+      // not just recurringForPeriod — a yearly item excluded from the
+      // period's own "programmed" line above must still have its matching
+      // entries pulled out of the YTD pool below, or its one-a-year lump
+      // payment gets smoothed into every month's "Expected" as if it were
+      // genuine unexplained variable spend. A category whose only YTD
+      // spend is that single yearly payment then correctly nets to 0 in a
+      // monthly view instead of showing a misleading fraction of it.
       var matchedEntryIds = {};
-      recurringForPeriod.forEach(function (r) {
+      categoryRecurring.forEach(function (r) {
         var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
         entriesYtd.forEach(function (e) {
           if (e.category_id !== category.id || matchedEntryIds[e.id]) return;
@@ -288,11 +357,10 @@ function getCategoryProjectionDetail(payload) {
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
-  var monthRateByKey = {};
-  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
-    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 
@@ -347,11 +415,10 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     ? categoryRecurring
     : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
 
-  var monthRateByKey = {};
-  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
-    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 
@@ -403,11 +470,10 @@ function computeCategoryYtdBreakdown_(categoryId) {
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
-  var monthRateByKey = {};
-  getAllRows('Exchange Rates').forEach(function (r) { monthRateByKey[r.currency + '|' + r.month] = Number(r.rate); });
+  var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
-    var rate = monthRateByKey[currency + '|' + String(dateStr).substring(0, 7)];
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 

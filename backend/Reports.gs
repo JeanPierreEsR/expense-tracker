@@ -8,8 +8,7 @@
 function getRateForEntryCurrency_(currency, dateStr) {
   if (currency === 'PEN') return 1;
   var month = String(dateStr).substring(0, 7);
-  var rate = getExchangeRate(currency, month);
-  return rate ? rate.rate : null;
+  return getLatestRateOnOrBefore_(currency, month);
 }
 
 function getPeriodSummary(payload) {
