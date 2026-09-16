@@ -253,8 +253,21 @@ function findRecurringLinkCandidates(payload) {
     });
   });
 
+  // Rounded to the nearest 0.05 before comparing — two candidates whose
+  // raw scores differ by, say, 0.006 (a PEN 2 difference in amount
+  // closeness) aren't meaningfully "more likely" than each other, but
+  // full-precision comparison here always treated them as strictly
+  // ordered, so within a whole tier of similarly-priced-but-unrelated
+  // candidates (several gas fill-ups near a car insurance payment's own
+  // amount, say) the list read as shuffled rather than sorted by
+  // anything a person could see. Rounding first means genuinely
+  // similar-confidence candidates actually tie, falling through to the
+  // date tiebreaker — most recent first, since a recent entry is the one
+  // most likely to be what the owner is currently trying to reconcile.
   candidates.sort(function (a, b) {
-    if (b.score !== a.score) return b.score - a.score;
+    var aTier = Math.round(a.score * 20) / 20;
+    var bTier = Math.round(b.score * 20) / 20;
+    if (bTier !== aTier) return bTier - aTier;
     return a.date < b.date ? 1 : -1;
   });
 
