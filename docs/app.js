@@ -997,8 +997,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         tag_ids: Array.from(selectedTagIds)
       });
-      if (splits && splits.length) {
-        await callApi("saveEntrySplits", { entryId: created.id, splits });
+      // Sent whenever it could actually matter — including a friend-paid
+      // expense with the split toggle left OFF, so it still creates a
+      // loan for the full amount (own_share = amount − 0 = the whole
+      // thing, per saveEntrySplits in Loans.gs). The split toggle is only
+      // needed when someone OTHER than the owner and the payer also had
+      // part of it; "a friend covered this 100% for me" is the default,
+      // not something that needs an extra step to record. Skipped when
+      // the owner paid and nothing was split — guaranteed to be a no-op
+      // there, so there's no point in the extra round trip.
+      if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
+        await callApi("saveEntrySplits", { entryId: created.id, splits: splits || [] });
       }
     }
 
