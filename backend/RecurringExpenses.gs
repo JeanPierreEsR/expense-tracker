@@ -46,7 +46,27 @@ function ensureRecurringExpensesSheet_() {
 
 function getRecurringExpenseRows_() {
   ensureRecurringExpensesSheet_();
+  ensureEntriesRecurringLinkColumn_();
   return getAllRows('Recurring Expenses');
+}
+
+// Entries already existed (Phase 0) when this column was added, so unlike
+// Recurring Expenses' own self-heal above, there's no "create the sheet"
+// branch here — just append the one missing column in place, same pattern.
+// See entryMatchesRecurringOccurrence_'s explicit-link check, below, for
+// why this exists: a true-up where the owner corrected a recurring item's
+// day/currency/amount back to what they actually intend going forward
+// left older Entries — logged under the old, different convention —
+// unable to match by the normal heuristic (exact currency, ~10% amount,
+// within a few days of the item's day) without permanently loosening it
+// for everyone. This lets specific historical Entries be pointed at the
+// recurring item they actually represent instead.
+function ensureEntriesRecurringLinkColumn_() {
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('recurring_expense_id') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('recurring_expense_id');
+  }
 }
 
 function listRecurringExpenses() {
@@ -127,6 +147,22 @@ function updateRecurringExpense(payload) {
   return { done: true };
 }
 
+// One-off admin action, same spirit as adminSetCategoryPeriodType — points
+// a specific historical Entry at the Recurring Expense item it actually
+// represents (see entryMatchesRecurringOccurrence_'s explicit-link check,
+// above). Pass recurringExpenseId: '' to unlink. Self-heals the Entries
+// column here too, rather than depending on some other call having
+// already gone through getRecurringExpenseRows_() first.
+function adminLinkEntryToRecurring(entryId, recurringExpenseId) {
+  ensureEntriesRecurringLinkColumn_();
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, entryId);
+  if (rowIndex === -1) throw new Error('Entry not found');
+  setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', recurringExpenseId || '');
+  return { done: true };
+}
+
 function deleteRecurringExpense(id) {
   ensureRecurringExpensesSheet_();
   var sheet = getSheet('Recurring Expenses');
@@ -188,7 +224,19 @@ var RECURRING_MATCH_DAY_WINDOW = 5;
 // portion and the YTD-averaged portion of a category's projection).
 // occurrenceDates is that recurring item's actual billing dates within
 // whatever range the caller cares about.
+//
+// An explicit link (entry.recurring_expense_id, see
+// ensureEntriesRecurringLinkColumn_ above) always wins outright, skipping
+// every heuristic check below it — set on specific historical Entries via
+// admin_linkEntryToRecurring when a recurring item's day/currency/amount
+// gets corrected to the owner's real, going-forward intent (a "true-up")
+// and older Entries were logged under a different convention that will
+// never satisfy the heuristic again. The caller has already filtered its
+// own entry list to the date range being queried, so an explicitly-linked
+// entry only ever gets considered by a call whose range genuinely
+// contains its date — no risk of it "matching" some unrelated period.
 function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
+  if (entry.recurring_expense_id && entry.recurring_expense_id === recurring.id) return true;
   if (entry.category_id !== recurring.category_id || entry.currency !== (recurring.currency || 'PEN')) return false;
   var amt = Number(recurring.amount);
   if (Math.abs(Number(entry.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
