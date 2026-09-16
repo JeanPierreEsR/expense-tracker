@@ -151,6 +151,8 @@ function routeAction(action, payload) {
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };
     case 'updateEntry': return updateEntryFields(payload.id, payload.fields);
+    case 'getEntrySplits': return getEntrySplits(payload.entryId);
+    case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     default: throw new Error('Unknown action: ' + action);
   }
 }

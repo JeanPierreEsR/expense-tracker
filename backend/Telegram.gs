@@ -458,4 +458,9 @@ function deleteEntry_(entryId) {
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
   sheet.deleteRow(rowIndex);
+  // A no-op for an entry that was never split (the common case, and every
+  // pending/review-queue entry today, since Phase 5's split UI is only on
+  // confirmed entries) — see deleteEntrySplitsAndLoansForEntry_ in
+  // Loans.gs for what it does when there's something to clean up.
+  deleteEntrySplitsAndLoansForEntry_(entryId);
 }

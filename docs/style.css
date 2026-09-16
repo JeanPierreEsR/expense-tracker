@@ -452,6 +452,24 @@ input[type="date"] {
   border-color: var(--accent);
 }
 
+.split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.split-row-name {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.split-row input {
+  width: 110px;
+  text-align: right;
+}
+
 .add-inline {
   font-size: 0.8rem;
   color: var(--accent);
