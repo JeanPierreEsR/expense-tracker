@@ -2241,6 +2241,13 @@ function refreshBudgetsInBackground_() {
 }
 
 async function refreshBudgets() {
+  // renderPeriodSelector() keeps the shared selector's own label/arrows in
+  // sync — refreshOverview() already does this for itself, but movePeriod()
+  // doesn't call it directly, so navigating with the arrows while ON the
+  // Budgets tab (rather than Overview) left the period label frozen on
+  // whatever it last showed even though the budgets below correctly
+  // refreshed for the new period underneath it.
+  renderPeriodSelector();
   // Same period the Overview tab is showing (periodType/periodAnchor are
   // shared state) — the backend widens a budget's own period to match
   // when it's the larger of the two (a monthly budget shown across a
@@ -2813,6 +2820,12 @@ async function refreshExpectedRecurring() {
 // of the calculation, in both places, until it's reset.
 
 async function refreshProjectionsScreen() {
+  // Same reasoning as refreshBudgets()' own renderPeriodSelector() call —
+  // without it, moving the period with the arrows while ON the
+  // Projections tab silently refreshed the projected figures below but
+  // left the "September 2026" label itself frozen, reading as if nothing
+  // had happened at all.
+  renderPeriodSelector();
   await Promise.all([refreshProjections(), refreshProjectionCategories()]);
 }
 
