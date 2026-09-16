@@ -78,8 +78,12 @@ function routeAction(action, payload) {
         tokenLength: token ? token.length : 0,
         chatIdSet: !!getOwnerTelegramChatId_(),
         updateOffset: PropertiesService.getScriptProperties().getProperty('TELEGRAM_UPDATE_OFFSET') || null,
-        relayUrl: PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL') || null
+        relayUrl: PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL') || null,
+        lastWebhookUpdateId: PropertiesService.getScriptProperties().getProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID') || null
       };
+    case 'admin_resetTelegramWebhookDedup':
+      PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID');
+      return { done: true };
     case 'admin_telegramGetUpdatesRaw': return telegramApi_('getUpdates', { offset: 0, timeout: 0 });
     case 'admin_automationStatus':
       var triggers = ScriptApp.getProjectTriggers().filter(function (t) {
