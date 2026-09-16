@@ -1,29 +1,47 @@
 /**
- * Recurring income/expenses — known fixed amounts (rent, subscriptions,
- * gym, salary) that the owner enters once and the app can then account
- * for ahead of time, instead of only ever knowing about them after
- * they've been logged as a regular Entry. Despite the file/table name
- * (kept as-is so an already-created sheet tab isn't orphaned by a rename —
- * see CLAUDE.md), a recurring item's own category decides whether it's
- * income, expense, or investment; nothing here is expense-only. Used by
- * the Budgets chart (Budgets.gs, expense categories only, since budgets
- * themselves are expense-only) and the Projections tab (Projections.gs,
- * all types); managed from the More > Recurring income/expenses screen.
+ * Programmed income/expenses — known fixed amounts the owner enters once
+ * and the app can then account for ahead of time, instead of only ever
+ * knowing about them after they've been logged as a regular Entry. Two
+ * kinds, both rows in the same sheet/table (kept as "Recurring Expenses"
+ * on purpose so an already-created sheet tab isn't orphaned by a rename —
+ * see CLAUDE.md): **recurring** (`frequency` monthly/yearly, repeats
+ * forever on a `day`/`month`) — rent, subscriptions, gym, salary — and
+ * **one-time** (`frequency` 'once', a single real calendar `date`,
+ * added 2026-09-16) — a known future payment you don't want cluttering
+ * "Recent entries" the way a pre-dated Entry would (see CLAUDE.md's
+ * Recurring Expenses section). A one-time item naturally stops mattering
+ * after its own date, with no separate expiry logic needed — see
+ * recurringExpenseOccurrencesInRange_ below. An item's own category
+ * decides whether it's income, expense, or investment; nothing here is
+ * expense-only. Used by the Budgets chart (Budgets.gs, expense categories
+ * only, since budgets themselves are expense-only) and the Projections
+ * tab (Projections.gs, all types); managed from the More > Programmed
+ * income/expenses screen.
  */
 
 // This table was added after setupSpreadsheet() was last run for real, so
 // unlike the tables from Phase 0 it can't assume its own tab already
 // exists — self-heals by creating it (with headers) on first use instead
 // of requiring a one-off admin step before the feature works at all.
+// 'date' (the one-time-item column) came later still, after this sheet
+// already held real data — self-heals by appending the missing column in
+// place, same pattern as Categories' period_type in Projections.gs.
 function ensureRecurringExpensesSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (ss.getSheetByName('Recurring Expenses')) return;
-  var sheet = ss.insertSheet('Recurring Expenses');
-  var headers = TABLE_DEFINITIONS['Recurring Expenses'];
-  var headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setValues([headers]);
-  headerRange.setFontWeight('bold');
-  sheet.setFrozenRows(1);
+  var sheet = ss.getSheetByName('Recurring Expenses');
+  if (!sheet) {
+    sheet = ss.insertSheet('Recurring Expenses');
+    var headers = TABLE_DEFINITIONS['Recurring Expenses'];
+    var headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setValues([headers]);
+    headerRange.setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return;
+  }
+  var existingHeaders = getHeaders(sheet);
+  if (existingHeaders.indexOf('date') === -1) {
+    sheet.getRange(1, existingHeaders.length + 1).setValue('date');
+  }
 }
 
 function getRecurringExpenseRows_() {
@@ -36,13 +54,23 @@ function listRecurringExpenses() {
   return getRecurringExpenseRows_().map(function (r) {
     return recurringExpenseForClient_(r, categoryById);
   }).sort(function (a, b) {
+    var aOnce = a.frequency === 'once', bOnce = b.frequency === 'once';
+    if (aOnce !== bOnce) return aOnce ? 1 : -1; // one-time items sort after recurring ones
+    if (aOnce) return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
     if (a.day !== b.day) return a.day - b.day;
     return a.category_name.localeCompare(b.category_name);
   });
 }
 
+function normalizeRecurringFrequency_(freq) {
+  if (freq === 'yearly') return 'yearly';
+  if (freq === 'once') return 'once';
+  return 'monthly';
+}
+
 function recurringExpenseForClient_(r, categoryById) {
   var cat = categoryById[r.category_id];
+  var frequency = normalizeRecurringFrequency_(r.frequency);
   return {
     id: r.id,
     category_id: r.category_id,
@@ -53,24 +81,27 @@ function recurringExpenseForClient_(r, categoryById) {
     description: r.description || '',
     amount: Number(r.amount),
     currency: r.currency || 'PEN',
-    frequency: r.frequency === 'yearly' ? 'yearly' : 'monthly',
+    frequency: frequency,
     day: r.day ? Number(r.day) : 1,
     month: r.month ? Number(r.month) : 1,
+    date: r.date || '',
     active: String(r.active) !== 'false'
   };
 }
 
 function addRecurringExpense(payload) {
   ensureRecurringExpensesSheet_();
+  var frequency = normalizeRecurringFrequency_(payload.frequency);
   var re = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
     description: payload.description ? String(payload.description).trim() : '',
     amount: payload.amount,
     currency: payload.currency || 'PEN',
-    frequency: payload.frequency === 'yearly' ? 'yearly' : 'monthly',
-    day: payload.day || 1,
-    month: payload.month || 1,
+    frequency: frequency,
+    day: frequency === 'once' ? '' : (payload.day || 1),
+    month: frequency === 'once' ? '' : (payload.month || 1),
+    date: frequency === 'once' ? (payload.date || '') : '',
     active: payload.active === false ? 'false' : 'true'
   };
   appendRowObject('Recurring Expenses', re);
@@ -85,12 +116,12 @@ function updateRecurringExpense(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error('Recurring expense not found');
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active'].forEach(function (field) {
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'description') value = String(value || '').trim();
     if (field === 'active') value = (value === false || value === 'false') ? 'false' : 'true';
-    if (field === 'frequency') value = value === 'yearly' ? 'yearly' : 'monthly';
+    if (field === 'frequency') value = normalizeRecurringFrequency_(value);
     setCellByRow_(sheet, headers, rowIndex, field, value);
   });
   return { done: true };
@@ -108,15 +139,25 @@ function deleteRecurringExpense(id) {
 // The calendar dates (YYYY-MM-DD) on which a recurring expense actually
 // falls within [startDate, endDate] (inclusive). A monthly one occurs
 // once per calendar month in range; a yearly one occurs once per calendar
-// year, only in its own month. `day` is clamped to each month's real
-// length (e.g. day 31 in February lands on the 28th/29th) rather than
-// skipping short months entirely.
+// year, only in its own month; a one-time ('once') item occurs exactly
+// once, ever, on its own stored `date` — this naturally makes it stop
+// appearing in any future period on its own, with no separate "mark as
+// done" or expiry step needed once it's past. `day` is clamped to each
+// month's real length (e.g. day 31 in February lands on the 28th/29th)
+// rather than skipping short months entirely.
 function recurringExpenseOccurrencesInRange_(re, startDate, endDate) {
   if (String(re.active) === 'false') return [];
   var start = new Date(startDate + 'T00:00:00');
   var end = new Date(endDate + 'T00:00:00');
   var day = re.day ? Number(re.day) : 1;
   var dates = [];
+
+  if (re.frequency === 'once') {
+    if (!re.date) return [];
+    var onceDate = new Date(re.date + 'T00:00:00');
+    if (onceDate >= start && onceDate <= end) dates.push(String(re.date));
+    return dates;
+  }
 
   if (re.frequency === 'yearly') {
     var month = re.month ? Number(re.month) : 1;
@@ -157,7 +198,7 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
 }
 
 // What's expected this month, minus whatever already has a matching real
-// entry — for the Entries tab's collapsed "Expected this month" line. A
+// entry — for the Entries tab's collapsed "Programmed this month" line. A
 // recurring item counts as already handled if some confirmed entry this
 // month shares its category and currency, lands within ~10% of its
 // amount, AND falls within a few days of its actual billing date —
@@ -219,7 +260,11 @@ function listExpectedRecurringItems() {
       category_name: cat ? cat.name : '(unknown category)',
       category_icon: cat ? cat.icon : '',
       amount: Number(r.amount),
-      day: r.day ? Number(r.day) : 1,
+      // The occurrence's own actual (clamped) day, not the raw configured
+      // one — matters for a 'once' item (which has no day/month at all)
+      // and also fixes a latent mismatch for a monthly item whose day
+      // (e.g. 31) got clamped to a shorter month's real last day.
+      day: Number(entry.occurrenceDate.slice(8, 10)),
       overdue: entry.occurrenceDate < todayStr
     });
   });

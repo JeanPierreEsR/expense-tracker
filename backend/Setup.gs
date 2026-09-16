@@ -30,7 +30,7 @@ var TABLE_DEFINITIONS = {
   // it occurs (1-31, clamped to each month's real length); `month` (1-12)
   // is only meaningful when frequency is 'yearly'. `active` lets one be
   // paused without deleting its history of use.
-  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active'],
+  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date'],
   // Not part of the original spec — lets the owner manually override a
   // category's calculated Projections figure (see Projections.gs) for one
   // specific period, when they know better than the YTD estimate. Deleting
