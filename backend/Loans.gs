@@ -121,3 +121,108 @@ function deleteRowsWhere_(sheetName, predicate) {
     if (predicate(obj)) sheet.deleteRow(i + 2);
   }
 }
+
+// ---- Loans screen (Phase 5.2) ----
+
+function buildSettlementTotalsByLoan_() {
+  var totals = {};
+  getAllRows('Settlements').forEach(function (s) {
+    totals[s.loan_id] = (totals[s.loan_id] || 0) + Number(s.amount);
+  });
+  return totals;
+}
+
+// One net figure per friend, for the Loans tab's "Owes you" / "You owe"
+// lists. Loans keep their own original currency and are never re-converted
+// on their own row (see CLAUDE.md) — but netting several loans together
+// into one number needs a common unit whenever more than one currency is
+// involved, so: if every one of a friend's still-outstanding loans shares
+// a single currency, the net is that exact currency, no conversion at all;
+// only a friend with a genuine currency mix falls back to PEN, via the
+// same latest-rate-on-file fallback used everywhere else non-entry-saving
+// FX math happens (see CLAUDE.md's general exchange-rate rule).
+function listLoanBalances() {
+  var loans = getAllRows('Loans').filter(function (l) { return l.status !== 'forgiven'; });
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  var friendMap = {};
+  getAllRows('Friends').forEach(function (f) { friendMap[f.id] = f.name; });
+
+  // friend_id -> currency -> { theyOweMe, iOweThem } (native amounts,
+  // remaining balance after settlements).
+  var byFriendCurrency = {};
+  loans.forEach(function (loan) {
+    var remaining = Number(loan.amount) - (settledByLoan[loan.id] || 0);
+    if (remaining <= 0.004) return;
+
+    if (!byFriendCurrency[loan.friend_id]) byFriendCurrency[loan.friend_id] = {};
+    var byCur = byFriendCurrency[loan.friend_id];
+    if (!byCur[loan.currency]) byCur[loan.currency] = { theyOweMe: 0, iOweThem: 0 };
+    if (loan.direction === 'they_owe_me') byCur[loan.currency].theyOweMe += remaining;
+    else byCur[loan.currency].iOweThem += remaining;
+  });
+
+  var month = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  var result = [];
+
+  Object.keys(byFriendCurrency).forEach(function (friendId) {
+    var byCur = byFriendCurrency[friendId];
+    // Only currencies where this friend still has a real, non-zero net —
+    // a currency that happens to net to exactly 0 (fully offsetting loans
+    // in both directions) doesn't count as "a currency this friend is
+    // owed/owes in" for the single-vs-mixed decision below.
+    var activeCurrencies = Object.keys(byCur).filter(function (cur) {
+      return Math.abs(byCur[cur].theyOweMe - byCur[cur].iOweThem) > 0.004;
+    });
+    if (!activeCurrencies.length) return;
+
+    var netPen = 0;
+    var missingRateFor = null;
+    activeCurrencies.forEach(function (cur) {
+      var net = byCur[cur].theyOweMe - byCur[cur].iOweThem;
+      var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
+      if (rate == null) { missingRateFor = cur; return; }
+      netPen += net * rate;
+    });
+
+    var displayCurrency = null;
+    var displayAmount = null;
+    var needsRate = false;
+    if (activeCurrencies.length === 1) {
+      // No conversion needed at all — exact, regardless of whether a rate
+      // is on file for this currency.
+      var cur = activeCurrencies[0];
+      displayCurrency = cur;
+      displayAmount = byCur[cur].theyOweMe - byCur[cur].iOweThem;
+    } else if (missingRateFor == null) {
+      displayCurrency = 'PEN';
+      displayAmount = netPen;
+    } else {
+      needsRate = true;
+    }
+
+    result.push({
+      friend_id: friendId,
+      friend_name: friendMap[friendId] || '(unknown friend)',
+      net_pen: needsRate ? null : netPen,
+      display_currency: displayCurrency,
+      display_amount: displayAmount,
+      needs_rate: needsRate
+    });
+  });
+
+  return result;
+}
+
+// Full loan history for one friend — outstanding, settled, and forgiven —
+// for the Loans tab's per-friend detail. Not filtered or netted; that's
+// what listLoanBalances is for.
+function getFriendLoanDetail(friendId) {
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId; });
+  loans.forEach(function (loan) {
+    loan.settled = settledByLoan[loan.id] || 0;
+    loan.remaining = Number(loan.amount) - loan.settled;
+  });
+  loans.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+  return loans;
+}
