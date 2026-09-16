@@ -363,25 +363,49 @@ function getCategoryId() {
 
 document.getElementById("change-category-btn").addEventListener("click", showCategoryPicker);
 
+// Income keeps its own list (Payors — a client, employer, "Acme
+// Group") entirely separate from Friends: a friend paying for a shared
+// expense is a debt relationship (see Loans in CLAUDE.md), but whoever
+// pays the owner income isn't a debt at all, so it doesn't belong next
+// to actual friends. "Me" only makes sense as an expense/investment/
+// transfer payer, not an income source, so it's left out of the income
+// list entirely.
 function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
+  const label = document.getElementById("paid-by-label");
   select.innerHTML = "";
-  const meOpt = document.createElement("option");
-  meOpt.value = "me";
-  meOpt.textContent = "Me";
-  select.appendChild(meOpt);
 
-  meta.friends.forEach((f) => {
-    const opt = document.createElement("option");
-    opt.value = f.id;
-    opt.textContent = f.name;
-    select.appendChild(opt);
-  });
+  if (selectedType === "income") {
+    label.textContent = "Received from";
+    meta.payors.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    });
+    const addOpt = document.createElement("option");
+    addOpt.value = "__add_payor__";
+    addOpt.textContent = "+ Add payor…";
+    select.appendChild(addOpt);
+  } else {
+    label.textContent = "Paid by";
+    const meOpt = document.createElement("option");
+    meOpt.value = "me";
+    meOpt.textContent = "Me";
+    select.appendChild(meOpt);
 
-  const addOpt = document.createElement("option");
-  addOpt.value = "__add__";
-  addOpt.textContent = "+ Add friend…";
-  select.appendChild(addOpt);
+    meta.friends.forEach((f) => {
+      const opt = document.createElement("option");
+      opt.value = f.id;
+      opt.textContent = f.name;
+      select.appendChild(opt);
+    });
+
+    const addOpt = document.createElement("option");
+    addOpt.value = "__add__";
+    addOpt.textContent = "+ Add friend…";
+    select.appendChild(addOpt);
+  }
 
   togglePaymentMethodVisibility();
 }
@@ -427,6 +451,14 @@ function populateTags() {
 }
 
 function togglePaymentMethodVisibility() {
+  // Income's payment method means "which account received this," which
+  // has nothing to do with who paid it — unlike an expense, where it's
+  // tied to paid_by === "me" (a friend paying means the owner's own
+  // accounts were never touched). Always shown for income accordingly.
+  if (selectedType === "income") {
+    document.getElementById("payment-method-field").hidden = false;
+    return;
+  }
   const paidBy = document.getElementById("paid_by").value;
   document.getElementById("payment-method-field").hidden = paidBy !== "me";
 }
@@ -438,6 +470,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     selectedType = tab.dataset.type;
     document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     populateCategoryOptions();
+    populatePaidByOptions();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
@@ -457,6 +490,15 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
       meta.friends.push(friend);
       populatePaidByOptions();
       document.getElementById("paid_by").value = friend.id;
+    }
+  } else if (e.target.value === "__add_payor__") {
+    const name = prompt("Payor's name (e.g. a client or employer):");
+    e.target.value = meta.payors.length ? meta.payors[0].id : "";
+    if (name && name.trim()) {
+      const payor = await callApi("addPayor", { name: name.trim() });
+      meta.payors.push(payor);
+      populatePaidByOptions();
+      document.getElementById("paid_by").value = payor.id;
     }
   }
   togglePaymentMethodVisibility();
@@ -642,11 +684,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const description = document.getElementById("description").value.trim();
     const paidBy = document.getElementById("paid_by").value;
     const paymentMethodId = document.getElementById("payment_method").value;
+    // Same condition togglePaymentMethodVisibility() uses to show the
+    // field — income always carries a payment method (which account
+    // received it), an expense/investment/transfer only when the owner
+    // themselves paid.
+    const usesPaymentMethod = selectedType === "income" || paidBy === "me";
 
     if (!date) throw new Error("Date is required.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
     if (!categoryId) throw new Error("Pick a category.");
-    if (paidBy === "me" && !paymentMethodId) throw new Error("Pick a payment method.");
+    if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
 
     await ensureExchangeRate(currency, date);
 
@@ -661,7 +708,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           category_id: categoryId,
           description,
           paid_by: paidBy,
-          payment_method_id: paidBy === "me" ? paymentMethodId : ""
+          payment_method_id: usesPaymentMethod ? paymentMethodId : ""
         }
       });
       exitEditMode();
@@ -674,7 +721,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         category_id: categoryId,
         description,
         paid_by: paidBy,
-        payment_method_id: paidBy === "me" ? paymentMethodId : "",
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         tag_ids: Array.from(selectedTagIds)
       });
     }
@@ -741,7 +788,15 @@ function categoryName(id) {
   return c ? c.name : "(unknown category)";
 }
 
-function paidByLabel(paidBy) {
+function paidByLabel(entryOrPaidBy) {
+  // Accepts either a full entry (so income can look up Payors instead of
+  // Friends) or a bare paid_by string for older call sites.
+  const isEntry = entryOrPaidBy && typeof entryOrPaidBy === "object";
+  const paidBy = isEntry ? entryOrPaidBy.paid_by : entryOrPaidBy;
+  if (isEntry && entryOrPaidBy.type === "income") {
+    const p = meta.payors.find((payor) => payor.id === paidBy);
+    return p ? p.name : paidBy;
+  }
   if (paidBy === "me") return "Me";
   const f = meta.friends.find((fr) => fr.id === paidBy);
   return f ? f.name : paidBy;
@@ -771,7 +826,7 @@ async function refreshEntryList() {
     left.innerHTML = `
       <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
       ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-      <div class="entry-meta">${entry.date} · ${paidByLabel(entry.paid_by)}</div>
+      <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
     `;
 
     const amount = document.createElement("div");
@@ -793,6 +848,7 @@ function startEditEntry(entry) {
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
   populateCategoryOptions();
+  populatePaidByOptions();
 
   const category = findCategory(entry.category_id);
   if (ICON_PICKER_TYPES.includes(entry.type)) {
@@ -809,7 +865,7 @@ function startEditEntry(entry) {
 
   document.getElementById("paid_by").value = entry.paid_by;
   togglePaymentMethodVisibility();
-  if (entry.paid_by === "me") {
+  if (entry.type === "income" || entry.paid_by === "me") {
     document.getElementById("payment_method").value = entry.payment_method_id || "";
   }
 
@@ -1798,7 +1854,7 @@ function renderDrilldownEntries(entries) {
       <div class="entry-left">
         <div class="entry-category">${marker}${categoryName(entry.category_id)}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-        <div class="entry-meta">${entry.date} · ${paidByLabel(entry.paid_by)}</div>
+        <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
       </div>
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
@@ -2437,14 +2493,24 @@ function populateRecurringCategoryChips() {
     });
 }
 
+// The day/month picker is a native <input type="date"> — the same
+// control (and, on a phone, the same tap-to-open calendar) the main
+// entry form's own date field uses — rather than plain number inputs.
+// Only the day (monthly) or day+month (yearly) actually get stored; the
+// year is a throwaway placeholder (today's) purely so the input holds a
+// valid date to pick from. A monthly item whose day is 29-31 still needs
+// a month with enough days to expose that date in the calendar UI,
+// hence the hint text below the field.
 function setRecurringFrequency_(freq) {
   recurringFrequency = freq;
   document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.frequency === freq);
   });
   const isYearly = freq === "yearly";
-  document.getElementById("recurring-month-label").hidden = !isYearly;
-  document.getElementById("recurring-month").hidden = !isYearly;
+  document.getElementById("recurring-occurrence-date-label").textContent = isYearly ? "Day and month" : "Day of month";
+  document.getElementById("recurring-occurrence-date-hint").textContent = isYearly
+    ? "Pick any date — its day and month repeat every year (the year itself is ignored)."
+    : "Pick any date — only the day is used (a 31st lands on the last day of shorter months). Browse to a longer month to pick a late day.";
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
@@ -2465,8 +2531,10 @@ function openRecurringModal(re) {
   renderCurrencyChips("recurring");
 
   setRecurringFrequency_(re ? re.frequency : "monthly");
-  document.getElementById("recurring-day").value = re ? re.day : 1;
-  document.getElementById("recurring-month").value = re ? re.month : 1;
+  const neutralYear = new Date().getFullYear();
+  const day = String(re ? re.day : 1).padStart(2, "0");
+  const month = String(re ? re.month : 1).padStart(2, "0");
+  document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
 
@@ -2501,12 +2569,15 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     const description = document.getElementById("recurring-description").value.trim();
     const amount = parseFloat(document.getElementById("recurring-amount").value);
     const currency = document.getElementById("recurring-currency").value.toUpperCase();
-    const day = Math.min(31, Math.max(1, parseInt(document.getElementById("recurring-day").value, 10) || 1));
-    const month = Math.min(12, Math.max(1, parseInt(document.getElementById("recurring-month").value, 10) || 1));
+    const occurrenceDate = document.getElementById("recurring-occurrence-date").value;
     const active = document.getElementById("recurring-active-checkbox").checked;
 
     if (!selectedRecurringCategoryId) throw new Error("Pick a category.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!occurrenceDate) throw new Error("Pick a date.");
+
+    const day = parseInt(occurrenceDate.slice(8, 10), 10);
+    const month = parseInt(occurrenceDate.slice(5, 7), 10);
 
     const fields = {
       category_id: selectedRecurringCategoryId,

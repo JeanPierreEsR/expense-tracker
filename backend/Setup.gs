@@ -17,6 +17,7 @@ var TABLE_DEFINITIONS = {
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   Friends: ['id', 'name', 'notes'],
+  Payors: ['id', 'name', 'notes'],
   Loans: ['id', 'friend_id', 'direction', 'origin', 'entry_id', 'amount',
     'currency', 'date', 'due_date', 'payment_method_id', 'description',
     'status'],

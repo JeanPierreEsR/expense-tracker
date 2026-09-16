@@ -72,7 +72,7 @@
           <label for="description">Description</label>
           <input type="text" id="description" placeholder="Optional">
 
-          <label for="paid_by">Paid by</label>
+          <label for="paid_by" id="paid-by-label">Paid by</label>
           <select id="paid_by"></select>
 
           <div id="payment-method-field">
@@ -441,11 +441,9 @@
           <div class="type-tab" data-frequency="yearly">Yearly</div>
         </div>
 
-        <label for="recurring-day">Day of month (1-31)</label>
-        <input type="number" min="1" max="31" id="recurring-day" placeholder="1">
-
-        <label for="recurring-month" id="recurring-month-label">Month (1-12)</label>
-        <input type="number" min="1" max="12" id="recurring-month" placeholder="1">
+        <label for="recurring-occurrence-date" id="recurring-occurrence-date-label">Day of month</label>
+        <input type="date" id="recurring-occurrence-date">
+        <p class="hint" id="recurring-occurrence-date-hint"></p>
 
         <label class="checkbox-row">
           <input type="checkbox" id="recurring-active-checkbox" checked>
