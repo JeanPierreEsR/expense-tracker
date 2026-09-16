@@ -163,6 +163,119 @@ function adminLinkEntryToRecurring(entryId, recurringExpenseId) {
   return { done: true };
 }
 
+// Connector words in French/Spanish/English that show up constantly in
+// these entry descriptions regardless of what the entry actually is —
+// filtered out so they can't drive a false "shared word" signal below.
+var RECURRING_MATCH_STOPWORDS_ = {
+  de: 1, du: 1, des: 1, le: 1, la: 1, les: 1, un: 1, une: 1, et: 1, en: 1,
+  sur: 1, pour: 1, avec: 1, dans: 1, au: 1, aux: 1, ce: 1, cette: 1,
+  tous: 1, que: 1, qui: 1, se: 1, pas: 1, plus: 1, sans: 1, the: 1, of: 1,
+  and: 1, for: 1, mois: 1, mes: 1, moi: 1, me: 1, mi: 1, el: 1, los: 1,
+  las: 1, por: 1, con: 1, paye: 1, payee: 1, paiement: 1, debut: 1
+};
+
+// Words of 4+ letters, accents stripped and lowercased, minus the
+// stoplist above — a real (if blunt) signal that two descriptions are
+// talking about the same thing ("Amazon Prime" / "Amazon Prime (paiement
+// tous les 15)"), without needing anything AI/fuzzy.
+function significantWords_(text) {
+  return String(text || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(function (w) { return w.length >= 4 && !RECURRING_MATCH_STOPWORDS_[w]; });
+}
+
+// Suggests past confirmed Entries in this item's own category that might
+// be its history but the day/currency/amount heuristic
+// (entryMatchesRecurringOccurrence_) doesn't — and structurally can't be
+// expected to — catch, e.g. logged under an old habit from before this
+// was ever set up as "recurring." Deliberately not AI: a plain,
+// explainable score from (a) how close the amount is, converted to PEN
+// when currencies differ using the same latest-rate fallback as
+// everywhere else, and (b) whether the entry's own description shares a
+// real word with the recurring item's (see significantWords_). Nothing
+// here gets linked automatically — this only ranks candidates for the
+// owner to review in linkEntriesToRecurring, below. An entry already
+// linked to some recurring item, or one the heuristic already matches
+// against any active item in this category, is left out — nothing to
+// fix there.
+function findRecurringLinkCandidates(payload) {
+  var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
+  if (!re) throw new Error('Recurring item not found');
+
+  var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
+    return r.category_id === re.category_id && String(r.active) !== 'false';
+  });
+  var allEntries = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.category_id === re.category_id;
+  });
+
+  var ratesByCurrency = buildRatesByCurrency_();
+  function toPenAmount_(amount, currency, dateStr) {
+    if (currency === 'PEN') return amount;
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    return rate != null ? amount * rate : null;
+  }
+
+  var todayStr = formatCalendarDate_(new Date());
+  var reAmountPen = toPenAmount_(Number(re.amount), re.currency || 'PEN', todayStr);
+  var reWords = significantWords_(re.description);
+
+  var candidates = [];
+  allEntries.forEach(function (e) {
+    if (e.recurring_expense_id) return;
+
+    var d = new Date(e.date + 'T00:00:00');
+    var winStart = new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW);
+    var winEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW);
+    var winStartStr = formatCalendarDate_(winStart), winEndStr = formatCalendarDate_(winEnd);
+    var alreadyMatched = categoryRecurring.some(function (r) {
+      var occ = recurringExpenseOccurrencesInRange_(r, winStartStr, winEndStr);
+      return entryMatchesRecurringOccurrence_(e, r, occ);
+    });
+    if (alreadyMatched) return;
+
+    var entryAmountPen = toPenAmount_(Number(e.amount), e.currency, e.date);
+    if (entryAmountPen == null || reAmountPen == null) return;
+    var amountScore = 1 - Math.abs(entryAmountPen - reAmountPen) / Math.max(entryAmountPen, reAmountPen, 1);
+    if (amountScore < 0.6) return; // more than ~40% off — not worth surfacing
+
+    var wordScore = significantWords_(e.description).some(function (w) { return reWords.indexOf(w) !== -1; }) ? 0.5 : 0;
+
+    candidates.push({
+      id: e.id,
+      date: e.date,
+      amount: Number(e.amount),
+      currency: e.currency,
+      description: e.description || '',
+      score: amountScore + wordScore
+    });
+  });
+
+  candidates.sort(function (a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.date < b.date ? 1 : -1;
+  });
+
+  return { candidates: candidates.slice(0, 60) };
+}
+
+// Applies the owner's picks from findRecurringLinkCandidates — plain
+// batch version of adminLinkEntryToRecurring, used by the in-app "Link
+// selected" flow rather than a scripted one-off.
+function linkEntriesToRecurring(payload) {
+  ensureEntriesRecurringLinkColumn_();
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  var entryIds = payload.entryIds || [];
+  entryIds.forEach(function (entryId) {
+    var rowIndex = findRowIndexById(sheet, headers, entryId);
+    if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', payload.recurringExpenseId);
+  });
+  return { linked: entryIds.length };
+}
+
 function deleteRecurringExpense(id) {
   ensureRecurringExpensesSheet_();
   var sheet = getSheet('Recurring Expenses');

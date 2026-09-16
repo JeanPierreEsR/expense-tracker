@@ -1338,6 +1338,45 @@ button.primary:disabled {
 
 .recurring-row-amount.income { color: var(--income); }
 
+/* ---- "Find past entries" link-candidate list (recurring modal) ---- */
+
+.link-candidate-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.link-candidate-row:last-child { border-bottom: none; }
+
+.link-candidate-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's own checkbox, above — the blanket
+     `input, select, textarea` rule strips native rendering (and forces
+     width:100%) from every input including this one, which without this
+     override showed no visible checked/unchecked distinction at all. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.link-candidate-text { min-width: 0; }
+
+.link-candidate-date {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.link-candidate-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 /* ---- Projections drill-down's "Projected remaining" row ---- */
 
 .drilldown-projection-row {

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2026-09-16T10:30:00Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -465,6 +465,16 @@
           <span>Active</span>
         </label>
 
+        <div id="recurring-link-section" hidden>
+          <button type="button" class="add-inline" id="recurring-find-matches-btn">🔎 Find past entries for this</button>
+          <div id="recurring-link-results" hidden>
+            <p class="hint">Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, "less certain" ones don't.</p>
+            <p class="hint" id="recurring-link-empty-note" hidden>No unlinked past entries look like a match.</p>
+            <div id="recurring-link-list"></div>
+            <button type="button" class="add-inline" id="recurring-link-selected-btn" hidden>Link selected</button>
+          </div>
+        </div>
+
         <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="recurring-save-btn">Save</button>
         <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden>Delete this item</button>
@@ -514,6 +524,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2026-09-16T10:30:00Z"></script>
 </body>
 </html>
