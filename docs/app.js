@@ -2653,6 +2653,15 @@ function openRecurringModal(re) {
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
 
+  // "Find past entries" only makes sense for an item that already exists
+  // (it searches by this item's own id) — reset any previous search's
+  // results each time the modal reopens, on a different item or the same
+  // one, rather than showing stale candidates from before.
+  document.getElementById("recurring-link-section").hidden = !re;
+  document.getElementById("recurring-link-results").hidden = true;
+  document.getElementById("recurring-link-list").innerHTML = "";
+  document.getElementById("recurring-link-selected-btn").hidden = true;
+
   const backdrop = document.getElementById("recurring-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -2667,6 +2676,87 @@ document.getElementById("add-recurring-btn").addEventListener("click", () => ope
 document.getElementById("recurring-modal-close").addEventListener("click", closeRecurringModal);
 document.getElementById("recurring-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "recurring-modal-backdrop") closeRecurringModal();
+});
+
+// "Find past entries for this" — searches Entries already in this item's
+// own category for ones that look like its own history but the normal
+// day/currency/amount heuristic doesn't catch (see
+// findRecurringLinkCandidates in RecurringExpenses.gs; deliberately a
+// plain, explainable score — amount closeness plus a shared description
+// word — never an AI call). Nothing gets linked until the owner checks
+// boxes and taps "Link selected," below.
+document.getElementById("recurring-find-matches-btn").addEventListener("click", async () => {
+  if (!editingRecurringId) return;
+  const btn = document.getElementById("recurring-find-matches-btn");
+  const resultsEl = document.getElementById("recurring-link-results");
+  const listEl = document.getElementById("recurring-link-list");
+  const emptyNote = document.getElementById("recurring-link-empty-note");
+  const linkBtn = document.getElementById("recurring-link-selected-btn");
+
+  btn.disabled = true;
+  btn.textContent = "Searching…";
+  try {
+    const { candidates } = await callApi("findRecurringLinkCandidates", { recurringExpenseId: editingRecurringId });
+    resultsEl.hidden = false;
+    listEl.innerHTML = "";
+    emptyNote.hidden = candidates.length > 0;
+    linkBtn.hidden = candidates.length === 0;
+
+    candidates.forEach((c) => {
+      const row = document.createElement("label");
+      row.className = "link-candidate-row";
+      // Only a genuinely confident match (a description word shared AND
+      // the amount close, score >= 1.3 — see findRecurringLinkCandidates)
+      // starts checked. A candidate that only cleared the looser amount
+      // floor (real cases seen: an unrelated phone-bill or accessory
+      // purchase that merely happened to cost about the same) starts
+      // unchecked instead — the sort already puts it near the bottom, but
+      // relying on the owner to notice and uncheck 60 rows one by one
+      // isn't a safe enough default for something that writes a link.
+      const confident = c.score >= 1.3;
+      row.innerHTML = `
+        <input type="checkbox" value="${c.id}" ${confident ? "checked" : ""}>
+        <div class="link-candidate-text">
+          <div class="link-candidate-date">${c.date} · ${c.currency} ${moneyFmt(c.amount)}${confident ? "" : ' <span class="hint">(less certain)</span>'}</div>
+          <div class="link-candidate-desc">${escapeHtml(c.description || "(no description)")}</div>
+        </div>
+      `;
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    resultsEl.hidden = false;
+    listEl.innerHTML = `<div class="status-msg">Couldn't search: ${escapeHtml(err.message)}</div>`;
+    emptyNote.hidden = true;
+    linkBtn.hidden = true;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔎 Find past entries for this";
+  }
+});
+
+document.getElementById("recurring-link-selected-btn").addEventListener("click", async () => {
+  if (!editingRecurringId) return;
+  const linkBtn = document.getElementById("recurring-link-selected-btn");
+  const checked = Array.from(document.querySelectorAll("#recurring-link-list input[type=checkbox]:checked"));
+  const entryIds = checked.map((el) => el.value);
+  if (!entryIds.length) return;
+
+  linkBtn.disabled = true;
+  try {
+    await callApi("linkEntriesToRecurring", { recurringExpenseId: editingRecurringId, entryIds });
+    // Remove the now-linked rows rather than re-running the whole search —
+    // they'd no longer come back anyway (linked entries are excluded),
+    // and this reads as immediate confirmation of what just happened.
+    checked.forEach((el) => el.closest(".link-candidate-row").remove());
+    const remaining = document.querySelectorAll("#recurring-link-list .link-candidate-row").length;
+    document.getElementById("recurring-link-empty-note").hidden = remaining > 0;
+    linkBtn.hidden = remaining === 0;
+    refreshExpectedRecurring();
+  } catch (err) {
+    document.getElementById("recurring-form-error").textContent = err.message;
+  } finally {
+    linkBtn.disabled = false;
+  }
 });
 
 document.getElementById("recurring-amount").addEventListener("input", (e) => {
