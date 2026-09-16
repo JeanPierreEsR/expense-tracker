@@ -667,6 +667,21 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   }
 });
 
+// A brief, non-error confirmation in the same spot #form-error normally
+// shows validation problems — reused rather than a new toast system, just
+// recolored and auto-cleared so it doesn't linger like a real error would.
+function showFormNotice_(text) {
+  const el = document.getElementById("form-error");
+  el.style.color = "var(--income)";
+  el.textContent = text;
+  setTimeout(() => {
+    if (el.textContent === text) {
+      el.textContent = "";
+      el.style.color = "#d64545";
+    }
+  }, 6000);
+}
+
 // ---- Submit ----
 
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
@@ -695,9 +710,20 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!categoryId) throw new Error("Pick a category.");
     if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
 
-    await ensureExchangeRate(currency, date);
+    // A future-dated save that's a plain, fully-owned transaction (not a
+    // transfer between the owner's own accounts, not shared with a friend
+    // — those need real Entry/Splits machinery this doesn't have) becomes
+    // a Programmed, one-time item instead of a confirmed Entry, so it
+    // never shows in "Recent entries" until it's actually real. Only for
+    // a genuinely new save — editing an existing real entry into a future
+    // date doesn't retroactively un-become a real entry.
+    const isFutureDate = !editingEntryId && date > todayLocalISO();
+    const canProgram = isFutureDate && selectedType !== "transfer" &&
+      (selectedType === "income" || paidBy === "me");
+    let programmedInstead = false;
 
     if (editingEntryId) {
+      await ensureExchangeRate(currency, date);
       await callApi("updateEntry", {
         id: editingEntryId,
         fields: {
@@ -712,7 +738,24 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
       });
       exitEditMode();
+    } else if (canProgram) {
+      // No ensureExchangeRate here on purpose — a Programmed item's PEN
+      // figure always falls back to the latest rate on file (see
+      // CLAUDE.md's Exchange Rates section), so it never needs one set
+      // for a month that, being in the future, usually doesn't have one
+      // yet — unlike a real Entry, which does require it at save time.
+      await callApi("addRecurringExpense", {
+        category_id: categoryId,
+        description,
+        amount,
+        currency,
+        frequency: "once",
+        date,
+        active: true
+      });
+      programmedInstead = true;
     } else {
+      await ensureExchangeRate(currency, date);
       await callApi("createEntry", {
         type: selectedType,
         date,
@@ -733,6 +776,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     await refreshEntryList();
     refreshExpectedRecurring();
+
+    if (programmedInstead) {
+      showFormNotice_(`Programmed for ${date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.`);
+    }
 
     if (editingViaPopup) {
       await refreshAfterPopupEdit();
@@ -1542,6 +1589,8 @@ async function openBreakdownDrilldown(kind, item) {
   drilldownBudget = null;
   drilldownProjection = null;
   drilldownProjectionDetail = null;
+  document.getElementById("drilldown-period-prev").hidden = true;
+  document.getElementById("drilldown-period-next").hidden = true;
   document.getElementById("drilldown-menu-btn").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-categories").hidden = true;
@@ -1572,6 +1621,8 @@ async function openBudgetDrilldown(budget) {
   drilldownBudget = budget;
   drilldownProjection = null;
   drilldownProjectionDetail = null;
+  document.getElementById("drilldown-period-prev").hidden = true;
+  document.getElementById("drilldown-period-next").hidden = true;
   document.getElementById("drilldown-menu-btn").hidden = false;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-projection-row").hidden = true;
@@ -1881,6 +1932,19 @@ document.getElementById("drilldown-modal-close").addEventListener("click", close
 document.getElementById("drilldown-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "drilldown-modal-backdrop") closeDrilldown();
 });
+
+// Only visible/wired for a Projections drill-down (see
+// openCategoryProjectionDrilldown_) — moves the shared period selector's
+// own state, so the background "By category" list updates too, then
+// reloads this same category's drill-down for the new period without
+// closing it.
+function moveDrilldownPeriod_(delta) {
+  if (!drilldownProjection) return;
+  movePeriod(delta);
+  if (currentDrilldown) currentDrilldown.refetch();
+}
+document.getElementById("drilldown-period-prev").addEventListener("click", () => moveDrilldownPeriod_(-1));
+document.getElementById("drilldown-period-next").addEventListener("click", () => moveDrilldownPeriod_(1));
 
 // ---- Drag on the drill-down's header to expand/collapse it full-screen ----
 // A long transaction list or a budget with many categories can want more
@@ -2890,6 +2954,15 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
   drilldownBudget = null;
   drilldownProjection = categoryProjection;
   drilldownProjectionDetail = null;
+  // Lets the owner browse to a different month/year without closing the
+  // drill-down first — same movePeriod the main selector's own arrows use,
+  // just reloading this open drill-down afterward instead of only the
+  // background list. All-time/Custom have no "next" to move to here
+  // either (Projections falls back to the current month for both,
+  // server-side), same as the main selector hiding its own arrows then.
+  const navVisible = periodType === "month" || periodType === "year";
+  document.getElementById("drilldown-period-prev").hidden = !navVisible;
+  document.getElementById("drilldown-period-next").hidden = !navVisible;
   document.getElementById("drilldown-menu-btn").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-categories").hidden = true;
@@ -2950,8 +3023,19 @@ async function loadAndRenderProjectionChart_(categoryProjection) {
 // TOTAL (not this delta, which just recomputes on its own once the total
 // or the actual spend changes) pre-filled with the current effective
 // value, whether calculated or manually set.
+//
+// "Already happened" only counts through TODAY — same cutoff the chart's
+// own solid line uses (renderProjectionChart_, below) — never a
+// future-dated day even if it's already a confirmed Entry (a bonus or
+// payment pre-logged ahead of time, still perfectly valid to do). Without
+// this, a category with any future-dated confirmed entry showed a
+// smaller "remaining" here than the chart's own caption for the exact
+// same period, since the chart already excluded it and this didn't.
 function renderProjectionDrilldownAmount_(detail) {
-  const actualSoFar = Object.keys(detail.dailyActualPen || {}).reduce((sum, d) => sum + detail.dailyActualPen[d], 0);
+  const todayStr = todayLocalISO();
+  const actualSoFar = Object.keys(detail.dailyActualPen || {})
+    .filter((d) => d <= todayStr)
+    .reduce((sum, d) => sum + detail.dailyActualPen[d], 0);
   const remaining = Math.max(0, detail.projection.amountPen - actualSoFar);
   document.getElementById("drilldown-projection-amount").textContent = formatPen(remaining);
   document.getElementById("drilldown-projection-override-note").hidden = !detail.projection.hasOverride;
@@ -2968,10 +3052,20 @@ function renderProjectionDrilldownAmount_(detail) {
 // computeCategoryProgrammedBreakdown_), "Expected" expands to a one-line
 // formula plus a month-by-month breakdown, so neither figure is a black
 // box.
+//
+// Income never gets this split (matches projectionRowSubLabel_'s own
+// isExpenseOrInvestment gate for the "By category" row) — its baseAmountPen
+// isn't a year-to-date GUESS the way expense/investment's is, it's
+// already-confirmed income the server just hasn't matched to a recurring
+// item yet (see CLAUDE.md's per-category rule). Calling that "Expected"
+// alongside "Programmed" implied it was a similar kind of estimate, when
+// it's just as real/certain as the recurring portion — so for income the
+// whole total shows as one plain figure instead.
 function renderProjectionSplit_(detail) {
   const p = detail.projection;
   const splitEl = document.getElementById("drilldown-projection-split");
-  const show = !p.hasOverride && p.recurringAmountPen > 0 && p.baseAmountPen > 0;
+  const isExpenseOrInvestment = p.category_type === "expense" || p.category_type === "investment";
+  const show = isExpenseOrInvestment && !p.hasOverride && p.recurringAmountPen > 0 && p.baseAmountPen > 0;
   splitEl.hidden = !show;
   document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
