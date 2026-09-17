@@ -3803,6 +3803,14 @@ async function openLoanDetail(friendId, friendName) {
     ? `Net: ${netParts.join(" · ")}`
     : "All settled up.";
 
+  // Friend-level, not per-loan — recordRepayment (Loans.gs) figures out
+  // on its own which loan(s) an amount actually applies to (see
+  // openRepaymentModal, below), so there's nothing left to pick here
+  // beyond which currency, when there's more than one.
+  const repayBtn = document.getElementById("record-repayment-btn");
+  repayBtn.hidden = netParts.length === 0;
+  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency);
+
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
   list.innerHTML = "";
@@ -3844,22 +3852,6 @@ async function openLoanDetail(friendId, friendName) {
         row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
       } else {
         row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
-      }
-
-      // A repayment applies to either kind of loan — only editing the
-      // LOAN row itself is restricted by origin. Not shown once nothing's
-      // actually left to repay, or for a forgiven loan (there's nothing
-      // to record against it anymore).
-      if (l.status !== "forgiven" && l.remaining > 0.004) {
-        const repayBtn = document.createElement("button");
-        repayBtn.type = "button";
-        repayBtn.className = "add-inline loan-detail-repay-btn";
-        repayBtn.textContent = "💰 Record repayment";
-        repayBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openSettlementModal(l, { id: friendId, name: friendName });
-        });
-        row.appendChild(repayBtn);
       }
 
       list.appendChild(row);
@@ -4070,19 +4062,28 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
   }
 });
 
-// ---- Settlements / repayments (Phase 5.4) ----
-// A repayment against a loan, in either direction. Applies to a cash loan
-// and an entry-derived one alike (see "💰 Record repayment" above) —
-// unlike editing the loan itself, a Settlement is never restricted by
-// origin. Never touches Entries, income/expense totals, or budgets (see
-// CLAUDE.md's Settlements section).
+// ---- Settlements / repayments (Phase 5.4, consolidated 2026-09-17) ----
+// Recording a repayment is friend-+-currency-level, not single-loan — the
+// backend (recordRepayment in Loans.gs) works out on its own which
+// loan(s) it applies to via a two-phase FIFO: first netting opposite-
+// direction debt (e.g. a loan they gave you cancels against the oldest
+// expenses you covered for them), then applying the real amount to
+// whatever's left. Never touches Entries, income/expense totals, or
+// budgets directly (per CLAUDE.md's Settlements section) — except for the
+// one deliberate exception below (an overpayment becoming real income).
 
-let settlementModalLoan = null;
+let repaymentFriendId = null;
+let repaymentFriendName = null;
+let repaymentNetByCurrency = {};
+let repaymentCurrency = null;
+// 'they_owe_me' or 'i_owe_them' — which debt this repayment pays down,
+// always derived from the sign of the friend's net in the selected
+// currency, never picked directly (see openRepaymentModal).
+let repaymentDirection = null;
 let editingSettlementId = null;
-// Same purpose as loanModalReturnFriend — refreshes the friend's detail
-// sheet after a save/delete, since that's always what this was opened
-// from.
-let settlementModalReturnFriend = null;
+// Set only while the overpayment section is showing — the amount still
+// needs a category before it can become a real income entry.
+let pendingOverpay = null;
 
 function populateSettlementPaymentMethodOptions() {
   const select = document.getElementById("settlement-payment-method");
@@ -4099,6 +4100,40 @@ function populateSettlementPaymentMethodOptions() {
   });
 }
 
+function populateOverpayCategoryOptions() {
+  const select = document.getElementById("settlement-overpay-category");
+  select.innerHTML = "";
+  meta.categories.filter((c) => c.type === "income").forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
+    select.appendChild(opt);
+  });
+}
+
+function renderSettlementCurrencyChips_() {
+  const container = document.getElementById("settlement-currency-chips");
+  const currencies = Object.keys(repaymentNetByCurrency);
+  container.hidden = currencies.length < 2;
+  container.innerHTML = "";
+  currencies.forEach((cur) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "currency-chip" + (cur === repaymentCurrency ? " active" : "");
+    chip.innerHTML = `<span>${findCurrency(cur).flag}</span><span>${cur}</span>`;
+    chip.addEventListener("click", () => switchRepaymentCurrency_(cur));
+    container.appendChild(chip);
+  });
+}
+
+function settlementFriendContext_() {
+  const net = repaymentNetByCurrency[repaymentCurrency] || 0;
+  const amount = Math.abs(net);
+  return repaymentDirection === "they_owe_me"
+    ? `${repaymentFriendName} owes you ${repaymentCurrency} ${moneyFmt(amount)}`
+    : `You owe ${repaymentFriendName} ${repaymentCurrency} ${moneyFmt(amount)}`;
+}
+
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
 function resetSettlementForm_() {
@@ -4107,9 +4142,12 @@ function resetSettlementForm_() {
   document.getElementById("settlement-cancel-edit-btn").hidden = true;
   document.getElementById("settlement-delete-btn").hidden = true;
   document.getElementById("settlement-form-error").textContent = "";
-  document.getElementById("settlement-amount").value = settlementModalLoan ? settlementModalLoan.remaining.toFixed(2) : "";
+  document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
   document.getElementById("settlement-date").value = todayLocalISO();
   document.getElementById("settlement-payment-method").value = "";
+  document.getElementById("settlement-form").hidden = false;
+  document.getElementById("settlement-overpay-section").hidden = true;
+  pendingOverpay = null;
 }
 
 function loadSettlementIntoForm_(s) {
@@ -4137,33 +4175,56 @@ function renderSettlementList_(settlements) {
   settlements.forEach((s) => {
     const pm = meta.paymentMethods.find((p) => p.id === s.payment_method_id);
     const row = document.createElement("div");
-    row.className = "loan-detail-row editable";
+    const isOffset = !!s.offset_loan_id;
+    row.className = "loan-detail-row" + (isOffset ? "" : " editable");
+
+    const desc = isOffset
+      ? `↔ Offset against "${escapeHtml(s.offset_loan_description)}"`
+      : `${s.date}${pm ? " · " + escapeHtml(pm.nickname) : ""}`;
+
     row.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${s.date}${pm ? " · " + escapeHtml(pm.nickname) : ""}<span class="loan-detail-row-chevron">›</span></span>
-        <span class="loan-detail-row-amount i-owe">${settlementModalLoan.currency} ${moneyFmt(s.amount)}</span>
+        <span class="loan-detail-row-desc">${desc}${isOffset ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-amount i-owe">${repaymentCurrency} ${moneyFmt(s.amount)}</span>
       </div>
+      <div class="loan-detail-row-meta">${escapeHtml(s.loan_description)}${isOffset ? " · " + s.date : ""}</div>
     `;
-    row.addEventListener("click", () => loadSettlementIntoForm_(s));
+    if (!isOffset) {
+      row.addEventListener("click", () => loadSettlementIntoForm_(s));
+    }
     list.appendChild(row);
   });
 }
 
-// `loan` is the loan object from getFriendLoanDetail (needs its own
-// .remaining, .currency, .description). `returnFriend` is {id, name}.
-async function openSettlementModal(loan, returnFriend) {
-  settlementModalLoan = loan;
-  settlementModalReturnFriend = returnFriend;
+async function refreshSettlementList_() {
+  const settlements = await callApi("listSettlementsForFriendCurrency", {
+    friendId: repaymentFriendId,
+    currency: repaymentCurrency
+  });
+  renderSettlementList_(settlements);
+}
+
+async function switchRepaymentCurrency_(currency) {
+  repaymentCurrency = currency;
+  repaymentDirection = (repaymentNetByCurrency[currency] || 0) > 0 ? "they_owe_me" : "i_owe_them";
+  renderSettlementCurrencyChips_();
+  document.getElementById("settlement-friend-context").textContent = settlementFriendContext_();
+  resetSettlementForm_();
+  await refreshSettlementList_();
+}
+
+// `netByCurrency` comes straight from openLoanDetail's own already-loaded
+// loan list (see there) — no extra fetch needed just to open this.
+async function openRepaymentModal(friendId, friendName, netByCurrency) {
+  repaymentFriendId = friendId;
+  repaymentFriendName = friendName;
+  repaymentNetByCurrency = netByCurrency;
 
   document.getElementById("settlement-modal-title").textContent = "Repayments";
-  document.getElementById("settlement-loan-context").textContent =
-    `${loan.description || "Loan"} · ${loan.currency} ${moneyFmt(loan.remaining)} remaining`;
-
   populateSettlementPaymentMethodOptions();
-  resetSettlementForm_();
 
-  const settlements = await callApi("listSettlementsForLoan", { loanId: loan.id });
-  renderSettlementList_(settlements);
+  const currencies = Object.keys(netByCurrency);
+  await switchRepaymentCurrency_(currencies[0]);
 
   const backdrop = document.getElementById("settlement-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -4172,15 +4233,13 @@ async function openSettlementModal(loan, returnFriend) {
 
 function closeSettlementModal() {
   document.getElementById("settlement-modal-backdrop").hidden = true;
-  settlementModalLoan = null;
   editingSettlementId = null;
+  pendingOverpay = null;
 }
 
 async function refreshAfterSettlementChange_() {
   await refreshLoans();
-  if (settlementModalReturnFriend) {
-    await openLoanDetail(settlementModalReturnFriend.id, settlementModalReturnFriend.name);
-  }
+  await openLoanDetail(repaymentFriendId, repaymentFriendName);
 }
 
 document.getElementById("settlement-modal-close").addEventListener("click", closeSettlementModal);
@@ -4203,13 +4262,48 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
     if (!date) throw new Error("Date is required.");
 
     saveBtn.disabled = true;
+
     if (editingSettlementId) {
+      // Fixing a specific real settlement's own typo — doesn't re-run
+      // FIFO, just corrects that one row (see updateSettlement in
+      // Loans.gs).
       await callApi("updateSettlement", { id: editingSettlementId, amount, date, payment_method_id: paymentMethodId });
-    } else {
-      await callApi("addSettlement", { loan_id: settlementModalLoan.id, amount, date, payment_method_id: paymentMethodId });
+      closeSettlementModal();
+      await refreshAfterSettlementChange_();
+      return;
     }
-    closeSettlementModal();
-    await refreshAfterSettlementChange_();
+
+    const result = await callApi("recordRepayment", {
+      friend_id: repaymentFriendId,
+      direction: repaymentDirection,
+      amount,
+      currency: repaymentCurrency,
+      date,
+      payment_method_id: paymentMethodId
+    });
+
+    // The loan-side effects are already committed at this point — show
+    // them right away regardless of whether there's overpayment left to
+    // resolve, rather than waiting on that separate step. openLoanDetail
+    // brings ITS OWN modal to front, which would otherwise bury this one
+    // (still open, and still what the owner's actively working in) —
+    // bring this one back to front immediately after.
+    await refreshLoans();
+    await openLoanDetail(repaymentFriendId, repaymentFriendName);
+    bringModalToFront_(document.getElementById("settlement-modal-backdrop"));
+    await refreshSettlementList_();
+
+    if (result.overpaid > 0.004) {
+      pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId };
+      document.getElementById("settlement-overpay-note").textContent =
+        `${repaymentFriendName} paid ${result.currency} ${moneyFmt(result.overpaid)} more than they owed — recording it as income.`;
+      populateOverpayCategoryOptions();
+      document.getElementById("settlement-overpay-error").textContent = "";
+      document.getElementById("settlement-form").hidden = true;
+      document.getElementById("settlement-overpay-section").hidden = false;
+    } else {
+      closeSettlementModal();
+    }
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -4227,6 +4321,33 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
     await refreshAfterSettlementChange_();
   } catch (err) {
     document.getElementById("settlement-form-error").textContent = err.message;
+  }
+});
+
+document.getElementById("settlement-overpay-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("settlement-overpay-error");
+  errorEl.textContent = "";
+  if (!pendingOverpay) return;
+  const categoryId = document.getElementById("settlement-overpay-category").value;
+  if (!categoryId) { errorEl.textContent = "Pick a category."; return; }
+
+  const saveBtn = document.getElementById("settlement-overpay-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await callApi("recordOverpaymentIncome", {
+      friend_id: repaymentFriendId,
+      amount: pendingOverpay.amount,
+      currency: pendingOverpay.currency,
+      date: pendingOverpay.date,
+      payment_method_id: pendingOverpay.paymentMethodId,
+      category_id: categoryId
+    });
+    closeSettlementModal();
+    await refreshEntryList();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
   }
 });
 

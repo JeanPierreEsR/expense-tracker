@@ -537,9 +537,9 @@ input[type="date"] {
   margin-top: 2px;
 }
 
-.loan-detail-repay-btn {
+#record-repayment-btn {
   display: block;
-  margin-top: 4px;
+  margin: 8px 0 4px;
 }
 
 .add-inline {
