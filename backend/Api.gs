@@ -155,6 +155,7 @@ function routeAction(action, payload) {
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     case 'listLoanBalances': return listLoanBalances();
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
+    case 'addLoan': return addLoan(payload);
     default: throw new Error('Unknown action: ' + action);
   }
 }
