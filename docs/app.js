@@ -3777,6 +3777,13 @@ function renderLoanBalanceList_(listId, emptyNoteId, balances, kind) {
 }
 
 async function openLoanDetail(friendId, friendName) {
+  // Same pattern every other drill-down uses (see openBudgetDrilldown,
+  // openCategoryProjectionDrilldown_) — lets refreshAfterPopupEdit(),
+  // below, reload this same friend's sheet after editing a linked
+  // expense in the popup it opens, without this file needing to know
+  // that a loan detail sheet is what triggered it.
+  currentDrilldown = { refetch: () => openLoanDetail(friendId, friendName) };
+
   const loans = await callApi("getFriendLoanDetail", { friendId });
   document.getElementById("loan-detail-title").textContent = friendName;
 
@@ -3815,23 +3822,28 @@ async function openLoanDetail(friendId, friendName) {
             ? `${l.currency} ${moneyFmt(l.settled)} repaid so far`
             : "";
 
-      // Only a standalone cash loan can be edited/deleted here — an
-      // entry-derived one is recalculated from scratch every time its
-      // expense is saved (see saveEntrySplits in Loans.gs), so editing it
-      // directly would just get overwritten; that one's edited by editing
-      // the expense itself, from the Entries tab.
-      const editable = l.origin === "cash";
+      // Every row is tappable, but to different places: a standalone cash
+      // loan (origin='cash') opens the loan edit/delete form (5.3's own
+      // modal); an entry-derived one (origin='entry') opens the actual
+      // expense it came from, in the same edit pop-up Overview/Budgets/
+      // Projections drill-downs already use — editing IT is what changes
+      // the loan, since saveEntrySplits recalculates the loan from that
+      // expense's own splits every time it's saved (see Loans.gs). There's
+      // no "edit the loan row directly" for that case; it would just get
+      // overwritten the next time the expense itself is touched.
       const row = document.createElement("div");
-      row.className = "loan-detail-row" + (editable ? " editable" : "");
+      row.className = "loan-detail-row editable";
       row.innerHTML = `
         <div class="loan-detail-row-top">
-          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}${editable ? '<span class="loan-detail-row-chevron">›</span>' : ""}</span>
+          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}<span class="loan-detail-row-chevron">›</span></span>
           <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
         </div>
         <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
       `;
-      if (editable) {
+      if (l.origin === "cash") {
         row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+      } else {
+        row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
       }
       list.appendChild(row);
     });
@@ -3842,8 +3854,23 @@ async function openLoanDetail(friendId, friendName) {
   backdrop.hidden = false;
 }
 
+// Loading state is brief enough (one small API call) not to need its own
+// spinner — errEl reuses the same slot the rest of this sheet has none
+// of, so a failure (e.g. the entry was since deleted some other way)
+// shows up as a plain alert rather than silently doing nothing.
+async function openLinkedEntryFromLoan_(entryId) {
+  try {
+    const entry = await callApi("getEntry", { id: entryId });
+    if (!entry) throw new Error("That expense couldn't be found — it may have been deleted.");
+    openEditPopup(entry);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
+  currentDrilldown = null;
 }
 
 document.getElementById("loan-detail-modal-close").addEventListener("click", closeLoanDetail);
