@@ -278,6 +278,21 @@ function todayLocalISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// A week out from a given YYYY-MM-DD — the default due date for a new
+// standalone loan (see openLoanModal), shown pre-filled and editable
+// rather than left blank, so it's obvious up front what'll actually be
+// saved instead of it materializing invisibly (the backend's own
+// addLoan has the same default as a fallback, for any call that bypasses
+// this form).
+function defaultDueDate_(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + 7);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // ---- Setup screen (access code) ----
 
 function showSetupScreen(message) {
@@ -3990,8 +4005,9 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : "PEN";
   renderCurrencyChips("loan");
-  document.getElementById("loan-date").value = loan ? loan.date : todayLocalISO();
-  document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : "";
+  const entryDate = loan ? loan.date : todayLocalISO();
+  document.getElementById("loan-date").value = entryDate;
+  document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
   document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
 

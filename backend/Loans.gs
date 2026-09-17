@@ -135,6 +135,24 @@ function deleteRowsWhere_(sheetName, predicate) {
 // A loan not tied to any Entry — money lent/borrowed directly, added from
 // the Loans tab's own "+ Add loan" button rather than from the entry form.
 
+// A due date stays genuinely optional to type in (see the Add loan
+// form) — but a loan with no due date at all can never trigger an
+// overdue reminder (Phase 5.6), and in practice almost nobody types one
+// in every time. So a standalone cash loan registered with none
+// specified defaults to a week out from its own date, giving overdue
+// tracking something to work with automatically. Deliberately scoped to
+// this one entry point — a shared-expense loan from the split-entry UI
+// (saveEntrySplits, which also calls createLoan_) is a much more common,
+// often casual case ("Luty owes me for dinner") that this default would
+// otherwise turn into a stream of unwanted overdue alerts a week later;
+// createLoan_ itself still leaves due_date genuinely blank when none is
+// given.
+function defaultLoanDueDate_(dateStr) {
+  var d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + 7);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
 function addLoan(payload) {
   if (!payload.friend_id) throw new Error('Pick a friend.');
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
@@ -150,7 +168,7 @@ function addLoan(payload) {
     amount: Number(payload.amount),
     currency: payload.currency || 'PEN',
     date: payload.date,
-    due_date: payload.due_date || '',
+    due_date: payload.due_date || defaultLoanDueDate_(payload.date),
     payment_method_id: payload.payment_method_id || '',
     description: payload.description || ''
   });
