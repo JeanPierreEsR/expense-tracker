@@ -422,6 +422,64 @@ function findOrCreatePayorByName_(name) {
   return addPayor({ name: name });
 }
 
+// ---- Forgiving a loan (Phase 5.5) ----
+// Applies to either kind of loan (cash or entry-derived) and either
+// direction — marking it forgiven doesn't touch the loan's own amount/
+// currency/etc the way editing does, it's purely a status change, so
+// it isn't origin-restricted. A loan already forgiven can't be forgiven
+// again (nothing left to do).
+//
+// Optionally converts whatever was still outstanding into a real Entry —
+// mirroring the exact same direction logic as an overpayment (see
+// createOverpaymentEntry_, above), because economically they're the same
+// shape: money that was owed and isn't being collected is a real
+// transaction in its own right, not a loan anymore.
+// - `direction: 'they_owe_me'` forgiven → the owner's own EXPENSE (the
+//   owner is choosing to give that money away — "at that point the money
+//   really is spent," per CLAUDE.md).
+// - `direction: 'i_owe_them'` forgiven → the owner's own INCOME (the
+//   other person is the one forgiving — free money from the owner's
+//   side, same as being overpaid).
+function forgiveLoan(payload) {
+  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  if (!loan) throw new Error('Loan not found');
+  if (loan.status === 'forgiven') throw new Error('This loan is already forgiven.');
+
+  var settled = buildSettlementTotalsByLoan_()[loan.id] || 0;
+  var remaining = Number(loan.amount) - settled;
+
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, loan.id);
+  if (rowIndex === -1) throw new Error('Loan not found');
+  setCellByRow_(sheet, headers, rowIndex, 'status', 'forgiven');
+
+  var entry = null;
+  if (payload.convert && remaining > 0.004) {
+    if (!payload.category_id) throw new Error('Pick a category.');
+    if (!payload.date) throw new Error('Date is required.');
+
+    var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+    var friendName = friend ? friend.name : 'a friend';
+    var type = loan.direction === 'they_owe_me' ? 'expense' : 'income';
+    var description = loan.direction === 'they_owe_me'
+      ? 'Forgave ' + friendName + "'s debt"
+      : friendName + ' forgave a debt I owed them';
+
+    entry = createOverpaymentEntry_(type, {
+      friend_id: loan.friend_id,
+      amount: remaining,
+      currency: loan.currency,
+      category_id: payload.category_id,
+      date: payload.date,
+      payment_method_id: '',
+      description: description
+    });
+  }
+
+  return { loan: getAllRows('Loans').find(function (l) { return l.id === loan.id; }), entry: entry };
+}
+
 // Every settlement for every one of this friend's loans in one currency
 // — the Repayments sheet's own list, newest first. Not scoped to a
 // single loan (see recordRepayment, above) — each row carries which loan
