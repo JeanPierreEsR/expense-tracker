@@ -128,6 +128,7 @@ let currencyPickerTarget = "entry";
 function currencyFieldIds(target) {
   if (target === "budget") return { input: "budget-currency", chips: "budget-currency-chips" };
   if (target === "recurring") return { input: "recurring-currency", chips: "recurring-currency-chips" };
+  if (target === "loan") return { input: "loan-currency", chips: "loan-currency-chips" };
   return { input: "currency", chips: "currency-chips" };
 }
 
@@ -3839,6 +3840,134 @@ function closeLoanDetail() {
 document.getElementById("loan-detail-modal-close").addEventListener("click", closeLoanDetail);
 document.getElementById("loan-detail-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "loan-detail-modal-backdrop") closeLoanDetail();
+});
+
+// ---- Add loan (Phase 5.3) ----
+// A standalone cash loan — money lent/borrowed directly, not tied to any
+// expense. Always lands as `origin: 'cash'` (see addLoan in Loans.gs),
+// distinct from the loans the split-entry UI creates with `origin:
+// 'entry'`.
+
+let loanDirection = "they_owe_me";
+
+function populateLoanFriendOptions() {
+  const select = document.getElementById("loan-friend");
+  select.innerHTML = "";
+  meta.friends.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    select.appendChild(opt);
+  });
+  const addOpt = document.createElement("option");
+  addOpt.value = "__add__";
+  addOpt.textContent = "+ Add friend…";
+  select.appendChild(addOpt);
+}
+
+document.getElementById("loan-friend").addEventListener("change", async (e) => {
+  if (e.target.value !== "__add__") return;
+  const name = prompt("Friend's name:");
+  e.target.value = meta.friends.length ? meta.friends[0].id : "";
+  if (name && name.trim()) {
+    const friend = await callApi("addFriend", { name: name.trim() });
+    meta.friends.push(friend);
+    populateLoanFriendOptions();
+    document.getElementById("loan-friend").value = friend.id;
+  }
+});
+
+function populateLoanPaymentMethodOptions() {
+  const select = document.getElementById("loan-payment-method");
+  select.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "None";
+  select.appendChild(noneOpt);
+  meta.paymentMethods.forEach((pm) => {
+    const opt = document.createElement("option");
+    opt.value = pm.id;
+    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    select.appendChild(opt);
+  });
+}
+
+function setLoanDirection_(direction) {
+  loanDirection = direction;
+  document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.direction === direction);
+  });
+}
+
+document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => setLoanDirection_(tab.dataset.direction));
+});
+
+function openAddLoanModal() {
+  document.getElementById("loan-form-error").textContent = "";
+  populateLoanFriendOptions();
+  populateLoanPaymentMethodOptions();
+  document.getElementById("loan-friend").value = meta.friends.length ? meta.friends[0].id : "";
+  setLoanDirection_("they_owe_me");
+  document.getElementById("loan-amount").value = "";
+  document.getElementById("loan-currency").value = "PEN";
+  renderCurrencyChips("loan");
+  document.getElementById("loan-date").value = todayLocalISO();
+  document.getElementById("loan-due-date").value = "";
+  document.getElementById("loan-payment-method").value = "";
+  document.getElementById("loan-description").value = "";
+
+  const backdrop = document.getElementById("loan-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeLoanModal() {
+  document.getElementById("loan-modal-backdrop").hidden = true;
+}
+
+document.getElementById("add-loan-btn").addEventListener("click", openAddLoanModal);
+document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
+document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "loan-modal-backdrop") closeLoanModal();
+});
+
+document.getElementById("loan-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("loan-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("loan-save-btn");
+
+  try {
+    const friendId = document.getElementById("loan-friend").value;
+    const amount = parseFloat(document.getElementById("loan-amount").value);
+    const currency = document.getElementById("loan-currency").value.toUpperCase();
+    const date = document.getElementById("loan-date").value;
+    const dueDate = document.getElementById("loan-due-date").value;
+    const paymentMethodId = document.getElementById("loan-payment-method").value;
+    const description = document.getElementById("loan-description").value.trim();
+
+    if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
+    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!date) throw new Error("Date is required.");
+
+    saveBtn.disabled = true;
+    await callApi("addLoan", {
+      friend_id: friendId,
+      direction: loanDirection,
+      amount,
+      currency,
+      date,
+      due_date: dueDate,
+      payment_method_id: paymentMethodId,
+      description
+    });
+    closeLoanModal();
+    await refreshLoans();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
 });
 
 init();

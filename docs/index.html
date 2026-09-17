@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-17T00:19:20Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-17T00:34:07Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -256,7 +256,10 @@
 
     <div id="screen-loans" class="screen" hidden>
       <div class="card">
-        <h2>💸 Owes you</h2>
+        <div class="budgets-header">
+          <h2>💸 Owes you</h2>
+          <button type="button" class="add-inline" id="add-loan-btn">+ Add loan</button>
+        </div>
         <div id="loans-owed-to-me-list"></div>
         <p class="hint" id="loans-owed-to-me-empty-note" hidden>No one owes you anything right now.</p>
       </div>
@@ -431,6 +434,49 @@
     </div>
   </div>
 
+  <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>Add loan</span>
+        <button type="button" id="loan-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="loan-friend">Friend</label>
+        <select id="loan-friend"></select>
+
+        <label>Direction</label>
+        <div class="type-tabs budget-period-tabs" id="loan-direction-tabs">
+          <div class="type-tab active" data-direction="they_owe_me">They owe me</div>
+          <div class="type-tab" data-direction="i_owe_them">I owe them</div>
+        </div>
+
+        <label for="loan-amount">Amount</label>
+        <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
+
+        <label>Currency</label>
+        <input type="hidden" id="loan-currency" value="PEN">
+        <div class="currency-chips" id="loan-currency-chips"></div>
+
+        <label for="loan-date">Date</label>
+        <input type="date" id="loan-date">
+
+        <label for="loan-due-date">Due date</label>
+        <input type="date" id="loan-due-date">
+        <p class="hint">Optional — drives overdue reminders once those are built.</p>
+
+        <label for="loan-payment-method">Payment method</label>
+        <select id="loan-payment-method"></select>
+        <p class="hint">Optional — which account the cash moved through, if any.</p>
+
+        <label for="loan-description">Description</label>
+        <input type="text" id="loan-description" placeholder="Optional">
+
+        <p class="hint" id="loan-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="loan-save-btn">Save loan</button>
+      </div>
+    </div>
+  </div>
+
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -581,6 +627,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-17T00:19:20Z"></script>
+  <script src="app.js?v=2026-09-17T00:34:07Z"></script>
 </body>
 </html>

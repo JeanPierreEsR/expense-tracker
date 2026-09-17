@@ -131,6 +131,31 @@ function deleteRowsWhere_(sheetName, predicate) {
   }
 }
 
+// ---- Standalone cash loans (Phase 5.3) ----
+// A loan not tied to any Entry — money lent/borrowed directly, added from
+// the Loans tab's own "+ Add loan" button rather than from the entry form.
+
+function addLoan(payload) {
+  if (!payload.friend_id) throw new Error('Pick a friend.');
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
+    throw new Error('Invalid direction.');
+  }
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+
+  return createLoan_({
+    friend_id: payload.friend_id,
+    direction: payload.direction,
+    origin: 'cash',
+    amount: Number(payload.amount),
+    currency: payload.currency || 'PEN',
+    date: payload.date,
+    due_date: payload.due_date || '',
+    payment_method_id: payload.payment_method_id || '',
+    description: payload.description || ''
+  });
+}
+
 // ---- Loans screen (Phase 5.2) ----
 
 function buildSettlementTotalsByLoan_() {
