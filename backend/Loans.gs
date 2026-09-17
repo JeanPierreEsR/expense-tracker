@@ -209,18 +209,25 @@ function deleteLoan(loanId) {
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
 }
 
-// ---- Settlements / repayments (Phase 5.4) ----
+// ---- Settlements / repayments (Phase 5.4, consolidated 2026-09-17) ----
 // A Settlement is a repayment against a loan, in either direction —
 // never an Entry, never counted in income/expense totals or budgets (per
 // CLAUDE.md's Settlements section). Applies equally to a cash loan and an
 // entry-derived one; only editing/deleting the LOAN itself is restricted
 // by origin (see updateLoan/deleteLoan, above) — a repayment against it
 // is a separate row in its own table either way.
+//
+// Recording a repayment is friend-+-currency-level, not single-loan: see
+// recordRepayment, below, for the two-phase FIFO engine (net opposite-
+// direction debt first, then apply the real amount) that replaced the
+// original "pick one loan, settle it" design.
 
-function listSettlementsForLoan(loanId) {
-  return getAllRows('Settlements')
-    .filter(function (s) { return s.loan_id === loanId; })
-    .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+function ensureSettlementsOffsetColumn_() {
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('offset_loan_id') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('offset_loan_id');
+  }
 }
 
 // Keeps the Loan row's own `status` column in sync after any settlement
@@ -248,35 +255,217 @@ function updateLoanStatusFromSettlements_(loanId) {
   if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
 }
 
-function addSettlement(payload) {
-  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
-  if (!loan) throw new Error('Loan not found');
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
-
-  var settledSoFar = getAllRows('Settlements')
-    .filter(function (s) { return s.loan_id === payload.loan_id; })
-    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
-  var remaining = Number(loan.amount) - settledSoFar;
-  if (Number(payload.amount) - remaining > 0.004) {
-    throw new Error("That's more than the remaining balance (" + loan.currency + ' ' + remaining.toFixed(2) + ').');
-  }
-
-  var settlement = {
+function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId) {
+  appendRowObject('Settlements', {
     id: Utilities.getUuid(),
-    loan_id: payload.loan_id,
-    date: payload.date,
-    amount: Number(payload.amount),
-    payment_method_id: payload.payment_method_id || ''
-  };
-  appendRowObject('Settlements', settlement);
-  updateLoanStatusFromSettlements_(payload.loan_id);
-  return settlement;
+    loan_id: loanId,
+    date: date,
+    amount: amount,
+    payment_method_id: paymentMethodId || '',
+    offset_loan_id: offsetLoanId || ''
+  });
 }
 
+// The core of "record a repayment": friend + currency + direction +
+// amount — never a single loan. `direction` is which debt is being paid
+// down: 'they_owe_me' (they're paying you) or 'i_owe_them' (you're
+// paying them).
+//
+// Phase 1 nets opposite-direction debt first, before any real money is
+// applied — e.g. a loan they gave YOU cancels against the oldest
+// expenses you covered for THEM, oldest-first on both sides, dollar for
+// dollar. Every loan touched this way gets a real Settlement row on BOTH
+// sides of the pair, each referencing the other via offset_loan_id, so
+// the Sheet always explains why a balance moved even though no cash did.
+//
+// Phase 2 applies the actual amount being recorded, FIFO, to whatever's
+// left in the direction being paid down. Any amount still left over once
+// every loan in that direction is fully paid is returned as `overpaid` —
+// but ONLY when direction is 'they_owe_me' (someone paid the OWNER more
+// than they owed, which really is income to the owner). The reverse case
+// — the owner paying someone more than owed — has no symmetric "income"
+// meaning (overpaying isn't the owner's income; at best it's a gift, a
+// question for the owner to handle by hand), so that case is validated
+// and rejected UP FRONT, before anything is written, rather than ever
+// producing an `overpaid` figure the caller would have to special-case
+// away silently.
+function recordRepayment(payload) {
+  var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
+  if (!friend) throw new Error('Friend not found');
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
+    throw new Error('Invalid direction.');
+  }
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+  var currency = payload.currency || 'PEN';
+
+  ensureSettlementsOffsetColumn_();
+
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  var active = getAllRows('Loans')
+    .filter(function (l) {
+      return l.friend_id === payload.friend_id && l.currency === currency && l.status !== 'forgiven';
+    })
+    .map(function (l) {
+      l.remaining = Number(l.amount) - (settledByLoan[l.id] || 0);
+      return l;
+    })
+    .filter(function (l) { return l.remaining > 0.004; });
+
+  function byDateAsc(a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); }
+  var theyOweMe = active.filter(function (l) { return l.direction === 'they_owe_me'; }).sort(byDateAsc);
+  var iOweThem = active.filter(function (l) { return l.direction === 'i_owe_them'; }).sort(byDateAsc);
+
+  var primary = payload.direction === 'they_owe_me' ? theyOweMe : iOweThem;
+  var secondary = payload.direction === 'they_owe_me' ? iOweThem : theyOweMe;
+
+  // Plan phase 1 (offset) entirely in memory first — nothing written
+  // yet — so the direction-specific overpayment check below can reject
+  // an invalid "I'm overpaying them" request before any Settlement rows
+  // exist, rather than after.
+  var primaryLeft = primary.map(function (l) { return l.remaining; });
+  var secondaryLeft = secondary.map(function (l) { return l.remaining; });
+  var offsetOps = [];
+  var pi = 0, si = 0;
+  while (pi < primary.length && si < secondary.length) {
+    var chunk = Math.min(primaryLeft[pi], secondaryLeft[si]);
+    if (chunk > 0.004) {
+      offsetOps.push({ loanId: primary[pi].id, otherId: secondary[si].id, amount: chunk });
+      offsetOps.push({ loanId: secondary[si].id, otherId: primary[pi].id, amount: chunk });
+      primaryLeft[pi] -= chunk;
+      secondaryLeft[si] -= chunk;
+    }
+    if (primaryLeft[pi] <= 0.004) pi++;
+    if (secondaryLeft[si] <= 0.004) si++;
+  }
+
+  var totalPrimaryAfterOffset = primaryLeft.reduce(function (sum, r) { return sum + r; }, 0);
+
+  if (payload.direction === 'i_owe_them' && Number(payload.amount) - totalPrimaryAfterOffset > 0.004) {
+    throw new Error(
+      "That's more than you owe " + friend.name + ' (' + currency + ' ' + totalPrimaryAfterOffset.toFixed(2) +
+      " remaining) — record the extra separately (a gift, or a new loan) if that's really what happened."
+    );
+  }
+
+  // Now actually write phase 1.
+  var touchedLoanIds = {};
+  offsetOps.forEach(function (op) {
+    recordSettlementRow_(op.loanId, payload.date, op.amount, '', op.otherId);
+    touchedLoanIds[op.loanId] = true;
+  });
+
+  // Phase 2 — apply the real amount, FIFO, continuing from wherever
+  // phase 1 left off.
+  var cashLeft = Number(payload.amount);
+  while (cashLeft > 0.004 && pi < primary.length) {
+    var loan = primary[pi];
+    var applyAmt = Math.min(cashLeft, primaryLeft[pi]);
+    if (applyAmt > 0.004) {
+      recordSettlementRow_(loan.id, payload.date, applyAmt, payload.payment_method_id || '', '');
+      primaryLeft[pi] -= applyAmt;
+      cashLeft -= applyAmt;
+      touchedLoanIds[loan.id] = true;
+    }
+    if (primaryLeft[pi] <= 0.004) pi++;
+  }
+
+  Object.keys(touchedLoanIds).forEach(updateLoanStatusFromSettlements_);
+
+  return { overpaid: cashLeft > 0.004 ? cashLeft : 0, currency: currency };
+}
+
+// The leftover from recordRepayment, above, once nothing more is owed —
+// genuinely income, not a loan, so it becomes a real confirmed Entry
+// (per principle 6, this is a direct result of the owner's own manual
+// action, same reasoning as forgiving a loan converting to an expense
+// directly — it doesn't land in the pending review queue). Income
+// entries need a Payor, not a Friend (see Payors.gs) — reuses one
+// matching the friend's name if it already exists, creates one if not,
+// so the entry looks like any other income entry rather than leaving
+// "Received from" unresolvable.
+function recordOverpaymentIncome(payload) {
+  if (!payload.friend_id) throw new Error('Missing friend.');
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.category_id) throw new Error('Pick a category.');
+  if (!payload.date) throw new Error('Date is required.');
+
+  var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
+  if (!friend) throw new Error('Friend not found');
+
+  var payor = findOrCreatePayorByName_(friend.name);
+
+  var entry = {
+    id: Utilities.getUuid(),
+    type: 'income',
+    date: payload.date,
+    amount: Number(payload.amount),
+    currency: payload.currency || 'PEN',
+    category_id: payload.category_id,
+    description: payload.description || ("Overpayment from " + friend.name + "'s loan repayment"),
+    payment_method_id: payload.payment_method_id || '',
+    paid_by: payor.id,
+    status: 'confirmed',
+    source: 'manual',
+    external_id: '',
+    import_batch_id: '',
+    created_at: nowTimestamp_()
+  };
+  appendRowObject('Entries', entry);
+  return entry;
+}
+
+function findOrCreatePayorByName_(name) {
+  var lower = name.toLowerCase();
+  var existing = getPayorRows_().find(function (p) { return p.name.toLowerCase() === lower; });
+  if (existing) return existing;
+  return addPayor({ name: name });
+}
+
+// Every settlement for every one of this friend's loans in one currency
+// — the Repayments sheet's own list, newest first. Not scoped to a
+// single loan (see recordRepayment, above) — each row carries which loan
+// it applied to, and, for an offset row, which OTHER loan it was netted
+// against, so the sheet can label the two kinds differently and only
+// let a real one be edited/deleted (see updateSettlement/deleteSettlement,
+// below).
+function listSettlementsForFriendCurrency(friendId, currency) {
+  ensureSettlementsOffsetColumn_();
+
+  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId && l.currency === currency; });
+  var loanById = {};
+  var loanIds = {};
+  loans.forEach(function (l) { loanById[l.id] = l; loanIds[l.id] = true; });
+
+  function loanLabel(loan) {
+    if (!loan) return '';
+    return loan.description || (loan.origin === 'entry' ? 'Shared expense' : 'Loan');
+  }
+
+  var settlements = getAllRows('Settlements')
+    .filter(function (s) { return loanIds[s.loan_id]; })
+    .map(function (s) {
+      s.loan_description = loanLabel(loanById[s.loan_id]);
+      s.loan_direction = loanById[s.loan_id] ? loanById[s.loan_id].direction : '';
+      s.offset_loan_description = s.offset_loan_id ? loanLabel(loanById[s.offset_loan_id]) : '';
+      return s;
+    });
+
+  settlements.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+  return settlements;
+}
+
+// Only ever a real, cash settlement — an offset one (offset_loan_id set)
+// is a paired accounting entry (see recordRepayment) whose other half
+// would go stale if only one side were touched, so both are left as
+// read-only history instead of a half-fix.
 function updateSettlement(payload) {
+  ensureSettlementsOffsetColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
   if (!existing) throw new Error('Repayment not found');
+  if (existing.offset_loan_id) {
+    throw new Error("That was an automatic offset from a repayment, not a real payment — it can't be edited directly.");
+  }
   var loan = getAllRows('Loans').find(function (l) { return l.id === existing.loan_id; });
   if (!loan) throw new Error('Loan not found');
   if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
@@ -306,8 +495,12 @@ function updateSettlement(payload) {
 }
 
 function deleteSettlement(id) {
+  ensureSettlementsOffsetColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
   if (!existing) return;
+  if (existing.offset_loan_id) {
+    throw new Error("That was an automatic offset from a repayment, not a real payment — it can't be deleted directly.");
+  }
 
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
@@ -320,6 +513,7 @@ function deleteSettlement(id) {
 // ---- Loans screen (Phase 5.2) ----
 
 function buildSettlementTotalsByLoan_() {
+  ensureSettlementsOffsetColumn_();
   var totals = {};
   getAllRows('Settlements').forEach(function (s) {
     totals[s.loan_id] = (totals[s.loan_id] || 0) + Number(s.amount);

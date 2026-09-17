@@ -159,8 +159,9 @@ function routeAction(action, payload) {
     case 'addLoan': return addLoan(payload);
     case 'updateLoan': return updateLoan(payload);
     case 'deleteLoan': deleteLoan(payload.id); return { done: true };
-    case 'listSettlementsForLoan': return listSettlementsForLoan(payload.loanId);
-    case 'addSettlement': return addSettlement(payload);
+    case 'listSettlementsForFriendCurrency': return listSettlementsForFriendCurrency(payload.friendId, payload.currency);
+    case 'recordRepayment': return recordRepayment(payload);
+    case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'updateSettlement': return updateSettlement(payload);
     case 'deleteSettlement': deleteSettlement(payload.id); return { done: true };
     default: throw new Error('Unknown action: ' + action);

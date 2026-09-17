@@ -21,7 +21,12 @@ var TABLE_DEFINITIONS = {
   Loans: ['id', 'friend_id', 'direction', 'origin', 'entry_id', 'amount',
     'currency', 'date', 'due_date', 'payment_method_id', 'description',
     'status'],
-  Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id'],
+  // offset_loan_id (added 2026-09-17, self-heals via
+  // ensureSettlementsOffsetColumn_ in Loans.gs): blank for a real cash
+  // repayment; set to another loan's id when this row instead represents
+  // a debt-offset (opposite-direction loans cancelling each other out
+  // during a friend-level repayment) — see recordRepayment in Loans.gs.
+  Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
   // Not part of the original spec — added so budgets and Projections can

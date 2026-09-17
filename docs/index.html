@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-17T01:18:08Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-17T02:31:31Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -429,6 +429,7 @@
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
+      <button type="button" class="add-inline" id="record-repayment-btn" hidden>💰 Record repayment</button>
       <div class="currency-option-list" id="loan-detail-list"></div>
       <p class="hint" id="loan-detail-empty-note" hidden>No loans with this friend yet.</p>
     </div>
@@ -485,25 +486,36 @@
         <button type="button" id="settlement-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="settlement-loan-context"></p>
+        <p class="hint" id="settlement-friend-context"></p>
+        <div class="currency-chips" id="settlement-currency-chips" hidden></div>
 
         <div id="settlement-list"></div>
         <p class="hint" id="settlement-list-empty-note" hidden>No repayments recorded yet.</p>
 
-        <label for="settlement-amount">Amount</label>
-        <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
+        <div id="settlement-form">
+          <label for="settlement-amount">Amount</label>
+          <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
 
-        <label for="settlement-date">Date</label>
-        <input type="date" id="settlement-date">
+          <label for="settlement-date">Date</label>
+          <input type="date" id="settlement-date">
 
-        <label for="settlement-payment-method">Payment method</label>
-        <select id="settlement-payment-method"></select>
-        <p class="hint">Optional — which account received/paid the cash.</p>
+          <label for="settlement-payment-method">Payment method</label>
+          <select id="settlement-payment-method"></select>
+          <p class="hint">Optional — which account received/paid the cash.</p>
 
-        <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="settlement-save-btn">Save repayment</button>
-        <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden>Cancel edit</button>
-        <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden>Delete this repayment</button>
+          <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
+          <button type="button" class="primary" id="settlement-save-btn">Save repayment</button>
+          <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden>Cancel edit</button>
+          <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden>Delete this repayment</button>
+        </div>
+
+        <div id="settlement-overpay-section" hidden>
+          <p class="hint" id="settlement-overpay-note"></p>
+          <label for="settlement-overpay-category">Category (income)</label>
+          <select id="settlement-overpay-category"></select>
+          <p class="hint" id="settlement-overpay-error" style="color:#d64545;"></p>
+          <button type="button" class="primary" id="settlement-overpay-save-btn">Save as income</button>
+        </div>
       </div>
     </div>
   </div>
@@ -658,6 +670,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-17T01:18:08Z"></script>
+  <script src="app.js?v=2026-09-17T02:31:31Z"></script>
 </body>
 </html>
