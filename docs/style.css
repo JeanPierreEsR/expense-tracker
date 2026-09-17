@@ -1187,6 +1187,15 @@ button.primary:disabled {
   font-size: 1rem;
 }
 
+/* "Owes you" sits inside .budgets-header (for the "+ Add loan" button)
+   and inherits its 1rem h2 size above — "You owe" and "Needs an exchange
+   rate" are plain h2s in their own cards and would otherwise render at
+   the browser's larger default, reading as a bigger heading for no
+   reason. Matched here so all three are the same size. */
+#screen-loans h2 {
+  font-size: 1rem;
+}
+
 .budget-row {
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
