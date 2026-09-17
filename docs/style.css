@@ -422,6 +422,10 @@ input[type="date"] {
   cursor: pointer;
 }
 
+#split-detail {
+  margin-top: 14px;
+}
+
 .checkbox-row input[type="checkbox"] {
   /* The blanket `input, select, textarea` rule above strips every input's
      native appearance (including a checkbox's checkmark/fill) and nothing
