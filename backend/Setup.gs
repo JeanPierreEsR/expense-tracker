@@ -29,6 +29,13 @@ var TABLE_DEFINITIONS = {
   Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
+  // Not part of the original spec — added after Loans already held real
+  // data (self-heals via ensureLoanAlertLogSheet_ in Loans.gs, same
+  // pattern as Payors/Recurring Expenses). Same dedup idea as Budget
+  // Alert Log: `due_date` alongside `loan_id` means editing a loan's due
+  // date to something new is naturally alert-worthy again, without
+  // needing a separate "reset" step.
+  'Loan Alert Log': ['id', 'loan_id', 'due_date', 'sent_at'],
   // Not part of the original spec — added so budgets and Projections can
   // account for known fixed costs (rent, subscriptions) instead of
   // treating every expense as unpredictable. `day` is the day of the month
@@ -68,6 +75,7 @@ var DATE_LIKE_COLUMNS = {
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
+  'Loan Alert Log': ['due_date', 'sent_at'],
   'Import Batches': ['date'],
   'Projection Overrides': ['period_key']
 };

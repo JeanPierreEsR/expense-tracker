@@ -7,7 +7,7 @@
 
 var ID_TABLES = ['Entries', 'Entry Splits', 'Categories', 'Tags',
   'Payment Methods', 'Banks', 'Exchange Rates', 'Friends', 'Loans',
-  'Settlements', 'Budgets', 'Budget Alert Log', 'Period Templates',
+  'Settlements', 'Budgets', 'Budget Alert Log', 'Loan Alert Log', 'Period Templates',
   'Import Batches', 'Parsing Rules'];
 
 // Simple trigger — fires automatically on every manual edit to the Sheet.

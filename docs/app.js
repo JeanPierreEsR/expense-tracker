@@ -3741,7 +3741,7 @@ async function refreshLoans() {
     needsRate.forEach((b) => {
       const row = document.createElement("div");
       row.className = "loan-row";
-      row.innerHTML = `<span class="loan-row-name">${escapeHtml(b.friend_name)}</span>`;
+      row.innerHTML = `<span class="loan-row-name">${b.has_overdue ? "⚠️ " : ""}${escapeHtml(b.friend_name)}</span>`;
       row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
       list.appendChild(row);
     });
@@ -3768,7 +3768,7 @@ function renderLoanBalanceList_(listId, emptyNoteId, balances, kind) {
     const row = document.createElement("div");
     row.className = "loan-row";
     row.innerHTML = `
-      <span class="loan-row-name">${escapeHtml(b.friend_name)}</span>
+      <span class="loan-row-name">${b.has_overdue ? "⚠️ " : ""}${escapeHtml(b.friend_name)}</span>
       <span class="loan-row-amount ${kind}">${label}</span>
     `;
     row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
@@ -3826,9 +3826,10 @@ async function openLoanDetail(friendId, friendName) {
         ? "Forgiven"
         : l.remaining <= 0.004
           ? "Fully repaid"
-          : l.settled > 0.004
-            ? `${l.currency} ${moneyFmt(l.settled)} repaid so far`
-            : "";
+          : [
+              l.overdue ? `⚠️ Overdue since ${l.due_date}` : "",
+              l.settled > 0.004 ? `${l.currency} ${moneyFmt(l.settled)} repaid so far` : ""
+            ].filter(Boolean).join(" · ");
 
       // Every row is tappable, but to different places: a standalone cash
       // loan (origin='cash') opens the loan edit/delete form (5.3's own

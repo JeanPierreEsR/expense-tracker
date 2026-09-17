@@ -579,6 +579,19 @@ function buildSettlementTotalsByLoan_() {
   return totals;
 }
 
+// Shared by listLoanBalances/getFriendLoanDetail (display) and
+// checkOverdueLoans (the Telegram alert, below) — a loan is overdue when
+// it has a due_date at all (optional field), that date has passed, there's
+// still something left to collect/pay, and it isn't forgiven (a forgiven
+// loan has nothing left to be "overdue" about).
+function isLoanOverdue_(loan, remaining) {
+  if (loan.status === 'forgiven') return false;
+  if (!loan.due_date) return false;
+  if (remaining <= 0.004) return false;
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return loan.due_date < today;
+}
+
 // One net figure per friend, for the Loans tab's "Owes you" / "You owe"
 // lists. Loans keep their own original currency and are never re-converted
 // on their own row (see CLAUDE.md) — but netting several loans together
@@ -597,9 +610,12 @@ function listLoanBalances() {
   // friend_id -> currency -> { theyOweMe, iOweThem } (native amounts,
   // remaining balance after settlements).
   var byFriendCurrency = {};
+  var overdueFriendIds = {};
   loans.forEach(function (loan) {
     var remaining = Number(loan.amount) - (settledByLoan[loan.id] || 0);
     if (remaining <= 0.004) return;
+
+    if (isLoanOverdue_(loan, remaining)) overdueFriendIds[loan.friend_id] = true;
 
     if (!byFriendCurrency[loan.friend_id]) byFriendCurrency[loan.friend_id] = {};
     var byCur = byFriendCurrency[loan.friend_id];
@@ -653,7 +669,8 @@ function listLoanBalances() {
       net_pen: needsRate ? null : netPen,
       display_currency: displayCurrency,
       display_amount: displayAmount,
-      needs_rate: needsRate
+      needs_rate: needsRate,
+      has_overdue: !!overdueFriendIds[friendId]
     });
   });
 
@@ -669,7 +686,77 @@ function getFriendLoanDetail(friendId) {
   loans.forEach(function (loan) {
     loan.settled = settledByLoan[loan.id] || 0;
     loan.remaining = Number(loan.amount) - loan.settled;
+    loan.overdue = isLoanOverdue_(loan, loan.remaining);
   });
   loans.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
   return loans;
+}
+
+// ---- Overdue reminders (Phase 5.6) ----
+// `due_date` on a Loan is optional — set by hand, there's no UI to pick
+// one yet (added here, not before, since nothing consumed it until now).
+// A loan with no due_date is simply never eligible; there's nothing to be
+// overdue against.
+
+// Same reasoning and pattern as Payors/Recurring Expenses' own sheets —
+// this table was added well after Loans already held real data.
+function ensureLoanAlertLogSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Loan Alert Log')) return;
+  var sheet = ss.insertSheet('Loan Alert Log');
+  var headers = TABLE_DEFINITIONS['Loan Alert Log'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+}
+
+// Runs on the same 15-minute automation cycle as the email scan and
+// budget checks (see runAutomation in Triggers.gs). Dedupes against Loan
+// Alert Log by (loan_id, due_date) — same idea as Budget Alert Log's
+// (budget_id, period, threshold) — so a loan already alerted for its
+// current due date doesn't re-alert every cycle, but editing the due
+// date to something new makes it alert-worthy again on its own, with no
+// separate "reset" step needed.
+function checkOverdueLoans() {
+  ensureLoanAlertLogSheet_();
+
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  var overdueLoans = getAllRows('Loans')
+    .map(function (l) {
+      l.remaining = Number(l.amount) - (settledByLoan[l.id] || 0);
+      return l;
+    })
+    .filter(function (l) { return isLoanOverdue_(l, l.remaining); });
+
+  if (!overdueLoans.length) return { checked: 0, alertsSent: 0 };
+
+  var alertedSet = {};
+  getAllRows('Loan Alert Log').forEach(function (a) {
+    alertedSet[a.loan_id + '|' + a.due_date] = true;
+  });
+
+  var friendNameById = {};
+  getAllRows('Friends').forEach(function (f) { friendNameById[f.id] = f.name; });
+
+  var alertsSent = 0;
+  overdueLoans.forEach(function (loan) {
+    var key = loan.id + '|' + loan.due_date;
+    if (alertedSet[key]) return;
+
+    var friendName = friendNameById[loan.friend_id] || '(unknown friend)';
+    var sent = sendTelegramLoanOverdueAlert_(loan, friendName);
+    if (!sent) return; // Telegram not configured — try again next cycle
+
+    appendRowObject('Loan Alert Log', {
+      id: Utilities.getUuid(),
+      loan_id: loan.id,
+      due_date: loan.due_date,
+      sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    });
+    alertedSet[key] = true;
+    alertsSent++;
+  });
+
+  return { checked: overdueLoans.length, alertsSent: alertsSent };
 }

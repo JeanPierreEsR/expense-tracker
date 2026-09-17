@@ -7,6 +7,7 @@ function runAutomation() {
   processEmails();
   pollTelegramUpdates();
   checkBudgets();
+  checkOverdueLoans();
 }
 
 function enableAutomaticScanning() {
@@ -35,8 +36,10 @@ function runAutomationNow() {
   var results = processEmails();
   pollTelegramUpdates();
   var budgetResults = checkBudgets();
+  var loanResults = checkOverdueLoans();
   SpreadsheetApp.getUi().alert(
     'Done. Created ' + results.created + ', skipped ' + results.skipped +
-    ', duplicates ' + results.duplicates + '. Budget alerts sent: ' + budgetResults.alertsSent + '.'
+    ', duplicates ' + results.duplicates + '. Budget alerts sent: ' + budgetResults.alertsSent +
+    '. Overdue loan alerts sent: ' + loanResults.alertsSent + '.'
   );
 }
