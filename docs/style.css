@@ -505,6 +505,13 @@ input[type="date"] {
 
 .loan-detail-row:last-child { border-bottom: none; }
 
+.loan-detail-row.editable { cursor: pointer; }
+
+.loan-detail-row-chevron {
+  color: var(--muted);
+  margin-left: 6px;
+}
+
 .loan-detail-row-top {
   display: flex;
   justify-content: space-between;

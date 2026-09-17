@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-17T00:40:02Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-17T00:47:19Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -437,7 +437,7 @@
   <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span>Add loan</span>
+        <span id="loan-modal-title">Add loan</span>
         <button type="button" id="loan-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
@@ -473,6 +473,7 @@
 
         <p class="hint" id="loan-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="loan-save-btn">Save loan</button>
+        <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden>Delete this loan</button>
       </div>
     </div>
   </div>
@@ -627,6 +628,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-17T00:40:02Z"></script>
+  <script src="app.js?v=2026-09-17T00:47:19Z"></script>
 </body>
 </html>

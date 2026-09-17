@@ -3815,15 +3815,24 @@ async function openLoanDetail(friendId, friendName) {
             ? `${l.currency} ${moneyFmt(l.settled)} repaid so far`
             : "";
 
+      // Only a standalone cash loan can be edited/deleted here — an
+      // entry-derived one is recalculated from scratch every time its
+      // expense is saved (see saveEntrySplits in Loans.gs), so editing it
+      // directly would just get overwritten; that one's edited by editing
+      // the expense itself, from the Entries tab.
+      const editable = l.origin === "cash";
       const row = document.createElement("div");
-      row.className = "loan-detail-row";
+      row.className = "loan-detail-row" + (editable ? " editable" : "");
       row.innerHTML = `
         <div class="loan-detail-row-top">
-          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}</span>
+          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}${editable ? '<span class="loan-detail-row-chevron">›</span>' : ""}</span>
           <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
         </div>
         <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
       `;
+      if (editable) {
+        row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+      }
       list.appendChild(row);
     });
   }
@@ -3842,13 +3851,20 @@ document.getElementById("loan-detail-modal-backdrop").addEventListener("click", 
   if (e.target.id === "loan-detail-modal-backdrop") closeLoanDetail();
 });
 
-// ---- Add loan (Phase 5.3) ----
+// ---- Add / edit loan (Phase 5.3) ----
 // A standalone cash loan — money lent/borrowed directly, not tied to any
-// expense. Always lands as `origin: 'cash'` (see addLoan in Loans.gs),
-// distinct from the loans the split-entry UI creates with `origin:
-// 'entry'`.
+// expense. Always lands as `origin: 'cash'` (see addLoan/updateLoan in
+// Loans.gs), distinct from the loans the split-entry UI creates with
+// `origin: 'entry'`, which aren't editable from here at all (see
+// openLoanDetail's `editable` check, above) — those are edited by
+// editing the expense itself.
 
 let loanDirection = "they_owe_me";
+let editingLoanId = null;
+// Set when this modal was opened from a friend's loan-detail sheet, so a
+// save/delete can refresh that sheet's contents too, not just the main
+// Loans tab list underneath it.
+let loanModalReturnFriend = null;
 
 function populateLoanFriendOptions() {
   const select = document.getElementById("loan-friend");
@@ -3903,19 +3919,27 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => setLoanDirection_(tab.dataset.direction));
 });
 
-function openAddLoanModal() {
+// `loan` is null to add a new one, or an existing loan (from
+// getFriendLoanDetail) to edit it. `returnFriend` is {id, name} when
+// opened from that friend's detail sheet, so it can be refreshed after.
+function openLoanModal(loan, returnFriend) {
+  editingLoanId = loan ? loan.id : null;
+  loanModalReturnFriend = returnFriend || null;
+
+  document.getElementById("loan-modal-title").textContent = loan ? "Edit loan" : "Add loan";
+  document.getElementById("loan-delete-btn").hidden = !loan;
   document.getElementById("loan-form-error").textContent = "";
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
-  document.getElementById("loan-friend").value = meta.friends.length ? meta.friends[0].id : "";
-  setLoanDirection_("they_owe_me");
-  document.getElementById("loan-amount").value = "";
-  document.getElementById("loan-currency").value = "PEN";
+  document.getElementById("loan-friend").value = loan ? loan.friend_id : (meta.friends.length ? meta.friends[0].id : "");
+  setLoanDirection_(loan ? loan.direction : "they_owe_me");
+  document.getElementById("loan-amount").value = loan ? loan.amount : "";
+  document.getElementById("loan-currency").value = loan ? loan.currency : "PEN";
   renderCurrencyChips("loan");
-  document.getElementById("loan-date").value = todayLocalISO();
-  document.getElementById("loan-due-date").value = "";
-  document.getElementById("loan-payment-method").value = "";
-  document.getElementById("loan-description").value = "";
+  document.getElementById("loan-date").value = loan ? loan.date : todayLocalISO();
+  document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : "";
+  document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
+  document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
 
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -3924,9 +3948,21 @@ function openAddLoanModal() {
 
 function closeLoanModal() {
   document.getElementById("loan-modal-backdrop").hidden = true;
+  editingLoanId = null;
 }
 
-document.getElementById("add-loan-btn").addEventListener("click", openAddLoanModal);
+// After a save/delete: the main Loans list always refreshes, and if this
+// modal was reached through a friend's detail sheet (still open
+// underneath it), that gets refreshed too rather than left showing
+// stale data.
+async function refreshAfterLoanModalChange_() {
+  await refreshLoans();
+  if (loanModalReturnFriend) {
+    await openLoanDetail(loanModalReturnFriend.id, loanModalReturnFriend.name);
+  }
+}
+
+document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
 document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
 document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "loan-modal-backdrop") closeLoanModal();
@@ -3951,7 +3987,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!date) throw new Error("Date is required.");
 
     saveBtn.disabled = true;
-    await callApi("addLoan", {
+    const fields = {
       friend_id: friendId,
       direction: loanDirection,
       amount,
@@ -3960,13 +3996,33 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       due_date: dueDate,
       payment_method_id: paymentMethodId,
       description
-    });
+    };
+    if (editingLoanId) {
+      await callApi("updateLoan", { id: editingLoanId, ...fields });
+    } else {
+      await callApi("addLoan", fields);
+    }
     closeLoanModal();
-    await refreshLoans();
+    await refreshAfterLoanModalChange_();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
     saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("loan-delete-btn").addEventListener("click", async () => {
+  if (!editingLoanId) return;
+  if (!confirm("Delete this loan? This can't be undone.")) return;
+  const errorEl = document.getElementById("loan-form-error");
+  errorEl.textContent = "";
+
+  try {
+    await callApi("deleteLoan", { id: editingLoanId });
+    closeLoanModal();
+    await refreshAfterLoanModalChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
   }
 });
 
