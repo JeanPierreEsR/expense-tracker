@@ -8,11 +8,17 @@
  * code the web app uses) to link your account. Only that linked chat is
  * ever listened to.
  *
- * Buttons handle the two fixed actions (Confirm/Discard). Anything else —
- * changing a category, amount, description, etc — is done by replying
- * directly to the transaction message with a short command. This is
- * deliberately NOT free-form AI parsing (the project's $0 budget rules
- * out a paid AI API); it's a small keyword parser. See applyEditCommand_.
+ * Buttons handle only the two fixed actions (Confirm/Discard) — every
+ * other option the app itself has for a pending expense is reachable by
+ * replying directly to the transaction message with a short command
+ * instead (added 2026-09-17, so nothing requires opening the app):
+ * category/amount/description/paid-by/currency/date edits, splitting it
+ * with friends ("split equal Ana", "split Ana 20, Carlos 15", "split
+ * none"), or rerouting it entirely — "repayment Ana" / "loan Ana" —
+ * to a settlement or a new loan instead of confirming it as an expense.
+ * This is deliberately NOT free-form AI parsing (the project's $0 budget
+ * rules out a paid AI API); it's a small keyword parser. See
+ * applyEditCommand_ and applyTerminalReviewAction_.
  *
  * Delivery: a webhook (see "15. Enable instant Telegram replies" in the
  * menu), not polling — Telegram pushes each update to doPost() in Api.gs
@@ -151,16 +157,52 @@ function moneyFmt_(n) {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Shows every field the app itself would show/let you act on for this
+// entry — added 2026-09-17 alongside full text-command coverage (see
+// EDIT_COMMAND_PATTERNS, below), specifically so a decision (confirm,
+// edit, split, or reroute to a loan/repayment) can be made entirely from
+// the notification, without needing to open the app.
 function formatEntryForTelegram_(entry, categoryName) {
   var icon = entry.type === 'expense' ? '💸' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
   lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category'));
   lines.push(entry.date + ' · ' + entry.type);
+  lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
+
+  if (entry.payment_method_id) {
+    var pm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
+    if (pm) lines.push('💳 ' + pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : ''));
+  }
+
+  if (entry.type === 'expense') {
+    var splits = getEntrySplits(entry.id);
+    if (splits.length) {
+      var splitTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+      var ownShare = Number(entry.amount) - splitTotal;
+      var parts = splits.map(function (s) {
+        return paidByDisplayName_(s.friend_id) + ' ' + entry.currency + ' ' + moneyFmt_(s.amount);
+      });
+      parts.push('you ' + entry.currency + ' ' + moneyFmt_(ownShare));
+      lines.push('🔀 Split: ' + parts.join(', '));
+    }
+  }
+
   lines.push('');
-  lines.push('Reply to edit — category, amount, description, paid by, currency, or date. ' +
-    'E.g. "amount 45.50", or combine several: "category groceries, amount 48, description Uber".');
+  lines.push('Reply to edit — category, amount, description, paid by, currency, date, or split. ' +
+    'E.g. "amount 45.50", "split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
+    'Combine several with commas: "category groceries, amount 48, description Uber".');
+  if (entry.type === 'expense') {
+    lines.push('Or instead of confirming it as an expense: "repayment Ana" (you paying down what you owed them) ' +
+      'or "loan Ana" (you lending them this) — either replaces it with the right Loans entry and removes it from here.');
+  }
   return lines.join('\n');
+}
+
+function paidByDisplayName_(id) {
+  if (id === 'me') return 'Me';
+  var friend = getAllRows('Friends').find(function (f) { return f.id === id; });
+  return friend ? friend.name : id;
 }
 
 // Phase 4: budget threshold alerts, same bot as the review queue. Returns
@@ -304,7 +346,16 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
-  var result = applyEditCommand_(mapping.entry_id, text);
+  // Checked before the normal field-edit parser — "repayment"/"loan"
+  // reroute the WHOLE entry to the Loans tab instead of editing a field
+  // on it (see applyTerminalReviewAction_, below), so they don't try to
+  // combine with other edits the way "category X, amount Y" does.
+  var terminalMatch = text.match(/^(?:mark\s+as\s+)?repayment\s+(.+)/i) ||
+    text.match(/^(?:convert\s+to\s+)?loan\s+(.+)/i);
+  var result = terminalMatch
+    ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1])
+    : applyEditCommand_(mapping.entry_id, text);
+
   // Threads to the owner's own edit command, which is itself already a
   // reply to the transaction card — keeps a clear chain (card -> edit
   // command -> "Updated X.") instead of a loose message at the bottom of
@@ -314,9 +365,65 @@ function handleTelegramMessage_(msg) {
     reply_to_message_id: msg.message_id, allow_sending_without_reply: true
   });
 
-  if (result.entry) {
+  // A terminal action already removed the entry — nothing left to show a
+  // refreshed card for.
+  if (result.entry && !result.removed) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
   }
+}
+
+// "repayment Ana" / "mark as repayment Ana" or "loan Ana" / "convert
+// to loan Ana" — the Telegram equivalent of the review queue's own
+// "💰 Mark as repayment" / "🤝 Convert to loan" (see CLAUDE.md's Review
+// queue section for the shared reasoning: every pending entry is money
+// the owner sent OUT, so there's exactly one sensible direction for
+// each, never a picker). Reuses the exact same backend calls those make.
+function applyTerminalReviewAction_(entryId, fullText, friendText) {
+  var entry = getEntryById_(entryId);
+  if (!entry) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
+  if (entry.type !== 'expense') {
+    return { message: "This is an internal transfer, not a friend transaction — repayment/loan doesn't apply here." };
+  }
+
+  var friend = fuzzyFindFriend_(String(friendText).trim());
+  if (!friend) {
+    return { message: 'Didn\'t recognize the friend "' + String(friendText).trim() + '".' };
+  }
+
+  var isRepayment = /^(?:mark\s+as\s+)?repayment/i.test(fullText.trim());
+
+  if (isRepayment) {
+    var repayResult = recordRepayment({
+      friend_id: friend.id,
+      direction: 'i_owe_them',
+      amount: Number(entry.amount),
+      currency: entry.currency,
+      date: entry.date,
+      payment_method_id: entry.payment_method_id || ''
+    });
+    deleteEntry_(entryId);
+    var msg = '✅ Marked as a repayment to ' + friend.name + '.';
+    if (repayResult.overpaid > 0.004) {
+      msg += ' ' + entry.currency + ' ' + moneyFmt_(repayResult.overpaid) +
+        ' was more than they were owed — that part wasn’t recorded; handle it from the Loans tab in the app if needed.';
+    }
+    return { message: msg, removed: true };
+  }
+
+  addLoan({
+    friend_id: friend.id,
+    direction: 'they_owe_me',
+    amount: Number(entry.amount),
+    currency: entry.currency,
+    date: entry.date,
+    payment_method_id: entry.payment_method_id || '',
+    description: entry.description || ''
+  });
+  deleteEntry_(entryId);
+  return {
+    message: '✅ Converted to a loan — ' + friend.name + ' now owes you ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.',
+    removed: true
+  };
 }
 
 function isOwnerChat_(chatId) {
@@ -332,7 +439,11 @@ var EDIT_COMMAND_PATTERNS = [
   { field: 'description', re: /^description\s+(.+)/i },
   { field: 'paid by', re: /^paid\s*by\s+(.+)/i },
   { field: 'currency', re: /^currency\s+([a-zA-Z]{3})/i },
-  { field: 'date', re: /^date\s+(.+)/i }
+  { field: 'date', re: /^date\s+(.+)/i },
+  // Added 2026-09-17 alongside full text-command parity with the app's
+  // own Split UI — see parseSplitCommand_, below, for the three forms
+  // this accepts ("equal ...", "Name amount, Name amount", "none").
+  { field: 'split', re: /^split\s+(.+)/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -340,8 +451,11 @@ var EDIT_COMMAND_PATTERNS = [
 // that motivated this). Only split at a comma that's actually followed by
 // another field keyword, so a comma inside a free-text value (a
 // description like "Rent, September") is left alone rather than being
-// torn in two.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date)\\s+';
+// torn in two — this is also why a custom split's own friend-amount pairs
+// ("Ana 20, Carlos 15") stay intact as one segment: "Carlos" isn't a field
+// keyword, so the comma before it is never treated as a new segment
+// boundary.
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split)\\s+';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -371,7 +485,8 @@ function applyEditCommand_(entryId, text) {
   });
 
   var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
-    '"paid by Ana", "currency USD", or "date 2026-09-12" — ' +
+    '"paid by Ana", "currency USD", "date 2026-09-12", "split equal Ana", ' +
+    '"split Ana 20, Carlos 15", or "split none" — ' +
     'combine several separated by commas, e.g. "category groceries, amount 45.50".';
 
   if (!appliedFields.length) {
@@ -429,9 +544,68 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     setCellByRow_(sheet, headers, rowIndex, 'currency', value.toUpperCase());
   } else if (field === 'date') {
     setCellByRow_(sheet, headers, rowIndex, 'date', value);
+  } else if (field === 'split') {
+    var parsed = parseSplitCommand_(entry, value);
+    if (!parsed) return null;
+    saveEntrySplits(entryId, parsed);
   }
 
   return field;
+}
+
+// Parses the three forms the app's own Split UI offers, as text:
+// - "none" (or "clear"/"off") — clears an existing split back to nothing,
+//   same as unchecking "Split this expense" in the app.
+// - "equal Ana" or "equal Ana, Carlos" — divides the entry's CURRENT
+//   amount evenly across the owner + however many friends are named,
+//   same cents-based rounding (leftover to the owner) as
+//   computeEqualShares in docs/app.js, just computed server-side here
+//   since there's no live form state to read it from.
+// - "Ana 20, Carlos 15" — explicit amount per friend, same shape
+//   saveEntrySplits already expects. Rejected (returns null, reported as
+//   "couldn't apply") if the total exceeds the entry's own amount — the
+//   app's own form validates this the same way before ever calling
+//   saveEntrySplits, which doesn't check it itself.
+// Returns the splits array to hand to saveEntrySplits, or null if
+// anything couldn't be resolved (an unrecognized friend name, a bad
+// amount, or an over-total).
+function parseSplitCommand_(entry, text) {
+  var trimmed = String(text).trim();
+  if (/^(none|clear|off)$/i.test(trimmed)) return [];
+
+  var equalMatch = trimmed.match(/^equal\s+(.+)/i);
+  if (equalMatch) {
+    var names = equalMatch[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!names.length) return null;
+    var friends = [];
+    for (var i = 0; i < names.length; i++) {
+      var f = fuzzyFindFriend_(names[i]);
+      if (!f) return null;
+      friends.push(f);
+    }
+    var n = friends.length;
+    var totalCents = Math.round(Number(entry.amount) * 100);
+    var shareCents = Math.floor(totalCents / (n + 1));
+    return friends.map(function (fr) { return { friend_id: fr.id, amount: shareCents / 100 }; });
+  }
+
+  // Custom: "Ana 20, Carlos 15" — each part is "<name> <amount>".
+  var parts = trimmed.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (!parts.length) return null;
+  var splits = [];
+  var assigned = 0;
+  for (var j = 0; j < parts.length; j++) {
+    var m = parts[j].match(/^(.+?)\s+([\d.,]+)$/);
+    if (!m) return null;
+    var friend2 = fuzzyFindFriend_(m[1].trim());
+    if (!friend2) return null;
+    var amt = parseFloat(m[2].replace(/,/g, ''));
+    if (isNaN(amt) || amt <= 0) return null;
+    splits.push({ friend_id: friend2.id, amount: amt });
+    assigned += amt;
+  }
+  if (assigned - Number(entry.amount) > 0.004) return null;
+  return splits;
 }
 
 function fuzzyFindCategory_(text, type) {
