@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-17T03:44:39Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-17T03:51:02Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -520,6 +520,34 @@
     </div>
   </div>
 
+  <div id="forgive-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>Forgive loan</span>
+        <button type="button" id="forgive-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="forgive-context"></p>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="forgive-convert-checkbox" checked>
+          <span id="forgive-convert-label">Convert remaining balance to an expense</span>
+        </label>
+
+        <div id="forgive-convert-fields">
+          <label for="forgive-category">Category</label>
+          <select id="forgive-category"></select>
+
+          <label for="forgive-date">Date</label>
+          <input type="date" id="forgive-date">
+        </div>
+
+        <p class="hint" id="forgive-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="forgive-save-btn">Forgive loan</button>
+      </div>
+    </div>
+  </div>
+
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -670,6 +698,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-17T03:44:39Z"></script>
+  <script src="app.js?v=2026-09-17T03:51:02Z"></script>
 </body>
 </html>

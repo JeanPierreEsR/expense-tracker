@@ -163,6 +163,7 @@ function routeAction(action, payload) {
     case 'recordRepayment': return recordRepayment(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
+    case 'forgiveLoan': return forgiveLoan(payload);
     case 'updateSettlement': return updateSettlement(payload);
     case 'deleteSettlement': deleteSettlement(payload.id); return { done: true };
     default: throw new Error('Unknown action: ' + action);

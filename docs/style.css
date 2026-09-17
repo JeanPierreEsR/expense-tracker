@@ -542,6 +542,11 @@ input[type="date"] {
   margin: 8px 0 4px;
 }
 
+.loan-detail-forgive-btn {
+  display: block;
+  margin-top: 4px;
+}
+
 .add-inline {
   font-size: 0.8rem;
   color: var(--accent);

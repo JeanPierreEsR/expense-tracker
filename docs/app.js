@@ -3854,6 +3854,23 @@ async function openLoanDetail(friendId, friendName) {
         row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
       }
 
+      // Forgiving applies to either kind of loan — it doesn't touch the
+      // loan's own amount/currency/etc (unlike editing), just marks it
+      // written off, so it isn't restricted by origin the way editing is.
+      // Not shown once nothing's left to forgive, or it's already
+      // forgiven.
+      if (l.status !== "forgiven" && l.remaining > 0.004) {
+        const forgiveBtn = document.createElement("button");
+        forgiveBtn.type = "button";
+        forgiveBtn.className = "add-inline loan-detail-forgive-btn";
+        forgiveBtn.textContent = "🙏 Forgive";
+        forgiveBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openForgiveModal(l, { id: friendId, name: friendName });
+        });
+        row.appendChild(forgiveBtn);
+      }
+
       list.appendChild(row);
     });
   }
@@ -4106,14 +4123,7 @@ function populateSettlementPaymentMethodOptions() {
 function populateOverpayCategoryOptions(type) {
   document.getElementById("settlement-overpay-category-label").textContent =
     `Category (${type})`;
-  const select = document.getElementById("settlement-overpay-category");
-  select.innerHTML = "";
-  meta.categories.filter((c) => c.type === type).forEach((c) => {
-    const opt = document.createElement("option");
-    opt.value = c.id;
-    opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
-    select.appendChild(opt);
-  });
+  populateCategoryOptionsForSelect_("settlement-overpay-category", type);
 }
 
 function renderSettlementCurrencyChips_() {
@@ -4355,6 +4365,103 @@ document.getElementById("settlement-overpay-save-btn").addEventListener("click",
     });
     closeSettlementModal();
     await refreshEntryList();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+// ---- Forgiving a loan (Phase 5.5) ----
+// Applies to either kind of loan and either direction (see "🙏 Forgive"
+// in openLoanDetail, above) — a status change, not an edit, so it isn't
+// origin-restricted the way updateLoan is. Optionally converts whatever
+// was still outstanding into a real expense or income entry, mirroring
+// the same direction logic recordRepayment's overpayment handling uses
+// (see forgiveLoan in Loans.gs).
+
+let forgiveLoanTarget = null;
+let forgiveReturnFriend = null;
+
+function populateCategoryOptionsForSelect_(selectId, type) {
+  const select = document.getElementById(selectId);
+  select.innerHTML = "";
+  meta.categories.filter((c) => c.type === type).forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
+    select.appendChild(opt);
+  });
+}
+
+function openForgiveModal(loan, returnFriend) {
+  forgiveLoanTarget = loan;
+  forgiveReturnFriend = returnFriend;
+
+  document.getElementById("forgive-form-error").textContent = "";
+  document.getElementById("forgive-context").textContent =
+    `${loan.description || "Loan"} · ${loan.currency} ${moneyFmt(loan.remaining)} remaining`;
+
+  const hasBalance = loan.remaining > 0.004;
+  const checkbox = document.getElementById("forgive-convert-checkbox");
+  const convertRow = checkbox.closest(".checkbox-row");
+  convertRow.hidden = !hasBalance;
+  checkbox.checked = hasBalance;
+
+  // "Convert to expense" when the owner is the one being owed and
+  // writing it off (that's their own spending); "convert to income"
+  // when someone else is the one forgiving what the owner owed them
+  // (that's free money from the owner's side) — same direction logic as
+  // an overpayment.
+  const entryType = loan.direction === "they_owe_me" ? "expense" : "income";
+  document.getElementById("forgive-convert-label").textContent = `Convert remaining balance to ${entryType === "expense" ? "an expense" : "income"}`;
+  populateCategoryOptionsForSelect_("forgive-category", entryType);
+  document.getElementById("forgive-date").value = todayLocalISO();
+  document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
+
+  const backdrop = document.getElementById("forgive-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeForgiveModal() {
+  document.getElementById("forgive-modal-backdrop").hidden = true;
+  forgiveLoanTarget = null;
+}
+
+document.getElementById("forgive-modal-close").addEventListener("click", closeForgiveModal);
+document.getElementById("forgive-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "forgive-modal-backdrop") closeForgiveModal();
+});
+document.getElementById("forgive-convert-checkbox").addEventListener("change", (e) => {
+  document.getElementById("forgive-convert-fields").hidden = !e.target.checked;
+});
+
+document.getElementById("forgive-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("forgive-form-error");
+  errorEl.textContent = "";
+  if (!forgiveLoanTarget) return;
+
+  const convert = document.getElementById("forgive-convert-checkbox").checked && forgiveLoanTarget.remaining > 0.004;
+  const categoryId = document.getElementById("forgive-category").value;
+  const date = document.getElementById("forgive-date").value;
+  if (convert && !categoryId) { errorEl.textContent = "Pick a category."; return; }
+  if (convert && !date) { errorEl.textContent = "Date is required."; return; }
+
+  const saveBtn = document.getElementById("forgive-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await callApi("forgiveLoan", {
+      id: forgiveLoanTarget.id,
+      convert,
+      category_id: categoryId,
+      date
+    });
+    const returnFriend = forgiveReturnFriend;
+    closeForgiveModal();
+    await refreshLoans();
+    if (returnFriend) await openLoanDetail(returnFriend.id, returnFriend.name);
+    if (convert) await refreshEntryList();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
