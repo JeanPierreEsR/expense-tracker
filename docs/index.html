@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-17T00:58:20Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-17T01:18:08Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -478,6 +478,36 @@
     </div>
   </div>
 
+  <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="settlement-modal-title">Repayments</span>
+        <button type="button" id="settlement-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="settlement-loan-context"></p>
+
+        <div id="settlement-list"></div>
+        <p class="hint" id="settlement-list-empty-note" hidden>No repayments recorded yet.</p>
+
+        <label for="settlement-amount">Amount</label>
+        <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
+
+        <label for="settlement-date">Date</label>
+        <input type="date" id="settlement-date">
+
+        <label for="settlement-payment-method">Payment method</label>
+        <select id="settlement-payment-method"></select>
+        <p class="hint">Optional — which account received/paid the cash.</p>
+
+        <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="settlement-save-btn">Save repayment</button>
+        <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden>Cancel edit</button>
+        <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden>Delete this repayment</button>
+      </div>
+    </div>
+  </div>
+
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -628,6 +658,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-17T00:58:20Z"></script>
+  <script src="app.js?v=2026-09-17T01:18:08Z"></script>
 </body>
 </html>
