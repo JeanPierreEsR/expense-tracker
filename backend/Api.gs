@@ -156,6 +156,8 @@ function routeAction(action, payload) {
     case 'listLoanBalances': return listLoanBalances();
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'addLoan': return addLoan(payload);
+    case 'updateLoan': return updateLoan(payload);
+    case 'deleteLoan': deleteLoan(payload.id); return { done: true };
     default: throw new Error('Unknown action: ' + action);
   }
 }

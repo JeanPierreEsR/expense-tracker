@@ -156,6 +156,59 @@ function addLoan(payload) {
   });
 }
 
+// A cash loan's own fields can be edited directly; an entry-derived one
+// (origin='entry') can't — its amount/currency/date/description all come
+// from the expense it was split from, and saveEntrySplits already
+// recalculates it from scratch on every save of that entry, so a direct
+// edit here would just get silently overwritten the next time the entry
+// is touched. Editing one of those means editing the expense itself.
+function updateLoan(payload) {
+  var existing = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  if (!existing) throw new Error('Loan not found');
+  if (existing.origin !== 'cash') {
+    throw new Error("This loan came from a shared expense — edit that entry instead.");
+  }
+  if (!payload.friend_id) throw new Error('Pick a friend.');
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
+    throw new Error('Invalid direction.');
+  }
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, payload.id);
+  if (rowIndex === -1) throw new Error('Loan not found');
+
+  ['friend_id', 'direction', 'amount', 'currency', 'date', 'due_date', 'payment_method_id', 'description'].forEach(function (field) {
+    setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
+  });
+
+  return getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+}
+
+// Same origin='cash' restriction as updateLoan, above. Also refuses to
+// delete a loan that already has a Settlement recorded against it — same
+// reasoning as deleteEntrySplitsAndLoansForEntry_: a real repayment
+// already made should never just disappear because the loan row it was
+// against gets deleted.
+function deleteLoan(loanId) {
+  var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
+  if (!loan) return;
+  if (loan.origin !== 'cash') {
+    throw new Error("This loan came from a shared expense — delete that entry instead.");
+  }
+  var hasSettlement = getAllRows('Settlements').some(function (s) { return s.loan_id === loanId; });
+  if (hasSettlement) {
+    throw new Error("This loan has a repayment recorded against it and can't be deleted.");
+  }
+
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, loanId);
+  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+}
+
 // ---- Loans screen (Phase 5.2) ----
 
 function buildSettlementTotalsByLoan_() {
