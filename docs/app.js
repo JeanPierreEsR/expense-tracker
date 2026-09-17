@@ -48,6 +48,13 @@ let customSplitAmounts = {};
 // split field itself is hidden (and selectedType no longer "expense") by
 // the time they hit Save.
 let editingEntryWasSplittable = false;
+// Set only while confirming a pending (review-queue) entry through the
+// full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
+// "Split" action. Distinct from editingEntryId (which the popup's own
+// startEditEntry call also sets, to reuse its prefill logic) — the
+// submit handler checks this FIRST so a pending confirmation never falls
+// through to the normal "update an existing entry" path.
+let confirmingPendingId = null;
 
 // ---- Currencies ----
 
@@ -390,9 +397,23 @@ function showDetailForm(category) {
   amountInput.focus();
 }
 
+// Which widget is actually showing decides where the answer comes from —
+// not just the type. An icon-picker type (expense/income) normally reads
+// selectedCategoryId (set by tapping a tile), but falls back to the plain
+// select whenever showDetailForm had no category tile to preselect (the
+// banner stays hidden, the select field shows instead) — previously
+// unreachable for a real Save (createEntry already requires a category,
+// so a confirmed entry never has a blank one to edit into this state),
+// but very much reachable now: a pending review-queue entry can have a
+// genuinely blank category_id, and Phase 5.7's "Split" action reuses
+// this exact form to confirm one. Without this, that fallback select was
+// fully interactive but silently ignored — getCategoryId() kept reading
+// the untouched, still-null selectedCategoryId no matter what was picked
+// in it, always failing "Pick a category" even after picking one.
 function getCategoryId() {
-  if (ICON_PICKER_TYPES.includes(selectedType)) return selectedCategoryId;
-  return document.getElementById("category").value;
+  const selectFieldVisible = !document.getElementById("category-select-field").hidden;
+  if (selectFieldVisible) return document.getElementById("category").value;
+  return selectedCategoryId;
 }
 
 document.getElementById("change-category-btn").addEventListener("click", showCategoryPicker);
@@ -953,12 +974,36 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // date doesn't retroactively un-become a real entry. A split expense
     // needs the same real Entry/Splits machinery a friend-paid one does,
     // even when the owner themselves paid, so it's excluded here too.
-    const isFutureDate = !editingEntryId && date > todayLocalISO();
+    const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" &&
       (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
 
-    if (editingEntryId) {
+    if (confirmingPendingId) {
+      // Confirming a pending (review-queue) entry through the full form
+      // — Phase 5.7's "Split" action. Same field set as a normal update,
+      // plus the two steps a plain Confirm-button tap does (confirmEntry,
+      // then saveEntrySplits) that the lightweight review-item fields
+      // can't reach.
+      await ensureExchangeRate(currency, date);
+      await callApi("updateEntry", {
+        id: confirmingPendingId,
+        fields: {
+          type: selectedType,
+          date,
+          amount,
+          currency,
+          category_id: categoryId,
+          description,
+          paid_by: paidBy,
+          payment_method_id: usesPaymentMethod ? paymentMethodId : ""
+        }
+      });
+      await callApi("confirmEntry", { id: confirmingPendingId });
+      if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
+        await callApi("saveEntrySplits", { entryId: confirmingPendingId, splits: splits || [] });
+      }
+    } else if (editingEntryId) {
       await ensureExchangeRate(currency, date);
       await callApi("updateEntry", {
         id: editingEntryId,
@@ -1036,7 +1081,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     await refreshEntryList();
     refreshExpectedRecurring();
 
-    if (editingViaPopup) {
+    if (confirmingPendingId) {
+      closeConfirmPendingPopup();
+      await refreshReviewQueue();
+    } else if (editingViaPopup) {
       await refreshAfterPopupEdit();
     } else if (programmedInstead) {
       // Stays on the (now-cleared) form instead of jumping back to the
@@ -1217,6 +1265,7 @@ async function startEditEntry(entry) {
 function exitEditMode() {
   editingEntryId = null;
   editingEntryWasSplittable = false;
+  confirmingPendingId = null;
   document.getElementById("edit-mode-banner").hidden = true;
   document.getElementById("submit-btn").textContent = "Save entry";
   document.getElementById("cancel-edit-btn-2").hidden = true;
@@ -1261,6 +1310,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
 
 function openEditPopup(entry) {
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
+  document.getElementById("edit-entry-modal-title").textContent = "Edit transaction";
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -1273,6 +1323,41 @@ function closeEditPopup() {
   const screenEntries = document.getElementById("screen-entries");
   screenEntries.insertBefore(document.getElementById("entry-card"), screenEntries.firstChild);
   editingViaPopup = false;
+}
+
+// Phase 5.7's "Split" action — reuses the exact same popup and prefill
+// logic as openEditPopup/startEditEntry (category, amount, description,
+// currency, split toggle) rather than building a second, parallel split
+// UI just for the review queue. What makes this "confirming," not
+// "editing," is entirely in the submit handler's own confirmingPendingId
+// branch, above (updateEntry + confirmEntry + saveEntrySplits, instead
+// of a plain updateEntry) — everything about the form itself is
+// identical to a normal edit.
+async function openConfirmPendingPopup(entry) {
+  document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
+  const backdrop = document.getElementById("edit-entry-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  editingViaPopup = true;
+  confirmingPendingId = entry.id;
+  // Awaited (unlike the plain openEditPopup this mirrors) — startEditEntry
+  // is itself async and sets the banner/button text/visibility near its
+  // OWN end, after an internal await (fetching any existing splits); not
+  // awaiting it here let that later, unrelated write win the race and
+  // silently overwrite the overrides below back to "Update entry" a
+  // moment after this function returned — caught live in testing.
+  await startEditEntry(entry);
+  document.getElementById("edit-entry-modal-title").textContent = "Confirm transaction";
+  document.getElementById("edit-mode-banner").textContent = "✏️ Confirming entry";
+  document.getElementById("submit-btn").textContent = "Confirm entry";
+  // Discarding is the review queue row's own separate action — hidden
+  // here rather than duplicated, so there's only one place to do it.
+  document.getElementById("delete-entry-btn").hidden = true;
+}
+
+function closeConfirmPendingPopup() {
+  closeEditPopup();
+  exitEditMode();
 }
 
 // After a save/delete from the pop-up: close it and re-run the same
@@ -1410,6 +1495,12 @@ async function refreshReviewQueue() {
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
         <button type="button" class="review-discard-btn">❌ Discard</button>
       </div>
+      ${entry.type === "expense" ? `
+      <div class="review-item-secondary-actions">
+        <button type="button" class="add-inline review-split-btn">🔀 Split</button>
+        <button type="button" class="add-inline review-repay-btn">💰 Mark as repayment</button>
+        <button type="button" class="add-inline review-loan-btn">🤝 Convert to loan</button>
+      </div>` : ""}
     `;
 
     const amountInput = item.querySelector(".review-amount");
@@ -1467,6 +1558,21 @@ async function refreshReviewQueue() {
         // Stays queued, same as above.
       });
     });
+
+    // Phase 5.7's three deferred review-queue actions — only ever shown
+    // for a pending expense (never a plain internal transfer, which is
+    // always the owner's own account-to-account move, never a friend
+    // transaction; see EmailParser.gs). Unlike Confirm/Discard, above,
+    // these don't use the offline-optimistic queue — they're rarer,
+    // multi-step actions (picking a friend, a split, etc.) that don't
+    // reduce to "retry this fields object blindly," so they just call the
+    // API directly and surface an error if it fails, same as every other
+    // modal in this app.
+    if (entry.type === "expense") {
+      item.querySelector(".review-split-btn").addEventListener("click", () => openConfirmPendingPopup(entry));
+      item.querySelector(".review-repay-btn").addEventListener("click", () => openReviewTransferModal(entry, "repay"));
+      item.querySelector(".review-loan-btn").addEventListener("click", () => openReviewTransferModal(entry, "loan"));
+    }
 
     list.appendChild(item);
   });
@@ -4479,6 +4585,159 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
     await refreshLoans();
     if (returnFriend) await openLoanDetail(returnFriend.id, returnFriend.name);
     if (convert) await refreshEntryList();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+// ---- Review queue: Mark as repayment / Convert to loan (Phase 5.7) ----
+// Every pending entry email parsing catches is money the owner sent out
+// (there's no deposit/income detection built — see CLAUDE.md's Email
+// automation section), so both actions have a fixed, known direction —
+// there's nothing to pick:
+// - "Mark as repayment" means the owner paying this money down what THEY
+//   owed the friend — direction 'i_owe_them', through the exact same
+//   recordRepayment FIFO + offset engine the Loans tab's own "Record
+//   repayment" uses (see CLAUDE.md's Settlements section).
+// - "Convert to loan" means the owner lending this money to the friend
+//   — direction 'they_owe_me' (the friend now owes it back), through the
+//   same addLoan as the Loans tab's "+ Add loan" (including its own
+//   +7-day due-date default when none's given).
+// Either way, the pending entry itself is discarded afterward — it was
+// never really an expense, so it shouldn't become a confirmed one.
+
+let reviewTransferEntry = null;
+let reviewTransferMode = null; // "repay" | "loan"
+
+function populateReviewTransferFriendOptions() {
+  const select = document.getElementById("review-transfer-friend");
+  select.innerHTML = "";
+  meta.friends.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    select.appendChild(opt);
+  });
+  const addOpt = document.createElement("option");
+  addOpt.value = "__add__";
+  addOpt.textContent = "+ Add friend…";
+  select.appendChild(addOpt);
+}
+
+document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
+  if (e.target.value !== "__add__") return;
+  const name = prompt("Friend's name:");
+  e.target.value = meta.friends.length ? meta.friends[0].id : "";
+  if (name && name.trim()) {
+    const friend = await callApi("addFriend", { name: name.trim() });
+    meta.friends.push(friend);
+    populateReviewTransferFriendOptions();
+    document.getElementById("review-transfer-friend").value = friend.id;
+  }
+});
+
+function populateReviewTransferPaymentMethodOptions() {
+  const select = document.getElementById("review-transfer-payment-method");
+  select.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "None";
+  select.appendChild(noneOpt);
+  meta.paymentMethods.forEach((pm) => {
+    const opt = document.createElement("option");
+    opt.value = pm.id;
+    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    select.appendChild(opt);
+  });
+}
+
+function openReviewTransferModal(entry, mode) {
+  reviewTransferEntry = entry;
+  reviewTransferMode = mode;
+
+  document.getElementById("review-transfer-modal-title").textContent =
+    mode === "repay" ? "Mark as repayment" : "Convert to loan";
+  document.getElementById("review-transfer-context").textContent =
+    `${entry.description || "Transaction"} · ${entry.currency} ${moneyFmt(entry.amount)}`;
+  document.getElementById("review-transfer-form-error").textContent = "";
+
+  populateReviewTransferFriendOptions();
+  populateReviewTransferPaymentMethodOptions();
+  document.getElementById("review-transfer-friend").value = meta.friends.length ? meta.friends[0].id : "";
+  document.getElementById("review-transfer-amount").value = entry.amount;
+  document.getElementById("review-transfer-date").value = entry.date;
+  document.getElementById("review-transfer-payment-method").value = "";
+  document.getElementById("review-transfer-save-btn").textContent =
+    mode === "repay" ? "Mark as repayment" : "Convert to loan";
+
+  const backdrop = document.getElementById("review-transfer-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeReviewTransferModal() {
+  document.getElementById("review-transfer-modal-backdrop").hidden = true;
+  reviewTransferEntry = null;
+  reviewTransferMode = null;
+}
+
+document.getElementById("review-transfer-modal-close").addEventListener("click", closeReviewTransferModal);
+document.getElementById("review-transfer-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "review-transfer-modal-backdrop") closeReviewTransferModal();
+});
+
+document.getElementById("review-transfer-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("review-transfer-form-error");
+  errorEl.textContent = "";
+  if (!reviewTransferEntry) return;
+
+  const friendId = document.getElementById("review-transfer-friend").value;
+  const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
+  const amount = parseFloat(document.getElementById("review-transfer-amount").value);
+  const date = document.getElementById("review-transfer-date").value;
+  const paymentMethodId = document.getElementById("review-transfer-payment-method").value;
+
+  if (!friendId || friendId === "__add__") { errorEl.textContent = "Pick a friend."; return; }
+  if (!amount || amount <= 0) { errorEl.textContent = "Enter a valid amount."; return; }
+  if (!date) { errorEl.textContent = "Date is required."; return; }
+
+  const saveBtn = document.getElementById("review-transfer-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const entryId = reviewTransferEntry.id;
+    const currency = reviewTransferEntry.currency;
+
+    if (reviewTransferMode === "repay") {
+      const result = await callApi("recordRepayment", {
+        friend_id: friendId,
+        direction: "i_owe_them",
+        amount,
+        currency,
+        date,
+        payment_method_id: paymentMethodId
+      });
+      await callApi("discardEntry", { id: entryId });
+      if (result.overpaid > 0.004) {
+        alert(`Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. Check their balance on the Loans tab if you need to handle the extra.`);
+      }
+    } else {
+      await callApi("addLoan", {
+        friend_id: friendId,
+        direction: "they_owe_me",
+        amount,
+        currency,
+        date,
+        payment_method_id: paymentMethodId,
+        description: reviewTransferEntry.description || ""
+      });
+      await callApi("discardEntry", { id: entryId });
+    }
+
+    closeReviewTransferModal();
+    await refreshReviewQueue();
+    refreshLoans().catch(() => {});
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
