@@ -162,6 +162,7 @@ function routeAction(action, payload) {
     case 'listSettlementsForFriendCurrency': return listSettlementsForFriendCurrency(payload.friendId, payload.currency);
     case 'recordRepayment': return recordRepayment(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
+    case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
     case 'updateSettlement': return updateSettlement(payload);
     case 'deleteSettlement': deleteSettlement(payload.id); return { done: true };
     default: throw new Error('Unknown action: ' + action);
