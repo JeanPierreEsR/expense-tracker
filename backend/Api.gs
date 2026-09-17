@@ -112,6 +112,7 @@ function routeAction(action, payload) {
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
     case 'admin_addNameColumnToBudgets': return addNameColumnToBudgets();
     case 'admin_checkBudgetsNow': return checkBudgets();
+    case 'admin_checkOverdueLoansNow': return checkOverdueLoans();
     case 'admin_setTelegramWebhook': return telegramApi_('setWebhook', { url: getTelegramWebhookTargetUrl_() });
     case 'admin_deleteTelegramWebhook': return telegramApi_('deleteWebhook', {});
     case 'admin_telegramWebhookInfo': return telegramApi_('getWebhookInfo', {});

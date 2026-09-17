@@ -186,6 +186,21 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   return true;
 }
 
+// Phase 5.6: loan due-date alerts, same bot, same "false means not
+// configured yet, try again next cycle" contract as
+// sendTelegramBudgetAlert_ above.
+function sendTelegramLoanOverdueAlert_(loan, friendName) {
+  var chatId = getOwnerTelegramChatId_();
+  if (!chatId || !getTelegramToken_()) return false;
+
+  var directionText = loan.direction === 'they_owe_me' ? friendName + ' owes you' : 'You owe ' + friendName;
+  var text = '⏰ Overdue: ' + directionText + ' ' + loan.currency + ' ' + moneyFmt_(loan.remaining) +
+    ' (due ' + loan.due_date + ').' + (loan.description ? ' ' + loan.description : '');
+
+  telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  return true;
+}
+
 // ---- Polling for replies / button taps ----
 
 function pollTelegramUpdates() {
