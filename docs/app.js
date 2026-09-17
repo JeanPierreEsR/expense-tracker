@@ -3845,6 +3845,23 @@ async function openLoanDetail(friendId, friendName) {
       } else {
         row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
       }
+
+      // A repayment applies to either kind of loan — only editing the
+      // LOAN row itself is restricted by origin. Not shown once nothing's
+      // actually left to repay, or for a forgiven loan (there's nothing
+      // to record against it anymore).
+      if (l.status !== "forgiven" && l.remaining > 0.004) {
+        const repayBtn = document.createElement("button");
+        repayBtn.type = "button";
+        repayBtn.className = "add-inline loan-detail-repay-btn";
+        repayBtn.textContent = "💰 Record repayment";
+        repayBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openSettlementModal(l, { id: friendId, name: friendName });
+        });
+        row.appendChild(repayBtn);
+      }
+
       list.appendChild(row);
     });
   }
@@ -4050,6 +4067,166 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     await refreshAfterLoanModalChange_();
   } catch (err) {
     errorEl.textContent = err.message;
+  }
+});
+
+// ---- Settlements / repayments (Phase 5.4) ----
+// A repayment against a loan, in either direction. Applies to a cash loan
+// and an entry-derived one alike (see "💰 Record repayment" above) —
+// unlike editing the loan itself, a Settlement is never restricted by
+// origin. Never touches Entries, income/expense totals, or budgets (see
+// CLAUDE.md's Settlements section).
+
+let settlementModalLoan = null;
+let editingSettlementId = null;
+// Same purpose as loanModalReturnFriend — refreshes the friend's detail
+// sheet after a save/delete, since that's always what this was opened
+// from.
+let settlementModalReturnFriend = null;
+
+function populateSettlementPaymentMethodOptions() {
+  const select = document.getElementById("settlement-payment-method");
+  select.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "None";
+  select.appendChild(noneOpt);
+  meta.paymentMethods.forEach((pm) => {
+    const opt = document.createElement("option");
+    opt.value = pm.id;
+    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    select.appendChild(opt);
+  });
+}
+
+// Back to "add a new repayment" — the default state the form opens in,
+// and where "Cancel edit" returns it to without closing the whole modal.
+function resetSettlementForm_() {
+  editingSettlementId = null;
+  document.getElementById("settlement-save-btn").textContent = "Save repayment";
+  document.getElementById("settlement-cancel-edit-btn").hidden = true;
+  document.getElementById("settlement-delete-btn").hidden = true;
+  document.getElementById("settlement-form-error").textContent = "";
+  document.getElementById("settlement-amount").value = settlementModalLoan ? settlementModalLoan.remaining.toFixed(2) : "";
+  document.getElementById("settlement-date").value = todayLocalISO();
+  document.getElementById("settlement-payment-method").value = "";
+}
+
+function loadSettlementIntoForm_(s) {
+  editingSettlementId = s.id;
+  document.getElementById("settlement-save-btn").textContent = "Save changes";
+  document.getElementById("settlement-cancel-edit-btn").hidden = false;
+  document.getElementById("settlement-delete-btn").hidden = false;
+  document.getElementById("settlement-form-error").textContent = "";
+  document.getElementById("settlement-amount").value = s.amount;
+  document.getElementById("settlement-date").value = s.date;
+  document.getElementById("settlement-payment-method").value = s.payment_method_id || "";
+}
+
+function renderSettlementList_(settlements) {
+  const list = document.getElementById("settlement-list");
+  const emptyNote = document.getElementById("settlement-list-empty-note");
+  list.innerHTML = "";
+
+  if (settlements.length === 0) {
+    emptyNote.hidden = false;
+    return;
+  }
+  emptyNote.hidden = true;
+
+  settlements.forEach((s) => {
+    const pm = meta.paymentMethods.find((p) => p.id === s.payment_method_id);
+    const row = document.createElement("div");
+    row.className = "loan-detail-row editable";
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${s.date}${pm ? " · " + escapeHtml(pm.nickname) : ""}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-amount i-owe">${settlementModalLoan.currency} ${moneyFmt(s.amount)}</span>
+      </div>
+    `;
+    row.addEventListener("click", () => loadSettlementIntoForm_(s));
+    list.appendChild(row);
+  });
+}
+
+// `loan` is the loan object from getFriendLoanDetail (needs its own
+// .remaining, .currency, .description). `returnFriend` is {id, name}.
+async function openSettlementModal(loan, returnFriend) {
+  settlementModalLoan = loan;
+  settlementModalReturnFriend = returnFriend;
+
+  document.getElementById("settlement-modal-title").textContent = "Repayments";
+  document.getElementById("settlement-loan-context").textContent =
+    `${loan.description || "Loan"} · ${loan.currency} ${moneyFmt(loan.remaining)} remaining`;
+
+  populateSettlementPaymentMethodOptions();
+  resetSettlementForm_();
+
+  const settlements = await callApi("listSettlementsForLoan", { loanId: loan.id });
+  renderSettlementList_(settlements);
+
+  const backdrop = document.getElementById("settlement-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeSettlementModal() {
+  document.getElementById("settlement-modal-backdrop").hidden = true;
+  settlementModalLoan = null;
+  editingSettlementId = null;
+}
+
+async function refreshAfterSettlementChange_() {
+  await refreshLoans();
+  if (settlementModalReturnFriend) {
+    await openLoanDetail(settlementModalReturnFriend.id, settlementModalReturnFriend.name);
+  }
+}
+
+document.getElementById("settlement-modal-close").addEventListener("click", closeSettlementModal);
+document.getElementById("settlement-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "settlement-modal-backdrop") closeSettlementModal();
+});
+document.getElementById("settlement-cancel-edit-btn").addEventListener("click", resetSettlementForm_);
+
+document.getElementById("settlement-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("settlement-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("settlement-save-btn");
+
+  try {
+    const amount = parseFloat(document.getElementById("settlement-amount").value);
+    const date = document.getElementById("settlement-date").value;
+    const paymentMethodId = document.getElementById("settlement-payment-method").value;
+
+    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!date) throw new Error("Date is required.");
+
+    saveBtn.disabled = true;
+    if (editingSettlementId) {
+      await callApi("updateSettlement", { id: editingSettlementId, amount, date, payment_method_id: paymentMethodId });
+    } else {
+      await callApi("addSettlement", { loan_id: settlementModalLoan.id, amount, date, payment_method_id: paymentMethodId });
+    }
+    closeSettlementModal();
+    await refreshAfterSettlementChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("settlement-delete-btn").addEventListener("click", async () => {
+  if (!editingSettlementId) return;
+  if (!confirm("Delete this repayment? This can't be undone.")) return;
+
+  try {
+    await callApi("deleteSettlement", { id: editingSettlementId });
+    closeSettlementModal();
+    await refreshAfterSettlementChange_();
+  } catch (err) {
+    document.getElementById("settlement-form-error").textContent = err.message;
   }
 });
 

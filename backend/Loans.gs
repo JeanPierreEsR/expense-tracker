@@ -209,6 +209,114 @@ function deleteLoan(loanId) {
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
 }
 
+// ---- Settlements / repayments (Phase 5.4) ----
+// A Settlement is a repayment against a loan, in either direction —
+// never an Entry, never counted in income/expense totals or budgets (per
+// CLAUDE.md's Settlements section). Applies equally to a cash loan and an
+// entry-derived one; only editing/deleting the LOAN itself is restricted
+// by origin (see updateLoan/deleteLoan, above) — a repayment against it
+// is a separate row in its own table either way.
+
+function listSettlementsForLoan(loanId) {
+  return getAllRows('Settlements')
+    .filter(function (s) { return s.loan_id === loanId; })
+    .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+}
+
+// Keeps the Loan row's own `status` column in sync after any settlement
+// change — nothing in this app's own logic actually reads it for
+// outstanding/partial/repaid (remaining is always computed fresh from
+// amount minus settlements, same as own_share never being stored), but
+// the Sheet is meant to stay readable by hand, and `status` sitting there
+// unrepaid-forever while real repayments exist elsewhere would be
+// misleading. Left alone entirely for a loan already 'forgiven' — that's
+// a manual, one-way state (see Loans' `status` column), not something a
+// repayment should ever revert.
+function updateLoanStatusFromSettlements_(loanId) {
+  var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
+  if (!loan || loan.status === 'forgiven') return;
+
+  var settled = getAllRows('Settlements')
+    .filter(function (s) { return s.loan_id === loanId; })
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  var remaining = Number(loan.amount) - settled;
+  var status = remaining <= 0.004 ? 'repaid' : (settled > 0.004 ? 'partially_repaid' : 'outstanding');
+
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, loanId);
+  if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
+}
+
+function addSettlement(payload) {
+  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
+  if (!loan) throw new Error('Loan not found');
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+
+  var settledSoFar = getAllRows('Settlements')
+    .filter(function (s) { return s.loan_id === payload.loan_id; })
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  var remaining = Number(loan.amount) - settledSoFar;
+  if (Number(payload.amount) - remaining > 0.004) {
+    throw new Error("That's more than the remaining balance (" + loan.currency + ' ' + remaining.toFixed(2) + ').');
+  }
+
+  var settlement = {
+    id: Utilities.getUuid(),
+    loan_id: payload.loan_id,
+    date: payload.date,
+    amount: Number(payload.amount),
+    payment_method_id: payload.payment_method_id || ''
+  };
+  appendRowObject('Settlements', settlement);
+  updateLoanStatusFromSettlements_(payload.loan_id);
+  return settlement;
+}
+
+function updateSettlement(payload) {
+  var existing = getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
+  if (!existing) throw new Error('Repayment not found');
+  var loan = getAllRows('Loans').find(function (l) { return l.id === existing.loan_id; });
+  if (!loan) throw new Error('Loan not found');
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+
+  // Remaining balance excluding THIS settlement's own current amount —
+  // otherwise editing one down and back up again would always look like
+  // it's exceeding the balance it's itself already part of.
+  var settledOthers = getAllRows('Settlements')
+    .filter(function (s) { return s.loan_id === existing.loan_id && s.id !== payload.id; })
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  var remaining = Number(loan.amount) - settledOthers;
+  if (Number(payload.amount) - remaining > 0.004) {
+    throw new Error("That's more than the remaining balance (" + loan.currency + ' ' + remaining.toFixed(2) + ').');
+  }
+
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, payload.id);
+  if (rowIndex === -1) throw new Error('Repayment not found');
+  setCellByRow_(sheet, headers, rowIndex, 'date', payload.date);
+  setCellByRow_(sheet, headers, rowIndex, 'amount', Number(payload.amount));
+  setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
+
+  updateLoanStatusFromSettlements_(existing.loan_id);
+  return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
+}
+
+function deleteSettlement(id) {
+  var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
+  if (!existing) return;
+
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+
+  updateLoanStatusFromSettlements_(existing.loan_id);
+}
+
 // ---- Loans screen (Phase 5.2) ----
 
 function buildSettlementTotalsByLoan_() {
