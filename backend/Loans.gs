@@ -281,14 +281,14 @@ function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanI
 // Phase 2 applies the actual amount being recorded, FIFO, to whatever's
 // left in the direction being paid down. Any amount still left over once
 // every loan in that direction is fully paid is returned as `overpaid` —
-// but ONLY when direction is 'they_owe_me' (someone paid the OWNER more
-// than they owed, which really is income to the owner). The reverse case
-// — the owner paying someone more than owed — has no symmetric "income"
-// meaning (overpaying isn't the owner's income; at best it's a gift, a
-// question for the owner to handle by hand), so that case is validated
-// and rejected UP FRONT, before anything is written, rather than ever
-// producing an `overpaid` figure the caller would have to special-case
-// away silently.
+// the caller decides what that means (see createOverpaymentEntry_,
+// below): income to the owner when direction is 'they_owe_me' (someone
+// paid the owner more than they owed), or an expense of the owner's own
+// when direction is 'i_owe_them' (the owner paid someone more than was
+// owed) — mirror images of the same idea: money that moved beyond any
+// real debt isn't a loan repayment at all, it's a real transaction in
+// its own right, and whoever received it is the one who has to account
+// for it.
 function recordRepayment(payload) {
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
   if (!friend) throw new Error('Friend not found');
@@ -319,41 +319,25 @@ function recordRepayment(payload) {
   var primary = payload.direction === 'they_owe_me' ? theyOweMe : iOweThem;
   var secondary = payload.direction === 'they_owe_me' ? iOweThem : theyOweMe;
 
-  // Plan phase 1 (offset) entirely in memory first — nothing written
-  // yet — so the direction-specific overpayment check below can reject
-  // an invalid "I'm overpaying them" request before any Settlement rows
-  // exist, rather than after.
+  // Phase 1 — offset opposite-direction debt first, oldest-first on both
+  // sides.
   var primaryLeft = primary.map(function (l) { return l.remaining; });
   var secondaryLeft = secondary.map(function (l) { return l.remaining; });
-  var offsetOps = [];
+  var touchedLoanIds = {};
   var pi = 0, si = 0;
   while (pi < primary.length && si < secondary.length) {
     var chunk = Math.min(primaryLeft[pi], secondaryLeft[si]);
     if (chunk > 0.004) {
-      offsetOps.push({ loanId: primary[pi].id, otherId: secondary[si].id, amount: chunk });
-      offsetOps.push({ loanId: secondary[si].id, otherId: primary[pi].id, amount: chunk });
+      recordSettlementRow_(primary[pi].id, payload.date, chunk, '', secondary[si].id);
+      recordSettlementRow_(secondary[si].id, payload.date, chunk, '', primary[pi].id);
       primaryLeft[pi] -= chunk;
       secondaryLeft[si] -= chunk;
+      touchedLoanIds[primary[pi].id] = true;
+      touchedLoanIds[secondary[si].id] = true;
     }
     if (primaryLeft[pi] <= 0.004) pi++;
     if (secondaryLeft[si] <= 0.004) si++;
   }
-
-  var totalPrimaryAfterOffset = primaryLeft.reduce(function (sum, r) { return sum + r; }, 0);
-
-  if (payload.direction === 'i_owe_them' && Number(payload.amount) - totalPrimaryAfterOffset > 0.004) {
-    throw new Error(
-      "That's more than you owe " + friend.name + ' (' + currency + ' ' + totalPrimaryAfterOffset.toFixed(2) +
-      " remaining) — record the extra separately (a gift, or a new loan) if that's really what happened."
-    );
-  }
-
-  // Now actually write phase 1.
-  var touchedLoanIds = {};
-  offsetOps.forEach(function (op) {
-    recordSettlementRow_(op.loanId, payload.date, op.amount, '', op.otherId);
-    touchedLoanIds[op.loanId] = true;
-  });
 
   // Phase 2 — apply the real amount, FIFO, continuing from wherever
   // phase 1 left off.
@@ -376,15 +360,23 @@ function recordRepayment(payload) {
 }
 
 // The leftover from recordRepayment, above, once nothing more is owed —
-// genuinely income, not a loan, so it becomes a real confirmed Entry
-// (per principle 6, this is a direct result of the owner's own manual
-// action, same reasoning as forgiving a loan converting to an expense
-// directly — it doesn't land in the pending review queue). Income
-// entries need a Payor, not a Friend (see Payors.gs) — reuses one
-// matching the friend's name if it already exists, creates one if not,
-// so the entry looks like any other income entry rather than leaving
-// "Received from" unresolvable.
-function recordOverpaymentIncome(payload) {
+// not a loan repayment at all at that point, a real transaction in its
+// own right, so it becomes a real confirmed Entry (per principle 6, this
+// is a direct result of the owner's own manual action, same reasoning as
+// forgiving a loan converting to an expense directly — it doesn't land
+// in the pending review queue). `type` is 'income' (someone paid the
+// owner more than they owed) or 'expense' (the owner paid someone more
+// than was owed) — mirror images, see recordRepayment above.
+//
+// An income entry needs a Payor, not a Friend (see Payors.gs) — reuses
+// one matching the friend's name if it already exists, creates one if
+// not, so the entry looks like any other income entry rather than
+// leaving "Received from" unresolvable. An expense entry just uses
+// `paid_by: 'me'` — the owner paid it themselves, out of pocket, same as
+// any other plain expense; it's deliberately NOT split with the friend
+// (this money already isn't a debt with them, by definition — it's what
+// was left over once every debt was gone).
+function createOverpaymentEntry_(type, payload) {
   if (!payload.friend_id) throw new Error('Missing friend.');
   if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
   if (!payload.category_id) throw new Error('Pick a category.');
@@ -393,18 +385,18 @@ function recordOverpaymentIncome(payload) {
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
   if (!friend) throw new Error('Friend not found');
 
-  var payor = findOrCreatePayorByName_(friend.name);
-
   var entry = {
     id: Utilities.getUuid(),
-    type: 'income',
+    type: type,
     date: payload.date,
     amount: Number(payload.amount),
     currency: payload.currency || 'PEN',
     category_id: payload.category_id,
-    description: payload.description || ("Overpayment from " + friend.name + "'s loan repayment"),
+    description: payload.description || (type === 'income'
+      ? "Overpayment from " + friend.name + "'s loan repayment"
+      : "Overpayment to " + friend.name + "'s loan repayment"),
     payment_method_id: payload.payment_method_id || '',
-    paid_by: payor.id,
+    paid_by: type === 'income' ? findOrCreatePayorByName_(friend.name).id : 'me',
     status: 'confirmed',
     source: 'manual',
     external_id: '',
@@ -413,6 +405,14 @@ function recordOverpaymentIncome(payload) {
   };
   appendRowObject('Entries', entry);
   return entry;
+}
+
+function recordOverpaymentIncome(payload) {
+  return createOverpaymentEntry_('income', payload);
+}
+
+function recordOverpaymentExpense(payload) {
+  return createOverpaymentEntry_('expense', payload);
 }
 
 function findOrCreatePayorByName_(name) {

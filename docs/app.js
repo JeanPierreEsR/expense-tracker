@@ -4100,10 +4100,15 @@ function populateSettlementPaymentMethodOptions() {
   });
 }
 
-function populateOverpayCategoryOptions() {
+// `type` is "income" (they overpaid you) or "expense" (you overpaid
+// them) — mirror images, see recordRepayment/createOverpaymentEntry_ in
+// Loans.gs.
+function populateOverpayCategoryOptions(type) {
+  document.getElementById("settlement-overpay-category-label").textContent =
+    `Category (${type})`;
   const select = document.getElementById("settlement-overpay-category");
   select.innerHTML = "";
-  meta.categories.filter((c) => c.type === "income").forEach((c) => {
+  meta.categories.filter((c) => c.type === type).forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c.id;
     opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
@@ -4294,10 +4299,15 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
     await refreshSettlementList_();
 
     if (result.overpaid > 0.004) {
-      pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId };
-      document.getElementById("settlement-overpay-note").textContent =
-        `${repaymentFriendName} paid ${result.currency} ${moneyFmt(result.overpaid)} more than they owed — recording it as income.`;
-      populateOverpayCategoryOptions();
+      // Mirror images: they overpaying YOU is your income; YOU overpaying
+      // them is your expense (paid_by: "me", no split — see
+      // createOverpaymentEntry_ in Loans.gs).
+      const isIncome = repaymentDirection === "they_owe_me";
+      pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId, entryType: isIncome ? "income" : "expense" };
+      document.getElementById("settlement-overpay-note").textContent = isIncome
+        ? `${repaymentFriendName} paid ${result.currency} ${moneyFmt(result.overpaid)} more than they owed — recording it as income.`
+        : `You paid ${repaymentFriendName} ${result.currency} ${moneyFmt(result.overpaid)} more than you owed — recording it as an expense.`;
+      populateOverpayCategoryOptions(pendingOverpay.entryType);
       document.getElementById("settlement-overpay-error").textContent = "";
       document.getElementById("settlement-form").hidden = true;
       document.getElementById("settlement-overpay-section").hidden = false;
@@ -4334,7 +4344,8 @@ document.getElementById("settlement-overpay-save-btn").addEventListener("click",
   const saveBtn = document.getElementById("settlement-overpay-save-btn");
   saveBtn.disabled = true;
   try {
-    await callApi("recordOverpaymentIncome", {
+    const action = pendingOverpay.entryType === "income" ? "recordOverpaymentIncome" : "recordOverpaymentExpense";
+    await callApi(action, {
       friend_id: repaymentFriendId,
       amount: pendingOverpay.amount,
       currency: pendingOverpay.currency,
