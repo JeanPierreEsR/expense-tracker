@@ -383,13 +383,31 @@ function learnCategoryKeyword_(description, categoryId) {
 /**
  * Confirms a pending entry and, if it came from email, teaches the
  * category-keyword list from whatever category it was confirmed with.
- * Shared by both the app's Confirm button and the Telegram bot's Confirm
- * tap, so the learning happens no matter which interface is used.
+ * Shared by both the app's plain Confirm button and the Telegram bot's
+ * Confirm tap, so the learning happens no matter which interface is used.
+ *
+ * Also closes a real gap found 2026-09-17: the split-entry UI's own
+ * "100% to whoever paid, by default" logic (see saveEntrySplits in
+ * Loans.gs) only ever ran from the frontend — the app's own entry-form
+ * submit handler, and the Phase 5.7 "Split" popup. Neither the app's
+ * plain Confirm button nor Telegram's ever called it, so a friend-paid
+ * expense confirmed through either of those (e.g. after a Telegram
+ * "paid by Luty" reply) silently got no loan at all, even though it
+ * displayed "paid by Luty" — the debt just didn't exist anywhere. Now
+ * every confirm path runs the same default. Skipped when a real split
+ * already exists for this entry (e.g. from a Telegram "split ..." reply,
+ * or the in-app Split popup already having called saveEntrySplits
+ * itself) — saveEntrySplits replaces whatever's there from scratch, so
+ * calling it again with an empty list here would silently wipe out a
+ * split the owner just went to the trouble of setting up.
  */
 function confirmEntryWithLearning_(entryId) {
   var entry = getEntryById_(entryId);
   if (entry && entry.source === 'email') {
     learnCategoryKeyword_(entry.description, entry.category_id);
+  }
+  if (entry && entry.type === 'expense' && !getEntrySplits(entryId).length) {
+    saveEntrySplits(entryId, []);
   }
   setEntryField_(entryId, 'status', 'confirmed');
 }
