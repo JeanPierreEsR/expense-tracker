@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-22T12:27:54Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-22T12:37:40Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -745,10 +745,16 @@
       </div>
       <p class="hint" id="projection-override-modal-subtitle"></p>
 
+      <div class="type-tabs budget-period-tabs" id="projection-override-mode-tabs">
+        <div class="type-tab active" data-mode="total">Total for period</div>
+        <div class="type-tab" data-mode="remaining">Remaining (from today)</div>
+      </div>
+
       <div class="rate-equation">
         <span class="rate-equation-label">PEN</span>
         <input type="text" inputmode="decimal" id="projection-override-value-input" placeholder="0.00">
       </div>
+      <p class="hint" id="projection-override-mode-hint"></p>
 
       <p class="hint" id="projection-override-form-error" style="color:#d64545;"></p>
       <button type="button" class="primary" id="projection-override-save-btn">Save</button>
@@ -757,6 +763,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-22T12:27:54Z"></script>
+  <script src="app.js?v=2026-09-22T12:37:40Z"></script>
 </body>
 </html>

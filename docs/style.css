@@ -1513,7 +1513,13 @@ button.primary:disabled {
 }
 
 .projection-line-amount {
-  min-width: 78px;
+  /* Wide enough for a real 5-figure amount (e.g. "PEN 10,935.06" measures
+     ~110px at this font) — min-width alone doesn't share a column across
+     sibling lines, so a figure that exceeds it grows past the boundary
+     and stops lining up with shorter lines in the same row (found
+     2026-09-22: an income category's "Programmed" line, often a 5-figure
+     salary, drifting right of its own "Actual" line at the old 78px). */
+  min-width: 116px;
   flex-shrink: 0;
   color: var(--text);
   font-weight: 500;

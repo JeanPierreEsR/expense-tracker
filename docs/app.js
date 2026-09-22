@@ -3845,26 +3845,27 @@ function renderProjectionDrilldownAmount_(detail) {
 // month-by-month YTD breakdown as before, PLUS a bridge line showing how
 // the full monthly rate gets pro-rated down to just the remaining days.
 //
-// Income never gets this split (matches the "By category" row's own
-// isIncome gate) — its baseAmountPen isn't a year-to-date GUESS the way
-// expense/investment's is, it's already-confirmed income the server just
-// hasn't matched to a recurring item yet (see CLAUDE.md's per-category
-// rule). Calling that "Expected" alongside "Programmed" implied it was a
-// similar kind of estimate, when it's just as real/certain as the
-// recurring portion — so for income the whole total shows as one plain
-// figure instead.
+// Income still gets "Programmed" (fixed 2026-09-22 — it was being hidden
+// entirely, along with Expected, by one shared gate) since a recurring
+// income item not yet matched to a real entry is exactly as real a
+// figure as it is for an expense/investment category, and the "By
+// category" row above this drill-down already shows it. Income just
+// never gets "Expected" — its second bucket isn't a year-to-date GUESS
+// the way expense/investment's is (see CLAUDE.md's per-category rule),
+// so that one row/trace-back stays hidden for income specifically,
+// rather than showing a meaningless "PEN 0.00" next to a real figure.
 function renderProjectionSplit_(detail) {
   const p = detail.projection;
   const splitEl = document.getElementById("drilldown-projection-split");
-  const isExpenseOrInvestment = p.category_type === "expense" || p.category_type === "investment";
-  const show = isExpenseOrInvestment && !p.hasOverride;
+  const isIncome = p.category_type === "income";
+  const show = !p.hasOverride;
   splitEl.hidden = !show;
   document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
+  document.getElementById("drilldown-projection-expected-row").hidden = isIncome;
   if (!show) return;
 
   document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
-  document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.expectedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;
@@ -3876,6 +3877,10 @@ function renderProjectionSplit_(detail) {
       </div>
     `).join("")
     : `<div class="projection-month-row"><span>Nothing outstanding — already matched to a confirmed entry, or nothing due this period.</span></div>`;
+
+  if (isIncome) return; // no Expected row/YTD breakdown to trace for income
+
+  document.getElementById("drilldown-projection-expected-amount").textContent = formatPen(p.expectedRemainingPen);
 
   const breakdown = detail.ytdBreakdown;
   const formulaEl = document.getElementById("drilldown-projection-expected-formula");
@@ -4000,16 +4005,53 @@ function renderProjectionChart_(detail) {
 
 // ---- Projections: editing a category's projected total ----
 
-let projectionOverrideState = null; // { categoryId, periodKey }
+let projectionOverrideState = null; // { categoryId, periodKey, actualPen }
+let projectionOverrideMode = "total"; // "total" | "remaining" — see setProjectionOverrideMode_
+
+// An override is always stored as one number: the FULL period's total
+// (setProjectionOverride's own `amount` — unchanged by this). "Remaining"
+// mode is purely a second way to TYPE that same number — the input shows
+// total − actualPen instead, and gets converted back to a total right
+// before saving (see the save handler below) — because in practice it's
+// often easier to think "I know I've got about PEN 300 left to spend
+// this month" than to first do the arithmetic to a full-period total by
+// hand. Switching tabs mid-edit converts whatever's currently typed
+// instead of discarding it, so toggling back and forth never loses an
+// in-progress edit.
+function setProjectionOverrideMode_(newMode) {
+  const input = document.getElementById("projection-override-value-input");
+  const typed = parseFloat(input.value);
+  if (!isNaN(typed) && projectionOverrideState) {
+    const actual = projectionOverrideState.actualPen;
+    const total = projectionOverrideMode === "total" ? typed : actual + typed;
+    input.value = Math.max(0, newMode === "total" ? total : total - actual).toFixed(2);
+  }
+  projectionOverrideMode = newMode;
+  document.querySelectorAll("#projection-override-mode-tabs .type-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.mode === newMode);
+  });
+  document.getElementById("projection-override-mode-hint").textContent = newMode === "total"
+    ? `Includes the ${formatPen(projectionOverrideState.actualPen)} already actual this period.`
+    : `What's left to happen — the ${formatPen(projectionOverrideState.actualPen)} already actual gets added automatically.`;
+}
+
+document.querySelectorAll("#projection-override-mode-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => setProjectionOverrideMode_(tab.dataset.mode));
+});
 
 function openProjectionOverrideModal_(categoryProjection, detail) {
-  projectionOverrideState = { categoryId: categoryProjection.category_id, periodKey: detail.bounds.periodKey };
+  projectionOverrideState = {
+    categoryId: categoryProjection.category_id,
+    periodKey: detail.bounds.periodKey,
+    actualPen: detail.projection.actualPen
+  };
   document.getElementById("projection-override-modal-title").textContent = "Edit projected total";
   document.getElementById("projection-override-modal-subtitle").textContent =
-    `${categoryProjection.category_name} — currently ${detail.projection.hasOverride ? "manually set" : "calculated"} at ${formatPen(detail.projection.amountPen)}.`;
+    `${categoryProjection.category_name} — currently ${detail.projection.hasOverride ? "manually set" : "calculated"} at ${formatPen(detail.projection.amountPen)} total.`;
   document.getElementById("projection-override-value-input").value = detail.projection.amountPen.toFixed(2);
   document.getElementById("projection-override-form-error").textContent = "";
   document.getElementById("projection-override-reset-btn").hidden = !detail.projection.hasOverride;
+  setProjectionOverrideMode_("total");
 
   const backdrop = document.getElementById("projection-override-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -4046,11 +4088,15 @@ document.getElementById("projection-override-save-btn").addEventListener("click"
   if (!projectionOverrideState) return;
   const errorEl = document.getElementById("projection-override-form-error");
   errorEl.textContent = "";
-  const amount = parseFloat(document.getElementById("projection-override-value-input").value);
-  if (isNaN(amount) || amount < 0) {
+  const typed = parseFloat(document.getElementById("projection-override-value-input").value);
+  if (isNaN(typed) || typed < 0) {
     errorEl.textContent = "Enter a valid amount.";
     return;
   }
+  // The override is always stored as the full period's total, regardless
+  // of which mode was used to type it — "remaining" mode is converted
+  // back here, the one place it actually matters.
+  const amount = projectionOverrideMode === "total" ? typed : projectionOverrideState.actualPen + typed;
   const saveBtn = document.getElementById("projection-override-save-btn");
   saveBtn.disabled = true;
   try {
