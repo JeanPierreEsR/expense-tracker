@@ -652,4 +652,5 @@ function deleteEntry_(entryId) {
   // confirmed entries) — see deleteEntrySplitsAndLoansForEntry_ in
   // Loans.gs for what it does when there's something to clean up.
   deleteEntrySplitsAndLoansForEntry_(entryId);
+  deleteRowsWhere_('Entry Tags', function (row) { return row.entry_id === entryId; });
 }

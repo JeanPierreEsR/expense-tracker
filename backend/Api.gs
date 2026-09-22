@@ -157,6 +157,8 @@ function routeAction(action, payload) {
     case 'getEntry': return getEntryById_(payload.id);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
+    case 'getEntryTags': return getEntryTags(payload);
+    case 'saveEntryTags': return saveEntryTags(payload);
     case 'listLoanBalances': return listLoanBalances();
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'addLoan': return addLoan(payload);
@@ -298,6 +300,28 @@ function createEntry(payload) {
   }
 
   return entry;
+}
+
+function getEntryTags(payload) {
+  return getAllRows('Entry Tags')
+    .filter(function (et) { return et.entry_id === payload.entryId; })
+    .map(function (et) { return et.tag_id; });
+}
+
+// Replaces this entry's whole tag set with the new one — same
+// recalculate-from-scratch approach saveEntrySplits/saveRecurringExpenseSplits
+// use, so editing tags never leaves a stale row behind. Always sent, even
+// as [] — that's how removing every tag from an already-tagged entry
+// actually clears it.
+function saveEntryTags(payload) {
+  var entryId = payload.entryId;
+  deleteRowsWhere_('Entry Tags', function (row) { return row.entry_id === entryId; });
+  var tagIds = payload.tagIds || [];
+  if (tagIds.length) {
+    var sheet = getSheet('Entry Tags');
+    tagIds.forEach(function (tagId) { sheet.appendRow([entryId, tagId]); });
+  }
+  return { tagIds: tagIds };
 }
 
 // With thousands of historical entries now imported, an unbounded fetch

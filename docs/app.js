@@ -964,6 +964,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!categoryId) throw new Error("Pick a category.");
     if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
     const splits = validateSplitIfEnabled();
+    const tagIds = Array.from(selectedTagIds);
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -1003,6 +1004,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
         await callApi("saveEntrySplits", { entryId: confirmingPendingId, splits: splits || [] });
       }
+      await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
     } else if (editingEntryId) {
       await ensureExchangeRate(currency, date);
       await callApi("updateEntry", {
@@ -1028,6 +1030,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (selectedType === "expense" || editingEntryWasSplittable) {
         await callApi("saveEntrySplits", { entryId: editingEntryId, splits: splits || [] });
       }
+      // Always sent, even as [] — same reasoning as splits above: that's
+      // how removing every tag from an already-tagged entry actually
+      // clears it, rather than silently leaving the old ones in place.
+      await callApi("saveEntryTags", { entryId: editingEntryId, tagIds });
       exitEditMode();
     } else if (canProgram) {
       // No ensureExchangeRate here on purpose — a Programmed item's PEN
@@ -1056,7 +1062,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
-        tag_ids: Array.from(selectedTagIds)
+        tag_ids: tagIds
       });
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
@@ -1250,8 +1256,14 @@ async function startEditEntry(entry) {
     document.getElementById("payment_method").value = entry.payment_method_id || "";
   }
 
-  document.getElementById("tags-field").hidden = true;
-  document.getElementById("tags-edit-note").hidden = false;
+  // Tags are per-entry (Entry Tags), not a column on Entries — loaded
+  // fresh for whichever entry is being edited, same reasoning as the
+  // split-loading below. Start from a clean slate so a previous entry's
+  // selection can't leak into this one.
+  selectedTagIds.clear();
+  const entryTagIds = await callApi("getEntryTags", { entryId: entry.id });
+  entryTagIds.forEach((id) => selectedTagIds.add(id));
+  populateTags();
 
   // showDetailForm (above) already showed/hid #split-field via
   // toggleSplitFieldVisibility; for a non-expense entry that also cleared
@@ -1294,8 +1306,8 @@ function exitEditMode() {
   document.getElementById("submit-btn").textContent = "Save entry";
   document.getElementById("cancel-edit-btn-2").hidden = true;
   document.getElementById("delete-entry-btn").hidden = true;
-  document.getElementById("tags-field").hidden = false;
-  document.getElementById("tags-edit-note").hidden = true;
+  selectedTagIds.clear();
+  populateTags();
   resetSplitState();
 }
 
