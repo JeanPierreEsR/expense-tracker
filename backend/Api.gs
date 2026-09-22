@@ -366,8 +366,25 @@ function listEntries(payload) {
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   if (limit) entries = entries.slice(0, limit);
 
+  // own_share/own_share_pen: this entry's actual cost to the owner (amount
+  // minus whatever's been split off to friends — Entry Splits is
+  // expense-only, same reasoning as Reports.gs/Budgets.gs/Projections.gs).
+  // `amount`/`amount_pen` stay the FULL disbursement (still needed as-is
+  // for editing an entry, Loans, etc.) — this only adds the owner's-share
+  // figure alongside it, for the frontend to render per CLAUDE.md's
+  // "big amount is my share" rule.
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
+    var ownShare = entry.type === 'expense'
+      ? Number(entry.amount) - (splitSumByEntry[entry.id] || 0)
+      : Number(entry.amount);
+    entry.own_share = ownShare;
+    entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
   });
   return entries;
 }

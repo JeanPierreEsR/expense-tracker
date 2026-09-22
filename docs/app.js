@@ -1118,21 +1118,45 @@ function formatAmount(amount, currency) {
 // original amount stays visible without competing with PEN as the primary
 // number. The review queue (formatAmount above) is left as original-first,
 // since a pending entry's PEN value can still be provisional.
+//
+// A split expense (own_share < amount — see listEntries' own_share/
+// own_share_pen fields) leads with the OWNER'S share, not the full
+// disbursement — that's what actually counts against budgets/reports
+// (see CLAUDE.md), so it's what should stand out as the big number too.
+// The full disbursement still shows, smaller/grey, as a "Total" line
+// underneath — for PEN that's the only extra line; for a foreign currency
+// it's a second line below the owner's-share-in-that-currency line, same
+// pattern generalized from what a plain USD split looks like.
 function renderEntryAmountHtml(entry) {
-  if (entry.currency === "PEN") {
-    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
-  }
+  const hasSplit = entry.own_share != null &&
+    Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
-  const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
+  if (entry.currency === "PEN") {
+    if (!hasSplit) {
+      return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
+    }
+    const totalLine = `<span class="original-amt">Total PEN ${moneyFmt(entry.amount)}</span>`;
+    return `<span class="primary-amt">PEN ${moneyFmt(entry.own_share)}</span>${totalLine}`;
+  }
 
   if (entry.amount_pen == null) {
     // No PEN value on file for this one (can happen on an older imported
     // entry whose month never got a rate entered) — fall back to the
     // original amount as the primary line rather than showing nothing.
+    // Nothing meaningful to pro-rate for a split without a rate, so this
+    // stays the full-amount fallback either way.
     return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
   }
 
-  return `<span class="primary-amt">PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+  if (!hasSplit) {
+    const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
+    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+  }
+
+  const primaryPen = entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen;
+  const ownShareLine = `<span class="original-amt">${formatAmount(entry.own_share, entry.currency)}</span>`;
+  const totalLine = `<span class="original-amt">Total ${formatAmount(entry.amount, entry.currency)}</span>`;
+  return `<span class="primary-amt">PEN ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
 }
 
 function findCategory(id) {
