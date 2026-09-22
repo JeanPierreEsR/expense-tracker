@@ -2060,7 +2060,13 @@ async function openBudgetDrilldown(budget) {
   document.getElementById("drilldown-menu-btn").hidden = false;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-projection-row").hidden = true;
-  document.getElementById("drilldown-chart-legend-2").textContent = "Pace to stay in budget";
+  // "Projected" (not "Pace to stay in budget") since the dashed line
+  // stopped being an even pace toward the flat budget cap and became the
+  // same expected+programmed forecast Projections draws (2026-09-22) —
+  // the cap itself is still shown, just as its own separate flat
+  // reference line (budgetLineY, below), so the wording only needs to
+  // describe THIS line.
+  document.getElementById("drilldown-chart-legend-2").textContent = "Projected";
 
   // Hide immediately (and clear any previous SVG) rather than leaving
   // whatever budget's chart was already on screen — the fetch below is
@@ -2114,7 +2120,8 @@ async function loadAndRenderBudgetChart_(budget) {
     const data = await callApi("getBudgetChartSeries", {
       budgetId: budget.id,
       startDate: p.startDate,
-      endDate: p.endDate
+      endDate: p.endDate,
+      periodType: p.effectivePeriodType
     });
     // The drill-down may have been closed, or moved on to a different
     // budget, while this was in flight.
@@ -2214,6 +2221,7 @@ function renderBudgetChart_(data, budget) {
   // "known"); one that hasn't started yet draws nothing.
   const todayStr = todayLocalISO();
   const actualEndIdx = todayStr < p.startDate ? -1 : (todayStr > p.endDate ? n - 1 : days.indexOf(todayStr));
+  const actualSoFar = actualEndIdx >= 0 ? actualPoints[actualEndIdx] : 0;
 
   const recurringByDate = {};
   (data.recurringOccurrences || []).forEach((o) => {
@@ -2221,29 +2229,39 @@ function renderBudgetChart_(data, budget) {
   });
   const recurringDays = Object.keys(recurringByDate).sort();
 
-  // Each recurring expense's day is a datapoint at its cumulative amount
-  // so far — a straight line connects 0 (period start) to the first one,
-  // each to the next, and the last to the budget amount at period end,
-  // rather than a flat-then-vertical staircase. Same logic either way,
-  // monthly or yearly — it just runs over whatever `days`/`recurringDays`
-  // cover for that period.
-  const paceVertices = [[0, 0]];
-  let recurringRunning = 0;
+  // Same "Expected ramp + Programmed bump" line the Projections drill-down
+  // chart draws (unified 2026-09-22 — see CLAUDE.md): a constant per-day
+  // rate for "Expected" (the YTD average across whatever this budget
+  // covers, from getBudgetChartSeries) between events, a vertical jump at
+  // each still-outstanding recurring item's own real calendar day. Starts
+  // at today's actual, not 0 — this is a genuine forecast of where spend
+  // is headed, not an idealized even pace toward the budget cap from the
+  // period's first day (that idea — a flat target you're racing toward —
+  // is still shown, just as the separate flat `budgetLineY` reference
+  // below, so the two stay comparable rather than conflated into one
+  // line). daysLeft/expectedRemaining come straight from the backend so
+  // this can't drift from its own "N days left" pace note.
+  const startIdx = Math.max(actualEndIdx, 0);
+  const daysLeft = data.daysLeft != null ? data.daysLeft : Math.max(n - 1 - startIdx, 0);
+  const expectedPerDay = daysLeft > 0 ? (data.expectedRemaining || 0) / daysLeft : 0;
+
+  const paceVertices = [[startIdx, actualSoFar]];
+  let cumulativeProgrammed = 0;
   recurringDays.forEach((d) => {
-    const idx = days.indexOf(d);
+    const idx = Math.max(days.indexOf(d), startIdx);
     if (idx === -1) return;
-    recurringRunning += recurringByDate[d];
-    paceVertices.push([idx, recurringRunning]);
+    const cumulativeExpected = expectedPerDay * (idx - startIdx);
+    paceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
+    cumulativeProgrammed += recurringByDate[d];
+    paceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
   });
   const lastIdx = n - 1;
-  // If recurring expenses alone already reach (or exceed) the budget, the
-  // line just goes flat for the rest rather than sloping downward.
-  const finalTarget = Math.max(budgetAmount, recurringRunning);
+  const finalValue = actualSoFar + expectedPerDay * daysLeft + cumulativeProgrammed;
   const lastVertex = paceVertices[paceVertices.length - 1];
-  if (lastVertex[0] === lastIdx) lastVertex[1] = finalTarget;
-  else paceVertices.push([lastIdx, finalTarget]);
+  if (lastVertex[0] === lastIdx) lastVertex[1] = finalValue;
+  else paceVertices.push([lastIdx, finalValue]);
 
-  const maxY = Math.max(budgetAmount, recurringRunning, ...actualPoints, 1) * 1.08;
+  const maxY = Math.max(budgetAmount, finalValue, ...actualPoints, 1) * 1.08;
 
   // Plot area sits inset from the full SVG canvas — a left margin for the
   // Y-axis' money labels, a bottom margin for the X-axis' date labels.
@@ -3959,7 +3977,52 @@ function renderProjectionChart_(detail) {
   const projectedTotal = actualSoFar + detail.projection.remainingTotalPen;
   const startIdx = Math.max(actualEndIdx, 0);
   const convergenceTarget = Math.max(projectedTotal, actualSoFar);
-  const convergenceVertices = [[startIdx, actualSoFar], [n - 1, convergenceTarget]];
+
+  // The dashed line used to be one straight segment from today's actual
+  // to the period-end target — implying spend arrives in one smooth,
+  // even drip. It's really two different things: a known "Programmed"
+  // item lands on its own real calendar day (a bump), while everything
+  // else in between is a smooth guess. Built as a vertex per
+  // still-outstanding occurrence — a flat ramp up to its day, then a
+  // vertical jump by that occurrence's own amount — ending on the exact
+  // same `convergenceTarget` the flat reference line/caption already use,
+  // so the two can never visually disagree. An occurrence at or before
+  // today (overdue, still unmatched) clamps to today's own x position —
+  // there's no "before today" on this line to place it on, so it shows
+  // as an immediate jump right at the start instead. Degrades to the old
+  // 2-point straight segment when there's nothing programmed left.
+  //
+  // Still bumps under a manual override (fixed 2026-09-22 — the first
+  // version of this skipped bumps entirely whenever hasOverride, on the
+  // theory that an override "replaces" Programmed/Expected. That's true
+  // for what the ROW shows, but the backend still computes real
+  // programmedBreakdown.occurrences regardless of an override — a known
+  // recurring payment due on its own real calendar day doesn't stop
+  // being real just because the owner overrode the period's TOTAL. The
+  // smooth portion between bumps becomes "whatever's left of the
+  // override after the known bumps" instead of the YTD rate — still
+  // converges on the same override-derived `convergenceTarget` either
+  // way, so this can't visually contradict the override note/caption.
+  const p = detail.projection;
+  const occurrences = (detail.programmedBreakdown && detail.programmedBreakdown.occurrences) || [];
+  const programmedTotal = occurrences.reduce((sum, occ) => sum + occ.amountPen, 0);
+  const daysLeft = Math.max(n - 1 - startIdx, 0);
+  const smoothRemaining = p.hasOverride
+    ? Math.max(0, convergenceTarget - actualSoFar - programmedTotal)
+    : p.expectedRemainingPen;
+  const expectedPerDay = daysLeft > 0 ? smoothRemaining / daysLeft : 0;
+
+  const convergenceVertices = [[startIdx, actualSoFar]];
+  let cumulativeProgrammed = 0;
+  occurrences.forEach((occ) => {
+    const idx = Math.max(days.indexOf(occ.date), startIdx);
+    if (idx < 0) return;
+    const cumulativeExpected = expectedPerDay * (idx - startIdx);
+    convergenceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
+    cumulativeProgrammed += occ.amountPen;
+    convergenceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
+  });
+  convergenceVertices.push([n - 1, convergenceTarget]);
 
   const maxY = Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08;
   const W = 300, H = 130;

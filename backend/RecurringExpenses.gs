@@ -605,6 +605,21 @@ function formatCalendarDate_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
+// Days remaining in a period, today's own day already excluded — the
+// same "N days left" convention the Projections chart's caption and
+// daysLeft (computeAllCategoryProjections_) use, extracted here so
+// Budgets' own chart (getBudgetChartSeries) can share it exactly rather
+// than risk a second, subtly different definition drifting from it.
+// today itself counts as already reflected in "actual," so it isn't
+// double-counted as remaining; a period that hasn't started yet counts
+// its whole span as remaining; one that's already ended has none left.
+function daysLeftInPeriod_(startDate, endDate) {
+  var todayStr = formatCalendarDate_(new Date());
+  if (todayStr < startDate) return daysBetweenDates_(endDate, startDate) + 1;
+  if (todayStr > endDate) return 0;
+  return daysBetweenDates_(endDate, todayStr);
+}
+
 function daysBetweenDates_(dateStrA, dateStrB) {
   var msPerDay = 24 * 60 * 60 * 1000;
   var a = new Date(dateStrA + 'T00:00:00');

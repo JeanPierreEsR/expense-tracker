@@ -171,14 +171,7 @@ function computeAllCategoryProjections_(bounds) {
   // period that hasn't started yet (reachable via the drill-down's own
   // period nav) treats the whole thing as remaining.
   var todayStr = formatCalendarDate_(new Date());
-  var daysLeft;
-  if (todayStr < bounds.startDate) {
-    daysLeft = daysBetweenDates_(bounds.endDate, bounds.startDate) + 1;
-  } else if (todayStr > bounds.endDate) {
-    daysLeft = 0;
-  } else {
-    daysLeft = daysBetweenDates_(bounds.endDate, todayStr);
-  }
+  var daysLeft = daysLeftInPeriod_(bounds.startDate, bounds.endDate);
 
   var categories = getAllRows('Categories').filter(function (c) {
     return c.type === 'income' || c.type === 'expense' || c.type === 'investment';
@@ -537,6 +530,14 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
+  // dailyPen: date -> summed PEN across every still-outstanding occurrence
+  // that lands on it (more than one recurring item can share a day) — feeds
+  // the drill-down chart's "bump" at each real calendar date, separate
+  // from `items` below (grouped by recurring ITEM instead of by date, for
+  // the trace-back list). Both are built from the same occDates/toPen_
+  // pass so they can never disagree with each other or with the summed
+  // totalPen below.
+  var dailyPen = {};
   var items = recurringForPeriod.map(function (r) {
     var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate)
       .filter(function (occDate) {
@@ -546,7 +547,10 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     var amountPen = 0;
     occDates.forEach(function (occDate) {
       var pen = toPen_(ownAmount, r.currency || 'PEN', occDate);
-      if (pen != null) amountPen += pen;
+      if (pen != null) {
+        amountPen += pen;
+        dailyPen[occDate] = (dailyPen[occDate] || 0) + pen;
+      }
     });
     return {
       id: r.id,
@@ -560,8 +564,13 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
 
   items.sort(function (a, b) { return b.amountPen - a.amountPen; });
 
+  var occurrences = Object.keys(dailyPen).sort().map(function (date) {
+    return { date: date, amountPen: dailyPen[date] };
+  });
+
   return {
     items: items,
+    occurrences: occurrences,
     totalPen: items.reduce(function (sum, item) { return sum + item.amountPen; }, 0)
   };
 }

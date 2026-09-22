@@ -386,14 +386,17 @@ function listBudgets(payload) {
   };
 }
 
-// Feeds the drill-down's line chart: actual spend per day, plus recurring
-// expenses tied to this budget's categories attributed to their actual
-// calendar day within the period — both in the budget's own currency, same
-// conversion rule as everywhere else in this file (an entry/recurring item
-// already in the budget's currency contributes exactly its own amount, no
-// conversion). startDate/endDate come from the budget's already-computed
-// progress (see computeBudgetProgressWithContext_), so this doesn't
-// re-derive period bounds on its own.
+// Feeds the drill-down's line chart: actual spend per day, still-outstanding
+// recurring expenses attributed to their actual calendar day within the
+// period, and the same year-to-date "Expected" rate Projections uses,
+// summed across every category this budget covers — all in the budget's
+// own currency, same conversion rule as everywhere else in this file (an
+// entry/recurring item already in the budget's currency contributes
+// exactly its own amount, no conversion). startDate/endDate come from the
+// budget's already-computed progress (see computeBudgetProgressWithContext_),
+// so this doesn't re-derive period bounds on its own; periodType (monthly/
+// yearly) is needed separately for the same "skip a yearly-only category"
+// rule Projections applies.
 function getBudgetChartSeries(payload) {
   var startDate = payload.startDate;
   var endDate = payload.endDate;
@@ -420,8 +423,27 @@ function getBudgetChartSeries(payload) {
     dailySpend[e.date] = (dailySpend[e.date] || 0) + amt;
   });
 
-  var recurringOccurrences = [];
   var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+  // Raw (unshaped) confirmed entries in range — buildBudgetContext_'s own
+  // spendEntries strip fields (id, full amount, recurring_expense_id) that
+  // entryMatchesRecurringOccurrence_ needs, so this reads them separately
+  // rather than reshaping that shared context.
+  var entriesInRange = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.date >= startDate && e.date <= endDate &&
+      categoryIdMatches_(categoryIds, e.category_id);
+  });
+
+  // Only occurrences WITHOUT a matching confirmed entry become a bump —
+  // same "Programmed" rule Projections uses (fixed 2026-09-22 here too:
+  // this used to include every occurrence in range regardless of whether
+  // it was already paid, so an already-recorded rent payment could still
+  // show as a phantom future bump on top of its own real entry already
+  // sitting in the actual line).
+  var recurringOccurrences = [];
   getRecurringExpenseRows_().forEach(function (r) {
     if (String(r.active) === 'false' || !categoryIdMatches_(categoryIds, r.category_id)) return;
     var reCurrency = r.currency || 'PEN';
@@ -440,12 +462,46 @@ function getBudgetChartSeries(payload) {
       if (rePen != null) amt = currency === 'PEN' ? rePen : (rate != null ? rePen / rate : null);
     }
     if (amt == null) return;
-    recurringExpenseOccurrencesInRange_(r, startDate, endDate).forEach(function (date) {
-      recurringOccurrences.push({ date: date, amount: amt, description: r.description || '' });
-    });
+    recurringExpenseOccurrencesInRange_(r, startDate, endDate)
+      .filter(function (date) {
+        return !entriesInRange.some(function (e) {
+          return entryMatchesRecurringOccurrence_(e, r, [date], entrySplitSumByEntry, recurringSplitSums);
+        });
+      })
+      .forEach(function (date) {
+        recurringOccurrences.push({ date: date, amount: amt, description: r.description || '' });
+      });
   });
 
-  return { currency: currency, dailySpend: dailySpend, recurringOccurrences: recurringOccurrences };
+  // "Expected" — the exact same year-to-date rate Projections computes
+  // per category (computeCategoryYtdBreakdown_, Projections.gs), pro-rated
+  // to the days actually left (daysLeftInPeriod_, the same "N days left"
+  // convention the Projections chart's own caption uses) and summed across
+  // every category this budget covers, converted into the budget's own
+  // currency the same way a recurring item's amount is above. A category
+  // the owner has flagged `period_type: yearly` is skipped in anything but
+  // a yearly view, same rule Projections applies — no smoothed monthly
+  // guess for a cost that's only ever meaningful once a year.
+  var daysLeft = daysLeftInPeriod_(startDate, endDate);
+  var allExpenseCategories = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; });
+  var budgetCategories = categoryIds === null
+    ? allExpenseCategories
+    : allExpenseCategories.filter(function (c) { return categoryIds.indexOf(c.id) !== -1; });
+  var expectedRemainingPen = 0;
+  budgetCategories.forEach(function (cat) {
+    if (String(cat.period_type || '').toLowerCase() === 'yearly' && payload.periodType !== 'yearly') return;
+    var ytd = computeCategoryYtdBreakdown_(cat.id);
+    expectedRemainingPen += ytd.ratePerMonth * (daysLeft / 30);
+  });
+  var expectedRemaining = currency === 'PEN' ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
+
+  return {
+    currency: currency,
+    dailySpend: dailySpend,
+    recurringOccurrences: recurringOccurrences,
+    expectedRemaining: expectedRemaining || 0,
+    daysLeft: daysLeft
+  };
 }
 
 function addBudget(payload) {
