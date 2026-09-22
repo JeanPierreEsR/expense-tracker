@@ -3856,6 +3856,24 @@ async function refreshLoans() {
   renderLoanBalanceList_("loans-owed-to-me-list", "loans-owed-to-me-empty-note", owedToMe, "owed-to-me");
   renderLoanBalanceList_("loans-i-owe-list", "loans-i-owe-empty-note", iOwe, "i-owe");
 
+  // Sums each section's own already-PEN-converted net_pen (never null here
+  // — a friend needing a rate is filtered into needsRate above, not into
+  // owedToMe/iOwe) rather than re-deriving anything, so this can never
+  // disagree with what the per-friend rows already show.
+  const owedToMeTotalRow = document.getElementById("loans-owed-to-me-total-row");
+  owedToMeTotalRow.hidden = owedToMe.length === 0;
+  if (owedToMe.length) {
+    const total = owedToMe.reduce((sum, b) => sum + b.net_pen, 0);
+    document.getElementById("loans-owed-to-me-total").textContent = `+${formatPen(total)}`;
+  }
+
+  const iOweTotalRow = document.getElementById("loans-i-owe-total-row");
+  iOweTotalRow.hidden = iOwe.length === 0;
+  if (iOwe.length) {
+    const total = iOwe.reduce((sum, b) => sum - b.net_pen, 0);
+    document.getElementById("loans-i-owe-total").textContent = formatPen(total);
+  }
+
   const needsRateCard = document.getElementById("loans-needs-rate-card");
   needsRateCard.hidden = needsRate.length === 0;
   if (needsRate.length) {

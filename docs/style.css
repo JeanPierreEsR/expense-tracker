@@ -1305,6 +1305,8 @@ button.primary:disabled {
   font-size: 1rem;
 }
 
+.budgets-summary-value.income { color: var(--income); }
+
 .budget-progress-track {
   background: var(--bg);
   border-radius: 999px;
