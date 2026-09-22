@@ -3978,72 +3978,111 @@ async function openLoanDetail(friendId, friendName) {
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
+  const paidToggle = document.getElementById("loan-detail-paid-toggle");
+  const paidList = document.getElementById("loan-detail-paid-list");
   list.innerHTML = "";
+  paidList.innerHTML = "";
+  // Always starts collapsed — a friend with a long settled history
+  // shouldn't reopen already expanded just because it was left open once.
+  paidList.hidden = true;
+
+  // "Pending" (still owed, not forgiven) vs. "Already paid" (fully repaid
+  // or forgiven) — split into two sections (added 2026-09-22) so a long
+  // history of settled loans doesn't bury the ones that still need
+  // action. Already-paid stays collapsed behind its own toggle by
+  // default, same reasoning.
+  const pending = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
+  const alreadyPaid = loans.filter((l) => l.status === "forgiven" || l.remaining <= 0.004);
 
   if (loans.length === 0) {
+    emptyNote.textContent = "No loans with this friend yet.";
+    emptyNote.hidden = false;
+  } else if (pending.length === 0) {
+    emptyNote.textContent = "Nothing pending — see already paid below.";
     emptyNote.hidden = false;
   } else {
     emptyNote.hidden = true;
-    loans.forEach((l) => {
-      const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
-      const sign = l.direction === "they_owe_me" ? "+" : "";
-      const statusNote = l.status === "forgiven"
-        ? "Forgiven"
-        : l.remaining <= 0.004
-          ? "Fully repaid"
-          : [
-              l.overdue ? `⚠️ Overdue since ${l.due_date}` : "",
-              l.settled > 0.004 ? `${l.currency} ${moneyFmt(l.settled)} repaid so far` : ""
-            ].filter(Boolean).join(" · ");
-
-      // Every row is tappable, but to different places: a standalone cash
-      // loan (origin='cash') opens the loan edit/delete form (5.3's own
-      // modal); an entry-derived one (origin='entry') opens the actual
-      // expense it came from, in the same edit pop-up Overview/Budgets/
-      // Projections drill-downs already use — editing IT is what changes
-      // the loan, since saveEntrySplits recalculates the loan from that
-      // expense's own splits every time it's saved (see Loans.gs). There's
-      // no "edit the loan row directly" for that case; it would just get
-      // overwritten the next time the expense itself is touched.
-      const row = document.createElement("div");
-      row.className = "loan-detail-row editable";
-      row.innerHTML = `
-        <div class="loan-detail-row-top">
-          <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}<span class="loan-detail-row-chevron">›</span></span>
-          <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
-        </div>
-        <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
-      `;
-      if (l.origin === "cash") {
-        row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
-      } else {
-        row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
-      }
-
-      // Forgiving applies to either kind of loan — it doesn't touch the
-      // loan's own amount/currency/etc (unlike editing), just marks it
-      // written off, so it isn't restricted by origin the way editing is.
-      // Not shown once nothing's left to forgive, or it's already
-      // forgiven.
-      if (l.status !== "forgiven" && l.remaining > 0.004) {
-        const forgiveBtn = document.createElement("button");
-        forgiveBtn.type = "button";
-        forgiveBtn.className = "add-inline loan-detail-forgive-btn";
-        forgiveBtn.textContent = "🙏 Forgive";
-        forgiveBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openForgiveModal(l, { id: friendId, name: friendName });
-        });
-        row.appendChild(forgiveBtn);
-      }
-
-      list.appendChild(row);
-    });
+    pending.forEach((l) => list.appendChild(buildLoanDetailRow_(l, friendId, friendName)));
   }
+
+  paidToggle.hidden = alreadyPaid.length === 0;
+  paidToggle.textContent = `📜 Show ${alreadyPaid.length} already paid`;
+  paidToggle.onclick = () => {
+    const showing = !paidList.hidden;
+    if (showing) {
+      paidList.hidden = true;
+      paidToggle.textContent = `📜 Show ${alreadyPaid.length} already paid`;
+    } else {
+      if (!paidList.children.length) {
+        alreadyPaid.forEach((l) => paidList.appendChild(buildLoanDetailRow_(l, friendId, friendName)));
+      }
+      paidList.hidden = false;
+      paidToggle.textContent = "📜 Hide already paid";
+    }
+  };
 
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// Shared by openLoanDetail's two sections (pending / already paid) so a
+// row looks and behaves identically in either — only which list it lands
+// in differs.
+function buildLoanDetailRow_(l, friendId, friendName) {
+  const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
+  const sign = l.direction === "they_owe_me" ? "+" : "";
+  const statusNote = l.status === "forgiven"
+    ? "Forgiven"
+    : l.remaining <= 0.004
+      ? "Fully repaid"
+      : [
+          l.overdue ? `⚠️ Overdue since ${l.due_date}` : "",
+          l.settled > 0.004 ? `${l.currency} ${moneyFmt(l.settled)} repaid so far` : ""
+        ].filter(Boolean).join(" · ");
+
+  // Every row is tappable, but to different places: a standalone cash
+  // loan (origin='cash') opens the loan edit/delete form (5.3's own
+  // modal); an entry-derived one (origin='entry') opens the actual
+  // expense it came from, in the same edit pop-up Overview/Budgets/
+  // Projections drill-downs already use — editing IT is what changes
+  // the loan, since saveEntrySplits recalculates the loan from that
+  // expense's own splits every time it's saved (see Loans.gs). There's
+  // no "edit the loan row directly" for that case; it would just get
+  // overwritten the next time the expense itself is touched.
+  const row = document.createElement("div");
+  row.className = "loan-detail-row editable";
+  row.innerHTML = `
+    <div class="loan-detail-row-top">
+      <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? "Shared expense" : "Loan"))}<span class="loan-detail-row-chevron">›</span></span>
+      <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+    </div>
+    <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
+  `;
+  if (l.origin === "cash") {
+    row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+  } else {
+    row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+  }
+
+  // Forgiving applies to either kind of loan — it doesn't touch the
+  // loan's own amount/currency/etc (unlike editing), just marks it
+  // written off, so it isn't restricted by origin the way editing is.
+  // Not shown once nothing's left to forgive, or it's already
+  // forgiven.
+  if (l.status !== "forgiven" && l.remaining > 0.004) {
+    const forgiveBtn = document.createElement("button");
+    forgiveBtn.type = "button";
+    forgiveBtn.className = "add-inline loan-detail-forgive-btn";
+    forgiveBtn.textContent = "🙏 Forgive";
+    forgiveBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openForgiveModal(l, { id: friendId, name: friendName });
+    });
+    row.appendChild(forgiveBtn);
+  }
+
+  return row;
 }
 
 // Loading state is brief enough (one small API call) not to need its own

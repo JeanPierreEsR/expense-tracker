@@ -547,6 +547,13 @@ input[type="date"] {
   margin-top: 4px;
 }
 
+.loan-detail-paid-toggle {
+  display: block;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .add-inline {
   font-size: 0.8rem;
   color: var(--accent);
