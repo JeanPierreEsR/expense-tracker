@@ -140,6 +140,34 @@ var EMAIL_RULES = [
       };
     }
   },
+  // A separate USD wallet ("Yape dólares"), a different email template
+  // from the PEN one above — no "Monto de yapeo"/"Nombre del
+  // Beneficiario" labels at all; the amount and recipient are embedded
+  // inline in a sentence instead ("Yapeaste $10.11 a Mia Lo*. Has
+  // hecho un yapeo con 'Yape dólares'."). Added from a real sample
+  // (Yape_dolares.pdf) — matched on that exact quoted phrase, distinct
+  // enough from the PEN rule's "acabas de yapear" body text that the two
+  // can never both match the same email. extractAmount_ already reads
+  // the currency from the $ sign itself (see the file header comment),
+  // so this doesn't need to hardcode USD.
+  {
+    bank: 'Yape', sender: 'notificaciones@yape.pe',
+    label: 'Yapeo enviado (dólares)',
+    match: function (subject, body) { return /yape\s*d[oó]lares/i.test(body); },
+    extract: function (subject, body) {
+      var amt = extractAmount_(body);
+      if (!amt) return null;
+      var recipientMatch = body.match(/Yapeaste\s+\S+\s+a\s+([^\n]+?)\.\s*Has hecho/i);
+      var recipient = recipientMatch ? cleanText_(recipientMatch[1]) : null;
+      return {
+        type: 'expense', needsReview: true,
+        amount: amt.amount, currency: amt.currency,
+        description: recipient ? ('Yape a ' + recipient) : 'Yape',
+        last4: null,
+        externalId: afterLabel_(body, 'de operación')
+      };
+    }
+  },
   // ---- Diners ----
   {
     bank: 'Diners', sender: 'avisos@dinersenlinea.pe',
@@ -536,7 +564,13 @@ function debugGmailSearch_(query) {
 
 /**
  * Fills the Parsing Rules sheet as a human-readable log of what's
- * configured above — not executed, just for reference. Safe to re-run.
+ * configured above — not executed, just for reference. Rebuilds the
+ * sheet from the live EMAIL_RULES array every time (clears existing rows
+ * first, then rewrites) rather than only seeding an empty sheet, so it's
+ * genuinely "safe to re-run" whenever a rule is added or changed in code
+ * — the original seed-only-if-empty version left the sheet silently
+ * stale after the first time it was ever populated, since re-running it
+ * was a no-op (found 2026-09-22 adding the Yape-dólares rule below).
  */
 function seedParsingRulesDoc() {
   var banks = getAllRows('Banks');
@@ -550,5 +584,14 @@ function seedParsingRulesDoc() {
       field_mappings: 'See EmailParser.gs — logic lives in code, this row is documentation only.'
     };
   });
-  seedIfEmpty('Parsing Rules', rows);
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Parsing Rules');
+  if (!sheet) throw new Error('Run "1. Build sheet tabs" first — missing sheet: Parsing Rules');
+  if (sheet.getLastRow() > 1) sheet.deleteRows(2, sheet.getLastRow() - 1);
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var values = rows.map(function (row) {
+    return headers.map(function (h) { return row[h] !== undefined ? row[h] : ''; });
+  });
+  if (values.length) sheet.getRange(2, 1, values.length, headers.length).setValues(values);
 }
