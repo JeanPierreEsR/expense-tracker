@@ -2939,6 +2939,14 @@ let editingRecurringId = null;
 let recurringFrequency = "monthly";
 let selectedRecurringCategoryId = null;
 
+// Split state for the Programmed item modal — same shape as the entry
+// form's own splitFriendIds/splitMode/customSplitAmounts, kept as a
+// separate set of variables (and separate #recurring-split-* elements)
+// since both modals' DOM never overlaps but their state must not either.
+let recurringSplitFriendIds = new Set();
+let recurringSplitMode = "equal";
+let recurringCustomSplitAmounts = {};
+
 function recurringFreqLabel_(re) {
   if (re.frequency === "once") {
     const d = new Date(re.date + "T00:00:00");
@@ -2948,6 +2956,19 @@ function recurringFreqLabel_(re) {
   return `Monthly, day ${re.day}`;
 }
 
+// Same "big = my share, small/grey = total" treatment a split real
+// expense gets (see CLAUDE.md) — split_total (from listRecurringExpenses)
+// is 0 for the common unsplit case, so this collapses to the plain single
+// line then.
+function renderRecurringAmountHtml_(re) {
+  const isIncome = re.category_type === "income";
+  const hasSplit = re.split_total > 0.005;
+  const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
+  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  if (!hasSplit) return primary;
+  return `${primary}<span class="original-amt">Total ${formatAmount(re.amount, re.currency)}</span>`;
+}
+
 function renderRecurringRow_(re) {
   const isIncome = re.category_type === "income";
   const row = document.createElement("div");
@@ -2955,9 +2976,9 @@ function renderRecurringRow_(re) {
   row.innerHTML = `
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.active ? "" : " · Paused"}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.active ? "" : " · Paused"}${re.split_total > 0.005 ? " · Split" : ""}</div>
     </div>
-    <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatAmount(re.amount, re.currency)}</div>
+    <div class="recurring-row-amount${isIncome ? " income" : ""}">${renderRecurringAmountHtml_(re)}</div>
   `;
   row.addEventListener("click", () => openRecurringModal(re));
   return row;
@@ -3004,10 +3025,182 @@ function populateRecurringCategoryChips() {
       chip.addEventListener("click", () => {
         selectedRecurringCategoryId = c.id;
         populateRecurringCategoryChips();
+        toggleRecurringSplitFieldVisibility();
       });
       container.appendChild(chip);
     });
 }
+
+// A split only makes sense for an expense-type category (Entry Splits
+// itself is expense-only — see CLAUDE.md), same rule the entry form's own
+// toggleSplitFieldVisibility applies. Recurring items also allow income
+// categories, where this field simply never appears.
+function toggleRecurringSplitFieldVisibility() {
+  const cat = meta.categories.find((c) => c.id === selectedRecurringCategoryId);
+  const show = cat && cat.type === "expense";
+  document.getElementById("recurring-split-field").hidden = !show;
+  if (!show) resetRecurringSplitState();
+}
+
+function resetRecurringSplitState() {
+  recurringSplitFriendIds = new Set();
+  recurringSplitMode = "equal";
+  recurringCustomSplitAmounts = {};
+  document.getElementById("recurring-split-toggle").checked = false;
+  document.getElementById("recurring-split-detail").hidden = true;
+  document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.mode === "equal");
+  });
+  renderRecurringSplitFriendChips();
+  renderRecurringSplitRows();
+  document.getElementById("recurring-split-summary").textContent = "";
+  document.getElementById("recurring-split-error").textContent = "";
+}
+
+function renderRecurringSplitFriendChips() {
+  const container = document.getElementById("recurring-split-friend-chips");
+  container.innerHTML = "";
+  meta.friends.forEach((f) => {
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
+    chip.textContent = f.name;
+    chip.addEventListener("click", () => {
+      if (recurringSplitFriendIds.has(f.id)) {
+        recurringSplitFriendIds.delete(f.id);
+        delete recurringCustomSplitAmounts[f.id];
+      } else {
+        recurringSplitFriendIds.add(f.id);
+      }
+      renderRecurringSplitFriendChips();
+      renderRecurringSplitRows();
+      renderRecurringSplitSummary();
+    });
+    container.appendChild(chip);
+  });
+}
+
+// Only custom mode needs a row per friend — equal mode's amounts are
+// computed, not typed (same as the entry form's own split rows).
+function renderRecurringSplitRows() {
+  const container = document.getElementById("recurring-split-rows");
+  container.innerHTML = "";
+  if (recurringSplitMode !== "custom") return;
+
+  Array.from(recurringSplitFriendIds).forEach((id) => {
+    const friend = meta.friends.find((f) => f.id === id);
+    if (!friend) return;
+
+    const row = document.createElement("div");
+    row.className = "split-row";
+
+    const name = document.createElement("span");
+    name.className = "split-row-name";
+    name.textContent = friend.name;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.placeholder = "0.00";
+    input.value = recurringCustomSplitAmounts[id] || "";
+    input.addEventListener("input", (e) => {
+      recurringCustomSplitAmounts[id] = e.target.value;
+      renderRecurringSplitSummary();
+    });
+
+    row.appendChild(name);
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+}
+
+function renderRecurringSplitSummary() {
+  const summaryEl = document.getElementById("recurring-split-summary");
+  const errorEl = document.getElementById("recurring-split-error");
+  errorEl.textContent = "";
+
+  const amount = parseFloat(document.getElementById("recurring-amount").value) || 0;
+  const currency = (document.getElementById("recurring-currency").value || "PEN").toUpperCase();
+  const friendIds = Array.from(recurringSplitFriendIds);
+
+  if (friendIds.length === 0) {
+    summaryEl.textContent = "Pick who else this is shared with.";
+    return;
+  }
+
+  if (recurringSplitMode === "equal") {
+    const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
+    summaryEl.textContent = `${currency} ${moneyFmt(shareEach)} each · ${currency} ${moneyFmt(ownerShare)} to you`;
+  } else {
+    const assigned = friendIds.reduce((sum, id) => sum + (parseFloat(recurringCustomSplitAmounts[id]) || 0), 0);
+    const remaining = amount - assigned;
+    summaryEl.textContent = `${currency} ${moneyFmt(assigned)} of ${currency} ${moneyFmt(amount)} assigned · ${currency} ${moneyFmt(Math.max(remaining, 0))} left to you`;
+    if (remaining < -0.004) errorEl.textContent = "That's more than the total amount.";
+  }
+}
+
+function getRecurringSplitPayload() {
+  const amount = parseFloat(document.getElementById("recurring-amount").value) || 0;
+  const friendIds = Array.from(recurringSplitFriendIds);
+
+  if (recurringSplitMode === "equal") {
+    const { shareEach } = computeEqualShares(amount, friendIds);
+    return friendIds.map((id) => ({ friend_id: id, amount: shareEach }));
+  }
+  return friendIds
+    .map((id) => ({ friend_id: id, amount: parseFloat(recurringCustomSplitAmounts[id]) || 0 }))
+    .filter((s) => s.amount > 0);
+}
+
+// Mirrors the entry form's validateSplitIfEnabled — called from the save
+// handler before anything is written. Returns the split array to save, or
+// null when the toggle is off (meaning "clear any existing split").
+function validateRecurringSplitIfEnabled() {
+  if (document.getElementById("recurring-split-field").hidden) return null;
+  if (!document.getElementById("recurring-split-toggle").checked) return [];
+
+  const amount = parseFloat(document.getElementById("recurring-amount").value) || 0;
+  const friendIds = Array.from(recurringSplitFriendIds);
+  if (friendIds.length === 0) {
+    throw new Error("Pick at least one friend to split with, or turn the split toggle off.");
+  }
+
+  const splits = getRecurringSplitPayload();
+  const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
+  if (recurringSplitMode === "custom" && assigned <= 0) {
+    throw new Error("Enter at least one friend's amount.");
+  }
+  if (assigned - amount > 0.004) {
+    throw new Error("The split adds up to more than the total amount.");
+  }
+  return splits;
+}
+
+document.getElementById("recurring-split-toggle").addEventListener("change", (e) => {
+  document.getElementById("recurring-split-detail").hidden = !e.target.checked;
+  renderRecurringSplitFriendChips();
+  renderRecurringSplitRows();
+  renderRecurringSplitSummary();
+});
+
+document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    recurringSplitMode = tab.dataset.mode;
+    document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    renderRecurringSplitRows();
+    renderRecurringSplitSummary();
+  });
+});
+
+document.getElementById("recurring-split-add-friend-btn").addEventListener("click", async () => {
+  const name = prompt("Friend's name:");
+  if (!name || !name.trim()) return;
+  const friend = await callApi("addFriend", { name: name.trim() });
+  meta.friends.push(friend);
+  recurringSplitFriendIds.add(friend.id);
+  renderRecurringSplitFriendChips();
+  renderRecurringSplitRows();
+  renderRecurringSplitSummary();
+});
 
 // The day/month picker is a native <input type="date"> — the same
 // control (and, on a phone, the same tap-to-open calendar) the main
@@ -3045,7 +3238,7 @@ document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) =
   tab.addEventListener("click", () => setRecurringFrequency_(tab.dataset.frequency));
 });
 
-function openRecurringModal(re) {
+async function openRecurringModal(re) {
   editingRecurringId = re ? re.id : null;
   document.getElementById("recurring-modal-title").textContent = re ? "Edit programmed item" : "Add programmed item";
   document.getElementById("recurring-form-error").textContent = "";
@@ -3082,9 +3275,36 @@ function openRecurringModal(re) {
   document.getElementById("recurring-link-list").innerHTML = "";
   document.getElementById("recurring-link-selected-btn").hidden = true;
 
+  // Start clean, same as the entry form: an expense category shows the
+  // field; anything else hides it.
+  resetRecurringSplitState();
+  toggleRecurringSplitFieldVisibility();
+
   const backdrop = document.getElementById("recurring-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+
+  // Loaded after the modal is already showing, same reasoning as
+  // startEditEntry's own split fetch not blocking the (already-visible)
+  // entry form — always lands in Custom mode, the one mode that can
+  // represent exactly what's stored regardless of whether it was
+  // originally entered as Equal or Custom.
+  if (re && re.split_total > 0.005) {
+    const splits = await callApi("getRecurringExpenseSplits", { recurringExpenseId: re.id });
+    if (splits.length) {
+      recurringSplitMode = "custom";
+      document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+      splits.forEach((s) => {
+        recurringSplitFriendIds.add(s.friend_id);
+        recurringCustomSplitAmounts[s.friend_id] = String(s.amount);
+      });
+      document.getElementById("recurring-split-toggle").checked = true;
+      document.getElementById("recurring-split-detail").hidden = false;
+      renderRecurringSplitFriendChips();
+      renderRecurringSplitRows();
+      renderRecurringSplitSummary();
+    }
+  }
 }
 
 function closeRecurringModal() {
@@ -3182,6 +3402,7 @@ document.getElementById("recurring-link-selected-btn").addEventListener("click",
 document.getElementById("recurring-amount").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
+  if (document.getElementById("recurring-split-toggle").checked) renderRecurringSplitSummary();
 });
 
 document.getElementById("recurring-save-btn").addEventListener("click", async () => {
@@ -3201,6 +3422,13 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
     if (!occurrenceDate) throw new Error("Pick a date.");
 
+    // Validated up front, same as the entry form — a bad split blocks the
+    // save entirely rather than saving the item and silently dropping a
+    // broken split. null means the field isn't even shown (non-expense
+    // category); [] means shown but the toggle is off (clears any
+    // existing split).
+    const splits = validateRecurringSplitIfEnabled();
+
     const fields = {
       category_id: selectedRecurringCategoryId,
       description,
@@ -3219,10 +3447,18 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       fields.date = "";
     }
 
+    let recurringExpenseId = editingRecurringId;
     if (editingRecurringId) {
       await callApi("updateRecurringExpense", Object.assign({ id: editingRecurringId }, fields));
     } else {
-      await callApi("addRecurringExpense", fields);
+      const created = await callApi("addRecurringExpense", fields);
+      recurringExpenseId = created.id;
+    }
+    // Always sent, even as [] — that's how a previously-split item gets
+    // its split cleared when the toggle is turned back off, same as the
+    // entry form's own saveEntrySplits call.
+    if (splits !== null) {
+      await callApi("saveRecurringExpenseSplits", { recurringExpenseId, splits });
     }
     closeRecurringModal();
     refreshRecurringExpenses();

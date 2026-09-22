@@ -43,6 +43,14 @@ var TABLE_DEFINITIONS = {
   // is only meaningful when frequency is 'yearly'. `active` lets one be
   // paused without deleting its history of use.
   'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date'],
+  // Not part of the original spec — a programmed item (recurring or
+  // one-time) can be shared with a friend just like a real expense (see
+  // CLAUDE.md). Same shape as Entry Splits, deliberately: it only ever
+  // affects Projections math (Programmed/Expected, the Budgets pacing
+  // chart, "Programmed this month") — no loans/Entry Splits get created
+  // from this table itself; that still only happens when the real
+  // transaction is confirmed and split by hand, same as always.
+  'Recurring Expense Splits': ['id', 'recurring_expense_id', 'friend_id', 'amount'],
   // Not part of the original spec — lets the owner manually override a
   // category's calculated Projections figure (see Projections.gs) for one
   // specific period, when they know better than the YTD estimate. Deleting

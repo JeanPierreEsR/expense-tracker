@@ -421,19 +421,21 @@ function getBudgetChartSeries(payload) {
   });
 
   var recurringOccurrences = [];
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
   getRecurringExpenseRows_().forEach(function (r) {
     if (String(r.active) === 'false' || !categoryIdMatches_(categoryIds, r.category_id)) return;
     var reCurrency = r.currency || 'PEN';
+    var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amt = null;
     if (reCurrency === currency) {
-      amt = Number(r.amount);
+      amt = ownAmount;
     } else {
       var rePen = null;
       if (reCurrency === 'PEN') {
-        rePen = Number(r.amount);
+        rePen = ownAmount;
       } else {
         var reRate = latestRateAtOrBefore_(ctx, reCurrency, cutoffMonth);
-        rePen = reRate != null ? Number(r.amount) * reRate : null;
+        rePen = reRate != null ? ownAmount * reRate : null;
       }
       if (rePen != null) amt = currency === 'PEN' ? rePen : (rate != null ? rePen / rate : null);
     }

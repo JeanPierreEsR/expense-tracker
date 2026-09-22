@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-22T11:48:54Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-22T12:18:17Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -661,6 +661,28 @@
         <input type="hidden" id="recurring-currency" value="PEN">
         <div class="currency-chips" id="recurring-currency-chips"></div>
 
+        <div id="recurring-split-field" hidden>
+          <label class="checkbox-row">
+            <input type="checkbox" id="recurring-split-toggle">
+            <span>Split this expense</span>
+          </label>
+
+          <div id="recurring-split-detail" hidden>
+            <div class="type-tabs budget-period-tabs" id="recurring-split-mode-tabs">
+              <div class="type-tab active" data-mode="equal">Equal</div>
+              <div class="type-tab" data-mode="custom">Custom</div>
+            </div>
+
+            <label>Shared with</label>
+            <div class="tags-list" id="recurring-split-friend-chips"></div>
+            <div class="add-inline" id="recurring-split-add-friend-btn">+ Add friend…</div>
+
+            <div id="recurring-split-rows"></div>
+            <p class="hint" id="recurring-split-summary"></p>
+            <p class="hint" id="recurring-split-error" style="color:#d64545;"></p>
+          </div>
+        </div>
+
         <label>Frequency</label>
         <div class="type-tabs budget-period-tabs" id="recurring-frequency-tabs">
           <div class="type-tab active" data-frequency="monthly">Monthly</div>
@@ -736,6 +758,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-22T11:48:54Z"></script>
+  <script src="app.js?v=2026-09-22T12:18:17Z"></script>
 </body>
 </html>

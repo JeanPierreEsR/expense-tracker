@@ -194,6 +194,7 @@ function computeAllCategoryProjections_(bounds) {
     ? allEntries.filter(function (e) { return e.date >= ytd.ytdStart && e.date <= ytd.ytdEnd; })
     : [];
   var allRecurring = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false'; });
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
 
   var splitSumByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
@@ -283,7 +284,7 @@ function computeAllCategoryProjections_(bounds) {
     var recurringAmountPen = 0;
     recurringForPeriod.forEach(function (r) {
       recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
-        var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
+        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || 'PEN', occDate);
         if (pen != null) recurringAmountPen += pen;
       });
     });
@@ -358,7 +359,7 @@ function computeAllCategoryProjections_(bounds) {
           return entryMatchesRecurringOccurrence_(e, r, [occDate]);
         });
         if (handled) return;
-        var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
+        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || 'PEN', occDate);
         if (pen != null) programmedRemainingPen += pen;
       });
     });
@@ -530,21 +531,23 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
 
   var items = recurringForPeriod.map(function (r) {
     var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate)
       .filter(function (occDate) {
         return !entriesInPeriod.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, [occDate]); });
       });
+    var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amountPen = 0;
     occDates.forEach(function (occDate) {
-      var pen = toPen_(Number(r.amount), r.currency || 'PEN', occDate);
+      var pen = toPen_(ownAmount, r.currency || 'PEN', occDate);
       if (pen != null) amountPen += pen;
     });
     return {
       id: r.id,
       description: r.description || '',
-      amount: Number(r.amount),
+      amount: ownAmount,
       currency: r.currency || 'PEN',
       occurrences: occDates.length,
       amountPen: amountPen

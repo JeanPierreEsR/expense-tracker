@@ -69,10 +69,79 @@ function ensureEntriesRecurringLinkColumn_() {
   }
 }
 
+// Self-heals like every other post-hoc table (Payors, Loan Alert Log,
+// etc.) — added well after Recurring Expenses already held real data.
+function ensureRecurringExpenseSplitsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Recurring Expense Splits')) return;
+  var sheet = ss.insertSheet('Recurring Expense Splits');
+  var headers = TABLE_DEFINITIONS['Recurring Expense Splits'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+}
+
+function getRecurringExpenseSplits(payload) {
+  ensureRecurringExpenseSplitsSheet_();
+  return getAllRows('Recurring Expense Splits')
+    .filter(function (s) { return s.recurring_expense_id === payload.recurringExpenseId; })
+    .map(function (s) { return { friend_id: s.friend_id, amount: Number(s.amount) }; });
+}
+
+// Replaces this item's whole split set with the new one — same
+// recalculate-from-scratch approach saveEntrySplits uses, so editing a
+// split never leaves a stale row behind. Unlike saveEntrySplits, this
+// never touches Loans — a programmed item's split only feeds Projections
+// math (see the "Recurring Expense Splits" note in Setup.gs); the real
+// loan only ever gets created when the actual transaction is confirmed
+// and split, same as any other expense.
+function saveRecurringExpenseSplits(payload) {
+  ensureRecurringExpenseSplitsSheet_();
+  var recurringExpenseId = payload.recurringExpenseId;
+  deleteRowsWhere_('Recurring Expense Splits', function (row) {
+    return row.recurring_expense_id === recurringExpenseId;
+  });
+
+  var splits = (payload.splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
+  if (splits.length) {
+    var sheet = getSheet('Recurring Expense Splits');
+    splits.forEach(function (s) {
+      sheet.appendRow([Utilities.getUuid(), recurringExpenseId, s.friend_id, Number(s.amount)]);
+    });
+  }
+  return { splits: splits };
+}
+
+// id -> total split off to friends, for every recurring item that has
+// any — read once and reused across listRecurringExpenses/Projections/
+// Budgets/listExpectedRecurringItems rather than re-reading the sheet in
+// each one.
+function getRecurringExpenseSplitSums_() {
+  ensureRecurringExpenseSplitsSheet_();
+  var sums = {};
+  getAllRows('Recurring Expense Splits').forEach(function (s) {
+    sums[s.recurring_expense_id] = (sums[s.recurring_expense_id] || 0) + Number(s.amount);
+  });
+  return sums;
+}
+
+// What this item actually costs the owner — its own amount minus
+// whatever's been split off to a friend (own_share, same idea as a real
+// expense's own_share; see CLAUDE.md). This is what every consumer of a
+// recurring item's amount (Projections, the Budgets pacing chart,
+// "Programmed this month") should multiply occurrences by — the item's
+// raw `amount` field stays the true full cost, same reasoning as an
+// Entry's own `amount` staying the full disbursement.
+function recurringOwnAmount_(r, splitSums) {
+  return Number(r.amount) - ((splitSums && splitSums[r.id]) || 0);
+}
+
 function listRecurringExpenses() {
   var categoryById = rowsById_(getAllRows('Categories'));
+  var splitSums = getRecurringExpenseSplitSums_();
   return getRecurringExpenseRows_().map(function (r) {
-    return recurringExpenseForClient_(r, categoryById);
+    return recurringExpenseForClient_(r, categoryById, splitSums);
   }).sort(function (a, b) {
     var aOnce = a.frequency === 'once', bOnce = b.frequency === 'once';
     if (aOnce !== bOnce) return aOnce ? 1 : -1; // one-time items sort after recurring ones
@@ -88,9 +157,14 @@ function normalizeRecurringFrequency_(freq) {
   return 'monthly';
 }
 
-function recurringExpenseForClient_(r, categoryById) {
+function recurringExpenseForClient_(r, categoryById, splitSums) {
   var cat = categoryById[r.category_id];
   var frequency = normalizeRecurringFrequency_(r.frequency);
+  // split_total: what's been split off to a friend (0 for the common
+  // unsplit case). The frontend uses amount - split_total as this item's
+  // own "big number" in the list, same "big = my share, small = total"
+  // treatment a split real expense already gets (see CLAUDE.md).
+  var splitTotal = (splitSums && splitSums[r.id]) || 0;
   return {
     id: r.id,
     category_id: r.category_id,
@@ -105,7 +179,8 @@ function recurringExpenseForClient_(r, categoryById) {
     day: r.day ? Number(r.day) : 1,
     month: r.month ? Number(r.month) : 1,
     date: r.date || '',
-    active: String(r.active) !== 'false'
+    active: String(r.active) !== 'false',
+    split_total: splitTotal
   };
 }
 
@@ -295,6 +370,8 @@ function deleteRecurringExpense(id) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, id);
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+  ensureRecurringExpenseSplitsSheet_();
+  deleteRowsWhere_('Recurring Expense Splits', function (row) { return row.recurring_expense_id === id; });
   return { done: true };
 }
 
@@ -441,6 +518,7 @@ function listExpectedRecurringItems() {
   var cutoffMonth = monthEnd.substring(0, 7);
   var todayStr = formatCalendarDate_(now);
   var groupsByKey = {};
+  var splitSums = getRecurringExpenseSplitSums_();
 
   stillExpected.forEach(function (entry) {
     var r = entry.row;
@@ -450,13 +528,14 @@ function listExpectedRecurringItems() {
     var key = type + '|' + currency;
     if (!groupsByKey[key]) groupsByKey[key] = { type: type, currency: currency, total: 0, items: [] };
     var group = groupsByKey[key];
-    group.total += Number(r.amount);
+    var ownAmount = recurringOwnAmount_(r, splitSums);
+    group.total += ownAmount;
     group.items.push({
       id: r.id,
       description: r.description || '',
       category_name: cat ? cat.name : '(unknown category)',
       category_icon: cat ? cat.icon : '',
-      amount: Number(r.amount),
+      amount: ownAmount,
       // The occurrence's own actual (clamped) day, not the raw configured
       // one — matters for a 'once' item (which has no day/month at all)
       // and also fixes a latent mismatch for a monthly item whose day

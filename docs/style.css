@@ -1460,9 +1460,17 @@ button.primary:disabled {
 .recurring-row-amount {
   font-weight: 600;
   white-space: nowrap;
+  text-align: right;
 }
 
-.recurring-row-amount.income { color: var(--income); }
+.recurring-row-amount.income .primary-amt { color: var(--income); }
+
+.recurring-row-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted);
+}
 
 /* ---- Projections "By category" 3-line breakdown ---- */
 

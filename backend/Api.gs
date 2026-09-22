@@ -140,6 +140,8 @@ function routeAction(action, payload) {
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
+    case 'saveRecurringExpenseSplits': return saveRecurringExpenseSplits(payload);
     case 'listExpectedRecurringItems': return listExpectedRecurringItems();
     case 'getProjections': return getProjections(payload);
     case 'listCategoryProjections': return listCategoryProjections(payload);
