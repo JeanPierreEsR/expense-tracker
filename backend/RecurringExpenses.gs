@@ -285,6 +285,11 @@ function findRecurringLinkCandidates(payload) {
   var allEntries = getAllRows('Entries').filter(function (e) {
     return e.status === 'confirmed' && e.category_id === re.category_id;
   });
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
 
   var ratesByCurrency = buildRatesByCurrency_();
   function toPenAmount_(amount, currency, dateStr) {
@@ -307,7 +312,7 @@ function findRecurringLinkCandidates(payload) {
     var winStartStr = formatCalendarDate_(winStart), winEndStr = formatCalendarDate_(winEnd);
     var alreadyMatched = categoryRecurring.some(function (r) {
       var occ = recurringExpenseOccurrencesInRange_(r, winStartStr, winEndStr);
-      return entryMatchesRecurringOccurrence_(e, r, occ);
+      return entryMatchesRecurringOccurrence_(e, r, occ, entrySplitSumByEntry, recurringSplitSums);
     });
     if (alreadyMatched) return;
 
@@ -451,14 +456,30 @@ var RECURRING_MATCH_DAY_WINDOW = 5;
 // for a linked entry logged on a different DAY than its occurrence
 // (that's the whole point of the link) while stopping it from reaching
 // into unrelated months.
-function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
+//
+// entrySplitSums (entry_id -> split total) and recurringSplitSums
+// (recurring_expense_id -> split total) are both optional maps — pass
+// them (built once by the caller, see recurringOwnAmount_ and
+// getRecurringExpenseSplitSums_) so the amount check below compares each
+// side's OWN share, not the full disbursement/config, since that's what
+// a recurring item's `amount` is actually meant to represent when either
+// side is genuinely shared (fixed 2026-09-22: a rent split three ways
+// with friends never matched its own recurring item — the item was
+// configured as the owner's own ~266 USD share, exactly as intended, but
+// the heuristic was comparing it against the real entry's FULL 800 USD
+// bill instead of that entry's own 266 USD share, a >100% "difference"
+// far outside the 10% tolerance). Omitting either map falls back to the
+// full amount on that side, same as before this fix — safe for any
+// caller not yet passing one, just without the fix.
+function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, entrySplitSums, recurringSplitSums) {
   if (entry.recurring_expense_id && entry.recurring_expense_id === recurring.id) {
     var entryMonth = String(entry.date).substring(0, 7);
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
   if (entry.category_id !== recurring.category_id || entry.currency !== (recurring.currency || 'PEN')) return false;
-  var amt = Number(recurring.amount);
-  if (Math.abs(Number(entry.amount) - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
+  var amt = recurringOwnAmount_(recurring, recurringSplitSums);
+  var entryAmt = Number(entry.amount) - ((entrySplitSums && entrySplitSums[entry.id]) || 0);
+  if (Math.abs(entryAmt - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
   return occurrenceDates.some(function (occDate) {
     return Math.abs(daysBetweenDates_(entry.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
   });
@@ -496,9 +517,16 @@ function listExpectedRecurringItems() {
   var confirmedThisMonth = getAllRows('Entries').filter(function (e) {
     return e.status === 'confirmed' && e.date >= monthStart && e.date <= monthEnd;
   });
+  var splitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
 
   function alreadyHandled(r, occurrenceDates) {
-    return confirmedThisMonth.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, occurrenceDates); });
+    return confirmedThisMonth.some(function (e) {
+      return entryMatchesRecurringOccurrence_(e, r, occurrenceDates, entrySplitSumByEntry, splitSums);
+    });
   }
 
   // Kept as {row, occurrenceDate} rather than just the row — a recurring
@@ -518,7 +546,6 @@ function listExpectedRecurringItems() {
   var cutoffMonth = monthEnd.substring(0, 7);
   var todayStr = formatCalendarDate_(now);
   var groupsByKey = {};
-  var splitSums = getRecurringExpenseSplitSums_();
 
   stillExpected.forEach(function (entry) {
     var r = entry.row;

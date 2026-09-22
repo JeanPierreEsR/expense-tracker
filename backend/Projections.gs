@@ -297,7 +297,7 @@ function computeAllCategoryProjections_(bounds) {
         if (e.category_id !== category.id) return;
         var matchesRecurring = recurringForPeriod.some(function (r) {
           var occ = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate);
-          return entryMatchesRecurringOccurrence_(e, r, occ);
+          return entryMatchesRecurringOccurrence_(e, r, occ, splitSumByEntry, recurringSplitSums);
         });
         if (matchesRecurring) return;
         var pen = toPen_(ownAmount_(e), e.currency, e.date);
@@ -317,7 +317,7 @@ function computeAllCategoryProjections_(bounds) {
         var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
         entriesYtd.forEach(function (e) {
           if (e.category_id !== category.id || matchedEntryIds[e.id]) return;
-          if (entryMatchesRecurringOccurrence_(e, r, occYtd)) matchedEntryIds[e.id] = true;
+          if (entryMatchesRecurringOccurrence_(e, r, occYtd, splitSumByEntry, recurringSplitSums)) matchedEntryIds[e.id] = true;
         });
       });
       var ytdNonRecurringPen = 0;
@@ -356,7 +356,7 @@ function computeAllCategoryProjections_(bounds) {
     recurringForPeriod.forEach(function (r) {
       recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
         var handled = categoryEntriesInPeriod.some(function (e) {
-          return entryMatchesRecurringOccurrence_(e, r, [occDate]);
+          return entryMatchesRecurringOccurrence_(e, r, [occDate], splitSumByEntry, recurringSplitSums);
         });
         if (handled) return;
         var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || 'PEN', occDate);
@@ -532,11 +532,15 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     return rate != null ? amount * rate : null;
   }
   var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
 
   var items = recurringForPeriod.map(function (r) {
     var occDates = recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate)
       .filter(function (occDate) {
-        return !entriesInPeriod.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, [occDate]); });
+        return !entriesInPeriod.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, [occDate], splitSumByEntry, recurringSplitSums); });
       });
     var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amountPen = 0;
@@ -585,6 +589,7 @@ function computeCategoryYtdBreakdown_(categoryId) {
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === 'PEN') return amount;
@@ -597,7 +602,7 @@ function computeCategoryYtdBreakdown_(categoryId) {
     var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
     entriesYtd.forEach(function (e) {
       if (matchedEntryIds[e.id]) return;
-      if (entryMatchesRecurringOccurrence_(e, r, occYtd)) matchedEntryIds[e.id] = true;
+      if (entryMatchesRecurringOccurrence_(e, r, occYtd, splitSumByEntry, recurringSplitSums)) matchedEntryIds[e.id] = true;
     });
   });
 
