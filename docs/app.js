@@ -3253,11 +3253,13 @@ async function refreshExpectedRecurring() {
     group.className = "expected-recurring-group";
 
     const isPen = g.currency === "PEN";
+    const isIncome = g.type === "income";
+    const sign = isIncome ? "+" : "";
     let amountHtml;
     if (isPen) {
-      amountHtml = `<span class="primary-amt">PEN ${moneyFmt(g.total)}</span>`;
+      amountHtml = `<span class="primary-amt">${sign}PEN ${moneyFmt(g.total)}</span>`;
     } else if (g.totalPen != null) {
-      amountHtml = `<span class="primary-amt">PEN ${moneyFmt(g.totalPen)}</span>` +
+      amountHtml = `<span class="primary-amt">${sign}PEN ${moneyFmt(g.totalPen)}</span>` +
         `<span class="original-amt">${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>`;
     } else {
       amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>` +
@@ -3278,7 +3280,7 @@ async function refreshExpectedRecurring() {
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
       <span class="expected-recurring-summary-label">🔁 ${g.items.length} programmed</span>
-      <span class="expected-recurring-amount">${amountHtml}</span>
+      <span class="expected-recurring-amount${isIncome ? " income" : ""}">${amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
 

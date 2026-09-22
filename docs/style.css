@@ -1132,6 +1132,8 @@ button.primary:disabled {
 
 .expected-recurring-amount .primary-amt { font-weight: 600; }
 
+.expected-recurring-amount.income .primary-amt { color: var(--income); }
+
 .expected-recurring-amount .original-amt {
   display: block;
   font-size: 0.75rem;

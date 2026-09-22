@@ -399,10 +399,15 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates) {
 // sharing a similar amount somewhere else in the month. Nothing actually
 // links a specific Entry to a specific recurring item (there's no such
 // field), so this is still a best-effort match, not a guarantee — see
-// CLAUDE.md. Grouped by currency so each group can show a plain sum in
-// its own currency without needing a rate just to render; a non-PEN
-// group additionally carries its PEN-converted total using the same
-// "latest rate at or before this month" rule as everywhere else.
+// CLAUDE.md. Grouped by type (income vs. expense — Recurring Expenses'
+// own category picker never offers investment/transfer, see CLAUDE.md)
+// AND currency, so each group can show a plain sum in its own currency
+// without needing a rate just to render; a non-PEN group additionally
+// carries its PEN-converted total using the same "latest rate at or
+// before this month" rule as everywhere else. Income groups are kept
+// separate from expense groups (2026-09-22) rather than netted or mixed
+// together, matching the same income/expense distinction Projections and
+// the Entries list already make.
 function listExpectedRecurringItems() {
   var now = new Date();
   var year = now.getFullYear();
@@ -435,14 +440,16 @@ function listExpectedRecurringItems() {
   var ctx = buildBudgetContext_();
   var cutoffMonth = monthEnd.substring(0, 7);
   var todayStr = formatCalendarDate_(now);
-  var groupsByCurrency = {};
+  var groupsByKey = {};
 
   stillExpected.forEach(function (entry) {
     var r = entry.row;
     var currency = r.currency || 'PEN';
-    if (!groupsByCurrency[currency]) groupsByCurrency[currency] = { currency: currency, total: 0, items: [] };
     var cat = categoryById[r.category_id];
-    var group = groupsByCurrency[currency];
+    var type = cat ? cat.type : 'expense';
+    var key = type + '|' + currency;
+    if (!groupsByKey[key]) groupsByKey[key] = { type: type, currency: currency, total: 0, items: [] };
+    var group = groupsByKey[key];
     group.total += Number(r.amount);
     group.items.push({
       id: r.id,
@@ -459,19 +466,22 @@ function listExpectedRecurringItems() {
     });
   });
 
-  var groups = Object.keys(groupsByCurrency).map(function (currency) {
-    var group = groupsByCurrency[currency];
-    if (currency !== 'PEN') {
-      var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
+  var groups = Object.keys(groupsByKey).map(function (key) {
+    var group = groupsByKey[key];
+    if (group.currency !== 'PEN') {
+      var rate = latestRateAtOrBefore_(ctx, group.currency, cutoffMonth);
       group.totalPen = rate != null ? group.total * rate : null;
     }
     group.items.sort(function (a, b) { return a.day - b.day; });
     return group;
   });
 
-  // PEN (the common case) first, then everything else alphabetically —
-  // stable and predictable rather than whatever order object keys land in.
+  // Income groups before expense groups (matches Projections' own
+  // income-first convention), then within each type PEN (the common
+  // case) first, then everything else alphabetically — stable and
+  // predictable rather than whatever order object keys land in.
   groups.sort(function (a, b) {
+    if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
     if (a.currency === 'PEN') return -1;
     if (b.currency === 'PEN') return 1;
     return a.currency < b.currency ? -1 : 1;
