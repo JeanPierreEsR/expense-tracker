@@ -5298,6 +5298,7 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-movements-wrap").hidden = true;
     document.getElementById("balance-clear-btn").hidden = true;
     document.getElementById("balance-amount").value = "";
+    document.getElementById("balance-negative").checked = false;
     document.getElementById("balance-currency").value = "PEN";
     document.getElementById("balance-date").value = todayLocalISO();
   } else {
@@ -5306,7 +5307,8 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-modal-title").textContent = balanceModalData.nickname;
     document.getElementById("balance-current").hidden = false;
     document.getElementById("balance-clear-btn").hidden = false;
-    document.getElementById("balance-amount").value = balanceModalData.opening_balance;
+    document.getElementById("balance-amount").value = Math.abs(balanceModalData.opening_balance);
+    document.getElementById("balance-negative").checked = balanceModalData.opening_balance < 0;
     document.getElementById("balance-currency").value = balanceModalData.opening_balance_currency;
     document.getElementById("balance-date").value = balanceModalData.opening_balance_date || todayLocalISO();
     renderBalanceCurrentLines_();
@@ -5377,7 +5379,7 @@ document.getElementById("balance-modal-backdrop").addEventListener("click", (e) 
 // currency, and says which way the gap goes — nothing is saved.
 document.getElementById("balance-check-input").addEventListener("input", (e) => {
   const result = document.getElementById("balance-check-result");
-  const text = e.target.value.trim().replace(/,/g, "");
+  const text = e.target.value.trim().replace(/,/g, "").replace(/[−–]/g, "-");
   if (!text || !balanceModalData) { result.textContent = ""; return; }
   const actual = parseFloat(text);
   if (isNaN(actual)) { result.textContent = ""; return; }
@@ -5401,11 +5403,13 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
   try {
     const pmId = balanceModalPmId || document.getElementById("balance-account-picker").value;
     const amountText = document.getElementById("balance-amount").value.trim().replace(/,/g, "");
-    const amount = parseFloat(amountText);
+    // Typed minus or the checkbox both mean negative; never double-negate.
+    const parsed = parseFloat(amountText);
+    const amount = document.getElementById("balance-negative").checked ? -Math.abs(parsed) : parsed;
     const date = document.getElementById("balance-date").value;
     const currency = document.getElementById("balance-currency").value.toUpperCase();
     if (!pmId) throw new Error("Pick an account.");
-    if (!amountText || isNaN(amount)) throw new Error("Enter the starting balance (0 is fine).");
+    if (!amountText || isNaN(parsed)) throw new Error("Enter the starting balance (0 is fine).");
     if (!date) throw new Error("Pick the date this balance is from.");
     saveBtn.disabled = true;
     const pm = await callApi("setPaymentMethodOpeningBalance", { id: pmId, amount, date, currency });

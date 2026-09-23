@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-23T16:32:53Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-23T21:04:37Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -478,13 +478,17 @@
           <div id="balance-current-lines"></div>
 
           <label for="balance-check-input">Check against my app</label>
-          <input type="text" inputmode="decimal" id="balance-check-input" placeholder="What the real app/statement shows">
+          <input type="text" id="balance-check-input" placeholder="What the real app/statement shows (− if negative)">
           <p class="hint" id="balance-check-result"></p>
         </div>
 
         <h3 class="balance-section-title">Starting balance</h3>
         <label for="balance-amount">Balance at the start of the date below</label>
         <input type="text" inputmode="decimal" id="balance-amount" placeholder="0.00">
+        <label class="checkbox-row">
+          <input type="checkbox" id="balance-negative">
+          <span>Negative balance — I owe this (e.g. a credit card)</span>
+        </label>
 
         <label>Currency</label>
         <input type="hidden" id="balance-currency" value="PEN">
@@ -829,6 +833,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-23T16:32:53Z"></script>
+  <script src="app.js?v=2026-09-23T21:04:37Z"></script>
 </body>
 </html>
