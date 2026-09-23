@@ -5279,16 +5279,19 @@ async function openBalanceModal(pmId) {
   const pickerWrap = document.getElementById("balance-account-picker-wrap");
   const picker = document.getElementById("balance-account-picker");
   if (!pmId) {
-    const untracked = meta.paymentMethods.filter((pm) => !balancesCache.some((b) => b.id === pm.id));
+    // Every account is listed, including ones that already have a
+    // balance — picking one of those loads its existing rows, so adding
+    // another currency to it works from here too.
     picker.innerHTML = "";
-    untracked.forEach((pm) => {
+    meta.paymentMethods.forEach((pm) => {
       const opt = document.createElement("option");
       opt.value = pm.id;
-      opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+      const tracked = balancesCache.some((b) => b.id === pm.id);
+      opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
-    if (!untracked.length) {
-      alert("Every account already has a balance. To add a new account, use \"+ Add payment method…\" on the entry form first.");
+    if (!meta.paymentMethods.length) {
+      alert("No accounts yet. Use \"+ Add payment method…\" on the entry form first.");
       return;
     }
     pickerWrap.hidden = false;
@@ -5297,7 +5300,8 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-current").hidden = true;
     document.getElementById("balance-movements-wrap").hidden = true;
     document.getElementById("balance-clear-btn").hidden = true;
-    balanceFormRows = [{ amount: "", negative: false, currency: "PEN", date: todayLocalISO() }];
+    picker.onchange = () => { loadBalanceRowsFor_(picker.value); renderBalanceRows_(); };
+    loadBalanceRowsFor_(picker.value);
   } else {
     pickerWrap.hidden = true;
     balanceModalData = balancesCache.find((b) => b.id === pmId);
@@ -5365,6 +5369,20 @@ async function loadBalanceMovements_(pmId) {
 }
 
 let balanceFormRows = [];
+
+// Rows for the form: the account's saved balances if it has any, else one
+// blank PEN row.
+function loadBalanceRowsFor_(pmId) {
+  const existing = balancesCache.find((b) => b.id === pmId);
+  balanceFormRows = existing
+    ? existing.openings.map((o) => ({
+        amount: String(Math.abs(o.amount)),
+        negative: o.amount < 0,
+        currency: o.currency,
+        date: o.date || todayLocalISO()
+      }))
+    : [{ amount: "", negative: false, currency: "PEN", date: todayLocalISO() }];
+}
 
 function renderBalanceRows_() {
   const wrap = document.getElementById("balance-rows");
