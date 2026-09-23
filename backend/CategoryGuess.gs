@@ -37,8 +37,8 @@ function ensureEntriesMerchantColumn_() {
 /**
  * Lowercase, no accents, punctuation to spaces, and any token that's a bare
  * number or a long letters+digits code (a terminal/reference id the bank
- * glues on) dropped, plus a trailing "li pe" city/country — so "RAPPI PERU*123456" and "Rappi Peru" normalize
- * to the same "rappi peru".
+ * glues on) dropped, plus a trailing "li pe" city/country — so
+ * "RAPPI PERU*123456" and "Rappi Peru" normalize to the same "rappi peru".
  */
 function normalizeMerchant_(raw) {
   if (!raw) return '';
