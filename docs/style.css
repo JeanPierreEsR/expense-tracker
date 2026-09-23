@@ -1686,3 +1686,52 @@ button.primary:disabled {
 }
 
 [hidden] { display: none !important; }
+
+/* ---- Account balances (Overview) ---- */
+.balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.balance-row:last-child { border-bottom: none; }
+
+.balance-row-name { font-size: 0.95rem; color: var(--text); }
+
+.balance-row-amount {
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.balance-row-amount.negative { color: #d64545; }
+
+.balance-row-meta {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.balance-current-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.balance-current-line {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.balance-current-line.negative { color: #d64545; }
+
+.balance-section-title {
+  margin: 20px 0 4px;
+  font-size: 0.95rem;
+}

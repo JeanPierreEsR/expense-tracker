@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-23T12:09:43Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-23T16:32:53Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -76,8 +76,14 @@
           <select id="paid_by"></select>
 
           <div id="payment-method-field">
-            <label for="payment_method">Payment method</label>
+            <label for="payment_method" id="payment-method-label">Payment method</label>
             <select id="payment_method"></select>
+          </div>
+
+          <div id="to-payment-method-field" hidden>
+            <label for="to_payment_method">To (account it goes into)</label>
+            <select id="to_payment_method"></select>
+            <p class="hint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it.</p>
           </div>
 
           <div id="split-field" hidden>
@@ -179,6 +185,16 @@
         </div>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden>No entries in this period yet.</p>
+      </div>
+
+      <div class="card" id="balances-card">
+        <div class="budgets-header">
+          <h2>Balances</h2>
+          <button type="button" class="add-inline" id="add-balance-btn">+ Add balance</button>
+        </div>
+        <p class="hint">What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.</p>
+        <div id="balances-list"></div>
+        <p class="hint" id="balances-empty-note" hidden>No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
       <div class="card">
@@ -445,6 +461,51 @@
     </div>
   </div>
 
+  <div id="balance-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="balance-modal-title">Account balance</span>
+        <button type="button" id="balance-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="balance-account-picker-wrap" hidden>
+          <label for="balance-account-picker">Account</label>
+          <select id="balance-account-picker"></select>
+        </div>
+
+        <div id="balance-current" hidden>
+          <div class="balance-current-label">Balance now</div>
+          <div id="balance-current-lines"></div>
+
+          <label for="balance-check-input">Check against my app</label>
+          <input type="text" inputmode="decimal" id="balance-check-input" placeholder="What the real app/statement shows">
+          <p class="hint" id="balance-check-result"></p>
+        </div>
+
+        <h3 class="balance-section-title">Starting balance</h3>
+        <label for="balance-amount">Balance at the start of the date below</label>
+        <input type="text" inputmode="decimal" id="balance-amount" placeholder="0.00">
+
+        <label>Currency</label>
+        <input type="hidden" id="balance-currency" value="PEN">
+        <div class="currency-chips" id="balance-currency-chips"></div>
+
+        <label for="balance-date">From date</label>
+        <input type="date" id="balance-date">
+        <p class="hint">Entries on or after this date are added to (or taken from) the starting balance. Earlier ones are ignored.</p>
+
+        <p class="hint" id="balance-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="balance-save-btn">Save starting balance</button>
+        <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden>Stop tracking this account</button>
+
+        <div id="balance-movements-wrap" hidden>
+          <h3 class="balance-section-title">Movements since the starting date</h3>
+          <div id="balance-movements"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -477,7 +538,7 @@
 
         <label for="loan-payment-method">Payment method</label>
         <select id="loan-payment-method"></select>
-        <p class="hint">Optional — which account the cash moved through, if any.</p>
+        <p class="hint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
 
         <label for="loan-description">Description</label>
         <input type="text" id="loan-description" placeholder="Optional">
@@ -768,6 +829,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-23T12:09:43Z"></script>
+  <script src="app.js?v=2026-09-23T16:32:53Z"></script>
 </body>
 </html>

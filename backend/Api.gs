@@ -162,6 +162,9 @@ function routeAction(action, payload) {
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     case 'getEntryTags': return getEntryTags(payload);
     case 'saveEntryTags': return saveEntryTags(payload);
+    case 'listPaymentMethodBalances': return listPaymentMethodBalances();
+    case 'getPaymentMethodMovements': return getPaymentMethodMovements(payload);
+    case 'setPaymentMethodOpeningBalance': return setPaymentMethodOpeningBalance(payload);
     case 'listLoanBalances': return listLoanBalances();
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'addLoan': return addLoan(payload);
@@ -197,6 +200,7 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  opening_balance_date: 'yyyy-MM-dd',
   sent_at: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',
@@ -293,6 +297,11 @@ function createEntry(payload) {
     import_batch_id: '',
     created_at: nowTimestamp_()
   };
+  // Only a transfer has a destination account (see Balances.gs).
+  if (payload.type === 'transfer' && payload.to_payment_method_id) {
+    ensureEntriesToPaymentMethodColumn_();
+    entry.to_payment_method_id = payload.to_payment_method_id;
+  }
   appendRowObject('Entries', entry);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -428,6 +437,7 @@ function listPendingEntries() {
 }
 
 function updateEntryFields(entryId, fields) {
+  if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);

@@ -136,6 +136,7 @@ function currencyFieldIds(target) {
   if (target === "budget") return { input: "budget-currency", chips: "budget-currency-chips" };
   if (target === "recurring") return { input: "recurring-currency", chips: "recurring-currency-chips" };
   if (target === "loan") return { input: "loan-currency", chips: "loan-currency-chips" };
+  if (target === "balance") return { input: "balance-currency", chips: "balance-currency-chips" };
   return { input: "currency", chips: "currency-chips" };
 }
 
@@ -325,6 +326,7 @@ async function loadMeta() {
   populateCategoryPicker();
   populatePaidByOptions();
   populatePaymentMethodOptions();
+  populateToPaymentMethodOptions();
   populateTags();
   renderSplitFriendChips();
 }
@@ -489,6 +491,25 @@ function populatePaymentMethodOptions() {
   select.appendChild(addOpt);
 }
 
+// Transfers only: "To" is the account the money lands in (see
+// Balances.gs). Optional, so it starts on "None" — a transfer with no
+// destination (e.g. money leaving to someone outside the app) keeps
+// working exactly as before.
+function populateToPaymentMethodOptions() {
+  const select = document.getElementById("to_payment_method");
+  select.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "None";
+  select.appendChild(noneOpt);
+  meta.paymentMethods.forEach((pm) => {
+    const opt = document.createElement("option");
+    opt.value = pm.id;
+    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    select.appendChild(opt);
+  });
+}
+
 function populateTags() {
   const container = document.getElementById("tags-list");
   container.innerHTML = "";
@@ -506,6 +527,11 @@ function populateTags() {
 }
 
 function togglePaymentMethodVisibility() {
+  // A transfer moves money between two accounts, so its payment method
+  // reads as "From" and a "To" picker appears alongside it.
+  document.getElementById("payment-method-label").textContent = selectedType === "transfer" ? "From" : "Payment method";
+  document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer";
+
   // Income's payment method means "which account received this," which
   // has nothing to do with who paid it — unlike an expense, where it's
   // tied to paid_by === "me" (a friend paying means the owner's own
@@ -780,6 +806,7 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
     const pm = await callApi("addPaymentMethod", { nickname: trimmed, type: type.trim(), last_4: last4.trim() });
     meta.paymentMethods.push(pm);
     populatePaymentMethodOptions();
+    populateToPaymentMethodOptions();
     document.getElementById("payment_method").value = pm.id;
   }
 });
@@ -958,6 +985,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // received it), an expense/investment/transfer only when the owner
     // themselves paid.
     const usesPaymentMethod = selectedType === "income" || paidBy === "me";
+    // Transfers only; always sent (even blank) so switching an entry away
+    // from transfer, or clearing the destination, actually clears it.
+    const toPaymentMethodId = selectedType === "transfer" ? document.getElementById("to_payment_method").value : "";
+    if (selectedType === "transfer" && toPaymentMethodId && toPaymentMethodId === paymentMethodId) {
+      throw new Error("From and To can't be the same account.");
+    }
 
     if (!date) throw new Error("Date is required.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
@@ -997,7 +1030,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           category_id: categoryId,
           description,
           paid_by: paidBy,
-          payment_method_id: usesPaymentMethod ? paymentMethodId : ""
+          payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+          to_payment_method_id: toPaymentMethodId
         }
       });
       await callApi("confirmEntry", { id: confirmingPendingId });
@@ -1017,7 +1051,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           category_id: categoryId,
           description,
           paid_by: paidBy,
-          payment_method_id: usesPaymentMethod ? paymentMethodId : ""
+          payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+          to_payment_method_id: toPaymentMethodId
         }
       });
       // Sent for an expense, even with an empty list — that's how turning
@@ -1062,6 +1097,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,
         tag_ids: tagIds
       });
       // Sent whenever it could actually matter — including a friend-paid
@@ -1080,6 +1116,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
+    document.getElementById("to_payment_method").value = "";
     selectedTagIds.clear();
     populateTags();
     resetSplitState();
@@ -1255,6 +1292,7 @@ async function startEditEntry(entry) {
   if (entry.type === "income" || entry.paid_by === "me") {
     document.getElementById("payment_method").value = entry.payment_method_id || "";
   }
+  document.getElementById("to_payment_method").value = entry.to_payment_method_id || "";
 
   // Tags are per-entry (Entry Tags), not a column on Entries — loaded
   // fresh for whichever entry is being edited, same reasoning as the
@@ -1641,6 +1679,7 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
+    refreshBalances().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -5191,6 +5230,208 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     errorEl.textContent = err.message;
   } finally {
     saveBtn.disabled = false;
+  }
+});
+
+// ---- Account balances (Overview) ----
+// See Balances.gs. Not period-based — always "right now" — so it's fetched
+// when Overview is shown (and after a balance edit), not on every period
+// change.
+
+let balanceModalPmId = null;
+let balanceModalData = null;
+
+async function refreshBalances() {
+  const list = document.getElementById("balances-list");
+  const emptyNote = document.getElementById("balances-empty-note");
+  const rows = await callApi("listPaymentMethodBalances", {});
+  balancesCache = rows;
+  list.innerHTML = "";
+  emptyNote.hidden = rows.length > 0;
+  rows.forEach((r) => {
+    const row = document.createElement("div");
+    row.className = "balance-row";
+    const [main, ...others] = r.balances;
+    const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency)).join(" · ");
+    row.innerHTML = `
+      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}</div>
+      <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
+    `;
+    row.addEventListener("click", () => openBalanceModal(r.id));
+    list.appendChild(row);
+  });
+}
+
+let balancesCache = [];
+
+function formatSignedBalance_(amount, currency) {
+  return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
+}
+
+// `pmId` set → that account's detail; null → "+ Add balance" (pick any
+// account that isn't tracked yet).
+async function openBalanceModal(pmId) {
+  balanceModalPmId = pmId;
+  document.getElementById("balance-form-error").textContent = "";
+  document.getElementById("balance-check-input").value = "";
+  document.getElementById("balance-check-result").textContent = "";
+
+  const pickerWrap = document.getElementById("balance-account-picker-wrap");
+  const picker = document.getElementById("balance-account-picker");
+  if (!pmId) {
+    const untracked = meta.paymentMethods.filter((pm) => !balancesCache.some((b) => b.id === pm.id));
+    picker.innerHTML = "";
+    untracked.forEach((pm) => {
+      const opt = document.createElement("option");
+      opt.value = pm.id;
+      opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+      picker.appendChild(opt);
+    });
+    if (!untracked.length) {
+      alert("Every account already has a balance. To add a new account, use \"+ Add payment method…\" on the entry form first.");
+      return;
+    }
+    pickerWrap.hidden = false;
+    document.getElementById("balance-modal-title").textContent = "Add account balance";
+    balanceModalData = null;
+    document.getElementById("balance-current").hidden = true;
+    document.getElementById("balance-movements-wrap").hidden = true;
+    document.getElementById("balance-clear-btn").hidden = true;
+    document.getElementById("balance-amount").value = "";
+    document.getElementById("balance-currency").value = "PEN";
+    document.getElementById("balance-date").value = todayLocalISO();
+  } else {
+    pickerWrap.hidden = true;
+    balanceModalData = balancesCache.find((b) => b.id === pmId);
+    document.getElementById("balance-modal-title").textContent = balanceModalData.nickname;
+    document.getElementById("balance-current").hidden = false;
+    document.getElementById("balance-clear-btn").hidden = false;
+    document.getElementById("balance-amount").value = balanceModalData.opening_balance;
+    document.getElementById("balance-currency").value = balanceModalData.opening_balance_currency;
+    document.getElementById("balance-date").value = balanceModalData.opening_balance_date || todayLocalISO();
+    renderBalanceCurrentLines_();
+  }
+  renderCurrencyChips("balance");
+
+  const backdrop = document.getElementById("balance-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+
+  if (pmId) await loadBalanceMovements_(pmId);
+}
+
+function renderBalanceCurrentLines_() {
+  const el = document.getElementById("balance-current-lines");
+  el.innerHTML = "";
+  balanceModalData.balances.forEach((b, i) => {
+    if (i > 0 && Math.abs(b.amount) <= 0.004) return;
+    const line = document.createElement("div");
+    line.className = "balance-current-line" + (b.amount < 0 ? " negative" : "");
+    line.textContent = formatSignedBalance_(b.amount, b.currency);
+    el.appendChild(line);
+  });
+}
+
+async function loadBalanceMovements_(pmId) {
+  const wrap = document.getElementById("balance-movements-wrap");
+  const list = document.getElementById("balance-movements");
+  list.innerHTML = '<p class="hint">Loading…</p>';
+  wrap.hidden = false;
+  const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: pmId });
+  if (balanceModalPmId !== pmId) return;
+  list.innerHTML = "";
+  if (!moves.length) {
+    list.innerHTML = '<p class="hint">Nothing since the starting date.</p>';
+    return;
+  }
+  moves.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "loan-detail-row";
+    const label = m.description || (m.type === "transfer" ? "Transfer" : m.type[0].toUpperCase() + m.type.slice(1));
+    const extra = m.type === "transfer" && m.other_account ? ` · ${m.signed < 0 ? "to" : "from"} ${escapeHtml(m.other_account)}` : "";
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(label)}</span>
+        <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${m.currency} ${moneyFmt(Math.abs(m.signed))}</span>
+      </div>
+      <div class="loan-detail-row-meta">${m.date} · ${m.type}${extra}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function closeBalanceModal() {
+  document.getElementById("balance-modal-backdrop").hidden = true;
+  balanceModalPmId = null;
+  balanceModalData = null;
+}
+
+document.getElementById("add-balance-btn").addEventListener("click", () => openBalanceModal(null));
+document.getElementById("balance-modal-close").addEventListener("click", closeBalanceModal);
+document.getElementById("balance-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "balance-modal-backdrop") closeBalanceModal();
+});
+
+// "Check against my app": compares what the real app/statement shows with
+// what this app computes, in the account's own (starting-balance)
+// currency, and says which way the gap goes — nothing is saved.
+document.getElementById("balance-check-input").addEventListener("input", (e) => {
+  const result = document.getElementById("balance-check-result");
+  const text = e.target.value.trim().replace(/,/g, "");
+  if (!text || !balanceModalData) { result.textContent = ""; return; }
+  const actual = parseFloat(text);
+  if (isNaN(actual)) { result.textContent = ""; return; }
+  const main = balanceModalData.balances[0];
+  const diff = Math.round((actual - main.amount) * 100) / 100;
+  if (Math.abs(diff) < 0.005) {
+    result.style.color = "var(--income)";
+    result.textContent = "✓ Matches — no difference.";
+  } else {
+    result.style.color = "#d64545";
+    result.textContent = diff > 0
+      ? `Your app shows ${main.currency} ${moneyFmt(diff)} MORE than tracked here — likely a top-up, income or refund not logged yet.`
+      : `Your app shows ${main.currency} ${moneyFmt(-diff)} LESS than tracked here — likely a purchase or fee not logged yet.`;
+  }
+});
+
+document.getElementById("balance-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("balance-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("balance-save-btn");
+  try {
+    const pmId = balanceModalPmId || document.getElementById("balance-account-picker").value;
+    const amountText = document.getElementById("balance-amount").value.trim().replace(/,/g, "");
+    const amount = parseFloat(amountText);
+    const date = document.getElementById("balance-date").value;
+    const currency = document.getElementById("balance-currency").value.toUpperCase();
+    if (!pmId) throw new Error("Pick an account.");
+    if (!amountText || isNaN(amount)) throw new Error("Enter the starting balance (0 is fine).");
+    if (!date) throw new Error("Pick the date this balance is from.");
+    saveBtn.disabled = true;
+    const pm = await callApi("setPaymentMethodOpeningBalance", { id: pmId, amount, date, currency });
+    const idx = meta.paymentMethods.findIndex((p) => p.id === pmId);
+    if (idx !== -1) meta.paymentMethods[idx] = pm;
+    closeBalanceModal();
+    await refreshBalances();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("balance-clear-btn").addEventListener("click", async () => {
+  if (!balanceModalPmId) return;
+  if (!confirm("Stop tracking this account's balance? Its entries aren't touched.")) return;
+  const pmId = balanceModalPmId;
+  try {
+    const pm = await callApi("setPaymentMethodOpeningBalance", { id: pmId, amount: null });
+    const idx = meta.paymentMethods.findIndex((p) => p.id === pmId);
+    if (idx !== -1) meta.paymentMethods[idx] = pm;
+    closeBalanceModal();
+    await refreshBalances();
+  } catch (err) {
+    document.getElementById("balance-form-error").textContent = err.message;
   }
 });
 

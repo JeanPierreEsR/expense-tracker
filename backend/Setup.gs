@@ -8,12 +8,17 @@
 var TABLE_DEFINITIONS = {
   Entries: ['id', 'type', 'date', 'amount', 'currency', 'category_id',
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
-    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant'],
+    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
   Tags: ['id', 'name', 'color'],
   'Entry Tags': ['entry_id', 'tag_id'],
-  'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4'],
+  // opening_balance / opening_balance_date / opening_balance_currency: an
+  // optional starting balance for account-balance tracking — blank means
+  // "not tracked". Self-heals via ensurePaymentMethodBalanceColumns_
+  // (Balances.gs). Entries.to_payment_method_id (transfers only) likewise.
+  'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4',
+    'opening_balance', 'opening_balance_date', 'opening_balance_currency'],
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   Friends: ['id', 'name', 'notes'],
