@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-23T21:04:37Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-23T21:10:39Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -478,28 +478,18 @@
           <div id="balance-current-lines"></div>
 
           <label for="balance-check-input">Check against my app</label>
+          <select id="balance-check-currency" hidden></select>
           <input type="text" id="balance-check-input" placeholder="What the real app/statement shows (− if negative)">
           <p class="hint" id="balance-check-result"></p>
         </div>
 
-        <h3 class="balance-section-title">Starting balance</h3>
-        <label for="balance-amount">Balance at the start of the date below</label>
-        <input type="text" inputmode="decimal" id="balance-amount" placeholder="0.00">
-        <label class="checkbox-row">
-          <input type="checkbox" id="balance-negative">
-          <span>Negative balance — I owe this (e.g. a credit card)</span>
-        </label>
-
-        <label>Currency</label>
-        <input type="hidden" id="balance-currency" value="PEN">
-        <div class="currency-chips" id="balance-currency-chips"></div>
-
-        <label for="balance-date">From date</label>
-        <input type="date" id="balance-date">
-        <p class="hint">Entries on or after this date are added to (or taken from) the starting balance. Earlier ones are ignored.</p>
+        <h3 class="balance-section-title">Starting balances</h3>
+        <p class="hint">One per currency the account holds. Entries on or after each "from" date are added to (or taken from) it; earlier ones are ignored.</p>
+        <div id="balance-rows"></div>
+        <button type="button" class="add-inline" id="balance-add-row-btn">+ Add another currency</button>
 
         <p class="hint" id="balance-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="balance-save-btn">Save starting balance</button>
+        <button type="button" class="primary" id="balance-save-btn">Save starting balances</button>
         <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden>Stop tracking this account</button>
 
         <div id="balance-movements-wrap" hidden>
@@ -833,6 +823,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-23T21:04:37Z"></script>
+  <script src="app.js?v=2026-09-23T21:10:39Z"></script>
 </body>
 </html>

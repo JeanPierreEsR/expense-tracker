@@ -5297,23 +5297,22 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-current").hidden = true;
     document.getElementById("balance-movements-wrap").hidden = true;
     document.getElementById("balance-clear-btn").hidden = true;
-    document.getElementById("balance-amount").value = "";
-    document.getElementById("balance-negative").checked = false;
-    document.getElementById("balance-currency").value = "PEN";
-    document.getElementById("balance-date").value = todayLocalISO();
+    balanceFormRows = [{ amount: "", negative: false, currency: "PEN", date: todayLocalISO() }];
   } else {
     pickerWrap.hidden = true;
     balanceModalData = balancesCache.find((b) => b.id === pmId);
     document.getElementById("balance-modal-title").textContent = balanceModalData.nickname;
     document.getElementById("balance-current").hidden = false;
     document.getElementById("balance-clear-btn").hidden = false;
-    document.getElementById("balance-amount").value = Math.abs(balanceModalData.opening_balance);
-    document.getElementById("balance-negative").checked = balanceModalData.opening_balance < 0;
-    document.getElementById("balance-currency").value = balanceModalData.opening_balance_currency;
-    document.getElementById("balance-date").value = balanceModalData.opening_balance_date || todayLocalISO();
+    balanceFormRows = balanceModalData.openings.map((o) => ({
+      amount: String(Math.abs(o.amount)),
+      negative: o.amount < 0,
+      currency: o.currency,
+      date: o.date || todayLocalISO()
+    }));
     renderBalanceCurrentLines_();
   }
-  renderCurrencyChips("balance");
+  renderBalanceRows_();
 
   const backdrop = document.getElementById("balance-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -5332,6 +5331,9 @@ function renderBalanceCurrentLines_() {
     line.textContent = formatSignedBalance_(b.amount, b.currency);
     el.appendChild(line);
   });
+  const sel = document.getElementById("balance-check-currency");
+  sel.innerHTML = balanceModalData.balances.map((b) => `<option value="${b.currency}">${b.currency}</option>`).join("");
+  sel.hidden = balanceModalData.balances.length < 2;
 }
 
 async function loadBalanceMovements_(pmId) {
@@ -5362,6 +5364,42 @@ async function loadBalanceMovements_(pmId) {
   });
 }
 
+let balanceFormRows = [];
+
+function renderBalanceRows_() {
+  const wrap = document.getElementById("balance-rows");
+  wrap.innerHTML = "";
+  balanceFormRows.forEach((row, i) => {
+    const el = document.createElement("div");
+    el.className = "balance-form-row";
+    const currencyOpts = CURRENCIES.map((c) => `<option value="${c.code}"${c.code === row.currency ? " selected" : ""}>${c.flag} ${c.code}</option>`).join("");
+    el.innerHTML = `
+      <div class="balance-form-row-main">
+        <input type="text" inputmode="decimal" class="balance-row-amount-input" placeholder="0.00" value="${escapeHtml(row.amount)}">
+        <select class="balance-row-currency-select">${currencyOpts}</select>
+        ${balanceFormRows.length > 1 ? '<button type="button" class="balance-row-remove" aria-label="Remove">✕</button>' : ""}
+      </div>
+      <label class="checkbox-row"><input type="checkbox" class="balance-row-negative"${row.negative ? " checked" : ""}><span>Negative — I owe this (e.g. a credit card)</span></label>
+      <label class="balance-row-date-label">From date</label>
+      <input type="date" class="balance-row-date" value="${row.date}">
+    `;
+    el.querySelector(".balance-row-amount-input").addEventListener("input", (e) => { row.amount = e.target.value; });
+    el.querySelector(".balance-row-currency-select").addEventListener("change", (e) => { row.currency = e.target.value; });
+    el.querySelector(".balance-row-negative").addEventListener("change", (e) => { row.negative = e.target.checked; });
+    el.querySelector(".balance-row-date").addEventListener("change", (e) => { row.date = e.target.value; });
+    const rm = el.querySelector(".balance-row-remove");
+    if (rm) rm.addEventListener("click", () => { balanceFormRows.splice(i, 1); renderBalanceRows_(); });
+    wrap.appendChild(el);
+  });
+}
+
+document.getElementById("balance-add-row-btn").addEventListener("click", () => {
+  const used = new Set(balanceFormRows.map((r) => r.currency));
+  const next = ["USD", "PEN", "EUR"].find((c) => !used.has(c)) || "USD";
+  balanceFormRows.push({ amount: "", negative: false, currency: next, date: todayLocalISO() });
+  renderBalanceRows_();
+});
+
 function closeBalanceModal() {
   document.getElementById("balance-modal-backdrop").hidden = true;
   balanceModalPmId = null;
@@ -5377,13 +5415,14 @@ document.getElementById("balance-modal-backdrop").addEventListener("click", (e) 
 // "Check against my app": compares what the real app/statement shows with
 // what this app computes, in the account's own (starting-balance)
 // currency, and says which way the gap goes — nothing is saved.
+document.getElementById("balance-check-currency").addEventListener("change", () => document.getElementById("balance-check-input").dispatchEvent(new Event("input")));
 document.getElementById("balance-check-input").addEventListener("input", (e) => {
   const result = document.getElementById("balance-check-result");
   const text = e.target.value.trim().replace(/,/g, "").replace(/[−–]/g, "-");
   if (!text || !balanceModalData) { result.textContent = ""; return; }
   const actual = parseFloat(text);
   if (isNaN(actual)) { result.textContent = ""; return; }
-  const main = balanceModalData.balances[0];
+  const main = balanceModalData.balances.find((b) => b.currency === document.getElementById("balance-check-currency").value) || balanceModalData.balances[0];
   const diff = Math.round((actual - main.amount) * 100) / 100;
   if (Math.abs(diff) < 0.005) {
     result.style.color = "var(--income)";
@@ -5402,19 +5441,20 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
   const saveBtn = document.getElementById("balance-save-btn");
   try {
     const pmId = balanceModalPmId || document.getElementById("balance-account-picker").value;
-    const amountText = document.getElementById("balance-amount").value.trim().replace(/,/g, "");
-    // Typed minus or the checkbox both mean negative; never double-negate.
-    const parsed = parseFloat(amountText);
-    const amount = document.getElementById("balance-negative").checked ? -Math.abs(parsed) : parsed;
-    const date = document.getElementById("balance-date").value;
-    const currency = document.getElementById("balance-currency").value.toUpperCase();
     if (!pmId) throw new Error("Pick an account.");
-    if (!amountText || isNaN(parsed)) throw new Error("Enter the starting balance (0 is fine).");
-    if (!date) throw new Error("Pick the date this balance is from.");
+    const seen = new Set();
+    const balances = balanceFormRows.map((row) => {
+      const text = String(row.amount).trim().replace(/,/g, "").replace(/[−–]/g, "-");
+      const parsed = parseFloat(text);
+      if (!text || isNaN(parsed)) throw new Error(`Enter the starting balance for ${row.currency} (0 is fine).`);
+      if (!row.date) throw new Error(`Pick the from date for ${row.currency}.`);
+      if (seen.has(row.currency)) throw new Error(`${row.currency} is listed twice.`);
+      seen.add(row.currency);
+      // Typed minus or the checkbox both mean negative; never double-negate.
+      return { currency: row.currency, amount: row.negative ? -Math.abs(parsed) : parsed, date: row.date };
+    });
     saveBtn.disabled = true;
-    const pm = await callApi("setPaymentMethodOpeningBalance", { id: pmId, amount, date, currency });
-    const idx = meta.paymentMethods.findIndex((p) => p.id === pmId);
-    if (idx !== -1) meta.paymentMethods[idx] = pm;
+    await callApi("setPaymentMethodOpeningBalance", { id: pmId, balances });
     closeBalanceModal();
     await refreshBalances();
   } catch (err) {
@@ -5426,12 +5466,10 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
 
 document.getElementById("balance-clear-btn").addEventListener("click", async () => {
   if (!balanceModalPmId) return;
-  if (!confirm("Stop tracking this account's balance? Its entries aren't touched.")) return;
+  if (!confirm("Stop tracking this account's balances? Its entries aren't touched.")) return;
   const pmId = balanceModalPmId;
   try {
-    const pm = await callApi("setPaymentMethodOpeningBalance", { id: pmId, amount: null });
-    const idx = meta.paymentMethods.findIndex((p) => p.id === pmId);
-    if (idx !== -1) meta.paymentMethods[idx] = pm;
+    await callApi("setPaymentMethodOpeningBalance", { id: pmId, balances: [] });
     closeBalanceModal();
     await refreshBalances();
   } catch (err) {

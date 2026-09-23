@@ -1735,3 +1735,29 @@ button.primary:disabled {
   margin: 20px 0 4px;
   font-size: 0.95rem;
 }
+
+.balance-form-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.balance-form-row-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.balance-form-row-main input { flex: 1; min-width: 0; }
+.balance-form-row-main select { width: auto; }
+
+.balance-row-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.balance-row-date-label { display: block; margin-top: 8px; }

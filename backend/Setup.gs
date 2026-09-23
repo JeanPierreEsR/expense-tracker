@@ -70,6 +70,11 @@ var TABLE_DEFINITIONS = {
   // chart, "Programmed this month") — no loans/Entry Splits get created
   // from this table itself; that still only happens when the real
   // transaction is confirmed and split by hand, same as always.
+  // Optional starting balances for account-balance tracking, one row per
+  // account per currency — self-heals via ensureAccountOpeningBalancesSheet_
+  // (Balances.gs). Replaces the older three-column single balance on
+  // Payment Methods, which is still read as a fallback.
+  'Account Opening Balances': ['id', 'payment_method_id', 'currency', 'amount', 'date'],
   'Recurring Expense Splits': ['id', 'recurring_expense_id', 'friend_id', 'amount'],
   // Not part of the original spec — lets the owner manually override a
   // category's calculated Projections figure (see Projections.gs) for one

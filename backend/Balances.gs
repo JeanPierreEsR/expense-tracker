@@ -4,13 +4,18 @@
 // (a cash wallet, Yape, a loyalty wallet like Starbucks, a bank account)
 // should currently hold, and check it against the real app/statement.
 //
-// Nothing is stored except an optional STARTING balance on the Payment
-// Methods row (`opening_balance`, `opening_balance_date`,
-// `opening_balance_currency`). A payment method with no opening_balance
-// simply isn't tracked — setting one is never required. The current
-// balance is always derived fresh: starting balance plus every confirmed
-// movement dated on/after the starting-balance date (same "derive, don't
-// store" rule as own_share/amount_pen).
+// Nothing is stored except optional STARTING balances — one per account
+// per currency, in the "Account Opening Balances" sheet (`payment_method_id`,
+// `currency`, `amount`, `date`). An account with none simply isn't
+// tracked — setting one is never required. (Before multi-currency support,
+// a single balance lived in three columns on the Payment Methods row; those
+// are still read as a fallback for an account with no rows in the new
+// sheet, and cleared the next time that account's balances are saved.)
+// The current balance is always derived fresh, per currency: that
+// currency's starting balance plus every confirmed movement in it dated
+// on/after its starting date (same "derive, don't store" rule as
+// own_share/amount_pen). A currency with movements but no starting
+// balance of its own counts from the account's EARLIEST starting date.
 //
 // Movements, per account:
 //   expense / investment paid with it  → money out (the FULL amount paid,
@@ -42,8 +47,52 @@ function ensurePaymentMethodBalanceColumns_() {
   ensureColumn_('Payment Methods', 'opening_balance_currency');
 }
 
-function isTrackedPaymentMethod_(pm) {
-  return pm.opening_balance !== undefined && pm.opening_balance !== '' && pm.opening_balance !== null;
+function ensureAccountOpeningBalancesSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Account Opening Balances')) return;
+  var sheet = ss.insertSheet('Account Opening Balances');
+  var headers = TABLE_DEFINITIONS['Account Opening Balances'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+}
+
+// Map of payment_method_id -> [{currency, amount, date}], from the new
+// sheet, with the legacy single-balance columns as a per-account fallback.
+function buildOpeningsByPm_(pms) {
+  ensureAccountOpeningBalancesSheet_();
+  var byPm = {};
+  getAllRows('Account Opening Balances').forEach(function (r) {
+    if (!byPm[r.payment_method_id]) byPm[r.payment_method_id] = [];
+    byPm[r.payment_method_id].push({
+      currency: String(r.currency || 'PEN').toUpperCase(),
+      amount: Number(r.amount) || 0,
+      date: r.date || ''
+    });
+  });
+  pms.forEach(function (pm) {
+    if (byPm[pm.id]) return;
+    if (pm.opening_balance !== undefined && pm.opening_balance !== '' && pm.opening_balance !== null) {
+      byPm[pm.id] = [{
+        currency: String(pm.opening_balance_currency || 'PEN').toUpperCase(),
+        amount: Number(pm.opening_balance) || 0,
+        date: pm.opening_balance_date || ''
+      }];
+    }
+  });
+  return byPm;
+}
+
+// The date from which entries in `currency` count toward this account.
+function openingSinceDate_(openings, currency) {
+  var own = openings.find(function (o) { return o.currency === currency; });
+  if (own) return own.date || '';
+  var earliest = '';
+  openings.forEach(function (o) {
+    if (o.date && (!earliest || o.date < earliest)) earliest = o.date;
+  });
+  return earliest;
 }
 
 // A loan-linked transfer Entry has only one payment method (where the
@@ -89,10 +138,10 @@ function signedEffectOnPaymentMethod_(entry, pmId, inboundIds) {
   return 0;
 }
 
-function movementsForPaymentMethod_(pm, entries, inboundIds) {
-  var since = pm.opening_balance_date || '';
+function movementsForPaymentMethod_(pm, openings, entries, inboundIds) {
   var out = [];
   entries.forEach(function (e) {
+    var since = openingSinceDate_(openings, e.currency || 'PEN');
     if (since && e.date < since) return;
     var signed = signedEffectOnPaymentMethod_(e, pm.id, inboundIds);
     if (signed === 0) return;
@@ -114,7 +163,9 @@ function todayMonthKey_() {
 // always present, even at 0). `balance_pen` is the PEN total across those
 // lines at the latest rate on file, or null if any line has no rate.
 function listPaymentMethodBalances() {
-  var pms = getAllRows('Payment Methods').filter(isTrackedPaymentMethod_);
+  var allPms = getAllRows('Payment Methods');
+  var openingsByPm = buildOpeningsByPm_(allPms);
+  var pms = allPms.filter(function (pm) { return openingsByPm[pm.id]; });
   if (!pms.length) return [];
   var entries = confirmedEntries_();
   var inboundIds = buildInboundTransferIds_();
@@ -123,10 +174,11 @@ function listPaymentMethodBalances() {
   var month = todayMonthKey_();
 
   return pms.map(function (pm) {
-    var baseCurrency = pm.opening_balance_currency || 'PEN';
+    var openings = openingsByPm[pm.id];
+    var baseCurrency = openings[0].currency;
     var totals = {};
-    totals[baseCurrency] = Number(pm.opening_balance) || 0;
-    movementsForPaymentMethod_(pm, entries, inboundIds).forEach(function (m) {
+    openings.forEach(function (o) { totals[o.currency] = (totals[o.currency] || 0) + o.amount; });
+    movementsForPaymentMethod_(pm, openings, entries, inboundIds).forEach(function (m) {
       var cur = m.entry.currency || 'PEN';
       totals[cur] = (totals[cur] || 0) + m.signed;
     });
@@ -140,7 +192,7 @@ function listPaymentMethodBalances() {
       else balancePen += amountPen;
       return { currency: cur, amount: amount, amount_pen: amountPen };
     }).sort(function (a, b) {
-      // The account's own currency first, others after.
+      // The account's first-entered currency first, others after.
       if (a.currency === baseCurrency) return -1;
       if (b.currency === baseCurrency) return 1;
       return a.currency < b.currency ? -1 : 1;
@@ -152,9 +204,7 @@ function listPaymentMethodBalances() {
       type: pm.type,
       last_4: pm.last_4,
       bank_name: banksById[pm.bank_id] || '',
-      opening_balance: Number(pm.opening_balance) || 0,
-      opening_balance_date: pm.opening_balance_date || '',
-      opening_balance_currency: baseCurrency,
+      openings: openings,
       balances: balances,
       balance_pen: balancePen == null ? null : Math.round(balancePen * 100) / 100
     };
@@ -170,9 +220,11 @@ function listPaymentMethodBalances() {
 function getPaymentMethodMovements(payload) {
   var pm = getAllRows('Payment Methods').find(function (p) { return p.id === payload.paymentMethodId; });
   if (!pm) throw new Error('Payment method not found');
+  var allPms = getAllRows('Payment Methods');
   var pmsById = {};
-  getAllRows('Payment Methods').forEach(function (p) { pmsById[p.id] = p; });
-  var movements = movementsForPaymentMethod_(pm, confirmedEntries_(), buildInboundTransferIds_());
+  allPms.forEach(function (p) { pmsById[p.id] = p; });
+  var openings = buildOpeningsByPm_(allPms)[pm.id] || [];
+  var movements = movementsForPaymentMethod_(pm, openings, confirmedEntries_(), buildInboundTransferIds_());
   movements.sort(function (a, b) { return compareEntriesRecency_(a.entry, b.entry); });
   return movements.map(function (m) {
     var e = m.entry;
@@ -193,29 +245,48 @@ function getPaymentMethodMovements(payload) {
   });
 }
 
-// Sets (or, with amount = null/'', clears) an account's starting balance.
-// Clearing just stops tracking it — nothing else about the account or its
-// entries changes.
+// Replaces an account's whole set of starting balances with
+// payload.balances = [{currency, amount, date}] (one per currency); an
+// empty list clears them, which just stops tracking the account —
+// nothing else about it or its entries changes. Also clears the legacy
+// single-balance columns, so they can't resurface as a fallback later.
 function setPaymentMethodOpeningBalance(payload) {
-  ensurePaymentMethodBalanceColumns_();
-  var sheet = getSheet('Payment Methods');
-  var headers = getHeaders(sheet);
-  var rowIndex = findRowIndexById(sheet, headers, payload.id);
+  ensureAccountOpeningBalancesSheet_();
+  var pmSheet = getSheet('Payment Methods');
+  var pmHeaders = getHeaders(pmSheet);
+  var rowIndex = findRowIndexById(pmSheet, pmHeaders, payload.id);
   if (rowIndex === -1) throw new Error('Payment method not found');
 
-  var clearing = payload.amount === null || payload.amount === undefined || payload.amount === '';
-  if (!clearing && isNaN(Number(payload.amount))) throw new Error('Enter a valid balance.');
+  var list = payload.balances || [];
+  var seen = {};
+  var clean = list.map(function (b) {
+    var currency = String(b.currency || 'PEN').toUpperCase();
+    if (seen[currency]) throw new Error('Each currency can only be listed once (' + currency + ').');
+    seen[currency] = true;
+    if (b.amount === '' || b.amount === null || b.amount === undefined || isNaN(Number(b.amount))) {
+      throw new Error('Enter a valid balance for ' + currency + '.');
+    }
+    if (!b.date) throw new Error('Pick a from-date for ' + currency + '.');
+    return { currency: currency, amount: Number(b.amount), date: String(b.date) };
+  });
 
-  var date = clearing ? '' : String(payload.date || '');
-  var currency = clearing ? '' : String(payload.currency || 'PEN').toUpperCase();
+  deleteRowsWhere_('Account Opening Balances', function (row) { return row.payment_method_id === payload.id; });
+  var sheet = getSheet('Account Opening Balances');
+  var headers = getHeaders(sheet);
+  clean.forEach(function (b) {
+    appendRowObject('Account Opening Balances', {
+      id: Utilities.getUuid(), payment_method_id: payload.id,
+      currency: b.currency, amount: b.amount, date: ''
+    });
+    // Plain-text date cell, same reason as setProjectionOverride's
+    // period_key: Sheets converts date-looking strings otherwise.
+    var dateCell = sheet.getRange(sheet.getLastRow(), headers.indexOf('date') + 1);
+    dateCell.setNumberFormat('@');
+    dateCell.setValue(b.date);
+  });
 
-  setCellByRow_(sheet, headers, rowIndex, 'opening_balance', clearing ? '' : Number(payload.amount));
-  // Plain-text format on the date cell, same reason as setProjectionOverride's
-  // period_key: Sheets silently converts date-looking strings otherwise.
-  var dateCol = headers.indexOf('opening_balance_date') + 1;
-  sheet.getRange(rowIndex, dateCol).setNumberFormat('@');
-  setCellByRow_(sheet, headers, rowIndex, 'opening_balance_date', date);
-  setCellByRow_(sheet, headers, rowIndex, 'opening_balance_currency', currency);
-
-  return getAllRows('Payment Methods').find(function (p) { return p.id === payload.id; });
+  ['opening_balance', 'opening_balance_date', 'opening_balance_currency'].forEach(function (col) {
+    setCellByRow_(pmSheet, pmHeaders, rowIndex, col, '');
+  });
+  return { done: true };
 }
