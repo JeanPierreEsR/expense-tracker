@@ -553,6 +553,23 @@ function deleteBudget(id) {
   return { done: true };
 }
 
+// Same shape as adminDebugProjectionOverrides (Projections.gs) — a raw
+// dump for diagnosing why an alert fired (or didn't), same
+// diagnostic-only spirit.
+function adminDebugBudgetAlertLog() {
+  var sheet = getSheet('Budget Alert Log');
+  var headers = getHeaders(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { rows: [] };
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  return {
+    headers: headers,
+    rows: values.map(function (row) {
+      return row.map(function (cell) { return { value: cell, jsType: typeof cell, str: String(cell) }; });
+    })
+  };
+}
+
 // Runs on the same 15-minute automation cycle as the email scan. Each
 // budget can cross several thresholds between runs (a big purchase can
 // jump 40% -> 90% in one entry) — every newly-crossed threshold gets its

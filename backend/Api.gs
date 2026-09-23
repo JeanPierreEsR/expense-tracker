@@ -150,6 +150,7 @@ function routeAction(action, payload) {
     case 'deleteProjectionOverride': return deleteProjectionOverride(payload);
     case 'admin_resetProjectionOverridesSheet': return adminResetProjectionOverridesSheet();
     case 'admin_debugProjectionOverrides': return adminDebugProjectionOverrides();
+    case 'admin_debugBudgetAlertLog': return adminDebugBudgetAlertLog();
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': deleteEntry_(payload.id); return { done: true };

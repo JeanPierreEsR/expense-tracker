@@ -329,6 +329,13 @@ main {
   background: var(--bg);
 }
 
+/* Overview pie-chart legend's round color dot — the drill-down chart's
+   OWN legend (Actual/Projected line-color key) uses the differently-named
+   .chart-legend-swatch instead of reusing this one, on purpose: a shared
+   class name here once caused the drill-down's thin 14px-by-2px line
+   swatch to silently override this circle (later rule, same specificity,
+   same class name wins the cascade), flattening every pie legend dot on
+   the Overview tab into a thin bar. */
 .legend-swatch {
   width: 10px;
   height: 10px;
@@ -1647,7 +1654,7 @@ button.primary:disabled {
   margin-top: 4px;
 }
 
-.legend-swatch {
+.chart-legend-swatch {
   display: inline-block;
   width: 14px;
   height: 2px;
