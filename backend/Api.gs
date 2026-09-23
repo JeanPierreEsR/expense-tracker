@@ -125,6 +125,7 @@ function routeAction(action, payload) {
     case 'admin_debugGmail': return debugGmailSearch_(payload.query);
     case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
     case 'admin_backfillEntryMerchants': return backfillEntryMerchants(payload);
+    case 'admin_listCategoryKeywords': return getAllRows('Category Keywords');
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
