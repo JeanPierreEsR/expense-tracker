@@ -500,6 +500,8 @@ input[type="date"] {
 .loan-row-amount {
   font-weight: 600;
   font-size: 0.95rem;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .loan-row-amount.owed-to-me { color: var(--income); }
@@ -1320,6 +1322,16 @@ button.primary:disabled {
 }
 
 .budgets-summary-value.income { color: var(--income); }
+
+/* Loans tab section totals — one line per currency, right-aligned. */
+.loan-total-values {
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.loan-total-values.income { color: var(--income); }
 
 .budget-progress-track {
   background: var(--bg);

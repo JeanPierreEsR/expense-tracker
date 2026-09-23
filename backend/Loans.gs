@@ -781,8 +781,8 @@ function listLoanBalances() {
   var friendMap = {};
   getAllRows('Friends').forEach(function (f) { friendMap[f.id] = f.name; });
 
-  // friend_id -> currency -> { theyOweMe, iOweThem } (native amounts,
-  // remaining balance after settlements).
+  // friend_id -> currency -> net (they owe me positive, I owe them
+  // negative), native amounts, remaining balance after settlements.
   var byFriendCurrency = {};
   var overdueFriendIds = {};
   loans.forEach(function (loan) {
@@ -793,9 +793,8 @@ function listLoanBalances() {
 
     if (!byFriendCurrency[loan.friend_id]) byFriendCurrency[loan.friend_id] = {};
     var byCur = byFriendCurrency[loan.friend_id];
-    if (!byCur[loan.currency]) byCur[loan.currency] = { theyOweMe: 0, iOweThem: 0 };
-    if (loan.direction === 'they_owe_me') byCur[loan.currency].theyOweMe += remaining;
-    else byCur[loan.currency].iOweThem += remaining;
+    byCur[loan.currency] = (byCur[loan.currency] || 0) +
+      (loan.direction === 'they_owe_me' ? remaining : -remaining);
   });
 
   var month = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
@@ -803,47 +802,25 @@ function listLoanBalances() {
 
   Object.keys(byFriendCurrency).forEach(function (friendId) {
     var byCur = byFriendCurrency[friendId];
-    // Only currencies where this friend still has a real, non-zero net —
-    // a currency that happens to net to exactly 0 (fully offsetting loans
-    // in both directions) doesn't count as "a currency this friend is
-    // owed/owes in" for the single-vs-mixed decision below.
-    var activeCurrencies = Object.keys(byCur).filter(function (cur) {
-      return Math.abs(byCur[cur].theyOweMe - byCur[cur].iOweThem) > 0.004;
-    });
-    if (!activeCurrencies.length) return;
-
-    var netPen = 0;
-    var missingRateFor = null;
-    activeCurrencies.forEach(function (cur) {
-      var net = byCur[cur].theyOweMe - byCur[cur].iOweThem;
-      var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
-      if (rate == null) { missingRateFor = cur; return; }
-      netPen += net * rate;
-    });
-
-    var displayCurrency = null;
-    var displayAmount = null;
-    var needsRate = false;
-    if (activeCurrencies.length === 1) {
-      // No conversion needed at all — exact, regardless of whether a rate
-      // is on file for this currency.
-      var cur = activeCurrencies[0];
-      displayCurrency = cur;
-      displayAmount = byCur[cur].theyOweMe - byCur[cur].iOweThem;
-    } else if (missingRateFor == null) {
-      displayCurrency = 'PEN';
-      displayAmount = netPen;
-    } else {
-      needsRate = true;
-    }
+    // Only currencies where this friend still has a real, non-zero net — a
+    // currency that nets to exactly 0 (fully offsetting loans in both
+    // directions) isn't a balance worth listing.
+    var balances = Object.keys(byCur)
+      .filter(function (cur) { return Math.abs(byCur[cur]) > 0.004; })
+      .sort(function (a, b) { return a === 'PEN' ? -1 : (b === 'PEN' ? 1 : (a < b ? -1 : 1)); })
+      .map(function (cur) {
+        // net_pen is only ever used to ORDER rows (largest first) — never
+        // shown, and null when no rate is on file, since balances stay in
+        // their own currency and nothing here needs a conversion to display.
+        var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
+        return { currency: cur, net: byCur[cur], net_pen: rate == null ? null : byCur[cur] * rate };
+      });
+    if (!balances.length) return;
 
     result.push({
       friend_id: friendId,
       friend_name: friendMap[friendId] || '(unknown friend)',
-      net_pen: needsRate ? null : netPen,
-      display_currency: displayCurrency,
-      display_amount: displayAmount,
-      needs_rate: needsRate,
+      balances: balances,
       has_overdue: !!overdueFriendIds[friendId]
     });
   });

@@ -4289,74 +4289,79 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
 async function refreshLoans() {
   const balances = await callApi("listLoanBalances", {});
 
-  const owedToMe = balances
-    .filter((b) => !b.needs_rate && b.display_amount > 0)
-    .sort((a, b) => b.net_pen - a.net_pen);
-  const iOwe = balances
-    .filter((b) => !b.needs_rate && b.display_amount < 0)
-    .sort((a, b) => a.net_pen - b.net_pen);
-  const needsRate = balances.filter((b) => b.needs_rate);
+  // A friend can be owed in one currency and owe in another (e.g. they owe
+  // you PEN but you owe them USD), so each section takes only that
+  // direction's currency lines and a friend can appear in both. Balances
+  // stay in their own currency — nothing here converts. net_pen (from the
+  // backend, null with no rate on file) is used only to order rows.
+  const sectionFor = (sign) => balances
+    .map((b) => {
+      const lines = b.balances.filter((l) => sign * l.net > 0);
+      const penSize = lines.reduce((sum, l) => sum + (l.net_pen == null ? 0 : Math.abs(l.net_pen)), 0);
+      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, lines, penSize };
+    })
+    .filter((row) => row.lines.length)
+    .sort((x, y) => y.penSize - x.penSize);
+
+  const owedToMe = sectionFor(1);
+  const iOwe = sectionFor(-1);
 
   renderLoanBalanceList_("loans-owed-to-me-list", "loans-owed-to-me-empty-note", owedToMe, "owed-to-me");
   renderLoanBalanceList_("loans-i-owe-list", "loans-i-owe-empty-note", iOwe, "i-owe");
 
-  // Sums each section's own already-PEN-converted net_pen (never null here
-  // — a friend needing a rate is filtered into needsRate above, not into
-  // owedToMe/iOwe) rather than re-deriving anything, so this can never
-  // disagree with what the per-friend rows already show.
-  const owedToMeTotalRow = document.getElementById("loans-owed-to-me-total-row");
-  owedToMeTotalRow.hidden = owedToMe.length === 0;
-  if (owedToMe.length) {
-    const total = owedToMe.reduce((sum, b) => sum + b.net_pen, 0);
-    document.getElementById("loans-owed-to-me-total").textContent = `+${formatPen(total)}`;
-  }
-
-  const iOweTotalRow = document.getElementById("loans-i-owe-total-row");
-  iOweTotalRow.hidden = iOwe.length === 0;
-  if (iOwe.length) {
-    const total = iOwe.reduce((sum, b) => sum - b.net_pen, 0);
-    document.getElementById("loans-i-owe-total").textContent = formatPen(total);
-  }
-
-  const needsRateCard = document.getElementById("loans-needs-rate-card");
-  needsRateCard.hidden = needsRate.length === 0;
-  if (needsRate.length) {
-    const list = document.getElementById("loans-needs-rate-list");
-    list.innerHTML = "";
-    needsRate.forEach((b) => {
-      const row = document.createElement("div");
-      row.className = "loan-row";
-      row.innerHTML = `<span class="loan-row-name">${b.has_overdue ? "⚠️ " : ""}${escapeHtml(b.friend_name)}</span>`;
-      row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
-      list.appendChild(row);
-    });
-  }
+  renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
+  renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
 }
 
-function renderLoanBalanceList_(listId, emptyNoteId, balances, kind) {
+// "PEN 1,200.00" — the "+" only on the owed-to-you side, same convention
+// as income elsewhere; never a "-" on the you-owe side, since the section
+// already says the direction.
+function formatLoanAmount_(currency, amount, kind) {
+  return `${kind === "owed-to-me" ? "+" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
+}
+
+// One line per currency, PEN first (the backend already orders each
+// friend's lines that way; totals get the same order here).
+function sortCurrencies_(list) {
+  return list.sort((a, b) => (a === "PEN" ? -1 : b === "PEN" ? 1 : a < b ? -1 : 1));
+}
+
+// Total per currency, summed from the exact per-friend lines shown
+// underneath so it can never disagree with them.
+function renderLoanTotals_(rowId, valueId, rows, kind) {
+  const row = document.getElementById(rowId);
+  row.hidden = rows.length === 0;
+  if (!rows.length) return;
+
+  const totals = {};
+  rows.forEach((r) => r.lines.forEach((l) => {
+    totals[l.currency] = (totals[l.currency] || 0) + Math.abs(l.net);
+  }));
+  document.getElementById(valueId).innerHTML = sortCurrencies_(Object.keys(totals))
+    .map((cur) => `<div>${formatLoanAmount_(cur, totals[cur], kind)}</div>`)
+    .join("");
+}
+
+function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
   const list = document.getElementById(listId);
   const emptyNote = document.getElementById(emptyNoteId);
   list.innerHTML = "";
 
-  if (balances.length === 0) {
+  if (rows.length === 0) {
     emptyNote.hidden = false;
     return;
   }
   emptyNote.hidden = true;
 
-  balances.forEach((b) => {
-    const amount = Math.abs(b.display_amount);
-    const label = kind === "owed-to-me"
-      ? `+${b.display_currency} ${moneyFmt(amount)}`
-      : `${b.display_currency} ${moneyFmt(amount)}`;
-
+  rows.forEach((r) => {
+    const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";
     row.innerHTML = `
-      <span class="loan-row-name">${b.has_overdue ? "⚠️ " : ""}${escapeHtml(b.friend_name)}</span>
-      <span class="loan-row-amount ${kind}">${label}</span>
+      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}</span>
+      <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
-    row.addEventListener("click", () => openLoanDetail(b.friend_id, b.friend_name));
+    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name));
     list.appendChild(row);
   });
 }
