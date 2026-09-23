@@ -37,17 +37,20 @@ function ensureEntriesMerchantColumn_() {
 /**
  * Lowercase, no accents, punctuation to spaces, and any token that's a bare
  * number or a long letters+digits code (a terminal/reference id the bank
- * glues on) dropped — so "RAPPI PERU*123456" and "Rappi Peru" normalize
+ * glues on) dropped, plus a trailing "li pe" city/country — so "RAPPI PERU*123456" and "Rappi Peru" normalize
  * to the same "rappi peru".
  */
 function normalizeMerchant_(raw) {
   if (!raw) return '';
   var s = String(raw).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  return s.replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
+  var tokens = s.replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
     .filter(function (t) {
       return t && !/^\d+$/.test(t) && !(t.length >= 5 && /\d/.test(t));
-    })
-    .join(' ');
+    });
+  // Card networks append the city/country ("... LI PE" = Lima, Peru).
+  if (tokens.length > 1 && tokens[tokens.length - 1] === 'pe') tokens.pop();
+  if (tokens.length > 1 && tokens[tokens.length - 1] === 'li') tokens.pop();
+  return tokens.join(' ');
 }
 
 /**
