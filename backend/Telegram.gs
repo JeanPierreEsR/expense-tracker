@@ -510,7 +510,9 @@ function applyEditCommand_(entryId, text) {
     '"paid by Ana", "currency USD", "date 2026-09-12", "payment method Interbank", ' +
     '"label Trip, Work" (or "label none"), "split equal Ana", ' +
     '"split Ana 20, Carlos 15", or "split none" — ' +
-    'combine several separated by commas, e.g. "category groceries, amount 45.50".';
+    'combine several separated by commas, e.g. "category groceries, amount 45.50". ' +
+    'Names must match a whole word or the start of one — if a name fits more than one ' +
+    '(e.g. two people named Ray), type more of it.';
 
   if (!appliedFields.length) {
     return { message: 'Didn\'t recognize that. ' + helpText };
@@ -667,29 +669,71 @@ function parseLabelCommand_(text) {
   return tagIds;
 }
 
+// Lowercased, accent-stripped, punctuation collapsed to single spaces —
+// "Food & Drink" and "food drink" compare equal, "Psicólogo" and
+// "psicologo" too.
+function normalizeName_(s) {
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// The one name-resolver every Telegram reply command shares (category,
+// paid by, payment method, label, split friends, repayment/loan friend).
+// Ranked, whole-word matching — NOT raw substring containment, which is
+// what this used to be and which went wrong in a real reply: "category
+// healthcare" resolved to Car, because the old category matcher also
+// accepted a category whose NAME appears anywhere INSIDE the typed text,
+// and "health-CAR-e" contains "car" (Car sits earlier in the sheet).
+// Same class of hazard in the data today: "credit card" contains "car";
+// "AI" sits inside "entertAInment". Tiers, best first — the first tier
+// with any hit decides:
+//   1. the whole name equals what was typed;
+//   2. the name STARTS with what was typed ("food" -> Food & Drink);
+//   3. what was typed starts one of the name's words ("drink" -> Food &
+//      Drink, "card" -> Credit card);
+//   4. the name appears as whole word(s) INSIDE the typed text
+//      ("groceries store" -> Groceries) — whole words only, never mid-word.
+// A hit is only returned when it's unambiguous: if the winning tier holds
+// more than one different item ("ray" with both Ben Ray and
+// Eva Ray), that's null — reported back as "couldn't apply" —
+// instead of silently picking whichever is first in the sheet, since a
+// wrong pick here means a debt or an expense on the wrong person/category.
+function pickByName_(items, text, nameOf) {
+  var q = normalizeName_(text);
+  if (!q) return null;
+  var padded = ' ' + q + ' ';
+  var tiers = [[], [], [], []];
+  items.forEach(function (item) {
+    var n = normalizeName_(nameOf(item));
+    if (!n) return;
+    if (n === q) tiers[0].push(item);
+    else if (n.indexOf(q) === 0) tiers[1].push(item);
+    else if ((' ' + n).indexOf(' ' + q) !== -1) tiers[2].push(item);
+    else if (padded.indexOf(' ' + n + ' ') !== -1) tiers[3].push(item);
+  });
+  for (var i = 0; i < tiers.length; i++) {
+    if (tiers[i].length === 1) return tiers[i][0];
+    if (tiers[i].length > 1) return i === 0 ? tiers[i][0] : null;
+  }
+  return null;
+}
+
 function fuzzyFindCategory_(text, type) {
-  var lower = text.toLowerCase();
-  return getAllRows('Categories')
-    .filter(function (c) { return c.type === type; })
-    .find(function (c) {
-      var name = c.name.toLowerCase();
-      return name.indexOf(lower) !== -1 || lower.indexOf(name) !== -1;
-    });
+  var cats = getAllRows('Categories').filter(function (c) { return c.type === type; });
+  return pickByName_(cats, text, function (c) { return c.name; });
 }
 
 function fuzzyFindFriend_(text) {
-  var lower = text.toLowerCase();
-  return getAllRows('Friends').find(function (f) { return f.name.toLowerCase().indexOf(lower) !== -1; });
+  return pickByName_(getAllRows('Friends'), text, function (f) { return f.name; });
 }
 
 function fuzzyFindTag_(text) {
-  var lower = text.toLowerCase();
-  return getAllRows('Tags').find(function (t) { return t.name.toLowerCase().indexOf(lower) !== -1; });
+  return pickByName_(getAllRows('Tags'), text, function (t) { return t.name; });
 }
 
 function fuzzyFindPaymentMethod_(text) {
-  var lower = text.toLowerCase();
-  return getAllRows('Payment Methods').find(function (p) { return p.nickname.toLowerCase().indexOf(lower) !== -1; });
+  return pickByName_(getAllRows('Payment Methods'), text, function (p) { return p.nickname; });
 }
 
 function getEntryById_(entryId) {
