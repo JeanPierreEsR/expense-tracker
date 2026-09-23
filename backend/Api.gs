@@ -201,6 +201,7 @@ var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
   opening_balance_date: 'yyyy-MM-dd',
+  as_of: "yyyy-MM-dd'T'HH:mm:ss",
   sent_at: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',

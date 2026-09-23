@@ -58,17 +58,26 @@ function ensureAccountOpeningBalancesSheet_() {
   sheet.setFrozenRows(1);
 }
 
+// as_of (added after the sheet first shipped): the exact moment the
+// starting balance was saved, for a balance dated today — see
+// entryCountsAfterOpening_. Older rows simply lack it.
+function ensureAccountOpeningBalancesAsOfColumn_() {
+  ensureAccountOpeningBalancesSheet_();
+  ensureColumn_('Account Opening Balances', 'as_of');
+}
+
 // Map of payment_method_id -> [{currency, amount, date}], from the new
 // sheet, with the legacy single-balance columns as a per-account fallback.
 function buildOpeningsByPm_(pms) {
-  ensureAccountOpeningBalancesSheet_();
+  ensureAccountOpeningBalancesAsOfColumn_();
   var byPm = {};
   getAllRows('Account Opening Balances').forEach(function (r) {
     if (!byPm[r.payment_method_id]) byPm[r.payment_method_id] = [];
     byPm[r.payment_method_id].push({
       currency: String(r.currency || 'PEN').toUpperCase(),
       amount: Number(r.amount) || 0,
-      date: r.date || ''
+      date: r.date || '',
+      as_of: r.as_of || ''
     });
   });
   pms.forEach(function (pm) {
@@ -84,15 +93,31 @@ function buildOpeningsByPm_(pms) {
   return byPm;
 }
 
-// The date from which entries in `currency` count toward this account.
-function openingSinceDate_(openings, currency) {
+// The opening (date + exact moment) that governs entries in `currency`:
+// that currency's own, else the account's earliest one.
+function openingForCurrency_(openings, currency) {
   var own = openings.find(function (o) { return o.currency === currency; });
-  if (own) return own.date || '';
-  var earliest = '';
+  if (own) return own;
+  var earliest = null;
   openings.forEach(function (o) {
-    if (o.date && (!earliest || o.date < earliest)) earliest = o.date;
+    if (o.date && (!earliest || o.date < earliest.date)) earliest = o;
   });
   return earliest;
+}
+
+// A starting balance is a snapshot of what the real account held at
+// some moment. Entries dated AFTER its date always count. Entries dated
+// ON the same day only count if they were logged after the snapshot
+// (created_at) — otherwise they're already inside the balance the owner
+// typed in, and counting them again would double them. A row with no
+// as_of (dated a past day, or saved before this existed) is treated as
+// start-of-day: every entry on its date counts.
+function entryCountsAfterOpening_(entry, opening) {
+  if (!opening || !opening.date) return true;
+  if (entry.date > opening.date) return true;
+  if (entry.date < opening.date) return false;
+  if (!opening.as_of) return true;
+  return !!entry.created_at && entry.created_at >= opening.as_of;
 }
 
 // A loan-linked transfer Entry has only one payment method (where the
@@ -141,8 +166,7 @@ function signedEffectOnPaymentMethod_(entry, pmId, inboundIds) {
 function movementsForPaymentMethod_(pm, openings, entries, inboundIds) {
   var out = [];
   entries.forEach(function (e) {
-    var since = openingSinceDate_(openings, e.currency || 'PEN');
-    if (since && e.date < since) return;
+    if (!entryCountsAfterOpening_(e, openingForCurrency_(openings, e.currency || 'PEN'))) return;
     var signed = signedEffectOnPaymentMethod_(e, pm.id, inboundIds);
     if (signed === 0) return;
     out.push({ entry: e, signed: signed });
@@ -251,7 +275,7 @@ function getPaymentMethodMovements(payload) {
 // nothing else about it or its entries changes. Also clears the legacy
 // single-balance columns, so they can't resurface as a fallback later.
 function setPaymentMethodOpeningBalance(payload) {
-  ensureAccountOpeningBalancesSheet_();
+  ensureAccountOpeningBalancesAsOfColumn_();
   var pmSheet = getSheet('Payment Methods');
   var pmHeaders = getHeaders(pmSheet);
   var rowIndex = findRowIndexById(pmSheet, pmHeaders, payload.id);
@@ -270,6 +294,21 @@ function setPaymentMethodOpeningBalance(payload) {
     return { currency: currency, amount: Number(b.amount), date: String(b.date) };
   });
 
+  // A row left unchanged (same currency, amount and date) keeps its
+  // original snapshot moment — re-saving the account to edit ANOTHER
+  // currency must not slide this one's snapshot forward and drop entries
+  // that were logged in between.
+  var previous = getAllRows('Account Opening Balances').filter(function (r) { return r.payment_method_id === payload.id; });
+  var now = nowTimestamp_();
+  var today = now.substring(0, 10);
+  clean.forEach(function (b) {
+    var prev = previous.find(function (r) {
+      return String(r.currency).toUpperCase() === b.currency && Number(r.amount) === b.amount && r.date === b.date;
+    });
+    if (prev && prev.as_of) b.as_of = prev.as_of;
+    else b.as_of = b.date === today ? now : '';
+  });
+
   deleteRowsWhere_('Account Opening Balances', function (row) { return row.payment_method_id === payload.id; });
   var sheet = getSheet('Account Opening Balances');
   var headers = getHeaders(sheet);
@@ -283,6 +322,9 @@ function setPaymentMethodOpeningBalance(payload) {
     var dateCell = sheet.getRange(sheet.getLastRow(), headers.indexOf('date') + 1);
     dateCell.setNumberFormat('@');
     dateCell.setValue(b.date);
+    var asOfCell = sheet.getRange(sheet.getLastRow(), headers.indexOf('as_of') + 1);
+    asOfCell.setNumberFormat('@');
+    asOfCell.setValue(b.as_of);
   });
 
   ['opening_balance', 'opening_balance_date', 'opening_balance_currency'].forEach(function (col) {
