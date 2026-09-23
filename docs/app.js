@@ -5260,6 +5260,24 @@ async function refreshBalances() {
     row.addEventListener("click", () => openBalanceModal(r.id));
     list.appendChild(row);
   });
+
+  // Net per currency across every tracked account (a credit card's
+  // negative balance nets against positive ones). No cross-currency
+  // conversion — each currency stands on its own.
+  const totals = {};
+  rows.forEach((r) => r.balances.forEach((b) => { totals[b.currency] = (totals[b.currency] || 0) + b.amount; }));
+  const codes = Object.keys(totals).sort((a, b) => (a === "PEN" ? -1 : b === "PEN" ? 1 : a < b ? -1 : 1));
+  const totalsWrap = document.getElementById("balances-totals");
+  const totalsLines = document.getElementById("balances-totals-lines");
+  totalsLines.innerHTML = "";
+  totalsWrap.hidden = codes.length === 0;
+  codes.forEach((code) => {
+    const amount = Math.round(totals[code] * 100) / 100;
+    const line = document.createElement("div");
+    line.className = "balances-totals-line" + (amount < 0 ? " negative" : "");
+    line.innerHTML = `<span>${code === "PEN" ? "" : findCurrency(code).flag + " "}${code}</span><span>${formatSignedBalance_(amount, code)}</span>`;
+    totalsLines.appendChild(line);
+  });
 }
 
 let balancesCache = [];

@@ -1761,3 +1761,24 @@ button.primary:disabled {
 }
 
 .balance-row-date-label { display: block; margin-top: 8px; }
+
+.balances-totals {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 2px solid var(--border);
+}
+
+.balances-totals-title {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.balances-totals-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  padding: 3px 0;
+}
+
+.balances-totals-line.negative { color: #d64545; }
