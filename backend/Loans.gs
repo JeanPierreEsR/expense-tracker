@@ -96,7 +96,93 @@ function deleteEntrySplitsAndLoansForEntry_(entryId) {
   });
 }
 
+// ---- Loan/repayment transfer entries (added 2026-09-23) ----
+// Money moving between the owner and a friend is never an expense or
+// income (principle 2) — but the owner still wants to SEE it happened,
+// e.g. to reconcile against a bank/Yape statement. A `type: transfer`
+// Entry already exists for exactly this shape of thing (money moving
+// without being income/expense) and is already excluded from Overview's
+// income/expense/investment totals, so reusing it here needs no changes
+// to Reporting at all. Scoped to `cash`-origin loans and real (non-
+// offset) settlements only — an `entry`-origin loan (from a shared
+// expense) already has a real Entry behind it, the expense itself, so a
+// second one would just duplicate it in Recent entries; an offset
+// settlement (see recordRepayment, below) represents no real money
+// movement at all, so there's nothing to reconcile.
+
+function transferCategoryId_() {
+  var cat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
+  return cat ? cat.id : '';
+}
+
+function ensureLoansTransferEntryColumn_() {
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('transfer_entry_id') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('transfer_entry_id');
+  }
+}
+
+function ensureSettlementsTransferEntryColumn_() {
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('transfer_entry_id') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('transfer_entry_id');
+  }
+}
+
+function createTransferEntry_(fields) {
+  var entry = {
+    id: Utilities.getUuid(),
+    type: 'transfer',
+    date: fields.date,
+    amount: Number(fields.amount),
+    currency: fields.currency,
+    category_id: transferCategoryId_(),
+    description: fields.description,
+    payment_method_id: fields.payment_method_id || '',
+    paid_by: 'me',
+    status: 'confirmed',
+    source: 'manual',
+    external_id: '',
+    import_batch_id: '',
+    created_at: nowTimestamp_()
+  };
+  appendRowObject('Entries', entry);
+  return entry;
+}
+
+function createLoanTransferEntry_(loan, friendName) {
+  return createTransferEntry_({
+    date: loan.date,
+    amount: loan.amount,
+    currency: loan.currency,
+    payment_method_id: loan.payment_method_id,
+    description: loan.description || (loan.direction === 'they_owe_me'
+      ? 'Loan to ' + friendName
+      : 'Loan from ' + friendName)
+  });
+}
+
+// Keeps a cash loan's linked transfer Entry matching the loan's own
+// fields after a direct edit (updateLoan, below) — same "never let a
+// derived record silently disagree with its source" principle as
+// updateLoanStatusFromSettlements_.
+function syncLoanTransferEntry_(loan, friendName) {
+  if (!loan.transfer_entry_id) return;
+  var entry = getEntryById_(loan.transfer_entry_id);
+  if (!entry) return;
+  setEntryField_(entry.id, 'date', loan.date);
+  setEntryField_(entry.id, 'amount', Number(loan.amount));
+  setEntryField_(entry.id, 'currency', loan.currency);
+  setEntryField_(entry.id, 'payment_method_id', loan.payment_method_id || '');
+  setEntryField_(entry.id, 'description', loan.description || (loan.direction === 'they_owe_me'
+    ? 'Loan to ' + friendName
+    : 'Loan from ' + friendName));
+}
+
 function createLoan_(fields) {
+  ensureLoansTransferEntryColumn_();
   var loan = {
     id: Utilities.getUuid(),
     friend_id: fields.friend_id,
@@ -109,8 +195,14 @@ function createLoan_(fields) {
     due_date: fields.due_date || '',
     payment_method_id: fields.payment_method_id || '',
     description: fields.description || '',
-    status: 'outstanding'
+    status: 'outstanding',
+    transfer_entry_id: ''
   };
+  if (fields.origin === 'cash') {
+    var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
+    var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : '(unknown friend)');
+    loan.transfer_entry_id = transferEntry.id;
+  }
   appendRowObject('Loans', loan);
   return loan;
 }
@@ -202,7 +294,10 @@ function updateLoan(payload) {
     setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
   });
 
-  return getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  var updated = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  var friend = getAllRows('Friends').find(function (f) { return f.id === updated.friend_id; });
+  syncLoanTransferEntry_(updated, friend ? friend.name : '(unknown friend)');
+  return updated;
 }
 
 // Same origin='cash' restriction as updateLoan, above. Also refuses to
@@ -219,6 +314,10 @@ function deleteLoan(loanId) {
   var hasSettlement = getAllRows('Settlements').some(function (s) { return s.loan_id === loanId; });
   if (hasSettlement) {
     throw new Error("This loan has a repayment recorded against it and can't be deleted.");
+  }
+
+  if (loan.transfer_entry_id) {
+    deleteEntry_(loan.transfer_entry_id);
   }
 
   var sheet = getSheet('Loans');
@@ -273,15 +372,42 @@ function updateLoanStatusFromSettlements_(loanId) {
   if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
 }
 
-function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId) {
+function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId) {
   appendRowObject('Settlements', {
     id: Utilities.getUuid(),
     loan_id: loanId,
     date: date,
     amount: amount,
     payment_method_id: paymentMethodId || '',
-    offset_loan_id: offsetLoanId || ''
+    offset_loan_id: offsetLoanId || '',
+    transfer_entry_id: transferEntryId || ''
   });
+}
+
+// Recomputes a repayment's linked transfer Entry's amount as the sum of
+// whichever real settlement rows still reference it — several rows from
+// one recordRepayment call (FIFO across more than one loan) can share a
+// single transfer_entry_id, since from the owner's perspective it was
+// one real payment, so editing/deleting any one of them (updateSettlement/
+// deleteSettlement, below) has to re-total the group rather than just
+// touch that one row's own share. Removes the entry entirely once
+// nothing real is left backing it, rather than leaving a phantom PEN 0.00
+// transaction sitting in Recent entries. Deliberately only syncs the
+// AMOUNT, never date/description/payment_method — those started out
+// identical across every row in the group (one call, one payload), and
+// with no single correct owner once they diverge, leaving them alone
+// (editable by hand on the Entry itself, same as any other entry) beats
+// guessing which row's edit should win.
+function recalculateRepaymentTransferEntry_(transferEntryId) {
+  if (!transferEntryId) return;
+  var total = getAllRows('Settlements')
+    .filter(function (s) { return s.transfer_entry_id === transferEntryId; })
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  if (total <= 0.004) {
+    deleteEntry_(transferEntryId);
+  } else {
+    setEntryField_(transferEntryId, 'amount', total);
+  }
 }
 
 // The core of "record a repayment": friend + currency + direction +
@@ -318,6 +444,7 @@ function recordRepayment(payload) {
   var currency = payload.currency || 'PEN';
 
   ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
 
   var settledByLoan = buildSettlementTotalsByLoan_();
   var active = getAllRows('Loans')
@@ -357,6 +484,31 @@ function recordRepayment(payload) {
     if (secondaryLeft[si] <= 0.004) si++;
   }
 
+  // How much of payload.amount phase 2 will actually apply — knowable
+  // now, before running it, as min(what's being paid, what's left to pay
+  // it against). Used to create ONE transfer Entry for the real money
+  // moving in this call (see createTransferEntry_) — skipped entirely
+  // when that figure is ~0, since then either nothing was owed in this
+  // direction at all (nothing real happened here — see `overpaid` below,
+  // which the caller turns into its own income/expense Entry instead) or
+  // this call was pure phase-1 offsetting (no real money moved either).
+  var primaryRemainingAfterPhase1 = 0;
+  for (var pri = pi; pri < primaryLeft.length; pri++) primaryRemainingAfterPhase1 += primaryLeft[pri];
+  var appliedAmount = Math.min(Number(payload.amount), primaryRemainingAfterPhase1);
+  var transferEntryId = '';
+  if (appliedAmount > 0.004) {
+    var repaymentTransferEntry = createTransferEntry_({
+      date: payload.date,
+      amount: appliedAmount,
+      currency: currency,
+      payment_method_id: payload.payment_method_id,
+      description: payload.description || (payload.direction === 'they_owe_me'
+        ? 'Repayment from ' + friend.name
+        : 'Repayment to ' + friend.name)
+    });
+    transferEntryId = repaymentTransferEntry.id;
+  }
+
   // Phase 2 — apply the real amount, FIFO, continuing from wherever
   // phase 1 left off.
   var cashLeft = Number(payload.amount);
@@ -364,7 +516,7 @@ function recordRepayment(payload) {
     var loan = primary[pi];
     var applyAmt = Math.min(cashLeft, primaryLeft[pi]);
     if (applyAmt > 0.004) {
-      recordSettlementRow_(loan.id, payload.date, applyAmt, payload.payment_method_id || '', '');
+      recordSettlementRow_(loan.id, payload.date, applyAmt, payload.payment_method_id || '', '', transferEntryId);
       primaryLeft[pi] -= applyAmt;
       cashLeft -= applyAmt;
       touchedLoanIds[loan.id] = true;
@@ -537,6 +689,7 @@ function listSettlementsForFriendCurrency(friendId, currency) {
 // read-only history instead of a half-fix.
 function updateSettlement(payload) {
   ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
   if (!existing) throw new Error('Repayment not found');
   if (existing.offset_loan_id) {
@@ -567,11 +720,13 @@ function updateSettlement(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
 
   updateLoanStatusFromSettlements_(existing.loan_id);
+  recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }
 
 function deleteSettlement(id) {
   ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
   if (!existing) return;
   if (existing.offset_loan_id) {
@@ -584,6 +739,7 @@ function deleteSettlement(id) {
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
 
   updateLoanStatusFromSettlements_(existing.loan_id);
+  recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
 }
 
 // ---- Loans screen (Phase 5.2) ----

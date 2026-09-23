@@ -18,15 +18,30 @@ var TABLE_DEFINITIONS = {
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   Friends: ['id', 'name', 'notes'],
   Payors: ['id', 'name', 'notes'],
+  // transfer_entry_id (added 2026-09-23, self-heals via
+  // ensureLoansTransferEntryColumn_ in Loans.gs): set for a `cash`-origin
+  // loan (never an `entry`-origin one — that one already has a real Entry
+  // behind it, the shared expense itself) to the id of a parallel
+  // `type: transfer` Entry created alongside it, purely so the real money
+  // movement shows up in Recent entries / bank reconciliation without
+  // affecting Overview totals (transfer is already excluded there) — see
+  // createLoanTransferEntry_ in Loans.gs.
   Loans: ['id', 'friend_id', 'direction', 'origin', 'entry_id', 'amount',
     'currency', 'date', 'due_date', 'payment_method_id', 'description',
-    'status'],
+    'status', 'transfer_entry_id'],
   // offset_loan_id (added 2026-09-17, self-heals via
   // ensureSettlementsOffsetColumn_ in Loans.gs): blank for a real cash
   // repayment; set to another loan's id when this row instead represents
   // a debt-offset (opposite-direction loans cancelling each other out
   // during a friend-level repayment) — see recordRepayment in Loans.gs.
-  Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id'],
+  // transfer_entry_id (added 2026-09-23, self-heals via
+  // ensureSettlementsTransferEntryColumn_ in Loans.gs): set on a real
+  // (non-offset) settlement row to the id of a parallel `type: transfer`
+  // Entry representing the real cash applied — several settlement rows
+  // from one recordRepayment call (FIFO across more than one loan) can
+  // share the same transfer_entry_id, since from the owner's perspective
+  // it was one real payment.
+  Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id', 'transfer_entry_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
   // Not part of the original spec — added after Loans already held real

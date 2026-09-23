@@ -5109,6 +5109,12 @@ function openReviewTransferModal(entry, mode) {
   document.getElementById("review-transfer-amount").value = entry.amount;
   document.getElementById("review-transfer-date").value = entry.date;
   document.getElementById("review-transfer-payment-method").value = "";
+  // Both modes now generate a `transfer` Entry for the real money moved
+  // (see CLAUDE.md's Loans/Settlements sections) — this description feeds
+  // that entry either way, pre-filled from the original pending
+  // transaction but editable, so a custom description actually sticks
+  // instead of silently falling back to the pending entry's own text.
+  document.getElementById("review-transfer-description").value = entry.description || "";
   document.getElementById("review-transfer-save-btn").textContent =
     mode === "repay" ? "Mark as repayment" : "Convert to loan";
 
@@ -5148,6 +5154,8 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   try {
     const entryId = reviewTransferEntry.id;
     const currency = reviewTransferEntry.currency;
+    const description = document.getElementById("review-transfer-description").value.trim() ||
+      reviewTransferEntry.description || "";
 
     if (reviewTransferMode === "repay") {
       const result = await callApi("recordRepayment", {
@@ -5156,7 +5164,8 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         amount,
         currency,
         date,
-        payment_method_id: paymentMethodId
+        payment_method_id: paymentMethodId,
+        description
       });
       await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
@@ -5170,7 +5179,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         currency,
         date,
         payment_method_id: paymentMethodId,
-        description: reviewTransferEntry.description || ""
+        description
       });
       await callApi("discardEntry", { id: entryId });
     }
