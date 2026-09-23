@@ -248,8 +248,27 @@ var EMAIL_RULES = [
       };
     }
   },
+  // `bank: 'Plin'`, not 'Interbank', even though the email itself comes
+  // from Interbank's own sender address (fixed 2026-09-23 — a real
+  // transaction, "estacionamiento Morelli," was landing tagged as paid
+  // by the owner's Interbank CREDIT CARD, per the owner's own report).
+  // Plin isn't its own company with its own email sender — each bank
+  // emails its own "Constancia de Pago Plin" for a payment made through
+  // ITS app, so `sender` has to stay Interbank's address for Gmail to
+  // even find the email. But `rule.bank` is what `processOneMessage_`
+  // (Api.gs) uses to pick a Payment Method — filtered to Payment Methods
+  // under that bank, then narrowed by `last4` if one was extracted, else
+  // falling back to "the only one" if there's exactly one. This email's
+  // own "Cuenta cargo" line never carries masked card digits ("Cuenta
+  // Simple," not "**** 1234"), so `last4` is always null here — meaning
+  // the fallback always fired, and the owner's Interbank bank has
+  // exactly one OTHER payment method on file: their actual credit card.
+  // Every Plin payment via Interbank was silently attributed to that
+  // card instead of to the dedicated "Plin" wallet Payment Method that
+  // actually exists for exactly this. Pointing `bank` at 'Plin' instead
+  // makes the same fallback resolve to that wallet correctly.
   {
-    bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
+    bank: 'Plin', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Pago Plin',
     match: function (subject) { return /constancia de pago plin/i.test(subject); },
     extract: function (subject, body) {
