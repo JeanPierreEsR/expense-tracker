@@ -188,9 +188,17 @@ function formatEntryForTelegram_(entry, categoryName) {
     }
   }
 
+  var tagIds = getEntryTags({ entryId: entry.id });
+  if (tagIds.length) {
+    var tagsById = rowsById_(getAllRows('Tags'));
+    var tagNames = tagIds.map(function (id) { return tagsById[id] ? tagsById[id].name : id; });
+    lines.push('🏷️ Labels: ' + tagNames.join(', '));
+  }
+
   lines.push('');
-  lines.push('Reply to edit — category, amount, description, paid by, currency, date, or split. ' +
-    'E.g. "amount 45.50", "split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
+  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. ' +
+    'E.g. "amount 45.50", "payment method Interbank", "label Trip, Work" (or "label none"), ' +
+    '"split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
     'Combine several with commas: "category groceries, amount 48, description Uber".');
   if (entry.type === 'expense') {
     lines.push('Or instead of confirming it as an expense: "repayment Ana" (you paying down what you owed them) ' +
@@ -443,7 +451,13 @@ var EDIT_COMMAND_PATTERNS = [
   // Added 2026-09-17 alongside full text-command parity with the app's
   // own Split UI — see parseSplitCommand_, below, for the three forms
   // this accepts ("equal ...", "Name amount, Name amount", "none").
-  { field: 'split', re: /^split\s+(.+)/i }
+  { field: 'split', re: /^split\s+(.+)/i },
+  // Payment method and label(s) — same parity goal, requested directly:
+  // whatever the app's own entry-editing pop-up can change, a Telegram
+  // reply should be able to change too. "payment method" (not "payment"
+  // alone) to read unambiguously in a help line next to "paid by".
+  { field: 'payment method', re: /^payment\s*method\s+(.+)/i },
+  { field: 'label', re: /^label\s+(.+)/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -452,10 +466,10 @@ var EDIT_COMMAND_PATTERNS = [
 // another field keyword, so a comma inside a free-text value (a
 // description like "Rent, September") is left alone rather than being
 // torn in two — this is also why a custom split's own friend-amount pairs
-// ("Ana 20, Carlos 15") stay intact as one segment: "Carlos" isn't a field
-// keyword, so the comma before it is never treated as a new segment
-// boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split)\\s+';
+// ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
+// intact as one segment each: "Carlos"/"Work" aren't field keywords, so
+// the comma before either is never treated as a new segment boundary.
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label)\\s+';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -485,7 +499,8 @@ function applyEditCommand_(entryId, text) {
   });
 
   var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
-    '"paid by Ana", "currency USD", "date 2026-09-12", "split equal Ana", ' +
+    '"paid by Ana", "currency USD", "date 2026-09-12", "payment method Interbank", ' +
+    '"label Trip, Work" (or "label none"), "split equal Ana", ' +
     '"split Ana 20, Carlos 15", or "split none" — ' +
     'combine several separated by commas, e.g. "category groceries, amount 45.50".';
 
@@ -548,6 +563,14 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var parsed = parseSplitCommand_(entry, value);
     if (!parsed) return null;
     saveEntrySplits(entryId, parsed);
+  } else if (field === 'payment method') {
+    var pm = fuzzyFindPaymentMethod_(value);
+    if (!pm) return null;
+    setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', pm.id);
+  } else if (field === 'label') {
+    var tagIds = parseLabelCommand_(value);
+    if (tagIds === null) return null;
+    saveEntryTags({ entryId: entryId, tagIds: tagIds });
   }
 
   return field;
@@ -608,6 +631,34 @@ function parseSplitCommand_(entry, text) {
   return splits;
 }
 
+// "none" (or "clear"/"off") clears every label, same convention
+// parseSplitCommand_ uses for clearing a split — otherwise a
+// comma-separated list of tag names, e.g. "Trip, Work". This REPLACES
+// the entry's whole label set (same as typing a new "category" replaces
+// the old one, and same shape as saveEntryTags/saveEntrySplits'
+// replace-from-scratch design elsewhere) rather than adding to it — a
+// second "label ..." reply is how to change the set, not append to it.
+// An unrecognized tag name fails the whole segment (returns null,
+// reported as "couldn't apply") rather than creating a new tag on the
+// fly — same as an unrecognized friend name in a split command; the
+// app's own "+ Add tag…" is still the one place a brand-new tag gets
+// created.
+function parseLabelCommand_(text) {
+  var trimmed = String(text).trim();
+  if (/^(none|clear|off)$/i.test(trimmed)) return [];
+
+  var names = trimmed.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (!names.length) return null;
+
+  var tagIds = [];
+  for (var i = 0; i < names.length; i++) {
+    var tag = fuzzyFindTag_(names[i]);
+    if (!tag) return null;
+    if (tagIds.indexOf(tag.id) === -1) tagIds.push(tag.id);
+  }
+  return tagIds;
+}
+
 function fuzzyFindCategory_(text, type) {
   var lower = text.toLowerCase();
   return getAllRows('Categories')
@@ -621,6 +672,16 @@ function fuzzyFindCategory_(text, type) {
 function fuzzyFindFriend_(text) {
   var lower = text.toLowerCase();
   return getAllRows('Friends').find(function (f) { return f.name.toLowerCase().indexOf(lower) !== -1; });
+}
+
+function fuzzyFindTag_(text) {
+  var lower = text.toLowerCase();
+  return getAllRows('Tags').find(function (t) { return t.name.toLowerCase().indexOf(lower) !== -1; });
+}
+
+function fuzzyFindPaymentMethod_(text) {
+  var lower = text.toLowerCase();
+  return getAllRows('Payment Methods').find(function (p) { return p.nickname.toLowerCase().indexOf(lower) !== -1; });
 }
 
 function getEntryById_(entryId) {
