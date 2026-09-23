@@ -191,6 +191,7 @@ var EMAIL_RULES = [
   {
     bank: 'Diners', sender: 'dinersenlinea@dinersclub.com.pe',
     label: 'Pago de tarjeta (transferencia interna)',
+    cardIsDestination: true,
     match: function () { return true; },
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto') || body);
@@ -294,6 +295,7 @@ var EMAIL_RULES = [
   {
     bank: 'Interbank', sender: 'notificaciones@interbank.pe',
     label: 'Pago de deuda (transferencia interna)',
+    cardIsDestination: true,
     match: function () { return true; },
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto pagado') || body);
@@ -326,6 +328,7 @@ var EMAIL_RULES = [
   {
     bank: 'SIP', sender: 'no-reply@servicioalcliente.sip.pe',
     label: 'Pago de tarjeta (transferencia interna) — canonical, dedup source',
+    cardIsDestination: true,
     match: function (subject) { return /pago de tu tarjeta de cr.dito sip se realiz/i.test(subject); },
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto abonado') || body);
@@ -446,6 +449,7 @@ function processEmails() {
   var banks = getAllRows('Banks');
   var paymentMethods = getAllRows('Payment Methods');
   ensureEntriesMerchantColumn_();
+  ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
 
   uniqueSenders_().forEach(function (sender) {
@@ -513,6 +517,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     created_at: createdAt,
     merchant: normalizeMerchant_(fields.merchant)
   };
+
+  // A card-bill-payment email comes from the CARD's bank and names the
+  // card, but the money left some other account of the owner's — so the
+  // card it matched is where the money went (To), and From is left blank
+  // for the owner to pick (Telegram: "from Plin"; in-app: From picker).
+  if (rule.cardIsDestination && paymentMethod) {
+    entry.to_payment_method_id = paymentMethod.id;
+    entry.payment_method_id = '';
+  }
 
   appendRowObject('Entries', entry);
   results.created++;

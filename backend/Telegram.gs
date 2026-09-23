@@ -176,11 +176,18 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
     (autoReason ? ' 🤖 auto (' + autoReason + ')' : ''));
   lines.push(entry.date + ' · ' + entry.type);
-  lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
-
-  if (entry.payment_method_id) {
-    var pm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
-    if (pm) lines.push('💳 ' + pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : ''));
+  if (entry.type === 'transfer') {
+    // A transfer moves money between two of the owner's own accounts, so
+    // it shows both ends explicitly (and no "Paid by" — it's always the
+    // owner) instead of one ambiguous payment method.
+    lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "from Plin"'));
+    lines.push('⬇️ To: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "to Diners"'));
+  } else {
+    lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
+    if (entry.payment_method_id) {
+      var pm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
+      if (pm) lines.push('💳 ' + pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : ''));
+    }
   }
 
   if (entry.type === 'expense') {
@@ -204,6 +211,12 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   }
 
   lines.push('');
+  if (entry.type === 'transfer') {
+    lines.push('Reply to edit — from, to, amount, description, currency, date, category, or label. ' +
+      'E.g. "from Plin", "to Diners", or both: "from Plin, to Diners". ' +
+      'Combine several with commas: "from Plin, to Diners, amount 90".');
+    return lines.join('\n');
+  }
   lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. ' +
     'E.g. "amount 45.50", "payment method Interbank", "label Trip, Work" (or "label none"), ' +
     '"split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
@@ -213,6 +226,12 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
       'or "loan Ana" (you lending them this) — either replaces it with the right Loans entry and removes it from here.');
   }
   return lines.join('\n');
+}
+
+function paymentMethodDisplayName_(id, missingText) {
+  if (!id) return '❓ ' + missingText;
+  var pm = getAllRows('Payment Methods').find(function (p) { return p.id === id; });
+  return pm ? pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : '') : id;
 }
 
 function paidByDisplayName_(id) {
@@ -465,6 +484,9 @@ var EDIT_COMMAND_PATTERNS = [
   // reply should be able to change too. "payment method" (not "payment"
   // alone) to read unambiguously in a help line next to "paid by".
   { field: 'payment method', re: /^payment\s*method\s+(.+)/i },
+  // Transfers only (see applyOneEditSegment_): the two ends of the move.
+  { field: 'from', re: /^from\s+(.+)/i },
+  { field: 'to', re: /^to\s+(.+)/i },
   { field: 'label', re: /^label\s+(.+)/i }
 ];
 
@@ -477,7 +499,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label)\\s+';
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to)\\s+';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -577,6 +599,16 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var pm = fuzzyFindPaymentMethod_(value);
     if (!pm) return null;
     setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', pm.id);
+  } else if (field === 'from' || field === 'to') {
+    if (entry.type !== 'transfer') return null;
+    var endPm = fuzzyFindPaymentMethod_(value);
+    if (!endPm) return null;
+    if (field === 'from') {
+      setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
+    } else {
+      ensureEntriesToPaymentMethodColumn_();
+      setEntryField_(entryId, 'to_payment_method_id', endPm.id);
+    }
   } else if (field === 'label') {
     var tagIds = parseLabelCommand_(value);
     if (tagIds === null) return null;

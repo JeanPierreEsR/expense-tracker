@@ -1525,6 +1525,15 @@ async function flushQueuedReviewActions_() {
   }
 }
 
+// <option>s for a transfer's From/To pickers in the review queue — every
+// payment method, with a blank "not set" first (both ends are optional).
+function transferAccountOptions_(selectedId, blankLabel) {
+  const opts = meta.paymentMethods.map((pm) =>
+    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
+  );
+  return `<option value="">${blankLabel}</option>` + opts.join("");
+}
+
 async function refreshReviewQueue() {
   await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
@@ -1564,6 +1573,11 @@ async function refreshReviewQueue() {
         </select>
         <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
         <input class="review-amount" type="text" inputmode="decimal" value="${entry.amount}" placeholder="Amount">
+        ${entry.type === "transfer" ? `
+        <label class="review-transfer-label">⬆️ From</label>
+        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, "Pick the account it left…")}</select>
+        <label class="review-transfer-label">⬇️ To</label>
+        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, "Pick the account it went into…")}</select>` : ""}
       </div>
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
@@ -1605,6 +1619,16 @@ async function refreshReviewQueue() {
       // helpers. The row is gone the instant you tap, whether or not the
       // network call behind it has finished (or even started).
       const fields = { category_id: categoryId, description, amount };
+      if (entry.type === "transfer") {
+        const fromId = item.querySelector(".review-from").value;
+        const toId = item.querySelector(".review-to").value;
+        if (fromId && toId && fromId === toId) {
+          alert("From and To can't be the same account.");
+          return;
+        }
+        fields.payment_method_id = fromId;
+        fields.to_payment_method_id = toId;
+      }
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;

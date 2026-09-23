@@ -1782,3 +1782,10 @@ button.primary:disabled {
 }
 
 .balances-totals-line.negative { color: #d64545; }
+
+.review-transfer-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 6px;
+}
