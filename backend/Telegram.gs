@@ -124,13 +124,13 @@ function telegramApi_(method, payload) {
 
 // ---- Outgoing notifications ----
 
-function sendTelegramEntryNotification_(entry, categoryName) {
+function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return null;
 
   var res = telegramApi_('sendMessage', {
     chat_id: chatId,
-    text: formatEntryForTelegram_(entry, categoryName),
+    text: formatEntryForTelegram_(entry, categoryName, autoReason),
     reply_markup: {
       inline_keyboard: [[
         { text: '✅ Confirm', callback_data: 'confirm:' + entry.id },
@@ -162,11 +162,19 @@ function moneyFmt_(n) {
 // EDIT_COMMAND_PATTERNS, below), specifically so a decision (confirm,
 // edit, split, or reroute to a loan/repayment) can be made entirely from
 // the notification, without needing to open the app.
-function formatEntryForTelegram_(entry, categoryName) {
+// autoReason (optional) marks the category as a guess made by the app, with
+// the evidence, so it's clear it wasn't picked by hand — a reply like
+// "category groceries" changes it and the refreshed card drops the tag.
+function formatEntryForTelegram_(entry, categoryName, autoReason) {
+  if (!categoryName && entry.category_id) {
+    var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
+    categoryName = cat ? cat.name : null;
+  }
   var icon = entry.type === 'expense' ? '💸' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
-  lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category'));
+  lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
+    (autoReason ? ' 🤖 auto (' + autoReason + ')' : ''));
   lines.push(entry.date + ' · ' + entry.type);
   lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
 

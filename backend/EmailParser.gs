@@ -86,6 +86,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Empresa'),
+        merchant: afterLabel_(body, 'Empresa'),
         last4: extractLast4_(afterLabel_(body, 'Número de Tarjeta de Débito') || body),
         externalId: afterLabel_(body, 'Número de operación')
       };
@@ -101,6 +102,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: [afterLabel_(body, 'Empresa'), afterLabel_(body, 'Servicio')].filter(Boolean).join(' - '),
+        merchant: afterLabel_(body, 'Empresa'),
         last4: extractLast4_(afterLabel_(body, 'Cuenta de origen') || body),
         externalId: afterLabel_(body, 'Número de operación')
       };
@@ -180,6 +182,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: merchantMatch ? merchantMatch[1].trim() : null,
+        merchant: merchantMatch ? merchantMatch[1].trim() : null,
         last4: null, // no card digits in this email; matched by bank alone
         externalId: null
       };
@@ -211,6 +214,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Comercio'),
+        merchant: afterLabel_(body, 'Comercio'),
         last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body),
         externalId: null
       };
@@ -226,6 +230,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Empresa'),
+        merchant: afterLabel_(body, 'Empresa'),
         last4: extractLast4_(afterLabel_(body, 'Cuenta cargo') || body),
         externalId: afterLabel_(body, 'Código de operación')
       };
@@ -312,6 +317,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Establecimiento'),
+        merchant: afterLabel_(body, 'Establecimiento'),
         last4: extractLast4_(afterLabel_(body, 'Tarjeta Titular') || body),
         externalId: null
       };
@@ -377,61 +383,20 @@ var EMAIL_RULES = [
 ];
 
 // ---- Default category for auto-captured entries ----
-// Transfers only ever have one possible category ("Between Accounts"), so
-// that's not a guess — just assign it. Expenses use a small keyword list
-// that grows on its own (see learnCategoryKeyword_) every time a pending
-// email-sourced entry gets confirmed with a category chosen.
+// See CategoryGuess.gs — merchant history first, then Programmed items.
 
-function guessCategoryId_(type, description) {
-  if (type === 'transfer') {
-    var transferCat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
-    return transferCat ? transferCat.id : '';
-  }
-  if (type === 'expense') {
-    return guessExpenseCategoryId_(description);
-  }
-  return '';
-}
-
-function guessExpenseCategoryId_(description) {
-  if (!description) return '';
-  var lower = description.toLowerCase();
-  var rule = getAllRows('Category Keywords')
-    .find(function (r) { return r.keyword && lower.indexOf(String(r.keyword).toLowerCase()) !== -1; });
-  if (!rule) return '';
-  var cat = getAllRows('Categories').find(function (c) { return c.type === 'expense' && c.name === rule.category_name; });
-  return cat ? cat.id : '';
+// Shared by capture (processOneMessage_) and the merchant backfill so both
+// compute the exact same dedup fingerprint for a given email.
+function computeEmailExternalId_(sender, dateStr, fields) {
+  return fields.externalId || fallbackExternalId_(sender, dateStr, fields.amount, fields.description);
 }
 
 /**
- * Called when a pending, email-sourced entry gets confirmed. If its exact
- * description isn't already a known keyword, remembers it — so the same
- * merchant defaults correctly next time. Deliberately simple (an exact,
- * case-insensitive match on the whole description) rather than trying to
- * strip payment-gateway prefixes or guess at merchant names — those are
- * still reachable by adding a short, broad keyword (like "rappi") by hand
- * in the Category Keywords sheet, which this never overrides.
- */
-function learnCategoryKeyword_(description, categoryId) {
-  if (!description || !categoryId) return;
-  var keyword = String(description).toLowerCase().trim();
-  if (!keyword) return;
-
-  var already = getAllRows('Category Keywords')
-    .some(function (r) { return String(r.keyword).toLowerCase() === keyword; });
-  if (already) return;
-
-  var cat = getAllRows('Categories').find(function (c) { return c.id === categoryId; });
-  if (!cat || cat.type !== 'expense') return;
-
-  appendRowObject('Category Keywords', { id: Utilities.getUuid(), keyword: keyword, category_name: cat.name });
-}
-
-/**
- * Confirms a pending entry and, if it came from email, teaches the
- * category-keyword list from whatever category it was confirmed with.
- * Shared by both the app's plain Confirm button and the Telegram bot's
- * Confirm tap, so the learning happens no matter which interface is used.
+ * Confirms a pending entry. Shared by both the app's plain Confirm button
+ * and the Telegram bot's Confirm tap. (It used to also teach the Category
+ * Keywords sheet from the confirmed description; category guessing now
+ * learns from confirmed entries' `merchant` directly — see
+ * CategoryGuess.gs — so there's nothing to teach here.)
  *
  * Also closes a real gap found 2026-09-17: the split-entry UI's own
  * "100% to whoever paid, by default" logic (see saveEntrySplits in
@@ -450,9 +415,6 @@ function learnCategoryKeyword_(description, categoryId) {
  */
 function confirmEntryWithLearning_(entryId) {
   var entry = getEntryById_(entryId);
-  if (entry && entry.source === 'email') {
-    learnCategoryKeyword_(entry.description, entry.category_id);
-  }
   if (entry && entry.type === 'expense' && !getEntrySplits(entryId).length) {
     saveEntrySplits(entryId, []);
   }
@@ -483,12 +445,14 @@ function processEmails() {
   });
   var banks = getAllRows('Banks');
   var paymentMethods = getAllRows('Payment Methods');
+  ensureEntriesMerchantColumn_();
+  var guessCtx = buildGuessContext_();
 
   uniqueSenders_().forEach(function (sender) {
     var threads = GmailApp.search('from:' + sender + ' -label:ExpenseTracker-Processed newer_than:3d');
     threads.forEach(function (thread) {
       thread.getMessages().forEach(function (message) {
-        processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods);
+        processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
       });
       thread.addLabel(label);
     });
@@ -498,7 +462,7 @@ function processEmails() {
   return results;
 }
 
-function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods) {
+function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   var subject = message.getSubject();
   var body = message.getPlainBody();
   var tz = Session.getScriptTimeZone();
@@ -516,7 +480,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var fields = rule.extract(subject, body);
   if (!fields) { results.skipped++; return; }
 
-  var externalId = fields.externalId || fallbackExternalId_(sender, dateStr, fields.amount, fields.description);
+  var externalId = computeEmailExternalId_(sender, dateStr, fields);
 
   if (existingExternalIds[externalId]) { results.duplicates++; return; }
   existingExternalIds[externalId] = true;
@@ -530,13 +494,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
       : (pms.length === 1 ? pms[0] : null);
   }
 
+  var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
+
   var entry = {
     id: Utilities.getUuid(),
     type: fields.type,
     date: dateStr,
     amount: fields.amount,
     currency: fields.currency,
-    category_id: guessCategoryId_(fields.type, fields.description),
+    category_id: guess.categoryId,
     description: fields.description || '',
     payment_method_id: paymentMethod ? paymentMethod.id : '',
     paid_by: 'me',
@@ -544,13 +510,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     source: 'email',
     external_id: externalId,
     import_batch_id: '',
-    created_at: createdAt
+    created_at: createdAt,
+    merchant: normalizeMerchant_(fields.merchant)
   };
 
   appendRowObject('Entries', entry);
   results.created++;
 
-  sendTelegramEntryNotification_(entry, null);
+  var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
+  sendTelegramEntryNotification_(entry, guessedCategory ? guessedCategory.name : null, guess.reason);
 }
 
 /**

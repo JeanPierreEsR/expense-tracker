@@ -8,7 +8,7 @@
 var TABLE_DEFINITIONS = {
   Entries: ['id', 'type', 'date', 'amount', 'currency', 'category_id',
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
-    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id'],
+    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
   Tags: ['id', 'name', 'color'],
@@ -81,11 +81,10 @@ var TABLE_DEFINITIONS = {
   // reply is about, since Telegram only tells us which message_id someone
   // replied to.
   'Telegram Messages': ['message_id', 'entry_id', 'created_at'],
-  // Not part of the original spec — default-category guessing for
-  // auto-captured expenses (see EmailParser.gs guessCategoryId_). Grows on
-  // its own: confirming a pending email-sourced entry with a category
-  // remembers that description for next time. category_name (not
-  // category_id) so this stays easy to edit by hand in the Sheet.
+  // Not part of the original spec — an early default-category mechanism.
+  // No longer consulted (2026-09-23): category guessing now learns from
+  // each entry's `merchant` history instead — see CategoryGuess.gs. The
+  // sheet is kept so nothing is orphaned; safe to ignore or delete.
   'Category Keywords': ['id', 'keyword', 'category_name']
 };
 
@@ -193,8 +192,8 @@ function seedStarterData() {
 
 // A few confident starting points, based on merchants already seen in
 // real sample emails. Keep this list short — a wrong guess is worse than
-// no guess, since it'd need noticing and correcting. It grows on its own
-// from here (see learnCategoryKeyword_ in Telegram.gs).
+// no guess, since it'd need noticing and correcting. Not used for guessing
+// anymore — see CategoryGuess.gs.
 function seedCategoryKeywords() {
   seedIfEmpty('Category Keywords', [
     { id: Utilities.getUuid(), keyword: 'rappi', category_name: 'Food & Drink' },
