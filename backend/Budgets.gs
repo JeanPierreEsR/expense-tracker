@@ -570,10 +570,19 @@ function adminDebugBudgetAlertLog() {
   };
 }
 
-// Runs on the same 15-minute automation cycle as the email scan. Each
-// budget can cross several thresholds between runs (a big purchase can
-// jump 40% -> 90% in one entry) — every newly-crossed threshold gets its
-// own alert and its own Budget Alert Log row, so none are silently skipped.
+// Runs on the same 15-minute automation cycle as the email scan. A
+// budget can cross several thresholds between runs (a big purchase, or —
+// a real incident, see CHANGELOG.md § Budgets — a miscategorized entry
+// that temporarily inflated a category — can jump 40% straight to
+// 1900%+ in one check). Every newly-crossed threshold still gets its own
+// Budget Alert Log row, so the per-threshold dedup stays exactly as
+// precise as before and nothing is silently skipped — but only ONE
+// Telegram message goes out per budget per run (fixed 2026-09-22, after
+// the owner asked why they got 6 near-identical alerts in a row for one
+// run that had legitimately crossed all 6 thresholds at once): the
+// message already reports the current live percentage, not the specific
+// threshold, so 6 messages in a row never said anything a single one
+// didn't already cover.
 function checkBudgets() {
   var budgets = getAllRows('Budgets');
   if (!budgets.length) return { checked: 0, alertsSent: 0 };
@@ -596,15 +605,19 @@ function checkBudgets() {
       .filter(function (t) { return !isNaN(t); })
       .sort(function (a, b) { return a - b; });
 
-    thresholds.forEach(function (threshold) {
-      if (progress.percent < threshold) return;
+    var newlyCrossed = thresholds.filter(function (threshold) {
+      if (progress.percent < threshold) return false;
+      return !alertedSet[budget.id + '|' + progress.periodKey + '|' + threshold];
+    });
+    if (!newlyCrossed.length) return;
+
+    var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
+    var highestThreshold = newlyCrossed[newlyCrossed.length - 1];
+    var sent = sendTelegramBudgetAlert_(budget, resolveBudgetDisplayName_(budget, display.name), highestThreshold, progress);
+    if (!sent) return; // Telegram not configured — don't mark any as alerted, try again next cycle
+
+    newlyCrossed.forEach(function (threshold) {
       var key = budget.id + '|' + progress.periodKey + '|' + threshold;
-      if (alertedSet[key]) return;
-
-      var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
-      var sent = sendTelegramBudgetAlert_(budget, resolveBudgetDisplayName_(budget, display.name), threshold, progress);
-      if (!sent) return; // Telegram not configured — don't mark as alerted, try again next cycle
-
       appendRowObject('Budget Alert Log', {
         id: Utilities.getUuid(),
         budget_id: budget.id,
@@ -613,8 +626,8 @@ function checkBudgets() {
         sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
       });
       alertedSet[key] = true;
-      alertsSent++;
     });
+    alertsSent++;
   });
 
   return { checked: budgets.length, alertsSent: alertsSent };
