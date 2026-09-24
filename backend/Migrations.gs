@@ -130,3 +130,64 @@ function repointPlin_(sheetName, col, plinId, byCurrency, currencyByLoanId, dryR
   if (!dryRun && changed) sheet.getRange(2, ci + 1, column.length, 1).setValues(column);
   return changed;
 }
+
+
+/**
+ * Same move as adminSetupIbkAccounts, for BCP: every Yape payment leaves one
+ * of the owner's BCP accounts (Yape is a rail, like Plin), and BCP
+ * statements are per account. Creates BCP soles (…0005) and BCP dolares
+ * (…7165) — last_4 = last four digits of the account code, e.g.
+ * 000-00000000-0-00 — moves Yape's balance snapshots (newest balance
+ * prevails; as_of kept) onto them by currency, and re-points every
+ * Entry/Loan/Settlement that used Yape. Idempotent; dry-run unless
+ * payload.dryRun === false.
+ */
+function adminSetupBcpAccounts(payload) {
+  var dryRun = !payload || payload.dryRun !== false;
+  var report = { dryRun: dryRun, createdPaymentMethods: [], balances: [], repointed: {} };
+
+  var bank = getAllRows('Banks').find(function (b) { return b.name === 'BCP'; });
+  if (!bank) throw new Error('Bank "BCP" not found');
+  var pms = getAllRows('Payment Methods');
+  var yape = pms.find(function (p) { return p.nickname === 'Yape'; });
+  if (!yape) throw new Error('Payment method "Yape" not found');
+
+  var accounts = [
+    { nickname: 'BCP soles', last4: '0005', currency: 'PEN' },
+    { nickname: 'BCP dolares', last4: '7165', currency: 'USD' }
+  ];
+  accounts.forEach(function (a) {
+    var pm = pms.find(function (p) { return String(p.nickname).trim() === a.nickname; });
+    if (!pm) {
+      report.createdPaymentMethods.push(a.nickname);
+      pm = dryRun
+        ? { id: 'NEW:' + a.nickname }
+        : addPaymentMethod({ nickname: a.nickname, type: 'debit', bank_id: bank.id, last_4: a.last4 });
+    }
+    a.id = pm.id;
+  });
+
+  ensureAccountOpeningBalancesSheet_();
+  ensureAccountOpeningBalancesAsOfColumn_();
+  var allOpenings = getAllRows('Account Opening Balances');
+  function openingsOf(pmId) { return allOpenings.filter(function (r) { return r.payment_method_id === pmId; }); }
+  accounts.forEach(function (a) {
+    if (openingsOf(a.id).length) return;
+    var src = openingsOf(yape.id).find(function (r) { return String(r.currency).toUpperCase() === a.currency; });
+    if (!src) return;
+    report.balances.push(a.nickname + ' <- Yape ' + a.currency + ' ' + src.amount + ' @ ' + src.date + ' ' + (src.as_of || ''));
+    if (!dryRun) addOpeningRow_(a.id, a.currency, Number(src.amount), src.date, src.as_of || '');
+  });
+  if (!dryRun && openingsOf(yape.id).length) {
+    deleteRowsWhere_('Account Opening Balances', function (row) { return row.payment_method_id === yape.id; });
+  }
+
+  var byCurrency = { PEN: accounts[0].id, USD: accounts[1].id };
+  var loanCurrency = {};
+  getAllRows('Loans').forEach(function (l) { loanCurrency[l.id] = l.currency; });
+  report.repointed.entries = repointPlin_('Entries', 'payment_method_id', yape.id, byCurrency, null, dryRun);
+  report.repointed.entriesTo = repointPlin_('Entries', 'to_payment_method_id', yape.id, byCurrency, null, dryRun);
+  report.repointed.loans = repointPlin_('Loans', 'payment_method_id', yape.id, byCurrency, null, dryRun);
+  report.repointed.settlements = repointPlin_('Settlements', 'payment_method_id', yape.id, byCurrency, loanCurrency, dryRun);
+  return report;
+}

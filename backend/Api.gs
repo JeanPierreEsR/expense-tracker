@@ -129,6 +129,7 @@ function routeAction(action, payload) {
     case 'admin_processEmailsBack': return processEmails({ days: Number(payload.days) || 7, senders: payload.senders });
     case 'admin_debugListEmails': return debugListEmails_(payload.senders || [], Number(payload.days) || 7);
     case 'admin_setupIbkAccounts': return adminSetupIbkAccounts(payload);
+    case 'admin_setupBcpAccounts': return adminSetupBcpAccounts(payload);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();

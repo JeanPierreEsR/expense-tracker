@@ -87,10 +87,16 @@ function fallbackExternalId_(sender, dateStr, amount, extra) {
   return 'gen-' + Utilities.base64EncodeWebSafe(digest).substring(0, 16);
 }
 
+// BCP and Yape emails don't name the account (a debit-card email carries card
+// digits, a Yape email nothing at all), but the money always leaves the
+// BCP account of that currency — Yape is a rail on top of it, like Plin on
+// Interbank. Used when the email's own last4 doesn't identify one.
+var BCP_ACCOUNTS = { PEN: 'BCP soles', USD: 'BCP dolares' };
+
 var EMAIL_RULES = [
   // ---- BCP ----
   {
-    bank: 'BCP', sender: 'notificaciones@notificacionesbcp.com.pe',
+    bank: 'BCP', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
     label: 'Consumo tarjeta de débito',
     match: function (subject) { return /realizaste un consumo/i.test(subject) && /d.bito/i.test(subject); },
     extract: function (subject, body) {
@@ -106,7 +112,7 @@ var EMAIL_RULES = [
     }
   },
   {
-    bank: 'BCP', sender: 'notificaciones@notificacionesbcp.com.pe',
+    bank: 'BCP', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
     label: 'Pago de servicios',
     match: function (subject) { return /constancia de pago de servicio/i.test(subject); },
     extract: function (subject, body) {
@@ -122,7 +128,7 @@ var EMAIL_RULES = [
     }
   },
   {
-    bank: 'BCP', sender: 'notificaciones@notificacionesbcp.com.pe',
+    bank: 'BCP', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
     label: 'Transferencia a terceros',
     match: function (subject) { return /constancia de transferencia a terceros/i.test(subject); },
     extract: function (subject, body) {
@@ -194,7 +200,7 @@ var EMAIL_RULES = [
   },
   // ---- Yape ----
   {
-    bank: 'Yape', sender: 'notificaciones@yape.pe',
+    bank: 'Yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
     label: 'Yapeo enviado',
     match: function (subject, body) { return /acabas de yapear/i.test(body); },
     extract: function (subject, body) {
@@ -220,7 +226,7 @@ var EMAIL_RULES = [
   // the currency from the $ sign itself (see the file header comment),
   // so this doesn't need to hardcode USD.
   {
-    bank: 'Yape', sender: 'notificaciones@yape.pe',
+    bank: 'Yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
     label: 'Yapeo enviado (dólares)',
     match: function (subject, body) { return /yape\s*d[oó]lares/i.test(body); },
     extract: function (subject, body) {
@@ -558,7 +564,12 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
       ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
-      : (pms.length === 1 ? pms[0] : null);
+      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+  }
+  // No account named in the email: the rule may say which account of that
+  // currency the money always leaves (BCP, Yape).
+  if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
+    paymentMethod = paymentMethods.find(function (pm) { return pm.nickname === rule.accountByCurrency[fields.currency]; }) || null;
   }
 
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
