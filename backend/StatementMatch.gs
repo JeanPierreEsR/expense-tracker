@@ -14,6 +14,8 @@ var STMT_PAIR_WINDOW_DAYS = 3;
 // and must be recorded for a balance to match to the cent. Anything labeled
 // "ITF" but larger than this is a mislabeled transfer, not the tax.
 var STMT_FEE_MAX = 5;
+// Words a bank uses for money moving between accounts (own or otherwise).
+var STMT_TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CUENTAS|\bTC\b|\bSIP\b/i;
 
 function stmtDayNumber_(iso) {
   var p = String(iso).split('-');
@@ -147,27 +149,48 @@ function matchStatements_(statements, entries) {
       if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee') open.push({ key: st.key, i: i, l: l });
     });
   });
-  var cand = [];
-  open.forEach(function (a) {
-    open.forEach(function (b) {
-      if (a.key === b.key || a.l.amount >= 0 || b.l.amount <= 0) return;
-      if (a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
+  // Both sides of a real own-account transfer: opposite signs, same amount
+  // and currency, different accounts, a few days apart — AND at least one
+  // side must say it is a transfer/payment (a bare "YAPE-…" against another
+  // "Yape …" of the same amount is just two unrelated payments). Among the
+  // possible pairings, take the one that resolves the MOST lines (a chain
+  // A -> B -> C has two transfers of the same amount, and closest-first can
+  // pair A with C and strand B), preferring the closest dates within that.
+  var outs = open.filter(function (o) { return o.l.amount < 0; });
+  var ins = open.filter(function (o) { return o.l.amount > 0; });
+  var edges = {};
+  outs.forEach(function (a, ai) {
+    edges[ai] = [];
+    ins.forEach(function (b, bi) {
+      if (a.key === b.key || a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
       var dd = Math.abs(stmtDayNumber_(a.l.date) - stmtDayNumber_(b.l.date));
       if (dd > STMT_PAIR_WINDOW_DAYS) return;
-      cand.push({ a: a, b: b, dd: dd });
+      if (!STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
+      edges[ai].push({ bi: bi, dd: dd });
     });
+    edges[ai].sort(function (x, y) { return x.dd - y.dd; });
   });
-  cand.sort(function (x, y) { return x.dd - y.dd; });
-  var taken = {};
-  cand.forEach(function (c) {
-    var ka = c.a.key + '#' + c.a.i, kb = c.b.key + '#' + c.b.i;
-    if (taken[ka] || taken[kb]) return;
-    taken[ka] = taken[kb] = true;
-    perLine[c.a.key][c.a.i].guess = 'transfer';
-    perLine[c.b.key][c.b.i].guess = 'transfer';
-    perLine[c.a.key][c.a.i].pairedWith = { key: c.b.key, i: c.b.i };
-    perLine[c.b.key][c.b.i].pairedWith = { key: c.a.key, i: c.a.i };
-    pairsOut.push({ a: { key: c.a.key, i: c.a.i }, b: { key: c.b.key, i: c.b.i } });
+  var matchOfIn = {};
+  function augment(ai, seen) {
+    for (var k = 0; k < edges[ai].length; k++) {
+      var bi = edges[ai][k].bi;
+      if (seen[bi]) continue;
+      seen[bi] = true;
+      if (matchOfIn[bi] === undefined || augment(matchOfIn[bi], seen)) { matchOfIn[bi] = ai; return true; }
+    }
+    return false;
+  }
+  // Closest pairs first, so ties resolve toward the nearest dates.
+  Object.keys(edges).map(Number)
+    .sort(function (x, y) { return (edges[x][0] ? edges[x][0].dd : 99) - (edges[y][0] ? edges[y][0].dd : 99); })
+    .forEach(function (ai) { augment(ai, {}); });
+  Object.keys(matchOfIn).forEach(function (bi) {
+    var a = outs[matchOfIn[bi]], b = ins[+bi];
+    perLine[a.key][a.i].guess = 'transfer';
+    perLine[b.key][b.i].guess = 'transfer';
+    perLine[a.key][a.i].pairedWith = { key: b.key, i: b.i };
+    perLine[b.key][b.i].pairedWith = { key: a.key, i: a.i };
+    pairsOut.push({ a: { key: a.key, i: a.i }, b: { key: b.key, i: b.i } });
   });
 
   return { perLine: perLine, pairs: pairsOut };

@@ -51,7 +51,7 @@
     its.forEach(function (i) {
       var cell = { x0: i.x, x1: i.x + i.w, str: String(i.str).trim() };
       var r = rows[rows.length - 1];
-      if (r && Math.abs(r.y - i.y) <= 3.5) r.cells.push(cell);
+      if (r && Math.abs(r.y - i.y) <= 4.5) r.cells.push(cell);
       else rows.push({ y: i.y, page: page, cells: [cell] });
     });
     rows.forEach(function (r) {
@@ -102,6 +102,9 @@
     if (/DETALLE DE MOVIMIENTOS/.test(all) && /EMPEZASTE/i.test(all)) return 'savings';
     if (/INTERBANK VISA/i.test(all) && /DETALLE DE PAGO DEL MES/i.test(all)) return 'visa';
     if (/PERIODO FACTURADO DEL/i.test(all)) return 'diners';
+    if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
+    if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
+    if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
     return null;
   }
 
@@ -355,11 +358,193 @@
     };
   }
 
+
+  // ---- BCP savings (Cuenta Digital, soles / dólares) ----
+  // No running balance: an opening balance ("SALDO ANTERIOR"), the rows,
+  // and a totals line — so the check is opening + credits − charges = closing
+  // AND the rows must sum to the printed totals.
+
+  function parseBcp(rows) {
+    var errors = [];
+    var all = rows.map(function (r) { return r.text; }).join('\n');
+    var codeM = all.match(/\b(\d{3}-\d{8}-\d-\d{2})\b/);
+    var pm = all.match(/DEL\s+(\d{2})\/(\d{2})\/(\d{2})\s+AL\s+(\d{2})\/(\d{2})\/(\d{2})/);
+    if (!codeM || !pm) return fail('bcp', ['Could not read the account code / period.']);
+    var currency = /\bSOLES\b/.test(all.split('\n').slice(0, 14).join('\n')) ? 'PEN' : 'USD';
+    var digits = codeM[1].replace(/-/g, '');
+    var y = 2000 + +pm[6];
+
+    var header = rows.find(function (r) { return /CARGOS\s*\/\s*DEBE/i.test(r.text); });
+    var split = 450;
+    if (header) {
+      var cg = header.cells.find(function (c) { return /CARGOS/i.test(c.str); });
+      var ab = header.cells.find(function (c) { return /ABONOS/i.test(c.str); });
+      if (cg && ab) split = (cg.x1 + ab.x0) / 2;
+    }
+
+    var opening = null, closing = null, totalCharges = null, totalCredits = null;
+    var lines = [];
+    var sumCharges = 0, sumCredits = 0;
+    var dateRe = /^(\d{2})([A-Z]{3})$/;
+
+    rows.forEach(function (r) {
+      var t = r.text;
+      if (/SALDO ANTERIOR/i.test(t)) {
+        var a = r.cells.filter(function (c) { return isAmount(c.str); });
+        if (a.length) opening = num(a[a.length - 1].str);
+        return;
+      }
+      if (/TOTAL MOVIMIENTO/i.test(t)) {
+        var am = r.cells.filter(function (c) { return isAmount(c.str); });
+        am.forEach(function (c) { if (c.x1 < split) totalCharges = num(c.str); else totalCredits = num(c.str); });
+        return;
+      }
+      if (/^SALDO\b/i.test(r.cells[0] && r.cells[0].str) || (r.cells[0] && /^SALDO$/i.test(r.cells[0].str))) {
+        var b = r.cells.filter(function (c) { return isAmount(c.str); });
+        if (b.length) closing = num(b[b.length - 1].str);
+        return;
+      }
+      var d1 = r.cells[0] && r.cells[0].str.match(dateRe);
+      if (!d1 || !MONTHS[d1[2].toLowerCase()]) return;
+      var month = MONTHS[d1[2].toLowerCase()];
+      var amts = r.cells.filter(function (c) { return c.x0 > 300 && isAmount(c.str); });
+      var desc = r.cells.slice(2).filter(function (c) { return c.x0 < 300 && !/^[*\d]$/.test(c.str); })
+        .map(function (c) { return c.str; }).join(' ');
+      if (!amts.length) { errors.push('Movement without an amount: ' + t); return; }
+      var c = amts[0];
+      var value = num(c.str);
+      var isCharge = c.x1 < split;
+      if (isCharge) sumCharges = round2(sumCharges + value); else sumCredits = round2(sumCredits + value);
+      if (value === 0) return; // e.g. "MANT. CUENTA … 0.00" (free maintenance)
+      lines.push({
+        date: iso(y, month, +d1[1]), description: desc,
+        amount: round2(isCharge ? -value : value), currency: currency, section: 'movement'
+      });
+    });
+
+    if (opening === null || closing === null) errors.push('Opening ("SALDO ANTERIOR") or closing ("SALDO") balance not found.');
+    if (totalCharges === null || totalCredits === null) errors.push('"TOTAL MOVIMIENTO" not found.');
+    if (opening !== null && closing !== null && totalCharges !== null && totalCredits !== null) {
+      if (round2(opening + totalCredits - totalCharges) !== round2(closing)) errors.push('Opening + credits − charges = ' + round2(opening + totalCredits - totalCharges).toFixed(2) + ' ≠ closing ' + closing.toFixed(2) + '.');
+      if (round2(sumCharges) !== round2(totalCharges)) errors.push('Charges read ' + sumCharges.toFixed(2) + ' ≠ statement ' + totalCharges.toFixed(2) + '.');
+      if (round2(sumCredits) !== round2(totalCredits)) errors.push('Credits read ' + sumCredits.toFixed(2) + ' ≠ statement ' + totalCredits.toFixed(2) + '.');
+    }
+    var balances = {};
+    balances[currency] = { opening: opening, closing: closing };
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'bcp', bank: 'BCP',
+      account: { last4: digits.slice(-4), number: codeM[1], label: 'BCP Cuenta Digital ' + (currency === 'PEN' ? 'soles' : 'dólares') },
+      period: { start: iso(y, +pm[2], +pm[1]), end: iso(y, +pm[5], +pm[4]) }, balances: balances, lines: lines
+    };
+  }
+
+  // ---- AhorraMás (app statement: one signed line per activity) ----
+  // No opening balance and no running balance, so a reading can't be
+  // checked against anything — `verified: false`. "Ahorros disponible" is
+  // the balance on the day the PDF was generated, not at the period end,
+  // so it is reported as `availableNow` and never used as a closing balance.
+
+  function parseAhorramas(rows) {
+    var all = rows.map(function (r) { return r.text; }).join('\n');
+    var pm = all.match(/Estado de cuenta del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    var cur = all.match(/Moneda\s+(Soles|D[óo]lares)/i);
+    var acct = all.match(/N°\s*de tu cuenta\s+(\d+)/i);
+    var avail = all.match(/Ahorros disponible:\s*(?:S\/|US\$)\s*([\d,]+\.\d{2})/i);
+    if (!pm || !cur || !acct) return fail('ahorramas', ['Could not read the period / currency / account.']);
+    var currency = /Soles/i.test(cur[1]) ? 'PEN' : 'USD';
+    var start = iso(pm[3], +pm[2], +pm[1]), end = iso(pm[6], +pm[5], +pm[4]);
+    var lines = [], skipped = 0;
+    rows.forEach(function (r) {
+      var m = r.text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(.+?)\s+([+-])\s*(?:S\/|US\$)\s*([\d,]+\.\d{2})$/);
+      if (!m) return;
+      var date = iso(m[3], +m[2], +m[1]);
+      // The PDF lists whatever history the app keeps (months before and after
+      // the period too); only the period itself belongs to this statement.
+      if (date < start || date > end) { skipped++; return; }
+      lines.push({
+        date: date, description: m[4], amount: round2((m[5] === '-' ? -1 : 1) * num(m[6])),
+        currency: currency, section: 'movement'
+      });
+    });
+    var balances = {};
+    balances[currency] = { opening: null, closing: null };
+    return {
+      ok: true, errors: [], verified: false,
+      warnings: ['AhorraMás statements have no opening or running balance, so the reading could not be checked against totals.'],
+      kind: 'ahorramas', bank: 'AhorraMás',
+      account: { last4: acct[1].slice(-4), number: acct[1], label: 'AhorraMás ' + (currency === 'PEN' ? 'soles' : 'dólares') },
+      period: { start: start, end: end }, balances: balances, lines: lines,
+      availableNow: avail ? num(avail[1]) : null, skippedOutOfPeriod: skipped
+    };
+  }
+
+  // ---- SIP credit card (PEN only) ----
+  // Checks: opening debt + purchases/interest − payments/reversals = the
+  // printed total debt, using the statement's own "(C) DEUDA TOTAL" line.
+
+  function parseSip(rows) {
+    var errors = [];
+    var all = rows.map(function (r) { return r.text; }).join('\n');
+    var l4 = all.match(/\*{4,}(\d{4})/);
+    var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    if (!l4 || !pm) return fail('sip', ['Could not read the card number / billing cycle.']);
+    var lines = [];
+    var prev = null, opening = null;
+    var charges = 0, credits = 0;
+    var inMovements = false;
+    var dateRe = /^\d{2}\/\d{2}\/\d{4}$/;
+    rows.forEach(function (r) {
+      var t = r.text;
+      if (/SALDO MES ANTERIOR/i.test(t)) {
+        var a = r.cells.filter(function (c) { return isAmount(c.str); });
+        if (a.length) prev = num(a[a.length - 1].str);
+        inMovements = true;
+        return;
+      }
+      if (/^\(A\) PAGO DEL MES/i.test(t) || /DEUDA TOTAL\s+MONEDA/i.test(t)) inMovements = false;
+      if (!inMovements || !r.cells[0] || !dateRe.test(r.cells[0].str)) return;
+      var d = r.cells[0].str.split('/');
+      var amtCell = r.cells.filter(function (c) { return isAmount(c.str); }).pop();
+      if (!amtCell) { errors.push('Movement without an amount: ' + t); return; }
+      var printed = num(amtCell.str);
+      var desc = r.cells.slice(1).filter(function (c) { return c !== amtCell && !/^[TA]$/.test(c.str); })
+        .map(function (c) { return c.str; }).join(' ');
+      if (printed >= 0) charges = round2(charges + printed); else credits = round2(credits + printed);
+      var section = /^PAGO/i.test(desc) ? 'payments' : (/^REV\./i.test(desc) ? 'reversal' : (/SEGURO|INTER[EÉ]S|COMISI/i.test(desc) ? 'fees' : 'purchases'));
+      // Printed amounts are debt: a purchase is positive, a payment/reversal negative.
+      lines.push({ date: iso(d[2], +d[1], +d[0]), description: desc, amount: round2(-printed), currency: 'PEN', section: section });
+    });
+
+    // The "(C) DEUDA TOTAL" line: SALDO INICIAL, + CONSUMOS E INTERESES, − PAGOS Y OTROS, = DEUDA TOTAL.
+    var summary = null;
+    rows.forEach(function (r) {
+      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
+    });
+    if (prev === null) errors.push('"SALDO MES ANTERIOR" not found.');
+    if (!summary) errors.push('"(C) DEUDA TOTAL" summary line not found or does not add up.');
+    else {
+      if (prev !== null && round2(prev) !== round2(summary[0])) errors.push('Opening debt ' + prev.toFixed(2) + ' ≠ statement ' + summary[0].toFixed(2) + '.');
+      if (round2(charges) !== round2(summary[1])) errors.push('Purchases + interest read ' + charges.toFixed(2) + ' ≠ statement ' + summary[1].toFixed(2) + '.');
+      if (round2(-credits) !== round2(summary[2])) errors.push('Payments + reversals read ' + (-credits).toFixed(2) + ' ≠ statement ' + summary[2].toFixed(2) + '.');
+    }
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
+      account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
+      period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
+      balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
+      lines: lines
+    };
+  }
+
   function parseStatement(rows) {
     var kind = detectKind(rows);
     if (kind === 'savings') return parseSavings(rows);
     if (kind === 'visa') return parseVisa(rows);
     if (kind === 'diners') return parseDiners(rows);
+    if (kind === 'bcp') return parseBcp(rows);
+    if (kind === 'ahorramas') return parseAhorramas(rows);
+    if (kind === 'sip') return parseSip(rows);
     return fail(null, ['This statement layout is not recognized yet.']);
   }
 
