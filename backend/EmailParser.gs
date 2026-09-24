@@ -48,6 +48,19 @@ function extractLast4_(text) {
   return m ? m[1] : null;
 }
 
+// Interbank names the debited ACCOUNT under "Cuenta cargo"/"Cuenta a cargo"
+// as a few lines ("Cuenta Simple / Soles / 000 0000000000"), not a masked
+// card, so the last four digits of that account number are what identify
+// which of the owner's accounts it was (falls back to a masked card's
+// digits when the account is a card).
+function extractAccountLast4_(body, label) {
+  var i = body.search(new RegExp(label, 'i'));
+  if (i === -1) return null;
+  var chunk = body.substring(i, i + 300).replace(/(\d)[ -](?=\d)/g, '$1');
+  var m = chunk.match(/\d{10,}/);
+  return m ? m[0].slice(-4) : extractLast4_(chunk);
+}
+
 // Real emails often glue "Label" straight onto its value with no space
 // (e.g. "Enviado aJean Pierre..."), and some senders' "plain text" body
 // still carries markdown-style *bold* markers or a stray <br>. The
@@ -174,7 +187,7 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: 'DiDi' + (service ? ' ' + cleanText_(service[1]) : ''),
         merchant: 'DiDi', defaultCategory: 'Transport',
-        last4: null,
+        last4: '3052', // Interbank Visa Infinite — pinned, see rule comment
         externalId: fallbackExternalId_('didi', dateLine ? dateLine[0] : '', amt.amount, times.join('-'))
       };
     }
@@ -286,7 +299,7 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Empresa'),
         merchant: afterLabel_(body, 'Empresa'),
-        last4: extractLast4_(afterLabel_(body, 'Cuenta cargo') || body),
+        last4: extractAccountLast4_(body, 'Cuenta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
     }
@@ -303,32 +316,20 @@ var EMAIL_RULES = [
       return {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
-        last4: extractLast4_(afterLabel_(body, 'Cuenta a cargo') || body),
+        last4: extractAccountLast4_(body, 'Cuenta a cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
     }
   },
-  // `bank: 'Plin'`, not 'Interbank', even though the email itself comes
-  // from Interbank's own sender address (fixed 2026-09-23 — a real
-  // transaction, "estacionamiento Morelli," was landing tagged as paid
-  // by the owner's Interbank CREDIT CARD, per the owner's own report).
-  // Plin isn't its own company with its own email sender — each bank
-  // emails its own "Constancia de Pago Plin" for a payment made through
-  // ITS app, so `sender` has to stay Interbank's address for Gmail to
-  // even find the email. But `rule.bank` is what `processOneMessage_`
-  // (Api.gs) uses to pick a Payment Method — filtered to Payment Methods
-  // under that bank, then narrowed by `last4` if one was extracted, else
-  // falling back to "the only one" if there's exactly one. This email's
-  // own "Cuenta cargo" line never carries masked card digits ("Cuenta
-  // Simple," not "**** 1234"), so `last4` is always null here — meaning
-  // the fallback always fired, and the owner's Interbank bank has
-  // exactly one OTHER payment method on file: their actual credit card.
-  // Every Plin payment via Interbank was silently attributed to that
-  // card instead of to the dedicated "Plin" wallet Payment Method that
-  // actually exists for exactly this. Pointing `bank` at 'Plin' instead
-  // makes the same fallback resolve to that wallet correctly.
+  // Plin is a payment rail, not an account: the money always leaves one of
+  // the owner's Interbank savings accounts (IBK soles / IBK dolares), and
+  // this email names it under "Cuenta cargo" ("Cuenta Simple / Soles /
+  // 000 0000000000"). So it resolves like any other Interbank rule — by
+  // the account's last four digits. (Until 2026-09-24 this rule pointed at
+  // `bank: 'Plin'` so a payment wouldn't fall back to the Interbank credit
+  // card; with real accounts registered, the account number does the job.)
   {
-    bank: 'Plin', sender: 'servicioalcliente@netinterbank.com.pe',
+    bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Pago Plin',
     match: function (subject) { return /constancia de pago plin/i.test(subject); },
     extract: function (subject, body) {
@@ -340,7 +341,7 @@ var EMAIL_RULES = [
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency,
         description: own ? 'Plin (propio)' : 'Plin a ' + recipient,
-        last4: extractLast4_(afterLabel_(body, 'Cuenta cargo') || body),
+        last4: extractAccountLast4_(body, 'Cuenta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
     }
