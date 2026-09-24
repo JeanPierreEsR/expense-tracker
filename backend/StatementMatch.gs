@@ -59,6 +59,12 @@ function stmtEntryEffects_(entry, pmId) {
   return null;
 }
 
+// An entry can explain one statement line — except a transfer, which shows
+// up on TWO statements (out of one account, into the other), once each.
+function stmtUsedKey_(entry, pmId) {
+  return entry.type === 'transfer' ? entry.id + '|' + pmId : entry.id;
+}
+
 function stmtClassifyLine_(line) {
   var d = String(line.description || '').toUpperCase();
   if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
@@ -104,8 +110,8 @@ function matchStatements_(statements, entries) {
     });
     pairs.sort(function (a, b) { return (a.dd - b.dd) || (b.sim - a.sim) || (b.own - a.own); });
     pairs.forEach(function (p) {
-      if (res[p.li].status === 'matched' || used[p.e.id]) return;
-      used[p.e.id] = true;
+      if (res[p.li].status === 'matched' || used[stmtUsedKey_(p.e, st.pmId)]) return;
+      used[stmtUsedKey_(p.e, st.pmId)] = true;
       res[p.li] = {
         status: 'matched', entryId: p.e.id, dayDiff: p.dd,
         entryHadNoAccount: !p.e.payment_method_id && !p.e.to_payment_method_id,
@@ -127,7 +133,7 @@ function matchStatements_(statements, entries) {
       var ld = stmtDayNumber_(l.date);
       var best = null;
       entries.forEach(function (e) {
-        if (used[e.id] || e.currency !== l.currency) return;
+        if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency) return;
         var dd = Math.abs(stmtDayNumber_(e.date) - ld);
         if (dd > windowDays) return;
         var amt = Number(e.amount);
