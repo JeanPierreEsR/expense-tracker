@@ -61,7 +61,7 @@ function stmtEntryEffects_(entry, pmId) {
 
 function stmtClassifyLine_(line) {
   var d = String(line.description || '').toUpperCase();
-  if (/^ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
+  if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
   if (line.section === 'fees') return 'fee';
   if (line.section === 'payments') return 'payment'; // a card bill payment
   return line.amount > 0 ? 'income' : 'expense';
