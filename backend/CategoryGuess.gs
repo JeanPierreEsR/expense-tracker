@@ -7,6 +7,7 @@
  * new email's category is guessed from what the owner already decided for
  * that same merchant before. In order:
  *
+ *   0. A rule's own fixed category (`defaultCategory`, e.g. DiDi -> Transport).
  *   1. Merchant history — among confirmed/imported expense entries with the
  *      same `merchant`, if there are at least MERCHANT_MIN_ENTRIES of them
  *      and at least MERCHANT_MIN_SHARE of them share one category, use it.
@@ -63,9 +64,10 @@ function normalizeMerchant_(raw) {
 function buildGuessContext_() {
   var categories = getAllRows('Categories');
   var expenseCatIds = {};
+  var expenseCatIdByName = {};
   var transferCat = null;
   categories.forEach(function (c) {
-    if (c.type === 'expense') expenseCatIds[c.id] = true;
+    if (c.type === 'expense') { expenseCatIds[c.id] = true; expenseCatIdByName[c.name] = c.id; }
     if (c.type === 'transfer' && !transferCat) transferCat = c;
   });
 
@@ -80,6 +82,7 @@ function buildGuessContext_() {
 
   return {
     expenseCatIds: expenseCatIds,
+    expenseCatIdByName: expenseCatIdByName,
     categoriesById: rowsById_(categories),
     transferCatId: transferCat ? transferCat.id : '',
     history: history,
@@ -130,6 +133,12 @@ function guessFromProgrammed_(fields, dateStr, ctx) {
 function guessCategoryForEmail_(fields, dateStr, ctx) {
   if (fields.type === 'transfer') return { categoryId: ctx.transferCatId, reason: '' };
   if (fields.type !== 'expense') return { categoryId: '', reason: '' };
+
+  // A rule can pin its own category (DiDi is always Transport) — that's
+  // certain, not a guess, so it wins over history and shows no "auto" tag.
+  if (fields.defaultCategory && ctx.expenseCatIdByName[fields.defaultCategory]) {
+    return { categoryId: ctx.expenseCatIdByName[fields.defaultCategory], reason: '' };
+  }
 
   var merchant = normalizeMerchant_(fields.merchant);
   var guess = (merchant && guessFromMerchantHistory_(merchant, ctx)) ||

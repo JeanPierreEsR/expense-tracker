@@ -44,7 +44,7 @@ function extractAmount_(text) {
 
 function extractLast4_(text) {
   if (!text) return null;
-  var m = text.match(/[*Xx]{2,}\s*(\d{4})\b/);
+  var m = text.match(/[*Xx•]{2,}\s*(\d{4})\b/); // Apple prints bullets: "Visa •••• 3052"
   return m ? m[1] : null;
 }
 
@@ -122,6 +122,60 @@ var EMAIL_RULES = [
         amount: amt.amount, currency: amt.currency, description: recipient,
         last4: extractLast4_(afterLabel_(body, 'Desde') || body),
         externalId: afterLabel_(body, 'Número de operación')
+      };
+    }
+  },
+  // ---- Apple (subscription / App Store receipts) ----
+  // The receipt itself names the card ("Visa •••• 3052"), so unlike most
+  // rules the Payment Method is resolved by last4, not guessed. The order id
+  // ("ID del pedido") is the dedup key — every renewal gets a fresh one.
+  {
+    bank: 'Interbank', sender: 'no_reply@email.apple.com',
+    label: 'Recibo de Apple',
+    match: function (subject) { return /recibo de apple|receipt from apple/i.test(subject); },
+    extract: function (subject, body) {
+      var totalMatch = body.match(/[\u2022*Xx]{2,}\s*\d{4}\s*\n+\s*((?:S\/\.?|US\$|\$)\s*[\d,]+(?:\.\d{2})?)/);
+      var amt = extractAmount_(totalMatch ? totalMatch[1] : null);
+      if (!amt) return null;
+      // Item name = the line right after the Apple-account email line.
+      var lines = body.split(/\r?\n/).map(cleanText_).filter(Boolean);
+      var acct = lines.findIndex(function (l) { return /^Cuenta de Apple/i.test(l); });
+      var emailIdx = -1;
+      for (var i = acct + 1; acct !== -1 && i < lines.length && emailIdx === -1; i++) {
+        if (/@/.test(lines[i])) emailIdx = i;
+      }
+      var item = emailIdx !== -1 && lines[emailIdx + 1] ? lines[emailIdx + 1] : 'Apple';
+      return {
+        type: 'expense', amount: amt.amount, currency: amt.currency,
+        description: item, merchant: item,
+        last4: extractLast4_(body.substring(body.search(/[\u2022*Xx]{2,}\s*\d{4}/)) || null),
+        externalId: afterLabel_(body, 'ID del pedido')
+      };
+    }
+  },
+  // ---- DiDi (taxi/moto trips) ----
+  // DiDi sends no card notification of its own and its receipt only says
+  // "Credit / Debit Card", so trips are assigned to the Interbank credit
+  // card (owner's choice) and always to Transport. The receipt has no
+  // order id, so the dedup key is built from the trip date, total and
+  // pickup/dropoff times (two same-price trips in a day still differ).
+  {
+    bank: 'Interbank', sender: 'didi@pe.didiglobal.com',
+    label: 'Viaje DiDi',
+    match: function (subject, body) { return /fare breakdown|thanks for riding/i.test(body); },
+    extract: function (subject, body) {
+      var totalMatch = body.match(/(?:^|\n)\s*\*?Total\*?\s+([^\n]+)/);
+      var amt = extractAmount_(totalMatch ? totalMatch[1] : null);
+      if (!amt) return null;
+      var service = body.match(/thanks for riding with ([^\n*]+)/i);
+      var dateLine = body.match(/[A-Za-z]{3}, \d{1,2} [A-Za-z]{3}, \d{4}/);
+      var times = body.match(/\d{1,2}:\d{2}\s*[ap]m/gi) || [];
+      return {
+        type: 'expense', amount: amt.amount, currency: amt.currency,
+        description: 'DiDi' + (service ? ' ' + cleanText_(service[1]) : ''),
+        merchant: 'DiDi', defaultCategory: 'Transport',
+        last4: null,
+        externalId: fallbackExternalId_('didi', dateLine ? dateLine[0] : '', amt.amount, times.join('-'))
       };
     }
   },
@@ -435,7 +489,15 @@ function getProcessedLabel_() {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-function processEmails() {
+/**
+ * opts (all optional, used by the one-off back-check route):
+ *   days    — how far back to search (default 3, the normal 15-minute scan)
+ *   senders — only these sender addresses (default: every rule's sender)
+ * Safe to run over old mail: anything already in Entries is skipped by its
+ * external_id, whatever the "processed" label says.
+ */
+function processEmails(opts) {
+  opts = opts || {};
   var results = { created: 0, skipped: 0, duplicates: 0 };
   var label = getProcessedLabel_();
 
@@ -452,8 +514,8 @@ function processEmails() {
   ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
 
-  uniqueSenders_().forEach(function (sender) {
-    var threads = GmailApp.search('from:' + sender + ' -label:ExpenseTracker-Processed newer_than:3d');
+  (opts.senders || uniqueSenders_()).forEach(function (sender) {
+    var threads = GmailApp.search('from:' + sender + (opts.days ? '' : ' -label:ExpenseTracker-Processed') + ' newer_than:' + (opts.days || 3) + 'd');
     threads.forEach(function (thread) {
       thread.getMessages().forEach(function (message) {
         processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
