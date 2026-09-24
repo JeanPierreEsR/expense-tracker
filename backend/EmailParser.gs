@@ -657,3 +657,31 @@ function seedParsingRulesDoc() {
   });
   if (values.length) sheet.getRange(2, 1, values.length, headers.length).setValues(values);
 }
+
+/**
+ * Read-only diagnostic: every recent message from the given senders, with
+ * which rule (if any) matched it and a short body preview — for finding out
+ * why an email was skipped. Writes nothing.
+ */
+function debugListEmails_(senders, days) {
+  var out = [];
+  var tz = Session.getScriptTimeZone();
+  senders.forEach(function (sender) {
+    GmailApp.search('from:' + sender + ' newer_than:' + (days || 7) + 'd', 0, 50).forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        var subject = message.getSubject();
+        var body = message.getPlainBody();
+        var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+          .find(function (r) { return r.match(subject, body); });
+        out.push({
+          sender: sender,
+          date: Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd HH:mm'),
+          subject: subject,
+          rule: rule ? rule.label + (rule.skip ? ' (ignored)' : '') : null,
+          preview: body.replace(/\s+/g, ' ').substring(0, 400)
+        });
+      });
+    });
+  });
+  return out;
+}
