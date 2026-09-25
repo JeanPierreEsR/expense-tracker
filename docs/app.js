@@ -1225,8 +1225,18 @@ function paidByLabel(entryOrPaidBy) {
   return f ? f.name : paidBy;
 }
 
+// How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
+// "Load more" is tapped and is kept across refreshes (after an edit/delete)
+// so the list doesn't snap back to the newest 100. Asks the backend for
+// one row beyond what's shown, purely to know whether a Load more button
+// is needed.
+const ENTRY_PAGE_SIZE = 100;
+let entriesShown = ENTRY_PAGE_SIZE;
+
 async function refreshEntryList() {
-  const entries = await callApi("listEntries", {});
+  const fetched = await callApi("listEntries", { limit: entriesShown + 1 });
+  const hasMore = fetched.length > entriesShown;
+  const entries = hasMore ? fetched.slice(0, entriesShown) : fetched;
   const list = document.getElementById("entry-list");
   list.innerHTML = "";
 
@@ -1261,6 +1271,26 @@ async function refreshEntryList() {
     row.addEventListener("click", () => startEditEntry(entry));
     list.appendChild(row);
   });
+
+  if (hasMore) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cancel-edit-btn";
+    btn.textContent = "Load more";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      entriesShown += ENTRY_PAGE_SIZE;
+      try {
+        await refreshEntryList();
+      } catch (err) {
+        entriesShown -= ENTRY_PAGE_SIZE;
+        btn.disabled = false;
+        btn.textContent = "Load more";
+      }
+    });
+    list.appendChild(btn);
+  }
 }
 
 // ---- Editing a previously confirmed entry ----
