@@ -50,6 +50,26 @@ function photoAmount_(text, allowBareDollar) {
   return { amount: amount, currency: currency };
 }
 
+// Tesseract (the Mac Mini reader) often turns the big stylised "S/" into
+// "51" or "5" ("S/ 70" -> "5170", "S/5.00" -> "55.00"). Looked for ONLY on
+// the first few lines after the receipt's title line, as a line that is
+// nothing but that misread prefix plus the number — never anywhere else,
+// so an ad or a date can't be mistaken for the amount.
+function photoLooseAmount_(lines, titleRe) {
+  for (var i = 0; i < lines.length; i++) {
+    if (!titleRe.test(lines[i])) continue;
+    for (var j = i + 1; j < lines.length && j <= i + 6; j++) {
+      var m = lines[j].match(/^[Ss5$]\s*[\/1lI|]?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*\S{0,2}$/);
+      if (!m) continue;
+      var amount = parseFloat(m[1].replace(/,/g, ''));
+      // "5170" -> the "51" was "S/"; a bare 4+ digit token with no slash-like
+      // prefix is not trusted.
+      if (amount > 0 && /^[Ss5$]\s*[\/1lI|]/.test(lines[j])) return { amount: amount, currency: 'PEN' };
+    }
+  }
+  return null;
+}
+
 // "22 Set 2026 | 12:21 PM" / "24 set. 2026 | 8:17 a.m." -> { date, time }
 function photoDateTime_(text) {
   var m = text.match(/(\d{1,2})\s+([A-Za-zñÑ]{3,4})\.?\s+(\d{4})/);
@@ -103,7 +123,7 @@ function parsePhotoReceipt_(text) {
 
   // Interbank Plin image sent from WhatsApp: money OUT.
   if (/pl[i1l]neaste/i.test(clean)) {
-    var amt = photoAmount_(clean, true);
+    var amt = photoAmount_(clean, true) || photoLooseAmount_(lines, /pl[i1l]neaste/i);
     if (!amt) return { kind: 'plin_sent', error: 'amount' };
     var recipient = photoLineAfter_(lines, /pl[i1l]neaste/i);
     return {
@@ -118,10 +138,10 @@ function parsePhotoReceipt_(text) {
 
   // Yape "¡Te Yapearon!" screen: money IN, to the BCP account of that
   // currency (Yape is a rail on BCP, same as BCP_ACCOUNTS for sent ones).
-  if (/te\s+yapearon/i.test(clean)) {
-    var amtIn = photoAmount_(clean, false);
+  if (/yapearon/i.test(clean)) {
+    var amtIn = photoAmount_(clean, false) || photoLooseAmount_(lines, /yapearon/i);
     if (!amtIn) return { kind: 'yape_received', error: 'amount' };
-    var sender = photoLineAfter_(lines.filter(function (l) { return !/^compartir$/i.test(l); }), /te\s+yapearon/i);
+    var sender = photoLineAfter_(lines.filter(function (l) { return !/compartir/i.test(l); }), /yapearon/i);
     // The amount sits on its own line between the title and the name; the
     // helper skips it (digits) and lands on the sender's name.
     return {
@@ -151,43 +171,24 @@ function downloadTelegramFile_(fileId) {
 }
 
 /**
- * Free OCR via Google Drive: uploading an image with ocr:true converts it
+ * OCR via Google Drive (free): uploading an image with ocr:true converts it
  * into a Google Doc whose text is the recognised text. Needs the Drive
  * advanced service (appsscript.json). The temporary doc is always deleted.
+ * Google throttles this hard for some accounts ("User rate limit exceeded
+ * for OCR"), so ONE attempt is made and any failure hands the photo to the
+ * Mac Mini's Tesseract instead (see the job queue below).
  */
 function ocrImageToText_(blob) {
-  // Two Drive routes do the same OCR with separate quotas; try the classic
-  // one (v2), and if Google reports a rate limit, the newer one (v3). A
-  // short retry covers momentary throttling.
-  var attempts = [
-    { id: function () {
-        return Drive.Files.insert(
-          { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
-          blob, { ocr: true, ocrLanguage: 'es' }).id;
-      }, remove: function (id) { Drive.Files.remove(id); } },
-    { id: function () {
-        return DriveV3.Files.create(
-          { name: 'ocr-temp-' + Date.now(), mimeType: 'application/vnd.google-apps.document' },
-          blob, { ocrLanguage: 'es' }).id;
-      }, remove: function (id) { DriveV3.Files.remove(id); } }
-  ];
-  var lastErr = null;
-  for (var i = 0; i < attempts.length; i++) {
-    for (var retry = 0; retry < 2; retry++) {
-      var id = null;
-      try {
-        id = attempts[i].id();
-        return DriveApp.getFileById(id).getAs('text/plain').getDataAsString('UTF-8');
-      } catch (err) {
-        lastErr = err;
-        if (!/rate limit|quota|try again|backend error/i.test(err.message)) throw err;
-        if (retry === 0) Utilities.sleep(2500);
-      } finally {
-        if (id) { try { attempts[i].remove(id); } catch (e) { /* best effort */ } }
-      }
-    }
+  var file = Drive.Files.insert(
+    { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
+    blob,
+    { ocr: true, ocrLanguage: 'es' }
+  );
+  try {
+    return DriveApp.getFileById(file.id).getAs('text/plain').getDataAsString('UTF-8');
+  } finally {
+    try { Drive.Files.remove(file.id); } catch (e) { /* best effort */ }
   }
-  throw lastErr;
 }
 
 function photoFileIdFromMessage_(msg) {
@@ -201,36 +202,49 @@ function photoFileIdFromMessage_(msg) {
   return null;
 }
 
-function photoReply_(msg, text) {
+function photoReply_(chatId, replyToMessageId, text) {
   telegramApi_('sendMessage', {
-    chat_id: msg.chat.id, text: text,
-    reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+    chat_id: chatId, text: text,
+    reply_to_message_id: replyToMessageId, allow_sending_without_reply: true
   });
 }
 
 /**
  * Called from handleTelegramMessage_ for an owner message carrying an image.
+ * Tries Google's OCR once; if that fails for any reason the photo is queued
+ * for the Mac Mini helper (mac-helper/ocr_worker.py), which reads it with
+ * Tesseract and posts the text back via submitPhotoJobText.
  */
 function handleTelegramPhoto_(msg) {
   var fileId = photoFileIdFromMessage_(msg);
   var blob = downloadTelegramFile_(fileId);
-  if (!blob) { photoReply_(msg, "Couldn't download that image from Telegram."); return; }
+  if (!blob) { photoReply_(msg.chat.id, msg.message_id, "Couldn't download that image from Telegram."); return; }
 
   var text;
   try {
     text = ocrImageToText_(blob);
   } catch (err) {
-    photoReply_(msg, "Couldn't read the image (" + err.message + ').');
+    enqueuePhotoJob_(fileId, msg.chat.id, msg.message_id);
+    photoReply_(msg.chat.id, msg.message_id,
+      "Google's text reader is unavailable, so I queued this for your Mac Mini — it should show up within a minute or so.");
     return;
   }
+  processPhotoText_(msg.chat.id, msg.message_id, text);
+}
 
+/**
+ * Reads the recognised text and, if it's a known receipt, writes the pending
+ * entry and sends its Confirm/Discard card. Shared by the Google path and the
+ * Mac Mini path so both behave identically.
+ */
+function processPhotoText_(chatId, replyToMessageId, text) {
   var parsed = parsePhotoReceipt_(text);
   if (!parsed) {
-    photoReply_(msg, "That doesn't look like a Plin or Yape receipt, so I saved nothing.");
+    photoReply_(chatId, replyToMessageId, "That doesn't look like a Plin or Yape receipt, so I saved nothing.");
     return;
   }
   if (parsed.error) {
-    photoReply_(msg, "It looks like a " + parsed.kind.replace('_', ' ') +
+    photoReply_(chatId, replyToMessageId, "It looks like a " + parsed.kind.replace('_', ' ') +
       " receipt but I couldn't read the amount, so I saved nothing. Try a sharper screenshot.");
     return;
   }
@@ -252,7 +266,7 @@ function handleTelegramPhoto_(msg) {
   var duplicate = getAllRows('Entries').some(function (e) {
     return e.external_id && stripZeros(e.external_id) === stripZeros(externalId);
   });
-  if (duplicate) { photoReply_(msg, 'Already recorded — skipped this duplicate.'); return; }
+  if (duplicate) { photoReply_(chatId, replyToMessageId, 'Already recorded — skipped this duplicate.'); return; }
 
   var pm = getAllRows('Payment Methods').find(function (p) {
     return p.nickname === parsed.accountByCurrency[parsed.currency];
@@ -289,6 +303,90 @@ function handleTelegramPhoto_(msg) {
   };
   appendRowObject('Entries', entry);
   sendTelegramEntryNotification_(entry, null, autoReason);
+}
+
+// ---- Job queue for the Mac Mini's Tesseract helper ----
+// The Mac can't be reached from the internet, so it PULLS: every ~30 s it
+// asks listPhotoJobs, fetches each image (getPhotoJob), reads it locally and
+// posts the text back (submitPhotoJobText) — or reports failPhotoJob.
+
+var PHOTO_JOB_HEADERS_ = ['id', 'file_id', 'chat_id', 'message_id', 'status', 'created_at', 'updated_at'];
+
+function ensurePhotoJobsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Photo Jobs');
+  if (sheet) return sheet;
+  sheet = ss.insertSheet('Photo Jobs');
+  sheet.getRange(1, 1, 1, PHOTO_JOB_HEADERS_.length).setValues([PHOTO_JOB_HEADERS_]).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function nowIso_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function enqueuePhotoJob_(fileId, chatId, messageId) {
+  ensurePhotoJobsSheet_();
+  var now = nowIso_();
+  appendRowObject('Photo Jobs', {
+    id: Utilities.getUuid(), file_id: String(fileId), chat_id: String(chatId),
+    message_id: String(messageId), status: 'queued', created_at: now, updated_at: now
+  });
+}
+
+function photoJobById_(id) {
+  ensurePhotoJobsSheet_();
+  return getAllRows('Photo Jobs').find(function (j) { return j.id === id; });
+}
+
+function setPhotoJobStatus_(id, status) {
+  var sheet = getSheet('Photo Jobs');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex === -1) return;
+  setCellByRow_(sheet, headers, rowIndex, 'status', status);
+  setCellByRow_(sheet, headers, rowIndex, 'updated_at', nowIso_());
+}
+
+// Queued jobs, plus any the Mac claimed but never finished (crashed, asleep)
+// more than 5 minutes ago.
+function listPhotoJobs() {
+  ensurePhotoJobsSheet_();
+  var cutoff = Utilities.formatDate(new Date(Date.now() - 5 * 60 * 1000), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  return getAllRows('Photo Jobs').filter(function (j) {
+    return j.status === 'queued' || (j.status === 'processing' && String(j.updated_at) < cutoff);
+  }).map(function (j) { return { id: j.id }; });
+}
+
+function getPhotoJob(payload) {
+  var job = photoJobById_(payload.id);
+  if (!job) throw new Error('Unknown photo job');
+  setPhotoJobStatus_(job.id, 'processing');
+  var blob = downloadTelegramFile_(job.file_id);
+  if (!blob) {
+    setPhotoJobStatus_(job.id, 'failed');
+    photoReply_(job.chat_id, job.message_id, "Couldn't download that image from Telegram (it may be too old) — please send it again.");
+    throw new Error('Could not download the image');
+  }
+  return { id: job.id, mime: blob.getContentType(), base64: Utilities.base64Encode(blob.getBytes()) };
+}
+
+function submitPhotoJobText(payload) {
+  var job = photoJobById_(payload.id);
+  if (!job) throw new Error('Unknown photo job');
+  if (job.status === 'done') return { done: true, alreadyDone: true };
+  setPhotoJobStatus_(job.id, 'done');
+  processPhotoText_(job.chat_id, job.message_id, String(payload.text || ''));
+  return { done: true };
+}
+
+function failPhotoJob(payload) {
+  var job = photoJobById_(payload.id);
+  if (!job) throw new Error('Unknown photo job');
+  setPhotoJobStatus_(job.id, 'failed');
+  photoReply_(job.chat_id, job.message_id, "The Mac Mini couldn't read that image (" + String(payload.error || 'unknown error') + '). Try a sharper screenshot.');
+  return { done: true };
 }
 
 /**

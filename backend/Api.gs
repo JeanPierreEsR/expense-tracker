@@ -73,6 +73,10 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'listPhotoJobs': return listPhotoJobs();
+    case 'getPhotoJob': return getPhotoJob(payload);
+    case 'submitPhotoJobText': return submitPhotoJobText(payload);
+    case 'failPhotoJob': return failPhotoJob(payload);
     case 'admin_setTelegramToken':
       var newToken = String(payload.token || '').trim();
       if (!newToken) throw new Error('No token provided');

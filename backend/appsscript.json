@@ -6,11 +6,6 @@
         "userSymbol": "Drive",
         "serviceId": "drive",
         "version": "v2"
-      },
-      {
-        "userSymbol": "DriveV3",
-        "serviceId": "drive",
-        "version": "v3"
       }
     ]
   },
