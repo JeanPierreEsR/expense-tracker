@@ -40,8 +40,8 @@ function stmtSimilarity_(a, b) {
  * (the Spendee import) is a candidate for any account. Returns null when
  * the entry belongs to a different account, or an array of signed amounts.
  */
-function stmtEntryEffects_(entry, pmId) {
-  var amt = Number(entry.amount);
+function stmtEntryEffects_(entry, pmId, amountOverride) {
+  var amt = amountOverride !== undefined ? amountOverride : Number(entry.amount);
   var from = entry.payment_method_id || '', to = entry.to_payment_method_id || '';
   var out = -amt, inn = amt;
   if (from === pmId || to === pmId) {
@@ -63,6 +63,15 @@ function stmtEntryEffects_(entry, pmId) {
 // up on TWO statements (out of one account, into the other), once each.
 function stmtUsedKey_(entry, pmId) {
   return entry.type === 'transfer' ? entry.id + '|' + pmId : entry.id;
+}
+
+// The owner records a shared expense at his OWN share and often writes the
+// bill's full amount in the description ("Brandos (255 total - 50 …)",
+// "PV (137.88 total - 18.34 partagé)") — which is what the bank statement
+// shows. That full amount is a valid amount for matching that entry.
+function stmtDescribedTotal_(entry) {
+  var m = String(entry.description || '').match(/(\d+(?:[.,]\d+)?)\s*total/i);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
 
 function stmtClassifyLine_(line) {
@@ -100,8 +109,15 @@ function matchStatements_(statements, entries) {
         var dd = Math.abs(stmtDayNumber_(e.date) - ld);
         if (dd > windowDays) return;
         var effects = stmtEntryEffects_(e, st.pmId);
-        if (!effects || !effects.some(function (x) { return Math.abs(x - l.amount) < 0.005; })) return;
-        pairs.push({
+        var ok = effects && effects.some(function (x) { return Math.abs(x - l.amount) < 0.005; });
+        var viaTotal = false;
+        if (!ok) {
+          var t = stmtDescribedTotal_(e);
+          var alt = t ? stmtEntryEffects_(e, st.pmId, t) : null;
+          if (alt && alt.some(function (x) { return Math.abs(x - l.amount) < 0.005; })) { ok = true; viaTotal = true; }
+        }
+        if (!ok) return;
+        pairs.push({ viaTotal: viaTotal,
           li: li, e: e, dd: dd,
           sim: stmtSimilarity_(l.description, e.description + ' ' + (e.merchant || '')),
           own: (e.payment_method_id === st.pmId || e.to_payment_method_id === st.pmId) ? 1 : 0
@@ -115,6 +131,7 @@ function matchStatements_(statements, entries) {
       res[p.li] = {
         status: 'matched', entryId: p.e.id, dayDiff: p.dd,
         entryHadNoAccount: !p.e.payment_method_id && !p.e.to_payment_method_id,
+        viaTotal: !!p.viaTotal,
         guess: res[p.li].guess
       };
     });
@@ -143,6 +160,23 @@ function matchStatements_(statements, entries) {
         if (!best || dd < best.dd) best = { entryId: e.id, dd: dd };
       });
       if (best) r.possibleEntry = best;
+
+      // Or the owner's 1/N share of a bill split N ways: the statement shows
+      // the whole bill (102.54), the entry his third (34.18). An exact
+      // multiple on the same date is a strong hint, never an auto-match.
+      if (!r.possibleEntry && l.amount < 0) {
+        entries.forEach(function (e) {
+          if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency || e.type !== 'expense') return;
+          if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+          var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+          if (dd > windowDays) return;
+          for (var n = 2; n <= 6; n++) {
+            if (Math.abs(Number(e.amount) * n + l.amount) < 0.01) {
+              if (!r.possibleEntry || dd < r.possibleEntry.dd) r.possibleEntry = { entryId: e.id, dd: dd, shareOf: n };
+            }
+          }
+        });
+      }
     });
   });
 

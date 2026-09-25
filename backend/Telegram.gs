@@ -170,7 +170,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? cat.name : null;
   }
-  var icon = entry.type === 'expense' ? '💸' : '🔁';
+  var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
   lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
@@ -182,6 +182,14 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     // owner) instead of one ambiguous payment method.
     lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "from Plin"'));
     lines.push('⬇️ To: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "to Diners"'));
+  } else if (entry.type === 'income') {
+    // Income holds a payor (who paid the owner), never a friend.
+    var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
+    lines.push('📥 Received from: ' + (payor ? payor.name : '❓ not set — reply "paid by Acme"'));
+    if (entry.payment_method_id) {
+      var inPm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
+      if (inPm) lines.push('💳 ' + inPm.nickname + (inPm.last_4 ? ' (' + inPm.last_4 + ')' : ''));
+    }
   } else {
     lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
     if (entry.payment_method_id) {
@@ -361,6 +369,13 @@ function handleTelegramMessage_(msg) {
   }
 
   if (!isOwnerChat_(msg.chat.id)) return;
+
+  // A receipt image (Plin from WhatsApp, a Yape screen) becomes a new
+  // pending entry — see PhotoCapture.gs.
+  if (photoFileIdFromMessage_(msg)) {
+    handleTelegramPhoto_(msg);
+    return;
+  }
 
   if (!msg.reply_to_message) {
     telegramApi_('sendMessage', {
@@ -579,6 +594,12 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     setCellByRow_(sheet, headers, rowIndex, 'amount', amt);
   } else if (field === 'description') {
     setCellByRow_(sheet, headers, rowIndex, 'description', value);
+  } else if (field === 'paid by' && entry.type === 'income') {
+    // Income: "paid by" names the payor. Reuse a matching one, otherwise
+    // create it (the owner typed the name on purpose).
+    var payorRow = pickByName_(getPayorRows_(), value, function (p) { return p.name; }) ||
+      findOrCreatePayorByName_(value);
+    setCellByRow_(sheet, headers, rowIndex, 'paid_by', payorRow.id);
   } else if (field === 'paid by') {
     if (value.toLowerCase() === 'me') {
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
