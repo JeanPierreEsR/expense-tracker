@@ -170,7 +170,8 @@ function matchStatements_(statements, entries) {
           if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
           var dd = Math.abs(stmtDayNumber_(e.date) - ld);
           if (dd > windowDays) return;
-          for (var n = 2; n <= 6; n++) {
+          if (Number(e.amount) < 10) return; // tiny amounts × N coincide too easily
+          for (var n = 2; n <= 4; n++) {
             if (Math.abs(Number(e.amount) * n + l.amount) < 0.01) {
               if (!r.possibleEntry || dd < r.possibleEntry.dd) r.possibleEntry = { entryId: e.id, dd: dd, shareOf: n };
             }
