@@ -156,28 +156,38 @@ function downloadTelegramFile_(fileId) {
  * advanced service (appsscript.json). The temporary doc is always deleted.
  */
 function ocrImageToText_(blob) {
-  // Google throttles OCR ("User rate limit exceeded") in short bursts, so
-  // retry a few times with a growing pause before giving up.
-  var waits = [3000, 8000, 15000];
-  var file = null;
-  for (var attempt = 0; ; attempt++) {
-    try {
-      file = Drive.Files.insert(
-        { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
-        blob,
-        { ocr: true, ocrLanguage: 'es' }
-      );
-      break;
-    } catch (err) {
-      if (attempt >= waits.length || !/rate limit|quota|try again|backend error/i.test(err.message)) throw err;
-      Utilities.sleep(waits[attempt]);
+  // Two Drive routes do the same OCR with separate quotas; try the classic
+  // one (v2), and if Google reports a rate limit, the newer one (v3). A
+  // short retry covers momentary throttling.
+  var attempts = [
+    { id: function () {
+        return Drive.Files.insert(
+          { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
+          blob, { ocr: true, ocrLanguage: 'es' }).id;
+      }, remove: function (id) { Drive.Files.remove(id); } },
+    { id: function () {
+        return DriveV3.Files.create(
+          { name: 'ocr-temp-' + Date.now(), mimeType: 'application/vnd.google-apps.document' },
+          blob, { ocrLanguage: 'es' }).id;
+      }, remove: function (id) { DriveV3.Files.remove(id); } }
+  ];
+  var lastErr = null;
+  for (var i = 0; i < attempts.length; i++) {
+    for (var retry = 0; retry < 2; retry++) {
+      var id = null;
+      try {
+        id = attempts[i].id();
+        return DriveApp.getFileById(id).getAs('text/plain').getDataAsString('UTF-8');
+      } catch (err) {
+        lastErr = err;
+        if (!/rate limit|quota|try again|backend error/i.test(err.message)) throw err;
+        if (retry === 0) Utilities.sleep(2500);
+      } finally {
+        if (id) { try { attempts[i].remove(id); } catch (e) { /* best effort */ } }
+      }
     }
   }
-  try {
-    return DriveApp.getFileById(file.id).getAs('text/plain').getDataAsString('UTF-8');
-  } finally {
-    try { Drive.Files.remove(file.id); } catch (e) { /* best effort */ }
-  }
+  throw lastErr;
 }
 
 function photoFileIdFromMessage_(msg) {
