@@ -409,7 +409,11 @@ function listEntries(payload) {
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
     payload.tagId || payload.paymentMethodId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
-  if (limit) entries = entries.slice(0, limit);
+  // `offset` (Entries tab's "Load more"): skip that many of the newest rows
+  // first, so the next page can be fetched without re-sending earlier ones.
+  var offset = (payload && payload.offset) || 0;
+  if (limit) entries = entries.slice(offset, offset + limit);
+  else if (offset) entries = entries.slice(offset);
 
   // own_share/own_share_pen: this entry's actual cost to the owner (amount
   // minus whatever's been split off to friends — Entry Splits is

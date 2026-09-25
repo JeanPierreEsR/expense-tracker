@@ -1226,12 +1226,69 @@ function paidByLabel(entryOrPaidBy) {
 }
 
 // How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
-// "Load more" is tapped and is kept across refreshes (after an edit/delete)
-// so the list doesn't snap back to the newest 100. Asks the backend for
-// one row beyond what's shown, purely to know whether a Load more button
-// is needed.
+// "Load more" is tapped and is kept across full refreshes (after an
+// edit/delete) so the list doesn't snap back to the newest 100. Each fetch
+// asks for one row beyond what's wanted, purely to know whether a Load more
+// button is needed.
 const ENTRY_PAGE_SIZE = 100;
 let entriesShown = ENTRY_PAGE_SIZE;
+
+function buildEntryRow_(entry) {
+  const row = document.createElement("div");
+  row.className = "entry";
+
+  const cat = findCategory(entry.category_id);
+  const categoryMarker = cat && cat.icon
+    ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
+    : `<span class="type-dot" data-type="${entry.type}"></span>`;
+
+  const left = document.createElement("div");
+  left.className = "entry-left";
+  left.innerHTML = `
+    <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
+    ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+    <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
+  `;
+
+  const amount = document.createElement("div");
+  amount.className = "entry-amount";
+  amount.innerHTML = renderEntryAmountHtml(entry);
+
+  row.appendChild(left);
+  row.appendChild(amount);
+  row.addEventListener("click", () => startEditEntry(entry));
+  return row;
+}
+
+// Adds (or replaces) the Load more button at the end of the list.
+function setLoadMoreButton_(list, hasMore) {
+  const old = document.getElementById("entry-load-more");
+  if (old) old.remove();
+  if (!hasMore) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "entry-load-more";
+  btn.className = "cancel-edit-btn";
+  btn.textContent = "Load more";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    try {
+      // Only the next page is fetched and appended — earlier rows stay put.
+      const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown });
+      const more = fetched.length > ENTRY_PAGE_SIZE;
+      const page = more ? fetched.slice(0, ENTRY_PAGE_SIZE) : fetched;
+      btn.remove();
+      page.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
+      entriesShown += page.length;
+      setLoadMoreButton_(list, more);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "Load more";
+    }
+  });
+  list.appendChild(btn);
+}
 
 async function refreshEntryList() {
   const fetched = await callApi("listEntries", { limit: entriesShown + 1 });
@@ -1245,52 +1302,8 @@ async function refreshEntryList() {
     return;
   }
 
-  entries.forEach((entry) => {
-    const row = document.createElement("div");
-    row.className = "entry";
-
-    const cat = findCategory(entry.category_id);
-    const categoryMarker = cat && cat.icon
-      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
-      : `<span class="type-dot" data-type="${entry.type}"></span>`;
-
-    const left = document.createElement("div");
-    left.className = "entry-left";
-    left.innerHTML = `
-      <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
-      ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-      <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
-    `;
-
-    const amount = document.createElement("div");
-    amount.className = "entry-amount";
-    amount.innerHTML = renderEntryAmountHtml(entry);
-
-    row.appendChild(left);
-    row.appendChild(amount);
-    row.addEventListener("click", () => startEditEntry(entry));
-    list.appendChild(row);
-  });
-
-  if (hasMore) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "cancel-edit-btn";
-    btn.textContent = "Load more";
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      btn.textContent = "Loading…";
-      entriesShown += ENTRY_PAGE_SIZE;
-      try {
-        await refreshEntryList();
-      } catch (err) {
-        entriesShown -= ENTRY_PAGE_SIZE;
-        btn.disabled = false;
-        btn.textContent = "Load more";
-      }
-    });
-    list.appendChild(btn);
-  }
+  entries.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
+  setLoadMoreButton_(list, hasMore);
 }
 
 // ---- Editing a previously confirmed entry ----
