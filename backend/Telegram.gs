@@ -531,7 +531,7 @@ function applyEditCommand_(entryId, text) {
   var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
     '"paid by Ana", "currency USD", "date 2026-09-12", "payment method Interbank", ' +
     '"label Trip, Work" (or "label none"), "split equal Ana", ' +
-    '"split Ana 20, Carlos 15", or "split none" — ' +
+    '"split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), or "split none" — ' +
     'combine several separated by commas, e.g. "category groceries, amount 45.50". ' +
     'Names must match a whole word or the start of one — if a name fits more than one ' +
     '(e.g. two people named Ray), type more of it.';
@@ -657,6 +657,46 @@ function parseSplitCommand_(entry, text) {
   // Custom: "Ana 20, Carlos 15" — each part is "<name> <amount>".
   var parts = trimmed.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   if (!parts.length) return null;
+  // "Ana, me 30" / "Ana, JP 30" — the owner states their OWN share and
+  // the friend(s) without an amount cover the rest (divided evenly if
+  // several, leftover cents to the last one).
+  var ownerIdx = -1, ownerAmt = 0;
+  for (var k = 0; k < parts.length; k++) {
+    var om = parts[k].match(/^(?:me|jp|yo)\s+([\d.,]+)$/i);
+    if (om) { ownerIdx = k; ownerAmt = parseFloat(om[1].replace(/,/g, '')); break; }
+  }
+  if (ownerIdx !== -1) {
+    if (isNaN(ownerAmt) || ownerAmt < 0) return null;
+    var others = parts.filter(function (_, idx) { return idx !== ownerIdx; });
+    if (!others.length) return null;
+    var fixed = [], open = [], fixedTotal = 0;
+    for (var p = 0; p < others.length; p++) {
+      var pm2 = others[p].match(/^(.+?)\s+([\d.,]+)$/);
+      var fr2 = fuzzyFindFriend_(pm2 ? pm2[1].trim() : others[p]);
+      if (!fr2) return null;
+      if (pm2) {
+        var a2 = parseFloat(pm2[2].replace(/,/g, ''));
+        if (isNaN(a2) || a2 <= 0) return null;
+        fixed.push({ friend_id: fr2.id, amount: a2 });
+        fixedTotal += a2;
+      } else {
+        open.push(fr2);
+      }
+    }
+    var restCents = Math.round((Number(entry.amount) - ownerAmt - fixedTotal) * 100);
+    if (open.length) {
+      if (restCents <= 0) return null;
+      var each = Math.floor(restCents / open.length);
+      open.forEach(function (fr, idx) {
+        var c = idx === open.length - 1 ? restCents - each * (open.length - 1) : each;
+        fixed.push({ friend_id: fr.id, amount: c / 100 });
+      });
+    } else if (Math.abs(restCents) > 0) {
+      return null; // every share stated but they don't add up to the bill
+    }
+    return fixed;
+  }
+
   var splits = [];
   var assigned = 0;
   for (var j = 0; j < parts.length; j++) {
