@@ -261,7 +261,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   var externalId = parsed.externalId ||
     fallbackExternalId_('photo-' + parsed.kind, dateStr, parsed.amount, parsed.description);
   // Compared without leading zeros: the Entries.external_id column isn't
-  // plain text, so Sheets stores "01234567" as the number 4051122.
+  // plain text, so Sheets stores "01234567" as the number 1234567.
   var stripZeros = function (v) { return String(v).replace(/^0+/, ''); };
   var duplicate = getAllRows('Entries').some(function (e) {
     return e.external_id && stripZeros(e.external_id) === stripZeros(externalId);
@@ -291,7 +291,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     category_id: categoryId,
     description: parsed.description,
     payment_method_id: pm ? pm.id : '',
-    // Income holds a payor id here, and a masked name like "Mia Lo*"
+    // Income holds a payor id here, and a masked name like "Ana Lo*"
     // shouldn't spawn a Payor by itself — left for the owner to set.
     paid_by: parsed.type === 'income' ? '' : 'me',
     status: 'pending',
