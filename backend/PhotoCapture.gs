@@ -156,11 +156,23 @@ function downloadTelegramFile_(fileId) {
  * advanced service (appsscript.json). The temporary doc is always deleted.
  */
 function ocrImageToText_(blob) {
-  var file = Drive.Files.insert(
-    { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
-    blob,
-    { ocr: true, ocrLanguage: 'es' }
-  );
+  // Google throttles OCR ("User rate limit exceeded") in short bursts, so
+  // retry a few times with a growing pause before giving up.
+  var waits = [3000, 8000, 15000];
+  var file = null;
+  for (var attempt = 0; ; attempt++) {
+    try {
+      file = Drive.Files.insert(
+        { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
+        blob,
+        { ocr: true, ocrLanguage: 'es' }
+      );
+      break;
+    } catch (err) {
+      if (attempt >= waits.length || !/rate limit|quota|try again|backend error/i.test(err.message)) throw err;
+      Utilities.sleep(waits[attempt]);
+    }
+  }
   try {
     return DriveApp.getFileById(file.id).getAs('text/plain').getDataAsString('UTF-8');
   } finally {
