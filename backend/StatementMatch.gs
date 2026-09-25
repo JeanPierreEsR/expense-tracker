@@ -70,8 +70,11 @@ function stmtUsedKey_(entry, pmId) {
 // "PV (137.88 total - 18.34 partagé)") — which is what the bank statement
 // shows. That full amount is a valid amount for matching that entry.
 function stmtDescribedTotal_(entry) {
-  var m = String(entry.description || '').match(/(\d+(?:[.,]\d+)?)\s*total/i);
-  return m ? parseFloat(m[1].replace(',', '.')) : null;
+  // "255 total", "1,142.90 total" (thousands comma) or "137,88 total" (decimal comma)
+  var m = String(entry.description || '').match(/(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*total/i);
+  if (!m) return null;
+  var raw = m[1];
+  return parseFloat(/,\d{3}(?!\d)/.test(raw) && raw.indexOf('.') !== -1 || /^\d{1,3}(,\d{3})+$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(',', '.'));
 }
 
 function stmtClassifyLine_(line) {
