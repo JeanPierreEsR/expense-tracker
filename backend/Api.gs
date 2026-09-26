@@ -289,6 +289,7 @@ function findRowIndexById(sheet, headers, id) {
 // ---- Meta (everything the form's dropdowns need, in one call) ----
 
 function getMeta() {
+  ensureInvestmentPlatforms_();
   return {
     categories: getAllRows('Categories'),
     banks: getAllRows('Banks'),

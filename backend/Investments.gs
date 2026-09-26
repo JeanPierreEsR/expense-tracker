@@ -102,3 +102,11 @@ function menuSetupInvestmentPlatforms() {
   adminSetupInvestmentPlatforms({ dryRun: false });
   ui.alert('Done.');
 }
+
+// Self-heal: the first time the app loads and no investment platform
+// exists yet, create the starter set (same as menu item 18). Never runs
+// again once any platform exists.
+function ensureInvestmentPlatforms_() {
+  var any = getAllRows('Payment Methods').some(function (pm) { return pm.type === 'investment'; });
+  if (!any) adminSetupInvestmentPlatforms({ dryRun: false });
+}
