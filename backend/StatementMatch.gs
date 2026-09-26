@@ -77,6 +77,13 @@ function stmtDescribedTotal_(entry) {
   return parseFloat(/,\d{3}(?!\d)/.test(raw) && raw.indexOf('.') !== -1 || /^\d{1,3}(,\d{3})+$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(',', '.'));
 }
 
+// Words a bank uses for money moving between accounts (own or otherwise).
+function stmtLooksLikeTransfer_(description) {
+  var d = String(description || '');
+  if (/INTER[EÉ]S/i.test(d)) return false; // "Pago de intereses" is interest earned, not a payment between accounts
+  return STMT_TRANSFER_HINT.test(d);
+}
+
 function stmtClassifyLine_(line) {
   var d = String(line.description || '').toUpperCase();
   if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
@@ -91,7 +98,9 @@ function stmtClassifyLine_(line) {
  * Returns { perLine: { key: [ { status: 'matched'|'unregistered', entryId, dayDiff,
  *           entryHadNoAccount, guess } ] }, pairs: [ { a:{key,idx}, b:{key,idx} } ] }
  */
-function matchStatements_(statements, entries) {
+function matchStatements_(statements, entries, opts) {
+  opts = opts || {};
+  var loanTransferIds = opts.loanTransferIds || {};
   var used = {};
   var perLine = {};
 
@@ -195,6 +204,41 @@ function matchStatements_(statements, entries) {
       if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee') open.push({ key: st.key, i: i, l: l });
     });
   });
+  // A transfer recorded with ONE side blank (its other statement wasn't there
+  // yet) is completed by the other account's line: an entry From=blank, To=X
+  // means the money came from somewhere unknown, so a same-amount OUTFLOW on
+  // another account is its source; To=blank, From=X is completed by an
+  // INFLOW. Transfers created by loans/repayments are one-sided by nature
+  // (the other end is a friend), so they are never candidates. An open
+  // transfer completes once.
+  var openUsed = {};
+  statements.forEach(function (st) {
+    if (String(st.pmId).indexOf('unknown:') === 0) return;
+    var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || r.guess === 'fee') return;
+      var ld = stmtDayNumber_(l.date);
+      var best = null;
+      entries.forEach(function (e) {
+        if (e.type !== 'transfer' || loanTransferIds[e.id] || openUsed[e.id] || e.currency !== l.currency) return;
+        var from = e.payment_method_id || '', to = e.to_payment_method_id || '';
+        if ((from && to) || (!from && !to)) return;                 // exactly one side must be blank
+        if ((from || to) === st.pmId) return;                         // the recorded side is THIS account
+        var side = from ? 'to' : 'from';
+        if ((side === 'to') !== (l.amount > 0)) return;               // inflow completes To, outflow completes From
+        if (Math.abs(Number(e.amount) - Math.abs(l.amount)) >= 0.005) return;
+        var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+        if (dd > STMT_PAIR_WINDOW_DAYS + 2) return;
+        if (!best || dd < best.dd) best = { entryId: e.id, side: side, dd: dd };
+      });
+      if (best) {
+        openUsed[best.entryId] = true;
+        perLine[st.key][li] = { status: 'completes', completesTransfer: best, guess: 'transfer' };
+      }
+    });
+  });
+
   // Both sides of a real own-account transfer: opposite signs, same amount
   // and currency, different accounts, a few days apart — AND at least one
   // side must say it is a transfer/payment (a bare "YAPE-…" against another

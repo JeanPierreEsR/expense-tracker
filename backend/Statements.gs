@@ -265,7 +265,8 @@ function stmtEntrySummary_(e, catsById, pmsById) {
     id: e.id, date: e.date, type: e.type, description: e.description,
     amount: Number(e.amount), currency: e.currency, status: e.status,
     category: catsById[e.category_id] ? catsById[e.category_id].name : '',
-    account: pmsById[e.payment_method_id] ? pmsById[e.payment_method_id].nickname : ''
+    account: pmsById[e.payment_method_id] ? pmsById[e.payment_method_id].nickname : '',
+    to_account: pmsById[e.to_payment_method_id] ? pmsById[e.to_payment_method_id].nickname : ''
   };
 }
 
@@ -308,14 +309,20 @@ function analyzeStatements(payload) {
     var pm = pmFor(s.key);
     return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind, lines: s.lines || [] };
   });
-  var result = matchStatements_(matcherInput, entries);
+  // Transfers created by loans/repayments are one-sided by nature; the matcher
+  // must not offer to "complete" them with another of the owner's accounts.
+  var loanTransferIds = {};
+  ['Loans', 'Settlements'].forEach(function (t) {
+    getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) loanTransferIds[r.transfer_entry_id] = true; });
+  });
+  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });
 
   var ctx = buildGuessContext_();
   tick('guess_context');
-  var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0 };
+  var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0, completes: 0, waiting: 0 };
 
   var out = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
@@ -325,7 +332,10 @@ function analyzeStatements(payload) {
       var o = { i: i, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
         section: l.section, status: r.status, guess: r.guess };
       counts.lines++;
-      if (r.status === 'matched') {
+      if (r.status === 'completes') {
+        o.completesTransfer = { entry: stmtEntrySummary_(entryById[r.completesTransfer.entryId], catsById, pmsById), side: r.completesTransfer.side, dayDiff: r.completesTransfer.dd };
+        counts.completes++;
+      } else if (r.status === 'matched') {
         var e = entryById[r.entryId];
         o.entry = stmtEntrySummary_(e, catsById, pmsById);
         o.dayDiff = r.dayDiff;
@@ -345,6 +355,12 @@ function analyzeStatements(payload) {
         }
         if (r.guess === 'fee') counts.fees++;
         if (r.guess === 'income') counts.income++;
+        // Looks like money moving between accounts but no partner line and no open
+        // transfer to complete: its other statement simply isn't here (yet).
+        if (!r.pairedWith && !o.possible && r.guess !== 'fee' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
+          o.waiting = true;
+          counts.waiting++;
+        }
         // A suggested category for a purchase (history first, then Programmed items).
         if (r.guess === 'expense' && l.amount < 0 && !r.pairedWith) {
           var g = guessFromMerchantHistory_(stmtMerchantKey_(l.description), ctx) ||

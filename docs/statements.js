@@ -249,8 +249,6 @@
 
   // ---- review (read-only) ----
 
-  const TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CUENTAS|\bTC\b|\bSIP\b/i;
-
   function updateReviewButton() {
     const card = $("statement-review-card");
     card.hidden = usable.length === 0;
@@ -288,7 +286,11 @@
   }
 
   function entryText(e) {
-    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || "(no description)")} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${e.account ? escapeHtml(e.account) : "no account"}`;
+    // A transfer has two ends; anything else has the one account it was paid with.
+    const where = e.type === "transfer"
+      ? `${e.account ? escapeHtml(e.account) : "?"} → ${e.to_account ? escapeHtml(e.to_account) : "?"}`
+      : (e.account ? escapeHtml(e.account) : "no account");
+    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || "(no description)")} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${where}`;
   }
 
   function group(title, items, hint, open) {
@@ -301,10 +303,16 @@
     const sts = analysis.statements;
     const acct = (si) => (sts[si].account ? sts[si].account.nickname : `unknown account (${sts[si].key})`);
 
-    const pairs = [], fees = [], waiting = [], purchases = [], possible = [], income = [], assign = {}, matched = [];
+    const pairs = [], fees = [], waiting = [], purchases = [], possible = [], income = [], assign = {}, matched = [], completes = [];
     sts.forEach((st, si) => {
       st.lines.forEach((l) => {
         const where = escapeHtml(acct(si));
+        if (l.completesTransfer) {
+          // A transfer recorded earlier with one end blank — this line is its other end.
+          const fill = l.completesTransfer.side === "to" ? "the receiving account (To)" : "the sending account (From)";
+          completes.push(lineRow(l, `${where} would become ${fill} of: ${entryText(l.completesTransfer.entry)}`));
+          return;
+        }
         if (l.status === "matched") {
           matched.push(lineRow(l, `${where} → ${entryText(l.entry)}${l.viaTotal ? " · matched on the bill total in its description" : ""}`));
           if (l.entryHadNoAccount) assign[acct(si)] = (assign[acct(si)] || 0) + 1;
@@ -323,8 +331,8 @@
           possible.push(lineRow(l, `${where} — ${why}: ${entryText(l.possible.entry)}`));
           return;
         }
+        if (l.waiting) { waiting.push(lineRow(l, `${where} — looks like a transfer or card payment; its other side isn't in these statements`)); return; }
         if (l.guess === "income") { income.push(lineRow(l, where)); return; }
-        if (l.guess === "payment" || TRANSFER_HINT.test(l.description)) { waiting.push(lineRow(l, `${where} — looks like a transfer or card payment; its other side isn't in these statements`)); return; }
         const sug = l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion";
         purchases.push(lineRow(l, `${where} — ${sug}`));
       });
@@ -336,10 +344,11 @@
       <p class="stmt-verdict good">${c.lines} lines · ${c.matched} already in the app · ${c.unregistered} not there yet</p>
       <p class="stmt-note info">Preview only — nothing has been saved. The buttons to record things come in the next step.</p>
       ${group("Transfers between your accounts", pairs, "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true)}
+      ${group("Completes a transfer you already recorded", completes, "You recorded one end of these transfers earlier; this statement is the other end. They would fill in the blank account instead of creating a duplicate.", true)}
       ${group("Bank fees", fees, "Small taxes and card insurance — would be filed under Bank fees.", true)}
       ${group("Purchases not in the app", purchases, "", true)}
       ${group("Possible matches to confirm", possible, "", true)}
-      ${group("Look like transfers, but the other side isn't here", waiting, "Upload the other account's statement and these can pair up.", false)}
+      ${group("Waiting for the other statement", waiting, "These look like money moving between accounts, but the other account's statement isn't here. Upload it (now or later) and they pair up.", true)}
       ${group("Matched entries that have no account yet", assignList, "These entries match a statement line but don't say which account they were paid with.", false)}
       ${group("Income lines (usually repayments)", income, "Hidden by default — you don't register these.", false)}
       ${group("Already in the app", matched, "", false)}`;
