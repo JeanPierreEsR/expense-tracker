@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-26T02:24:53Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-26T03:32:02Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -373,6 +373,13 @@
           <input type="file" id="statement-file-input" accept="application/pdf,.pdf" multiple hidden>
         </label>
         <div id="statement-results"></div>
+      </div>
+
+      <div class="card" id="statement-review-card" hidden>
+        <h2 style="margin-top:0;">Review</h2>
+        <p class="hint" id="statement-review-hint"></p>
+        <button type="button" class="primary" id="statement-review-btn">Review</button>
+        <div id="statement-review"></div>
       </div>
     </div>
   </main>
@@ -860,8 +867,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-26T02:24:53Z"></script>
-  <script src="statement-parsers.js?v=2026-09-26T02:24:53Z"></script>
-  <script src="statements.js?v=2026-09-26T02:24:53Z"></script>
+  <script src="app.js?v=2026-09-26T03:32:02Z"></script>
+  <script src="statement-parsers.js?v=2026-09-26T03:32:02Z"></script>
+  <script src="statements.js?v=2026-09-26T03:32:02Z"></script>
 </body>
 </html>

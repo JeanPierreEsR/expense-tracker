@@ -138,6 +138,7 @@ function routeAction(action, payload) {
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);
     case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
     case 'listStatementCoverage': return listStatementCoverage();
+    case 'analyzeStatements': return analyzeStatements(payload);
     case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);

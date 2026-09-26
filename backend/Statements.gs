@@ -244,3 +244,123 @@ function adminSeedStatementUploads(payload) {
   });
   return { created: created, skipped: skipped };
 }
+
+// ---- Review: analyse parsed statements against the entries in the Sheet ----
+//
+// READ-ONLY. The phone reads the PDFs (docs/statement-parsers.js) and sends
+// just the extracted lines; this runs the matcher (StatementMatch.gs) and the
+// category guess (CategoryGuess.gs) and returns what it found. Nothing here
+// writes to the Sheet — applying decisions is a later step.
+
+// A statement's merchant text ("RAPPI PERU LIMA PER") reduced to the same
+// normalised form entries store, with the trailing city/country dropped.
+function stmtMerchantKey_(description) {
+  var t = normalizeMerchant_(description).split(' ');
+  while (t.length > 1 && ['per', 'pe', 'lima', 'li'].indexOf(t[t.length - 1]) !== -1) t.pop();
+  return t.join(' ');
+}
+
+function stmtEntrySummary_(e, catsById, pmsById) {
+  return {
+    id: e.id, date: e.date, type: e.type, description: e.description,
+    amount: Number(e.amount), currency: e.currency, status: e.status,
+    category: catsById[e.category_id] ? catsById[e.category_id].name : '',
+    account: pmsById[e.payment_method_id] ? pmsById[e.payment_method_id].nickname : ''
+  };
+}
+
+/**
+ * payload: { statements: [{ key, kind, period:{start,end}, lines:[{date,description,amount,currency,section}] }] }
+ * `key` is the account key printed on the statement (last four digits, or
+ * AHORRA-<currency>). Returns, per statement, every line with its outcome.
+ */
+function analyzeStatements(payload) {
+  var T0 = Date.now(), timing = {};
+  function tick(name) { timing[name] = Date.now() - T0; }
+  var stmts = payload.statements || [];
+  var pms = getAllRows('Payment Methods');
+  var pmsById = rowsById_(pms);
+  var catsById = rowsById_(getAllRows('Categories'));
+  var pmByKey = {};
+  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
+  function pmFor(key) {
+    if (String(key).indexOf('AHORRA-') === 0) {
+      return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
+    }
+    return pmByKey[covKey_(key)] || null;
+  }
+
+  // Only entries near the statements' dates can match.
+  var lo = null, hi = null;
+  stmts.forEach(function (s) {
+    (s.lines || []).forEach(function (l) {
+      if (lo === null || l.date < lo) lo = l.date;
+      if (hi === null || l.date > hi) hi = l.date;
+    });
+  });
+  tick('small_tables');
+  var entries = lo === null ? [] : getAllRows('Entries').filter(function (e) {
+    return e.date >= covAddDays_(lo, -12) && e.date <= covAddDays_(hi, 12);
+  });
+
+  tick('entries_read');
+  var matcherInput = stmts.map(function (s, idx) {
+    var pm = pmFor(s.key);
+    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind, lines: s.lines || [] };
+  });
+  var result = matchStatements_(matcherInput, entries);
+  tick('matcher');
+  var entryById = {};
+  entries.forEach(function (e) { entryById[e.id] = e; });
+
+  var ctx = buildGuessContext_();
+  tick('guess_context');
+  var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0 };
+
+  var out = stmts.map(function (s, idx) {
+    var pm = pmFor(s.key);
+    var per = result.perLine[matcherInput[idx].key];
+    var lines = (s.lines || []).map(function (l, i) {
+      var r = per[i];
+      var o = { i: i, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
+        section: l.section, status: r.status, guess: r.guess };
+      counts.lines++;
+      if (r.status === 'matched') {
+        var e = entryById[r.entryId];
+        o.entry = stmtEntrySummary_(e, catsById, pmsById);
+        o.dayDiff = r.dayDiff;
+        o.viaTotal = !!r.viaTotal;
+        o.entryHadNoAccount = !!r.entryHadNoAccount;
+        counts.matched++;
+        if (r.entryHadNoAccount) counts.assignAccount++;
+      } else {
+        counts.unregistered++;
+        if (r.possibleEntry) {
+          o.possible = { entry: stmtEntrySummary_(entryById[r.possibleEntry.entryId], catsById, pmsById), dayDiff: r.possibleEntry.dd, shareOf: r.possibleEntry.shareOf || 0 };
+          counts.possible++;
+        }
+        if (r.pairedWith) {
+          var pk = r.pairedWith.key, at = pk.lastIndexOf('#');
+          o.pairedWith = { statement: Number(pk.substring(at + 1)), line: r.pairedWith.i };
+        }
+        if (r.guess === 'fee') counts.fees++;
+        if (r.guess === 'income') counts.income++;
+        // A suggested category for a purchase (history first, then Programmed items).
+        if (r.guess === 'expense' && l.amount < 0 && !r.pairedWith) {
+          var g = guessFromMerchantHistory_(stmtMerchantKey_(l.description), ctx) ||
+            guessFromProgrammed_({ currency: l.currency, amount: Math.abs(l.amount) }, l.date, ctx);
+          if (g) o.suggestion = { categoryId: g.categoryId, categoryName: ctx.categoriesById[g.categoryId] ? ctx.categoriesById[g.categoryId].name : '', reason: g.reason };
+        }
+      }
+      return o;
+    });
+    return {
+      key: s.key, kind: s.kind, period: s.period,
+      account: pm ? { id: pm.id, nickname: pm.nickname } : null,
+      lines: lines
+    };
+  });
+  counts.transferPairs = result.pairs.length;
+  tick('done');
+  return { counts: counts, statements: out, timing_ms: timing };
+}

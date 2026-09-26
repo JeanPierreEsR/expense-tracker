@@ -66,11 +66,11 @@ function stmtUsedKey_(entry, pmId) {
 }
 
 // The owner records a shared expense at his OWN share and often writes the
-// bill's full amount in the description ("Brandos (255 total - 50 …)",
-// "PV (137.88 total - 18.34 partagé)") — which is what the bank statement
+// bill's full amount in the description ("Dinner (200 total - 40 Ana - 60 Beto)",
+// "Market (90.50 total - 12.00 shared)") — which is what the bank statement
 // shows. That full amount is a valid amount for matching that entry.
 function stmtDescribedTotal_(entry) {
-  // "255 total", "1,142.90 total" (thousands comma) or "137,88 total" (decimal comma)
+  // "200 total", "1,250.00 total" (thousands comma) or "90,50 total" (decimal comma)
   var m = String(entry.description || '').match(/(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*total/i);
   if (!m) return null;
   var raw = m[1];
@@ -154,18 +154,20 @@ function matchStatements_(statements, entries) {
       var best = null;
       entries.forEach(function (e) {
         if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency) return;
+        // A transfer between two other accounts says nothing about this one —
+        // this pass is for an income/expense logged under the wrong account.
+        if (e.type === 'transfer') return;
         var dd = Math.abs(stmtDayNumber_(e.date) - ld);
         if (dd > windowDays) return;
         var amt = Number(e.amount);
-        var sign = e.type === 'income' ? 1 : (e.type === 'transfer' ? 0 : -1);
-        var effects = sign === 0 ? [amt, -amt] : [sign * amt];
+        var effects = [e.type === 'income' ? amt : -amt];
         if (!effects.some(function (x) { return Math.abs(x - l.amount) < 0.005; })) return;
         if (!best || dd < best.dd) best = { entryId: e.id, dd: dd };
       });
       if (best) r.possibleEntry = best;
 
       // Or the owner's 1/N share of a bill split N ways: the statement shows
-      // the whole bill (102.54), the entry his third (34.18). An exact
+      // the whole bill (90.00), the entry his third (30.00). An exact
       // multiple on the same date is a strong hint, never an auto-match.
       if (!r.possibleEntry && l.amount < 0) {
         entries.forEach(function (e) {

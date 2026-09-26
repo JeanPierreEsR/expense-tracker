@@ -1,5 +1,11 @@
 // Statements screen (More → Statements).
 //
+// Milestone 2 adds a read-only REVIEW: the lines read from the statements are
+// sent to the server (analyzeStatements), which says what matches an entry
+// already in the app, what doesn't, which lines are one transfer between two
+// of the owner's accounts, and possible matches — shown grouped. Still nothing
+// is saved.
+//
 // Milestone 1: (1) the "Statement coverage" list — which statement was
 // processed last for each account and when the next one is expected — and
 // (2) upload + reading: pick statement PDFs, they are read ON THIS DEVICE
@@ -15,6 +21,7 @@
     : "");
 
   let coverage = null;       // last listStatementCoverage result
+  let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
 
   // ---- helpers ----
@@ -221,7 +228,14 @@
           return pw;
         }
       });
-      renderResult(body, StatementParsers.parseStatement(rows));
+      const result = StatementParsers.parseStatement(rows);
+      renderResult(body, result);
+      if (result.kind && result.ok) {
+        // A re-read of the same file replaces its earlier reading.
+        usable = usable.filter((u) => u.file !== file.name);
+        usable.push({ file: file.name, result });
+        updateReviewButton();
+      }
     } catch (err) {
       if (cancelled) body.innerHTML = '<p class="stmt-verdict warn">Skipped — no password entered.</p>';
       else body.innerHTML = `<p class="stmt-verdict bad">✗ Couldn't read this file</p><p class="hint">${escapeHtml(err && err.message ? err.message : String(err))}</p>`;
@@ -233,8 +247,106 @@
     for (const f of Array.from(files)) await readStatementFile(f); // one at a time: easy on a phone's memory
   }
 
+  // ---- review (read-only) ----
+
+  const TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CUENTAS|\bTC\b|\bSIP\b/i;
+
+  function updateReviewButton() {
+    const card = $("statement-review-card");
+    card.hidden = usable.length === 0;
+    $("statement-review-btn").textContent = `Review ${usable.length} statement${usable.length === 1 ? "" : "s"}`;
+    $("statement-review-hint").textContent = "Compares the lines with the entries already in the app. Nothing is saved.";
+  }
+
+  async function runReview() {
+    const btn = $("statement-review-btn");
+    const out = $("statement-review");
+    btn.disabled = true;
+    out.innerHTML = '<p class="hint">Comparing with your entries…</p>';
+    try {
+      const analysis = await callApi("analyzeStatements", {
+        statements: usable.map(({ result }) => ({
+          key: accountKeyOf(result),
+          kind: result.kind,
+          period: result.period,
+          lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+        }))
+      });
+      renderReview(analysis);
+    } catch (err) {
+      out.innerHTML = `<p class="stmt-verdict bad">✗ Couldn't compare</p><p class="hint">${escapeHtml(err.message)}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function lineRow(l, sub) {
+    return `<div class="stmt-line2">
+      <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
+      ${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}
+    </div>`;
+  }
+
+  function entryText(e) {
+    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || "(no description)")} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${e.account ? escapeHtml(e.account) : "no account"}`;
+  }
+
+  function group(title, items, hint, open) {
+    if (!items.length) return "";
+    return `<details class="stmt-group" ${open ? "open" : ""}><summary>${escapeHtml(title)} <span class="stmt-count">${items.length}</span></summary>${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}${items.join("")}</details>`;
+  }
+
+  function renderReview(analysis) {
+    const out = $("statement-review");
+    const sts = analysis.statements;
+    const acct = (si) => (sts[si].account ? sts[si].account.nickname : `unknown account (${sts[si].key})`);
+
+    const pairs = [], fees = [], waiting = [], purchases = [], possible = [], income = [], assign = {}, matched = [];
+    sts.forEach((st, si) => {
+      st.lines.forEach((l) => {
+        const where = escapeHtml(acct(si));
+        if (l.status === "matched") {
+          matched.push(lineRow(l, `${where} → ${entryText(l.entry)}${l.viaTotal ? " · matched on the bill total in its description" : ""}`));
+          if (l.entryHadNoAccount) assign[acct(si)] = (assign[acct(si)] || 0) + 1;
+          return;
+        }
+        if (l.pairedWith) {
+          if (l.amount < 0) {
+            const partner = sts[l.pairedWith.statement].lines[l.pairedWith.line];
+            pairs.push(`<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(acct(si))} → ${escapeHtml(acct(l.pairedWith.statement))} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(partner.date))} “${escapeHtml(partner.description)}”</div></div>`);
+          }
+          return;
+        }
+        if (l.guess === "fee") { fees.push(lineRow(l, where)); return; }
+        if (l.possible) {
+          const why = l.possible.shareOf ? `looks like your 1/${l.possible.shareOf} share of this bill` : "same amount and date, but assigned to another account";
+          possible.push(lineRow(l, `${where} — ${why}: ${entryText(l.possible.entry)}`));
+          return;
+        }
+        if (l.guess === "income") { income.push(lineRow(l, where)); return; }
+        if (l.guess === "payment" || TRANSFER_HINT.test(l.description)) { waiting.push(lineRow(l, `${where} — looks like a transfer or card payment; its other side isn't in these statements`)); return; }
+        const sug = l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion";
+        purchases.push(lineRow(l, `${where} — ${sug}`));
+      });
+    });
+
+    const c = analysis.counts;
+    const assignList = Object.entries(assign).map(([a, n]) => `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(a)} · ${n} entr${n === 1 ? "y" : "ies"}</div></div>`);
+    out.innerHTML = `
+      <p class="stmt-verdict good">${c.lines} lines · ${c.matched} already in the app · ${c.unregistered} not there yet</p>
+      <p class="stmt-note info">Preview only — nothing has been saved. The buttons to record things come in the next step.</p>
+      ${group("Transfers between your accounts", pairs, "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true)}
+      ${group("Bank fees", fees, "Small taxes and card insurance — would be filed under Bank fees.", true)}
+      ${group("Purchases not in the app", purchases, "", true)}
+      ${group("Possible matches to confirm", possible, "", true)}
+      ${group("Look like transfers, but the other side isn't here", waiting, "Upload the other account's statement and these can pair up.", false)}
+      ${group("Matched entries that have no account yet", assignList, "These entries match a statement line but don't say which account they were paid with.", false)}
+      ${group("Income lines (usually repayments)", income, "Hidden by default — you don't register these.", false)}
+      ${group("Already in the app", matched, "", false)}`;
+  }
+
   // exposed for testing in the browser
-  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, setCoverage: (c) => { coverage = c; } };
+  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, setCoverage: (c) => { coverage = c; } };
 
   // ---- wiring ----
 
@@ -245,6 +357,7 @@
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
   });
+  $("statement-review-btn").addEventListener("click", runReview);
   $("statement-password-ok").addEventListener("click", () => closeStatementPassword($("statement-password-input").value));
   $("statement-password-cancel").addEventListener("click", () => closeStatementPassword(null));
   $("statement-password-input").addEventListener("keydown", (e) => {
