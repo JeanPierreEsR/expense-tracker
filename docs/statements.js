@@ -640,10 +640,20 @@
       coverage = null;
       refreshStatementCoverage();
       refreshStatementBatches();
+      refreshOtherScreens();
     } catch (err) {
       status.innerHTML = `<p class="stmt-verdict bad">✗ Nothing was saved</p><p class="hint">${escapeHtml(err.message)}</p>`;
       btn.disabled = false;
     }
+  }
+
+  // The review queue, entry list, "Programmed this month" card and balances live
+  // in app.js and only reload when their own screen asks; reload them now so
+  // what a save/undo just did shows up without restarting the app.
+  function refreshOtherScreens() {
+    ["refreshReviewQueue", "refreshEntryList", "refreshExpectedRecurring", "refreshBalances"].forEach((n) => {
+      try { if (typeof window[n] === "function") { const r = window[n](); if (r && r.catch) r.catch(() => {}); } } catch (e) { /* best effort */ }
+    });
   }
 
   async function undoBatch(batchId) {
@@ -657,6 +667,7 @@
       coverage = null;
       refreshStatementCoverage();
       refreshStatementBatches();
+      refreshOtherScreens();
     } catch (err) {
       alert("Couldn't undo: " + err.message);
     }
