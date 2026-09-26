@@ -697,3 +697,25 @@ function debugListEmails_(senders, days) {
   });
   return out;
 }
+
+/**
+ * Read-only diagnostic: a Gmail search returning, per thread, the newest
+ * message's date, sender, subject and ATTACHMENT names/sizes — never the
+ * body or attachment contents. Used to find out whether statements arrive
+ * by email.
+ */
+function debugSearchEmails_(query, max) {
+  var tz = Session.getScriptTimeZone();
+  var out = [];
+  GmailApp.search(query, 0, Math.min(max || 20, 40)).forEach(function (thread) {
+    var msgs = thread.getMessages();
+    var m = msgs[msgs.length - 1];
+    out.push({
+      date: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
+      from: m.getFrom(),
+      subject: m.getSubject(),
+      attachments: m.getAttachments().map(function (a) { return a.getName() + ' (' + Math.round(a.getSize() / 1024) + ' KB)'; })
+    });
+  });
+  return out;
+}

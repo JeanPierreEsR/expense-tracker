@@ -136,6 +136,7 @@ function routeAction(action, payload) {
     case 'admin_setupBcpAccounts': return adminSetupBcpAccounts(payload);
     case 'admin_applyStatementActions': return adminApplyStatementActions(payload);
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);
+    case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
