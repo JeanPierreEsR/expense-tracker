@@ -4,3 +4,6 @@ node_modules/
 
 # Contains real personal financial screenshots — never commit to a public repo.
 UI references/
+
+# Apps Script project ids (script + spreadsheet) — local only.
+backend/.clasp.json
