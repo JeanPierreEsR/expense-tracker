@@ -133,6 +133,8 @@ function routeAction(action, payload) {
     case 'admin_processEmailsBack': return processEmails({ days: Number(payload.days) || 7, senders: payload.senders });
     case 'admin_debugListEmails': return debugListEmails_(payload.senders || [], Number(payload.days) || 7);
     case 'admin_setupIbkAccounts': return adminSetupIbkAccounts(payload);
+    case 'admin_setupInvestmentPlatforms': return adminSetupInvestmentPlatforms(payload);
+    case 'listInvestmentPlatforms': return listInvestmentPlatforms();
     case 'admin_setupBcpAccounts': return adminSetupBcpAccounts(payload);
     case 'admin_applyStatementActions': return adminApplyStatementActions(payload);
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);
@@ -324,8 +326,9 @@ function createEntry(payload) {
     import_batch_id: '',
     created_at: nowTimestamp_()
   };
-  // Only a transfer has a destination account (see Balances.gs).
-  if (payload.type === 'transfer' && payload.to_payment_method_id) {
+  // Only a transfer or an investment has a destination account (see
+  // Balances.gs / Investments.gs).
+  if ((payload.type === 'transfer' || payload.type === 'investment') && payload.to_payment_method_id) {
     ensureEntriesToPaymentMethodColumn_();
     entry.to_payment_method_id = payload.to_payment_method_id;
   }

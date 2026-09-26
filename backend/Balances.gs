@@ -151,8 +151,16 @@ function signedEffectOnPaymentMethod_(entry, pmId, inboundIds) {
   if (entry.type === 'income') {
     return entry.payment_method_id === pmId ? amount : 0;
   }
-  if (entry.type === 'expense' || entry.type === 'investment') {
+  if (entry.type === 'expense') {
     return entry.payment_method_id === pmId ? -amount : 0;
+  }
+  // Investment: money out of the paying account (a withdrawal is a negative
+  // amount, so it comes back in); the platform, if named, gets the mirror.
+  if (entry.type === 'investment') {
+    var inv = 0;
+    if (entry.payment_method_id === pmId) inv -= amount;
+    if (entry.to_payment_method_id === pmId) inv += amount;
+    return inv;
   }
   if (entry.type === 'transfer') {
     var effect = 0;
@@ -253,7 +261,7 @@ function getPaymentMethodMovements(payload) {
   return movements.map(function (m) {
     var e = m.entry;
     var other = '';
-    if (e.type === 'transfer') {
+    if (e.type === 'transfer' || e.type === 'investment') {
       var otherId = m.signed < 0 ? e.to_payment_method_id : e.payment_method_id;
       if (otherId && otherId !== pm.id && pmsById[otherId]) other = pmsById[otherId].nickname;
     }

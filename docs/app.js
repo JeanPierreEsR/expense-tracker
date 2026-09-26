@@ -478,7 +478,9 @@ function populatePaymentMethodOptions() {
     select.appendChild(opt);
   }
 
-  meta.paymentMethods.forEach((pm) => {
+  // Investment platforms are never a "paid with" account — they're only
+  // ever the destination of an investment entry (see Investments.gs).
+  meta.paymentMethods.filter((pm) => pm.type !== "investment").forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -497,17 +499,22 @@ function populatePaymentMethodOptions() {
 // working exactly as before.
 function populateToPaymentMethodOptions() {
   const select = document.getElementById("to_payment_method");
+  const previous = select.value;
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = "None";
+  noneOpt.textContent = selectedType === "investment" ? "Pick a platform…" : "None";
   select.appendChild(noneOpt);
-  meta.paymentMethods.forEach((pm) => {
+  // An investment's "To" is a platform; a transfer's is a real account.
+  const wantPlatforms = selectedType === "investment";
+  meta.paymentMethods.filter((pm) => (pm.type === "investment") === wantPlatforms).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
     select.appendChild(opt);
   });
+  select.value = previous;
+  if (select.value !== previous) select.value = "";
 }
 
 function populateTags() {
@@ -529,8 +536,13 @@ function populateTags() {
 function togglePaymentMethodVisibility() {
   // A transfer moves money between two accounts, so its payment method
   // reads as "From" and a "To" picker appears alongside it.
-  document.getElementById("payment-method-label").textContent = selectedType === "transfer" ? "From" : "Payment method";
-  document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer";
+  const isInvestment = selectedType === "investment";
+  document.getElementById("payment-method-label").textContent = selectedType === "transfer" || isInvestment ? "From" : "Payment method";
+  document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
+  document.getElementById("to-payment-method-label").textContent = isInvestment ? "Platform" : "To (account it goes into)";
+  document.getElementById("to-payment-method-hint").hidden = isInvestment;
+  document.getElementById("investment-direction-field").hidden = !isInvestment;
+  populateToPaymentMethodOptions();
 
   // Income's payment method means "which account received this," which
   // has nothing to do with who paid it — unlike an expense, where it's
@@ -741,6 +753,23 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
 
 document.getElementById("amount").addEventListener("input", () => {
   if (document.getElementById("split-toggle").checked) renderSplitSummary();
+});
+
+// ---- Investment deposit / withdrawal ----
+// A withdrawal is stored as a NEGATIVE investment amount (see
+// Investments.gs); the form always shows the plain positive number.
+let investmentDirection = "deposit";
+
+function setInvestmentDirection(direction) {
+  investmentDirection = direction;
+  document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.direction === direction));
+  document.getElementById("investment-direction-hint").textContent = direction === "withdrawal"
+    ? "Money coming back from the platform to your account."
+    : "Money you put into the platform.";
+}
+
+document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => setInvestmentDirection(tab.dataset.direction));
 });
 
 // ---- Type tabs ----
@@ -987,10 +1016,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const usesPaymentMethod = selectedType === "income" || paidBy === "me";
     // Transfers only; always sent (even blank) so switching an entry away
     // from transfer, or clearing the destination, actually clears it.
-    const toPaymentMethodId = selectedType === "transfer" ? document.getElementById("to_payment_method").value : "";
+    const toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
     if (selectedType === "transfer" && toPaymentMethodId && toPaymentMethodId === paymentMethodId) {
       throw new Error("From and To can't be the same account.");
     }
+    if (selectedType === "investment" && !toPaymentMethodId && !editingEntryId && !confirmingPendingId) {
+      throw new Error("Pick the platform.");
+    }
+    const isWithdrawal = selectedType === "investment" && investmentDirection === "withdrawal";
 
     if (!date) throw new Error("Date is required.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
@@ -1009,7 +1042,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // needs the same real Entry/Splits machinery a friend-paid one does,
     // even when the owner themselves paid, so it's excluded here too.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
-    const canProgram = isFutureDate && selectedType !== "transfer" &&
+    const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
       (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
 
@@ -1025,7 +1058,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         fields: {
           type: selectedType,
           date,
-          amount,
+          amount: isWithdrawal ? -amount : amount,
           currency,
           category_id: categoryId,
           description,
@@ -1046,7 +1079,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         fields: {
           type: selectedType,
           date,
-          amount,
+          amount: isWithdrawal ? -amount : amount,
           currency,
           category_id: categoryId,
           description,
@@ -1091,7 +1124,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const created = await callApi("createEntry", {
         type: selectedType,
         date,
-        amount,
+        amount: isWithdrawal ? -amount : amount,
         currency,
         category_id: categoryId,
         description,
@@ -1117,6 +1150,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    setInvestmentDirection("deposit");
     selectedTagIds.clear();
     populateTags();
     resetSplitState();
@@ -1325,7 +1359,9 @@ async function startEditEntry(entry) {
     document.getElementById("category").value = entry.category_id || "";
   }
 
-  document.getElementById("amount").value = entry.amount;
+  const entryIsWithdrawal = entry.type === "investment" && Number(entry.amount) < 0;
+  setInvestmentDirection(entryIsWithdrawal ? "withdrawal" : "deposit");
+  document.getElementById("amount").value = entryIsWithdrawal ? Math.abs(Number(entry.amount)) : entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
   selectCurrency(entry.currency, "entry");
@@ -1747,6 +1783,7 @@ function showScreen(name) {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
     refreshBalances().catch(() => {});
+    refreshInvestments().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -5354,6 +5391,54 @@ async function refreshBalances() {
 
 let balancesCache = [];
 
+// ---- Investments card ----
+// Net cash put into each platform, per currency (Investments.gs). Tap a
+// platform to list its deposits/withdrawals underneath.
+async function refreshInvestments() {
+  const card = document.getElementById("investments-card");
+  const list = document.getElementById("investments-list");
+  const rows = await callApi("listInvestmentPlatforms", {});
+  card.hidden = rows.length === 0;
+  list.innerHTML = "";
+  rows.forEach((r) => {
+    const wrap = document.createElement("div");
+    const row = document.createElement("div");
+    row.className = "balance-row";
+    const lines = r.lines.length
+      ? r.lines.map((l) => formatSignedBalance_(l.amount, l.currency)).join(" · ")
+      : "Nothing yet";
+    row.innerHTML = `
+      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span></div>
+      <div class="balance-row-amount">${escapeHtml(lines)}</div>
+    `;
+    const detail = document.createElement("div");
+    detail.hidden = true;
+    row.addEventListener("click", async () => {
+      if (!detail.hidden) { detail.hidden = true; return; }
+      detail.hidden = false;
+      detail.innerHTML = '<p class="hint">Loading…</p>';
+      const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: r.id });
+      detail.innerHTML = moves.length ? "" : '<p class="hint">No deposits or withdrawals yet.</p>';
+      moves.forEach((m) => {
+        const item = document.createElement("div");
+        item.className = "loan-detail-row";
+        const kind = m.signed > 0 ? "Deposit" : "Withdrawal";
+        item.innerHTML = `
+          <div class="loan-detail-row-top">
+            <span class="loan-detail-row-desc">${escapeHtml(m.description || kind)}</span>
+            <span class="loan-detail-row-amount">${formatSignedBalance_(m.signed, m.currency)}</span>
+          </div>
+          <div class="loan-detail-row-meta">${m.date} · ${kind}${m.other_account ? ` · ${m.signed > 0 ? "from" : "to"} ${escapeHtml(m.other_account)}` : ""}</div>
+        `;
+        detail.appendChild(item);
+      });
+    });
+    wrap.appendChild(row);
+    wrap.appendChild(detail);
+    list.appendChild(wrap);
+  });
+}
+
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
 }
@@ -5373,7 +5458,7 @@ async function openBalanceModal(pmId) {
     // balance — picking one of those loads its existing rows, so adding
     // another currency to it works from here too.
     picker.innerHTML = "";
-    meta.paymentMethods.forEach((pm) => {
+    meta.paymentMethods.filter((pm) => pm.type !== "investment").forEach((pm) => {
       const opt = document.createElement("option");
       opt.value = pm.id;
       const tracked = balancesCache.some((b) => b.id === pm.id);
