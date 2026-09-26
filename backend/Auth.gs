@@ -24,6 +24,7 @@ function onOpen() {
     .addItem('15. Enable instant Telegram replies (webhook)', 'enableTelegramWebhook')
     .addItem('16. Disable instant Telegram replies (back to polling)', 'disableTelegramWebhook')
     .addItem('17. Set Telegram relay URL (Cloudflare Worker)', 'promptSetTelegramRelayUrl')
+    .addItem('18. Set up investment platforms', 'menuSetupInvestmentPlatforms')
     .addToUi();
 }
 

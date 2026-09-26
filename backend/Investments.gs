@@ -84,3 +84,21 @@ function adminSetupInvestmentPlatforms(payload) {
   }
   return report;
 }
+
+// Sheet menu item 18: shows what would be created, and only creates it
+// after a confirmation.
+function menuSetupInvestmentPlatforms() {
+  var ui = SpreadsheetApp.getUi();
+  var preview = adminSetupInvestmentPlatforms({ dryRun: true });
+  if (!preview.createdPaymentMethods.length && !preview.createdCategory) {
+    ui.alert('Everything is already set up. Nothing to create.');
+    return;
+  }
+  var lines = [];
+  if (preview.createdPaymentMethods.length) lines.push('Platforms: ' + preview.createdPaymentMethods.join(', '));
+  if (preview.createdCategory) lines.push('Income category: ' + preview.createdCategory);
+  var answer = ui.alert('Create these?', lines.join('\n'), ui.ButtonSet.OK_CANCEL);
+  if (answer !== ui.Button.OK) return;
+  adminSetupInvestmentPlatforms({ dryRun: false });
+  ui.alert('Done.');
+}
