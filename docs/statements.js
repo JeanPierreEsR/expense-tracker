@@ -374,7 +374,12 @@
           return;
         }
         if (l.guess === "income") {
-          items.push({ ...base, kind: "income", choices: [["ignore", "Ignore"]], build: () => ({ type: "ignore", stmt: si, line: li }) });
+          items.push({ ...base, kind: "income", choices: [["add", "Add as income"], ["match", "Match…"], ["ignore", "Ignore"]],
+            build: (choice, r) => {
+              if (choice === "add") return { type: "add_income", stmt: si, line: li, category: r.cat.has(id) ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
+              if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
+              return { type: "ignore", stmt: si, line: li };
+            } });
           return;
         }
         // a purchase not in the app
@@ -446,7 +451,8 @@
     } else if (it.kind === "waiting") {
       sub = `${where} — looks like a transfer or card payment; its other side isn't in these statements`;
     } else if (it.kind === "income") {
-      sub = where;
+      sub = `${where}${l.suggestion ? ` — suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : ""}`;
+      if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
     } else if (it.kind === "purchase") {
       sub = `${where} — ${l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion"}`;
       if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
@@ -467,9 +473,10 @@
     if (it.choices) {
       controls = `<div class="stmt-choices">${it.choices.map(([k, label]) =>
         `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}`;
-      if (it.kind === "purchase" && chosen === "add") {
+      if ((it.kind === "purchase" || it.kind === "income") && chosen === "add") {
         const cur = review.cat.has(it.id) ? review.cat.get(it.id) : ((l.suggestion && l.suggestion.categoryId) || "");
-        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">No category (decide later)</option>${review.analysis.categories.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
+        const cats = it.kind === "income" ? (review.analysis.income_categories || []) : review.analysis.categories;
+        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">No category (decide later)</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
       }
       controls += "</div>";
     }
@@ -481,7 +488,7 @@
     review.items.forEach((it) => {
       const choice = review.sel.get(it.id);
       if (choice && it.build) {
-        if (choice === "match" && it.kind === "purchase" && !review.matchEntry.get(it.id)) return; // no entry picked yet
+        if (choice === "match" && (it.kind === "purchase" || it.kind === "income") && !review.matchEntry.get(it.id)) return; // no entry picked yet
         actions.push(it.build(choice, review));
       } else if (it.auto) actions.push(it.auto());
     });
@@ -493,6 +500,7 @@
     const parts = [];
     if (n("record_transfer")) parts.push(`${n("record_transfer")} transfer${n("record_transfer") === 1 ? "" : "s"} between your accounts`);
     if (n("record_fee")) parts.push(`${n("record_fee")} bank fee${n("record_fee") === 1 ? "" : "s"}`);
+    if (n("add_income")) parts.push(`${n("add_income")} income entr${n("add_income") === 1 ? "y" : "ies"} added as pending`);
     if (n("add_purchase")) parts.push(`${n("add_purchase")} purchase${n("add_purchase") === 1 ? "" : "s"} added as pending`);
     if (n("complete_transfer")) parts.push(`${n("complete_transfer")} transfer${n("complete_transfer") === 1 ? "" : "s"} completed`);
     if (n("assign_account")) parts.push(`the account set on ${n("assign_account")} existing entr${n("assign_account") === 1 ? "y" : "ies"}`);
@@ -519,7 +527,7 @@
       <p class="stmt-verdict good">${c.lines} lines · ${c.matched + c.completes} already in the app · ${c.handled} handled before · ${c.unregistered} not there yet</p>
       <div class="stmt-quick">
         <button type="button" class="stmt-choice" id="stmt-apply-suggested">✨ Apply suggested</button>
-        <button type="button" class="stmt-choice" id="stmt-ignore-income">Ignore all income</button>
+        <button type="button" class="stmt-choice" id="stmt-ignore-income">Ignore income except interest</button>
         <button type="button" class="stmt-choice" id="stmt-ignore-people">Ignore payments to people under 50</button>
       </div>
       <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, and setting accounts. Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
@@ -531,7 +539,7 @@
       ${group("Possible matches to confirm", html("possible"), "", true, "possible")}
       ${group("Waiting for the other statement", html("waiting"), "These look like money moving between accounts, but the other account's statement isn't here.", true, "waiting")}
       ${group("Matched entries that have no account yet", html("assign"), "These entries match a statement line but don't say which account they were paid with.", false, "assign")}
-      ${group("Income lines (usually repayments)", html("income"), "You don't register these — ignoring remembers that.", false, "income")}
+      ${group("Income lines", html("income"), "Mostly repayments you don't register — Ignore remembers that. Add as income is for things like interest earned (it lands as a pending entry).", true, "income")}
       ${group("Handled before", html("handled"), "", false, "handled")}
       ${group("Already in the app", html("matched"), "", false, "matched")}
       <div class="stmt-savebar">
@@ -546,7 +554,7 @@
     const it = review.items.find((i) => i.id === itemId);
     if (!it) return;
     if (review.sel.get(itemId) === choice) { review.sel.delete(itemId); rerender(); return; }
-    if (it.kind === "purchase" && choice === "match") {
+    if ((it.kind === "purchase" || it.kind === "income") && choice === "match") {
       pickEntryFor(it).then((e) => {
         if (!e) return;
         review.matchEntry.set(itemId, e.id);
@@ -588,7 +596,8 @@
     review.items.forEach((it) => { if (["pair", "completes", "fee", "assign"].includes(it.kind)) review.sel.set(it.id, it.choices[0][0]); });
     rerender();
   }
-  function ignoreIncome() { review.items.filter((i) => i.kind === "income").forEach((it) => review.sel.set(it.id, "ignore")); rerender(); }
+  // Interest is the one kind of income worth registering — leave those for the owner to decide.
+  function ignoreIncome() { review.items.filter((i) => i.kind === "income" && !i.line.suggestion).forEach((it) => review.sel.set(it.id, "ignore")); rerender(); }
   function ignorePeople() {
     review.items.filter((i) => i.kind === "purchase" && isPeoplePayment(i.line) && Math.abs(i.line.amount) < 50).forEach((it) => review.sel.set(it.id, "ignore"));
     rerender();
@@ -622,9 +631,9 @@
       if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
       const res = await callApi("applyStatementDecisions", buildSavePayload(false));
       lastBatchId = res.batchId;
-      const made = res.created.transfers + res.created.fees + res.created.purchases;
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">✓ Saved</p>
-        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
+        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases, ${res.created.income || 0} pending income), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">Undo this upload</button></div>`;
       $("statement-review").innerHTML = '<p class="hint">Saved. Press "Review" again to see these lines marked as handled.</p>';
       review = null;

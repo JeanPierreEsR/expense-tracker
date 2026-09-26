@@ -20,6 +20,7 @@
  *   record_transfer  { out, in }            new transfer entry (confirmed)
  *   record_fee       { stmt, line }         new expense, category Bank fees (confirmed)
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
+ *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
  *   assign_account   { stmt, line, entryId }  entry has no account yet
@@ -114,7 +115,7 @@ function applyStatementDecisions(payload) {
   var dryRun = !payload || payload.dryRun !== false;
   var stmts = payload.statements || [];
   var actions = payload.actions || [];
-  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0 }, changed: 0,
+  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0 }, changed: 0,
     linesRemembered: 0, statementsRecorded: 0, skippedExisting: 0, warnings: [] };
 
   var pms = getAllRows('Payment Methods');
@@ -192,7 +193,8 @@ function applyStatementDecisions(payload) {
     if (existingExternal[o.external_id]) { report.skippedExisting++; return false; }
     existingExternal[o.external_id] = true;
     o.id = Utilities.getUuid();
-    o.paid_by = 'me'; o.source = 'import'; o.import_batch_id = batchId; o.created_at = now;
+    o.paid_by = o.type === 'income' ? '' : 'me'; // income's paid_by is a payor id — none here
+    o.source = 'import'; o.import_batch_id = batchId; o.created_at = now;
     o.merchant = o.merchant || ''; o.to_payment_method_id = o.to_payment_method_id || '';
     creations.push(o);
     return true;
@@ -236,6 +238,19 @@ function applyStatementDecisions(payload) {
         status: 'pending', external_id: 'stmt-' + p.key, merchant: stmtMerchantKey_(p.l.description) });
       if (madeP) report.created.purchases++;
       remember(p, 'added', madeP ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_income') {
+      var inc = line(a); useLine(inc);
+      if (inc.l.amount <= 0) throw new Error('Income must be money coming in');
+      var catI = '';
+      if (a.category) {
+        if (!catsById[a.category] || catsById[a.category].type !== 'income') throw new Error('Unknown income category');
+        catI = a.category;
+      }
+      var madeI = newEntry({ type: 'income', date: inc.l.date, amount: inc.l.amount, currency: inc.l.currency, category_id: catI,
+        description: a.description ? String(a.description) : stmtCleanDescription_(inc.l.description), payment_method_id: requirePm(inc).id,
+        status: 'pending', external_id: 'stmt-' + inc.key });
+      if (madeI) report.created.income++;
+      remember(inc, 'added', madeI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'match' || a.type === 'assign_account' || a.type === 'link') {
       var m = line(a); useLine(m);
       var i = rowById[String(a.entryId)];

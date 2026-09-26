@@ -282,6 +282,8 @@ function analyzeStatements(payload) {
   var pms = getAllRows('Payment Methods');
   var pmsById = rowsById_(pms);
   var catsById = rowsById_(getAllRows('Categories'));
+  var savingsReturn = Object.keys(catsById).map(function (k) { return catsById[k]; })
+    .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
   pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
   function pmFor(key) {
@@ -395,7 +397,13 @@ function analyzeStatements(payload) {
           }
         }
         if (r.guess === 'fee') counts.fees++;
-        if (r.guess === 'income') counts.income++;
+        if (r.guess === 'income') {
+          counts.income++;
+          // Interest earned is the one kind of income worth registering.
+          if (savingsReturn && /INTER[EÉ]S/i.test(l.description)) {
+            o.suggestion = { categoryId: savingsReturn.id, categoryName: savingsReturn.name, reason: 'interest earned' };
+          }
+        }
         // Looks like money moving between accounts but no partner line and no open
         // transfer to complete: its other statement simply isn't here (yet).
         if (!r.pairedWith && !o.possible && r.guess !== 'fee' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
@@ -444,5 +452,7 @@ function analyzeStatements(payload) {
   var expenseCats = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; })
     .map(function (c) { return { id: c.id, name: c.name }; });
   var storedConsidered = Object.keys(storedInput).map(function (k) { return { key: k, lines: storedInput[k].lines.length, pmId: storedInput[k].pmId }; });
-  return { counts: counts, statements: out, categories: expenseCats, balance_checks: balanceChecks, timing_ms: timing, stored_considered: storedConsidered };
+  var incomeCats = Object.keys(catsById).map(function (k) { return catsById[k]; })
+    .filter(function (c) { return c.type === 'income'; }).map(function (c) { return { id: c.id, name: c.name }; });
+  return { counts: counts, statements: out, categories: expenseCats, income_categories: incomeCats, balance_checks: balanceChecks, timing_ms: timing, stored_considered: storedConsidered };
 }
