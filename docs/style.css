@@ -1801,3 +1801,75 @@ button.primary:disabled {
   color: var(--muted);
   margin-top: 6px;
 }
+
+
+/* ---- Statements screen (More → Statements) ---- */
+
+.stmt-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stmt-row:last-child { border-bottom: none; }
+.stmt-row-main { min-width: 0; }
+.stmt-row-title { font-weight: 600; font-size: 0.95rem; }
+.stmt-row-sub { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+
+.stmt-chip {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--border);
+  white-space: nowrap;
+}
+.stmt-chip.ok { background: #e3f4e6; color: #1e6b32; }
+.stmt-chip.due { background: #fde8e6; color: #a3261c; }
+
+.stmt-upload-btn {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  border: 1px dashed var(--muted);
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.stmt-result {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.stmt-result-name { font-weight: 600; font-size: 0.85rem; word-break: break-all; margin-bottom: 6px; }
+.stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.9rem; }
+.stmt-verdict.good { color: #1e6b32; }
+.stmt-verdict.warn { color: #9a5b00; }
+.stmt-verdict.bad { color: #a3261c; }
+.stmt-note { margin: 4px 0; font-size: 0.8rem; }
+.stmt-note.warn { color: #9a5b00; }
+.stmt-note.ok { color: #1e6b32; }
+.stmt-note.info { color: var(--muted); }
+.stmt-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; padding: 3px 0; }
+.stmt-kv span:first-child { color: var(--muted); }
+.stmt-kv span:last-child { text-align: right; }
+.stmt-errors { color: #a3261c; font-size: 0.8rem; margin: 8px 0 0; padding-left: 18px; }
+.stmt-lines { margin-top: 10px; }
+.stmt-lines summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.stmt-line {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 8px;
+  font-size: 0.78rem;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stmt-line-date { color: var(--muted); }
+.stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stmt-line-amt.in { color: var(--income); }

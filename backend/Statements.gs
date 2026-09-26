@@ -113,3 +113,134 @@ function adminUndoImportBatch(payload) {
   deleteRowsWhere_('Import Batches', function (row) { return row.id === id; });
   return { deletedEntries: before };
 }
+
+// ---- Statement coverage: which statement was processed last, per account ----
+//
+// Data-driven on purpose (nothing about the owner's accounts is hard-coded —
+// this repo is public): an account is any credit/debit Payment Method that
+// has a last_4, plus any account_key that already has a Statement Uploads
+// row (e.g. a product with no card number, like a savings sub-account keyed
+// by currency). A statement finds its account by `account_key`: the last
+// four digits of the account/card number printed on it.
+
+var STATEMENT_UPLOADS_COLUMNS_ = ['id', 'account_key', 'account_label', 'payment_method_id', 'kind',
+  'period_start', 'period_end', 'closing_json', 'file_name', 'processed_at', 'batch_id',
+  'lines_total', 'verified', 'source'];
+
+function ensureStatementUploadsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Statement Uploads')) return;
+  var sheet = ss.insertSheet('Statement Uploads');
+  var headerRange = sheet.getRange(1, 1, 1, STATEMENT_UPLOADS_COLUMNS_.length);
+  headerRange.setValues([STATEMENT_UPLOADS_COLUMNS_]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  // Dates stay plain text (YYYY-MM-DD) — same reason as every other table.
+  ['period_start', 'period_end', 'processed_at'].forEach(function (col) {
+    sheet.getRange(1, STATEMENT_UPLOADS_COLUMNS_.indexOf(col) + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+  });
+}
+
+// Sheets stores a card's last_4 as a NUMBER and drops leading zeros
+// (0123 -> 123), while a statement prints "0123" — so every account key is
+// normalised to four digits before comparing.
+function covKey_(v) {
+  var s = String(v === undefined || v === null ? '' : v).trim();
+  return /^\d{1,4}$/.test(s) ? ('0000' + s).slice(-4) : s;
+}
+
+function covPad_(n) { return (n < 10 ? '0' : '') + n; }
+
+// Same day next month; a month-END date stays a month-end (Aug 31 -> Sep 30).
+function covAddMonth_(iso) {
+  var p = String(iso).split('-').map(Number);
+  var y = p[0], m = p[1], d = p[2];
+  var isEnd = d === new Date(Date.UTC(y, m, 0)).getUTCDate();
+  var ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  var lastNext = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+  return ny + '-' + covPad_(nm) + '-' + covPad_(isEnd ? lastNext : Math.min(d, lastNext));
+}
+
+function covAddDays_(iso, n) {
+  var p = String(iso).split('-').map(Number);
+  var t = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n));
+  return t.getUTCFullYear() + '-' + covPad_(t.getUTCMonth() + 1) + '-' + covPad_(t.getUTCDate());
+}
+
+// How long after its period ends a statement typically becomes available:
+// credit cards bill a few days after close; BCP's monthly statement email
+// arrives weeks later; everything else (downloaded from the bank's app) is
+// there the next day.
+function covLagDays_(pm, bankName) {
+  if (bankName === 'BCP') return 23;
+  if (pm && pm.type === 'credit') return 8;
+  return 1;
+}
+
+function listStatementCoverage() {
+  ensureStatementUploadsSheet_();
+  var uploads = getAllRows('Statement Uploads');
+  var banksById = rowsById_(getAllRows('Banks'));
+  var accounts = {};
+  getAllRows('Payment Methods').forEach(function (pm) {
+    var key = covKey_(pm.last_4);
+    if (!key || (pm.type !== 'credit' && pm.type !== 'debit')) return;
+    var bank = banksById[pm.bank_id] ? banksById[pm.bank_id].name : '';
+    accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
+  });
+  uploads.forEach(function (u) {
+    if (!u.account_key) return;
+    var uk = covKey_(u.account_key);
+    if (!accounts[uk]) accounts[uk] = { key: uk, label: u.account_label || uk, lag: 1 };
+  });
+
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var rows = Object.keys(accounts).map(function (key) {
+    var a = accounts[key];
+    var mine = uploads.filter(function (u) { return covKey_(u.account_key) === key; })
+      .sort(function (x, y) { return String(x.period_end) < String(y.period_end) ? 1 : -1; });
+    var last = mine[0] || null;
+    var out = { key: key, label: a.label, last: null, next_expected: null, status: 'never' };
+    if (last) {
+      out.last = {
+        period_start: String(last.period_start), period_end: String(last.period_end),
+        processed_at: String(last.processed_at), file_name: last.file_name,
+        verified: String(last.verified) !== 'false', source: last.source
+      };
+      out.next_expected = covAddDays_(covAddMonth_(String(last.period_end)), a.lag);
+      out.status = today > out.next_expected ? 'due' : 'ok';
+    }
+    return out;
+  });
+  var rank = { due: 0, never: 1, ok: 2 };
+  rows.sort(function (x, y) { return (rank[x.status] - rank[y.status]) || (x.label < y.label ? -1 : 1); });
+  return { today: today, accounts: rows };
+}
+
+/**
+ * One-off seed of Statement Uploads from statements already reconciled by
+ * hand (payload.rows: [{ account_key, account_label, kind, period_start,
+ * period_end, closing_json, file_name, processed_at, lines_total, verified }]).
+ * Idempotent on (account_key, period_end).
+ */
+function adminSeedStatementUploads(payload) {
+  ensureStatementUploadsSheet_();
+  if (payload.replaceSeed) deleteRowsWhere_('Statement Uploads', function (row) { return row.source === 'seed'; });
+  var existing = {};
+  getAllRows('Statement Uploads').forEach(function (u) { existing[covKey_(u.account_key) + '|' + u.period_end] = true; });
+  var pmByLast4 = {};
+  getAllRows('Payment Methods').forEach(function (pm) { if (covKey_(pm.last_4)) pmByLast4[covKey_(pm.last_4)] = pm.id; });
+  var created = 0, skipped = 0;
+  (payload.rows || []).forEach(function (r) {
+    if (existing[covKey_(r.account_key) + '|' + r.period_end]) { skipped++; return; }
+    appendRowObject('Statement Uploads', {
+      id: Utilities.getUuid(), account_key: covKey_(r.account_key), account_label: r.account_label || '',
+      payment_method_id: pmByLast4[covKey_(r.account_key)] || '', kind: r.kind,
+      period_start: r.period_start, period_end: r.period_end, closing_json: r.closing_json || '',
+      file_name: r.file_name || '', processed_at: r.processed_at, batch_id: r.batch_id || '',
+      lines_total: r.lines_total || 0, verified: r.verified === false ? 'false' : 'true', source: r.source || 'seed'
+    });
+    created++;
+  });
+  return { created: created, skipped: skipped };
+}

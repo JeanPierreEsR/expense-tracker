@@ -137,6 +137,8 @@ function routeAction(action, payload) {
     case 'admin_applyStatementActions': return adminApplyStatementActions(payload);
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);
     case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
+    case 'listStatementCoverage': return listStatementCoverage();
+    case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
@@ -213,6 +215,9 @@ var DATE_FIELD_FORMATS = {
   due_date: 'yyyy-MM-dd',
   opening_balance_date: 'yyyy-MM-dd',
   as_of: "yyyy-MM-dd'T'HH:mm:ss",
+  period_start: 'yyyy-MM-dd',
+  period_end: 'yyyy-MM-dd',
+  processed_at: 'yyyy-MM-dd',
   sent_at: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-26T00:11:45Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-26T02:24:53Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -310,6 +310,10 @@
             <span>💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-statements-btn">
+            <span>🏦 Statements</span>
+            <span class="more-list-chevron">›</span>
+          </button>
         </div>
       </div>
     </div>
@@ -348,6 +352,27 @@
         <p class="hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
         <div id="exchange-rates-list"></div>
         <p class="hint" id="exchange-rates-empty-note" hidden>No exchange rates on file yet.</p>
+      </div>
+    </div>
+
+    <div id="screen-statements" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="statements-back-btn">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;">Statements</h2>
+        <p class="hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
+        <div id="statement-coverage-list"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Read a statement</h2>
+        <p class="hint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
+        <label class="stmt-upload-btn">
+          Choose statement PDFs
+          <input type="file" id="statement-file-input" accept="application/pdf,.pdf" multiple hidden>
+        </label>
+        <div id="statement-results"></div>
       </div>
     </div>
   </main>
@@ -821,6 +846,22 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-26T00:11:45Z"></script>
+  <div id="statement-password-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>PDF password</span>
+      </div>
+      <p class="hint" id="statement-password-file" style="margin:8px 0 0;"></p>
+      <p class="hint" id="statement-password-msg" style="margin:4px 0 8px;"></p>
+      <input type="password" id="statement-password-input" placeholder="Password" autocomplete="off">
+      <p class="hint" style="margin:6px 0 10px;">Asked every time; it is never saved.</p>
+      <button type="button" class="primary" id="statement-password-ok">Open</button>
+      <button type="button" class="cancel-edit-btn" id="statement-password-cancel">Skip this file</button>
+    </div>
+  </div>
+
+  <script src="app.js?v=2026-09-26T02:24:53Z"></script>
+  <script src="statement-parsers.js?v=2026-09-26T02:24:53Z"></script>
+  <script src="statements.js?v=2026-09-26T02:24:53Z"></script>
 </body>
 </html>

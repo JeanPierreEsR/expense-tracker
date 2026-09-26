@@ -61,9 +61,23 @@
     return rows;
   }
 
-  /** pdfjsLib: the loaded pdf.js module; data: Uint8Array of the PDF. */
-  function readPdfRows(pdfjsLib, data) {
-    return pdfjsLib.getDocument({ data: data, useSystemFonts: true }).promise.then(function (doc) {
+  /**
+   * pdfjsLib: the loaded pdf.js module; data: Uint8Array of the PDF.
+   * opts.onPassword(reason) -> Promise<string|null>: called when the PDF is
+   * password-protected (reason 1 = needs a password, 2 = the last one was
+   * wrong); resolve null to give up. The password is only handed to pdf.js,
+   * never kept here.
+   */
+  function readPdfRows(pdfjsLib, data, opts) {
+    var task = pdfjsLib.getDocument({ data: data, useSystemFonts: true });
+    if (opts && opts.onPassword) {
+      task.onPassword = function (update, reason) {
+        opts.onPassword(reason).then(function (pw) {
+          if (pw === null || pw === undefined) task.destroy(); else update(pw);
+        });
+      };
+    }
+    return task.promise.then(function (doc) {
       var out = [];
       var chain = Promise.resolve();
       for (var p = 1; p <= doc.numPages; p++) {

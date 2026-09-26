@@ -109,6 +109,7 @@ var DATE_LIKE_COLUMNS = {
   'Budget Alert Log': ['period', 'sent_at'],
   'Loan Alert Log': ['due_date', 'sent_at'],
   'Import Batches': ['date'],
+  'Statement Uploads': ['period_start', 'period_end', 'processed_at'],
   'Projection Overrides': ['period_key']
 };
 
