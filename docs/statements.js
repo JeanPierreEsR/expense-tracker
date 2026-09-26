@@ -60,6 +60,50 @@
     });
     refreshStatementCoverage();
     refreshStatementBatches();
+    refreshStatementInbox();
+  }
+
+  // ---- inbox (statements that arrived by email) ----
+
+  let inbox = [];
+
+  async function refreshStatementInbox() {
+    const list = $("statement-inbox-list");
+    list.innerHTML = '<p class="hint">Loading…</p>';
+    try { inbox = (await callApi("listStatementInbox", {})).items; }
+    catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
+    if (!inbox.length) { list.innerHTML = '<p class="hint">Nothing waiting. New statements from your banks show up here.</p>'; return; }
+    list.innerHTML = inbox.map((i) => {
+      const done = i.status === "processed";
+      const note = done ? "✅ Processed" : (i.probably_processed ? `Probably already processed (you processed this account on ${fmtDate(i.last_processed, true)})` : "🟡 Not processed");
+      return `<div class="stmt-row"><div class="stmt-row-main">
+        <div class="stmt-row-title">${escapeHtml(i.bank)} · received ${escapeHtml(fmtDate(i.received, true))}</div>
+        <div class="stmt-row-sub">${escapeHtml(note)} · ${i.size_kb} KB</div>
+        <div class="stmt-choices" style="padding-left:0">
+          <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">Open</button>
+          ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">Dismiss</button>`}
+        </div></div></div>`;
+    }).join("");
+  }
+
+  async function openInboxItem(id, btn) {
+    const item = inbox.find((i) => i.id === id);
+    if (!item) return;
+    btn.disabled = true; btn.textContent = "Fetching…";
+    try {
+      const att = await callApi("getStatementAttachment", { id });
+      const bin = atob(att.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+      const file = new File([bytes], att.name, { type: "application/pdf" });
+      file.inboxId = id;
+      if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
+      await readStatementFile(file);
+      $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      alert("Couldn't fetch that statement: " + (err && err.message ? err.message : err));
+    }
+    btn.disabled = false; btn.textContent = "Open";
   }
 
   // ---- coverage list ----
@@ -100,7 +144,7 @@
           <div class="stmt-row-sub">${escapeHtml(last)}</div>
           ${next ? `<div class="stmt-row-sub">${escapeHtml(next)}</div>` : ""}
         </div>
-        <span class="stmt-chip ${a.status}">${icon} ${text}</span>
+        <span class="stmt-chip ${a.status}">${a.inbox_waiting ? `🟡 ${a.inbox_waiting} in inbox` : `${icon} ${text}`}</span>
       </div>`;
     }).join("");
   }
@@ -234,7 +278,7 @@
       if (result.kind && result.ok) {
         // A re-read of the same file replaces its earlier reading.
         usable = usable.filter((u) => u.file !== file.name);
-        usable.push({ file: file.name, result });
+        usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
         review = null;
         $("statement-review").innerHTML = '<p class="hint">Statements changed — press "Review" to compare them again.</p>';
@@ -644,6 +688,7 @@
         verified: !!(result.ok && result.verified !== false), balances: result.balances,
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
       })),
+      inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
       actions: selectedActions()
     };
   }
@@ -672,6 +717,7 @@
       coverage = null;
       refreshStatementCoverage();
       refreshStatementBatches();
+      refreshStatementInbox();
       refreshOtherScreens();
     } catch (err) {
       status.innerHTML = `<p class="stmt-verdict bad">✗ Nothing was saved</p><p class="hint">${escapeHtml(err.message)}</p>`;
@@ -732,6 +778,14 @@
     e.target.value = ""; // lets the same file be picked again
   });
   $("statement-review-btn").addEventListener("click", runReview);
+  $("statement-inbox-list").addEventListener("click", async (e) => {
+    const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss");
+    if (open) openInboxItem(open.dataset.id, open);
+    else if (dis && confirm("Dismiss this statement? It disappears from the inbox (it is not deleted from your email).")) {
+      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert("Couldn't dismiss: " + err.message); }
+      refreshStatementInbox(); refreshStatementCoverage();
+    }
+  });
   $("statement-review").addEventListener("click", (e) => {
     if (!review) return;
     const t = e.target;

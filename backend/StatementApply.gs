@@ -330,6 +330,7 @@ function applyStatementDecisions(payload) {
   report.batchId = batchId;
   ensureImportBatchRow_(batchId, payload.filename || 'Statement upload', creations.length);
   appendRowsBulk_('Entries', creations);
+  if (payload.inboxIds && payload.inboxIds.length) markStatementInboxProcessed_(payload.inboxIds);
   Object.keys(colChanged).forEach(function (f) {
     var colValues = values.map(function (r) { return [r[col[f]]]; });
     if (values.length) sheet.getRange(2, col[f] + 1, values.length, 1).setValues(colValues);

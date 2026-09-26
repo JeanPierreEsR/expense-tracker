@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-26T17:10:06Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-26T18:46:24Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -363,6 +363,12 @@
         <h2 style="margin-top:0;">Statements</h2>
         <p class="hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
         <div id="statement-coverage-list"></div>
+      </div>
+
+      <div class="card" id="statement-inbox-card">
+        <h2 style="margin-top:0;">Inbox</h2>
+        <p class="hint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password each time.</p>
+        <div id="statement-inbox-list"></div>
       </div>
 
       <div class="card">
@@ -883,8 +889,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-26T17:10:06Z"></script>
-  <script src="statement-parsers.js?v=2026-09-26T17:10:06Z"></script>
-  <script src="statements.js?v=2026-09-26T17:10:06Z"></script>
+  <script src="app.js?v=2026-09-26T18:46:24Z"></script>
+  <script src="statement-parsers.js?v=2026-09-26T18:46:24Z"></script>
+  <script src="statements.js?v=2026-09-26T18:46:24Z"></script>
 </body>
 </html>

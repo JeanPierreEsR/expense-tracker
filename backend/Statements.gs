@@ -212,6 +212,8 @@ function listStatementCoverage() {
     }
     return out;
   });
+  var waiting = stmtInboxWaitingByAccount_(getAllRows('Payment Methods'), banksById, uploads);
+  rows.forEach(function (r) { r.inbox_waiting = waiting[r.key] || 0; });
   var rank = { due: 0, never: 1, ok: 2 };
   rows.sort(function (x, y) { return (rank[x.status] - rank[y.status]) || (x.label < y.label ? -1 : 1); });
   return { today: today, accounts: rows };

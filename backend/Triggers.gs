@@ -8,6 +8,7 @@ function runAutomation() {
   pollTelegramUpdates();
   checkBudgets();
   checkOverdueLoans();
+  try { scanStatementInbox_(); retryStatementInboxNudges_(); } catch (e) { console.error('statement inbox: ' + e); }
 }
 
 function enableAutomaticScanning() {
