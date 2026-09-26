@@ -20,6 +20,7 @@
  *   record_transfer  { out, in }            new transfer entry (confirmed)
  *   record_fee       { stmt, line }         new expense, category Bank fees (confirmed)
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
+ *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
@@ -34,7 +35,7 @@
 var STATEMENT_LINES_COLUMNS_ = ['id', 'line_key', 'account_key', 'period_end', 'date', 'description',
   'amount', 'currency', 'outcome', 'entry_id', 'batch_id', 'created_at'];
 var STATEMENT_CHANGES_COLUMNS_ = ['id', 'batch_id', 'sheet', 'row_id', 'field', 'old_value', 'new_value', 'created_at'];
-var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true };
+var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true };
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -115,7 +116,7 @@ function applyStatementDecisions(payload) {
   var dryRun = !payload || payload.dryRun !== false;
   var stmts = payload.statements || [];
   var actions = payload.actions || [];
-  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0 }, changed: 0,
+  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0, reversals: 0 }, changed: 0,
     linesRemembered: 0, statementsRecorded: 0, skippedExisting: 0, warnings: [] };
 
   var pms = getAllRows('Payment Methods');
@@ -155,7 +156,7 @@ function applyStatementDecisions(payload) {
   var lastRow = sheet.getLastRow();
   var values = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
   var col = {};
-  ['id', 'type', 'payment_method_id', 'to_payment_method_id', 'merchant', 'external_id', 'description', 'amount', 'currency', 'date'].forEach(function (h) { col[h] = headers.indexOf(h); });
+  ['id', 'type', 'category_id', 'status', 'payment_method_id', 'to_payment_method_id', 'merchant', 'external_id', 'description', 'amount', 'currency', 'date'].forEach(function (h) { col[h] = headers.indexOf(h); });
   var rowById = {};
   values.forEach(function (r, i) { rowById[String(r[col.id])] = i; });
   var existingExternal = {};
@@ -251,6 +252,20 @@ function applyStatementDecisions(payload) {
         status: 'pending', external_id: 'stmt-' + inc.key });
       if (madeI) report.created.income++;
       remember(inc, 'added', madeI ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'cancel_charge') {
+      var rv = line(a); useLine(rv);
+      if (rv.l.amount <= 0) throw new Error('A reversal must be money coming back');
+      var oi = rowById[String(a.entryId)];
+      if (oi === undefined) throw new Error('The charge to cancel was not found');
+      if (values[oi][col.type] !== 'expense') throw new Error('Only an expense can be cancelled by a reversal');
+      if (String(values[oi][col.currency] || 'PEN') !== rv.l.currency || Math.abs(Number(values[oi][col.amount]) - rv.l.amount) >= 0.005) {
+        throw new Error('The reversal and the charge are not the same amount and currency');
+      }
+      var madeRv = newEntry({ type: 'expense', date: rv.l.date, amount: -rv.l.amount, currency: rv.l.currency,
+        category_id: values[oi][col.category_id] || '', description: 'Reversal: ' + (values[oi][col.description] || ''),
+        payment_method_id: requirePm(rv).id, status: 'pending', external_id: 'stmt-' + rv.key });
+      if (madeRv) report.created.reversals++;
+      remember(rv, 'reversed', a.entryId);
     } else if (a.type === 'match' || a.type === 'assign_account' || a.type === 'link') {
       var m = line(a); useLine(m);
       var i = rowById[String(a.entryId)];
@@ -485,4 +500,39 @@ function getEntriesNear(payload) {
   }).map(function (e) { return stmtEntrySummary_(e, catsById, pmsById); })
     .sort(function (a, b) { return Math.abs(stmtDayNumber_(a.date) - stmtDayNumber_(payload.date)) - Math.abs(stmtDayNumber_(b.date) - stmtDayNumber_(payload.date)); })
     .slice(0, 60);
+}
+
+
+/** The income category "Refunds" (money coming back for a purchase); created on first use. */
+function ensureRefundsCategory_() {
+  var found = getAllRows('Categories').filter(function (c) { return c.type === 'income' && c.name === 'Refunds'; })[0];
+  if (found) return found;
+  var row = { id: Utilities.getUuid(), name: 'Refunds', type: 'income', icon: '↩️',
+    color: CATEGORY_COLOR_PALETTE[getAllRows('Categories').length % CATEGORY_COLOR_PALETTE.length], parent_id: '' };
+  appendRowObject('Categories', row);
+  return row;
+}
+
+/**
+ * One-off: forget that some statement lines were "ignored" so the next Review
+ * shows them again. payload: { contains (text in the line description), outcome
+ * (default 'ignored'), dryRun (default true) }. Only touches the remembered
+ * outcome, never an entry.
+ */
+function adminReopenStatementLines(payload) {
+  var dryRun = !payload || payload.dryRun !== false;
+  var needle = String((payload && payload.contains) || '').toLowerCase();
+  var outcome = (payload && payload.outcome) || 'ignored';
+  if (!needle) throw new Error('contains is required');
+  ensureStatementLinesSheet_();
+  var hits = getAllRows('Statement Lines').filter(function (r) {
+    return r.outcome === outcome && String(r.description).toLowerCase().indexOf(needle) >= 0;
+  });
+  var report = { dryRun: dryRun, lines: hits.map(function (r) { return { date: r.date, description: r.description, amount: r.amount, currency: r.currency }; }) };
+  if (!dryRun) {
+    var ids = {};
+    hits.forEach(function (r) { ids[r.id] = true; });
+    deleteRowsWhere_('Statement Lines', function (r) { return ids[r.id]; });
+  }
+  return report;
 }

@@ -373,6 +373,20 @@
             build: (choice) => ({ type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li }) });
           return;
         }
+        if (l.reversal) {
+          const rv = l.reversal;
+          const target = rv.candidates.find((c) => c.sameMonth) || rv.candidates[0] || null;
+          const choices = [];
+          if (rv.candidates.length) choices.push(["cancel", "Cancel the charge"]);
+          choices.push(["refund", "Refund income"], ["ignore", "Ignore"]);
+          items.push({ ...base, kind: "reversal", choices, suggested: target && target.sameMonth ? "cancel" : "refund",
+            build: (choice, r) => {
+              if (choice === "cancel") return { type: "cancel_charge", stmt: si, line: li, entryId: r.cancelEntry.get(id) || target.entry.id };
+              if (choice === "refund") return { type: "add_income", stmt: si, line: li, category: rv.refundCategoryId, description: "Refund: " + l.description.replace(/^\s*REV\.?\s*/i, "") };
+              return { type: "ignore", stmt: si, line: li };
+            } });
+          return;
+        }
         if (l.guess === "income") {
           items.push({ ...base, kind: "income", choices: [["add", "Add as income"], ["match", "Match…"], ["ignore", "Ignore"]],
             build: (choice, r) => {
@@ -450,6 +464,15 @@
       sub = `${where} — ${why}: ${entryText(l.possible.entry)}`;
     } else if (it.kind === "waiting") {
       sub = `${where} — looks like a transfer or card payment; its other side isn't in these statements`;
+    } else if (it.kind === "reversal") {
+      const rv = l.reversal;
+      sub = `${where} — money back on the card (a reversal or refund).`;
+      if (!rv.candidates.length) sub += " No matching charge found in the last 45 days, so it can only be a refund.";
+      else if (chosen === "cancel") {
+        const cur = review.cancelEntry.get(it.id) || (rv.candidates.find((c) => c.sameMonth) || rv.candidates[0]).entry.id;
+        sub += `<br>cancels: ${entryText(rv.candidates.find((c) => c.entry.id === cur).entry)} — adds a pending negative expense`;
+      } else if (chosen === "refund") sub += " Adds pending income in the Refunds category.";
+      else sub += ` Best match: ${entryText(rv.candidates[0].entry)}${rv.candidates[0].sameMonth ? "" : " (an earlier month)"}.`;
     } else if (it.kind === "income") {
       sub = `${where}${l.suggestion ? ` — suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : ""}`;
       if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
@@ -478,6 +501,10 @@
         const cats = it.kind === "income" ? (review.analysis.income_categories || []) : review.analysis.categories;
         controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">No category (decide later)</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
       }
+      if (it.kind === "reversal" && chosen === "cancel" && l.reversal.candidates.length > 1) {
+        const cur = review.cancelEntry.get(it.id) || (l.reversal.candidates.find((c) => c.sameMonth) || l.reversal.candidates[0]).entry.id;
+        controls += `<select class="stmt-cancel" data-item="${escapeHtml(it.id)}">${l.reversal.candidates.map((c) => `<option value="${escapeHtml(c.entry.id)}" ${c.entry.id === cur ? "selected" : ""}>${escapeHtml(entryPlain(c.entry))} (${escapeHtml(c.entry.status)})</option>`).join("")}</select>`;
+      }
       controls += "</div>";
     }
     return `<div class="stmt-line2">${head}${controls}</div>`;
@@ -500,6 +527,7 @@
     const parts = [];
     if (n("record_transfer")) parts.push(`${n("record_transfer")} transfer${n("record_transfer") === 1 ? "" : "s"} between your accounts`);
     if (n("record_fee")) parts.push(`${n("record_fee")} bank fee${n("record_fee") === 1 ? "" : "s"}`);
+    if (n("cancel_charge")) parts.push(`${n("cancel_charge")} charge${n("cancel_charge") === 1 ? "" : "s"} cancelled by a pending negative expense`);
     if (n("add_income")) parts.push(`${n("add_income")} income entr${n("add_income") === 1 ? "y" : "ies"} added as pending`);
     if (n("add_purchase")) parts.push(`${n("add_purchase")} purchase${n("add_purchase") === 1 ? "" : "s"} added as pending`);
     if (n("complete_transfer")) parts.push(`${n("complete_transfer")} transfer${n("complete_transfer") === 1 ? "" : "s"} completed`);
@@ -514,7 +542,7 @@
 
   function renderReview(analysis) {
     if (!review || review.analysis !== analysis) {
-      review = { analysis, items: buildItems(analysis), sel: new Map(), cat: new Map(), matchEntry: new Map(), matchEntryText: new Map(), open: new Map() };
+      review = { analysis, items: buildItems(analysis), sel: new Map(), cat: new Map(), cancelEntry: new Map(), matchEntry: new Map(), matchEntryText: new Map(), open: new Map() };
     }
     const out = $("statement-review");
     const by = (kind) => review.items.filter((i) => i.kind === kind);
@@ -530,7 +558,7 @@
         <button type="button" class="stmt-choice" id="stmt-ignore-income">Ignore income except interest</button>
         <button type="button" class="stmt-choice" id="stmt-ignore-people">Ignore payments to people under 50</button>
       </div>
-      <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, and setting accounts. Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
+      <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, setting accounts, and reversals (which still land as pending entries). Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
       ${group("Balance check", html("balance"), "The statement's closing balance against what the app says at that date. Your newest registered balance always wins over an older statement.", true, "balance")}
       ${group("Transfers between your accounts", html("pair"), "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true, "pair")}
       ${group("Completes a transfer you already recorded", html("completes"), "You recorded one end of these transfers earlier; this statement is the other end.", true, "completes")}
@@ -539,6 +567,7 @@
       ${group("Possible matches to confirm", html("possible"), "", true, "possible")}
       ${group("Waiting for the other statement", html("waiting"), "These look like money moving between accounts, but the other account's statement isn't here.", true, "waiting")}
       ${group("Matched entries that have no account yet", html("assign"), "These entries match a statement line but don't say which account they were paid with.", false, "assign")}
+      ${group("Reversals and refunds", html("reversal"), "Money back on a card. In the same month it cancels the charge (a pending negative expense); from an earlier month it becomes pending Refunds income. Either way it waits in your review queue.", true, "reversal")}
       ${group("Income lines", html("income"), "Mostly repayments you don't register — Ignore remembers that. Add as income is for things like interest earned (it lands as a pending entry).", true, "income")}
       ${group("Handled before", html("handled"), "", false, "handled")}
       ${group("Already in the app", html("matched"), "", false, "matched")}
@@ -593,7 +622,10 @@
   }
 
   function applySuggested() {
-    review.items.forEach((it) => { if (["pair", "completes", "fee", "assign"].includes(it.kind)) review.sel.set(it.id, it.choices[0][0]); });
+    review.items.forEach((it) => {
+      if (["pair", "completes", "fee", "assign"].includes(it.kind)) review.sel.set(it.id, it.choices[0][0]);
+      else if (it.kind === "reversal") review.sel.set(it.id, it.suggested);
+    });
     rerender();
   }
   // Interest is the one kind of income worth registering — leave those for the owner to decide.
@@ -631,9 +663,9 @@
       if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
       const res = await callApi("applyStatementDecisions", buildSavePayload(false));
       lastBatchId = res.batchId;
-      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0);
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">✓ Saved</p>
-        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases, ${res.created.income || 0} pending income), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
+        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases, ${res.created.income || 0} pending income, ${res.created.reversals || 0} reversals), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">Undo this upload</button></div>`;
       $("statement-review").innerHTML = '<p class="hint">Saved. Press "Review" again to see these lines marked as handled.</p>';
       review = null;
@@ -713,6 +745,7 @@
   });
   $("statement-review").addEventListener("change", (e) => {
     if (e.target.classList && e.target.classList.contains("stmt-cat") && review) review.cat.set(e.target.dataset.item, e.target.value);
+    if (e.target.classList && e.target.classList.contains("stmt-cancel") && review) { review.cancelEntry.set(e.target.dataset.item, e.target.value); rerender(); }
   });
   $("statement-review").addEventListener("toggle", (e) => {
     if (review && e.target.dataset && e.target.dataset.gkey) review.open.set(e.target.dataset.gkey, e.target.open);

@@ -143,6 +143,7 @@ function routeAction(action, payload) {
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();
     case 'getEntriesNear': return getEntriesNear(payload);
+    case 'admin_reopenStatementLines': return adminReopenStatementLines(payload);
     case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);

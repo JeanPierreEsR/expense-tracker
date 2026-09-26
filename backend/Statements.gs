@@ -352,6 +352,11 @@ function analyzeStatements(payload) {
 
   var ctx = buildGuessContext_();
   tick('guess_context');
+  // Reversals on a credit card: which charges are already cancelled by an earlier one.
+  var reversedIds = {};
+  getAllRows('Statement Lines').forEach(function (r) { if (r.outcome === 'reversed' && r.entry_id) reversedIds[r.entry_id] = true; });
+  var refundsCat = ensureRefundsCategory_();
+  catsById[refundsCat.id] = refundsCat;
   var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0, completes: 0, waiting: 0, handled: 0 };
 
   var out = stmts.map(function (s, idx) {
@@ -402,6 +407,8 @@ function analyzeStatements(payload) {
           // Interest earned is the one kind of income worth registering.
           if (savingsReturn && /INTER[EÉ]S/i.test(l.description)) {
             o.suggestion = { categoryId: savingsReturn.id, categoryName: savingsReturn.name, reason: 'interest earned' };
+          } else if (pm && pm.type === 'credit') {
+            o.reversal = stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat);
           }
         }
         // Looks like money moving between accounts but no partner line and no open
@@ -455,4 +462,34 @@ function analyzeStatements(payload) {
   var incomeCats = Object.keys(catsById).map(function (k) { return catsById[k]; })
     .filter(function (c) { return c.type === 'income'; }).map(function (c) { return { id: c.id, name: c.name }; });
   return { counts: counts, statements: out, categories: expenseCats, income_categories: incomeCats, balance_checks: balanceChecks, timing_ms: timing, stored_considered: storedConsidered };
+}
+
+
+/**
+ * A positive line on a credit card (money back). Finds the charges it could be
+ * reversing: same account, currency and exact amount, dated up to 45 days
+ * before, not already cancelled. Best first: a shared word in the name, then the
+ * closest date. `sameMonth` says whether the reversal falls in the charge's own
+ * month (then it cancels the charge; otherwise it is Refunds income).
+ */
+function stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat) {
+  var lo = covAddDays_(l.date, -45);
+  var words = significantWords_(String(l.description || '').replace(/^\s*REV\.?\s*/i, ''));
+  var cands = allEntries.filter(function (e) {
+    return e.type === 'expense' && e.payment_method_id === pm.id && (e.currency || 'PEN') === l.currency &&
+      Math.abs(Number(e.amount) - l.amount) < 0.005 && e.date >= lo && e.date <= l.date && !reversedIds[e.id];
+  }).map(function (e) {
+    var ew = significantWords_(String(e.description || '') + ' ' + String(e.merchant || ''));
+    var shared = words.some(function (w) { return ew.indexOf(w) >= 0; });
+    return { e: e, shared: shared, gap: Math.round((new Date(l.date) - new Date(e.date)) / 86400000) };
+  });
+  cands.sort(function (a, b) { return (b.shared - a.shared) || (a.gap - b.gap); });
+  var catsById = rowsById_(getAllRows('Categories')), pmsById = rowsById_(getAllRows('Payment Methods'));
+  return {
+    refundCategoryId: refundsCat.id,
+    candidates: cands.slice(0, 6).map(function (c) {
+      return { entry: stmtEntrySummary_(c.e, catsById, pmsById), sharedWord: c.shared, daysBefore: c.gap,
+        sameMonth: String(c.e.date).substring(0, 7) === String(l.date).substring(0, 7) };
+    })
+  };
 }
