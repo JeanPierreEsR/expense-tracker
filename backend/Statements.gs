@@ -300,7 +300,8 @@ function analyzeStatements(payload) {
     });
   });
   tick('small_tables');
-  var entries = lo === null ? [] : getAllRows('Entries').filter(function (e) {
+  var allEntries = getAllRows('Entries');
+  var entries = lo === null ? [] : allEntries.filter(function (e) {
     return e.date >= covAddDays_(lo, -12) && e.date <= covAddDays_(hi, 12);
   });
 
@@ -361,7 +362,7 @@ function analyzeStatements(payload) {
       counts.lines++;
       var hr = handledRows[lineKeys[idx][i]];
       if (hr) {
-        o.handled = { outcome: hr.outcome, entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };
+        o.handled = { outcome: hr.outcome, entryId: hr.entry_id || '', entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };
         o.status = 'handled';
         counts.handled++;
         return o;
@@ -417,9 +418,31 @@ function analyzeStatements(payload) {
     };
   });
   counts.transferPairs = result.pairs.length;
+
+  // Balance check per statement and currency (see StatementBalance.gs).
+  var openingsByPm = buildOpeningsByPm_(pms);
+  var confirmedAll = allEntries.filter(function (e) { return e.status === 'confirmed'; });
+  var inboundIds = buildInboundTransferIds_();
+  var allById = {};
+  allEntries.forEach(function (e) { allById[e.id] = e; });
+  var balanceChecks = [];
+  stmts.forEach(function (s, idx) {
+    var pm = pmFor(s.key);
+    if (!pm || !s.period || !s.period.end || !s.balances) return;
+    Object.keys(s.balances).forEach(function (cur) {
+      var b = s.balances[cur];
+      if (!b || b.closing === null || b.closing === undefined) return;
+      var chk = stmtBalanceCheck_({ pm: pm, currency: cur, closing: b.closing, start: s.period.start, end: s.period.end,
+        lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById });
+      chk.stmt = idx;
+      chk.verified = s.verified !== false;
+      if (!chk.verified) chk.canSet = false;
+      balanceChecks.push(chk);
+    });
+  });
   tick('done');
   var expenseCats = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; })
     .map(function (c) { return { id: c.id, name: c.name }; });
   var storedConsidered = Object.keys(storedInput).map(function (k) { return { key: k, lines: storedInput[k].lines.length, pmId: storedInput[k].pmId }; });
-  return { counts: counts, statements: out, categories: expenseCats, timing_ms: timing, stored_considered: storedConsidered };
+  return { counts: counts, statements: out, categories: expenseCats, balance_checks: balanceChecks, timing_ms: timing, stored_considered: storedConsidered };
 }

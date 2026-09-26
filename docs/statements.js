@@ -271,6 +271,8 @@
           key: accountKeyOf(result),
           kind: result.kind,
           period: result.period,
+          balances: result.balances,
+          verified: !!(result.ok && result.verified !== false),
           lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
         }))
       });
@@ -384,10 +386,50 @@
           } });
       });
     });
+    (analysis.balance_checks || []).forEach((c) => {
+      items.push({ id: `bal:${c.stmt}:${c.currency}`, kind: "balance", check: c, where: acct(c.stmt),
+        choices: c.canSet ? [["set", c.direction === "untracked" ? "Start tracking with this balance" : "Set balance to statement"]] : null,
+        build: () => ({ type: "set_balance", stmt: c.stmt, currency: c.currency }) });
+    });
     return items;
   }
 
+  function signed(cur, n) {
+    return `${cur} ${n >= 0 ? "+" : "−"}${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function balanceHtml(it) {
+    const c = it.check, chosen = review.sel.get(it.id);
+    const lines = [`<div class="stmt-kv"><span>Statement closing (${escapeHtml(fmtDate(c.end, true))})</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
+    let verdict = "";
+    if (c.direction === "untracked") {
+      verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+    } else {
+      lines.push(`<div class="stmt-kv"><span>In the app at that date</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
+      lines.push(`<div class="stmt-kv"><span>Difference</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
+      if (c.diff === 0) {
+        verdict = `<p class="stmt-note ok">✓ Matches to the cent.</p>`;
+      } else if (c.direction === "forward") {
+        const parts = [];
+        if (c.notInApp.lines) parts.push(`${signed(c.currency, c.notInApp.net)} from ${c.notInApp.lines} line${c.notInApp.lines === 1 ? "" : "s"} not in the app`);
+        if (c.pending.lines) parts.push(`${signed(c.currency, c.pending.net)} from ${c.pending.lines} pending purchase${c.pending.lines === 1 ? "" : "s"} (counted once confirmed)`);
+        verdict = c.unexplained === 0
+          ? `<p class="stmt-note ok">✓ Fully explained: ${escapeHtml(parts.join(" and "))}.</p>`
+          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(" and ")) + ". " : ""}<b>${escapeHtml(signed(c.currency, c.unexplained))} is unexplained</b> — something in the app differs from this statement.</p>`;
+      } else if (c.direction === "backward") {
+        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)} The app's figure at that date is worked back from that newer balance, so a difference means entries dated after ${escapeHtml(fmtDate(c.end))} are missing or wrong — the next statement will show which.</p>`;
+      } else {
+        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+      }
+      if (c.canSet) verdict += `<p class="hint">${escapeHtml(c.reason)} Setting it makes the app agree with the statement from ${escapeHtml(fmtDate(c.end))} on; earlier entries stop counting because the balance already includes them. You can ignore lines and still set it.</p>`;
+    }
+    const btn = it.choices ? `<div class="stmt-choices" style="padding-left:0">${it.choices.map(([k, label]) =>
+      `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}</div>` : "";
+    return `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(it.where)} · ${escapeHtml(c.currency)}</div>${lines.join("")}${verdict}${btn}</div>`;
+  }
+
   function itemHtml(it) {
+    if (it.kind === "balance") return balanceHtml(it);
     const l = it.line, where = escapeHtml(it.where);
     const chosen = review.sel.get(it.id);
     let sub = "";
@@ -456,6 +498,7 @@
     if (n("assign_account")) parts.push(`the account set on ${n("assign_account")} existing entr${n("assign_account") === 1 ? "y" : "ies"}`);
     const matched = actions.filter((a) => a.type === "match").length;
     if (matched) parts.push(`${matched} line${matched === 1 ? "" : "s"} matched to existing entries`);
+    if (n("set_balance")) parts.push(`the balance set from the statement on ${n("set_balance")} account${n("set_balance") === 1 ? "" : "s"}`);
     if (n("ignore")) parts.push(`${n("ignore")} line${n("ignore") === 1 ? "" : "s"} ignored`);
     if (n("wait")) parts.push(`${n("wait")} left waiting for the other statement`);
     return parts;
@@ -480,6 +523,7 @@
         <button type="button" class="stmt-choice" id="stmt-ignore-people">Ignore payments to people under 50</button>
       </div>
       <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, and setting accounts. Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
+      ${group("Balance check", html("balance"), "The statement's closing balance against what the app says at that date. Your newest registered balance always wins over an older statement.", true, "balance")}
       ${group("Transfers between your accounts", html("pair"), "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true, "pair")}
       ${group("Completes a transfer you already recorded", html("completes"), "You recorded one end of these transfers earlier; this statement is the other end.", true, "completes")}
       ${group("Bank fees", html("fee"), "Small taxes and card insurance — filed under Bank fees.", true, "fee")}

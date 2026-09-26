@@ -25,6 +25,9 @@
  *   assign_account   { stmt, line, entryId }  entry has no account yet
  *   link             { stmt, line, entryId }  remember a matched line (no change)
  *   ignore / wait    { stmt, line }
+ *   set_balance      { stmt, currency }      the statement's closing balance becomes the
+ *                                            account's registered balance — only when the
+ *                                            statement is NEWER than the current one
  */
 
 var STATEMENT_LINES_COLUMNS_ = ['id', 'line_key', 'account_key', 'period_end', 'date', 'description',
@@ -116,6 +119,8 @@ function applyStatementDecisions(payload) {
 
   var pms = getAllRows('Payment Methods');
   var pmsById = rowsById_(pms);
+  var openingsByPm = buildOpeningsByPm_(pms);
+  var balanceOps = [];
   var catByName = {};
   var cats = getAllRows('Categories');
   var catsById = rowsById_(cats);
@@ -253,6 +258,17 @@ function applyStatementDecisions(payload) {
       if (values[j][col[field]]) throw new Error('That end of the transfer is already filled in');
       setCell(a.entryId, field, requirePm(c).id);
       remember(c, 'completed', a.entryId);
+    } else if (a.type === 'set_balance') {
+      var sb = stmts[a.stmt];
+      var pmB = accounts[a.stmt];
+      if (!sb || !pmB) throw new Error('Unknown statement or account for the balance');
+      if (sb.verified === false) throw new Error('A statement that could not be verified cannot set a balance');
+      var bal = (sb.balances || {})[a.currency];
+      if (!bal || bal.closing === null || bal.closing === undefined) throw new Error('This statement has no closing balance in ' + a.currency);
+      if (!sb.period || !sb.period.end) throw new Error('This statement has no end date');
+      var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
+      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error('The balance registered on ' + ownRow.date + ' is not older than this statement, so it stays');
+      balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
       remember(g, a.type === 'ignore' ? 'ignored' : 'waiting', '');
@@ -272,6 +288,7 @@ function applyStatementDecisions(payload) {
     uploadOps.push({ s: s, si: si, existing: existing || null, acctKey: acctKey });
   });
   report.statementsRecorded = uploadOps.length;
+  report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
   report.linesRemembered = outcomes.length;
   report.batchEntries = creations.map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
 
@@ -311,6 +328,24 @@ function applyStatementDecisions(payload) {
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Uploads', row_id: newId, field: '__created__',
         old_value: '', new_value: '', created_at: now });
     }
+  });
+
+  // Balances: the newest balance prevails, so a statement only ever replaces an OLDER
+  // snapshot (checked above). The replaced row is logged so undo can bring it back.
+  balanceOps.forEach(function (b) {
+    var oldRows = getAllRows('Account Opening Balances').filter(function (r) {
+      return r.payment_method_id === b.pm.id && String(r.currency).toUpperCase() === b.currency;
+    });
+    oldRows.forEach(function (r) {
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Account Opening Balances', row_id: r.id, field: '__deleted__',
+        old_value: JSON.stringify(r), new_value: '', created_at: now });
+    });
+    if (oldRows.length) deleteRowsWhere_('Account Opening Balances', function (row) {
+      return row.payment_method_id === b.pm.id && String(row.currency).toUpperCase() === b.currency;
+    });
+    var newRowId = addOpeningRow_(b.pm.id, b.currency, b.amount, b.date, b.date + 'T23:59:59');
+    changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Account Opening Balances', row_id: newRowId, field: '__created__',
+      old_value: '', new_value: '', created_at: now });
   });
 
   // Remember the lines. A line decided before is replaced, not duplicated.
@@ -374,6 +409,18 @@ function undoStatementBatch(payload) {
       var ri = findRowIndexById(usheet, uheaders, c.row_id);
       if (ri !== -1) setCellByRow_(usheet, uheaders, ri, c.field, c.old_value);
     }
+  });
+
+  // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
+  changes.filter(function (c) { return c.sheet === 'Account Opening Balances'; }).forEach(function (c) {
+    if (c.field === '__created__') deleteRowsWhere_('Account Opening Balances', function (row) { return row.id === c.row_id; });
+  });
+  changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__deleted__'; }).forEach(function (c) {
+    try {
+      var r = JSON.parse(c.old_value);
+      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''));
+      res.balancesRestored = (res.balancesRestored || 0) + 1;
+    } catch (e) { /* unreadable — leave */ }
   });
 
   // Statement Lines: forget this batch's, restore what it replaced.

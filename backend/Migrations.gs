@@ -92,8 +92,9 @@ function adminSetupIbkAccounts(payload) {
 function addOpeningRow_(pmId, currency, amount, date, asOf) {
   var sheet = getSheet('Account Opening Balances');
   var headers = getHeaders(sheet);
+  var newId = Utilities.getUuid();
   appendRowObject('Account Opening Balances', {
-    id: Utilities.getUuid(), payment_method_id: pmId, currency: currency, amount: amount, date: ''
+    id: newId, payment_method_id: pmId, currency: currency, amount: amount, date: ''
   });
   var row = sheet.getLastRow();
   var dateCell = sheet.getRange(row, headers.indexOf('date') + 1);
@@ -102,6 +103,7 @@ function addOpeningRow_(pmId, currency, amount, date, asOf) {
   var asOfCell = sheet.getRange(row, headers.indexOf('as_of') + 1);
   asOfCell.setNumberFormat('@');
   asOfCell.setValue(asOf);
+  return newId;
 }
 
 // Rewrites one column in place: rows holding Plin's id get the account for
