@@ -59,6 +59,7 @@
       btn.classList.toggle("active", btn.dataset.screen === "more");
     });
     refreshStatementCoverage();
+    refreshStatementBatches();
   }
 
   // ---- coverage list ----
@@ -234,6 +235,9 @@
         // A re-read of the same file replaces its earlier reading.
         usable = usable.filter((u) => u.file !== file.name);
         usable.push({ file: file.name, result });
+        // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
+        review = null;
+        $("statement-review").innerHTML = '<p class="hint">Statements changed — press "Review" to compare them again.</p>';
         updateReviewButton();
       }
     } catch (err) {
@@ -270,6 +274,7 @@
           lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
         }))
       });
+      review = null;
       renderReview(analysis);
     } catch (err) {
       out.innerHTML = `<p class="stmt-verdict bad">✗ Couldn't compare</p><p class="hint">${escapeHtml(err.message)}</p>`;
@@ -293,69 +298,333 @@
     return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || "(no description)")} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${where}`;
   }
 
-  function group(title, items, hint, open) {
+  // ---- interactive review (milestone 3) ----
+  //
+  // The review builds one "item" per decision the owner can make. Each item has
+  // choices (buttons); nothing is written until Save, which sends every chosen
+  // action as ONE batch that can be undone in one step.
+
+  let review = null;      // { analysis, items, sel, cat, matchEntry, open }
+  let lastBatchId = null; // the upload just saved (for Undo)
+
+  function group(title, items, hint, open, key) {
     if (!items.length) return "";
-    return `<details class="stmt-group" ${open ? "open" : ""}><summary>${escapeHtml(title)} <span class="stmt-count">${items.length}</span></summary>${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}${items.join("")}</details>`;
+    const isOpen = review && review.open.has(key) ? review.open.get(key) : open;
+    return `<details class="stmt-group" data-gkey="${escapeHtml(key)}" ${isOpen ? "open" : ""}><summary>${escapeHtml(title)} <span class="stmt-count">${items.length}</span></summary>${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}${items.join("")}</details>`;
   }
 
-  function renderReview(analysis) {
-    const out = $("statement-review");
+  function isPeoplePayment(l) { return /^(YAPE|PLIN)\b/i.test(String(l.description || "").trim()) || /^(YAPE|PLIN)[-.]/i.test(String(l.description || "")); }
+
+  function buildItems(analysis) {
     const sts = analysis.statements;
     const acct = (si) => (sts[si].account ? sts[si].account.nickname : `unknown account (${sts[si].key})`);
-
-    const pairs = [], fees = [], waiting = [], purchases = [], possible = [], income = [], assign = {}, matched = [], completes = [];
+    const items = [];
     sts.forEach((st, si) => {
-      st.lines.forEach((l) => {
-        const where = escapeHtml(acct(si));
-        if (l.completesTransfer) {
-          // A transfer recorded earlier with one end blank — this line is its other end.
-          const fill = l.completesTransfer.side === "to" ? "the receiving account (To)" : "the sending account (From)";
-          completes.push(lineRow(l, `${where} would become ${fill} of: ${entryText(l.completesTransfer.entry)}`));
+      st.lines.forEach((l, li) => {
+        const where = acct(si);
+        const id = `${si}:${li}`;
+        const base = { id, si, li, line: l, where };
+        if (l.status === "handled") { items.push({ ...base, kind: "handled" }); return; }
+        if (l.status === "completes") {
+          items.push({ ...base, kind: "completes", choices: [["complete", "Complete it"]],
+            build: () => ({ type: "complete_transfer", stmt: si, line: li, entryId: l.completesTransfer.entry.id, side: l.completesTransfer.side }) });
           return;
         }
         if (l.status === "matched") {
-          matched.push(lineRow(l, `${where} → ${entryText(l.entry)}${l.viaTotal ? " · matched on the bill total in its description" : ""}`));
-          if (l.entryHadNoAccount) assign[acct(si)] = (assign[acct(si)] || 0) + 1;
-          return;
-        }
-        if (l.pairedWith) {
-          if (l.amount < 0) {
-            const partner = sts[l.pairedWith.statement].lines[l.pairedWith.line];
-            pairs.push(`<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(acct(si))} → ${escapeHtml(acct(l.pairedWith.statement))} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(partner.date))} “${escapeHtml(partner.description)}”</div></div>`);
+          if (l.entryHadNoAccount) {
+            items.push({ ...base, kind: "assign", choices: [["assign", "Assign account"]],
+              build: () => ({ type: "assign_account", stmt: si, line: li, entryId: l.entry.id }) });
+          } else {
+            items.push({ ...base, kind: "matched", auto: () => ({ type: "link", stmt: si, line: li, entryId: l.entry.id }) });
           }
           return;
         }
-        if (l.guess === "fee") { fees.push(lineRow(l, where)); return; }
-        if (l.possible) {
-          const why = l.possible.shareOf ? `looks like your 1/${l.possible.shareOf} share of this bill` : "same amount and date, but assigned to another account";
-          possible.push(lineRow(l, `${where} — ${why}: ${entryText(l.possible.entry)}`));
+        if (l.pairedWith) {
+          const pw = l.pairedWith;
+          if (pw.stored) {
+            // The other half was left "waiting" in an earlier upload.
+            const thisIsOut = l.amount < 0;
+            items.push({ ...base, kind: "pair", outIsThis: thisIsOut, fromEarlier: true,
+              partner: { date: pw.date, description: pw.description, amount: pw.amount, currency: pw.currency }, partnerAcct: pw.account,
+              choices: [["record", "Record"]],
+              build: () => (thisIsOut
+                ? { type: "record_transfer", out: { stmt: si, line: li }, in: { stored: pw.lineKey } }
+                : { type: "record_transfer", out: { stored: pw.lineKey }, in: { stmt: si, line: li } }) });
+          } else if (l.amount < 0) {
+            items.push({ ...base, kind: "pair", outIsThis: true, partner: sts[pw.statement].lines[pw.line], partnerAcct: acct(pw.statement),
+              choices: [["record", "Record"]],
+              build: () => ({ type: "record_transfer", out: { stmt: si, line: li }, in: { stmt: pw.statement, line: pw.line } }) });
+          }
           return;
         }
-        if (l.waiting) { waiting.push(lineRow(l, `${where} — looks like a transfer or card payment; its other side isn't in these statements`)); return; }
-        if (l.guess === "income") { income.push(lineRow(l, where)); return; }
-        const sug = l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion";
-        purchases.push(lineRow(l, `${where} — ${sug}`));
+        if (l.guess === "fee") {
+          items.push({ ...base, kind: "fee", choices: [["record", "Record"]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
+          return;
+        }
+        if (l.possible) {
+          items.push({ ...base, kind: "possible", choices: [["match", "Yes, same"]],
+            build: () => ({ type: "match", stmt: si, line: li, entryId: l.possible.entry.id, overwriteAccount: true }) });
+          return;
+        }
+        if (l.waiting) {
+          items.push({ ...base, kind: "waiting", choices: [["wait", "Leave waiting"], ["ignore", "Ignore"]],
+            build: (choice) => ({ type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li }) });
+          return;
+        }
+        if (l.guess === "income") {
+          items.push({ ...base, kind: "income", choices: [["ignore", "Ignore"]], build: () => ({ type: "ignore", stmt: si, line: li }) });
+          return;
+        }
+        // a purchase not in the app
+        items.push({ ...base, kind: "purchase", choices: [["add", "Add"], ["match", "Match…"], ["ignore", "Ignore"]],
+          build: (choice, r) => {
+            if (choice === "add") return { type: "add_purchase", stmt: si, line: li, category: r.cat.get(id) !== undefined ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
+            if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
+            return { type: "ignore", stmt: si, line: li };
+          } });
       });
     });
+    return items;
+  }
 
+  function itemHtml(it) {
+    const l = it.line, where = escapeHtml(it.where);
+    const chosen = review.sel.get(it.id);
+    let sub = "";
+    if (it.kind === "completes") {
+      const fill = l.completesTransfer.side === "to" ? "the receiving account (To)" : "the sending account (From)";
+      sub = `${where} would become ${fill} of: ${entryText(l.completesTransfer.entry)}`;
+    } else if (it.kind === "assign") {
+      sub = `${where} → ${entryText(l.entry)}`;
+    } else if (it.kind === "fee") {
+      sub = where;
+    } else if (it.kind === "possible") {
+      const why = l.possible.shareOf ? `looks like your 1/${l.possible.shareOf} share of this bill` : "same amount and date, but assigned to another account";
+      sub = `${where} — ${why}: ${entryText(l.possible.entry)}`;
+    } else if (it.kind === "waiting") {
+      sub = `${where} — looks like a transfer or card payment; its other side isn't in these statements`;
+    } else if (it.kind === "income") {
+      sub = where;
+    } else if (it.kind === "purchase") {
+      sub = `${where} — ${l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion"}`;
+      if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
+    } else if (it.kind === "handled") {
+      const h = l.handled;
+      sub = `${where} — already handled (${escapeHtml(h.outcome)})${h.entry ? ": " + entryText(h.entry) : ""}`;
+    } else if (it.kind === "matched") {
+      sub = `${where} → ${entryText(l.entry)}${l.viaTotal ? " · matched on the bill total in its description" : ""}`;
+    }
+    let head;
+    if (it.kind === "pair") {
+      const fromAcct = it.outIsThis ? it.where : it.partnerAcct, toAcct = it.outIsThis ? it.partnerAcct : it.where;
+      head = `<div class="stmt-pair-title">${escapeHtml(fromAcct)} → ${escapeHtml(toAcct)} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub" style="padding-left:0">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(it.partner.date))} “${escapeHtml(it.partner.description)}”${it.fromEarlier ? " — the other half is from an earlier upload" : ""}</div>`;
+    } else {
+      head = `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}`;
+    }
+    let controls = "";
+    if (it.choices) {
+      controls = `<div class="stmt-choices">${it.choices.map(([k, label]) =>
+        `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}`;
+      if (it.kind === "purchase" && chosen === "add") {
+        const cur = review.cat.has(it.id) ? review.cat.get(it.id) : ((l.suggestion && l.suggestion.categoryId) || "");
+        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">No category (decide later)</option>${review.analysis.categories.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
+      }
+      controls += "</div>";
+    }
+    return `<div class="stmt-line2">${head}${controls}</div>`;
+  }
+
+  function selectedActions() {
+    const actions = [];
+    review.items.forEach((it) => {
+      const choice = review.sel.get(it.id);
+      if (choice && it.build) {
+        if (choice === "match" && it.kind === "purchase" && !review.matchEntry.get(it.id)) return; // no entry picked yet
+        actions.push(it.build(choice, review));
+      } else if (it.auto) actions.push(it.auto());
+    });
+    return actions;
+  }
+
+  function summarize(actions) {
+    const n = (t) => actions.filter((a) => a.type === t).length;
+    const parts = [];
+    if (n("record_transfer")) parts.push(`${n("record_transfer")} transfer${n("record_transfer") === 1 ? "" : "s"} between your accounts`);
+    if (n("record_fee")) parts.push(`${n("record_fee")} bank fee${n("record_fee") === 1 ? "" : "s"}`);
+    if (n("add_purchase")) parts.push(`${n("add_purchase")} purchase${n("add_purchase") === 1 ? "" : "s"} added as pending`);
+    if (n("complete_transfer")) parts.push(`${n("complete_transfer")} transfer${n("complete_transfer") === 1 ? "" : "s"} completed`);
+    if (n("assign_account")) parts.push(`the account set on ${n("assign_account")} existing entr${n("assign_account") === 1 ? "y" : "ies"}`);
+    const matched = actions.filter((a) => a.type === "match").length;
+    if (matched) parts.push(`${matched} line${matched === 1 ? "" : "s"} matched to existing entries`);
+    if (n("ignore")) parts.push(`${n("ignore")} line${n("ignore") === 1 ? "" : "s"} ignored`);
+    if (n("wait")) parts.push(`${n("wait")} left waiting for the other statement`);
+    return parts;
+  }
+
+  function renderReview(analysis) {
+    if (!review || review.analysis !== analysis) {
+      review = { analysis, items: buildItems(analysis), sel: new Map(), cat: new Map(), matchEntry: new Map(), matchEntryText: new Map(), open: new Map() };
+    }
+    const out = $("statement-review");
+    const by = (kind) => review.items.filter((i) => i.kind === kind);
+    const html = (kind) => by(kind).map(itemHtml);
     const c = analysis.counts;
-    const assignList = Object.entries(assign).map(([a, n]) => `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(a)} · ${n} entr${n === 1 ? "y" : "ies"}</div></div>`);
+    const actions = selectedActions();
+    const chosenCount = actions.filter((a) => a.type !== "link").length;
+    const summary = summarize(actions);
     out.innerHTML = `
-      <p class="stmt-verdict good">${c.lines} lines · ${c.matched} already in the app · ${c.unregistered} not there yet</p>
-      <p class="stmt-note info">Preview only — nothing has been saved. The buttons to record things come in the next step.</p>
-      ${group("Transfers between your accounts", pairs, "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true)}
-      ${group("Completes a transfer you already recorded", completes, "You recorded one end of these transfers earlier; this statement is the other end. They would fill in the blank account instead of creating a duplicate.", true)}
-      ${group("Bank fees", fees, "Small taxes and card insurance — would be filed under Bank fees.", true)}
-      ${group("Purchases not in the app", purchases, "", true)}
-      ${group("Possible matches to confirm", possible, "", true)}
-      ${group("Waiting for the other statement", waiting, "These look like money moving between accounts, but the other account's statement isn't here. Upload it (now or later) and they pair up.", true)}
-      ${group("Matched entries that have no account yet", assignList, "These entries match a statement line but don't say which account they were paid with.", false)}
-      ${group("Income lines (usually repayments)", income, "Hidden by default — you don't register these.", false)}
-      ${group("Already in the app", matched, "", false)}`;
+      <p class="stmt-verdict good">${c.lines} lines · ${c.matched + c.completes} already in the app · ${c.handled} handled before · ${c.unregistered} not there yet</p>
+      <div class="stmt-quick">
+        <button type="button" class="stmt-choice" id="stmt-apply-suggested">✨ Apply suggested</button>
+        <button type="button" class="stmt-choice" id="stmt-ignore-income">Ignore all income</button>
+        <button type="button" class="stmt-choice" id="stmt-ignore-people">Ignore payments to people under 50</button>
+      </div>
+      <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, and setting accounts. Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
+      ${group("Transfers between your accounts", html("pair"), "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true, "pair")}
+      ${group("Completes a transfer you already recorded", html("completes"), "You recorded one end of these transfers earlier; this statement is the other end.", true, "completes")}
+      ${group("Bank fees", html("fee"), "Small taxes and card insurance — filed under Bank fees.", true, "fee")}
+      ${group("Purchases not in the app", html("purchase"), "Add = a pending entry in your review queue. Match… = this line IS an entry you already have.", true, "purchase")}
+      ${group("Possible matches to confirm", html("possible"), "", true, "possible")}
+      ${group("Waiting for the other statement", html("waiting"), "These look like money moving between accounts, but the other account's statement isn't here.", true, "waiting")}
+      ${group("Matched entries that have no account yet", html("assign"), "These entries match a statement line but don't say which account they were paid with.", false, "assign")}
+      ${group("Income lines (usually repayments)", html("income"), "You don't register these — ignoring remembers that.", false, "income")}
+      ${group("Handled before", html("handled"), "", false, "handled")}
+      ${group("Already in the app", html("matched"), "", false, "matched")}
+      <div class="stmt-savebar">
+        <div class="stmt-save-summary">${summary.length ? escapeHtml(summary.join(" · ")) : "Nothing selected yet."}</div>
+        <button type="button" class="primary" id="stmt-save-btn">${chosenCount ? `Save ${chosenCount} change${chosenCount === 1 ? "" : "s"}` : "Mark statements as processed"}</button>
+      </div>`;
+  }
+
+  function rerender() { if (review) renderReview(review.analysis); }
+
+  function toggleChoice(itemId, choice) {
+    const it = review.items.find((i) => i.id === itemId);
+    if (!it) return;
+    if (review.sel.get(itemId) === choice) { review.sel.delete(itemId); rerender(); return; }
+    if (it.kind === "purchase" && choice === "match") {
+      pickEntryFor(it).then((e) => {
+        if (!e) return;
+        review.matchEntry.set(itemId, e.id);
+        review.matchEntryText.set(itemId, entryPlain(e));
+        review.sel.set(itemId, "match");
+        rerender();
+      });
+      return;
+    }
+    review.sel.set(itemId, choice);
+    rerender();
+  }
+
+  function entryPlain(e) {
+    return `${fmtDate(e.date)} · ${e.description || "(no description)"} · ${fmtMoney(e.currency, e.amount)}`;
+  }
+
+  // "Match…" — pick which existing entry this statement line is.
+  function pickEntryFor(it) {
+    return new Promise(async (resolve) => {
+      const backdrop = $("statement-match-backdrop");
+      const list = $("statement-match-list");
+      $("statement-match-title").textContent = `${fmtDate(it.line.date)} · ${it.line.description} · ${fmtMoney(it.line.currency, it.line.amount)}`;
+      list.innerHTML = '<p class="hint">Looking for entries around that date…</p>';
+      bringModalToFront_(backdrop);
+      backdrop.hidden = false;
+      const close = (val) => { backdrop.hidden = true; list.onclick = null; $("statement-match-cancel").onclick = null; resolve(val); };
+      $("statement-match-cancel").onclick = () => close(null);
+      let entries = [];
+      try { entries = await callApi("getEntriesNear", { date: it.line.date, days: 10, currency: it.line.currency }); }
+      catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
+      if (!entries.length) { list.innerHTML = '<p class="hint">No entries in that currency within 10 days.</p>'; return; }
+      list.innerHTML = entries.map((e, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${entryText(e)}</button>`).join("");
+      list.onclick = (ev) => { const b = ev.target.closest(".stmt-match-row"); if (b) close(entries[Number(b.dataset.i)]); };
+    });
+  }
+
+  function applySuggested() {
+    review.items.forEach((it) => { if (["pair", "completes", "fee", "assign"].includes(it.kind)) review.sel.set(it.id, it.choices[0][0]); });
+    rerender();
+  }
+  function ignoreIncome() { review.items.filter((i) => i.kind === "income").forEach((it) => review.sel.set(it.id, "ignore")); rerender(); }
+  function ignorePeople() {
+    review.items.filter((i) => i.kind === "purchase" && isPeoplePayment(i.line) && Math.abs(i.line.amount) < 50).forEach((it) => review.sel.set(it.id, "ignore"));
+    rerender();
+  }
+
+  function buildSavePayload(dryRun) {
+    return {
+      dryRun,
+      filename: `Statements ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
+      statements: usable.map(({ file, result }) => ({
+        key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+      })),
+      actions: selectedActions()
+    };
+  }
+
+  async function saveReview() {
+    const btn = $("stmt-save-btn");
+    const status = $("statement-review-status");
+    const actions = selectedActions();
+    const parts = summarize(actions);
+    const msg = (parts.length ? "This will:\n • " + parts.join("\n • ") : "This will only mark these statements as processed.") +
+      "\n\nEverything can be undone in one step afterwards. Continue?";
+    if (!confirm(msg)) return;
+    btn.disabled = true;
+    status.innerHTML = '<p class="hint">Saving…</p>';
+    try {
+      const check = await callApi("applyStatementDecisions", buildSavePayload(true)); // validates first, writes nothing
+      if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
+      const res = await callApi("applyStatementDecisions", buildSavePayload(false));
+      lastBatchId = res.batchId;
+      const made = res.created.transfers + res.created.fees + res.created.purchases;
+      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">✓ Saved</p>
+        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
+        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">Undo this upload</button></div>`;
+      $("statement-review").innerHTML = '<p class="hint">Saved. Press "Review" again to see these lines marked as handled.</p>';
+      review = null;
+      coverage = null;
+      refreshStatementCoverage();
+      refreshStatementBatches();
+    } catch (err) {
+      status.innerHTML = `<p class="stmt-verdict bad">✗ Nothing was saved</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      btn.disabled = false;
+    }
+  }
+
+  async function undoBatch(batchId) {
+    if (!confirm("Undo this upload? The entries it created are deleted, the changes it made are reverted, and its statements are un-marked as processed.")) return;
+    try {
+      const r = await callApi("undoStatementBatch", { batchId });
+      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">↩ Undone — ${r.deletedEntries} entries removed, ${r.reverted} changes reverted.</p>`;
+      lastBatchId = null;
+      review = null;
+      $("statement-review").innerHTML = "";
+      coverage = null;
+      refreshStatementCoverage();
+      refreshStatementBatches();
+    } catch (err) {
+      alert("Couldn't undo: " + err.message);
+    }
+  }
+
+  async function refreshStatementBatches() {
+    const box = $("statement-batches");
+    try {
+      const batches = await callApi("listStatementBatches", {});
+      box.innerHTML = batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
+        <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
+        <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
+        <div class="stmt-row-sub">${b.entriesCreated} entries created · ${b.entriesChanged} changed</div></div>
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">Undo</button></div>`).join("") : '<p class="hint">No uploads yet.</p>';
+    } catch (err) {
+      box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
+    }
   }
 
   // exposed for testing in the browser
-  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, setCoverage: (c) => { coverage = c; } };
+  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; } };
 
   // ---- wiring ----
 
@@ -367,6 +636,25 @@
     e.target.value = ""; // lets the same file be picked again
   });
   $("statement-review-btn").addEventListener("click", runReview);
+  $("statement-review").addEventListener("click", (e) => {
+    if (!review) return;
+    const t = e.target;
+    const btn = t.closest("button");
+    if (!btn) return;
+    if (btn.id === "stmt-apply-suggested") applySuggested();
+    else if (btn.id === "stmt-ignore-income") ignoreIncome();
+    else if (btn.id === "stmt-ignore-people") ignorePeople();
+    else if (btn.id === "stmt-save-btn") saveReview();
+    else if (btn.classList.contains("stmt-choice") && btn.dataset.item) toggleChoice(btn.dataset.item, btn.dataset.choice);
+  });
+  $("statement-review").addEventListener("change", (e) => {
+    if (e.target.classList && e.target.classList.contains("stmt-cat") && review) review.cat.set(e.target.dataset.item, e.target.value);
+  });
+  $("statement-review").addEventListener("toggle", (e) => {
+    if (review && e.target.dataset && e.target.dataset.gkey) review.open.set(e.target.dataset.gkey, e.target.open);
+  }, true);
+  $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
+  $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch); });
   $("statement-password-ok").addEventListener("click", () => closeStatementPassword($("statement-password-input").value));
   $("statement-password-cancel").addEventListener("click", () => closeStatementPassword(null));
   $("statement-password-input").addEventListener("keydown", (e) => {

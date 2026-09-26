@@ -305,9 +305,36 @@ function analyzeStatements(payload) {
   });
 
   tick('entries_read');
+  // Lines whose outcome the owner already decided (recorded / matched by hand /
+  // ignored earlier) are remembered by a stable key — they are shown as handled
+  // and can't pair with new lines.
+  ensureStatementLinesSheet_();
+  var handledRows = {};
+  getAllRows('Statement Lines').forEach(function (r) { if (STATEMENT_HANDLED_OUTCOMES_[r.outcome]) handledRows[r.line_key] = r; });
+  var lineKeys = stmts.map(function (s) { return stmtLineKeys_(s.key, s.lines); });
   var matcherInput = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
-    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind, lines: s.lines || [] };
+    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind,
+      lines: (s.lines || []).map(function (l, i) { return handledRows[lineKeys[idx][i]] ? Object.assign({}, l, { handled: true }) : l; }) };
+  });
+  // Lines the owner left "waiting" in an EARLIER upload can pair with lines in this one.
+  var currentKeys = {};
+  lineKeys.forEach(function (arr) { arr.forEach(function (k) { currentKeys[k] = true; }); });
+  var storedByAcct = {};
+  getAllRows('Statement Lines').forEach(function (r) {
+    if (r.outcome !== 'waiting' || currentKeys[r.line_key]) return;
+    (storedByAcct[covKey_(r.account_key)] = storedByAcct[covKey_(r.account_key)] || []).push(r);
+  });
+  var storedInput = {};
+  Object.keys(storedByAcct).forEach(function (acctKey) {
+    var pmS = pmFor(acctKey);
+    if (!pmS) return;
+    var pk = 'stored#' + acctKey;
+    storedInput[pk] = { key: pk, pmId: pmS.id, kind: 'stored', account: pmS.nickname, rows: storedByAcct[acctKey],
+      lines: storedByAcct[acctKey].map(function (r) {
+        return { date: r.date, description: r.description, amount: Number(r.amount), currency: r.currency, stored: true, lineKey: r.line_key };
+      }) };
+    matcherInput.push(storedInput[pk]);
   });
   // Transfers created by loans/repayments are one-sided by nature; the matcher
   // must not offer to "complete" them with another of the owner's accounts.
@@ -322,7 +349,7 @@ function analyzeStatements(payload) {
 
   var ctx = buildGuessContext_();
   tick('guess_context');
-  var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0, completes: 0, waiting: 0 };
+  var counts = { lines: 0, matched: 0, unregistered: 0, transferPairs: 0, fees: 0, income: 0, possible: 0, assignAccount: 0, completes: 0, waiting: 0, handled: 0 };
 
   var out = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
@@ -332,6 +359,13 @@ function analyzeStatements(payload) {
       var o = { i: i, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
         section: l.section, status: r.status, guess: r.guess };
       counts.lines++;
+      var hr = handledRows[lineKeys[idx][i]];
+      if (hr) {
+        o.handled = { outcome: hr.outcome, entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };
+        o.status = 'handled';
+        counts.handled++;
+        return o;
+      }
       if (r.status === 'completes') {
         o.completesTransfer = { entry: stmtEntrySummary_(entryById[r.completesTransfer.entryId], catsById, pmsById), side: r.completesTransfer.side, dayDiff: r.completesTransfer.dd };
         counts.completes++;
@@ -351,7 +385,13 @@ function analyzeStatements(payload) {
         }
         if (r.pairedWith) {
           var pk = r.pairedWith.key, at = pk.lastIndexOf('#');
-          o.pairedWith = { statement: Number(pk.substring(at + 1)), line: r.pairedWith.i };
+          if (pk.indexOf('stored#') === 0 && storedInput[pk]) {
+            var sl = storedInput[pk].lines[r.pairedWith.i];
+            o.pairedWith = { stored: true, lineKey: sl.lineKey, account: storedInput[pk].account, date: sl.date,
+              description: sl.description, amount: sl.amount, currency: sl.currency };
+          } else {
+            o.pairedWith = { statement: Number(pk.substring(at + 1)), line: r.pairedWith.i };
+          }
         }
         if (r.guess === 'fee') counts.fees++;
         if (r.guess === 'income') counts.income++;
@@ -378,5 +418,8 @@ function analyzeStatements(payload) {
   });
   counts.transferPairs = result.pairs.length;
   tick('done');
-  return { counts: counts, statements: out, timing_ms: timing };
+  var expenseCats = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; })
+    .map(function (c) { return { id: c.id, name: c.name }; });
+  var storedConsidered = Object.keys(storedInput).map(function (k) { return { key: k, lines: storedInput[k].lines.length, pmId: storedInput[k].pmId }; });
+  return { counts: counts, statements: out, categories: expenseCats, timing_ms: timing, stored_considered: storedConsidered };
 }

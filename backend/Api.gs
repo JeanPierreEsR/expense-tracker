@@ -139,6 +139,10 @@ function routeAction(action, payload) {
     case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
     case 'listStatementCoverage': return listStatementCoverage();
     case 'analyzeStatements': return analyzeStatements(payload);
+    case 'applyStatementDecisions': return applyStatementDecisions(payload);
+    case 'undoStatementBatch': return undoStatementBatch(payload);
+    case 'listStatementBatches': return listStatementBatches();
+    case 'getEntriesNear': return getEntriesNear(payload);
     case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);

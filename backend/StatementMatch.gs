@@ -115,6 +115,7 @@ function matchStatements_(statements, entries, opts) {
     // the most words in common, then an entry already on this account.
     var pairs = [];
     st.lines.forEach(function (l, li) {
+      if (l.stored) return; // a line remembered from an earlier upload only takes part in pairing
       var ld = stmtDayNumber_(l.date);
       entries.forEach(function (e) {
         if (e.currency !== l.currency) return;
@@ -158,7 +159,7 @@ function matchStatements_(statements, entries, opts) {
     var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
-      if (r.status !== 'unregistered') return;
+      if (r.status !== 'unregistered' || l.handled || l.stored) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
       entries.forEach(function (e) {
@@ -201,7 +202,7 @@ function matchStatements_(statements, entries, opts) {
   var open = [];
   statements.forEach(function (st) {
     st.lines.forEach(function (l, i) {
-      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee') open.push({ key: st.key, i: i, l: l });
+      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee' && !l.handled) open.push({ key: st.key, pmId: st.pmId, i: i, l: l });
     });
   });
   // A transfer recorded with ONE side blank (its other statement wasn't there
@@ -217,7 +218,7 @@ function matchStatements_(statements, entries, opts) {
     var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
-      if (r.status !== 'unregistered' || r.guess === 'fee') return;
+      if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
       entries.forEach(function (e) {
@@ -252,7 +253,7 @@ function matchStatements_(statements, entries, opts) {
   outs.forEach(function (a, ai) {
     edges[ai] = [];
     ins.forEach(function (b, bi) {
-      if (a.key === b.key || a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
+      if (a.key === b.key || a.pmId === b.pmId || a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
       var dd = Math.abs(stmtDayNumber_(a.l.date) - stmtDayNumber_(b.l.date));
       if (dd > STMT_PAIR_WINDOW_DAYS) return;
       if (!STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
