@@ -643,6 +643,10 @@ input[type="date"] {
   padding: 4px 0;
 }
 
+#investment-direction-field {
+  margin-top: 12px;
+}
+
 button.primary {
   width: 100%;
   margin-top: 18px;
