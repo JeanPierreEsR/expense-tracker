@@ -26,6 +26,14 @@ function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
 
+    if (body && body.ping === true) {
+      // Keep-warm ping (see pingWebApp_ in Triggers.gs) — answered before
+      // the access-code check since it carries none and needs no data,
+      // just to have actually run doPost on this instance.
+      return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (body && body.update_id !== undefined) {
       // Telegram webhooks are "at least once" delivery — if doPost is slow
       // to respond (Apps Script cold start, a slow Sheet write), Telegram
@@ -61,6 +69,7 @@ function doPost(e) {
 function routeAction(action, payload) {
   switch (action) {
     case 'getMeta': return getMeta();
+    case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
@@ -318,10 +327,10 @@ function findRowIndexById(sheet, headers, id) {
 function getMeta() {
   ensureInvestmentPlatforms_();
   return {
-    categories: getAllRows('Categories'),
-    banks: getAllRows('Banks'),
-    paymentMethods: getAllRows('Payment Methods'),
-    tags: getAllRows('Tags'),
+    categories: getAllRowsCached_('Categories'),
+    banks: getAllRowsCached_('Banks'),
+    paymentMethods: getAllRowsCached_('Payment Methods'),
+    tags: getAllRowsCached_('Tags'),
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap()
@@ -334,19 +343,70 @@ function getMeta() {
 // a friend with no loans yet gets '' and sorts last.
 function getFriendsWithLastUsed_() {
   var last = {};
+  // Loans reflects money/debt state, so it stays a live read — only the
+  // Friends list itself (names, rarely added/edited) is cached.
   getAllRows('Loans').forEach(function (l) {
     var d = String(l.date || '');
     if (d && (!last[l.friend_id] || d > last[l.friend_id])) last[l.friend_id] = d;
   });
-  return getAllRows('Friends').map(function (f) {
+  return getAllRowsCached_('Friends').map(function (f) {
     f.last_used = last[f.id] || '';
     return f;
   });
 }
 
+// ---- Small read cache for rarely-changing reference tables ----
+// getMeta alone used to mean 7 sequential Sheet reads every single time
+// (see CHANGELOG.md § Architecture, "Performance instrumentation") — this
+// cuts a cache-hit read to near-zero. Deliberately TTL-only, with no
+// manual invalidation on write: these tables (categories, banks, payment
+// methods, tags, settings, payors) are edited rarely and by hand, so up to
+// REFERENCE_CACHE_TTL_SECONDS of staleness after an edit is harmless —
+// and that's a much smaller risk than a future write path somewhere
+// forgetting to clear a cache key and silently going stale forever.
+// NEVER apply this to Entries or anything else money-related — those must
+// always be current, per CLAUDE.md principle 6 ("anything automated lands
+// in a review queue as pending until confirmed") and the core principle
+// that the app's numbers are always live, never a snapshot.
+var REFERENCE_CACHE_TTL_SECONDS = 120;
+
+function getAllRowsCached_(sheetName) {
+  var cache = CacheService.getScriptCache();
+  var key = 'rows_' + sheetName;
+  var cached = cache.get(key);
+  if (cached) return JSON.parse(cached);
+  var rows = getAllRows(sheetName);
+  try {
+    cache.put(key, JSON.stringify(rows), REFERENCE_CACHE_TTL_SECONDS);
+  } catch (err) {
+    // Too big for a cache entry (100KB limit) or a transient CacheService
+    // error — harmless, this just reads the Sheet directly every time.
+  }
+  return rows;
+}
+
+// The frontend's app-open screen needs getMeta + the entry list + the
+// review queue + this month's expected recurring items — four independent
+// reads, previously four separate round trips (see init() in app.js). Each
+// round trip pays its own share of Apps Script's per-request startup cost
+// (real for this app: it's used a few times a day with idle gaps between,
+// so almost every request runs on a freshly-spun-up instance — see
+// CHANGELOG.md § Architecture, "Performance instrumentation"). Bundling
+// into one call pays that cost once per app open instead of four times.
+// Pure aggregation — no new business logic, so nothing here changes what
+// any of the four screens show.
+function getStartupBundle(payload) {
+  return {
+    meta: getMeta(),
+    entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
+    pending: listPendingEntries(),
+    expectedRecurring: listExpectedRecurringItems()
+  };
+}
+
 function getSettingsMap() {
   var map = {};
-  getAllRows('Settings').forEach(function (r) { map[r.key] = r.value; });
+  getAllRowsCached_('Settings').forEach(function (r) { map[r.key] = r.value; });
   return map;
 }
 

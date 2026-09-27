@@ -25,6 +25,8 @@ function onOpen() {
     .addItem('16. Disable instant Telegram replies (back to polling)', 'disableTelegramWebhook')
     .addItem('17. Set Telegram relay URL (Cloudflare Worker)', 'promptSetTelegramRelayUrl')
     .addItem('18. Set up investment platforms', 'menuSetupInvestmentPlatforms')
+    .addItem('19. Enable keep-warm ping (every 5 min)', 'enableKeepWarmPing')
+    .addItem('20. Disable keep-warm ping', 'disableKeepWarmPing')
     .addToUi();
 }
 

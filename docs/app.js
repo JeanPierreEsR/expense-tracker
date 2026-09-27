@@ -358,8 +358,11 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
 
 // ---- Meta loading & form population ----
 
-async function loadMeta() {
-  meta = await callApi("getMeta", {});
+// prefetchedMeta lets a caller that already has the data (see init(), which
+// fetches meta/entries/pending/recurring together in one call) skip the
+// network round trip; every other call site omits it and fetches as before.
+async function loadMeta(prefetchedMeta) {
+  meta = prefetchedMeta || await callApi("getMeta", {});
   populateCategoryOptions();
   populateCategoryPicker();
   populatePaidByOptions();
@@ -1471,10 +1474,11 @@ function setLoadMoreButton_(list, hasMore) {
   list.appendChild(btn);
 }
 
-async function refreshEntryList() {
+// prefetchedEntries: see loadMeta's comment above.
+async function refreshEntryList(prefetchedEntries) {
   // Any change to entries makes the search list stale (see setupEntrySearch_).
   searchIndexStale = true;
-  const fetched = await callApi("listEntries", { limit: entriesShown + 1 });
+  const fetched = prefetchedEntries || await callApi("listEntries", { limit: entriesShown + 1 });
   const hasMore = fetched.length > entriesShown;
   const entries = hasMore ? fetched.slice(0, entriesShown) : fetched;
   const list = document.getElementById("entry-list");
@@ -2006,10 +2010,15 @@ function transferAccountOptions_(selectedId, blankLabel) {
   return `<option value="">${blankLabel}</option>` + opts.join("");
 }
 
-async function refreshReviewQueue() {
+// prefetchedPending: see loadMeta's comment above. Still flushes first
+// either way — cheap/no-op when the queue's already empty, and callers
+// that already flushed (init(), via the bundle path) just flush an empty
+// queue again rather than needing a separate code path.
+async function refreshReviewQueue(prefetchedPending) {
   await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
-  const entries = (await callApi("listPendingEntries", {})).filter((e) => !queuedIds.has(e.id));
+  const source = prefetchedPending || await callApi("listPendingEntries", {});
+  const entries = source.filter((e) => !queuedIds.has(e.id));
   const card = document.getElementById("review-queue-card");
   const list = document.getElementById("review-list");
   document.getElementById("review-count").textContent = entries.length;
@@ -3364,10 +3373,27 @@ async function init() {
     perfRecordStartup_(name, performance.now() - t0);
   };
   try {
-    await timedStep("init:getMeta", loadMeta);
-    await timedStep("init:entries", refreshEntryList);
-    await timedStep("init:reviewQueue", refreshReviewQueue);
-    await timedStep("init:expectedRecurring", refreshExpectedRecurring);
+    // Queued offline review actions (confirm/discard tapped while
+    // unreachable — see flushQueuedReviewActions_) must reach the server
+    // BEFORE the bundle's pending-entries snapshot is taken below, or an
+    // already-actioned entry would still show as pending for this load.
+    await timedStep("init:flushReviewQueue", flushQueuedReviewActions_);
+    // One call instead of four separate round trips for getMeta/entries/
+    // review queue/expected recurring — each round trip used to pay its
+    // own share of Apps Script's per-request startup cost (see
+    // getStartupBundle's comment in backend/Api.gs, and CHANGELOG.md §
+    // Architecture). The four sub-steps below now just render data
+    // that's already in hand, so they should be near-instant — compare
+    // their times here with older entries in the log with the same
+    // names to see the effect.
+    let bundle;
+    await timedStep("init:fetchBundle", async () => {
+      bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1 });
+    });
+    await timedStep("init:getMeta", () => loadMeta(bundle.meta));
+    await timedStep("init:entries", () => refreshEntryList(bundle.entries));
+    await timedStep("init:reviewQueue", () => refreshReviewQueue(bundle.pending));
+    await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
@@ -4151,20 +4177,25 @@ document.getElementById("recurring-delete-btn").addEventListener("click", async 
 // the normal way (email arrives, review queue, confirm) — this is just a
 // heads-up of what the server hasn't matched to a real entry yet, and it
 // drops off there on its own once that match exists.
-async function refreshExpectedRecurring() {
+// prefetchedGroups: see loadMeta's comment above.
+async function refreshExpectedRecurring(prefetchedGroups) {
   const card = document.getElementById("expected-recurring-card");
   const container = document.getElementById("expected-recurring-groups");
   let groups;
-  try {
-    ({ groups } = await callApi("listExpectedRecurringItems"));
-  } catch (err) {
-    // Logged rather than swallowed outright — this card hiding with no
-    // sign anything went wrong (a slow cold start, a dropped connection)
-    // has looked, from the outside, identical to "nothing programmed
-    // this month" with nothing in the console to tell the two apart.
-    console.error("refreshExpectedRecurring failed:", err);
-    card.hidden = true;
-    return;
+  if (prefetchedGroups) {
+    groups = prefetchedGroups;
+  } else {
+    try {
+      ({ groups } = await callApi("listExpectedRecurringItems"));
+    } catch (err) {
+      // Logged rather than swallowed outright — this card hiding with no
+      // sign anything went wrong (a slow cold start, a dropped connection)
+      // has looked, from the outside, identical to "nothing programmed
+      // this month" with nothing in the console to tell the two apart.
+      console.error("refreshExpectedRecurring failed:", err);
+      card.hidden = true;
+      return;
+    }
   }
 
   if (!groups.length) {

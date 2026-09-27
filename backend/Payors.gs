@@ -27,7 +27,7 @@ function ensurePayorsSheet_() {
 
 function getPayorRows_() {
   ensurePayorsSheet_();
-  return getAllRows('Payors');
+  return getAllRowsCached_('Payors');
 }
 
 function listPayors() {
