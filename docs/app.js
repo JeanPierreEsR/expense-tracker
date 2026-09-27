@@ -2176,7 +2176,12 @@ function showScreen(name) {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
     refreshBalances().catch(() => {});
-    refreshInvestments().catch(() => {});
+    // Investments card: hidden for now (2026-09-27) — the owner doesn't
+    // want a per-platform balance shown yet, only the flows in/out. The
+    // card, its API, and Investments.gs are left in place; this is the
+    // one line keeping it off Overview. See CLAUDE.md § Investment
+    // platforms.
+    // refreshInvestments().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
