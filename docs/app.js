@@ -239,7 +239,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // the first request after that can take 20+ seconds to wake it up, and
 // sometimes the slow/cold response comes back looking like a CORS failure.
 // Retrying clears it up once the backend is warm.
-async function callApi(action, payload, attempt = 1) {
+async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
   let json;
   try {
     // A hard cap per attempt — without one, a request that goes quiet
@@ -270,12 +270,46 @@ async function callApi(action, payload, attempt = 1) {
     // backend is warm.
     if (attempt < 6) {
       await sleep(400 * attempt);
-      return callApi(action, payload, attempt + 1);
+      return callApi(action, payload, attempt + 1, startedAt);
     }
+    perfRecordCall_(action, performance.now() - startedAt, attempt, null, null, false);
     throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
+  perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
   if (!json.ok) throw new Error(json.error || "Unknown error");
   return json.data;
+}
+
+// ---- Performance log ----
+// Every server call (and each app-startup phase) is timed and kept in
+// localStorage (last PERF_LOG_MAX entries) so slowness can be diagnosed
+// from real use: More → Performance log. totalMs is what the phone waited;
+// serverMs is what the script spent inside doPost — the gap is
+// network + wake-up time.
+
+const PERF_LOG_KEY = "perfLog";
+const PERF_LOG_MAX = 600;
+
+function perfAppend_(entry) {
+  try {
+    const log = JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]");
+    log.push(entry);
+    localStorage.setItem(PERF_LOG_KEY, JSON.stringify(log.slice(-PERF_LOG_MAX)));
+  } catch (err) {
+    // Logging must never break the app.
+  }
+}
+
+function perfRecordCall_(action, totalMs, attempts, serverMs, cold, ok) {
+  perfAppend_({
+    t: Date.now(), kind: "call", name: action, totalMs: Math.round(totalMs),
+    serverMs: typeof serverMs === "number" ? serverMs : null,
+    cold: !!cold, attempts, ok
+  });
+}
+
+function perfRecordStartup_(name, ms) {
+  perfAppend_({ t: Date.now(), kind: "startup", name, totalMs: Math.round(ms) });
 }
 
 function todayLocalISO() {
@@ -2958,11 +2992,17 @@ async function init() {
   document.getElementById("date").value = todayLocalISO();
   renderCurrencyChips("entry");
 
+  const initStart = performance.now();
+  const timedStep = async (name, fn) => {
+    const t0 = performance.now();
+    await fn();
+    perfRecordStartup_(name, performance.now() - t0);
+  };
   try {
-    await loadMeta();
-    await refreshEntryList();
-    await refreshReviewQueue();
-    await refreshExpectedRecurring();
+    await timedStep("init:getMeta", loadMeta);
+    await timedStep("init:entries", refreshEntryList);
+    await timedStep("init:reviewQueue", refreshReviewQueue);
+    await timedStep("init:expectedRecurring", refreshExpectedRecurring);
     if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     } else {
@@ -2972,6 +3012,10 @@ async function init() {
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
+    perfRecordStartup_("init:total", performance.now() - initStart);
+    // performance.now() counts from page navigation, so this is the full
+    // "tapped the icon → usable" time, including HTML/JS download.
+    perfRecordStartup_("open→usable", performance.now());
   } catch (err) {
     document.getElementById("loading-screen").hidden = true;
     if (err.message === "Invalid access code") {
@@ -3069,7 +3113,90 @@ async function init() {
 document.getElementById("more-recurring-btn").addEventListener("click", showRecurringScreen);
 document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("more-exchange-rates-btn").addEventListener("click", showExchangeRatesScreen);
+document.getElementById("more-perf-btn").addEventListener("click", showPerfScreen);
+document.getElementById("perf-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("perf-clear-btn").addEventListener("click", () => {
+  localStorage.removeItem(PERF_LOG_KEY);
+  renderPerfScreen();
+});
+document.getElementById("perf-copy-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("perf-copy-btn");
+  try {
+    await navigator.clipboard.writeText(perfReportText_());
+    btn.textContent = "Copied ✓";
+  } catch (err) {
+    btn.textContent = "Copy failed";
+  }
+  setTimeout(() => { btn.textContent = "Copy report"; }, 2000);
+});
 document.getElementById("exchange-rates-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Performance log screen (More tab) ----
+
+function showPerfScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-perf"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  renderPerfScreen();
+}
+
+function perfStats_(values) {
+  const v = values.filter((x) => typeof x === "number").sort((a, b) => a - b);
+  if (!v.length) return null;
+  const pick = (q) => v[Math.min(v.length - 1, Math.floor(q * v.length))];
+  return { n: v.length, median: pick(0.5), p90: pick(0.9), max: v[v.length - 1] };
+}
+
+function perfSummaryRows_() {
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]"); } catch (err) { /* empty */ }
+  const groups = {};
+  log.forEach((e) => {
+    const key = `${e.kind === "startup" ? "◆ " : ""}${e.name}`;
+    (groups[key] = groups[key] || []).push(e);
+  });
+  return Object.keys(groups).sort().map((key) => {
+    const es = groups[key];
+    const total = perfStats_(es.map((e) => e.totalMs));
+    const server = perfStats_(es.map((e) => e.serverMs));
+    return {
+      name: key, total, server,
+      cold: es.filter((e) => e.cold).length,
+      retried: es.filter((e) => e.attempts > 1).length,
+      failed: es.filter((e) => e.ok === false).length
+    };
+  });
+}
+
+function perfReportText_() {
+  const rows = perfSummaryRows_();
+  const first = (() => { try { return JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]")[0]; } catch (e) { return null; } })();
+  const lines = [`Performance report — since ${first ? new Date(first.t).toISOString() : "n/a"} — app ${document.querySelector('link[rel=stylesheet]').href.split("?v=")[1]}`,
+    "name | n | median ms | p90 ms | max ms | server median ms | cold | retried | failed"];
+  rows.forEach((r) => {
+    lines.push([r.name, r.total.n, r.total.median, r.total.p90, r.total.max,
+      r.server ? r.server.median : "-", r.cold, r.retried, r.failed].join(" | "));
+  });
+  return lines.join("\n");
+}
+
+function renderPerfScreen() {
+  const box = document.getElementById("perf-summary");
+  const rows = perfSummaryRows_();
+  if (!rows.length) {
+    box.innerHTML = '<div class="status-msg">Nothing recorded yet — use the app for a while, then come back.</div>';
+    return;
+  }
+  const fmt = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
+  box.innerHTML = rows.map((r) => `
+    <div class="perf-row">
+      <div class="perf-name">${escapeHtml(r.name)} <span class="hint">×${r.total.n}</span></div>
+      <div class="hint">median ${fmt(r.total.median)} · p90 ${fmt(r.total.p90)} · max ${fmt(r.total.max)}${
+        r.server ? ` · server ${fmt(r.server.median)}` : ""}${
+        r.cold ? ` · ${r.cold} cold` : ""}${r.retried ? ` · ${r.retried} retried` : ""}${r.failed ? ` · ${r.failed} failed` : ""}</div>
+    </div>`).join("");
+}
 
 // ---- Exchange rates (More tab) ----
 

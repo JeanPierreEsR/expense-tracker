@@ -11,7 +11,17 @@
  * at accessCode. Telegram doesn't read the response body, just needs 200.
  */
 
+// Performance tracking: doPost stamps each frontend response with how long
+// the server itself spent (serverMs) and whether this request was the first
+// one served by a freshly started script instance (coldInstance — module
+// globals reset on every cold start). The app compares serverMs with its own
+// round-trip time to tell network/wake-up delay from real Sheet work.
+var PERF_INSTANCE_WARM_ = false;
+
 function doPost(e) {
+  var perfStart = Date.now();
+  var perfCold = !PERF_INSTANCE_WARM_;
+  PERF_INSTANCE_WARM_ = true;
   var response;
   try {
     var body = JSON.parse(e.postData.contents);
@@ -42,6 +52,8 @@ function doPost(e) {
   } catch (err) {
     response = { ok: false, error: err.message };
   }
+  response.serverMs = Date.now() - perfStart;
+  response.coldInstance = perfCold;
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
 }

@@ -1910,3 +1910,6 @@ button.primary:disabled {
   display: block; width: 100%; text-align: left; font-family: inherit; font-size: 0.8rem;
   background: none; border: none; border-bottom: 1px solid var(--border); padding: 10px 4px; cursor: pointer; color: var(--text);
 }
+
+.perf-row { padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.2); }
+.perf-name { font-weight: 600; }
