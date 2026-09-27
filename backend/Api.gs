@@ -85,6 +85,13 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'admin_ensureUpdatedAtColumn': return { column: ensureEntriesUpdatedAtColumn_() };
+    case 'admin_touchLatestEntry': {
+      // Live check of the change-tracking path: stamps ONLY updated_at on the newest confirmed entry.
+      var latest = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; }).sort(compareEntriesRecency_)[0];
+      touchEntriesById_([latest.id]);
+      return { id: latest.id };
+    }
     case 'listEntrySearchIndex': return listEntrySearchIndex();
     case 'syncEntrySearchIndex': return syncEntrySearchIndex(payload);
     case 'listPhotoJobs': return listPhotoJobs();
