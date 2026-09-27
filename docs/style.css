@@ -1927,3 +1927,9 @@ button.primary:disabled {
 .entry-search-row input[type="search"] { -webkit-appearance: none; appearance: none; }
 .entry-search-row input[type="search"]::-webkit-search-cancel-button,
 .entry-search-row input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+
+/* While searching, the Entries tab shows ONLY the search box and its results. */
+#screen-entries.searching > :not(.entry-search-card):not(.search-results-card) { display: none !important; }
+.search-results-card { padding-top: 6px; }
+.search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
+.search-show-more { width: 100%; margin-top: 8px; }

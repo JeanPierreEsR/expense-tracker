@@ -1413,9 +1413,6 @@ function paidByLabel(entryOrPaidBy) {
 // button is needed.
 const ENTRY_PAGE_SIZE = 100;
 let entriesShown = ENTRY_PAGE_SIZE;
-// The Entries tab's search box. Empty = the normal newest-first list.
-let entrySearchTerm = "";
-let entryListRequestId = 0; // so a slow, older search can't overwrite a newer one
 
 function buildEntryRow_(entry) {
   const row = document.createElement("div");
@@ -1459,7 +1456,7 @@ function setLoadMoreButton_(list, hasMore) {
     btn.textContent = "Loading…";
     try {
       // Only the next page is fetched and appended — earlier rows stay put.
-      const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown, search: entrySearchTerm });
+      const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown });
       const more = fetched.length > ENTRY_PAGE_SIZE;
       const page = more ? fetched.slice(0, ENTRY_PAGE_SIZE) : fetched;
       btn.remove();
@@ -1475,24 +1472,16 @@ function setLoadMoreButton_(list, hasMore) {
 }
 
 async function refreshEntryList() {
-  const requestId = ++entryListRequestId;
-  const searching = entrySearchTerm !== "";
-  const fetched = await callApi("listEntries", { limit: entriesShown + 1, search: entrySearchTerm });
-  if (requestId !== entryListRequestId) return; // a newer search/refresh took over
+  // Any change to entries makes the search list stale (see setupEntrySearch_).
+  searchIndexStale = true;
+  const fetched = await callApi("listEntries", { limit: entriesShown + 1 });
   const hasMore = fetched.length > entriesShown;
   const entries = hasMore ? fetched.slice(0, entriesShown) : fetched;
   const list = document.getElementById("entry-list");
   list.innerHTML = "";
 
-  document.getElementById("entry-list-title").textContent = searching ? "Search results" : "Recent entries";
-  const hint = document.getElementById("entry-search-hint");
-  hint.hidden = !searching;
-  if (searching) hint.textContent = entries.length === 0 ? "" : `${hasMore ? entries.length + "+" : entries.length} matching ${entries.length === 1 && !hasMore ? "entry" : "entries"} — tap one to edit.`;
-
   if (entries.length === 0) {
-    list.innerHTML = searching
-      ? `<div class="status-msg">No entries match “${escapeHtml(entrySearchTerm)}”.</div>`
-      : '<div class="status-msg">No entries yet — add your first one above.</div>';
+    list.innerHTML = '<div class="status-msg">No entries yet — add your first one above.</div>';
     return;
   }
 
@@ -1500,37 +1489,153 @@ async function refreshEntryList() {
   setLoadMoreButton_(list, hasMore);
 }
 
-// Search box: waits for a short pause in typing, then re-queries from the
-// newest match. Every word typed must match (description, category,
-// payment method, who paid, labels, date, amount…) — see filterEntriesBySearch_.
+// ---- Entries-tab search: instant, as-you-type ----
+// The server takes 5-8 s per query (Apps Script reads the whole sheet), far
+// too slow to feel live. So ONE compact list of every confirmed entry
+// (listEntrySearchIndex, each row carrying its searchable text `_s`) is
+// loaded in the background and filtered right here on every keystroke.
+// While searching, the tab shows only the search box and its results.
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_PAGE_SIZE = 50;
+let searchIndex = null;          // array once loaded
+let searchIndexPromise = null;   // in-flight load, if any
+let searchIndexStale = false;    // entries changed since the last load
+let searchIndexLoadedAt = 0;
+let searchIndexError = "";       // last load failure, shown instead of "Loading…"
+let searchShown = SEARCH_PAGE_SIZE;
+let searchActive = false;
+
+function normalizeSearchText_(text) {
+  return String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Loads (or refreshes) the list. Old results keep working while a refresh
+// is in flight; only the very first load has to be waited for.
+function ensureSearchIndex_() {
+  if (searchIndexPromise) return searchIndexPromise;
+  searchIndexStale = false;
+  searchIndexPromise = callApi("listEntrySearchIndex")
+    .then((rows) => {
+      searchIndex = rows;
+      searchIndexLoadedAt = Date.now();
+      searchIndexError = "";
+    })
+    .catch((err) => {
+      searchIndexError = err.message || "unknown error";
+      throw err;
+    })
+    .finally(() => { searchIndexPromise = null; });
+  return searchIndexPromise;
+}
+
+function buildSearchRow_(entry) {
+  const row = buildEntryRow_(entry);
+  // Replace the inline-edit click with the pop-up, so the results stay put
+  // underneath; after a save/delete the pop-up asks the same hook the
+  // Overview/Budgets drill-downs use to refresh what's below it.
+  const fresh = row.cloneNode(true);
+  fresh.addEventListener("click", () => {
+    currentDrilldown = { refetch: refreshSearchAfterEdit_ };
+    openEditPopup(entry);
+  });
+  return fresh;
+}
+
+async function refreshSearchAfterEdit_() {
+  const box = document.getElementById("search-results");
+  box.classList.add("entry-updating");
+  document.getElementById("entry-search-hint").textContent = "Updating…";
+  try { await ensureSearchIndex_(); } catch (err) { /* keeps the old list */ }
+  box.classList.remove("entry-updating");
+  renderSearchResults_();
+}
+
+function renderSearchResults_() {
+  if (!searchActive) return;
+  const input = document.getElementById("entry-search");
+  const hint = document.getElementById("entry-search-hint");
+  const box = document.getElementById("search-results");
+  const term = input.value.trim();
+  box.innerHTML = "";
+  hint.hidden = false;
+
+  if (term.length < SEARCH_MIN_CHARS) {
+    hint.textContent = `Type at least ${SEARCH_MIN_CHARS} letters…`;
+    return;
+  }
+  if (!searchIndex) {
+    hint.textContent = searchIndexError
+      ? `Couldn't load your entries for search (${searchIndexError}). Keep typing to retry.`
+      : "Loading all your entries for instant search… (first time only)";
+    return;
+  }
+
+  const words = normalizeSearchText_(term).split(/\s+/).filter(Boolean);
+  const matches = searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1));
+  hint.textContent = matches.length === 0
+    ? ""
+    : `${matches.length} matching ${matches.length === 1 ? "entry" : "entries"} — tap one to edit.`;
+
+  if (matches.length === 0) {
+    box.innerHTML = `<div class="status-msg">No entries match “${escapeHtml(term)}”.</div>`;
+    return;
+  }
+  matches.slice(0, searchShown).forEach((entry) => box.appendChild(buildSearchRow_(entry)));
+  if (matches.length > searchShown) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "cancel-edit-btn search-show-more";
+    more.textContent = `Show more (${matches.length - searchShown} left)`;
+    more.addEventListener("click", () => { searchShown += SEARCH_PAGE_SIZE; renderSearchResults_(); });
+    box.appendChild(more);
+  }
+}
+
+function setSearchActive_(on) {
+  searchActive = on;
+  document.getElementById("screen-entries").classList.toggle("searching", on);
+  document.getElementById("search-results-card").hidden = !on;
+  if (!on) {
+    document.getElementById("entry-search-hint").hidden = true;
+    document.getElementById("search-results").innerHTML = "";
+  }
+}
+
 function setupEntrySearch_() {
   const input = document.getElementById("entry-search");
   const clearBtn = document.getElementById("entry-search-clear");
-  let timer = null;
 
-  const apply = () => {
-    const term = input.value.trim();
+  const onChange = () => {
     clearBtn.hidden = input.value === "";
-    if (term === entrySearchTerm) return;
-    entrySearchTerm = term;
-    entriesShown = ENTRY_PAGE_SIZE;
-    refreshEntryList().catch(() => {});
+    const typing = input.value.trim() !== "";
+    if (typing !== searchActive) {
+      setSearchActive_(typing);
+      if (typing) window.scrollTo(0, 0);
+    }
+    searchShown = SEARCH_PAGE_SIZE;
+    if (typing && !searchIndex && !searchIndexPromise) {
+      ensureSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
+    }
+    if (typing) renderSearchResults_();
   };
 
-  input.addEventListener("input", () => {
-    clearBtn.hidden = input.value === "";
-    clearTimeout(timer);
-    timer = setTimeout(apply, 350);
+  // Loading starts the moment the box is touched (or shortly after the app
+  // opens), so it's usually ready before the first letter is typed.
+  input.addEventListener("focus", () => {
+    const old = !searchIndex || searchIndexStale || Date.now() - searchIndexLoadedAt > 60000;
+    if (old) ensureSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
   });
+  input.addEventListener("input", onChange);
   input.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(timer); apply(); input.blur(); }
+    if (ev.key === "Enter") { ev.preventDefault(); input.blur(); }
   });
   clearBtn.addEventListener("click", () => {
     input.value = "";
-    clearTimeout(timer);
-    apply();
+    onChange();
     input.focus();
   });
+
+  setTimeout(() => { ensureSearchIndex_().catch(() => {}); }, 4000);
 }
 
 // ---- Editing a previously confirmed entry ----

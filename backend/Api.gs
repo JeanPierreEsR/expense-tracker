@@ -85,6 +85,7 @@ function routeAction(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
+    case 'listEntrySearchIndex': return listEntrySearchIndex();
     case 'listPhotoJobs': return listPhotoJobs();
     case 'getPhotoJob': return getPhotoJob(payload);
     case 'submitPhotoJobText': return submitPhotoJobText(payload);
@@ -507,44 +508,92 @@ function searchNormalize_(text) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-/**
- * AND-search over every field a person would recognise an entry by:
- * description, the bank's merchant name, category (and its parent), type,
- * date, amount (as stored and as 2 decimals), currency, payment method
- * (both ends of a transfer), who paid / who paid the owner, and labels.
- * Each whitespace-separated word must match somewhere, as a substring.
- * No fuzzy/AI matching — a plain, explainable rule.
- */
-function filterEntriesBySearch_(entries, search) {
-  var words = searchNormalize_(search).split(/\s+/).filter(Boolean);
-  if (!words.length) return entries;
-
-  var categoriesById = rowsById_(getAllRows('Categories'));
-  var methodsById = rowsById_(getAllRows('Payment Methods'));
-  var friendsById = rowsById_(getAllRows('Friends'));
-  var payorsById = rowsById_(getPayorRows_());
+// Lookup tables for entrySearchText_, built once per request.
+function buildSearchLookups_() {
   var tagsById = rowsById_(getAllRows('Tags'));
   var tagNamesByEntry = {};
   getAllRows('Entry Tags').forEach(function (et) {
     var tag = tagsById[et.tag_id];
     if (tag) (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
   });
+  return {
+    categoriesById: rowsById_(getAllRows('Categories')),
+    methodsById: rowsById_(getAllRows('Payment Methods')),
+    friendsById: rowsById_(getAllRows('Friends')),
+    payorsById: rowsById_(getPayorRows_()),
+    tagNamesByEntry: tagNamesByEntry
+  };
+}
 
+/**
+ * The one definition of "what text can find this entry": description, the
+ * bank's merchant name, category (and its parent), type, date, amount (as
+ * stored and as 2 decimals), currency, payment method (both ends of a
+ * transfer), who paid / who paid the owner, and labels — lowercased and
+ * accent-free. Used both by the server-side `search` filter and shipped to
+ * the app (`_s`) so its instant, as-you-type search matches identically.
+ */
+function entrySearchText_(e, lk) {
+  var cat = lk.categoriesById[e.category_id];
+  var parent = cat && cat.parent_id ? lk.categoriesById[cat.parent_id] : null;
+  var payer = e.type === 'income' ? lk.payorsById[e.paid_by] : lk.friendsById[e.paid_by];
+  var parts = [
+    e.description, e.merchant, e.type, e.date, e.currency,
+    e.amount, isNaN(Number(e.amount)) ? '' : Number(e.amount).toFixed(2),
+    cat && cat.name, parent && parent.name,
+    lk.methodsById[e.payment_method_id] && lk.methodsById[e.payment_method_id].nickname,
+    lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
+    e.paid_by === 'me' ? 'me' : (payer && payer.name),
+    (lk.tagNamesByEntry[e.id] || []).join(' ')
+  ];
+  return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
+}
+
+// AND-search: each whitespace-separated word must appear as a substring of
+// the entry's search text. No fuzzy/AI matching — a plain, explainable rule.
+function filterEntriesBySearch_(entries, search) {
+  var words = searchNormalize_(search).split(/\s+/).filter(Boolean);
+  if (!words.length) return entries;
+  var lk = buildSearchLookups_();
   return entries.filter(function (e) {
-    var cat = categoriesById[e.category_id];
-    var parent = cat && cat.parent_id ? categoriesById[cat.parent_id] : null;
-    var payer = e.type === 'income' ? payorsById[e.paid_by] : friendsById[e.paid_by];
-    var parts = [
-      e.description, e.merchant, e.type, e.date, e.currency,
-      e.amount, isNaN(Number(e.amount)) ? '' : Number(e.amount).toFixed(2),
-      cat && cat.name, parent && parent.name,
-      methodsById[e.payment_method_id] && methodsById[e.payment_method_id].nickname,
-      methodsById[e.to_payment_method_id] && methodsById[e.to_payment_method_id].nickname,
-      e.paid_by === 'me' ? 'me' : (payer && payer.name),
-      (tagNamesByEntry[e.id] || []).join(' ')
-    ];
-    var haystack = searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
+    var haystack = entrySearchText_(e, lk);
     return words.every(function (w) { return haystack.indexOf(w) !== -1; });
+  });
+}
+
+/**
+ * Every confirmed entry, newest first, in the compact shape the Entries-tab
+ * search needs to run entirely on the phone (instant as-you-type results):
+ * just the fields rows/editing use, plus `_s` (see entrySearchText_).
+ * Exchange rates are read ONCE — computeAmountPen re-reads the rates sheet
+ * on every call, which is far too slow across thousands of entries.
+ */
+function listEntrySearchIndex() {
+  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  entries.sort(compareEntriesRecency_);
+  var lk = buildSearchLookups_();
+  var ratesByCurrency = buildRatesByCurrency_();
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (sp) {
+    splitSumByEntry[sp.entry_id] = (splitSumByEntry[sp.entry_id] || 0) + Number(sp.amount);
+  });
+  var pen = function (amount, currency, date) {
+    if (currency === 'PEN') return amount;
+    var rate = latestRateFromList_(ratesByCurrency[currency], String(date).substring(0, 7));
+    return rate != null ? amount * rate : null;
+  };
+  return entries.map(function (e) {
+    var ownShare = e.type === 'expense' ? Number(e.amount) - (splitSumByEntry[e.id] || 0) : Number(e.amount);
+    return {
+      id: e.id, type: e.type, date: e.date, amount: e.amount, currency: e.currency,
+      category_id: e.category_id, description: e.description,
+      payment_method_id: e.payment_method_id, to_payment_method_id: e.to_payment_method_id,
+      paid_by: e.paid_by,
+      amount_pen: pen(e.amount, e.currency, e.date),
+      own_share: ownShare,
+      own_share_pen: pen(ownShare, e.currency, e.date),
+      _s: entrySearchText_(e, lk)
+    };
   });
 }
 
