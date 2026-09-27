@@ -610,6 +610,7 @@ function resetSplitState() {
   splitMode = "equal";
   customSplitAmounts = {};
   customOwnAmount = "";
+  splitFriendsExpanded = false;
   document.getElementById("split-toggle").checked = false;
   document.getElementById("split-detail").hidden = true;
   document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => {
@@ -621,10 +622,23 @@ function resetSplitState() {
   document.getElementById("split-error").textContent = "";
 }
 
+// The friend picker shows at most 3 rows, most-recently-used first (by
+// `last_used`, see getFriendsWithLastUsed_ in Api.gs); a "More…" chip ends
+// the third row and expands to everyone (then "Less"). Rows are measured
+// from the real layout, since chip widths vary with the names. A selected
+// friend is never left hidden — that forces the list open instead.
+let splitFriendsExpanded = false;
+const SPLIT_FRIEND_MAX_ROWS = 3;
+
 function renderSplitFriendChips() {
   const container = document.getElementById("split-friend-chips");
   container.innerHTML = "";
-  meta.friends.forEach((f) => {
+  const sorted = meta.friends
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => (b.f.last_used || "").localeCompare(a.f.last_used || "") || a.i - b.i)
+    .map((x) => x.f);
+
+  const chips = sorted.map((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
     chip.textContent = f.name;
@@ -640,7 +654,43 @@ function renderSplitFriendChips() {
       renderSplitSummary();
     });
     container.appendChild(chip);
+    return { f, chip };
   });
+
+  const toggle = document.createElement("div");
+  toggle.className = "tag-chip more-chip";
+  toggle.addEventListener("click", () => {
+    splitFriendsExpanded = !splitFriendsExpanded;
+    renderSplitFriendChips();
+  });
+
+  if (splitFriendsExpanded) {
+    toggle.textContent = "Less";
+    container.appendChild(toggle);
+    return;
+  }
+
+  // Collapsed: needs a laid-out (visible) container to measure rows.
+  if (!container.offsetWidth) return;
+  const rowCount = () => {
+    const tops = new Set();
+    Array.from(container.children).forEach((el) => { if (!el.hidden) tops.add(el.offsetTop); });
+    return tops.size;
+  };
+  if (rowCount() <= SPLIT_FRIEND_MAX_ROWS) return; // everyone fits, no "More" needed
+
+  toggle.textContent = "More…";
+  container.appendChild(toggle);
+  // Hide chips from the end until the "More…" chip lands within row 3.
+  let visible = chips.length;
+  while (visible > 0 && rowCount() > SPLIT_FRIEND_MAX_ROWS) {
+    visible--;
+    chips[visible].chip.hidden = true;
+  }
+  if (chips.slice(visible).some((c) => splitFriendIds.has(c.f.id))) {
+    splitFriendsExpanded = true;
+    renderSplitFriendChips();
+  }
 }
 
 // Only custom mode needs a row per friend — equal mode's amounts are
@@ -840,6 +890,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   const name = prompt("Friend's name:");
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
+  friend.last_used = todayLocalISO();
   meta.friends.push(friend);
   splitFriendIds.add(friend.id);
   renderSplitFriendChips();

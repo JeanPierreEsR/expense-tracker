@@ -307,10 +307,26 @@ function getMeta() {
     banks: getAllRows('Banks'),
     paymentMethods: getAllRows('Payment Methods'),
     tags: getAllRows('Tags'),
-    friends: getAllRows('Friends'),
+    friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap()
   };
+}
+
+// Friends plus `last_used` — the date of their most recent loan (shared
+// expenses and cash loans both create one), used only to order the split
+// picker most-recent-first. Loans is small, so this stays cheap in getMeta;
+// a friend with no loans yet gets '' and sorts last.
+function getFriendsWithLastUsed_() {
+  var last = {};
+  getAllRows('Loans').forEach(function (l) {
+    var d = String(l.date || '');
+    if (d && (!last[l.friend_id] || d > last[l.friend_id])) last[l.friend_id] = d;
+  });
+  return getAllRows('Friends').map(function (f) {
+    f.last_used = last[f.id] || '';
+    return f;
+  });
 }
 
 function getSettingsMap() {
