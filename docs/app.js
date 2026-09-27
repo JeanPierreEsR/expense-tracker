@@ -1300,6 +1300,9 @@ function paidByLabel(entryOrPaidBy) {
 // button is needed.
 const ENTRY_PAGE_SIZE = 100;
 let entriesShown = ENTRY_PAGE_SIZE;
+// The Entries tab's search box. Empty = the normal newest-first list.
+let entrySearchTerm = "";
+let entryListRequestId = 0; // so a slow, older search can't overwrite a newer one
 
 function buildEntryRow_(entry) {
   const row = document.createElement("div");
@@ -1343,7 +1346,7 @@ function setLoadMoreButton_(list, hasMore) {
     btn.textContent = "Loading…";
     try {
       // Only the next page is fetched and appended — earlier rows stay put.
-      const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown });
+      const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown, search: entrySearchTerm });
       const more = fetched.length > ENTRY_PAGE_SIZE;
       const page = more ? fetched.slice(0, ENTRY_PAGE_SIZE) : fetched;
       btn.remove();
@@ -1359,19 +1362,62 @@ function setLoadMoreButton_(list, hasMore) {
 }
 
 async function refreshEntryList() {
-  const fetched = await callApi("listEntries", { limit: entriesShown + 1 });
+  const requestId = ++entryListRequestId;
+  const searching = entrySearchTerm !== "";
+  const fetched = await callApi("listEntries", { limit: entriesShown + 1, search: entrySearchTerm });
+  if (requestId !== entryListRequestId) return; // a newer search/refresh took over
   const hasMore = fetched.length > entriesShown;
   const entries = hasMore ? fetched.slice(0, entriesShown) : fetched;
   const list = document.getElementById("entry-list");
   list.innerHTML = "";
 
+  document.getElementById("entry-list-title").textContent = searching ? "Search results" : "Recent entries";
+  const hint = document.getElementById("entry-search-hint");
+  hint.hidden = !searching;
+  if (searching) hint.textContent = entries.length === 0 ? "" : `${hasMore ? entries.length + "+" : entries.length} matching ${entries.length === 1 && !hasMore ? "entry" : "entries"} — tap one to edit.`;
+
   if (entries.length === 0) {
-    list.innerHTML = '<div class="status-msg">No entries yet — add your first one above.</div>';
+    list.innerHTML = searching
+      ? `<div class="status-msg">No entries match “${escapeHtml(entrySearchTerm)}”.</div>`
+      : '<div class="status-msg">No entries yet — add your first one above.</div>';
     return;
   }
 
   entries.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
   setLoadMoreButton_(list, hasMore);
+}
+
+// Search box: waits for a short pause in typing, then re-queries from the
+// newest match. Every word typed must match (description, category,
+// payment method, who paid, labels, date, amount…) — see filterEntriesBySearch_.
+function setupEntrySearch_() {
+  const input = document.getElementById("entry-search");
+  const clearBtn = document.getElementById("entry-search-clear");
+  let timer = null;
+
+  const apply = () => {
+    const term = input.value.trim();
+    clearBtn.hidden = input.value === "";
+    if (term === entrySearchTerm) return;
+    entrySearchTerm = term;
+    entriesShown = ENTRY_PAGE_SIZE;
+    refreshEntryList().catch(() => {});
+  };
+
+  input.addEventListener("input", () => {
+    clearBtn.hidden = input.value === "";
+    clearTimeout(timer);
+    timer = setTimeout(apply, 350);
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(timer); apply(); input.blur(); }
+  });
+  clearBtn.addEventListener("click", () => {
+    input.value = "";
+    clearTimeout(timer);
+    apply();
+    input.focus();
+  });
 }
 
 // ---- Editing a previously confirmed entry ----
@@ -2991,6 +3037,7 @@ async function init() {
   document.getElementById("loading-screen").hidden = false;
   document.getElementById("date").value = todayLocalISO();
   renderCurrencyChips("entry");
+  setupEntrySearch_();
 
   const initStart = performance.now();
   const timedStep = async (name, fn) => {

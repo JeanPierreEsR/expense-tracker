@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-27T00:40:16Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-27T01:40:35Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -35,6 +35,14 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
+      <div class="card entry-search-card">
+        <div class="entry-search-row">
+          <input type="search" id="entry-search" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
+          <button type="button" id="entry-search-clear" class="entry-search-clear" aria-label="Clear search" hidden>✕</button>
+        </div>
+        <p class="hint" id="entry-search-hint" hidden></p>
+      </div>
+
       <div class="card" id="entry-card">
         <div class="type-tabs" id="entry-type-tabs">
           <div class="type-tab active" data-type="expense">Expense</div>
@@ -142,7 +150,7 @@
       </div>
 
       <div class="card entry-list">
-        <h2>Recent entries</h2>
+        <h2 id="entry-list-title">Recent entries</h2>
         <div id="entry-list"></div>
       </div>
     </div>
@@ -924,8 +932,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-27T00:40:16Z"></script>
-  <script src="statement-parsers.js?v=2026-09-27T00:40:16Z"></script>
-  <script src="statements.js?v=2026-09-27T00:40:16Z"></script>
+  <script src="app.js?v=2026-09-27T01:40:35Z"></script>
+  <script src="statement-parsers.js?v=2026-09-27T01:40:35Z"></script>
+  <script src="statements.js?v=2026-09-27T01:40:35Z"></script>
 </body>
 </html>

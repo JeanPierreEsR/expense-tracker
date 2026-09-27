@@ -1913,3 +1913,17 @@ button.primary:disabled {
 
 .perf-row { padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.2); }
 .perf-name { font-weight: 600; }
+
+/* Entries-tab search bar */
+.entry-search-card { padding: 10px 12px; }
+.entry-search-row { position: relative; }
+.entry-search-row input { margin: 0; padding-right: 40px; }
+.entry-search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; font-size: 16px; padding: 8px 10px;
+  color: var(--muted, #888); cursor: pointer;
+}
+.entry-search-card .hint { margin: 6px 2px 0; }
+.entry-search-row input[type="search"] { -webkit-appearance: none; appearance: none; }
+.entry-search-row input[type="search"]::-webkit-search-cancel-button,
+.entry-search-row input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; display: none; }

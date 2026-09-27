@@ -437,6 +437,12 @@ function listEntries(payload) {
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
 
+  // Entries-tab search bar: every typed word must appear somewhere in the
+  // entry's searchable text (see filterEntriesBySearch_).
+  if (payload && payload.search && String(payload.search).trim()) {
+    entries = filterEntriesBySearch_(entries, String(payload.search));
+  }
+
   entries.sort(compareEntriesRecency_);
 
   // A category/tag/payment-method drill-down is always a small, specific
@@ -472,6 +478,53 @@ function listEntries(payload) {
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
   });
   return entries;
+}
+
+// Lowercase and accent-free, so "cafe" finds "Café" and "YAPE" finds "yape".
+function searchNormalize_(text) {
+  return String(text == null ? '' : text).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * AND-search over every field a person would recognise an entry by:
+ * description, the bank's merchant name, category (and its parent), type,
+ * date, amount (as stored and as 2 decimals), currency, payment method
+ * (both ends of a transfer), who paid / who paid the owner, and labels.
+ * Each whitespace-separated word must match somewhere, as a substring.
+ * No fuzzy/AI matching — a plain, explainable rule.
+ */
+function filterEntriesBySearch_(entries, search) {
+  var words = searchNormalize_(search).split(/\s+/).filter(Boolean);
+  if (!words.length) return entries;
+
+  var categoriesById = rowsById_(getAllRows('Categories'));
+  var methodsById = rowsById_(getAllRows('Payment Methods'));
+  var friendsById = rowsById_(getAllRows('Friends'));
+  var payorsById = rowsById_(getPayorRows_());
+  var tagsById = rowsById_(getAllRows('Tags'));
+  var tagNamesByEntry = {};
+  getAllRows('Entry Tags').forEach(function (et) {
+    var tag = tagsById[et.tag_id];
+    if (tag) (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
+  });
+
+  return entries.filter(function (e) {
+    var cat = categoriesById[e.category_id];
+    var parent = cat && cat.parent_id ? categoriesById[cat.parent_id] : null;
+    var payer = e.type === 'income' ? payorsById[e.paid_by] : friendsById[e.paid_by];
+    var parts = [
+      e.description, e.merchant, e.type, e.date, e.currency,
+      e.amount, isNaN(Number(e.amount)) ? '' : Number(e.amount).toFixed(2),
+      cat && cat.name, parent && parent.name,
+      methodsById[e.payment_method_id] && methodsById[e.payment_method_id].nickname,
+      methodsById[e.to_payment_method_id] && methodsById[e.to_payment_method_id].nickname,
+      e.paid_by === 'me' ? 'me' : (payer && payer.name),
+      (tagNamesByEntry[e.id] || []).join(' ')
+    ];
+    var haystack = searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
+    return words.every(function (w) { return haystack.indexOf(w) !== -1; });
+  });
 }
 
 function listPendingEntries() {
