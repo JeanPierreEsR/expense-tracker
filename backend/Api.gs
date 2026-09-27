@@ -75,7 +75,7 @@ function routeAction(action, payload) {
       var payorSheet = getSheet('Payors');
       var payorHeaders = getHeaders(payorSheet);
       var payorRowIndex = findRowIndexById(payorSheet, payorHeaders, payload.id);
-      if (payorRowIndex !== -1) payorSheet.deleteRow(payorRowIndex);
+      if (payorRowIndex !== -1) { payorSheet.deleteRow(payorRowIndex); bumpStructureVersion_(); }
       return { done: true };
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
@@ -86,6 +86,7 @@ function routeAction(action, payload) {
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
     case 'listEntrySearchIndex': return listEntrySearchIndex();
+    case 'syncEntrySearchIndex': return syncEntrySearchIndex(payload);
     case 'listPhotoJobs': return listPhotoJobs();
     case 'getPhotoJob': return getPhotoJob(payload);
     case 'submitPhotoJobText': return submitPhotoJobText(payload);
@@ -282,10 +283,16 @@ function getAllRows(sheetName) {
 }
 
 function appendRowObject(sheetName, obj) {
+  // Every new entry is stamped with when it last changed (see DataVersion.gs).
+  if (sheetName === 'Entries') {
+    ensureEntriesUpdatedAtColumn_();
+    obj.updated_at = nowStamp_();
+  }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   var row = headers.map(function (h) { return obj[h] !== undefined ? obj[h] : ''; });
   sheet.appendRow(row);
+  noteRowAppended_(sheetName, obj);
 }
 
 function findRowIndexById(sheet, headers, id) {
@@ -571,6 +578,14 @@ function filterEntriesBySearch_(entries, search) {
 function listEntrySearchIndex() {
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
   entries.sort(compareEntriesRecency_);
+  return buildSearchIndexRows_(entries);
+}
+
+// Shapes entry rows for the phone's search copy. Exchange rates are read
+// ONCE — computeAmountPen re-reads the rates sheet on every call, which is
+// far too slow across thousands of entries.
+function buildSearchIndexRows_(entries) {
+  if (!entries.length) return [];
   var lk = buildSearchLookups_();
   var ratesByCurrency = buildRatesByCurrency_();
   var splitSumByEntry = {};
@@ -588,7 +603,7 @@ function listEntrySearchIndex() {
       id: e.id, type: e.type, date: e.date, amount: e.amount, currency: e.currency,
       category_id: e.category_id, description: e.description,
       payment_method_id: e.payment_method_id, to_payment_method_id: e.to_payment_method_id,
-      paid_by: e.paid_by,
+      paid_by: e.paid_by, created_at: e.created_at,
       amount_pen: pen(e.amount, e.currency, e.date),
       own_share: ownShare,
       own_share_pen: pen(ownShare, e.currency, e.date),
@@ -613,8 +628,10 @@ function updateEntryFields(entryId, fields) {
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) throw new Error('Entry not found');
 
-  Object.keys(fields || {}).forEach(function (key) {
-    setCellByRow_(sheet, headers, rowIndex, key, fields[key]);
+  withWriteBatch_(function () {
+    Object.keys(fields || {}).forEach(function (key) {
+      setCellByRow_(sheet, headers, rowIndex, key, fields[key]);
+    });
   });
 
   return getEntryById_(entryId);
@@ -700,6 +717,7 @@ function setExchangeRate(currency, month, rate) {
     var headers = getHeaders(sheet);
     var rowIndex = findRowIndexById(sheet, headers, existing.id);
     sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(rate);
+    bumpStructureVersion_();
     existing.rate = rate;
     return existing;
   }
@@ -818,6 +836,7 @@ function mergeDuplicatePaymentMethods() {
     var rowId = pmSheet.getRange(r, idCol + 1).getValue();
     if (idsToDelete[rowId]) {
       pmSheet.deleteRow(r);
+      bumpStructureVersion_();
       rowsDeleted++;
     }
   }

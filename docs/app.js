@@ -1497,11 +1497,14 @@ async function refreshEntryList() {
 // While searching, the tab shows only the search box and its results.
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_PAGE_SIZE = 50;
-let searchIndex = null;          // array once loaded
-let searchIndexPromise = null;   // in-flight load, if any
-let searchIndexStale = false;    // entries changed since the last load
+const SEARCH_CACHE_VERSION = 1;          // bump to drop every phone's saved copy
+const SEARCH_FULL_RELOAD_MS = 24 * 3600 * 1000; // hand edits in the Sheet aren't tracked
+let searchIndex = null;          // array once loaded (from the phone's copy or the server)
+let searchSync = null;           // {structureVersion, entriesVersion, since, fullAt}
+let searchIndexPromise = null;   // in-flight sync, if any
+let searchIndexStale = false;    // entries changed in this app since the last sync
 let searchIndexLoadedAt = 0;
-let searchIndexError = "";       // last load failure, shown instead of "Loading…"
+let searchIndexError = "";       // last sync failure, shown instead of "Loading…"
 let searchShown = SEARCH_PAGE_SIZE;
 let searchActive = false;
 
@@ -1509,18 +1512,86 @@ function normalizeSearchText_(text) {
   return String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-// Loads (or refreshes) the list. Old results keep working while a refresh
-// is in flight; only the very first load has to be waited for.
-function ensureSearchIndex_() {
+// ---- The phone's saved copy (IndexedDB; every call fails soft to "no copy") ----
+function searchCacheDb_() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("no indexedDB"));
+    const req = indexedDB.open("expense-tracker", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function searchCacheGet_() {
+  try {
+    const db = await searchCacheDb_();
+    return await new Promise((resolve) => {
+      const req = db.transaction("kv").objectStore("kv").get("searchIndex");
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (err) { return null; }
+}
+async function searchCachePut_(value) {
+  try {
+    const db = await searchCacheDb_();
+    db.transaction("kv", "readwrite").objectStore("kv").put(value, "searchIndex");
+  } catch (err) { /* memory-only this session */ }
+}
+async function clearSearchCache_() {
+  searchIndex = null;
+  searchSync = null;
+  try {
+    const db = await searchCacheDb_();
+    db.transaction("kv", "readwrite").objectStore("kv").delete("searchIndex");
+  } catch (err) { /* nothing to clear */ }
+}
+
+// Same order the server uses: newest date first, then newest created_at.
+function compareSearchRows_(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  const ac = a.created_at || "", bc = b.created_at || "";
+  if (ac === bc) return 0;
+  return bc > ac ? 1 : -1;
+}
+
+// Brings the list up to date. Sends what the phone's copy was built from;
+// the server answers with the whole list ("full"), only what changed
+// ("delta"), or "none". Old results keep working while it runs.
+function syncSearchIndex_(opts) {
   if (searchIndexPromise) return searchIndexPromise;
+  const force = !!(opts && opts.force);
   searchIndexStale = false;
-  searchIndexPromise = callApi("listEntrySearchIndex")
-    .then((rows) => {
-      searchIndex = rows;
+  const tooOld = !searchSync || Date.now() - searchSync.fullAt > SEARCH_FULL_RELOAD_MS;
+  const payload = force || tooOld || !searchIndex ? {} : {
+    structureVersion: searchSync.structureVersion,
+    entriesVersion: searchSync.entriesVersion,
+    since: searchSync.since
+  };
+  searchIndexPromise = callApi("syncEntrySearchIndex", payload)
+    .then((r) => {
+      if (r.mode === "full") {
+        searchIndex = r.rows;
+        searchSync = { structureVersion: r.structureVersion, entriesVersion: r.entriesVersion, since: r.syncedAt, fullAt: Date.now() };
+      } else if (r.mode === "delta") {
+        const byId = new Map(searchIndex.map((e) => [e.id, e]));
+        r.removedIds.forEach((id) => byId.delete(id));
+        r.changed.forEach((e) => byId.set(e.id, e));
+        searchIndex = Array.from(byId.values()).sort(compareSearchRows_);
+        // `since` only moves forward on a real delta — a "none" must not
+        // advance it (a write can be mid-flight; see DataVersion.gs).
+        searchSync = { ...searchSync, entriesVersion: r.entriesVersion, since: r.syncedAt };
+        if (searchIndex.length !== r.count) throw new Error("__resync__"); // copy drifted — start over
+      }
       searchIndexLoadedAt = Date.now();
       searchIndexError = "";
+      searchCachePut_({ v: SEARCH_CACHE_VERSION, rows: searchIndex, sync: searchSync });
     })
     .catch((err) => {
+      if (err.message === "__resync__") {
+        searchIndexPromise = null;
+        return syncSearchIndex_({ force: true });
+      }
       searchIndexError = err.message || "unknown error";
       throw err;
     })
@@ -1545,7 +1616,7 @@ async function refreshSearchAfterEdit_() {
   const box = document.getElementById("search-results");
   box.classList.add("entry-updating");
   document.getElementById("entry-search-hint").textContent = "Updating…";
-  try { await ensureSearchIndex_(); } catch (err) { /* keeps the old list */ }
+  try { await syncSearchIndex_(); } catch (err) { /* keeps the old list */ }
   box.classList.remove("entry-updating");
   renderSearchResults_();
 }
@@ -1595,6 +1666,7 @@ function setSearchActive_(on) {
   searchActive = on;
   document.getElementById("screen-entries").classList.toggle("searching", on);
   document.getElementById("search-results-card").hidden = !on;
+  document.getElementById("entry-search-refresh").hidden = !on;
   if (!on) {
     document.getElementById("entry-search-hint").hidden = true;
     document.getElementById("search-results").innerHTML = "";
@@ -1614,7 +1686,7 @@ function setupEntrySearch_() {
     }
     searchShown = SEARCH_PAGE_SIZE;
     if (typing && !searchIndex && !searchIndexPromise) {
-      ensureSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
+      syncSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
     }
     if (typing) renderSearchResults_();
   };
@@ -1623,7 +1695,7 @@ function setupEntrySearch_() {
   // opens), so it's usually ready before the first letter is typed.
   input.addEventListener("focus", () => {
     const old = !searchIndex || searchIndexStale || Date.now() - searchIndexLoadedAt > 60000;
-    if (old) ensureSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
+    if (old) syncSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
   });
   input.addEventListener("input", onChange);
   input.addEventListener("keydown", (ev) => {
@@ -1634,8 +1706,23 @@ function setupEntrySearch_() {
     onChange();
     input.focus();
   });
+  document.getElementById("entry-search-refresh").addEventListener("click", () => {
+    const hint = document.getElementById("entry-search-hint");
+    hint.textContent = "Reloading everything…";
+    syncSearchIndex_({ force: true }).then(renderSearchResults_).catch(renderSearchResults_);
+  });
 
-  setTimeout(() => { ensureSearchIndex_().catch(() => {}); }, 4000);
+  // The phone's saved copy is ready almost at once; the check for changes
+  // runs a couple of seconds after the app has opened, off to the side.
+  searchCacheGet_().then((saved) => {
+    if (saved && saved.v === SEARCH_CACHE_VERSION && !searchIndex) {
+      searchIndex = saved.rows;
+      searchSync = saved.sync;
+      searchIndexLoadedAt = Date.now();
+      renderSearchResults_();
+    }
+  });
+  setTimeout(() => { syncSearchIndex_().then(renderSearchResults_).catch(() => {}); }, 2500);
 }
 
 // ---- Editing a previously confirmed entry ----
@@ -3293,6 +3380,7 @@ async function init() {
     document.getElementById("loading-screen").hidden = true;
     if (err.message === "Invalid access code") {
       localStorage.removeItem("accessCode");
+      clearSearchCache_();
       showSetupScreen("That code wasn't accepted. Try again.");
     } else {
       document.getElementById("app").hidden = false;

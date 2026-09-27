@@ -91,6 +91,7 @@ function bulkImportSpendeeCsv(csvText, filename) {
     });
     var startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, values.length, entryHeaders.length).setValues(values);
+    bumpStructureVersion_();   // bulk import — phones reload fully
 
     appendRowObject('Import Batches', {
       id: batchId,

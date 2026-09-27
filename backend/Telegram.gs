@@ -537,10 +537,12 @@ function applyEditCommand_(entryId, text) {
   var appliedFields = [];
   var failedSegments = [];
 
-  splitEditCommands_(text).forEach(function (segment) {
-    var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
-    if (field) appliedFields.push(field);
-    else failedSegments.push(segment);
+  withWriteBatch_(function () {
+    splitEditCommands_(text).forEach(function (segment) {
+      var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
+      if (field) appliedFields.push(field);
+      else failedSegments.push(segment);
+    });
   });
 
   var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
@@ -837,6 +839,7 @@ function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {
   var col = headers.indexOf(fieldName);
   if (col === -1) return;
   sheet.getRange(rowIndex, col + 1).setValue(value);
+  noteCellWrite_(sheet, rowIndex, fieldName);
 }
 
 function setEntryField_(entryId, fieldName, value) {
@@ -853,6 +856,7 @@ function deleteEntry_(entryId) {
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
   sheet.deleteRow(rowIndex);
+  recordEntryDeletions_([entryId]);
   // A no-op for an entry that was never split (the common case, and every
   // pending/review-queue entry today, since Phase 5's split UI is only on
   // confirmed entries) — see deleteEntrySplitsAndLoansForEntry_ in

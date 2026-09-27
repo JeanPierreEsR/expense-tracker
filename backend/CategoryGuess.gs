@@ -220,6 +220,7 @@ function backfillEntryMerchants(payload) {
 
   if (!dryRun && result.matched) {
     sheet.getRange(2, merchCol + 1, merchants.length, 1).setValues(merchants);
+    bumpStructureVersion_();   // bulk column write — phones reload fully
   }
   return result;
 }

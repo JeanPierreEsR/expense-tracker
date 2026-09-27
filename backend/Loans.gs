@@ -216,11 +216,13 @@ function deleteRowsWhere_(sheetName, predicate) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var deleted = [];
   for (var i = values.length - 1; i >= 0; i--) {
     var obj = {};
     headers.forEach(function (h, idx) { obj[h] = values[i][idx]; });
-    if (predicate(obj)) sheet.deleteRow(i + 2);
+    if (predicate(obj)) { sheet.deleteRow(i + 2); deleted.push(obj); }
   }
+  noteRowsDeleted_(sheetName, deleted);   // change tracking — see DataVersion.gs
 }
 
 // ---- Standalone cash loans (Phase 5.3) ----

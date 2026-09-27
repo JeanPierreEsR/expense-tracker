@@ -92,6 +92,7 @@ function adminApplyStatementActions(payload) {
     }
     if (toAssign) sheet.getRange(2, pmCol + 1, pmColumn.length, 1).setValues(pmColumn);
     if (toMerchant) sheet.getRange(2, merchCol + 1, merchColumn.length, 1).setValues(merchColumn);
+    if (toAssign || toMerchant) bumpStructureVersion_();   // bulk column write — phones reload fully
   }
   return report;
 }

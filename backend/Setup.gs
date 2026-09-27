@@ -8,7 +8,7 @@
 var TABLE_DEFINITIONS = {
   Entries: ['id', 'type', 'date', 'amount', 'currency', 'category_id',
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
-    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id'],
+    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
   Tags: ['id', 'name', 'color'],
@@ -102,7 +102,7 @@ var TABLE_DEFINITIONS = {
 // otherwise Sheets silently converts them to its own Date type and every
 // string comparison in the API (>=, substring, etc.) breaks.
 var DATE_LIKE_COLUMNS = {
-  Entries: ['date', 'created_at'],
+  Entries: ['date', 'created_at', 'updated_at'],
   Loans: ['date', 'due_date'],
   Settlements: ['date'],
   'Exchange Rates': ['month'],

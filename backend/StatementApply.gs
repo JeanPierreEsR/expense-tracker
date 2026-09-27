@@ -428,6 +428,7 @@ function undoStatementBatch(payload) {
     var ci = eheaders.indexOf(f);
     esheet.getRange(2, ci + 1, evalues.length, 1).setValues(evalues.map(function (r) { return [r[ci]]; }));
   });
+  if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
 
   // Statement Uploads: delete rows this batch created, restore rows it updated.
   var usheet = getSheet('Statement Uploads');
