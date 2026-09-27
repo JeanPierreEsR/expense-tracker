@@ -1571,9 +1571,13 @@ async function startEditEntry(entry) {
   // split-loading below. Start from a clean slate so a previous entry's
   // selection can't leak into this one.
   selectedTagIds.clear();
-  const entryTagIds = await callApi("getEntryTags", { entryId: entry.id });
-  entryTagIds.forEach((id) => selectedTagIds.add(id));
-  populateTags();
+  // Both lookups start now, in parallel (they used to run one after the
+  // other, each a slow Apps Script round trip). Entries from listEntries
+  // already carry their splits, so for those the split shows with no wait.
+  const tagsPromise = callApi("getEntryTags", { entryId: entry.id });
+  const splitsPromise = entry.type !== "expense"
+    ? null
+    : Array.isArray(entry.splits) ? Promise.resolve(entry.splits) : callApi("getEntrySplits", { entryId: entry.id });
 
   // showDetailForm (above) already showed/hid #split-field via
   // toggleSplitFieldVisibility; for a non-expense entry that also cleared
@@ -1583,8 +1587,8 @@ async function startEditEntry(entry) {
   // that's the one mode that can represent exactly what's stored without
   // having to guess whether it started as an equal split.
   resetSplitState();
-  if (entry.type === "expense") {
-    const splits = await callApi("getEntrySplits", { entryId: entry.id });
+  if (splitsPromise) {
+    const splits = await splitsPromise;
     if (splits.length) {
       splitMode = "custom";
       document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
@@ -1599,6 +1603,10 @@ async function startEditEntry(entry) {
       renderSplitSummary();
     }
   }
+
+  const entryTagIds = await tagsPromise;
+  entryTagIds.forEach((id) => selectedTagIds.add(id));
+  populateTags();
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = "Update entry";

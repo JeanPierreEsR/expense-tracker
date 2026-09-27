@@ -481,8 +481,10 @@ function listEntries(payload) {
   // figure alongside it, for the frontend to render per CLAUDE.md's
   // "big amount is my share" rule.
   var splitSumByEntry = {};
+  var splitsByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+    (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
 
   entries.forEach(function (entry) {
@@ -491,6 +493,9 @@ function listEntries(payload) {
       ? Number(entry.amount) - (splitSumByEntry[entry.id] || 0)
       : Number(entry.amount);
     entry.own_share = ownShare;
+    // Already read above — lets the edit form show a split instantly instead of
+    // waiting on a separate getEntrySplits call.
+    entry.splits = splitsByEntry[entry.id] || [];
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
   });
   return entries;
