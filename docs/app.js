@@ -42,6 +42,10 @@ let editingViaPopup = false;
 let splitFriendIds = new Set();
 let splitMode = "equal";
 let customSplitAmounts = {};
+// The owner's own box in Custom mode ("Me"). Blank = "not filled", same as
+// any friend's box: every blank box shares whatever the filled ones leave.
+let customOwnAmount = "";
+let splitInputEls = {};
 // True while editing an entry that was type "expense" when the edit
 // started — lets the submit handler still clear its splits/loans if the
 // owner changes its type away from expense mid-edit, even though the
@@ -605,6 +609,7 @@ function resetSplitState() {
   splitFriendIds = new Set();
   splitMode = "equal";
   customSplitAmounts = {};
+  customOwnAmount = "";
   document.getElementById("split-toggle").checked = false;
   document.getElementById("split-detail").hidden = true;
   document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => {
@@ -643,33 +648,75 @@ function renderSplitFriendChips() {
 function renderSplitRows() {
   const container = document.getElementById("split-rows");
   container.innerHTML = "";
-  if (splitMode !== "custom") return;
+  splitInputEls = {};
+  if (splitMode !== "custom" || splitFriendIds.size === 0) return;
 
-  Array.from(splitFriendIds).forEach((id) => {
-    const friend = meta.friends.find((f) => f.id === id);
-    if (!friend) return;
-
+  const addRow = (key, label, getValue, setValue) => {
     const row = document.createElement("div");
     row.className = "split-row";
 
     const name = document.createElement("span");
     name.className = "split-row-name";
-    name.textContent = friend.name;
+    name.textContent = label;
 
     const input = document.createElement("input");
     input.type = "text";
     input.inputMode = "decimal";
     input.placeholder = "0.00";
-    input.value = customSplitAmounts[id] || "";
+    input.value = getValue() || "";
     input.addEventListener("input", (e) => {
-      customSplitAmounts[id] = e.target.value;
+      setValue(e.target.value);
       renderSplitSummary();
     });
 
+    splitInputEls[key] = input;
     row.appendChild(name);
     row.appendChild(input);
     container.appendChild(row);
+  };
+
+  addRow("me", "Me", () => customOwnAmount, (v) => { customOwnAmount = v; });
+  Array.from(splitFriendIds).forEach((id) => {
+    const friend = meta.friends.find((f) => f.id === id);
+    if (!friend) return;
+    addRow(id, friend.name, () => customSplitAmounts[id], (v) => { customSplitAmounts[id] = v; });
   });
+}
+
+// Custom mode: any box the owner filled is fixed; every EMPTY box (Me
+// included) shares what's left equally. Cents-based so it sums exactly —
+// a leftover cent goes to the owner if their box is empty, otherwise to
+// the last empty friend. Returns { amounts: {key: number}, openKeys,
+// unassigned (cents nobody's box absorbs — only when every box is filled),
+// over (fixed boxes exceed the total) }.
+function computeCustomShares() {
+  const totalCents = Math.round((parseFloat(document.getElementById("amount").value) || 0) * 100);
+  const keys = ["me", ...Array.from(splitFriendIds)];
+  const raw = (k) => String(k === "me" ? customOwnAmount : customSplitAmounts[k] || "").trim();
+  const isFilled = (k) => raw(k) !== "" && !isNaN(parseFloat(raw(k)));
+
+  const amounts = {};
+  let fixedCents = 0;
+  keys.filter(isFilled).forEach((k) => {
+    const c = Math.round(parseFloat(raw(k)) * 100);
+    amounts[k] = c / 100;
+    fixedCents += c;
+  });
+  const openKeys = keys.filter((k) => !isFilled(k));
+  const restCents = totalCents - fixedCents;
+
+  if (openKeys.length && restCents >= 0) {
+    const each = Math.floor(restCents / openKeys.length);
+    const leftover = restCents - each * openKeys.length;
+    const leftoverKey = openKeys.includes("me") ? "me" : openKeys[openKeys.length - 1];
+    openKeys.forEach((k) => { amounts[k] = (each + (k === leftoverKey ? leftover : 0)) / 100; });
+  }
+  return {
+    amounts,
+    openKeys,
+    unassigned: openKeys.length ? 0 : restCents,
+    over: restCents < 0,
+  };
 }
 
 // Splits inherit the entry's own currency — Entry Splits has no currency
@@ -704,10 +751,21 @@ function renderSplitSummary() {
     const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
     summaryEl.textContent = `${currency} ${moneyFmt(shareEach)} each · ${currency} ${moneyFmt(ownerShare)} to you`;
   } else {
-    const assigned = friendIds.reduce((sum, id) => sum + (parseFloat(customSplitAmounts[id]) || 0), 0);
-    const remaining = amount - assigned;
-    summaryEl.textContent = `${currency} ${moneyFmt(assigned)} of ${currency} ${moneyFmt(amount)} assigned · ${currency} ${moneyFmt(Math.max(remaining, 0))} left to you`;
-    if (remaining < -0.004) errorEl.textContent = "That's more than the total amount.";
+    const shares = computeCustomShares();
+    // Empty boxes show what they'd get, as their placeholder.
+    Object.keys(splitInputEls).forEach((k) => {
+      splitInputEls[k].placeholder = shares.openKeys.includes(k) && !shares.over ? moneyFmt(shares.amounts[k]) : "0.00";
+    });
+    if (shares.over) {
+      summaryEl.textContent = "";
+      errorEl.textContent = "That's more than the total amount.";
+    } else if (shares.unassigned) {
+      summaryEl.textContent = "";
+      errorEl.textContent = `Everyone's filled in, but it adds up to ${currency} ${moneyFmt(amount - shares.unassigned / 100)}, not ${currency} ${moneyFmt(amount)}. Clear one box to let it take the rest.`;
+    } else {
+      const friendsTotal = friendIds.reduce((sum, id) => sum + (shares.amounts[id] || 0), 0);
+      summaryEl.textContent = `${currency} ${moneyFmt(friendsTotal)} of ${currency} ${moneyFmt(amount)} to friends · ${currency} ${moneyFmt(shares.amounts.me)} to you`;
+    }
   }
 }
 
@@ -719,8 +777,9 @@ function getSplitPayload() {
     const { shareEach } = computeEqualShares(amount, friendIds);
     return friendIds.map((id) => ({ friend_id: id, amount: shareEach }));
   }
+  const shares = computeCustomShares();
   return friendIds
-    .map((id) => ({ friend_id: id, amount: parseFloat(customSplitAmounts[id]) || 0 }))
+    .map((id) => ({ friend_id: id, amount: shares.amounts[id] || 0 }))
     .filter((s) => s.amount > 0);
 }
 
@@ -739,8 +798,11 @@ function validateSplitIfEnabled() {
 
   const splits = getSplitPayload();
   const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
-  if (splitMode === "custom" && assigned <= 0) {
-    throw new Error("Enter at least one friend's amount.");
+  if (splitMode === "custom") {
+    const shares = computeCustomShares();
+    if (shares.over) throw new Error("The split adds up to more than the total amount.");
+    if (shares.unassigned) throw new Error("The amounts don't add up to the total — clear one box to let it take the rest.");
+    if (assigned <= 0) throw new Error("Enter at least one friend's amount.");
   }
   if (assigned - amount > 0.004) {
     throw new Error("The split adds up to more than the total amount.");
