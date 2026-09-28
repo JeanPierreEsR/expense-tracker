@@ -79,12 +79,27 @@ function enableKeepWarmPing() {
     .timeBased()
     .everyMinutes(5)
     .create();
-  SpreadsheetApp.getUi().alert('Keep-warm ping enabled — pinging the app every 5 minutes.');
+  alertIfUiAvailable_('Keep-warm ping enabled — pinging the app every 5 minutes.');
 }
 
 function disableKeepWarmPing() {
   removeKeepWarmPingTriggers_();
-  SpreadsheetApp.getUi().alert('Keep-warm ping disabled.');
+  alertIfUiAvailable_('Keep-warm ping disabled.');
+}
+
+// SpreadsheetApp.getUi() only works when a menu item was clicked from the
+// open Sheet — running the same function directly from the Apps Script
+// editor's ▶ Run button (a valid way to trigger it, and the one that
+// surfaces the one-time permission prompt) has no UI to alert, and throws
+// if asked for one. The trigger itself is already created/removed by the
+// time this runs either way, so a run from the editor still works — this
+// just avoids that call showing as a confusing error in the execution log.
+function alertIfUiAvailable_(message) {
+  try {
+    SpreadsheetApp.getUi().alert(message);
+  } catch (err) {
+    Logger.log(message);
+  }
 }
 
 function removeKeepWarmPingTriggers_() {
