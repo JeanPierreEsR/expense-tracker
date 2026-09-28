@@ -4,6 +4,16 @@
  */
 
 function runAutomation() {
+  // Keep-warm ping, folded in here (2026-09-27) so it starts working the
+  // moment this file is pushed, with no menu click needed — see
+  // pingWebApp_'s own comment below for what/why. This trigger (IF
+  // already enabled via menu item 12) already runs every 15 minutes, so
+  // this rides along for free; the dedicated 5-minute ping (menu item 19)
+  // is still there too, for finer-grained warming when it's convenient to
+  // turn on. If automatic scanning was never enabled, this line never
+  // runs either — check via menu item 12/13's wording, or the Apps
+  // Script project's Triggers page, to confirm one of the two is active.
+  pingWebApp_();
   processEmails();
   pollTelegramUpdates();
   checkBudgets();
