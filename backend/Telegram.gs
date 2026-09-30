@@ -233,20 +233,44 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
 // itself stays short. See formatEntryForTelegram_, above, and
 // handleTelegramMessage_, below.
 function telegramEditHelpText_(entry) {
+  var lines;
   if (entry.type === 'transfer') {
-    return 'Reply to edit — from, to, amount, description, currency, date, category, or label. ' +
-      'E.g. "from Plin", "to Diners", or both: "from Plin, to Diners". ' +
-      'Combine several with commas: "from Plin, to Diners, amount 90".';
+    lines = [
+      'Reply to edit:',
+      'from — "from Plin"',
+      'to — "to Diners" (or both: "from Plin, to Diners")',
+      'amount — "amount 90"',
+      'description — "description Taxi"',
+      'currency — "currency USD"',
+      'date — "date 2026-09-12"',
+      'category — "category Transport"',
+      'label — "label Trip, Work" (or "label none")',
+      '',
+      'Combine several with commas: "from Plin, to Diners, amount 90".'
+    ];
+    return lines.join('\n');
   }
-  var text = 'Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. ' +
-    'E.g. "amount 45.50", "payment method Interbank", "label Trip, Work" (or "label none"), ' +
-    '"split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
-    'Combine several with commas: "category groceries, amount 48, description Uber".';
+  lines = [
+    'Reply to edit:',
+    'category — "category groceries"',
+    'amount — "amount 45.50"',
+    'description — "description Uber"',
+    'paid by — "paid by Ana"',
+    'payment method — "payment method Interbank"',
+    'currency — "currency USD"',
+    'date — "date 2026-09-12"',
+    'label — "label Trip, Work" (or "label none")',
+    'split — "split equal Ana", "split Ana 20, Carlos 15" (or "split none")',
+    '',
+    'Combine several with commas: "category groceries, amount 48, description Uber".'
+  ];
   if (entry.type === 'expense') {
-    text += ' Or instead of confirming it as an expense: "repayment Ana" (you paying down what you owed them) ' +
-      'or "loan Ana" (you lending them this) — either replaces it with the right Loans entry and removes it from here.';
+    lines.push('');
+    lines.push('Or instead of confirming as an expense:');
+    lines.push('repayment — "repayment Ana" (you paying down what you owed them)');
+    lines.push('loan — "loan Ana" (you lending them this)');
   }
-  return text;
+  return lines.join('\n');
 }
 
 function paymentMethodDisplayName_(id, missingText) {
