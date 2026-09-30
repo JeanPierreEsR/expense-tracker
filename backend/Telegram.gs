@@ -304,16 +304,28 @@ function pollTelegramUpdates() {
   });
 }
 
-// Same idea as pollTelegramUpdates' offset, applied to push delivery
-// instead of pull: Telegram update_ids are monotonically increasing, so
-// remembering the highest one actually processed and skipping anything at
-// or below it is enough to make a retried delivery a no-op.
+// Telegram delivers a webhook "at least once", so a retried update must be a
+// no-op — but it must be recognised by its EXACT id. The first version kept
+// only the highest id seen and dropped anything at or below it; Apps Script
+// runs webhook calls in parallel, so when two replies arrive seconds apart
+// and the earlier one is slower (a cold start), the later one raised the
+// mark first and the earlier reply was silently thrown away (2026-09-30:
+// the first of three quick replies never ran). Now: remember the last 200
+// handled ids and skip only those. The lock makes check-and-record atomic.
 function isDuplicateTelegramUpdate_(updateId) {
-  var props = PropertiesService.getScriptProperties();
-  var last = Number(props.getProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID') || '0');
-  if (updateId <= last) return true;
-  props.setProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID', String(updateId));
-  return false;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var key = 'TELEGRAM_RECENT_WEBHOOK_UPDATE_IDS';
+    var seen = JSON.parse(props.getProperty(key) || '[]');
+    if (seen.indexOf(updateId) !== -1) return true;
+    seen.push(updateId);
+    props.setProperty(key, JSON.stringify(seen.slice(-200)));
+    return false;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function handleTelegramUpdate_(update) {

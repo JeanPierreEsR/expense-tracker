@@ -126,10 +126,11 @@ function routeAction(action, payload) {
         chatIdSet: !!getOwnerTelegramChatId_(),
         updateOffset: PropertiesService.getScriptProperties().getProperty('TELEGRAM_UPDATE_OFFSET') || null,
         relayUrl: PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL') || null,
-        lastWebhookUpdateId: PropertiesService.getScriptProperties().getProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID') || null
+        lastWebhookUpdateId: PropertiesService.getScriptProperties().getProperty('TELEGRAM_RECENT_WEBHOOK_UPDATE_IDS') || null
       };
     case 'admin_resetTelegramWebhookDedup':
       PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_LAST_WEBHOOK_UPDATE_ID');
+      PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_RECENT_WEBHOOK_UPDATE_IDS');
       return { done: true };
     case 'admin_telegramGetUpdatesRaw': return telegramApi_('getUpdates', { offset: 0, timeout: 0 });
     case 'admin_automationStatus':
