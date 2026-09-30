@@ -2148,9 +2148,20 @@ async function refreshReviewQueue(prefetchedPending) {
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
     if (entry.type === "expense") {
-      item.querySelector(".review-split-btn").addEventListener("click", () => openConfirmPendingPopup(entry));
-      item.querySelector(".review-repay-btn").addEventListener("click", () => openReviewTransferModal(entry, "repay"));
-      item.querySelector(".review-loan-btn").addEventListener("click", () => openReviewTransferModal(entry, "loan"));
+      // Carry over whatever's already been typed/picked in this row
+      // (category, description, amount) instead of the stored values, so
+      // opening the Split popup / transfer modal doesn't reset them.
+      const entryWithRowEdits = () => {
+        const amt = parseFloat(amountInput.value.trim());
+        return Object.assign({}, entry, {
+          category_id: item.querySelector(".review-category").value || entry.category_id,
+          description: item.querySelector(".review-description").value.trim(),
+          amount: !isNaN(amt) && amt > 0 ? amt : entry.amount
+        });
+      };
+      item.querySelector(".review-split-btn").addEventListener("click", () => openConfirmPendingPopup(entryWithRowEdits()));
+      item.querySelector(".review-repay-btn").addEventListener("click", () => openReviewTransferModal(entryWithRowEdits(), "repay"));
+      item.querySelector(".review-loan-btn").addEventListener("click", () => openReviewTransferModal(entryWithRowEdits(), "loan"));
     }
 
     list.appendChild(item);
