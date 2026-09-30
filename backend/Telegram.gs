@@ -220,20 +220,33 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
 
   lines.push('');
   if (entry.type === 'transfer') {
-    lines.push('Reply to edit — from, to, amount, description, currency, date, category, or label. ' +
-      'E.g. "from Plin", "to Diners", or both: "from Plin, to Diners". ' +
-      'Combine several with commas: "from Plin, to Diners, amount 90".');
+    lines.push('Reply to edit — from, to, amount, description, currency, date, category, or label. Reply "help" for examples.');
     return lines.join('\n');
   }
-  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. ' +
+  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. Reply "help" for examples.');
+  return lines.join('\n');
+}
+
+// Full syntax + examples for editing a pending entry by reply — used to
+// live inline on every card (two paragraphs, on every single transaction
+// notification); now sent only on demand, via a "help" reply, so the card
+// itself stays short. See formatEntryForTelegram_, above, and
+// handleTelegramMessage_, below.
+function telegramEditHelpText_(entry) {
+  if (entry.type === 'transfer') {
+    return 'Reply to edit — from, to, amount, description, currency, date, category, or label. ' +
+      'E.g. "from Plin", "to Diners", or both: "from Plin, to Diners". ' +
+      'Combine several with commas: "from Plin, to Diners, amount 90".';
+  }
+  var text = 'Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. ' +
     'E.g. "amount 45.50", "payment method Interbank", "label Trip, Work" (or "label none"), ' +
     '"split equal Ana", "split Ana 20, Carlos 15", "split none". ' +
-    'Combine several with commas: "category groceries, amount 48, description Uber".');
+    'Combine several with commas: "category groceries, amount 48, description Uber".';
   if (entry.type === 'expense') {
-    lines.push('Or instead of confirming it as an expense: "repayment Ana" (you paying down what you owed them) ' +
-      'or "loan Ana" (you lending them this) — either replaces it with the right Loans entry and removes it from here.');
+    text += ' Or instead of confirming it as an expense: "repayment Ana" (you paying down what you owed them) ' +
+      'or "loan Ana" (you lending them this) — either replaces it with the right Loans entry and removes it from here.';
   }
-  return lines.join('\n');
+  return text;
 }
 
 function paymentMethodDisplayName_(id, missingText) {
@@ -415,6 +428,20 @@ function handleTelegramMessage_(msg) {
   if (!mapping) {
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id, text: "Couldn't find that transaction — it may be too old.",
+      reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+    });
+    return;
+  }
+
+  // "help" or "/help" (Telegram clients often auto-format a leading slash) —
+  // sends the full syntax + examples for this entry's type, kept off the
+  // card itself. Checked before the edit parser so it can't also be read as
+  // a (failing) field-edit segment.
+  if (/^\/?help$/i.test(text)) {
+    var helpEntry = getEntryById_(mapping.entry_id);
+    telegramApi_('sendMessage', {
+      chat_id: msg.chat.id,
+      text: helpEntry ? telegramEditHelpText_(helpEntry) : "Couldn't find that transaction — it may be too old.",
       reply_to_message_id: msg.message_id, allow_sending_without_reply: true
     });
     return;
