@@ -198,6 +198,29 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- Crecer Seguros (card-protection insurance, monthly boleta) ----
+  // The e-invoice email names the product and the total but no card, so the
+  // charge is pinned to the Diners credit card (owner's choice; it is the
+  // only Payment Method under that bank, so no last4 is needed) and to the
+  // "Credit card" category. The boleta number is the dedup key — each month
+  // has a new one.
+  {
+    bank: 'Diners', sender: 'tucomprobante@crecerseguros.pe',
+    label: 'Seguro protección de tarjetas',
+    match: function (subject, body) { return /Monto Total/i.test(body); },
+    extract: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Monto Total'));
+      if (!amt) return null;
+      var product = afterLabel_(body, 'Producto');
+      return {
+        type: 'expense', amount: amt.amount, currency: amt.currency,
+        description: 'Crecer Seguros' + (product ? ' - ' + product.replace(/([a-z])([A-Z])/g, '$1 $2') : ''),
+        merchant: 'Crecer Seguros', defaultCategory: 'Credit card',
+        last4: null,
+        externalId: afterLabel_(body, 'Número')
+      };
+    }
+  },
   // ---- Yape ----
   {
     bank: 'Yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
