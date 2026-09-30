@@ -638,7 +638,10 @@ function togglePaymentMethodVisibilityBase_() {
   // A transfer moves money between two accounts, so its payment method
   // reads as "From" and a "To" picker appears alongside it.
   const isInvestment = selectedType === "investment";
-  document.getElementById("payment-method-label").textContent = selectedType === "transfer" || isInvestment ? "From" : "Payment method";
+  document.getElementById("payment-method-label").textContent =
+    selectedType === "transfer" || isInvestment ? "From" :
+    selectedType === "income" ? "Received at" :
+    "Payment method";
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? "Platform" : "To (account it goes into)";
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
