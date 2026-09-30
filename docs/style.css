@@ -702,6 +702,14 @@ button.primary:disabled {
   margin-top: 8px;
 }
 
+/* Standalone status line between cards (see review-check-status in
+   index.html) — same muted look as .hint, but its own spacing since it
+   isn't nested inside a .card. */
+.review-check-status {
+  margin: -4px 0 16px;
+  padding: 0 4px;
+}
+
 .currency-chips {
   display: flex;
   gap: 8px;

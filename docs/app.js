@@ -2198,6 +2198,28 @@ function transferAccountOptions_(selectedId, blankLabel) {
 // either way — cheap/no-op when the queue's already empty, and callers
 // that already flushed (init(), via the bundle path) just flush an empty
 // queue again rather than needing a separate code path.
+// The review queue is the one piece of cached data that can actually
+// mislead (principle 6 — an entry might have just been caught by email,
+// or already resolved via Telegram, since the cached snapshot was taken),
+// unlike categories/recent entries/programmed items where staleness is
+// harmless. So instead of silently showing a possibly-stale count, this
+// small status line (#review-check-status, a sibling of the review card
+// so it's visible even when that card itself is hidden because the
+// cached count is 0) says outright whenever it might not be current yet.
+// Only used on the cache-painted path — see init()'s "fast pending check".
+function setReviewCheckStatus_(state) {
+  const el = document.getElementById("review-check-status");
+  if (state === "checking") {
+    el.textContent = "🔄 Checking for new review items…";
+    el.hidden = false;
+  } else if (state === "failed") {
+    el.textContent = "⚠️ Couldn't confirm — showing the last known review queue. Pull down to retry.";
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
+
 // skipFlush: used only by the instant cache-paint below — flushing means
 // real network calls (one per queued offline action), which would delay
 // the very "show something instantly" this exists for. The live
@@ -3566,8 +3588,9 @@ async function init() {
   const initStart = performance.now();
   const timedStep = async (name, fn) => {
     const t0 = performance.now();
-    await fn();
+    const result = await fn();
     perfRecordStartup_(name, performance.now() - t0);
+    return result;
   };
 
   // Instant paint from the last successful load, if this phone has one —
@@ -3593,44 +3616,87 @@ async function init() {
     document.getElementById("loading-screen").hidden = false;
   }
 
+  // If the app was painted from cache above, the owner may already be
+  // typing/picking in the entry form or mid-edit on a review-queue row by
+  // the time live data lands — never stomp on that. Checked fresh at the
+  // moment each area is about to be re-rendered (not once up front), since
+  // the fast pending check below can resolve well before the rest of the
+  // bundle does. Nothing is skipped on a first-ever (uncached) load, since
+  // nothing could have been touched yet.
+  const formBusyNow = () => paintedFromCache &&
+    document.activeElement && document.activeElement.closest("#entry-form");
+  const reviewBusyNow = () => paintedFromCache &&
+    document.activeElement && document.activeElement.closest("#review-list");
+
   try {
     // Queued offline review actions (confirm/discard tapped while
     // unreachable — see flushQueuedReviewActions_) must reach the server
-    // BEFORE the bundle's pending-entries snapshot is taken below, or an
-    // already-actioned entry would still show as pending for this load.
+    // BEFORE either read below, or an already-actioned entry could still
+    // show as pending for this load.
     await timedStep("init:flushReviewQueue", flushQueuedReviewActions_);
-    // One call instead of four separate round trips for getMeta/entries/
-    // review queue/expected recurring — each round trip used to pay its
-    // own share of Apps Script's per-request startup cost (see
-    // getStartupBundle's comment in backend/Api.gs, and CHANGELOG.md §
-    // Architecture). The four sub-steps below now just render data
+
+    // The review queue is the one piece of cached data that can actually
+    // mislead (see setReviewCheckStatus_'s comment) — an item might have
+    // just been caught by email, or already resolved via Telegram, since
+    // the cached snapshot. So it gets its own fast, dedicated check
+    // (listPendingEntries alone is far cheaper server-side than the full
+    // bundle — see the performance log) fired at the same time as the
+    // full bundle below, rather than waiting on whichever of the bundle's
+    // four pieces is slowest. Whichever check succeeds most recently wins;
+    // if only one of the two succeeds, that one's value is what gets
+    // saved to the cache — see the Promise.allSettled below.
+    let latestPending = cachedBundle ? cachedBundle.pending : null;
+    let pendingCheckSucceeded = false;
+    if (paintedFromCache) setReviewCheckStatus_("checking");
+    const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
+      .then((fresh) => {
+        latestPending = fresh;
+        pendingCheckSucceeded = true;
+        if (paintedFromCache) {
+          setReviewCheckStatus_("hidden");
+          if (!reviewBusyNow()) refreshReviewQueue(fresh, true);
+        }
+      })
+      .catch((err) => {
+        // Logged, not rethrown — this runs alongside the main bundle
+        // fetch below and must never abort it. A failure here just means
+        // the review queue keeps showing what was already on screen,
+        // clearly labelled as unconfirmed via setReviewCheckStatus_.
+        console.error("Review-queue freshness check failed:", err);
+        if (paintedFromCache) setReviewCheckStatus_("failed");
+      });
+
+    // One call instead of three separate round trips for getMeta/entries/
+    // expected recurring (pending is handled above, on its own) — each
+    // round trip used to pay its own share of Apps Script's per-request
+    // startup cost (see getStartupBundle's comment in backend/Api.gs, and
+    // CHANGELOG.md § Architecture). The render steps below just show data
     // that's already in hand, so they should be near-instant — compare
-    // their times here with older entries in the log with the same
-    // names to see the effect.
+    // their times here with older entries in the log with the same names
+    // to see the effect.
     let bundle;
-    await timedStep("init:fetchBundle", async () => {
+    const bundlePromise = timedStep("init:fetchBundle", async () => {
       bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1 });
     });
-    saveStartupCache_(bundle);
 
-    // If the app was painted from cache above, the owner may already be
-    // typing/picking in the entry form or mid-edit on a review-queue row
-    // by the time this live data lands — never stomp on that. Each area
-    // is only skipped for THIS refresh; the next natural one (saving,
-    // confirming/discarding, or simply the next app open) picks up
-    // whatever's fresh. Nothing is skipped on a first-ever (uncached) load,
-    // since nothing could have been touched yet.
-    const formBusy = paintedFromCache &&
-      document.activeElement && document.activeElement.closest("#entry-form");
-    const reviewBusy = paintedFromCache &&
-      document.activeElement && document.activeElement.closest("#review-list");
+    // allSettled, not a plain await, so a failure in one never stops us
+    // from waiting on the other — pendingPromise already handled its own
+    // failure above; a bundle failure (e.g. Invalid access code) still
+    // needs to reach the catch block below exactly as before.
+    const [bundleOutcome] = await Promise.allSettled([bundlePromise, pendingPromise]);
+    if (bundleOutcome.status === "rejected") throw bundleOutcome.reason;
 
-    await timedStep("init:getMeta", () => loadMeta(bundle.meta, formBusy));
+    if (!pendingCheckSucceeded) latestPending = bundle.pending;
+    saveStartupCache_({ meta: bundle.meta, entries: bundle.entries, pending: latestPending, expectedRecurring: bundle.expectedRecurring });
+
+    await timedStep("init:getMeta", () => loadMeta(bundle.meta, formBusyNow()));
     await timedStep("init:entries", () => refreshEntryList(bundle.entries));
-    if (reviewBusy) {
-      perfRecordStartup_("init:reviewQueue", 0);
-    } else {
-      await timedStep("init:reviewQueue", () => refreshReviewQueue(bundle.pending));
+    if (!paintedFromCache) {
+      // The fast check above already renders the review queue on the
+      // cache-painted path (as soon as it resolves, independent of this
+      // section) — a first-ever load has no cache to paint, so it's
+      // rendered here instead, same as before this change.
+      await timedStep("init:reviewQueue", () => refreshReviewQueue(latestPending, true));
     }
     await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
 
