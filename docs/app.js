@@ -435,6 +435,9 @@ function showDetailForm(category) {
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
+  document.getElementById("paid-by-label").hidden = false;
+  document.getElementById("paid_by").hidden = false;
+  updateRepaymentUi_();
 
   const amountInput = document.getElementById("amount");
   amountInput.focus();
@@ -575,6 +578,11 @@ function populateTags() {
 }
 
 function togglePaymentMethodVisibility() {
+  togglePaymentMethodVisibilityBase_();
+  updateRepaymentUi_();
+}
+
+function togglePaymentMethodVisibilityBase_() {
   // A transfer moves money between two accounts, so its payment method
   // reads as "From" and a "To" picker appears alongside it.
   const isInvestment = selectedType === "investment";
@@ -596,6 +604,95 @@ function togglePaymentMethodVisibility() {
   const paidBy = document.getElementById("paid_by").value;
   document.getElementById("payment-method-field").hidden = paidBy !== "me";
 }
+
+// ---- Repayment with a friend (Transfer tab) ----
+// A transfer can be marked as a repayment with a friend: instead of a plain
+// Entry it goes through the same recordRepayment FIFO/offset engine the
+// Loans tab's "Record repayment" uses (see CLAUDE.md's Settlements section),
+// which also writes the linked transfer Entry. Never an expense or income
+// itself — it only moves a debt balance (principle 2). New entries only:
+// an existing transfer is edited as the plain entry it is.
+let repaymentDirectionChoice = "i_owe_them"; // or "they_owe_me"
+
+function repaymentActive_() {
+  return selectedType === "transfer" && !editingEntryId && !confirmingPendingId &&
+    document.getElementById("repayment-toggle").checked;
+}
+
+function populateRepaymentFriendOptions_() {
+  const select = document.getElementById("repayment-friend");
+  const previous = select.value;
+  select.innerHTML = "";
+  meta.friends.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    select.appendChild(opt);
+  });
+  const addOpt = document.createElement("option");
+  addOpt.value = "__add__";
+  addOpt.textContent = "+ Add friend…";
+  select.appendChild(addOpt);
+  if (previous && previous !== "__add__" && meta.friends.some((f) => f.id === previous)) select.value = previous;
+}
+
+document.getElementById("repayment-friend").addEventListener("change", async (e) => {
+  if (e.target.value !== "__add__") return;
+  const name = prompt("Friend's name:");
+  e.target.value = meta.friends.length ? meta.friends[0].id : "";
+  if (name && name.trim()) {
+    const friend = await callApi("addFriend", { name: name.trim() });
+    meta.friends.push(friend);
+    populateRepaymentFriendOptions_();
+    document.getElementById("repayment-friend").value = friend.id;
+  }
+});
+
+function updateRepaymentUi_() {
+  const available = selectedType === "transfer" && !editingEntryId && !confirmingPendingId;
+  const field = document.getElementById("repayment-field");
+  field.hidden = !available;
+  const toggle = document.getElementById("repayment-toggle");
+  if (!available) toggle.checked = false;
+  const on = available && toggle.checked;
+  document.getElementById("repayment-detail").hidden = !on;
+  if (!on) return;
+
+  const iPaid = repaymentDirectionChoice === "i_owe_them";
+  document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.direction === repaymentDirectionChoice));
+  if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
+  populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
+  document.getElementById("repayment-overpay-category-label").textContent = `Category if ${iPaid ? "you paid" : "they paid"} extra (${iPaid ? "expense" : "income"})`;
+  document.getElementById("repayment-hint").textContent = iPaid
+    ? "Pays down what you owe them. It is not an expense — only your debt balance changes."
+    : "Pays down what they owe you. It is not income — only their debt balance changes.";
+
+  // The repayment replaces the transfer's own fields: no category, no
+  // "Paid by", no "To" — just the one account the money moved through.
+  document.getElementById("category-select-field").hidden = true;
+  document.getElementById("paid-by-label").hidden = true;
+  document.getElementById("paid_by").hidden = true;
+  document.getElementById("to-payment-method-field").hidden = true;
+  document.getElementById("payment-method-field").hidden = false;
+  document.getElementById("payment-method-label").textContent = iPaid ? "Paid from (account)" : "Received into (account)";
+}
+
+document.getElementById("repayment-toggle").addEventListener("change", () => {
+  // Undo what a previous "on" state hid, then let the normal rules re-apply.
+  document.getElementById("paid-by-label").hidden = false;
+  document.getElementById("paid_by").hidden = false;
+  togglePaymentMethodVisibility();
+  if (!document.getElementById("repayment-toggle").checked) {
+    document.getElementById("category-select-field").hidden = false;
+  }
+});
+
+document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    repaymentDirectionChoice = tab.dataset.direction;
+    updateRepaymentUi_();
+  });
+});
 
 // ---- Splitting an expense (Phase 5) ----
 // Only expenses can be split (Entry Splits is "only used for shared
@@ -1155,7 +1252,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
-    const categoryId = getCategoryId();
+    const isRepayment = repaymentActive_();
+    const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
     const paidBy = document.getElementById("paid_by").value;
     const paymentMethodId = document.getElementById("payment_method").value;
@@ -1163,7 +1261,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // field — income always carries a payment method (which account
     // received it), an expense/investment/transfer only when the owner
     // themselves paid.
-    const usesPaymentMethod = selectedType === "income" || paidBy === "me";
+    const usesPaymentMethod = isRepayment || selectedType === "income" || paidBy === "me";
     // Transfers only; always sent (even blank) so switching an entry away
     // from transfer, or clearing the destination, actually clears it.
     const toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
@@ -1177,7 +1275,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     if (!date) throw new Error("Date is required.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
-    if (!categoryId) throw new Error("Pick a category.");
+    if (!isRepayment && !categoryId) throw new Error("Pick a category.");
     if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
@@ -1196,7 +1294,40 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
 
-    if (confirmingPendingId) {
+    if (isRepayment) {
+      const friendId = document.getElementById("repayment-friend").value;
+      if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
+      const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
+      const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
+      const result = await callApi("recordRepayment", {
+        friend_id: friendId,
+        direction: repaymentDirectionChoice,
+        amount,
+        currency,
+        date,
+        payment_method_id: paymentMethodId,
+        description
+      });
+      let extraNote = "";
+      if (result.overpaid > 0.004) {
+        // More than was owed (or nothing was owed): the leftover is a real
+        // income/expense, same as the Loans tab's Repayments sheet.
+        if (!overpayCategoryId) {
+          throw new Error(`Repayment saved, but ${currency} ${moneyFmt(result.overpaid)} was extra and needs a category — record it from the Loans tab.`);
+        }
+        await callApi(repaymentDirectionChoice === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
+          friend_id: friendId,
+          amount: result.overpaid,
+          currency: result.currency,
+          date,
+          payment_method_id: paymentMethodId,
+          category_id: overpayCategoryId
+        });
+        extraNote = ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${repaymentDirectionChoice === "they_owe_me" ? "income" : "an expense"}.`;
+      }
+      refreshLoans().catch(() => {});
+      showFormNotice_(`Repayment ${repaymentDirectionChoice === "they_owe_me" ? "from" : "to"} ${friendName} recorded.${extraNote}`);
+    } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,
       // plus the two steps a plain Confirm-button tap does (confirmEntry,
@@ -1816,6 +1947,7 @@ function exitEditMode() {
   editingEntryId = null;
   editingEntryWasSplittable = false;
   confirmingPendingId = null;
+  updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
   document.getElementById("submit-btn").textContent = "Save entry";
   document.getElementById("cancel-edit-btn-2").hidden = true;

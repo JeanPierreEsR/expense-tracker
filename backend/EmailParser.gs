@@ -719,3 +719,19 @@ function debugSearchEmails_(query, max) {
   });
   return out;
 }
+
+/**
+ * Read-only: the subject, sender and plain-text body of the newest message
+ * matching a Gmail search — for writing a new parsing rule from a real email
+ * without asking the owner to copy the text out by hand.
+ */
+function debugEmailBody_(query, chars) {
+  var threads = GmailApp.search(query, 0, 1);
+  if (!threads.length) return null;
+  var msgs = threads[0].getMessages();
+  var m = msgs[msgs.length - 1];
+  return {
+    from: m.getFrom(), subject: m.getSubject(), date: String(m.getDate()),
+    body: m.getPlainBody().substring(0, chars || 3000)
+  };
+}

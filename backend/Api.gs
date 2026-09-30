@@ -169,6 +169,7 @@ function routeAction(action, payload) {
     case 'admin_applyStatementActions': return adminApplyStatementActions(payload);
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);
     case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
+    case 'admin_debugEmailBody': return debugEmailBody_(payload.query, payload.chars);
     case 'listStatementCoverage': return listStatementCoverage();
     case 'listStatementInbox': return listStatementInbox();
     case 'getStatementAttachment': return getStatementAttachment(payload);

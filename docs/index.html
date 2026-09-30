@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-30T02:55:16Z">
+  <link rel="stylesheet" href="style.css?v=2026-09-30T02:59:13Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -92,6 +92,25 @@
 
           <label for="description">Description</label>
           <input type="text" id="description" placeholder="Optional">
+
+          <div id="repayment-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="repayment-toggle">
+              <span>Repayment with a friend</span>
+            </label>
+            <div id="repayment-detail" hidden>
+              <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
+                <div class="type-tab active" data-direction="i_owe_them">I paid them</div>
+                <div class="type-tab" data-direction="they_owe_me">They paid me</div>
+              </div>
+              <label for="repayment-friend">Friend</label>
+              <select id="repayment-friend"></select>
+              <p class="hint" id="repayment-hint"></p>
+              <label for="repayment-overpay-category" id="repayment-overpay-category-label">Category if you paid extra</label>
+              <select id="repayment-overpay-category"></select>
+              <p class="hint">Only used if the amount is more than what was owed — the extra becomes a real entry in this category.</p>
+            </div>
+          </div>
 
           <label for="paid_by" id="paid-by-label">Paid by</label>
           <select id="paid_by"></select>
@@ -937,8 +956,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-09-30T02:55:16Z"></script>
-  <script src="statement-parsers.js?v=2026-09-30T02:55:16Z"></script>
-  <script src="statements.js?v=2026-09-30T02:55:16Z"></script>
+  <script src="app.js?v=2026-09-30T02:59:13Z"></script>
+  <script src="statement-parsers.js?v=2026-09-30T02:59:13Z"></script>
+  <script src="statements.js?v=2026-09-30T02:59:13Z"></script>
 </body>
 </html>
