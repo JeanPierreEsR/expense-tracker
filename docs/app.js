@@ -294,6 +294,49 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
 const PERF_LOG_KEY = "perfLog";
 const PERF_LOG_MAX = 600;
 
+// ---- Startup cache (instant paint on every open after the first) ----
+// Three days of the performance log above (see CHANGELOG.md § Architecture,
+// "Startup-speed fixes") showed the real bottleneck: Apps Script itself —
+// cold start plus several Sheet reads — takes 15-25+ seconds per open
+// almost every time, no matter how the calls are arranged. Waiting on a
+// loading screen for that on every single open was the actual complaint.
+// So the last successful getStartupBundle result is kept here and painted
+// immediately on the next open — clearly still real data, just possibly a
+// few hours stale — while the live bundle loads in the background and
+// replaces it, same self-correcting pattern pull-to-refresh already uses.
+// First-ever open on a phone has nothing saved yet, so it falls back to
+// the old loading-screen behaviour. See init() for how the live refresh
+// avoids overwriting anything the owner is actively typing/editing when
+// it lands.
+const STARTUP_CACHE_KEY = "startupCache";
+
+function loadStartupCache_() {
+  try {
+    return JSON.parse(localStorage.getItem(STARTUP_CACHE_KEY));
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveStartupCache_(bundle) {
+  try {
+    localStorage.setItem(STARTUP_CACHE_KEY, JSON.stringify(bundle));
+  } catch (err) {
+    // Storage full/unavailable — next open just falls back to the
+    // loading-screen behaviour, same as before this cache existed.
+  }
+}
+
+// The instant first paint from cache: never flushes (see refreshReviewQueue's
+// skipFlush) and never skips anything else, since nothing on screen has
+// been touched yet at this point in a fresh app open.
+async function renderCachedStartupBundle_(bundle) {
+  await loadMeta(bundle.meta);
+  await refreshEntryList(bundle.entries);
+  await refreshReviewQueue(bundle.pending, true);
+  await refreshExpectedRecurring(bundle.expectedRecurring.groups);
+}
+
 function perfAppend_(entry) {
   try {
     const log = JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]");
@@ -361,8 +404,17 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
 // prefetchedMeta lets a caller that already has the data (see init(), which
 // fetches meta/entries/pending/recurring together in one call) skip the
 // network round trip; every other call site omits it and fetches as before.
-async function loadMeta(prefetchedMeta) {
+// skipFormPopulate: used only by init()'s silent background refresh after
+// an instant cache-paint (see renderCachedStartupBundle_) when the owner
+// is actively using the entry form right that moment — rebuilding the
+// category/payment-method/tag pickers under their fingers would reset
+// whatever they'd already picked. `meta` itself is still updated either
+// way, so anything opened fresh (a new pop-up, the next screen) sees
+// current data; only this one already-open form keeps its stale-but-
+// still-valid picker contents for the rest of the session.
+async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  if (skipFormPopulate) return;
   populateCategoryOptions();
   populateCategoryPicker();
   populatePaidByOptions();
@@ -2146,8 +2198,12 @@ function transferAccountOptions_(selectedId, blankLabel) {
 // either way — cheap/no-op when the queue's already empty, and callers
 // that already flushed (init(), via the bundle path) just flush an empty
 // queue again rather than needing a separate code path.
-async function refreshReviewQueue(prefetchedPending) {
-  await flushQueuedReviewActions_();
+// skipFlush: used only by the instant cache-paint below — flushing means
+// real network calls (one per queued offline action), which would delay
+// the very "show something instantly" this exists for. The live
+// background refresh that follows right after still flushes normally.
+async function refreshReviewQueue(prefetchedPending, skipFlush) {
+  if (!skipFlush) await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
   const source = prefetchedPending || await callApi("listPendingEntries", {});
   const entries = source.filter((e) => !queuedIds.has(e.id));
@@ -3503,8 +3559,6 @@ async function init() {
   }
 
   document.getElementById("setup-screen").hidden = true;
-  document.getElementById("app").hidden = true;
-  document.getElementById("loading-screen").hidden = false;
   document.getElementById("date").value = todayLocalISO();
   renderCurrencyChips("entry");
   setupEntrySearch_();
@@ -3515,6 +3569,30 @@ async function init() {
     await fn();
     perfRecordStartup_(name, performance.now() - t0);
   };
+
+  // Instant paint from the last successful load, if this phone has one —
+  // see STARTUP_CACHE_KEY's comment above for why. First-ever open has
+  // nothing cached, so it falls through to the old loading-screen path.
+  const cachedBundle = loadStartupCache_();
+  const paintedFromCache = !!cachedBundle;
+  if (paintedFromCache) {
+    await renderCachedStartupBundle_(cachedBundle);
+    if (ICON_PICKER_TYPES.includes(selectedType)) {
+      showCategoryPicker();
+    } else {
+      showDetailForm(null);
+    }
+    renderPeriodSelector();
+    document.getElementById("loading-screen").hidden = true;
+    document.getElementById("app").hidden = false;
+    document.getElementById("bottom-nav").hidden = false;
+    perfRecordStartup_("init:cachedPaint", performance.now() - initStart);
+    perfRecordStartup_("open→usable", performance.now());
+  } else {
+    document.getElementById("app").hidden = true;
+    document.getElementById("loading-screen").hidden = false;
+  }
+
   try {
     // Queued offline review actions (confirm/discard tapped while
     // unreachable — see flushQueuedReviewActions_) must reach the server
@@ -3533,35 +3611,75 @@ async function init() {
     await timedStep("init:fetchBundle", async () => {
       bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1 });
     });
-    await timedStep("init:getMeta", () => loadMeta(bundle.meta));
+    saveStartupCache_(bundle);
+
+    // If the app was painted from cache above, the owner may already be
+    // typing/picking in the entry form or mid-edit on a review-queue row
+    // by the time this live data lands — never stomp on that. Each area
+    // is only skipped for THIS refresh; the next natural one (saving,
+    // confirming/discarding, or simply the next app open) picks up
+    // whatever's fresh. Nothing is skipped on a first-ever (uncached) load,
+    // since nothing could have been touched yet.
+    const formBusy = paintedFromCache &&
+      document.activeElement && document.activeElement.closest("#entry-form");
+    const reviewBusy = paintedFromCache &&
+      document.activeElement && document.activeElement.closest("#review-list");
+
+    await timedStep("init:getMeta", () => loadMeta(bundle.meta, formBusy));
     await timedStep("init:entries", () => refreshEntryList(bundle.entries));
-    await timedStep("init:reviewQueue", () => refreshReviewQueue(bundle.pending));
-    await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
-    if (ICON_PICKER_TYPES.includes(selectedType)) {
-      showCategoryPicker();
+    if (reviewBusy) {
+      perfRecordStartup_("init:reviewQueue", 0);
     } else {
-      showDetailForm(null);
+      await timedStep("init:reviewQueue", () => refreshReviewQueue(bundle.pending));
     }
-    renderPeriodSelector();
+    await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
+
+    if (!paintedFromCache) {
+      if (ICON_PICKER_TYPES.includes(selectedType)) {
+        showCategoryPicker();
+      } else {
+        showDetailForm(null);
+      }
+      renderPeriodSelector();
+      document.getElementById("loading-screen").hidden = true;
+      document.getElementById("app").hidden = false;
+      document.getElementById("bottom-nav").hidden = false;
+    }
+    if (paintedFromCache) {
+      // The real open→usable moment was already recorded above, right
+      // after the instant cache paint — this is a distinct measurement:
+      // how long the live catch-up that follows it took.
+      perfRecordStartup_("init:backgroundRefresh", performance.now() - initStart);
+    } else {
+      perfRecordStartup_("init:total", performance.now() - initStart);
+      // performance.now() counts from page navigation, so this is the
+      // full "tapped the icon → usable" time, including HTML/JS download.
+      perfRecordStartup_("open→usable", performance.now());
+    }
+  } catch (err) {
+    if (err.message === "Invalid access code") {
+      // Keep showing cached data under a now-invalid code, and every
+      // action would keep silently failing — surface it instead.
+      document.getElementById("loading-screen").hidden = true;
+      document.getElementById("app").hidden = true;
+      document.getElementById("bottom-nav").hidden = true;
+      localStorage.removeItem("accessCode");
+      localStorage.removeItem(STARTUP_CACHE_KEY);
+      clearSearchCache_();
+      showSetupScreen("That code wasn't accepted. Try again.");
+      return;
+    }
+    if (paintedFromCache) {
+      // Already showing a working (if possibly stale) app from cache —
+      // same as a failed pull-to-refresh: fail quietly, keep it on screen.
+      console.error("Background startup refresh failed:", err);
+      return;
+    }
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
-    perfRecordStartup_("init:total", performance.now() - initStart);
-    // performance.now() counts from page navigation, so this is the full
-    // "tapped the icon → usable" time, including HTML/JS download.
-    perfRecordStartup_("open→usable", performance.now());
-  } catch (err) {
-    document.getElementById("loading-screen").hidden = true;
-    if (err.message === "Invalid access code") {
-      localStorage.removeItem("accessCode");
-      clearSearchCache_();
-      showSetupScreen("That code wasn't accepted. Try again.");
-    } else {
-      document.getElementById("app").hidden = false;
-      document.getElementById("bottom-nav").hidden = false;
-      document.getElementById("entry-list").innerHTML =
-        `<div class="status-msg">Couldn't load data: ${escapeHtml(err.message)}</div>`;
-    }
+    document.getElementById("entry-list").innerHTML =
+      `<div class="status-msg">Couldn't load data: ${escapeHtml(err.message)}</div>`;
   }
 }
 

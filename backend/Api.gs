@@ -369,7 +369,11 @@ function getFriendsWithLastUsed_() {
 // always be current, per CLAUDE.md principle 6 ("anything automated lands
 // in a review queue as pending until confirmed") and the core principle
 // that the app's numbers are always live, never a snapshot.
-var REFERENCE_CACHE_TTL_SECONDS = 120;
+// Originally 120s — real usage (CHANGELOG.md § Architecture, "Startup-
+// speed fixes") showed opens are hours apart, so a 2-minute cache almost
+// never got a hit; raised to 1 hour, still short enough that adding a
+// category and using it the same sitting is a rare, low-stakes miss.
+var REFERENCE_CACHE_TTL_SECONDS = 3600;
 
 function getAllRowsCached_(sheetName) {
   var cache = CacheService.getScriptCache();
