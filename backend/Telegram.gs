@@ -331,17 +331,32 @@ function handleTelegramCallback_(cb) {
   var action = parts[0];
   var entryId = parts[1];
 
+  // Once handled, take the buttons off the card so a second tap (easy when
+  // the first reply is slow) can't confirm again — and answer a repeat tap
+  // on an already-handled entry with a note instead of "Confirmed." again.
+  var entry = action === 'confirm' || action === 'discard' ? getEntryById_(entryId) : null;
+  var reply = null;
   if (action === 'confirm') {
-    confirmEntryWithLearning_(entryId);
+    if (entry && entry.status === 'confirmed') {
+      reply = 'ℹ️ Already confirmed.';
+    } else if (!entry) {
+      reply = 'ℹ️ This entry no longer exists.';
+    } else {
+      confirmEntryWithLearning_(entryId);
+      reply = '✅ Confirmed.';
+    }
+  } else if (action === 'discard') {
+    if (entry) deleteEntry_(entryId);
+    reply = entry ? '🗑️ Discarded.' : 'ℹ️ This entry no longer exists.';
+  }
+  if (reply) {
     telegramApi_('sendMessage', {
-      chat_id: cb.message.chat.id, text: '✅ Confirmed.',
+      chat_id: cb.message.chat.id, text: reply,
       reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
     });
-  } else if (action === 'discard') {
-    deleteEntry_(entryId);
-    telegramApi_('sendMessage', {
-      chat_id: cb.message.chat.id, text: '🗑️ Discarded.',
-      reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
+    telegramApi_('editMessageReplyMarkup', {
+      chat_id: cb.message.chat.id, message_id: cb.message.message_id,
+      reply_markup: { inline_keyboard: [] }
     });
   }
 

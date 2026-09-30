@@ -301,6 +301,18 @@ var EMAIL_RULES = [
     }
   },
   // ---- Interbank (card/account notifications) ----
+  // Paying the Diners bill from the Interbank debit card produces TWO emails
+  // for the one payment: this "consumo" (merchant "Diners Club") and Diners'
+  // own "comprobante de pago" (the transfer rule below). Keep the Diners one
+  // — it's the transfer, and counting this as an expense too would double it.
+  {
+    bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
+    label: 'Consumo en "Diners Club" — IGNORED, duplicate of the Diners payment email',
+    match: function (subject, body) {
+      return /realizaste un consumo/i.test(subject) && /Comercio\s*:?\s*\*?\s*\r?\n?\s*Diners Club\s*(?:[\r\n]|Monto)/i.test(body);
+    },
+    skip: true
+  },
   {
     bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Consumo',
