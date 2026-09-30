@@ -354,10 +354,7 @@ function handleTelegramCallback_(cb) {
       chat_id: cb.message.chat.id, text: reply,
       reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
     });
-    telegramApi_('editMessageReplyMarkup', {
-      chat_id: cb.message.chat.id, message_id: cb.message.message_id,
-      reply_markup: { inline_keyboard: [] }
-    });
+    removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
@@ -435,6 +432,20 @@ function handleTelegramMessage_(msg) {
   if (result.entry && !result.removed) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
   }
+
+  // The card that was replied to is now superseded (by the refreshed card,
+  // or by the entry being removed) — take its buttons off so it can't be
+  // confirmed/discarded by mistake. A command that wasn't understood leaves
+  // it untouched, since that card is still the live one.
+  if ((result.entry && !result.removed) || result.removed) {
+    removeCardButtons_(msg.chat.id, msg.reply_to_message.message_id);
+  }
+}
+
+function removeCardButtons_(chatId, messageId) {
+  telegramApi_('editMessageReplyMarkup', {
+    chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] }
+  });
 }
 
 // "repayment Ana" / "mark as repayment Ana" or "loan Ana" / "convert
