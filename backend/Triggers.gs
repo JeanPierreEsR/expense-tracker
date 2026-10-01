@@ -18,6 +18,7 @@ function runAutomation() {
   pollTelegramUpdates();
   checkBudgets();
   checkOverdueLoans();
+  try { backfillInvestmentCategories_(); } catch (e) { console.error('investment categories: ' + e); }
   try { scanStatementInbox_(); retryStatementInboxNudges_(); } catch (e) { console.error('statement inbox: ' + e); }
 }
 

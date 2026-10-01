@@ -173,8 +173,13 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
-  lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
-    (autoReason ? ' 🤖 auto (' + autoReason + ')' : ''));
+  if (entry.type === 'investment') {
+    // No category for investments (see defaultInvestmentCategoryId_).
+    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
+  } else {
+    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
+      (autoReason ? ' 🤖 auto (' + autoReason + ')' : ''));
+  }
   lines.push(entry.date + ' · ' + entry.type);
   if (entry.type === 'transfer') {
     // A transfer moves money between two of the owner's own accounts, so
@@ -235,7 +240,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     return lines.join('\n');
   }
   if (entry.type === 'investment') {
-    lines.push('Reply to edit — category, platform, withdrawal/deposit, payment method (received at, for a withdrawal), amount, description, currency, date, label, or type. Reply "help" for examples.');
+    lines.push('Reply to edit — platform, withdrawal/deposit, payment method (received at, for a withdrawal), amount, description, currency, date, label, or type. Reply "help" for examples.');
     return lines.join('\n');
   }
   lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
@@ -269,7 +274,6 @@ function telegramEditHelpText_(entry) {
   if (entry.type === 'investment') {
     return [
       'Reply to edit:',
-      'category — "category Stocks"',
       'platform — "platform Hapi"',
       'direction — "withdrawal" (money coming back from the platform) or "deposit" (the default)',
       'payment method — "payment method Interbank" (deposit: the account the money left)',
@@ -281,7 +285,7 @@ function telegramEditHelpText_(entry) {
       'label — "label Trip, Work" (or "label none")',
       'type — "type expense", "type income" or "type transfer" (this wasn\'t actually an investment)',
       '',
-      'Combine several with commas: "platform Hapi, category Stocks, amount 500" or "withdrawal, platform Hapi, received at Interbank".'
+      'Combine several with commas: "platform Hapi, amount 500" or "withdrawal, platform Hapi, received at Interbank".'
     ].join('\n');
   }
   lines = [
@@ -427,7 +431,7 @@ function handleTelegramCallback_(cb) {
       reply = 'ℹ️ Already confirmed.';
     } else if (!entry) {
       reply = 'ℹ️ This entry no longer exists.';
-    } else if (!entry.category_id) {
+    } else if (entry.type !== 'investment' && !entry.category_id) {
       // Same rule as the app's Confirm: no category, no confirmation. The
       // buttons stay so the owner can reply "category Stocks" and tap again.
       reply = '⚠️ Not confirmed — it needs a category first. Reply to the card with "category groceries" (or another category), then tap Confirm.';
@@ -827,10 +831,8 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       // comes from the investment list, so the old one is cleared unless
       // it already belongs to it; a transfer's "to" is an account, not a
       // platform, so it's cleared too. Never a friend's, never split.
-      var invOldCat = entry.category_id ?
-        getAllRows('Categories').find(function (c) { return c.id === entry.category_id; }) : null;
-      if (!invOldCat || invOldCat.type !== 'investment') {
-        setCellByRow_(sheet, headers, rowIndex, 'category_id', '');
+      if (needsInvestmentCategory_(entry.category_id)) {
+        setCellByRow_(sheet, headers, rowIndex, 'category_id', defaultInvestmentCategoryId_());
       }
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
       ensureEntriesToPaymentMethodColumn_();

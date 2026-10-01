@@ -482,6 +482,9 @@ function createEntry(payload) {
     ensureEntriesToPaymentMethodColumn_();
     entry.to_payment_method_id = payload.to_payment_method_id;
   }
+  if (entry.type === 'investment' && needsInvestmentCategory_(entry.category_id)) {
+    entry.category_id = defaultInvestmentCategoryId_();
+  }
   appendRowObject('Entries', entry);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -745,6 +748,12 @@ function updateEntryFields(entryId, fields) {
     Object.keys(fields || {}).forEach(function (key) {
       setCellByRow_(sheet, headers, rowIndex, key, fields[key]);
     });
+    // An investment never carries a category the owner has to pick (see
+    // defaultInvestmentCategoryId_) — file it under the default one.
+    var after = getEntryById_(entryId);
+    if (after && after.type === 'investment' && needsInvestmentCategory_(after.category_id)) {
+      setCellByRow_(sheet, headers, rowIndex, 'category_id', defaultInvestmentCategoryId_());
+    }
   });
 
   return getEntryById_(entryId);

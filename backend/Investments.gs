@@ -19,6 +19,46 @@ var INVESTMENT_PLATFORMS = [
   { nickname: 'Binance' }
 ];
 
+// Investments carry no category in the app (owner's decision, 2026-10-01 —
+// "not yet"), but Projections and the per-category views are built from
+// categories, so an investment with none would silently drop out of them.
+// The backend therefore quietly files every investment under one hidden-in-
+// the-UI default category, "Investments" (created on first need). Used by
+// createEntry, updateEntryFields, confirmEntryWithLearning_ and the
+// Telegram "type investment" edit.
+function defaultInvestmentCategoryId_() {
+  var cats = getAllRows('Categories');
+  var found = cats.find(function (c) { return c.type === 'investment' && String(c.name).trim().toLowerCase() === 'investments'; });
+  if (found) return found.id;
+  var id = Utilities.getUuid();
+  appendRowObject('Categories', {
+    id: id, name: 'Investments', type: 'investment', icon: '📈',
+    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+  });
+  return id;
+}
+
+// Runs with the 15-minute automation: files any investment that has no
+// investment category (e.g. one confirmed before this rule existed) under the
+// default one. Cheap and a no-op once everything is filed.
+function backfillInvestmentCategories_() {
+  var cats = getAllRows('Categories');   // read once, not per entry
+  var bad = getAllRows('Entries').filter(function (e) {
+    return e.type === 'investment' && needsInvestmentCategory_(e.category_id, cats);
+  });
+  if (!bad.length) return 0;
+  var defaultId = defaultInvestmentCategoryId_();
+  bad.forEach(function (e) { setEntryField_(e.id, 'category_id', defaultId); });
+  return bad.length;
+}
+
+// True when `categoryId` is missing or isn't an investment category.
+function needsInvestmentCategory_(categoryId, cats) {
+  if (!categoryId) return true;
+  var cat = (cats || getAllRows('Categories')).find(function (c) { return c.id === categoryId; });
+  return !cat || cat.type !== 'investment';
+}
+
 // Net cash put into each platform (confirmed entries only), one line per
 // currency, plus a PEN total at the latest rate on file (null when a
 // currency has no rate at all).

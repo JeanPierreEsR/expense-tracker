@@ -500,7 +500,9 @@ function showDetailForm(category) {
     selectField.hidden = true;
   } else {
     banner.hidden = true;
-    selectField.hidden = false;
+    // Investments have no category in the app (the backend files them under
+    // a default one) — nothing to pick here.
+    selectField.hidden = selectedType === "investment";
   }
 
   document.getElementById("category-picker").hidden = true;
@@ -1371,7 +1373,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     if (!date) throw new Error("Date is required.");
     if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
-    if (!isRepayment && !categoryId) throw new Error("Pick a category.");
+    const isInvestmentEntry = selectedType === "investment";
+    if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error("Pick a category.");
+    // Investments send no category at all — the server files them under its default.
+    const categoryField = isInvestmentEntry ? {} : { category_id: categoryId };
     if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
@@ -1453,7 +1458,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           date,
           amount: isWithdrawal ? -amount : amount,
           currency,
-          category_id: categoryId,
+          ...categoryField,
           description,
           paid_by: paidBy,
           payment_method_id: usesPaymentMethod ? paymentMethodId : "",
@@ -1485,7 +1490,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         date,
         amount: isWithdrawal ? -amount : amount,
         currency,
-        category_id: categoryId,
+        ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
@@ -1539,7 +1544,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         date,
         amount: isWithdrawal ? -amount : amount,
         currency,
-        category_id: categoryId,
+        ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
@@ -1625,6 +1630,16 @@ function formatAmount(amount, currency) {
 // it's a second line below the owner's-share-in-that-currency line, same
 // pattern generalized from what a plain USD split looks like.
 function renderEntryAmountHtml(entry) {
+  // A withdrawal is stored negative; it reads as money coming BACK, so it
+  // shows as a positive green figure with a leading +, like income.
+  if (entry.type === "investment" && Number(entry.amount) < 0) {
+    const abs = (v) => (v == null ? v : Math.abs(Number(v)));
+    const flipped = Object.assign({}, entry, {
+      amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
+      own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+    });
+    return renderEntryAmountHtml(flipped).replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  }
   const hasSplit = entry.own_share != null &&
     Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
@@ -1660,6 +1675,31 @@ function findCategory(id) {
   return meta.categories.find((cat) => cat.id === id);
 }
 
+// What an entry's row leads with. An investment has no category in the app:
+// it shows the PLATFORM it went to — or, for a withdrawal, came back from —
+// instead (a historical investment with no platform falls back to its
+// category). `meta` is the account line under it: deposits say which account
+// the money left, withdrawals which one received it.
+function entryHeadline_(entry) {
+  if (entry.type !== "investment") {
+    const cat = findCategory(entry.category_id);
+    const marker = cat && cat.icon
+      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
+      : `<span class="type-dot" data-type="${entry.type}"></span>`;
+    return { title: `${marker}${categoryName(entry.category_id)}`, meta: paidByLabel(entry) };
+  }
+  const withdrawal = Number(entry.amount) < 0;
+  const pmName = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+  const platform = pmName(entry.to_payment_method_id);
+  const account = pmName(entry.payment_method_id);
+  const marker = `<span class="entry-cat-icon" style="background:#E8EEF9">${withdrawal ? "↩️" : "📈"}</span>`;
+  const title = platform
+    ? (withdrawal ? `Withdrawal from ${escapeHtml(platform)}` : `Investment in ${escapeHtml(platform)}`)
+    : `${withdrawal ? "Withdrawal" : "Investment"} — ${escapeHtml(categoryName(entry.category_id))}`;
+  const metaText = account ? `${withdrawal ? "received at" : "from"} ${escapeHtml(account)}` : "no account set";
+  return { title: `${marker}${title}`, meta: metaText };
+}
+
 function categoryName(id) {
   const c = findCategory(id);
   return c ? c.name : "(unknown category)";
@@ -1691,10 +1731,7 @@ function buildEntryRow_(entry) {
   const row = document.createElement("div");
   row.className = "entry";
 
-  const cat = findCategory(entry.category_id);
-  const categoryMarker = cat && cat.icon
-    ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
-    : `<span class="type-dot" data-type="${entry.type}"></span>`;
+  const headline = entryHeadline_(entry);
 
   // _queueStatus: see applyQueuedEditOverlay_ — an edit to this entry is
   // still saving in the background, or failed and is waiting to be
@@ -1709,9 +1746,9 @@ function buildEntryRow_(entry) {
   const left = document.createElement("div");
   left.className = "entry-left";
   left.innerHTML = `
-    <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
+    <div class="entry-category">${headline.title}</div>
     ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-    <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
+    <div class="entry-meta">${entry.date} · ${headline.meta}</div>
     ${statusLine}
   `;
 
@@ -2716,10 +2753,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
       </div>
       <div class="review-item-fields">
-        <select class="review-category">
+        ${entry.type === "investment" ? "" : `<select class="review-category">
           <option value="">Pick a category…</option>
           ${categoryOptions}
-        </select>
+        </select>`}
         <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
         <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="Amount">
         ${entry.type === "transfer" ? `
@@ -2756,12 +2793,13 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const discardBtn = item.querySelector(".review-discard-btn");
 
     confirmBtn.addEventListener("click", async () => {
-      const categoryId = item.querySelector(".review-category").value;
+      const categoryEl = item.querySelector(".review-category");
+      const categoryId = categoryEl ? categoryEl.value : "";
       const description = item.querySelector(".review-description").value.trim();
       const amountStr = amountInput.value.trim();
       const amount = parseFloat(amountStr);
 
-      if (!categoryId) {
+      if (!categoryId && entry.type !== "investment") {
         alert("Pick a category first.");
         return;
       }
@@ -2774,7 +2812,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // helpers. The row is gone the instant you tap, whether or not the
       // network call behind it has finished (or even started).
       // A withdrawal is stored negative (set through Telegram) — keep it so.
-      const fields = { category_id: categoryId, description, amount: entry.type === "investment" && Number(entry.amount) < 0 ? -amount : amount };
+      const fields = { description, amount: entry.type === "investment" && Number(entry.amount) < 0 ? -amount : amount };
+      if (entry.type !== "investment") fields.category_id = categoryId;
       if (entry.type === "transfer") {
         const fromId = item.querySelector(".review-from").value;
         const toId = item.querySelector(".review-to").value;
@@ -3592,18 +3631,15 @@ function renderDrilldownEntries(entries) {
   }
 
   entries.forEach((entry) => {
-    const cat = findCategory(entry.category_id);
-    const marker = cat && cat.icon
-      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
-      : `<span class="type-dot" data-type="${entry.type}"></span>`;
+    const headline = entryHeadline_(entry);
 
     const row = document.createElement("div");
     row.className = "entry";
     row.innerHTML = `
       <div class="entry-left">
-        <div class="entry-category">${marker}${categoryName(entry.category_id)}</div>
+        <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-        <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
+        <div class="entry-meta">${entry.date} · ${headline.meta}</div>
       </div>
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
