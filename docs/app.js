@@ -669,9 +669,18 @@ function togglePaymentMethodVisibilityBase_() {
 // an existing transfer is edited as the plain entry it is.
 let repaymentDirectionChoice = "i_owe_them"; // or "they_owe_me"
 
+// Also offered when editing an existing EXPENSE (editingEntryWasSplittable):
+// "I saved this as an expense but it was really a repayment" — saving then
+// removes that expense (and any loan it made) and records the repayment
+// instead. Not offered for an existing transfer: one may already be the
+// linked entry of a repayment, and converting it would count it twice.
+function repaymentAvailable_() {
+  return selectedType === "transfer" && !confirmingPendingId &&
+    (!editingEntryId || editingEntryWasSplittable);
+}
+
 function repaymentActive_() {
-  return selectedType === "transfer" && !editingEntryId && !confirmingPendingId &&
-    document.getElementById("repayment-toggle").checked;
+  return repaymentAvailable_() && document.getElementById("repayment-toggle").checked;
 }
 
 function populateRepaymentFriendOptions_() {
@@ -704,7 +713,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
 });
 
 function updateRepaymentUi_() {
-  const available = selectedType === "transfer" && !editingEntryId && !confirmingPendingId;
+  const available = repaymentAvailable_();
   const field = document.getElementById("repayment-field");
   field.hidden = !available;
   const toggle = document.getElementById("repayment-toggle");
@@ -736,8 +745,16 @@ document.getElementById("repayment-toggle").addEventListener("change", () => {
   // Undo what a previous "on" state hid, then let the normal rules re-apply.
   document.getElementById("paid-by-label").hidden = false;
   document.getElementById("paid_by").hidden = false;
+  const checked = document.getElementById("repayment-toggle").checked;
+  // Converting a friend-paid expense: that friend is almost certainly the
+  // one being repaid.
+  const paidBy = document.getElementById("paid_by").value;
+  if (checked && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
+    populateRepaymentFriendOptions_();
+    document.getElementById("repayment-friend").value = paidBy;
+  }
   togglePaymentMethodVisibility();
-  if (!document.getElementById("repayment-toggle").checked) {
+  if (!checked) {
     document.getElementById("category-select-field").hidden = false;
   }
 });
@@ -1354,6 +1371,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
+      if (editingEntryId) {
+        // Converting an expense: remove it first (which also removes the
+        // loan it created), so the repayment is worked out against the
+        // debts as they should stand without it.
+        await callApi("discardEntry", { id: editingEntryId });
+        exitEditMode();
+      }
       const result = await callApi("recordRepayment", {
         friend_id: friendId,
         direction: repaymentDirectionChoice,
