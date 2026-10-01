@@ -1466,36 +1466,56 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
     } else if (editingEntryId) {
+      // ensureExchangeRate stays blocking — it can need the owner's own
+      // input (the rate modal), which a background task can't ask for.
+      // Everything after it (updateEntry, splits, tags) doesn't need the
+      // owner to wait on it: all three overwrite rather than append, so
+      // retrying/replaying any of them is safe (confirmed before this was
+      // built — see CHANGELOG.md § Entries & Tags, "Background entry-edit
+      // saving"). Queued and sent in the background instead, so finishing
+      // an edit feels instant. NOT used for a repayment conversion
+      // (handled above, under isRepayment) or confirming a pending entry
+      // (below, under confirmingPendingId) — both stay blocking, being
+      // less frequent and already more involved than a plain edit.
       await ensureExchangeRate(currency, date);
-      await callApi("updateEntry", {
-        id: editingEntryId,
-        fields: {
-          type: selectedType,
-          date,
-          amount: isWithdrawal ? -amount : amount,
-          currency,
-          category_id: categoryId,
-          description,
-          paid_by: paidBy,
-          payment_method_id: usesPaymentMethod ? paymentMethodId : "",
-          to_payment_method_id: toPaymentMethodId
-        }
-      });
-      // Sent for an expense, even with an empty list — that's how turning
-      // the split toggle back off on an already-split entry clears its
-      // splits and linked loan(s) on save (saveEntrySplits in Loans.gs
-      // replaces whatever was there before from scratch). Also sent when
-      // the entry WAS an expense before this edit but got switched to a
-      // different type just now, so its old splits/loans get cleared
-      // instead of silently orphaned.
-      if (selectedType === "expense" || editingEntryWasSplittable) {
-        await callApi("saveEntrySplits", { entryId: editingEntryId, splits: splits || [] });
-      }
-      // Always sent, even as [] — same reasoning as splits above: that's
-      // how removing every tag from an already-tagged entry actually
-      // clears it, rather than silently leaving the old ones in place.
-      await callApi("saveEntryTags", { entryId: editingEntryId, tagIds });
+      const id = editingEntryId;
+      const wasPopup = editingViaPopup;
+      const fields = {
+        type: selectedType,
+        date,
+        amount: isWithdrawal ? -amount : amount,
+        currency,
+        category_id: categoryId,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId
+      };
+      // null (not an expense, never was) means "don't touch splits" — see
+      // queueEntryEdit_. Sent as [] rather than null whenever the entry
+      // IS (or was) splittable, even with nothing in it — that's how
+      // turning the split toggle back off on an already-split entry
+      // clears its splits and linked loan(s) on save (saveEntrySplits in
+      // Loans.gs replaces whatever was there before from scratch), and
+      // how switching away from "expense" clears old splits/loans instead
+      // of silently orphaning them.
+      const sendSplits = selectedType === "expense" || editingEntryWasSplittable;
+      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds);
       exitEditMode();
+      flushEntryEdit_(id); // not awaited — runs in the background
+      // Re-rendered from what's already in hand (with the queued edit
+      // overlaid), not re-fetched — a real listEntries call is exactly
+      // the multi-second wait this is meant to avoid. Expected-recurring
+      // isn't refreshed here for the same reason; it catches up on the
+      // next natural refresh (reopening the app, pulling to refresh).
+      renderEntryListFromCache_();
+      if (wasPopup) {
+        resetEntryFormFields_();
+        await refreshAfterPopupEdit();
+      } else {
+        resetToFreshEntryScreen_();
+      }
+      return;
     } else if (canProgram) {
       // No ensureExchangeRate here on purpose — a Programmed item's PEN
       // figure always falls back to the latest rate on file (see
@@ -1676,12 +1696,23 @@ function buildEntryRow_(entry) {
     ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
     : `<span class="type-dot" data-type="${entry.type}"></span>`;
 
+  // _queueStatus: see applyQueuedEditOverlay_ — an edit to this entry is
+  // still saving in the background, or failed and is waiting to be
+  // retried. Shown right under the description so it's never mistaken
+  // for an already-landed change.
+  const statusLine = entry._queueStatus === "saving"
+    ? `<div class="entry-queue-status">💾 Saving…</div>`
+    : entry._queueStatus === "failed"
+      ? `<div class="entry-queue-status entry-queue-failed">⚠️ Couldn't save — tap to retry</div>`
+      : "";
+
   const left = document.createElement("div");
   left.className = "entry-left";
   left.innerHTML = `
     <div class="entry-category">${categoryMarker}${categoryName(entry.category_id)}</div>
     ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
     <div class="entry-meta">${entry.date} · ${paidByLabel(entry)}</div>
+    ${statusLine}
   `;
 
   const amount = document.createElement("div");
@@ -1690,7 +1721,14 @@ function buildEntryRow_(entry) {
 
   row.appendChild(left);
   row.appendChild(amount);
-  row.addEventListener("click", () => startEditEntry(entry));
+  row.addEventListener("click", () => {
+    // A "failed" entry still opens normally — pre-filled with the queued
+    // (attempted) values since `entry` here already carries them, see
+    // applyQueuedEditOverlay_ — so editing and saving again, even
+    // unchanged, naturally retries it.
+    if (blockedWhileSavingEdit_(entry.id)) return;
+    startEditEntry(entry);
+  });
   return row;
 }
 
@@ -1713,7 +1751,8 @@ function setLoadMoreButton_(list, hasMore) {
       const more = fetched.length > ENTRY_PAGE_SIZE;
       const page = more ? fetched.slice(0, ENTRY_PAGE_SIZE) : fetched;
       btn.remove();
-      page.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
+      lastRenderedEntries_ = lastRenderedEntries_.concat(page);
+      applyQueuedEditOverlay_(page).forEach((entry) => list.appendChild(buildEntryRow_(entry)));
       entriesShown += page.length;
       setLoadMoreButton_(list, more);
     } catch (err) {
@@ -1724,14 +1763,31 @@ function setLoadMoreButton_(list, hasMore) {
   list.appendChild(btn);
 }
 
+// The entries from the last real fetch (cached or live), BEFORE the
+// queued-edit overlay — kept so a queue change (a save landing, failing,
+// or starting) can re-render the list instantly from what's already in
+// hand, via renderEntryListFromCache_ below, without another network call.
+let lastRenderedEntries_ = [];
+let lastRenderedHasMore_ = false;
+
 // prefetchedEntries: see loadMeta's comment above.
 async function refreshEntryList(prefetchedEntries) {
   // Any change to entries makes the search list stale (see setupEntrySearch_).
   searchIndexStale = true;
   const fetched = prefetchedEntries || await callApi("listEntries", { limit: entriesShown + 1 });
   const hasMore = fetched.length > entriesShown;
-  const entries = hasMore ? fetched.slice(0, entriesShown) : fetched;
+  lastRenderedEntries_ = hasMore ? fetched.slice(0, entriesShown) : fetched;
+  lastRenderedHasMore_ = hasMore;
+  renderEntryListFromCache_();
+}
+
+// Re-renders the already-fetched entry list with the current queued-edit
+// overlay applied — no network call. Used whenever a background edit's
+// status changes (see flushEntryEdit_), so the "Saving…"/"Couldn't save"
+// tag updates immediately.
+function renderEntryListFromCache_() {
   const list = document.getElementById("entry-list");
+  const entries = applyQueuedEditOverlay_(lastRenderedEntries_);
   list.innerHTML = "";
 
   if (entries.length === 0) {
@@ -1740,7 +1796,7 @@ async function refreshEntryList(prefetchedEntries) {
   }
 
   entries.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
-  setLoadMoreButton_(list, hasMore);
+  setLoadMoreButton_(list, lastRenderedHasMore_);
 }
 
 // ---- Entries-tab search: instant, as-you-type ----
@@ -1860,6 +1916,7 @@ function buildSearchRow_(entry) {
   // Overview/Budgets drill-downs use to refresh what's below it.
   const fresh = row.cloneNode(true);
   fresh.addEventListener("click", () => {
+    if (blockedWhileSavingEdit_(entry.id)) return;
     currentDrilldown = { refetch: refreshSearchAfterEdit_ };
     openEditPopup(entry);
   });
@@ -2021,7 +2078,11 @@ async function startEditEntry(entry) {
   // Both lookups start now, in parallel (they used to run one after the
   // other, each a slow Apps Script round trip). Entries from listEntries
   // already carry their splits, so for those the split shows with no wait.
-  const tagsPromise = callApi("getEntryTags", { entryId: entry.id });
+  // Array.isArray(entry.tagIds): same shortcut as splits below — lets a
+  // "couldn't save, tap to retry" re-open (see applyQueuedEditOverlay_)
+  // prefill with the TAGS THAT WERE ACTUALLY QUEUED rather than the
+  // server's still-stale ones, so retrying doesn't silently revert them.
+  const tagsPromise = Array.isArray(entry.tagIds) ? Promise.resolve(entry.tagIds) : callApi("getEntryTags", { entryId: entry.id });
   const splitsPromise = entry.type !== "expense"
     ? null
     : Array.isArray(entry.splits) ? Promise.resolve(entry.splits) : callApi("getEntrySplits", { entryId: entry.id });
@@ -2101,6 +2162,7 @@ function resetEntryFormFields_() {
   // option) is still a real improvement over showing the specific
   // deleted/cancelled entry's own account.
   document.getElementById("payment_method").value = "";
+  setInvestmentDirection("deposit");
 }
 
 // Returns the Entries screen to exactly what a fresh app open looks like
@@ -2308,6 +2370,205 @@ async function flushQueuedReviewActions_() {
     }
   }
 }
+
+// ---- Background entry-edit saving ----
+// Finishing an edit of an EXISTING entry (not creating a new one, not a
+// repayment conversion, not confirming a pending entry — see the submit
+// handler's editingEntryId branch) doesn't make the owner wait for
+// updateEntry/saveEntrySplits/saveEntryTags to actually land: the edit is
+// written here first, the screen updates immediately, and the real calls
+// run in the background. Modeled on the review queue's own offline-action
+// pattern just above, with two differences that matter specifically for
+// an edit:
+// - Only ONE queued edit per entry — a newer edit REPLACES the queued
+//   one, never both ("last edit wins", matching what the owner would
+//   expect if they changed their mind about something seconds later).
+// - Never two requests in flight for the SAME entry at once
+//   (entryEditFlushing_ below) — editing the same entry twice in quick
+//   succession, with the first save still slow or retrying, could
+//   otherwise land out of order and silently discard the newer edit.
+// Survives closing the app: queued edits are replayed on the next open
+// (flushAllQueuedEdits_, called from init()), same as queued review
+// actions already are.
+const EDIT_QUEUE_KEY = "entryEditQueue";
+
+function getQueuedEdits_() {
+  try {
+    return JSON.parse(localStorage.getItem(EDIT_QUEUE_KEY) || "[]");
+  } catch (err) {
+    return [];
+  }
+}
+
+function setQueuedEdits_(edits) {
+  try {
+    localStorage.setItem(EDIT_QUEUE_KEY, JSON.stringify(edits));
+  } catch (err) {
+    // Storage full/unavailable — the edit just won't survive a reload if
+    // it doesn't land this session; not worth failing the save over.
+  }
+}
+
+function findQueuedEdit_(id) {
+  return getQueuedEdits_().find((e) => e.id === id) || null;
+}
+
+// splits: null means "don't touch splits for this entry" (not an expense,
+// never was) — [] means "send an empty list" (clears any existing splits).
+function queueEntryEdit_(id, fields, splits, tagIds) {
+  const edits = getQueuedEdits_().filter((e) => e.id !== id);
+  edits.push({ id, fields, splits, tagIds, status: "saving", lastError: null, queuedAt: Date.now() });
+  setQueuedEdits_(edits);
+  renderSaveFailedBanner_();
+}
+
+function unqueueEntryEdit_(id) {
+  setQueuedEdits_(getQueuedEdits_().filter((e) => e.id !== id));
+  renderSaveFailedBanner_();
+}
+
+function markQueuedEditStatus_(id, status, error) {
+  const edits = getQueuedEdits_();
+  const edit = edits.find((e) => e.id === id);
+  if (!edit) return;
+  edit.status = status;
+  edit.lastError = error || null;
+  setQueuedEdits_(edits);
+  renderSaveFailedBanner_();
+}
+
+// Blocks re-opening an entry for editing while its own background save is
+// actively in flight — a "failed" one is deliberately NOT blocked here,
+// see applyQueuedEditOverlay_'s comment on why re-opening it is safe (and
+// useful: it's how a failed save gets retried).
+function blockedWhileSavingEdit_(id) {
+  const q = findQueuedEdit_(id);
+  if (q && q.status === "saving") {
+    alert("Still saving your last change to this entry — try again in a moment.");
+    return true;
+  }
+  return false;
+}
+
+// Overlays any queued/failed background edit onto a list of entries, so
+// Recent entries shows what's ACTUALLY about to be saved, not a snapshot
+// of what the server still has — with a visible status (buildEntryRow_)
+// so it's never mistaken for an already-confirmed value, in the same
+// spirit as principle 6 even though this isn't the review queue.
+function applyQueuedEditOverlay_(entries) {
+  const queued = getQueuedEdits_();
+  if (!queued.length) return entries;
+  const byId = {};
+  queued.forEach((e) => { byId[e.id] = e; });
+  return entries.map((entry) => {
+    const q = byId[entry.id];
+    if (!q) return entry;
+    // own_share/own_share_pen/amount_pen are server-derived (splits math,
+    // the exchange rate) and not recomputed locally here — fine for a few
+    // seconds of optimistic display, never shown as final while the
+    // saving/failed tag is up.
+    const merged = Object.assign({}, entry, q.fields);
+    // Also overlays splits/tagIds (q.splits===null means "wasn't touched
+    // by this edit" — keep the original) so that re-opening a FAILED
+    // entry (startEditEntry's Array.isArray shortcuts, above/below) picks
+    // up what was actually queued, not the server's still-stale values —
+    // otherwise retrying could silently revert a split or tag change.
+    if (q.splits !== null) merged.splits = q.splits;
+    merged.tagIds = q.tagIds;
+    merged._queueStatus = q.status;
+    merged._queueError = q.lastError;
+    return merged;
+  });
+}
+
+// Tracks which entry ids are currently mid-send, so a second call for the
+// same id (another tap, or the startup flush racing a fresh edit) waits
+// instead of firing a second overlapping request.
+const entryEditFlushing_ = new Set();
+
+async function flushEntryEdit_(id) {
+  if (entryEditFlushing_.has(id)) return;
+  entryEditFlushing_.add(id);
+  try {
+    // Loops so that if this entry's queued edit gets REPLACED by a newer
+    // one while this attempt is still sending — the one case where that
+    // can legitimately happen, the owner retrying a "couldn't save" entry
+    // while an earlier failed attempt was still showing — the newer one
+    // goes out next, instead of the stale one unqueuing itself as if it
+    // had won.
+    for (;;) {
+      const edit = findQueuedEdit_(id);
+      if (!edit) break;
+      markQueuedEditStatus_(id, "saving", null);
+      renderEntryListFromCache_();
+      try {
+        await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+        if (edit.splits !== null) {
+          await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
+        }
+        await callApi("saveEntryTags", { entryId: edit.id, tagIds: edit.tagIds });
+      } catch (err) {
+        markQueuedEditStatus_(id, "failed", err.message);
+        renderEntryListFromCache_();
+        break;
+      }
+      const stillSame = findQueuedEdit_(id);
+      if (stillSame && stillSame.queuedAt === edit.queuedAt) {
+        unqueueEntryEdit_(id);
+        renderEntryListFromCache_();
+        break;
+      }
+      // else: replaced mid-flight — loop again and send the newer one.
+    }
+  } finally {
+    entryEditFlushing_.delete(id);
+  }
+}
+
+// Called once at app startup (see init()) so an edit that didn't finish
+// landing before the app was last closed gets retried now, instead of
+// silently waiting for the owner to notice and re-open that entry.
+function flushAllQueuedEdits_() {
+  getQueuedEdits_().forEach((e) => flushEntryEdit_(e.id));
+}
+
+// The one thing about a background edit that has to be impossible to
+// miss: a FAILED save, since it means that edit effectively never
+// happened until it's retried. A persistent banner (same fixed-top
+// treatment as the "new version available" one, so it's visible
+// regardless of which tab is open) rather than a toast that could fade
+// away unnoticed. Called every time the queue changes, above.
+function renderSaveFailedBanner_() {
+  const banner = document.getElementById("save-failed-banner");
+  const failed = getQueuedEdits_().filter((e) => e.status === "failed");
+  if (!failed.length) {
+    banner.hidden = true;
+    return;
+  }
+  banner.textContent = failed.length === 1
+    ? "⚠️ 1 entry couldn't save — tap to review"
+    : `⚠️ ${failed.length} entries couldn't save — tap to review`;
+  banner.hidden = false;
+  // Stacks below the update banner rather than overlapping it, on the
+  // rare chance both are showing at once — both are position:fixed/top:0.
+  const updateBanner = document.getElementById("update-banner");
+  banner.style.top = updateBanner.hidden ? "0" : updateBanner.getBoundingClientRect().height + "px";
+}
+
+document.getElementById("save-failed-banner").addEventListener("click", () => {
+  const failed = getQueuedEdits_().filter((e) => e.status === "failed");
+  if (!failed.length) return;
+  // Jumps to the Entries tab and opens the first failed one for editing,
+  // pre-filled with the queued (attempted) values — so saving again, even
+  // completely unchanged, naturally retries it.
+  showScreen("entries");
+  const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === failed[0].id);
+  if (entry) {
+    startEditEntry(entry);
+  } else {
+    alert("That entry isn't in the currently loaded list — scroll Recent entries to find it, or pull down to refresh.");
+  }
+});
 
 // <option>s for a transfer's From/To pickers in the review queue — every
 // payment method, with a blank "not set" first (both ends are optional).
@@ -3286,7 +3547,10 @@ function renderDrilldownEntries(entries) {
     // Opens the same edit form used everywhere else, but as a pop-up on
     // top of this sheet — no need to leave Overview or close the
     // drill-down to fix a transaction.
-    row.addEventListener("click", () => openEditPopup(entry));
+    row.addEventListener("click", () => {
+      if (blockedWhileSavingEdit_(entry.id)) return;
+      openEditPopup(entry);
+    });
     list.appendChild(row);
   });
 }
@@ -3733,6 +3997,13 @@ async function init() {
   document.getElementById("date").value = todayLocalISO();
   renderCurrencyChips("entry");
   setupEntrySearch_();
+  // An edit that didn't finish landing before the app was last closed
+  // (see "Background entry-edit saving" above) gets retried now, rather
+  // than silently waiting for the owner to notice and re-open that entry
+  // — and if one already failed last session, the banner says so right
+  // away instead of only after the next action touches the queue.
+  flushAllQueuedEdits_();
+  renderSaveFailedBanner_();
 
   const initStart = performance.now();
   const timedStep = async (name, fn) => {
@@ -5353,6 +5624,11 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
       }
       if (data.version !== knownVersion) {
         banner.hidden = false;
+        // Pushes the save-failed banner down below this one instead of
+        // the two overlapping — both are position:fixed/top:0 (see
+        // renderSaveFailedBanner_, which does the same check the other
+        // way round for whichever banner appears second).
+        renderSaveFailedBanner_();
       }
     } catch (err) {
       // Offline or a network hiccup — not worth surfacing, next check retries.
@@ -5609,6 +5885,7 @@ async function openLinkedEntryFromLoan_(entryId) {
   try {
     const entry = await callApi("getEntry", { id: entryId });
     if (!entry) throw new Error("That expense couldn't be found — it may have been deleted.");
+    if (blockedWhileSavingEdit_(entry.id)) return;
     openEditPopup(entry);
   } catch (err) {
     alert(err.message);

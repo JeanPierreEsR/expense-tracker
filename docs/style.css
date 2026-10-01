@@ -42,6 +42,15 @@ body {
   cursor: pointer;
 }
 
+/* A background entry-edit save failed — see "Background entry-edit
+   saving" in app.js. Same fixed/always-visible treatment as the update
+   banner above (and the same top:0 default — renderSaveFailedBanner_
+   pushes it down when both happen to be showing), but a warning color so
+   it reads as "needs your attention" rather than routine. */
+.save-failed-banner {
+  background: var(--expense);
+}
+
 .pull-refresh-indicator {
   position: fixed;
   top: 0;
@@ -1117,6 +1126,19 @@ button.primary:disabled {
   color: var(--muted);
   font-size: 0.75rem;
   margin-top: 2px;
+}
+
+/* A background edit to this specific entry is saving, or failed — see
+   applyQueuedEditOverlay_/buildEntryRow_ in app.js. */
+.entry-queue-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.entry-queue-failed {
+  color: var(--expense);
+  font-weight: 600;
 }
 
 .entry-amount {
