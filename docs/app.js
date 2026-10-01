@@ -2754,6 +2754,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         </div>
         <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
       </div>
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">⚠️ Possible duplicate — same day, amount and merchant as ${(entry.twins || []).map((t) => `"${escapeHtml(t.description || "an entry")}" (${t.status})`).join(", ")}. Discard if it's a copy; confirm if it's a real repeat.</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<select class="review-category">
           <option value="">Pick a category…</option>

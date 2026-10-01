@@ -728,10 +728,35 @@ function buildSearchIndexRows_(entries) {
   });
 }
 
+// "Possible duplicate" warning (owner's request, 2026-10-01): the same day,
+// currency, amount AND merchant (the bank's own merchant name when the entry
+// came from an email, else the normalised description) as another entry —
+// confirmed or still pending. NEVER acted on automatically: legitimate
+// repeats are common (a payment split because of a bank's commission
+// threshold or Yape/Plin limits), so this only warns and the owner decides.
+// Same day only; an entry with no merchant/description never matches.
+function entryTwinWho_(e) {
+  return e.merchant ? String(e.merchant) : searchNormalize_(e.description);
+}
+
+function findSameDayTwins_(entry, allEntries) {
+  var who = entryTwinWho_(entry);
+  if (!who) return [];
+  var amount = Math.abs(Number(entry.amount)).toFixed(2);
+  return allEntries.filter(function (o) {
+    return o.id !== entry.id && o.date === entry.date && o.currency === entry.currency &&
+      Math.abs(Number(o.amount)).toFixed(2) === amount && entryTwinWho_(o) === who;
+  }).map(function (o) {
+    return { id: o.id, status: o.status, description: o.description || '' };
+  });
+}
+
 function listPendingEntries() {
-  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'pending'; });
+  var all = getAllRows('Entries');
+  var entries = all.filter(function (e) { return e.status === 'pending'; });
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
+    entry.twins = findSameDayTwins_(entry, all);
   });
   entries.sort(compareEntriesRecency_);
   return entries;

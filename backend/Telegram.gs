@@ -234,6 +234,14 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push('🏷️ Labels: ' + tagNames.join(', '));
   }
 
+  var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
+  if (twins.length) {
+    lines.push('');
+    lines.push('⚠️ Possible duplicate — same day, amount and merchant as ' + twins.map(function (t) {
+      return '"' + (t.description || 'an entry') + '" (' + t.status + ')';
+    }).join(', ') + '. Discard if it is a copy; confirm if it is a real repeat.');
+  }
+
   lines.push('');
   if (entry.type === 'transfer') {
     lines.push('Reply to edit — from, to, amount, description, currency, date, category, label, or type. Reply "help" for examples.');

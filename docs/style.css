@@ -1973,3 +1973,13 @@ button.primary:disabled {
 .search-results-card { padding-top: 6px; }
 .search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
 .search-show-more { width: 100%; margin-top: 8px; }
+
+/* "Possible duplicate" note on a review-queue row (see findSameDayTwins_ in Api.gs). */
+.review-dup-warning {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff1e0;
+  color: #8a4b00;
+  font-size: 0.85rem;
+}
