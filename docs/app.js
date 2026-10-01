@@ -2203,24 +2203,30 @@ function transferAccountOptions_(selectedId, blankLabel) {
 // queue again rather than needing a separate code path.
 // The review queue is the one piece of cached data that can actually
 // mislead (principle 6 — an entry might have just been caught by email,
-// or already resolved via Telegram, since the cached snapshot was taken),
-// unlike categories/recent entries/programmed items where staleness is
-// harmless. So instead of silently showing a possibly-stale count, this
-// small status line (#review-check-status, a sibling of the review card
-// so it's visible even when that card itself is hidden because the
-// cached count is 0) says outright whenever it might not be current yet.
-// Only used on the cache-painted path — see init()'s "fast pending check".
-function setReviewCheckStatus_(state) {
-  const el = document.getElementById("review-check-status");
+// or already resolved via Telegram, since the cached snapshot was taken).
+// Recent entries is lower-stakes (nothing to action, just a list), but the
+// owner asked for the same honesty there too — so instead of silently
+// showing a possibly-stale view, these status lines (siblings of/right
+// under their respective card's heading) say outright whenever what's on
+// screen might not be current yet. Only used on the cache-painted path —
+// see init()'s "fast pending check" and its entries-list counterpart.
+function setCheckStatus_(elementId, state, noun) {
+  const el = document.getElementById(elementId);
   if (state === "checking") {
-    el.textContent = "🔄 Checking for new review items…";
+    el.textContent = `🔄 Checking for new ${noun}…`;
     el.hidden = false;
   } else if (state === "failed") {
-    el.textContent = "⚠️ Couldn't confirm — showing the last known review queue. Pull down to retry.";
+    el.textContent = `⚠️ Couldn't confirm — showing the last known ${noun}. Pull down to retry.`;
     el.hidden = false;
   } else {
     el.hidden = true;
   }
+}
+function setReviewCheckStatus_(state) {
+  setCheckStatus_("review-check-status", state, "review items");
+}
+function setEntriesCheckStatus_(state) {
+  setCheckStatus_("entries-check-status", state, "entries");
 }
 
 // skipFlush: used only by the instant cache-paint below — flushing means
@@ -3650,7 +3656,13 @@ async function init() {
     // saved to the cache — see the Promise.allSettled below.
     let latestPending = cachedBundle ? cachedBundle.pending : null;
     let pendingCheckSucceeded = false;
-    if (paintedFromCache) setReviewCheckStatus_("checking");
+    if (paintedFromCache) {
+      setReviewCheckStatus_("checking");
+      // Lower-stakes than the review queue (nothing to action, just a
+      // list), but the owner asked for the same honesty here — cleared
+      // once the bundle below resolves and the entries list re-renders.
+      setEntriesCheckStatus_("checking");
+    }
     const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
       .then((fresh) => {
         latestPending = fresh;
@@ -3694,6 +3706,7 @@ async function init() {
 
     await timedStep("init:getMeta", () => loadMeta(bundle.meta, formBusyNow()));
     await timedStep("init:entries", () => refreshEntryList(bundle.entries));
+    if (paintedFromCache) setEntriesCheckStatus_("hidden");
     if (!paintedFromCache) {
       // The fast check above already renders the review queue on the
       // cache-painted path (as soon as it resolves, independent of this
@@ -3742,6 +3755,7 @@ async function init() {
       // Already showing a working (if possibly stale) app from cache —
       // same as a failed pull-to-refresh: fail quietly, keep it on screen.
       console.error("Background startup refresh failed:", err);
+      setEntriesCheckStatus_("failed");
       return;
     }
     document.getElementById("loading-screen").hidden = true;
