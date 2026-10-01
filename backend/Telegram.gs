@@ -220,10 +220,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
 
   lines.push('');
   if (entry.type === 'transfer') {
-    lines.push('Reply to edit — from, to, amount, description, currency, date, category, or label. Reply "help" for examples.');
+    lines.push('Reply to edit — from, to, amount, description, currency, date, category, label, or type. Reply "help" for examples.');
     return lines.join('\n');
   }
-  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, or split. Reply "help" for examples.');
+  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
   return lines.join('\n');
 }
 
@@ -245,6 +245,7 @@ function telegramEditHelpText_(entry) {
       'date — "date 2026-09-12"',
       'category — "category Transport"',
       'label — "label Trip, Work" (or "label none")',
+      'type — "type expense" or "type income" (this wasn\'t actually a transfer)',
       '',
       'Combine several with commas: "from Plin, to Diners, amount 90".'
     ];
@@ -261,6 +262,7 @@ function telegramEditHelpText_(entry) {
     'date — "date 2026-09-12"',
     'label — "label Trip, Work" (or "label none")',
     'split — "split equal Ana", "split Ana 20, Carlos 15" (or "split none")',
+    'type — "type transfer" (this was actually a move between your own accounts — follow with "from Plin, to Diners" in the same reply or a later one)',
     '',
     'Combine several with commas: "category groceries, amount 48, description Uber".'
   ];
@@ -591,7 +593,16 @@ var EDIT_COMMAND_PATTERNS = [
   // Transfers only (see applyOneEditSegment_): the two ends of the move.
   { field: 'from', re: /^from\s+(.+)/i },
   { field: 'to', re: /^to\s+(.+)/i },
-  { field: 'label', re: /^label\s+(.+)/i }
+  { field: 'label', re: /^label\s+(.+)/i },
+  // Reclassifies the whole entry — e.g. a self-transfer between the
+  // owner's own accounts that the email parser couldn't confirm as one
+  // (isOwnAccount_ in EmailParser.gs only recognizes the owner's own full
+  // name, not every account nickname) and so landed as a plain pending
+  // expense instead. See applyOneEditSegment_'s 'type' branch for the
+  // cleanup this does on the way in/out of 'transfer'. Send "type
+  // transfer" before "from"/"to" in the same reply — those two only
+  // apply to an entry that's already a transfer by the time they run.
+  { field: 'type', re: /^type\s+(expense|income|transfer)\b/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -603,7 +614,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to)\\s+';
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|type)\\s+';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -637,7 +648,8 @@ function applyEditCommand_(entryId, text) {
   var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
     '"paid by Ana", "currency USD", "date 2026-09-12", "payment method Interbank", ' +
     '"label Trip, Work" (or "label none"), "split equal Ana", ' +
-    '"split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), or "split none" — ' +
+    '"split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), "split none", ' +
+    'or "type transfer"/"type expense"/"type income" (this was actually a different kind of entry) — ' +
     'combine several separated by commas, e.g. "category groceries, amount 45.50". ' +
     'Names must match a whole word or the start of one — if a name fits more than one ' +
     '(e.g. two people named Ray), type more of it.';
@@ -725,6 +737,50 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var tagIds = parseLabelCommand_(value);
     if (tagIds === null) return null;
     saveEntryTags({ entryId: entryId, tagIds: tagIds });
+  } else if (field === 'type') {
+    var newType = value.toLowerCase();
+    if (newType === entry.type) return field; // no-op, nothing to clean up
+    setCellByRow_(sheet, headers, rowIndex, 'type', newType);
+    if (newType === 'transfer') {
+      // Transfers always carry the one fixed "Between Accounts" category
+      // (same as the app — transfer is excluded from ICON_PICKER_TYPES,
+      // so its category picker only ever offers this one option) and are
+      // always the owner's own money, never a friend's.
+      var transferCat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
+      setCellByRow_(sheet, headers, rowIndex, 'category_id', transferCat ? transferCat.id : '');
+      setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
+      // A transfer can't carry a split — clear one left over from when
+      // this was still a pending expense (same cleanup updateEntry's
+      // caller in app.js does for a type change via the Split popup).
+      if (entry.type === 'expense') saveEntrySplits(entryId, []);
+    } else {
+      // Leaving transfer (or switching expense<->income): the old
+      // category_id belongs to the old type's category list, so it's
+      // cleared unless it happens to already be a valid category for the
+      // new type — same "needs category" state a fresh pending entry
+      // without a guess shows, rather than silently keeping a
+      // mismatched one.
+      var oldCat = entry.category_id ?
+        getAllRows('Categories').find(function (c) { return c.id === entry.category_id; }) : null;
+      if (!oldCat || oldCat.type !== newType) {
+        setCellByRow_(sheet, headers, rowIndex, 'category_id', '');
+      }
+      if (entry.type === 'transfer') {
+        ensureEntriesToPaymentMethodColumn_();
+        setEntryField_(entryId, 'to_payment_method_id', '');
+      }
+      // paid_by means a different kind of row per type (a Payor for
+      // income; 'me' or a Friend for expense/transfer) — a value carried
+      // over from the old type is never valid for the new one. Income
+      // starts blank (prompted for, like a fresh income entry); landing
+      // on expense from income defaults back to 'me' rather than leaving
+      // a Payor id that'd display as a raw, unresolved id.
+      if (newType === 'income') {
+        setCellByRow_(sheet, headers, rowIndex, 'paid_by', '');
+      } else if (entry.type === 'income') {
+        setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
+      }
+    }
   }
 
   return field;
