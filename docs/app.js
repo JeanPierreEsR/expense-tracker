@@ -1364,7 +1364,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (selectedType === "transfer" && toPaymentMethodId && toPaymentMethodId === paymentMethodId) {
       throw new Error("From and To can't be the same account.");
     }
-    if (selectedType === "investment" && !toPaymentMethodId && !editingEntryId && !confirmingPendingId) {
+    if (selectedType === "investment" && !toPaymentMethodId && !editingEntryId) {
       throw new Error("Pick the platform.");
     }
     const isWithdrawal = selectedType === "investment" && investmentDirection === "withdrawal";
@@ -2610,6 +2610,16 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
 
 // <option>s for a transfer's From/To pickers in the review queue — every
 // payment method, with a blank "not set" first (both ends are optional).
+// Investment platforms only (Payment Methods of type "investment") — the
+// pending-investment row's one remaining decision when everything else was
+// already set through Telegram.
+function investmentPlatformOptions_(selectedId) {
+  const opts = meta.paymentMethods.filter((pm) => pm.type === "investment").map((pm) =>
+    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
+  );
+  return `<option value="">Pick the platform…</option>` + opts.join("");
+}
+
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
@@ -2711,12 +2721,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           ${categoryOptions}
         </select>
         <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
-        <input class="review-amount" type="text" inputmode="decimal" value="${entry.amount}" placeholder="Amount">
+        <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="Amount">
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">⬆️ From</label>
         <select class="review-from">${transferAccountOptions_(entry.payment_method_id, "Pick the account it left…")}</select>
         <label class="review-transfer-label">⬇️ To</label>
         <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, "Pick the account it went into…")}</select>` : ""}
+        ${entry.type === "investment" ? `
+        <label class="review-transfer-label">📈 Platform${Number(entry.amount) < 0 ? " (withdrawal — money coming back)" : ""}</label>
+        <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>` : ""}
       </div>
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
@@ -2757,7 +2770,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // Applies immediately and locally — see the note above the queue
       // helpers. The row is gone the instant you tap, whether or not the
       // network call behind it has finished (or even started).
-      const fields = { category_id: categoryId, description, amount };
+      // A withdrawal is stored negative (set through Telegram) — keep it so.
+      const fields = { category_id: categoryId, description, amount: entry.type === "investment" && Number(entry.amount) < 0 ? -amount : amount };
       if (entry.type === "transfer") {
         const fromId = item.querySelector(".review-from").value;
         const toId = item.querySelector(".review-to").value;
@@ -2767,6 +2781,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         }
         fields.payment_method_id = fromId;
         fields.to_payment_method_id = toId;
+      }
+      if (entry.type === "investment") {
+        const platformId = item.querySelector(".review-platform").value;
+        if (!platformId) {
+          alert("Pick the platform first — an investment only counts once it has one.");
+          return;
+        }
+        fields.to_payment_method_id = platformId;
       }
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();

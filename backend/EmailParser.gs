@@ -514,6 +514,11 @@ function computeEmailExternalId_(sender, dateStr, fields) {
  */
 function confirmEntryWithLearning_(entryId) {
   var entry = getEntryById_(entryId);
+  // An investment only counts once it says which platform it went to (the
+  // per-platform totals and every report read that field).
+  if (entry && entry.type === 'investment' && !entry.to_payment_method_id) {
+    throw new Error('Pick the platform first.');
+  }
   if (entry && entry.type === 'expense' && !getEntrySplits(entryId).length) {
     saveEntrySplits(entryId, []);
   }

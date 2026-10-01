@@ -184,8 +184,15 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push('⬇️ To: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "to Diners"'));
   } else if (entry.type === 'investment') {
     // Money from one of the owner's accounts into an investment platform.
-    lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
-    lines.push('📈 Platform: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "platform Hapi"'));
+    var platformName = paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "platform Hapi"');
+    if (Number(entry.amount) < 0) {
+      lines.push('↩️ Withdrawal — money coming back from the platform');
+      lines.push('📈 From platform: ' + platformName);
+      lines.push('⬇️ Into: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
+    } else {
+      lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
+      lines.push('📈 Platform: ' + platformName);
+    }
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
     var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
@@ -228,7 +235,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     return lines.join('\n');
   }
   if (entry.type === 'investment') {
-    lines.push('Reply to edit — category, platform, payment method, amount, description, currency, date, label, or type. Reply "help" for examples.');
+    lines.push('Reply to edit — category, platform, withdrawal/deposit, payment method, amount, description, currency, date, label, or type. Reply "help" for examples.');
     return lines.join('\n');
   }
   lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
@@ -264,7 +271,8 @@ function telegramEditHelpText_(entry) {
       'Reply to edit:',
       'category — "category Stocks"',
       'platform — "platform Hapi"',
-      'payment method — "payment method Interbank" (the account the money left)',
+      'direction — "withdrawal" (money coming back from the platform) or "deposit" (the default); then payment method is the account it lands in',
+      'payment method — "payment method Interbank" (the account the money left, or lands in for a withdrawal)',
       'amount — "amount 500"',
       'description — "description Monthly deposit"',
       'currency — "currency USD"',
@@ -272,7 +280,7 @@ function telegramEditHelpText_(entry) {
       'label — "label Trip, Work" (or "label none")',
       'type — "type expense", "type income" or "type transfer" (this wasn\'t actually an investment)',
       '',
-      'Combine several with commas: "platform Hapi, category Stocks, amount 500".'
+      'Combine several with commas: "platform Hapi, category Stocks, amount 500" or "withdrawal, platform Hapi, payment method Interbank".'
     ].join('\n');
   }
   lines = [
@@ -412,11 +420,17 @@ function handleTelegramCallback_(cb) {
   // on an already-handled entry with a note instead of "Confirmed." again.
   var entry = action === 'confirm' || action === 'discard' ? getEntryById_(entryId) : null;
   var reply = null;
+  var keepButtons = false;
   if (action === 'confirm') {
     if (entry && entry.status === 'confirmed') {
       reply = 'ℹ️ Already confirmed.';
     } else if (!entry) {
       reply = 'ℹ️ This entry no longer exists.';
+    } else if (entry.type === 'investment' && !entry.to_payment_method_id) {
+      // Not confirmed, and the buttons stay on the card (see below) so the
+      // owner can set the platform and tap Confirm again.
+      reply = '⚠️ Not confirmed — an investment needs its platform first. Reply to the card with "platform Hapi" (or another platform), then tap Confirm.';
+      keepButtons = true;
     } else {
       confirmEntryWithLearning_(entryId);
       reply = '✅ Confirmed.';
@@ -430,7 +444,7 @@ function handleTelegramCallback_(cb) {
       chat_id: cb.message.chat.id, text: reply,
       reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
     });
-    removeCardButtons_(cb.message.chat.id, cb.message.message_id);
+    if (!keepButtons) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
@@ -629,6 +643,9 @@ var EDIT_COMMAND_PATTERNS = [
   // apply to an entry that's already a transfer by the time they run.
   // Investments only (see applyOneEditSegment_): which platform the money went to.
   { field: 'platform', re: /^platform\s+(.+)/i },
+  // Investments only: which way the money moved. A withdrawal is stored as
+  // a NEGATIVE amount (see Investments.gs), a deposit as a positive one.
+  { field: 'direction', re: /^(withdrawal|deposit)\b/i },
   { field: 'type', re: /^type\s+(expense|income|transfer|investment)\b/i }
 ];
 
@@ -641,7 +658,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|platform|type)\\s+';
+var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|platform|type)\\s+|(?:withdrawal|deposit)\\b)';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -715,7 +732,8 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
   } else if (field === 'amount') {
     var amt = parseFloat(value.replace(/,/g, ''));
     if (isNaN(amt) || amt <= 0) return null;
-    setCellByRow_(sheet, headers, rowIndex, 'amount', amt);
+    // A withdrawal stays negative however its amount is retyped.
+    setCellByRow_(sheet, headers, rowIndex, 'amount', entry.type === 'investment' && Number(entry.amount) < 0 ? -amt : amt);
   } else if (field === 'description') {
     setCellByRow_(sheet, headers, rowIndex, 'description', value);
   } else if (field === 'paid by' && entry.type === 'income') {
@@ -754,6 +772,10 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       ensureEntriesToPaymentMethodColumn_();
       setEntryField_(entryId, 'to_payment_method_id', endPm.id);
     }
+  } else if (field === 'direction') {
+    if (entry.type !== 'investment') return null;
+    var absAmount = Math.abs(Number(entry.amount));
+    setCellByRow_(sheet, headers, rowIndex, 'amount', value.toLowerCase() === 'withdrawal' ? -absAmount : absAmount);
   } else if (field === 'platform') {
     if (entry.type !== 'investment') return null;
     var platform = pickByName_(
@@ -813,6 +835,10 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       if (entry.type === 'transfer' || entry.type === 'investment') {
         ensureEntriesToPaymentMethodColumn_();
         setEntryField_(entryId, 'to_payment_method_id', '');
+      }
+      // Only investments carry a negative amount (a withdrawal).
+      if (entry.type === 'investment' && Number(entry.amount) < 0) {
+        setCellByRow_(sheet, headers, rowIndex, 'amount', Math.abs(Number(entry.amount)));
       }
       // paid_by means a different kind of row per type (a Payor for
       // income; 'me' or a Friend for expense/transfer) — a value carried
