@@ -514,6 +514,11 @@ function computeEmailExternalId_(sender, dateStr, fields) {
  */
 function confirmEntryWithLearning_(entryId) {
   var entry = getEntryById_(entryId);
+  // Every confirmed entry has a category (the app's own Confirm enforces it
+  // too); one without would show as uncategorised in every report.
+  if (entry && !entry.category_id) {
+    throw new Error('Pick a category first.');
+  }
   // An investment only counts once it says which platform it went to (the
   // per-platform totals and every report read that field).
   if (entry && entry.type === 'investment' && !entry.to_payment_method_id) {

@@ -427,6 +427,11 @@ function handleTelegramCallback_(cb) {
       reply = 'ℹ️ Already confirmed.';
     } else if (!entry) {
       reply = 'ℹ️ This entry no longer exists.';
+    } else if (!entry.category_id) {
+      // Same rule as the app's Confirm: no category, no confirmation. The
+      // buttons stay so the owner can reply "category Stocks" and tap again.
+      reply = '⚠️ Not confirmed — it needs a category first. Reply to the card with "category groceries" (or another category), then tap Confirm.';
+      keepButtons = true;
     } else if (entry.type === 'investment' && !entry.to_payment_method_id) {
       // Not confirmed, and the buttons stay on the card (see below) so the
       // owner can set the platform and tap Confirm again.
