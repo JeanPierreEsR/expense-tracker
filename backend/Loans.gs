@@ -604,12 +604,15 @@ function recordOverpaymentExpense(payload) {
 //   movement of one — converting it would count that payment twice);
 // - an expense whose debt already has repayments recorded against it.
 function convertEntryToRepayment(payload) {
+  // May already be inside routeActionOnce_'s lock (same execution) — only
+  // take and release it here when nobody up the stack has.
   var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  var ownsLock = !lock.hasLock();
+  if (ownsLock) lock.waitLock(20000);
   try {
     return convertEntryToRepayment_(payload);
   } finally {
-    lock.releaseLock();
+    if (ownsLock) lock.releaseLock();
   }
 }
 

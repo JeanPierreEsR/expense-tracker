@@ -244,7 +244,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // the first request after that can take 20+ seconds to wake it up, and
 // sometimes the slow/cold response comes back looking like a CORS failure.
 // Retrying clears it up once the backend is warm.
+// Actions that create something and must never be applied twice — the retry
+// loop below resends a request when no reply arrives, even though the first
+// copy may well have been applied. Each gets one `_requestId`, created on the
+// first attempt and carried unchanged through every resend; the server
+// (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
+const ONCE_ACTIONS = new Set([
+  "createEntry", "recordRepayment", "convertEntryToRepayment",
+  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend"
+]);
+
+function newRequestId_() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
+  if (attempt === 1 && ONCE_ACTIONS.has(action) && !(payload && payload._requestId)) {
+    payload = { ...(payload || {}), _requestId: newRequestId_() };
+  }
   let json;
   try {
     // A hard cap per attempt — without one, a request that goes quiet

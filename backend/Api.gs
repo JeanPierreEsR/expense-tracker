@@ -55,7 +55,7 @@ function doPost(e) {
     if (!isValidAccessCode(body.accessCode)) {
       response = { ok: false, error: 'Invalid access code' };
     } else {
-      response = { ok: true, data: routeAction(body.action, body.payload || {}) };
+      response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
     }
   } catch (err) {
     response = { ok: false, error: err.message };
@@ -64,6 +64,44 @@ function doPost(e) {
   response.coldInstance = perfCold;
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Actions that CREATE something and are not safe to run twice. The app
+// resends a request on its own when no reply arrives (slow Apps Script
+// start, dropped connection — see callApi in app.js), and if the first
+// copy had actually reached the server the second would be applied again:
+// that is how one 500 repayment got recorded twice (CHANGELOG.md,
+// 2026-10-01). The app stamps each such request with a `_requestId` that
+// stays the same across its resends; the first run's result is remembered
+// for 6 hours and handed back for any repeat, instead of running again.
+// The lock makes a repeat that arrives WHILE the first is still running
+// wait for it, then get its result.
+var ONCE_ACTIONS_ = {
+  createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1,
+  recordOverpaymentIncome: 1, recordOverpaymentExpense: 1,
+  addLoan: 1, addFriend: 1
+};
+
+function routeActionOnce_(action, payload) {
+  var id = payload && payload._requestId;
+  if (!id || !ONCE_ACTIONS_[action]) return routeAction(action, payload);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = 'req:' + id;
+    var seen = cache.get(key);
+    if (seen !== null) return JSON.parse(seen);
+    var result = routeAction(action, payload);
+    try {
+      cache.put(key, JSON.stringify(result === undefined ? null : result), 21600);
+    } catch (cacheErr) {
+      // Too big or cache unavailable — the action itself already succeeded.
+    }
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function routeAction(action, payload) {
