@@ -229,6 +229,7 @@ function routeAction(action, payload) {
     case 'deleteLoan': deleteLoan(payload.id); return { done: true };
     case 'listSettlementsForFriendCurrency': return listSettlementsForFriendCurrency(payload.friendId, payload.currency);
     case 'recordRepayment': return recordRepayment(payload);
+    case 'convertEntryToRepayment': return convertEntryToRepayment(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
     case 'forgiveLoan': return forgiveLoan(payload);

@@ -587,6 +587,123 @@ function recordOverpaymentExpense(payload) {
   return createOverpaymentEntry_('expense', payload);
 }
 
+// "I saved this as an expense / plain transfer, but it was really a
+// repayment" — one call that does the whole swap safely (see CHANGELOG.md,
+// 2026-10-01). Order matters: the old entry (and the loan it made) must be
+// gone BEFORE the repayment is worked out, or FIFO would settle that loan
+// and the loan could then never be deleted. Because that makes the delete
+// come first, everything that could be refused is checked up front, a
+// snapshot of what's about to be deleted is taken, and if anything fails
+// after the delete the snapshot is put back and the repayment's partial
+// rows are removed — so the owner never ends up with the original lost
+// and no repayment either.
+//
+// Refused (nothing touched) when the entry is:
+// - not an expense or a plain transfer;
+// - a transfer already linked to a loan or repayment (it IS the money
+//   movement of one — converting it would count that payment twice);
+// - an expense whose debt already has repayments recorded against it.
+function convertEntryToRepayment(payload) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    return convertEntryToRepayment_(payload);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function convertEntryToRepayment_(payload) {
+  var entry = getEntryById_(payload.entry_id);
+  if (!entry) throw new Error('That entry no longer exists — it may already have been converted.');
+  if (entry.type !== 'expense' && entry.type !== 'transfer') {
+    throw new Error('Only an expense or a transfer can be turned into a repayment.');
+  }
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error('Invalid direction.');
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error('Friend not found');
+  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
+  if (!payload.date) throw new Error('Date is required.');
+  if (!payload.overpay_category_id) throw new Error('Pick a category for any extra amount.');
+
+  ensureLoansTransferEntryColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var settlementsBefore = getAllRows('Settlements');
+  var loansBefore = getAllRows('Loans');
+
+  if (entry.type === 'transfer') {
+    var linked = settlementsBefore.some(function (s) { return s.transfer_entry_id === entry.id; }) ||
+      loansBefore.some(function (l) { return l.transfer_entry_id === entry.id; });
+    if (linked) {
+      throw new Error("This transfer is already the money movement of a loan or repayment — change it from the Loans tab instead.");
+    }
+  }
+
+  var ownLoans = loansBefore.filter(function (l) { return l.origin === 'entry' && l.entry_id === entry.id; });
+  var ownLoanIds = {};
+  ownLoans.forEach(function (l) { ownLoanIds[l.id] = true; });
+  if (settlementsBefore.some(function (s) { return ownLoanIds[s.loan_id]; })) {
+    throw new Error("The debt this expense created already has repayments recorded against it — sort those out from the Loans tab first.");
+  }
+
+  // Snapshot, then delete.
+  var snapshot = {
+    entry: entry,
+    splits: getAllRows('Entry Splits').filter(function (r) { return r.entry_id === entry.id; }),
+    tags: getAllRows('Entry Tags').filter(function (r) { return r.entry_id === entry.id; }),
+    loans: ownLoans
+  };
+  var settlementIdsBefore = {};
+  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  var entryIdsBefore = {};
+  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+
+  deleteEntry_(entry.id);
+
+  try {
+    var result = recordRepayment({
+      friend_id: payload.friend_id,
+      direction: payload.direction,
+      amount: payload.amount,
+      currency: payload.currency,
+      date: payload.date,
+      payment_method_id: payload.payment_method_id,
+      description: payload.description
+    });
+    var overEntry = null;
+    if (result.overpaid > 0.004) {
+      overEntry = createOverpaymentEntry_(payload.direction === 'they_owe_me' ? 'income' : 'expense', {
+        friend_id: payload.friend_id,
+        amount: result.overpaid,
+        currency: result.currency,
+        date: payload.date,
+        payment_method_id: payload.payment_method_id,
+        category_id: payload.overpay_category_id
+      });
+    }
+    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: overEntry };
+  } catch (err) {
+    // Undo: remove whatever the repayment managed to write, put the
+    // original back exactly as it was.
+    try {
+      deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+      getAllRows('Entries').forEach(function (e) {
+        if (!entryIdsBefore[e.id]) deleteEntry_(e.id);
+      });
+      appendRowObject('Entries', snapshot.entry);
+      snapshot.splits.forEach(function (r) { appendRowObject('Entry Splits', r); });
+      snapshot.tags.forEach(function (r) { appendRowObject('Entry Tags', r); });
+      snapshot.loans.forEach(function (r) { appendRowObject('Loans', r); });
+      getAllRows('Loans').filter(function (l) { return l.friend_id === payload.friend_id; })
+        .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
+    } catch (undoErr) {
+      throw new Error('Something went wrong AND putting the original back failed — entry "' +
+        (snapshot.entry.description || snapshot.entry.id) + '" (' + snapshot.entry.date + ', ' +
+        snapshot.entry.amount + ') needs re-entering. ' + err.message);
+    }
+    throw new Error('Nothing was changed — ' + err.message);
+  }
+}
+
 function findOrCreatePayorByName_(name) {
   var lower = name.toLowerCase();
   var existing = getPayorRows_().find(function (p) { return p.name.toLowerCase() === lower; });

@@ -52,6 +52,7 @@ let splitInputEls = {};
 // split field itself is hidden (and selectedType no longer "expense") by
 // the time they hit Save.
 let editingEntryWasSplittable = false;
+let editingEntryOriginalType = null;
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
 // "Split" action. Distinct from editingEntryId (which the popup's own
@@ -669,14 +670,13 @@ function togglePaymentMethodVisibilityBase_() {
 // an existing transfer is edited as the plain entry it is.
 let repaymentDirectionChoice = "i_owe_them"; // or "they_owe_me"
 
-// Also offered when editing an existing EXPENSE (editingEntryWasSplittable):
-// "I saved this as an expense but it was really a repayment" — saving then
-// removes that expense (and any loan it made) and records the repayment
-// instead. Not offered for an existing transfer: one may already be the
-// linked entry of a repayment, and converting it would count it twice.
+// Also offered when editing an existing expense or plain transfer ("I saved
+// this as X but it was really a repayment") — the swap is one server call,
+// convertEntryToRepayment, which refuses safely when the entry is already
+// part of a loan/repayment and puts everything back if anything fails.
 function repaymentAvailable_() {
   return selectedType === "transfer" && !confirmingPendingId &&
-    (!editingEntryId || editingEntryWasSplittable);
+    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "transfer");
 }
 
 function repaymentActive_() {
@@ -1371,14 +1371,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
-      if (editingEntryId) {
-        // Converting an expense: remove it first (which also removes the
-        // loan it created), so the repayment is worked out against the
-        // debts as they should stand without it.
-        await callApi("discardEntry", { id: editingEntryId });
-        exitEditMode();
-      }
-      const result = await callApi("recordRepayment", {
+      const repaymentFields = {
         friend_id: friendId,
         direction: repaymentDirectionChoice,
         amount,
@@ -1386,22 +1379,38 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         date,
         payment_method_id: paymentMethodId,
         description
-      });
+      };
+      let result;
       let extraNote = "";
-      if (result.overpaid > 0.004) {
-        // More than was owed (or nothing was owed): the leftover is a real
-        // income/expense, same as the Loans tab's Repayments sheet.
-        if (!overpayCategoryId) {
-          throw new Error(`Repayment saved, but ${currency} ${moneyFmt(result.overpaid)} was extra and needs a category — record it from the Loans tab.`);
-        }
-        await callApi(repaymentDirectionChoice === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
-          friend_id: friendId,
-          amount: result.overpaid,
-          currency: result.currency,
-          date,
-          payment_method_id: paymentMethodId,
-          category_id: overpayCategoryId
+      if (editingEntryId) {
+        // Swapping an existing expense/transfer for the repayment: one
+        // server call that checks everything first and undoes itself if
+        // anything fails (see convertEntryToRepayment in Loans.gs).
+        result = await callApi("convertEntryToRepayment", {
+          ...repaymentFields,
+          entry_id: editingEntryId,
+          overpay_category_id: overpayCategoryId
         });
+        exitEditMode();
+      } else {
+        result = await callApi("recordRepayment", repaymentFields);
+        if (result.overpaid > 0.004) {
+          // More than was owed (or nothing was owed): the leftover is a real
+          // income/expense, same as the Loans tab's Repayments sheet.
+          if (!overpayCategoryId) {
+            throw new Error(`Repayment saved, but ${currency} ${moneyFmt(result.overpaid)} was extra and needs a category — record it from the Loans tab.`);
+          }
+          await callApi(repaymentDirectionChoice === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
+            friend_id: friendId,
+            amount: result.overpaid,
+            currency: result.currency,
+            date,
+            payment_method_id: paymentMethodId,
+            category_id: overpayCategoryId
+          });
+        }
+      }
+      if (result.overpaid > 0.004) {
         extraNote = ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${repaymentDirectionChoice === "they_owe_me" ? "income" : "an expense"}.`;
       }
       refreshLoans().catch(() => {});
@@ -1944,6 +1953,7 @@ function setupEntrySearch_() {
 async function startEditEntry(entry) {
   editingEntryId = entry.id;
   editingEntryWasSplittable = entry.type === "expense";
+  editingEntryOriginalType = entry.type;
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -2025,6 +2035,7 @@ async function startEditEntry(entry) {
 function exitEditMode() {
   editingEntryId = null;
   editingEntryWasSplittable = false;
+  editingEntryOriginalType = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
