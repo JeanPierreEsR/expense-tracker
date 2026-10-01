@@ -170,7 +170,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? cat.name : null;
   }
-  var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : '🔁';
+  var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
   lines.push(icon + ' ' + (entry.description || '(no description)'));
   lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
@@ -182,6 +182,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     // owner) instead of one ambiguous payment method.
     lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "from Plin"'));
     lines.push('⬇️ To: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "to Diners"'));
+  } else if (entry.type === 'investment') {
+    // Money from one of the owner's accounts into an investment platform.
+    lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
+    lines.push('📈 Platform: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "platform Hapi"'));
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
     var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
@@ -223,6 +227,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push('Reply to edit — from, to, amount, description, currency, date, category, label, or type. Reply "help" for examples.');
     return lines.join('\n');
   }
+  if (entry.type === 'investment') {
+    lines.push('Reply to edit — category, platform, payment method, amount, description, currency, date, label, or type. Reply "help" for examples.');
+    return lines.join('\n');
+  }
   lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
   return lines.join('\n');
 }
@@ -245,11 +253,27 @@ function telegramEditHelpText_(entry) {
       'date — "date 2026-09-12"',
       'category — "category Transport"',
       'label — "label Trip, Work" (or "label none")',
-      'type — "type expense" or "type income" (this wasn\'t actually a transfer)',
+      'type — "type expense", "type income" or "type investment" (this wasn\'t actually a transfer)',
       '',
       'Combine several with commas: "from Plin, to Diners, amount 90".'
     ];
     return lines.join('\n');
+  }
+  if (entry.type === 'investment') {
+    return [
+      'Reply to edit:',
+      'category — "category Stocks"',
+      'platform — "platform Hapi"',
+      'payment method — "payment method Interbank" (the account the money left)',
+      'amount — "amount 500"',
+      'description — "description Monthly deposit"',
+      'currency — "currency USD"',
+      'date — "date 2026-09-12"',
+      'label — "label Trip, Work" (or "label none")',
+      'type — "type expense", "type income" or "type transfer" (this wasn\'t actually an investment)',
+      '',
+      'Combine several with commas: "platform Hapi, category Stocks, amount 500".'
+    ].join('\n');
   }
   lines = [
     'Reply to edit:',
@@ -262,7 +286,7 @@ function telegramEditHelpText_(entry) {
     'date — "date 2026-09-12"',
     'label — "label Trip, Work" (or "label none")',
     'split — "split equal Ana", "split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), or "split none"',
-    'type — "type transfer" (this was actually a move between your own accounts — follow with "from Plin, to Diners" in the same reply or a later one)',
+    'type — "type transfer" (this was actually a move between your own accounts — follow with "from Plin, to Diners" in the same reply or a later one), or "type investment" (money you put into a platform — follow with "platform Hapi")',
     '',
     'Combine several with commas: "category groceries, amount 48, description Uber".',
     'Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.'
@@ -603,7 +627,9 @@ var EDIT_COMMAND_PATTERNS = [
   // cleanup this does on the way in/out of 'transfer'. Send "type
   // transfer" before "from"/"to" in the same reply — those two only
   // apply to an entry that's already a transfer by the time they run.
-  { field: 'type', re: /^type\s+(expense|income|transfer)\b/i }
+  // Investments only (see applyOneEditSegment_): which platform the money went to.
+  { field: 'platform', re: /^platform\s+(.+)/i },
+  { field: 'type', re: /^type\s+(expense|income|transfer|investment)\b/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -615,7 +641,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|type)\\s+';
+var EDIT_FIELD_KEYWORDS_RE = '(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|platform|type)\\s+';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -728,6 +754,14 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       ensureEntriesToPaymentMethodColumn_();
       setEntryField_(entryId, 'to_payment_method_id', endPm.id);
     }
+  } else if (field === 'platform') {
+    if (entry.type !== 'investment') return null;
+    var platform = pickByName_(
+      getAllRows('Payment Methods').filter(function (p) { return p.type === 'investment'; }),
+      value, function (p) { return p.nickname; });
+    if (!platform) return null;
+    ensureEntriesToPaymentMethodColumn_();
+    setEntryField_(entryId, 'to_payment_method_id', platform.id);
   } else if (field === 'label') {
     var tagIds = parseLabelCommand_(value);
     if (tagIds === null) return null;
@@ -748,6 +782,22 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       // this was still a pending expense (same cleanup updateEntry's
       // caller in app.js does for a type change via the Split popup).
       if (entry.type === 'expense') saveEntrySplits(entryId, []);
+    } else if (newType === 'investment') {
+      // An investment is the owner's own money moving from one of their
+      // accounts (payment_method_id, kept as is) to a platform
+      // (to_payment_method_id — chosen with "platform Hapi"). Its category
+      // comes from the investment list, so the old one is cleared unless
+      // it already belongs to it; a transfer's "to" is an account, not a
+      // platform, so it's cleared too. Never a friend's, never split.
+      var invOldCat = entry.category_id ?
+        getAllRows('Categories').find(function (c) { return c.id === entry.category_id; }) : null;
+      if (!invOldCat || invOldCat.type !== 'investment') {
+        setCellByRow_(sheet, headers, rowIndex, 'category_id', '');
+      }
+      setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
+      ensureEntriesToPaymentMethodColumn_();
+      setEntryField_(entryId, 'to_payment_method_id', '');
+      if (entry.type === 'expense') saveEntrySplits(entryId, []);
     } else {
       // Leaving transfer (or switching expense<->income): the old
       // category_id belongs to the old type's category list, so it's
@@ -760,7 +810,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       if (!oldCat || oldCat.type !== newType) {
         setCellByRow_(sheet, headers, rowIndex, 'category_id', '');
       }
-      if (entry.type === 'transfer') {
+      if (entry.type === 'transfer' || entry.type === 'investment') {
         ensureEntriesToPaymentMethodColumn_();
         setEntryField_(entryId, 'to_payment_method_id', '');
       }
