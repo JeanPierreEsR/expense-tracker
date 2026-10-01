@@ -2729,7 +2729,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, "Pick the account it went into…")}</select>` : ""}
         ${entry.type === "investment" ? `
         <label class="review-transfer-label">📈 Platform${Number(entry.amount) < 0 ? " (withdrawal — money coming back)" : ""}</label>
-        <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>` : ""}
+        <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>
+        ${Number(entry.amount) < 0 ? `
+        <label class="review-transfer-label">⬇️ Received at</label>
+        <select class="review-land">${transferAccountOptions_(entry.payment_method_id, "Pick the account…")}</select>` : ""}` : ""}
       </div>
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
@@ -2789,6 +2792,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           return;
         }
         fields.to_payment_method_id = platformId;
+        const landEl = item.querySelector(".review-land");
+        if (landEl) fields.payment_method_id = landEl.value;
       }
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();

@@ -188,7 +188,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     if (Number(entry.amount) < 0) {
       lines.push('↩️ Withdrawal — money coming back from the platform');
       lines.push('📈 From platform: ' + platformName);
-      lines.push('⬇️ Into: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
+      lines.push('⬇️ Received at: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "received at Interbank"'));
     } else {
       lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
       lines.push('📈 Platform: ' + platformName);
@@ -235,7 +235,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     return lines.join('\n');
   }
   if (entry.type === 'investment') {
-    lines.push('Reply to edit — category, platform, withdrawal/deposit, payment method, amount, description, currency, date, label, or type. Reply "help" for examples.');
+    lines.push('Reply to edit — category, platform, withdrawal/deposit, payment method (received at, for a withdrawal), amount, description, currency, date, label, or type. Reply "help" for examples.');
     return lines.join('\n');
   }
   lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
@@ -271,8 +271,9 @@ function telegramEditHelpText_(entry) {
       'Reply to edit:',
       'category — "category Stocks"',
       'platform — "platform Hapi"',
-      'direction — "withdrawal" (money coming back from the platform) or "deposit" (the default); then payment method is the account it lands in',
-      'payment method — "payment method Interbank" (the account the money left, or lands in for a withdrawal)',
+      'direction — "withdrawal" (money coming back from the platform) or "deposit" (the default)',
+      'payment method — "payment method Interbank" (deposit: the account the money left)',
+      'received at — "received at Interbank" or "to Interbank" (withdrawal only: the account the money lands in — a withdrawal has no payment method)',
       'amount — "amount 500"',
       'description — "description Monthly deposit"',
       'currency — "currency USD"',
@@ -280,7 +281,7 @@ function telegramEditHelpText_(entry) {
       'label — "label Trip, Work" (or "label none")',
       'type — "type expense", "type income" or "type transfer" (this wasn\'t actually an investment)',
       '',
-      'Combine several with commas: "platform Hapi, category Stocks, amount 500" or "withdrawal, platform Hapi, payment method Interbank".'
+      'Combine several with commas: "platform Hapi, category Stocks, amount 500" or "withdrawal, platform Hapi, received at Interbank".'
     ].join('\n');
   }
   lines = [
@@ -632,6 +633,8 @@ var EDIT_COMMAND_PATTERNS = [
   // Transfers only (see applyOneEditSegment_): the two ends of the move.
   { field: 'from', re: /^from\s+(.+)/i },
   { field: 'to', re: /^to\s+(.+)/i },
+  // Withdrawals only: same as "to", worded the way it reads for money coming back.
+  { field: 'received at', re: /^received\s*at\s+(.+)/i },
   { field: 'label', re: /^label\s+(.+)/i },
   // Reclassifies the whole entry — e.g. a self-transfer between the
   // owner's own accounts that the email parser couldn't confirm as one
@@ -658,7 +661,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|platform|type)\\s+|(?:withdrawal|deposit)\\b)';
+var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|received\\s*at|platform|type)\\s+|(?:withdrawal|deposit)\\b)';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -759,11 +762,19 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (!parsed) return null;
     saveEntrySplits(entryId, parsed);
   } else if (field === 'payment method') {
+    // A withdrawal has no "payment method" — the account it lands in is its
+    // "to" (stored in payment_method_id, which is what balances read).
+    if (entry.type === 'investment' && Number(entry.amount) < 0) return null;
     var pm = fuzzyFindPaymentMethod_(value);
     if (!pm) return null;
     setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', pm.id);
-  } else if (field === 'from' || field === 'to') {
-    if (entry.type !== 'transfer') return null;
+  } else if ((field === 'to' || field === 'received at') && entry.type === 'investment' && Number(entry.amount) < 0) {
+    // Withdrawal: "received at <account>" (or "to <account>") is where the money lands.
+    var landPm = fuzzyFindPaymentMethod_(value);
+    if (!landPm || landPm.type === 'investment') return null;
+    setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', landPm.id);
+  } else if (field === 'from' || field === 'to' || field === 'received at') {
+    if (entry.type !== 'transfer' || field === 'received at') return null;
     var endPm = fuzzyFindPaymentMethod_(value);
     if (!endPm) return null;
     if (field === 'from') {
