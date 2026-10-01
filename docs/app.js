@@ -1337,6 +1337,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
   submitBtn.disabled = true;
+  // Captured before anything below runs — the editingEntryId/
+  // confirmingPendingId branches null it out themselves (exitEditMode)
+  // partway through, so this is the only reliable way for the tail at
+  // the bottom to know whether this save finished an edit of an existing
+  // entry, vs. created a brand-new one.
+  const wasEditingExistingEntry = !!editingEntryId;
 
   try {
     const date = document.getElementById("date").value;
@@ -1556,6 +1562,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // #form-error, along with it the only sign this became a Programmed
       // item instead of a real entry, before the owner ever saw it.
       showFormNotice_(`Programmed for ${date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.`);
+    } else if (wasEditingExistingEntry) {
+      // Finishing an edit (as opposed to creating a brand-new entry)
+      // returns the screen to exactly what a fresh app open looks like,
+      // regardless of what type the edited entry happened to be — asked
+      // for explicitly by the owner. A new entry instead stays on the
+      // same type/account/currency, so logging several in a row is fast.
+      resetToFreshEntryScreen_();
     } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
@@ -2072,10 +2085,11 @@ function exitEditMode() {
 // the screen; transfer/investment have no such picker to hide behind, so
 // cancelling or deleting an edit left the OLD entry's values sitting in a
 // form that otherwise looked exactly like it was still being edited —
-// caught live by the owner after deleting a transfer. Used by cancelEdit
-// and the delete-entry handler; NOT used after a successful save, which
-// deliberately leaves date/currency/account as they were, to make logging
-// several entries in a row from the same account the same day faster.
+// caught live by the owner after deleting a transfer. NOT used after a
+// successful save of a brand-NEW entry, which deliberately leaves date/
+// currency/account as they were, to make logging several in a row from
+// the same account the same day faster — see resetToFreshEntryScreen_
+// below for the "finishing an edit" case, which also resets these.
 function resetEntryFormFields_() {
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
@@ -2089,13 +2103,28 @@ function resetEntryFormFields_() {
   document.getElementById("payment_method").value = "";
 }
 
+// Returns the Entries screen to exactly what a fresh app open looks like
+// — the Expense tab, its category picker, every field blank — regardless
+// of what type the entry being deleted/edited happened to be. Used after
+// deleting an entry or finishing an edit of an EXISTING one, per the
+// owner's explicit request ("I see the same I see as when first opening
+// the app"); NOT used after creating a brand-new entry, which keeps the
+// same type/account/currency selected on purpose (see
+// resetEntryFormFields_ above) so logging several in a row stays fast.
+function resetToFreshEntryScreen_() {
+  selectedType = "expense";
+  document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === "expense"));
+  resetEntryFormFields_();
+  showCategoryPicker();
+}
+
 function cancelEdit() {
   exitEditMode();
-  resetEntryFormFields_();
   if (editingViaPopup) {
+    resetEntryFormFields_();
     closeEditPopup();
-  } else if (ICON_PICKER_TYPES.includes(selectedType)) {
-    showCategoryPicker();
+  } else {
+    resetToFreshEntryScreen_();
   }
 }
 
@@ -2121,13 +2150,13 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   await callApi("discardEntry", { id: editingEntryId });
   refreshLoans().catch(() => {});
   exitEditMode();
-  resetEntryFormFields_();
   await refreshEntryList();
   refreshExpectedRecurring();
   if (editingViaPopup) {
+    resetEntryFormFields_();
     await refreshAfterPopupEdit();
-  } else if (ICON_PICKER_TYPES.includes(selectedType)) {
-    showCategoryPicker();
+  } else {
+    resetToFreshEntryScreen_();
   }
 });
 
