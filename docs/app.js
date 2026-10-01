@@ -2239,12 +2239,14 @@ function transferAccountOptions_(selectedId, blankLabel) {
 // The review queue is the one piece of cached data that can actually
 // mislead (principle 6 — an entry might have just been caught by email,
 // or already resolved via Telegram, since the cached snapshot was taken).
-// Recent entries is lower-stakes (nothing to action, just a list), but the
-// owner asked for the same honesty there too — so instead of silently
-// showing a possibly-stale view, these status lines (siblings of/right
-// under their respective card's heading) say outright whenever what's on
-// screen might not be current yet. Only used on the cache-painted path —
-// see init()'s "fast pending check" and its entries-list counterpart.
+// Everything else the cache-painted screen shows (categories/accounts,
+// recent entries, programmed items) is lower-stakes — nothing to action,
+// just a view — but the owner asked for the same honesty across the
+// board: every piece of the startup bundle gets its own status line
+// (siblings of/right under its section's heading) saying outright
+// whenever what's on screen might not be confirmed yet, rather than
+// leaving some sections silent about it and others not. Only used on the
+// cache-painted path — see init().
 function setCheckStatus_(elementId, state, noun) {
   const el = document.getElementById(elementId);
   if (state === "checking") {
@@ -2262,6 +2264,23 @@ function setReviewCheckStatus_(state) {
 }
 function setEntriesCheckStatus_(state) {
   setCheckStatus_("entries-check-status", state, "entries");
+}
+function setMetaCheckStatus_(state) {
+  setCheckStatus_("meta-check-status", state, "categories & accounts");
+}
+function setRecurringCheckStatus_(state) {
+  setCheckStatus_("recurring-check-status", state, "programmed items");
+}
+
+// Entries/meta/recurring all come from the one getStartupBundle call, so
+// they share one fate — set/cleared together whenever it resolves or
+// fails. Review is deliberately NOT included here: it has its own
+// independent, faster check (see init()'s pendingPromise) that can
+// succeed or fail on its own schedule, unrelated to the rest of the bundle.
+function setBundleCheckStatuses_(state) {
+  setEntriesCheckStatus_(state);
+  setMetaCheckStatus_(state);
+  setRecurringCheckStatus_(state);
 }
 
 // skipFlush: used only by the instant cache-paint below — flushing means
@@ -3694,9 +3713,10 @@ async function init() {
     if (paintedFromCache) {
       setReviewCheckStatus_("checking");
       // Lower-stakes than the review queue (nothing to action, just a
-      // list), but the owner asked for the same honesty here — cleared
-      // once the bundle below resolves and the entries list re-renders.
-      setEntriesCheckStatus_("checking");
+      // view), but the owner asked for the same honesty across every
+      // section — cleared once the bundle below resolves and each
+      // section re-renders.
+      setBundleCheckStatuses_("checking");
     }
     const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
       .then((fresh) => {
@@ -3740,6 +3760,7 @@ async function init() {
     saveStartupCache_({ meta: bundle.meta, entries: bundle.entries, pending: latestPending, expectedRecurring: bundle.expectedRecurring });
 
     await timedStep("init:getMeta", () => loadMeta(bundle.meta, formBusyNow()));
+    if (paintedFromCache) setMetaCheckStatus_("hidden");
     await timedStep("init:entries", () => refreshEntryList(bundle.entries));
     if (paintedFromCache) setEntriesCheckStatus_("hidden");
     if (!paintedFromCache) {
@@ -3750,6 +3771,7 @@ async function init() {
       await timedStep("init:reviewQueue", () => refreshReviewQueue(latestPending, true));
     }
     await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
+    if (paintedFromCache) setRecurringCheckStatus_("hidden");
 
     if (!paintedFromCache) {
       if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -3790,7 +3812,7 @@ async function init() {
       // Already showing a working (if possibly stale) app from cache —
       // same as a failed pull-to-refresh: fail quietly, keep it on screen.
       console.error("Background startup refresh failed:", err);
-      setEntriesCheckStatus_("failed");
+      setBundleCheckStatuses_("failed");
       return;
     }
     document.getElementById("loading-screen").hidden = true;

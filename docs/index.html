@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-01T13:02:58Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-01T13:11:04Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -55,6 +55,8 @@
           <div class="type-tab" data-type="investment">Investment</div>
           <div class="type-tab" data-type="transfer">Transfer</div>
         </div>
+
+        <p class="hint" id="meta-check-status" hidden></p>
 
         <div id="category-picker" class="category-grid" hidden></div>
 
@@ -168,6 +170,8 @@
         <p class="hint">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
         <div id="review-list"></div>
       </div>
+
+      <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
       <div class="card" id="expected-recurring-card" hidden>
         <h2>🔁 Programmed this month</h2>
@@ -959,8 +963,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-10-01T13:02:58Z"></script>
-  <script src="statement-parsers.js?v=2026-10-01T13:02:58Z"></script>
-  <script src="statements.js?v=2026-10-01T13:02:58Z"></script>
+  <script src="app.js?v=2026-10-01T13:11:04Z"></script>
+  <script src="statement-parsers.js?v=2026-10-01T13:11:04Z"></script>
+  <script src="statements.js?v=2026-10-01T13:11:04Z"></script>
 </body>
 </html>
