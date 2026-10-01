@@ -2455,6 +2455,26 @@ function blockedWhileSavingEdit_(id) {
 // of what the server still has — with a visible status (buildEntryRow_)
 // so it's never mistaken for an already-confirmed value, in the same
 // spirit as principle 6 even though this isn't the review queue.
+// own_share drives which rendering mode renderEntryAmountHtml uses (a
+// plain amount, or a split's "owner's share + Total" layout) — leaving it
+// at its stale pre-edit value while `amount` changed made a perfectly
+// plain entry render as if it had suddenly become split (own_share no
+// longer equalling the new amount). Recomputed here the same way
+// saveEntrySplits (Loans.gs) does server-side: splits === null means this
+// entry type never has splits at all (income/investment/transfer), so
+// own_share is simply the full amount. amount_pen/own_share_pen are only
+// recomputed for PEN itself — the exchange-rate lookup lives server-side,
+// so a foreign-currency edit's PEN figures stay stale for a few seconds
+// until the next real refresh, same as before this function existed.
+function applyDerivedOverlayFields_(merged, splits) {
+  const splitTotal = splits ? splits.reduce((sum, s) => sum + Number(s.amount || 0), 0) : 0;
+  merged.own_share = Number(merged.amount) - splitTotal;
+  if (merged.currency === "PEN") {
+    merged.amount_pen = Number(merged.amount);
+    merged.own_share_pen = merged.own_share;
+  }
+}
+
 function applyQueuedEditOverlay_(entries) {
   const queued = getQueuedEdits_();
   if (!queued.length) return entries;
@@ -2463,10 +2483,6 @@ function applyQueuedEditOverlay_(entries) {
   return entries.map((entry) => {
     const q = byId[entry.id];
     if (!q) return entry;
-    // own_share/own_share_pen/amount_pen are server-derived (splits math,
-    // the exchange rate) and not recomputed locally here — fine for a few
-    // seconds of optimistic display, never shown as final while the
-    // saving/failed tag is up.
     const merged = Object.assign({}, entry, q.fields);
     // Also overlays splits/tagIds (q.splits===null means "wasn't touched
     // by this edit" — keep the original) so that re-opening a FAILED
@@ -2475,6 +2491,7 @@ function applyQueuedEditOverlay_(entries) {
     // otherwise retrying could silently revert a split or tag change.
     if (q.splits !== null) merged.splits = q.splits;
     merged.tagIds = q.tagIds;
+    applyDerivedOverlayFields_(merged, q.splits);
     merged._queueStatus = q.status;
     merged._queueError = q.lastError;
     return merged;
@@ -2492,6 +2509,7 @@ function commitEditToLastRendered_(edit) {
     const merged = Object.assign({}, entry, edit.fields);
     if (edit.splits !== null) merged.splits = edit.splits;
     merged.tagIds = edit.tagIds;
+    applyDerivedOverlayFields_(merged, edit.splits);
     return merged;
   });
 }
