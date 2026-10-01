@@ -707,6 +707,35 @@ function convertEntryToRepayment_(payload) {
   }
 }
 
+// For every transfer Entry that is really a loan's or a repayment's money
+// movement: { kind: 'repayment'|'loan', friend, direction } where direction
+// is the underlying loan's ('they_owe_me' = the friend is on the receiving
+// end of the owner's money / paying the owner back — the app words it).
+// A transfer with no entry here is a plain move between the owner's own
+// accounts ("Between Accounts"). Real settlements only (an offset has no
+// transfer entry). Read once per request by listEntries / the search index.
+function buildTransferLinkMap_() {
+  ensureSettlementsTransferEntryColumn_();
+  ensureLoansTransferEntryColumn_();
+  var friends = {};
+  getAllRows('Friends').forEach(function (f) { friends[f.id] = f.name; });
+  var loans = getAllRows('Loans');
+  var loanById = {};
+  var map = {};
+  loans.forEach(function (l) {
+    loanById[l.id] = l;
+    if (l.transfer_entry_id) {
+      map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', direction: l.direction };
+    }
+  });
+  getAllRows('Settlements').forEach(function (s) {
+    if (!s.transfer_entry_id || s.offset_loan_id) return;
+    var loan = loanById[s.loan_id];
+    if (loan) map[s.transfer_entry_id] = { kind: 'repayment', friend: friends[loan.friend_id] || '', direction: loan.direction };
+  });
+  return map;
+}
+
 // What deleting this entry would also undo — asked by the app BEFORE it
 // confirms a delete, so the owner is told when the entry is a repayment's
 // money movement. `repayment`: real settlements that reference it as their

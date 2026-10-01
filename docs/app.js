@@ -1681,6 +1681,17 @@ function findCategory(id) {
 // category). `meta` is the account line under it: deposits say which account
 // the money left, withdrawals which one received it.
 function entryHeadline_(entry) {
+  // A transfer that is really a repayment / cash loan with a friend says so
+  // and names them; only a plain move between the owner's own accounts says
+  // "Between Accounts" (its category).
+  if (entry.type === "transfer" && entry.link && entry.link.friend) {
+    const l = entry.link;
+    const paidThem = l.direction === "i_owe_them"; // repayment: I paid them; loan: they lent me
+    const text = l.kind === "repayment"
+      ? (paidThem ? `Repayment to ${l.friend}` : `Repayment from ${l.friend}`)
+      : (paidThem ? `Loan from ${l.friend}` : `Loan to ${l.friend}`);
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
+  }
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
     const marker = cat && cat.icon
@@ -1846,7 +1857,7 @@ function renderEntryListFromCache_() {
 // While searching, the tab shows only the search box and its results.
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_PAGE_SIZE = 50;
-const SEARCH_CACHE_VERSION = 1;          // bump to drop every phone's saved copy
+const SEARCH_CACHE_VERSION = 2;          // bump to drop every phone's saved copy
 const SEARCH_FULL_RELOAD_MS = 24 * 3600 * 1000; // hand edits in the Sheet aren't tracked
 let searchIndex = null;          // array once loaded (from the phone's copy or the server)
 let searchSync = null;           // {structureVersion, entriesVersion, since, fullAt}

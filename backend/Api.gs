@@ -611,8 +611,13 @@ function listEntries(payload) {
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
 
+  // Transfers that are a repayment / cash loan with a friend carry `link`
+  // (see buildTransferLinkMap_) so the app can name the friend instead of
+  // saying "Between Accounts".
+  var transferLinks = entries.some(function (e) { return e.type === 'transfer'; }) ? buildTransferLinkMap_() : {};
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
+    if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     var ownShare = entry.type === 'expense'
       ? Number(entry.amount) - (splitSumByEntry[entry.id] || 0)
       : Number(entry.amount);
@@ -644,7 +649,8 @@ function buildSearchLookups_() {
     methodsById: rowsById_(getAllRows('Payment Methods')),
     friendsById: rowsById_(getAllRows('Friends')),
     payorsById: rowsById_(getPayorRows_()),
-    tagNamesByEntry: tagNamesByEntry
+    tagNamesByEntry: tagNamesByEntry,
+    transferLinks: buildTransferLinkMap_()
   };
 }
 
@@ -667,7 +673,8 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.payment_method_id] && lk.methodsById[e.payment_method_id].nickname,
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
-    (lk.tagNamesByEntry[e.id] || []).join(' ')
+    (lk.tagNamesByEntry[e.id] || []).join(' '),
+    lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
 }
@@ -723,6 +730,7 @@ function buildSearchIndexRows_(entries) {
       amount_pen: pen(e.amount, e.currency, e.date),
       own_share: ownShare,
       own_share_pen: pen(ownShare, e.currency, e.date),
+      link: lk.transferLinks[e.id] || undefined,
       _s: entrySearchText_(e, lk)
     };
   });
