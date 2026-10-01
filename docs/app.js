@@ -2080,8 +2080,23 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
-  if (!confirm("Delete this entry? This can't be undone.")) return;
+  // A repayment's transfer entry takes the repayment with it — say so first.
+  let confirmText = "Delete this entry? This can't be undone.";
+  if (editingEntryOriginalType === "transfer") {
+    const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
+    if (links.loan) {
+      alert("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
+      return;
+    }
+    if (links.repayment) {
+      const r = links.repayment;
+      confirmText = `This is a repayment ${r.direction === "they_owe_me" ? "from" : "to"} ${r.friend} (${r.currency} ${moneyFmt(r.total)}). ` +
+        `Deleting it also cancels the repayment, so ${r.direction === "they_owe_me" ? "they owe you" : "you owe them"} that amount again. Continue?`;
+    }
+  }
+  if (!confirm(confirmText)) return;
   await callApi("discardEntry", { id: editingEntryId });
+  refreshLoans().catch(() => {});
   exitEditMode();
   await refreshEntryList();
   refreshExpectedRecurring();

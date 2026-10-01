@@ -250,7 +250,8 @@ function routeAction(action, payload) {
     case 'admin_debugBudgetAlertLog': return adminDebugBudgetAlertLog();
     case 'listPendingEntries': return listPendingEntries();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
-    case 'discardEntry': deleteEntry_(payload.id); return { done: true };
+    case 'discardEntry': return discardEntryWithRepayments_(payload.id);
+    case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'updateEntry': return updateEntryFields(payload.id, payload.fields);
     case 'getEntry': return getEntryById_(payload.id);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);

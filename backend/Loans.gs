@@ -707,6 +707,62 @@ function convertEntryToRepayment_(payload) {
   }
 }
 
+// What deleting this entry would also undo — asked by the app BEFORE it
+// confirms a delete, so the owner is told when the entry is a repayment's
+// money movement. `repayment`: real settlements that reference it as their
+// transfer entry (friend, direction, total); `loan`: it is a cash loan's
+// own money movement (delete that from the Loans tab instead).
+function getEntryRepaymentLinks(payload) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureLoansTransferEntryColumn_();
+  var id = payload.id;
+  var loans = getAllRows('Loans');
+  if (loans.some(function (l) { return l.transfer_entry_id === id; })) return { loan: true, repayment: null };
+  var linked = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === id; });
+  if (!linked.length) return { loan: false, repayment: null };
+  var loanById = {};
+  loans.forEach(function (l) { loanById[l.id] = l; });
+  var friends = {};
+  getAllRows('Friends').forEach(function (f) { friends[f.id] = f.name; });
+  var first = loanById[linked[0].loan_id];
+  return {
+    loan: false,
+    repayment: {
+      friend: first ? (friends[first.friend_id] || '') : '',
+      direction: first ? first.direction : '',
+      currency: first ? first.currency : '',
+      total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0)
+    }
+  };
+}
+
+// Deleting an entry from the Entries tab. A repayment's transfer entry
+// used to just disappear while the repayment it represented stayed on
+// record — the debt stayed "paid" with no money movement left to show for
+// it, and the Loans tab couldn't bring it back. Now deleting that entry
+// also removes the repayment(s) behind it, so the debt comes back (owner's
+// decision, 2026-10-01). Only the REAL settlement rows tied to this entry
+// go; the offset pairs from the same call (see recordRepayment, phase 1)
+// stay, same as deleteSettlement leaves them. A cash loan's own transfer
+// entry is refused — deleting it would leave the loan with no movement, and
+// deleting the loan is what the Loans tab is for.
+function discardEntryWithRepayments_(entryId) {
+  var links = getEntryRepaymentLinks({ id: entryId });
+  if (links.loan) {
+    throw new Error("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
+  }
+  if (links.repayment) {
+    var touched = {};
+    getAllRows('Settlements').forEach(function (s) {
+      if (s.transfer_entry_id === entryId) touched[s.loan_id] = true;
+    });
+    deleteRowsWhere_('Settlements', function (s) { return s.transfer_entry_id === entryId; });
+    Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
+  }
+  deleteEntry_(entryId);
+  return { done: true, undone_repayment: !!links.repayment };
+}
+
 function findOrCreatePayorByName_(name) {
   var lower = name.toLowerCase();
   var existing = getPayorRows_().find(function (p) { return p.name.toLowerCase() === lower; });
