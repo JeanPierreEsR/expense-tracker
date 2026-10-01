@@ -2065,10 +2065,33 @@ function exitEditMode() {
   resetSplitState();
 }
 
-function cancelEdit() {
-  exitEditMode();
+// Clears the form's actual field VALUES back to a blank "new entry" state
+// — exitEditMode above only resets the edit-mode flags/banner/tags/splits,
+// never amount/description/date/currency/accounts. For expense/income
+// that staleness used to be hidden behind the category picker taking over
+// the screen; transfer/investment have no such picker to hide behind, so
+// cancelling or deleting an edit left the OLD entry's values sitting in a
+// form that otherwise looked exactly like it was still being edited —
+// caught live by the owner after deleting a transfer. Used by cancelEdit
+// and the delete-entry handler; NOT used after a successful save, which
+// deliberately leaves date/currency/account as they were, to make logging
+// several entries in a row from the same account the same day faster.
+function resetEntryFormFields_() {
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
+  document.getElementById("date").value = todayLocalISO();
+  selectCurrency("PEN", "entry");
+  document.getElementById("to_payment_method").value = "";
+  // payment_method (the "From"/"Paid from" account) has no blank option
+  // to reset to — whatever the browser falls back to (its first real
+  // option) is still a real improvement over showing the specific
+  // deleted/cancelled entry's own account.
+  document.getElementById("payment_method").value = "";
+}
+
+function cancelEdit() {
+  exitEditMode();
+  resetEntryFormFields_();
   if (editingViaPopup) {
     closeEditPopup();
   } else if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -2098,6 +2121,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   await callApi("discardEntry", { id: editingEntryId });
   refreshLoans().catch(() => {});
   exitEditMode();
+  resetEntryFormFields_();
   await refreshEntryList();
   refreshExpectedRecurring();
   if (editingViaPopup) {
