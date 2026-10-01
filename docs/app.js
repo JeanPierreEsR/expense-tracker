@@ -2481,6 +2481,21 @@ function applyQueuedEditOverlay_(entries) {
   });
 }
 
+// Permanently folds a successfully-saved edit into lastRenderedEntries_
+// (the raw, pre-overlay list) — called right before unqueuing it in
+// flushEntryEdit_, so the row keeps showing the new values once the
+// "Saving…" tag goes away, instead of reverting to the stale pre-edit
+// ones that a real re-fetch would otherwise be needed to replace.
+function commitEditToLastRendered_(edit) {
+  lastRenderedEntries_ = lastRenderedEntries_.map((entry) => {
+    if (entry.id !== edit.id) return entry;
+    const merged = Object.assign({}, entry, edit.fields);
+    if (edit.splits !== null) merged.splits = edit.splits;
+    merged.tagIds = edit.tagIds;
+    return merged;
+  });
+}
+
 // Tracks which entry ids are currently mid-send, so a second call for the
 // same id (another tap, or the startup flush racing a fresh edit) waits
 // instead of firing a second overlapping request.
@@ -2514,6 +2529,11 @@ async function flushEntryEdit_(id) {
       }
       const stillSame = findQueuedEdit_(id);
       if (stillSame && stillSame.queuedAt === edit.queuedAt) {
+        // Folded into lastRenderedEntries_ itself, not just left to the
+        // overlay — otherwise the row would visually REVERT to its
+        // stale pre-edit values the instant this unqueues, since nothing
+        // else re-fetches the real list until the next natural refresh.
+        commitEditToLastRendered_(edit);
         unqueueEntryEdit_(id);
         renderEntryListFromCache_();
         break;
