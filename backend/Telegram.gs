@@ -261,10 +261,11 @@ function telegramEditHelpText_(entry) {
     'currency — "currency USD"',
     'date — "date 2026-09-12"',
     'label — "label Trip, Work" (or "label none")',
-    'split — "split equal Ana", "split Ana 20, Carlos 15" (or "split none")',
+    'split — "split equal Ana", "split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), or "split none"',
     'type — "type transfer" (this was actually a move between your own accounts — follow with "from Plin, to Diners" in the same reply or a later one)',
     '',
-    'Combine several with commas: "category groceries, amount 48, description Uber".'
+    'Combine several with commas: "category groceries, amount 48, description Uber".',
+    'Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.'
   ];
   if (entry.type === 'expense') {
     lines.push('');
@@ -645,22 +646,16 @@ function applyEditCommand_(entryId, text) {
     });
   });
 
-  var helpText = 'Try: "category groceries", "amount 45.50", "description text", ' +
-    '"paid by Ana", "currency USD", "date 2026-09-12", "payment method Interbank", ' +
-    '"label Trip, Work" (or "label none"), "split equal Ana", ' +
-    '"split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), "split none", ' +
-    'or "type transfer"/"type expense"/"type income" (this was actually a different kind of entry) — ' +
-    'combine several separated by commas, e.g. "category groceries, amount 45.50". ' +
-    'Names must match a whole word or the start of one — if a name fits more than one ' +
-    '(e.g. two people named Ray), type more of it.';
+  // Same text as the "help" reply, so the two never drift apart.
+  var helpText = telegramEditHelpText_(getEntryById_(entryId));
 
   if (!appliedFields.length) {
-    return { message: 'Didn\'t recognize that. ' + helpText };
+    return { message: 'Didn\'t recognize that.\n\n' + helpText };
   }
 
   var messageParts = ['Updated ' + appliedFields.join(', ') + '.'];
   if (failedSegments.length) {
-    messageParts.push('Couldn\'t apply: ' + failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') + '. ' + helpText);
+    messageParts.push('Couldn\'t apply: ' + failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') + '.\n\n' + helpText);
   }
 
   var updated = getEntryById_(entryId);
