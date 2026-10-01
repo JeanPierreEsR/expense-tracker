@@ -1692,7 +1692,9 @@ function entryHeadline_(entry) {
   const pmName = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
   const platform = pmName(entry.to_payment_method_id);
   const account = pmName(entry.payment_method_id);
-  const marker = `<span class="entry-cat-icon" style="background:#E8EEF9">${withdrawal ? "↩️" : "📈"}</span>`;
+  // The purple dot every investment row has always had (same idea as a
+  // transfer's grey one) — the owner liked it, so it stays instead of an icon.
+  const marker = `<span class="type-dot" data-type="investment"></span>`;
   const title = platform
     ? (withdrawal ? `Withdrawal from ${escapeHtml(platform)}` : `Investment in ${escapeHtml(platform)}`)
     : `${withdrawal ? "Withdrawal" : "Investment"} — ${escapeHtml(categoryName(entry.category_id))}`;
