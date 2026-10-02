@@ -27,6 +27,7 @@ function onOpen() {
     .addItem('18. Set up investment platforms', 'menuSetupInvestmentPlatforms')
     .addItem('19. Enable keep-warm ping (every 5 min)', 'enableKeepWarmPing')
     .addItem('20. Disable keep-warm ping', 'disableKeepWarmPing')
+    .addItem('21. Fill transfer descriptions (from X to Y)', 'menuFillTransferDescriptions')
     .addToUi();
 }
 

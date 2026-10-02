@@ -736,6 +736,62 @@ function convertEntryInto_(payload, kind) {
   }
 }
 
+// ---- Retrospective "from X to Y" descriptions for transfers (2026-10-02) ----
+// The Entries form now fills this in for NEW plain transfers; this does the
+// same for existing ones, on demand from the Sheet menu (item 21), after a
+// preview. Plain = confirmed, not a repayment/loan's money movement (those
+// name the friend), with both a From and a To account. Account NAMES only —
+// never the last-4 digits, and a trailing "(1234)" inside a nickname is
+// dropped too. Empty descriptions are the safe default; replacing text the
+// owner or an email already put there is a separate, explicit choice.
+function planTransferDescriptions_() {
+  var pmById = rowsById_(getAllRows('Payment Methods'));
+  var links = buildTransferLinkMap_();
+  var nameOf = function (id) {
+    var pm = pmById[id];
+    return pm ? String(pm.nickname).replace(/\s*\(\s*\d+\s*\)\s*$/, '') : '';
+  };
+  var blank = [], filled = [];
+  getAllRows('Entries').forEach(function (e) {
+    if (e.type !== 'transfer' || e.status !== 'confirmed' || links[e.id]) return;
+    var from = nameOf(e.payment_method_id), to = nameOf(e.to_payment_method_id);
+    if (!from || !to) return;
+    var text = 'from ' + from + ' to ' + to;
+    var current = String(e.description || '').trim();
+    if (current === text) return;
+    (current === '' ? blank : filled).push({ id: e.id, text: text, old: current, date: e.date });
+  });
+  return { blank: blank, filled: filled };
+}
+
+function applyTransferDescriptions_(items) {
+  withWriteBatch_(function () {
+    items.forEach(function (i) { setEntryField_(i.id, 'description', i.text); });
+  });
+  return items.length;
+}
+
+// Sheet menu item 21: shows what would change and only changes anything
+// after a choice.
+function menuFillTransferDescriptions() {
+  var ui = SpreadsheetApp.getUi();
+  var plan = planTransferDescriptions_();
+  if (!plan.blank.length && !plan.filled.length) {
+    ui.alert('Nothing to do — every plain transfer between your own accounts already has its "from X to Y" description.');
+    return;
+  }
+  var sample = plan.filled.slice(0, 5).map(function (i) { return '  "' + i.old + '" → "' + i.text + '"'; }).join('\n');
+  var msg = plan.blank.length + ' transfers have no description.\n' +
+    plan.filled.length + ' have one already' + (sample ? ', e.g.:\n' + sample : '.') + '\n\n' +
+    'YES = fill only the ' + plan.blank.length + ' empty ones (safe).\n' +
+    'NO = also REPLACE the ' + plan.filled.length + ' existing descriptions.\n' +
+    'CANCEL = do nothing.';
+  var answer = ui.alert('Fill transfer descriptions', msg, ui.ButtonSet.YES_NO_CANCEL);
+  var items = answer === ui.Button.YES ? plan.blank : (answer === ui.Button.NO ? plan.blank.concat(plan.filled) : null);
+  if (!items) return;
+  ui.alert('Done — ' + applyTransferDescriptions_(items) + ' descriptions updated.');
+}
+
 // For every transfer Entry that is really a loan's or a repayment's money
 // movement: { kind: 'repayment'|'loan', friend, direction } where direction
 // is the underlying loan's ('they_owe_me' = the friend is on the receiving
