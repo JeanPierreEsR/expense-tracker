@@ -250,7 +250,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordRepayment", "convertEntryToRepayment",
+  "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend"
 ]);
 
@@ -530,6 +530,9 @@ function showDetailForm(category) {
 // the untouched, still-null selectedCategoryId no matter what was picked
 // in it, always failing "Pick a category" even after picking one.
 function getCategoryId() {
+  // A transfer's category is always the select's value (it is hidden behind
+  // the "Type of transfer" choice, but still holds "Between Accounts").
+  if (selectedType === "transfer") return document.getElementById("category").value;
   const selectFieldVisible = !document.getElementById("category-select-field").hidden;
   if (selectFieldVisible) return document.getElementById("category").value;
   return selectedCategoryId;
@@ -681,26 +684,46 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("payment-method-field").hidden = paidBy !== "me";
 }
 
-// ---- Repayment with a friend (Transfer tab) ----
-// A transfer can be marked as a repayment with a friend: instead of a plain
-// Entry it goes through the same recordRepayment FIFO/offset engine the
-// Loans tab's "Record repayment" uses (see CLAUDE.md's Settlements section),
-// which also writes the linked transfer Entry. Never an expense or income
-// itself — it only moves a debt balance (principle 2). New entries only:
-// an existing transfer is edited as the plain entry it is.
-let repaymentDirectionChoice = "i_owe_them"; // or "they_owe_me"
+// ---- Repayment / new loan with a friend (Transfer tab) ----
+// The transfer type has a "Type of transfer" choice in the category's old
+// slot: Between Accounts (a plain move between the owner's own accounts, the
+// default), Repayments, or New loan. Repayments goes through the same
+// recordRepayment FIFO/offset engine the Loans tab's "Record repayment"
+// uses; New loan through addLoan (the Loans tab's "+ Add loan"). Both also
+// write the linked transfer Entry, and neither is ever an expense or income
+// (principle 2). These are choices on the form, NOT rows in the Categories
+// sheet: a real category could be put on a transfer without touching any
+// debt.
+// Direction buttons are worded from the owner's side: "I paid them" /
+// "They paid me". For a repayment that means the debt direction
+// i_owe_them / they_owe_me; for a NEW LOAN it is the other way round (I paid
+// them = I lent it, so they owe me) — see debtDirection_().
+let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" = "They paid me"
 
 // Also offered when editing an existing expense or plain transfer ("I saved
-// this as X but it was really a repayment") — the swap is one server call,
-// convertEntryToRepayment, which refuses safely when the entry is already
-// part of a loan/repayment and puts everything back if anything fails.
+// this as X but it was really a repayment / loan") — the swap is one server
+// call (convertEntryToRepayment / convertEntryToLoan), which refuses safely
+// when the entry is already part of a loan/repayment and puts everything
+// back if anything fails.
 function repaymentAvailable_() {
   return selectedType === "transfer" && !confirmingPendingId &&
     (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "transfer");
 }
 
+// "between" | "repayment" | "loan"
+function transferKind_() {
+  return repaymentAvailable_() ? document.getElementById("transfer-kind").value : "between";
+}
+
 function repaymentActive_() {
-  return repaymentAvailable_() && document.getElementById("repayment-toggle").checked;
+  return transferKind_() !== "between";
+}
+
+// The debt's direction (Loans.direction) for what's being saved.
+function debtDirection_() {
+  const iPaid = repaymentDirectionChoice === "i_owe_them";
+  if (transferKind_() === "loan") return iPaid ? "they_owe_me" : "i_owe_them";
+  return repaymentDirectionChoice;
 }
 
 function populateRepaymentFriendOptions_() {
@@ -734,26 +757,38 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
 
 function updateRepaymentUi_() {
   const available = repaymentAvailable_();
-  const field = document.getElementById("repayment-field");
-  field.hidden = !available;
-  const toggle = document.getElementById("repayment-toggle");
-  if (!available) toggle.checked = false;
-  const on = available && toggle.checked;
-  document.getElementById("repayment-detail").hidden = !on;
-  if (!on) return;
+  document.getElementById("repayment-field").hidden = !available;
+  // For a transfer the "Type of transfer" choice stands in for the category
+  // dropdown (its only option was "Between Accounts"); the category select
+  // stays in the page holding that value for a plain transfer.
+  if (selectedType === "transfer") document.getElementById("category-select-field").hidden = available;
+  const kindSelect = document.getElementById("transfer-kind");
+  if (!available) kindSelect.value = "between";
+  const kind = transferKind_();
+  document.getElementById("repayment-detail").hidden = kind === "between";
+  if (kind === "between") return;
 
+  const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
   document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.direction === repaymentDirectionChoice));
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
-  populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
-  document.getElementById("repayment-overpay-category-label").textContent = `Category if ${iPaid ? "you paid" : "they paid"} extra (${iPaid ? "expense" : "income"})`;
-  document.getElementById("repayment-hint").textContent = iPaid
-    ? "Pays down what you owe them. It is not an expense — only your debt balance changes."
-    : "Pays down what they owe you. It is not income — only their debt balance changes.";
 
-  // The repayment replaces the transfer's own fields: no category, no
-  // "Paid by", no "To" — just the one account the money moved through.
-  document.getElementById("category-select-field").hidden = true;
+  document.getElementById("repayment-overpay-block").hidden = isLoan;
+  document.getElementById("loan-due-block").hidden = !isLoan;
+  if (!isLoan) {
+    populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
+    document.getElementById("repayment-overpay-category-label").textContent = `Category if ${iPaid ? "you paid" : "they paid"} extra (${iPaid ? "expense" : "income"})`;
+  }
+  document.getElementById("repayment-hint").textContent = isLoan
+    ? (iPaid
+      ? "You lent them this money, so they now owe you it back. It is not an expense."
+      : "They lent you this money, so you now owe them it back. It is not income.")
+    : (iPaid
+      ? "Pays down what you owe them. It is not an expense — only your debt balance changes."
+      : "Pays down what they owe you. It is not income — only their debt balance changes.");
+
+  // This replaces the transfer's own fields: no "Paid by", no "To" — just
+  // the one account the money moved through.
   document.getElementById("paid-by-label").hidden = true;
   document.getElementById("paid_by").hidden = true;
   document.getElementById("to-payment-method-field").hidden = true;
@@ -761,22 +796,18 @@ function updateRepaymentUi_() {
   document.getElementById("payment-method-label").textContent = iPaid ? "Paid from (account)" : "Received into (account)";
 }
 
-document.getElementById("repayment-toggle").addEventListener("change", () => {
-  // Undo what a previous "on" state hid, then let the normal rules re-apply.
+document.getElementById("transfer-kind").addEventListener("change", () => {
+  // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
   document.getElementById("paid-by-label").hidden = false;
   document.getElementById("paid_by").hidden = false;
-  const checked = document.getElementById("repayment-toggle").checked;
   // Converting a friend-paid expense: that friend is almost certainly the
   // one being repaid.
   const paidBy = document.getElementById("paid_by").value;
-  if (checked && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
+  if (repaymentActive_() && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = paidBy;
   }
   togglePaymentMethodVisibility();
-  if (!checked) {
-    document.getElementById("category-select-field").hidden = false;
-  }
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
@@ -1399,37 +1430,42 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const friendId = document.getElementById("repayment-friend").value;
       if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
+      const isLoanKind = transferKind_() === "loan";
+      const direction = debtDirection_();
       const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
-      const repaymentFields = {
+      const fields = {
         friend_id: friendId,
-        direction: repaymentDirectionChoice,
+        direction,
         amount,
         currency,
         date,
         payment_method_id: paymentMethodId,
         description
       };
+      if (isLoanKind) fields.due_date = document.getElementById("loan-due-date").value;
       let result;
       let extraNote = "";
       if (editingEntryId) {
-        // Swapping an existing expense/transfer for the repayment: one
+        // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
-        // anything fails (see convertEntryToRepayment in Loans.gs).
-        result = await callApi("convertEntryToRepayment", {
-          ...repaymentFields,
+        // anything fails (see convertEntryInto_ in Loans.gs).
+        result = await callApi(isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+          ...fields,
           entry_id: editingEntryId,
-          overpay_category_id: overpayCategoryId
+          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId })
         });
         exitEditMode();
+      } else if (isLoanKind) {
+        result = await callApi("addLoan", fields);
       } else {
-        result = await callApi("recordRepayment", repaymentFields);
+        result = await callApi("recordRepayment", fields);
         if (result.overpaid > 0.004) {
           // More than was owed (or nothing was owed): the leftover is a real
           // income/expense, same as the Loans tab's Repayments sheet.
           if (!overpayCategoryId) {
             throw new Error(`Repayment saved, but ${currency} ${moneyFmt(result.overpaid)} was extra and needs a category — record it from the Loans tab.`);
           }
-          await callApi(repaymentDirectionChoice === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
+          await callApi(direction === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
             friend_id: friendId,
             amount: result.overpaid,
             currency: result.currency,
@@ -1439,11 +1475,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           });
         }
       }
-      if (result.overpaid > 0.004) {
-        extraNote = ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${repaymentDirectionChoice === "they_owe_me" ? "income" : "an expense"}.`;
+      if (!isLoanKind && result.overpaid > 0.004) {
+        extraNote = ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${direction === "they_owe_me" ? "income" : "an expense"}.`;
       }
       refreshLoans().catch(() => {});
-      showFormNotice_(`Repayment ${repaymentDirectionChoice === "they_owe_me" ? "from" : "to"} ${friendName} recorded.${extraNote}`);
+      showFormNotice_(isLoanKind
+        ? `Loan ${direction === "they_owe_me" ? "to" : "from"} ${friendName} recorded.`
+        : `Repayment ${direction === "they_owe_me" ? "from" : "to"} ${friendName} recorded.${extraNote}`);
     } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,

@@ -77,7 +77,7 @@ function doPost(e) {
 // The lock makes a repeat that arrives WHILE the first is still running
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
-  createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1,
+  createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1,
   addLoan: 1, addFriend: 1
 };
@@ -269,6 +269,7 @@ function routeAction(action, payload) {
     case 'listSettlementsForFriendCurrency': return listSettlementsForFriendCurrency(payload.friendId, payload.currency);
     case 'recordRepayment': return recordRepayment(payload);
     case 'convertEntryToRepayment': return convertEntryToRepayment(payload);
+    case 'convertEntryToLoan': return convertEntryToLoan(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
     case 'forgiveLoan': return forgiveLoan(payload);

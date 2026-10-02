@@ -604,29 +604,42 @@ function recordOverpaymentExpense(payload) {
 //   movement of one — converting it would count that payment twice);
 // - an expense whose debt already has repayments recorded against it.
 function convertEntryToRepayment(payload) {
-  // May already be inside routeActionOnce_'s lock (same execution) — only
-  // take and release it here when nobody up the stack has.
+  return withScriptLockOnce_(function () { return convertEntryInto_(payload, 'repayment'); });
+}
+
+// Same swap, but the entry becomes a NEW LOAN with a friend ("this transfer
+// was really me lending / borrowing") — payload as addLoan plus entry_id.
+// direction here is the loan's: 'they_owe_me' = the owner lent the money.
+function convertEntryToLoan(payload) {
+  return withScriptLockOnce_(function () { return convertEntryInto_(payload, 'loan'); });
+}
+
+// May already be inside routeActionOnce_'s lock (same execution) — only
+// take and release it here when nobody up the stack has.
+function withScriptLockOnce_(fn) {
   var lock = LockService.getScriptLock();
   var ownsLock = !lock.hasLock();
   if (ownsLock) lock.waitLock(20000);
   try {
-    return convertEntryToRepayment_(payload);
+    return fn();
   } finally {
     if (ownsLock) lock.releaseLock();
   }
 }
 
-function convertEntryToRepayment_(payload) {
+// kind: 'repayment' | 'loan'.
+function convertEntryInto_(payload, kind) {
+  var label = kind === 'loan' ? 'a loan' : 'a repayment';
   var entry = getEntryById_(payload.entry_id);
   if (!entry) throw new Error('That entry no longer exists — it may already have been converted.');
   if (entry.type !== 'expense' && entry.type !== 'transfer') {
-    throw new Error('Only an expense or a transfer can be turned into a repayment.');
+    throw new Error('Only an expense or a transfer can be turned into ' + label + '.');
   }
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error('Invalid direction.');
   if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error('Friend not found');
   if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
   if (!payload.date) throw new Error('Date is required.');
-  if (!payload.overpay_category_id) throw new Error('Pick a category for any extra amount.');
+  if (kind === 'repayment' && !payload.overpay_category_id) throw new Error('Pick a category for any extra amount.');
 
   ensureLoansTransferEntryColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -657,12 +670,27 @@ function convertEntryToRepayment_(payload) {
   };
   var settlementIdsBefore = {};
   settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  var loanIdsBefore = {};
+  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
   var entryIdsBefore = {};
   getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
 
   deleteEntry_(entry.id);
 
   try {
+    if (kind === 'loan') {
+      var loan = addLoan({
+        friend_id: payload.friend_id,
+        direction: payload.direction,
+        amount: payload.amount,
+        currency: payload.currency,
+        date: payload.date,
+        due_date: payload.due_date,
+        payment_method_id: payload.payment_method_id,
+        description: payload.description
+      });
+      return { loan: loan };
+    }
     var result = recordRepayment({
       friend_id: payload.friend_id,
       direction: payload.direction,
@@ -685,10 +713,11 @@ function convertEntryToRepayment_(payload) {
     }
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: overEntry };
   } catch (err) {
-    // Undo: remove whatever the repayment managed to write, put the
-    // original back exactly as it was.
+    // Undo: remove whatever was written, put the original back exactly as
+    // it was.
     try {
       deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+      deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
       getAllRows('Entries').forEach(function (e) {
         if (!entryIdsBefore[e.id]) deleteEntry_(e.id);
       });
