@@ -671,7 +671,7 @@ function updateAutoTransferDescription_() {
   if (typedByHand) { lastAutoDescription = ""; return; }
   let text = "";
   if (selectedType === "transfer" && !editingEntryId && !confirmingPendingId && transferKind_() === "between") {
-    const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+    const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname.replace(/\s*\(\s*\d+\s*\)\s*$/, "") : ""; };  // nickname only, never the account digits
     const from = nameOf(document.getElementById("payment_method").value);
     const to = nameOf(document.getElementById("to_payment_method").value);
     if (from) text = to ? `from ${from} to ${to}` : `from ${from}`;
