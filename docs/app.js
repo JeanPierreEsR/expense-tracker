@@ -656,7 +656,31 @@ function populateTags() {
 function togglePaymentMethodVisibility() {
   togglePaymentMethodVisibilityBase_();
   updateRepaymentUi_();
+  updateAutoTransferDescription_();
 }
+
+// A new plain transfer between the owner's own accounts gets "from X to Y" as
+// its description automatically (filled as the accounts are picked, still
+// editable). Only while the field is empty or still holds what was filled in
+// here — anything typed by hand is never overwritten. Not for repayments /
+// loans (they name the friend), nor when editing an existing entry.
+let lastAutoDescription = "";
+function updateAutoTransferDescription_() {
+  const desc = document.getElementById("description");
+  const typedByHand = desc.value.trim() !== "" && desc.value !== lastAutoDescription;
+  if (typedByHand) { lastAutoDescription = ""; return; }
+  let text = "";
+  if (selectedType === "transfer" && !editingEntryId && !confirmingPendingId && transferKind_() === "between") {
+    const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+    const from = nameOf(document.getElementById("payment_method").value);
+    const to = nameOf(document.getElementById("to_payment_method").value);
+    if (from) text = to ? `from ${from} to ${to}` : `from ${from}`;
+  }
+  desc.value = text;
+  lastAutoDescription = text;
+}
+document.getElementById("payment_method").addEventListener("change", updateAutoTransferDescription_);
+document.getElementById("to_payment_method").addEventListener("change", updateAutoTransferDescription_);
 
 function togglePaymentMethodVisibilityBase_() {
   // A transfer moves money between two accounts, so its payment method
@@ -1606,6 +1630,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    lastAutoDescription = "";
+    updateAutoTransferDescription_();
     setInvestmentDirection("deposit");
     selectedTagIds.clear();
     populateTags();
@@ -2242,6 +2268,7 @@ function exitEditMode() {
 function resetEntryFormFields_() {
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
+  lastAutoDescription = "";
   document.getElementById("date").value = todayLocalISO();
   selectCurrency("PEN", "entry");
   document.getElementById("to_payment_method").value = "";
