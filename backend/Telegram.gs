@@ -128,16 +128,21 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return null;
 
-  var res = telegramApi_('sendMessage', {
+  var payload = {
     chat_id: chatId,
-    text: formatEntryForTelegram_(entry, categoryName, autoReason),
-    reply_markup: {
+    text: formatEntryForTelegram_(entry, categoryName, autoReason)
+  };
+  // A confirmed entry's card (shown after an edit reply) has no buttons — it
+  // is already done, and can still be changed by replying.
+  if (entry.status !== 'confirmed') {
+    payload.reply_markup = {
       inline_keyboard: [[
         { text: '✅ Confirm', callback_data: 'confirm:' + entry.id },
         { text: '❌ Discard', callback_data: 'discard:' + entry.id }
       ]]
-    }
-  });
+    };
+  }
+  var res = telegramApi_('sendMessage', payload);
 
   if (res.ok && res.result && res.result.message_id) {
     appendRowObject('Telegram Messages', {
@@ -172,7 +177,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   }
   var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
-  lines.push(icon + ' ' + (entry.description || '(no description)'));
+  lines.push(icon + ' ' + (entry.description || '(no description)') + (entry.status === 'confirmed' ? ' ✅ Confirmed' : ''));
   if (entry.type === 'investment') {
     // No category for investments (see defaultInvestmentCategoryId_).
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
@@ -579,6 +584,9 @@ function removeCardButtons_(chatId, messageId) {
 function applyTerminalReviewAction_(entryId, fullText, friendText) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
+  if (entry.status !== 'pending') {
+    return { message: "This entry is already confirmed — repayment/loan only works on a pending one. Handle it from the Loans tab in the app." };
+  }
   if (entry.type !== 'expense') {
     return { message: "This is an internal transfer, not a friend transaction — repayment/loan doesn't apply here." };
   }
@@ -692,6 +700,53 @@ function splitEditCommands_(text) {
   return segments;
 }
 
+// What's missing before an entry may be confirmed (same rules as the Confirm
+// button), or null if nothing is.
+function telegramConfirmBlocker_(entry) {
+  if (entry.type === 'investment') {
+    return entry.to_payment_method_id ? null : 'an investment needs its platform first — reply "platform Hapi"';
+  }
+  return entry.category_id ? null : 'it needs a category first — reply "category groceries"';
+}
+
+// Runs after a reply's edits were applied (2026-10-02, owner's request):
+// - a PENDING entry is confirmed by its first successful reply — unless some
+//   part of the reply couldn't be applied, or the entry still lacks what
+//   Confirm requires; then it stays pending, buttons and all;
+// - a CONFIRMED entry stays editable by reply. A confirmed expense's
+//   loans are rebuilt from its (possibly changed) paid by / amount / split
+//   (same as the app does when a confirmed entry is edited), and if an edit
+//   (e.g. "type income") left it without a category/platform it goes back to
+//   pending rather than staying confirmed in an invalid state.
+// Returns a short note for the reply, or ''.
+function finishTelegramEdit_(entryId, statusBefore, allApplied) {
+  var entry = getEntryById_(entryId);
+  if (!entry) return '';
+  if (statusBefore === 'pending') {
+    var blocker = telegramConfirmBlocker_(entry);
+    if (!allApplied) return 'Not confirmed yet, since part of that reply didn\'t apply — fix it, or tap Confirm.';
+    if (blocker) return 'Not confirmed yet — ' + blocker + '.';
+    confirmEntryWithLearning_(entryId);
+    return '✅ Confirmed — reply again to change anything.';
+  }
+  if (statusBefore === 'confirmed') {
+    var blocker2 = telegramConfirmBlocker_(entry);
+    if (blocker2) {
+      setEntryField_(entryId, 'status', 'pending');
+      return '⚠️ Back to pending — ' + blocker2 + '.';
+    }
+    if (entry.type === 'expense') {
+      var current = getEntrySplits(entryId).map(function (sp) {
+        return { friend_id: sp.friend_id, amount: Number(sp.amount) };
+      });
+      saveEntrySplits(entryId, current);
+    } else {
+      deleteEntrySplitsAndLoansForEntry_(entryId);
+    }
+  }
+  return '';
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
@@ -700,6 +755,7 @@ function applyEditCommand_(entryId, text) {
 
   var appliedFields = [];
   var failedSegments = [];
+  var statusBefore = (getEntryById_(entryId) || {}).status;
 
   withWriteBatch_(function () {
     splitEditCommands_(text).forEach(function (segment) {
@@ -717,6 +773,8 @@ function applyEditCommand_(entryId, text) {
   }
 
   var messageParts = ['Updated ' + appliedFields.join(', ') + '.'];
+  var statusNote = finishTelegramEdit_(entryId, statusBefore, !failedSegments.length);
+  if (statusNote) messageParts.push(statusNote);
   if (failedSegments.length) {
     messageParts.push('Couldn\'t apply: ' + failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') + '.\n\n' + helpText);
   }
