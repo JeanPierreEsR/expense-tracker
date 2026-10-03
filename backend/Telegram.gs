@@ -549,10 +549,12 @@ function handleTelegramMessage_(msg) {
   // reply to the transaction card — keeps a clear chain (card -> edit
   // command -> "Updated X.") instead of a loose message at the bottom of
   // the chat with no visible connection to what it's about.
-  telegramApi_('sendMessage', {
-    chat_id: msg.chat.id, text: result.message,
-    reply_to_message_id: msg.message_id, allow_sending_without_reply: true
-  });
+  if (result.message) {
+    telegramApi_('sendMessage', {
+      chat_id: msg.chat.id, text: result.message,
+      reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+    });
+  }
 
   // A terminal action already removed the entry — nothing left to show a
   // refreshed card for.
@@ -727,7 +729,7 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
     if (!allApplied) return 'Not confirmed yet, since part of that reply didn\'t apply — fix it, or tap Confirm.';
     if (blocker) return 'Not confirmed yet — ' + blocker + '.';
     confirmEntryWithLearning_(entryId);
-    return '✅ Confirmed — reply again to change anything.';
+    return ''; // the refreshed card says "✅ Confirmed" itself
   }
   if (statusBefore === 'confirmed') {
     var blocker2 = telegramConfirmBlocker_(entry);
@@ -786,7 +788,10 @@ function applyEditCommand_(entryId, text) {
     categoryName = found ? found.name : null;
   }
 
-  return { message: messageParts.join(' '), entry: updated, categoryName: categoryName };
+  // Everything applied and nothing to warn about: the refreshed card that
+  // follows shows the result, so a separate "Updated X." bubble is noise.
+  var quiet = !failedSegments.length && !statusNote;
+  return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName };
 }
 
 // Applies a single "field value" segment. Returns the field name on
