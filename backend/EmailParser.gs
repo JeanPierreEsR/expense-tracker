@@ -324,7 +324,12 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Comercio'),
         merchant: afterLabel_(body, 'Comercio'),
-        last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body),
+        // Some purchase emails carry no masked digits, only the card's name in
+        // the subject ("...con tu Tarjeta Interbank Visa Infinite"); with
+        // several Interbank payment methods the "only one" fallback no longer
+        // applies, so that name pins the credit card (…3052).
+        last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body)
+          || (/visa infinite/i.test(subject) ? '3052' : null),
         externalId: null
       };
     }
