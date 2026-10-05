@@ -55,6 +55,7 @@ function doPost(e) {
     }
 
     if (!isValidAccessCode(body.accessCode)) {
+      recordFailedAccessAttempt_('app');
       response = { ok: false, error: 'Invalid access code' };
     } else {
       response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };

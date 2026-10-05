@@ -513,15 +513,16 @@ function handleTelegramMessage_(msg) {
         chat_id: msg.chat.id, text: "This bot is already linked to another chat. To move it, re-run 'Set Telegram bot token' from the spreadsheet menu first.",
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
-    } else if (isValidAccessCode(code)) {
-      PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
+    } else if (!isValidAccessCode(code)) {
+      recordFailedAccessAttempt_('telegram');
       telegramApi_('sendMessage', {
-        chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",
+        chat_id: msg.chat.id, text: "That code wasn't recognized.",
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     } else {
+      PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
       telegramApi_('sendMessage', {
-        chat_id: msg.chat.id, text: "That code wasn't recognized.",
+        chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     }

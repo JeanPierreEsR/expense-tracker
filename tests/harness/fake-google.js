@@ -239,9 +239,16 @@ function buildServices(state) {
   const uiChain = {
     addItem() { return uiChain; }, addToUi() { return uiChain; },
     createMenu() { return uiChain; },
-    alert(msg) { uiLog.push(String(msg)); },
-    prompt() { return { getSelectedButton: () => "CANCEL", getResponseText: () => "" }; },
-    ButtonSet: { OK_CANCEL: 1 }, Button: { OK: "OK", CANCEL: "CANCEL" }
+    // Tests can script the dialogs: state.promptResponse (text typed into a
+    // prompt; unset = the user cancels) and state.alertButton (answer to a
+    // yes/no alert; default OK).
+    alert(...args) { uiLog.push(args.map(String).join(" | ")); return state.alertButton || "OK"; },
+    prompt() {
+      return state.promptResponse === undefined
+        ? { getSelectedButton: () => "CANCEL", getResponseText: () => "" }
+        : { getSelectedButton: () => "OK", getResponseText: () => state.promptResponse };
+    },
+    ButtonSet: { OK_CANCEL: 1, YES_NO: 2 }, Button: { OK: "OK", CANCEL: "CANCEL", YES: "YES", NO: "NO" }
   };
 
   const store = (m) => ({
