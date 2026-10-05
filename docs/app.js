@@ -2995,17 +2995,39 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
-      const entryWithRowEdits = () => {
+      // The row only ever shows what was loaded when the queue last refreshed,
+      // which can be older than what's saved (an account corrected from
+      // Telegram or another device, say). So the popup is built from the
+      // LATEST saved copy, with only what was actually changed in this row
+      // laid on top — otherwise Confirm wrote the older values back over the
+      // newer ones (e.g. an old payment method replacing the corrected one).
+      const entryWithRowEdits = async () => {
+        let fresh = entry;
+        try {
+          fresh = await callApi("getEntry", { id: entry.id });
+        } catch (err) { /* offline / slow: fall back to what the row has */ }
+        if (!fresh || fresh.status !== "pending") {
+          alert("This entry was already confirmed, changed or removed elsewhere — refreshing the list.");
+          refreshReviewQueue().catch(() => {});
+          return null;
+        }
         const amt = parseFloat(amountInput.value.trim());
-        return Object.assign({}, entry, {
-          category_id: item.querySelector(".review-category").value || entry.category_id,
-          description: item.querySelector(".review-description").value.trim(),
-          amount: !isNaN(amt) && amt > 0 ? amt : entry.amount
+        const rowCategory = item.querySelector(".review-category").value;
+        const rowDescription = item.querySelector(".review-description").value.trim();
+        const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
+        return Object.assign({}, fresh, {
+          category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
+          description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
+          amount: amountEdited ? amt : fresh.amount
         });
       };
-      item.querySelector(".review-split-btn").addEventListener("click", () => openConfirmPendingPopup(entryWithRowEdits()));
-      item.querySelector(".review-repay-btn").addEventListener("click", () => openReviewTransferModal(entryWithRowEdits(), "repay"));
-      item.querySelector(".review-loan-btn").addEventListener("click", () => openReviewTransferModal(entryWithRowEdits(), "loan"));
+      const withRowEdits = (open) => async () => {
+        const merged = await entryWithRowEdits();
+        if (merged) open(merged);
+      };
+      item.querySelector(".review-split-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      item.querySelector(".review-repay-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
+      item.querySelector(".review-loan-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
     }
 
     list.appendChild(item);
