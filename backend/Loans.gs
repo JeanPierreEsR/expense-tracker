@@ -290,9 +290,15 @@ function deleteRowsWhere_(sheetName, predicate) {
   if (lastRow < 2) return;
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var deleted = [];
+  var tz = Session.getScriptTimeZone();
   for (var i = values.length - 1; i >= 0; i--) {
     var obj = {};
-    headers.forEach(function (h, idx) { obj[h] = values[i][idx]; });
+    // Same Date -> text normalisation getAllRows does, so a predicate sees
+    // "2026-10", not a Sheets Date, for a date-like column.
+    headers.forEach(function (h, idx) {
+      var v = values[i][idx];
+      obj[h] = (v instanceof Date && DATE_FIELD_FORMATS[h]) ? Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]) : v;
+    });
     if (predicate(obj)) { sheet.deleteRow(i + 2); deleted.push(obj); }
   }
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];

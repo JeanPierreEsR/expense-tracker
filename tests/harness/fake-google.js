@@ -56,6 +56,8 @@ function formatDate(date, tz, fmt) {
 // in Api.gs). Mimicked so the backend's string-normalising code is exercised.
 function maybeDate(v) {
   if (typeof v !== "string") return v;
+  // "2026-09-30" and also "2026-09" (Sheets reads that as 1 Sep 2026).
+  if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5)) >= 1 && Number(v.slice(5)) <= 12) return new Date(`${v}-01T00:00:00-05:00`);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
   if (!m) return v;
   return new Date(`${v}T00:00:00-05:00`);

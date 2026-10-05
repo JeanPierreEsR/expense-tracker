@@ -5017,7 +5017,10 @@ function renderRecurringSkips_(re) {
         refreshRecurringExpenses();
         refreshExpectedRecurring();
       } catch (err) {
+        // Shown as an alert too — the line under the form is below the fold in
+        // this tall modal, so a failed undo looked like "it just didn't save".
         document.getElementById("recurring-form-error").textContent = err.message;
+        alert("Couldn't undo the skip (" + err.message + ").");
       }
     });
     list.appendChild(row);

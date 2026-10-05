@@ -196,3 +196,30 @@ test("a sheet from before these columns existed upgrades itself", () => {
   const months = occ(rt, r.id, "2026-01-01", "2026-12-31").map((d) => d.slice(0, 7));
   assert.deepEqual(months, ["2026-01", "2026-03", "2026-04", "2026-05", "2026-06"]);
 });
+
+// ---- Sheets turns "2026-10" into a real date in a non-text column ---------------
+// (Reported 2026-10-05: undoing a skip "didn't save".) The skips tab is created
+// text-formatted, but the code must not depend on that: a month that comes back
+// as a Date has to still match, un-skip and de-duplicate.
+function dateMonthSkips(rt) {
+  const sheet = rt.sheet("Recurring Skips");
+  sheet.textCols.clear();                                    // the column is NOT text-formatted
+  return sheet;
+}
+test("skip / undo work even if Sheets stored the month as a real date", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data);
+  dateMonthSkips(rt);
+  rt.api("skipRecurringOccurrence", { id: r.id, month: "2026-03" });
+  assert.ok(rt.sheet("Recurring Skips").rows[1][2] instanceof Date, "precondition: stored as a Date");
+
+  assert.deepEqual(occ(rt, r.id, "2026-01-01", "2026-05-31").map((d) => d.slice(0, 7)), ["2026-01", "2026-02", "2026-04", "2026-05"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(rt.api("listRecurringExpenses").find((x) => x.id === r.id).skipped_months)), ["2026-03"]);
+
+  rt.api("skipRecurringOccurrence", { id: r.id, month: "2026-03" });          // again: still one row
+  assert.equal(rt.rows("Recurring Skips").filter((s) => s.recurring_expense_id === r.id).length, 1);
+
+  rt.api("unskipRecurringOccurrence", { id: r.id, month: "2026-03" });        // the reported bug
+  assert.equal(rt.rows("Recurring Skips").filter((s) => s.recurring_expense_id === r.id).length, 0);
+  assert.equal(occ(rt, r.id, "2026-01-01", "2026-05-31").length, 5);
+});

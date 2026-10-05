@@ -303,6 +303,7 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  month: 'yyyy-MM',           // Exchange Rates / Recurring Skips: a Sheets Date back to text (numeric months are untouched)
   start_date: 'yyyy-MM-dd',   // Recurring Expenses (a Sheets Date is turned back into text on read)
   end_date: 'yyyy-MM-dd',
   opening_balance_date: 'yyyy-MM-dd',
