@@ -12,7 +12,7 @@ Needs: `brew install tesseract`, the Spanish model in ./tessdata, and a
 config.json next to this file: {"api_url": "...", "access_code": "..."}.
 Outbound HTTPS only — nothing on the Mac is exposed to the internet.
 """
-import base64, json, os, subprocess, sys, tempfile
+import base64, json, os, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(HERE, 'config.json')))
@@ -24,23 +24,36 @@ ENV = dict(os.environ, TESSDATA_PREFIX=os.path.join(HERE, 'tessdata'))
 PSM_MODES = ['11', '3', '6']
 
 
-def call(action, payload=None):
+def call(action, payload=None, tries=4):
+    """POST to the Apps Script API. Google sometimes answers with an empty or
+    HTML body (cold start, rate limit, dropped connection), so retry a few
+    times before giving up."""
     body = json.dumps({'accessCode': CFG['access_code'], 'action': action, 'payload': payload or {}})
-    out = subprocess.run(
-        ['curl', '-sL', '--max-time', '90', '-H', 'Content-Type: text/plain', '--data-binary', '@-', CFG['api_url']],
-        input=body, capture_output=True, text=True)
-    res = json.loads(out.stdout)
-    if not res.get('ok'):
-        raise RuntimeError(res.get('error') or 'API error')
-    return res.get('data')
+    last = 'no response'
+    for attempt in range(tries):
+        if attempt:
+            time.sleep(3 * attempt)
+        out = subprocess.run(
+            ['curl', '-sL', '--max-time', '90', '-H', 'Content-Type: text/plain', '--data-binary', '@-', CFG['api_url']],
+            input=body.encode('utf-8'), capture_output=True)
+        text = out.stdout.decode('utf-8', 'replace')
+        try:
+            res = json.loads(text)
+        except ValueError:
+            last = 'bad reply (curl %s): %s' % (out.returncode, text[:60].strip() or 'empty')
+            continue
+        if not res.get('ok'):
+            raise RuntimeError(res.get('error') or 'API error')
+        return res.get('data')
+    raise RuntimeError(last)
 
 
 def ocr(path):
     texts = []
     for psm in PSM_MODES:
         r = subprocess.run([TESSERACT, path, '-', '-l', 'spa', '--psm', psm],
-                           capture_output=True, text=True, env=ENV)
-        texts.append(r.stdout)
+                           capture_output=True, env=ENV)
+        texts.append(r.stdout.decode('utf-8', 'replace'))
     return '\n\n'.join(texts)
 
 
