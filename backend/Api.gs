@@ -23,6 +23,7 @@ function doPost(e) {
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
   RATES_MEMO_ = null;   // never carry rates over from a previous request
+  STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
   var response;
   try {
     var body = JSON.parse(e.postData.contents);

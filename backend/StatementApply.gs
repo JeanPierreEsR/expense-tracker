@@ -102,6 +102,7 @@ function stmtFeeDescription_(text) {
 // whole statement).
 function appendRowsBulk_(sheetName, objs) {
   if (!objs.length) return;
+  if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? o[h] : ''; }); });

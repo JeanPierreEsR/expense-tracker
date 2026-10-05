@@ -112,12 +112,41 @@ function openingForCurrency_(openings, currency) {
 // typed in, and counting them again would double them. A row with no
 // as_of (dated a past day, or saved before this existed) is treated as
 // start-of-day: every entry on its date counts.
+//
+// One refinement for a snapshot taken from a STATEMENT closing on that day: an
+// entry dated on the closing day but logged after the snapshot's moment is
+// still inside the statement's closing balance when the statement itself
+// covers it — a line matched to it, or the entry was recorded/added from a line
+// (the statement import creates fees and transfers dated on the closing day
+// AFTER it stamps the balance). Without this such an entry was subtracted a
+// second time. An entry no statement line covers still counts, as before.
 function entryCountsAfterOpening_(entry, opening) {
   if (!opening || !opening.date) return true;
   if (entry.date > opening.date) return true;
   if (entry.date < opening.date) return false;
   if (!opening.as_of) return true;
-  return !!entry.created_at && entry.created_at >= opening.as_of;
+  if (!(entry.created_at && entry.created_at >= opening.as_of)) return false;
+  return !statementCoversEntry_(entry.id, opening.date);
+}
+
+// entry id -> { periodEnd: true } for entries a statement line covers.
+// Memoised for one request (reset in doPost and whenever Statement Lines is
+// written). Only outcomes that mean "this line IS this entry" count — an
+// ignored or waiting line says nothing about any entry.
+var STMT_COVERAGE_MEMO_ = null;
+var STMT_COVERING_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true };
+
+function statementCoversEntry_(entryId, periodEnd) {
+  if (!STMT_COVERAGE_MEMO_) {
+    STMT_COVERAGE_MEMO_ = {};
+    if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Statement Lines')) {
+      getAllRows('Statement Lines').forEach(function (r) {
+        if (!r.entry_id || !STMT_COVERING_OUTCOMES_[r.outcome]) return;
+        (STMT_COVERAGE_MEMO_[r.entry_id] = STMT_COVERAGE_MEMO_[r.entry_id] || {})[String(r.period_end)] = true;
+      });
+    }
+  }
+  return !!(STMT_COVERAGE_MEMO_[entryId] && STMT_COVERAGE_MEMO_[entryId][periodEnd]);
 }
 
 // A loan-linked transfer Entry has only one payment method (where the

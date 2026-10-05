@@ -302,6 +302,7 @@ function deleteRowsWhere_(sheetName, predicate) {
     if (predicate(obj)) { sheet.deleteRow(i + 2); deleted.push(obj); }
   }
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
+  if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;
   noteRowsDeleted_(sheetName, deleted);   // change tracking — see DataVersion.gs
 }
 
