@@ -18,4 +18,18 @@ function linkTelegram(rt, chatId = 555) {
   return chatId;
 }
 
-module.exports = { freshApp, today, linkTelegram };
+// A BCP debit-card purchase email in the shape the real parsing rule reads.
+const BCP_SENDER = "notificaciones@notificacionesbcp.com.pe";
+function bcpEmail(rt, { amount = "25.50", merchant = "Corner Cafe", op = "000111", daysAgo = 0, subject, threadWith } = {}) {
+  const body = [
+    "Total del consumo: S/ " + amount,
+    "Empresa: " + merchant,
+    "Número de Tarjeta de Débito: ****1234",
+    op ? "Número de operación: " + op : ""
+  ].join("\n");
+  return rt.svc.gmail.addEmail({
+    from: BCP_SENDER, subject: subject || "Realizaste un consumo con tu tarjeta de débito BCP", body, daysAgo, threadWith
+  });
+}
+
+module.exports = { freshApp, today, linkTelegram, bcpEmail, BCP_SENDER };

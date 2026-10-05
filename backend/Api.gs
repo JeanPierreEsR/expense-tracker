@@ -22,6 +22,7 @@ function doPost(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
+  RATES_MEMO_ = null;   // never carry rates over from a previous request
   var response;
   try {
     var body = JSON.parse(e.postData.contents);
@@ -79,7 +80,7 @@ function doPost(e) {
 var ONCE_ACTIONS_ = {
   createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1,
-  addLoan: 1, addFriend: 1
+  addLoan: 1, addFriend: 1, addRecurringExpense: 1
 };
 
 function routeActionOnce_(action, payload) {
@@ -319,7 +320,24 @@ var DATE_FIELD_FORMATS = {
 // break comparing a stored Number against a freshly-extracted String.
 var STRING_FIELDS = { external_id: true, id: true };
 
+// Optional per-request read cache. OFF by default (null); only the app-open
+// bundle switches it on (see getStartupBundle), because that one request
+// re-reads Entries 4x and Payment Methods 7x. While on, each sheet is read
+// once and every caller gets its own shallow copies (callers add fields to
+// the rows they get). appendRowObject / deleteRowsWhere_ drop a sheet's cache
+// entry, and the bundle switches it off in a finally.
+var ROWS_MEMO_ = null;
+
 function getAllRows(sheetName) {
+  if (ROWS_MEMO_ && ROWS_MEMO_[sheetName]) {
+    return ROWS_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
+  }
+  var rows = readAllRows_(sheetName);
+  if (ROWS_MEMO_) ROWS_MEMO_[sheetName] = rows.map(function (r) { return Object.assign({}, r); });
+  return rows;
+}
+
+function readAllRows_(sheetName) {
   var sheet = getSheet(sheetName);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -351,6 +369,7 @@ function appendRowObject(sheetName, obj) {
   var headers = getHeaders(sheet);
   var row = headers.map(function (h) { return obj[h] !== undefined ? obj[h] : ''; });
   sheet.appendRow(row);
+  if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   noteRowAppended_(sheetName, obj);
 }
 
@@ -360,7 +379,7 @@ function findRowIndexById(sheet, headers, id) {
   if (lastRow < 2) return -1;
   var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) {
-    if (ids[i][0] === id) return i + 2;
+    if (String(ids[i][0]) === String(id)) return i + 2;   // String(): a hand-retyped id can be stored as a number
   }
   return -1;
 }
@@ -419,7 +438,11 @@ var REFERENCE_CACHE_TTL_SECONDS = 3600;
 
 function getAllRowsCached_(sheetName) {
   var cache = CacheService.getScriptCache();
-  var key = 'rows_' + sheetName;
+  // The key includes STRUCTURE_VERSION (bumped on every write to Categories /
+  // Payment Methods / Friends / Payors / Tags / Exchange Rates — see
+  // DataVersion.gs), so adding or editing one of those is visible at once
+  // instead of only after the 1-hour TTL.
+  var key = 'rows_' + sheetName + '_' + getVersion_('STRUCTURE_VERSION');
   var cached = cache.get(key);
   if (cached) return JSON.parse(cached);
   var rows = getAllRows(sheetName);
@@ -443,12 +466,20 @@ function getAllRowsCached_(sheetName) {
 // Pure aggregation — no new business logic, so nothing here changes what
 // any of the four screens show.
 function getStartupBundle(payload) {
-  return {
-    meta: getMeta(),
-    entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
-    pending: listPendingEntries(),
-    expectedRecurring: listExpectedRecurringItems()
-  };
+  // getMeta first and uncached: it can self-heal (add header columns / seed
+  // platforms), so the cache only starts once the sheets are in final shape.
+  var meta = getMeta();
+  ROWS_MEMO_ = {};
+  try {
+    return {
+      meta: meta,
+      entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
+      pending: listPendingEntries(),
+      expectedRecurring: listExpectedRecurringItems()
+    };
+  } finally {
+    ROWS_MEMO_ = null;
+  }
 }
 
 function getSettingsMap() {
@@ -492,9 +523,8 @@ function createEntry(payload) {
   appendRowObject('Entries', entry);
 
   if (payload.tag_ids && payload.tag_ids.length) {
-    var entryTagsSheet = getSheet('Entry Tags');
     payload.tag_ids.forEach(function (tagId) {
-      entryTagsSheet.appendRow([id, tagId]);
+      appendRowObject('Entry Tags', { entry_id: id, tag_id: tagId });   // by column NAME, not position
     });
   }
 
@@ -516,10 +546,7 @@ function saveEntryTags(payload) {
   var entryId = payload.entryId;
   deleteRowsWhere_('Entry Tags', function (row) { return row.entry_id === entryId; });
   var tagIds = payload.tagIds || [];
-  if (tagIds.length) {
-    var sheet = getSheet('Entry Tags');
-    tagIds.forEach(function (tagId) { sheet.appendRow([entryId, tagId]); });
-  }
+  tagIds.forEach(function (tagId) { appendRowObject('Entry Tags', { entry_id: entryId, tag_id: tagId }); });
   return { tagIds: tagIds };
 }
 
@@ -831,7 +858,15 @@ function getExchangeRate(currency, month) {
 // the same shape Budgets.gs's buildBudgetContext_ builds independently
 // (rebuilding it there too, since it already has its own Exchange Rates
 // read folded into a larger one-time context for performance).
+// Memoised for the duration of one request: building it reads the whole
+// Exchange Rates sheet, and the Overview summary asks for a rate once per
+// foreign-currency entry (hundreds of times — ~700 sheet reads before this).
+// Cleared at the start of every request (doPost) and on any rate write, so a
+// warm script instance never serves stale rates. Callers only read the map.
+var RATES_MEMO_ = null;
+
 function buildRatesByCurrency_() {
+  if (RATES_MEMO_) return RATES_MEMO_;
   var map = {};
   getAllRows('Exchange Rates').forEach(function (r) {
     if (!map[r.currency]) map[r.currency] = [];
@@ -840,6 +875,7 @@ function buildRatesByCurrency_() {
   Object.keys(map).forEach(function (c) {
     map[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
   });
+  RATES_MEMO_ = map;
   return map;
 }
 
@@ -870,6 +906,13 @@ function getLatestRateOnOrBefore_(currency, month) {
 }
 
 function setExchangeRate(currency, month, rate) {
+  currency = String(currency || '').trim().toUpperCase();
+  month = String(month || '').trim();
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Currency must be a 3-letter code.');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Month must look like 2026-09.');
+  rate = Number(rate);
+  if (!isFinite(rate) || rate <= 0) throw new Error('The exchange rate must be a number greater than 0.');
+  RATES_MEMO_ = null;
   var existing = getExchangeRate(currency, month);
   if (existing) {
     var sheet = getSheet('Exchange Rates');
@@ -878,17 +921,27 @@ function setExchangeRate(currency, month, rate) {
     sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(rate);
     bumpStructureVersion_();
     existing.rate = rate;
+    RATES_MEMO_ = null;
     return existing;
   }
   var entry = { id: Utilities.getUuid(), month: month, currency: currency, rate: rate };
   appendRowObject('Exchange Rates', entry);
+  RATES_MEMO_ = null;
   return entry;
 }
 
 // ---- Small "add new" helpers used inline from the form ----
 
 function addFriend(payload) {
-  var friend = { id: Utilities.getUuid(), name: payload.name, notes: payload.notes || '' };
+  // Idempotent by name (same as addPaymentMethod): a second "Ana" would split
+  // that person's loans across two friends and break their FIFO balance.
+  var name = String(payload.name || '').trim();
+  if (!name) throw new Error('Enter a name.');
+  var existing = getAllRows('Friends').find(function (f) {
+    return String(f.name).trim().toLowerCase() === name.toLowerCase();
+  });
+  if (existing) return existing;
+  var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };
   appendRowObject('Friends', friend);
   return friend;
 }

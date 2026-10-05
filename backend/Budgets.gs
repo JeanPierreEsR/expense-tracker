@@ -504,14 +504,70 @@ function getBudgetChartSeries(payload) {
   };
 }
 
+// Thresholds are percentages like "75,100". Anything that isn't a positive
+// number is rejected with a message (a "0" fired instantly, and "75%" or
+// "abc" used to be silently dropped, leaving a budget that never alerted).
+// Returns the cleaned, sorted, de-duplicated "75,100" string.
+function normalizeBudgetThresholds_(raw) {
+  var text = String(raw === undefined || raw === null || raw === '' ? DEFAULT_BUDGET_THRESHOLDS : raw);
+  var seen = {};
+  var out = [];
+  text.split(',').forEach(function (part) {
+    var t = part.trim();
+    if (!/^\d+(\.\d+)?$/.test(t) || Number(t) <= 0) {
+      throw new Error('Alert thresholds must be positive numbers separated by commas, like 75,100 — "' + t + '" is not valid.');
+    }
+    if (!seen[Number(t)]) { seen[Number(t)] = true; out.push(Number(t)); }
+  });
+  return out.sort(function (a, b) { return a - b; }).join(',');
+}
+
+function validateBudgetAmount_(amount) {
+  var n = Number(amount);
+  if (amount === null || amount === '' || !isFinite(n) || n <= 0) throw new Error('The budget amount must be a number greater than 0.');
+}
+
+// One budget per category per timeframe: two monthly budgets for Travel would
+// count the same spending twice and alert twice. A monthly and a yearly one
+// for the same category are fine. Two budgets conflict when they have the
+// same period_type AND share at least one category; 'ALL' (every expense
+// category) only conflicts with another 'ALL'. `excludeId` is the budget
+// being edited, so saving it unchanged is not a conflict with itself.
+function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
+  var mine = parseBudgetCategoryIds_(categoryRaw);   // null = ALL
+  var names = {};
+  getAllRows('Categories').forEach(function (c) { names[c.id] = c.name; });
+
+  getAllRows('Budgets').forEach(function (other) {
+    if (other.id === excludeId) return;
+    if ((other.period_type === 'yearly' ? 'yearly' : 'monthly') !== periodType) return;
+    var theirs = parseBudgetCategoryIds_(other.category_id);
+    var overlap;
+    if (mine === null || theirs === null) {
+      overlap = mine === null && theirs === null;
+    } else {
+      overlap = mine.filter(function (id) { return theirs.indexOf(id) !== -1; });
+      overlap = overlap.length ? overlap : null;
+    }
+    if (!overlap) return;
+    var what = overlap === true || mine === null
+      ? 'all expense categories'
+      : '"' + (names[overlap[0]] || 'this category') + '"';
+    throw new Error('You already have a ' + periodType + ' budget for ' + what +
+      '. Edit that one instead, or pick a different timeframe (a monthly and a yearly budget can coexist).');
+  });
+}
+
 function addBudget(payload) {
+  validateBudgetAmount_(payload.amount);
+  assertNoDuplicateBudget_(payload.category_id, payload.period_type === 'yearly' ? 'yearly' : 'monthly', null);
   var budget = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
-    amount: payload.amount,
+    amount: Number(payload.amount),
     currency: payload.currency || 'PEN',
     period_type: payload.period_type === 'yearly' ? 'yearly' : 'monthly',
-    thresholds: payload.thresholds || DEFAULT_BUDGET_THRESHOLDS,
+    thresholds: normalizeBudgetThresholds_(payload.thresholds),
     name: payload.name ? String(payload.name).trim() : ''
   };
   appendRowObject('Budgets', budget);
@@ -524,12 +580,32 @@ function updateBudget(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error('Budget not found');
 
+  if (payload.amount !== undefined) validateBudgetAmount_(payload.amount);
+  if (payload.category_id !== undefined || payload.period_type !== undefined) {
+    var current = getAllRows('Budgets').find(function (b) { return b.id === payload.id; });
+    var newPeriod = payload.period_type !== undefined ? payload.period_type : current.period_type;
+    assertNoDuplicateBudget_(
+      payload.category_id !== undefined ? payload.category_id : current.category_id,
+      newPeriod === 'yearly' ? 'yearly' : 'monthly',
+      payload.id
+    );
+  }
+  if (payload.thresholds !== undefined) payload.thresholds = normalizeBudgetThresholds_(payload.thresholds);
+
   ['category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'].forEach(function (field) {
     if (payload[field] !== undefined) {
       var value = field === 'name' ? String(payload[field] || '').trim() : payload[field];
       setCellByRow_(sheet, headers, rowIndex, field, value);
     }
   });
+
+  // Alerts are remembered per period ("already told you about 75%"). Changing
+  // the amount or thresholds changes what 75% means, so the budget's alert
+  // memory is cleared — otherwise raising a budget after an alert, or editing an expense
+  // down and back up, would never warn again until next month.
+  if (payload.amount !== undefined || payload.thresholds !== undefined) {
+    deleteRowsWhere_('Budget Alert Log', function (r) { return r.budget_id === payload.id; });
+  }
   return { done: true };
 }
 
@@ -584,6 +660,18 @@ function adminDebugBudgetAlertLog() {
 // threshold, so 6 messages in a row never said anything a single one
 // didn't already cover.
 function checkBudgets() {
+  // The 15-minute trigger and a manual run can overlap; without the lock both
+  // read the alert log before either writes and send the same alert twice.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return checkBudgetsLocked_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function checkBudgetsLocked_() {
   var budgets = getAllRows('Budgets');
   if (!budgets.length) return { checked: 0, alertsSent: 0 };
 

@@ -28,15 +28,18 @@ function saveEntrySplits(entryId, splits) {
   // would silently lose the repayment), so it is reused in place below
   // instead of being re-created — otherwise the friend would owe the old
   // loan AND a brand-new full one.
+  splits = (splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
+  var requestedTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  if (requestedTotal > Number(entry.amount) + 0.005) {
+    throw new Error("The split (" + requestedTotal.toFixed(2) + ") is larger than the expense (" + Number(entry.amount).toFixed(2) + ").");
+  }
+
   var reusable = settledEntryLoans_(entryId);
   deleteEntrySplitsAndLoansForEntry_(entryId, true);
 
-  splits = (splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
-
   if (splits.length) {
-    var splitsSheet = getSheet('Entry Splits');
     splits.forEach(function (s) {
-      splitsSheet.appendRow([Utilities.getUuid(), entryId, s.friend_id, Number(s.amount)]);
+      appendRowObject('Entry Splits', { id: Utilities.getUuid(), entry_id: entryId, friend_id: s.friend_id, amount: Number(s.amount) });
     });
   }
 
@@ -292,6 +295,7 @@ function deleteRowsWhere_(sheetName, predicate) {
     headers.forEach(function (h, idx) { obj[h] = values[i][idx]; });
     if (predicate(obj)) { sheet.deleteRow(i + 2); deleted.push(obj); }
   }
+  if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   noteRowsDeleted_(sheetName, deleted);   // change tracking — see DataVersion.gs
 }
 
@@ -356,6 +360,22 @@ function updateLoan(payload) {
   }
   if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
   if (!payload.date) throw new Error('Date is required.');
+
+  var settledSoFar = getAllRows('Settlements')
+    .filter(function (s) { return s.loan_id === payload.id; })
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  if (settledSoFar > 0.004) {
+    // Repayments are already recorded against this loan: changing who, which
+    // currency, which direction, or an amount below what's repaid would
+    // silently break its balance. Description/date/due date stay editable.
+    if (payload.friend_id !== existing.friend_id || payload.direction !== existing.direction ||
+        (payload.currency || 'PEN') !== existing.currency) {
+      throw new Error("This loan already has a repayment recorded — you can't change its friend, direction or currency.");
+    }
+    if (Number(payload.amount) < settledSoFar - 0.004) {
+      throw new Error("This loan already has " + settledSoFar.toFixed(2) + " in repayments — the amount can't be lower than that.");
+    }
+  }
 
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);

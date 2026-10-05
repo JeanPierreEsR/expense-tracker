@@ -174,6 +174,57 @@ class FakeSpreadsheet {
 
 // ---- Everything else -----------------------------------------------------------
 
+// ---- Gmail -----------------------------------------------------------------
+// Threads hold messages and labels. search() understands just what the backend
+// uses: from:<address>, -label:<name>, newer_than:<N>d (+ start/max).
+function buildGmail() {
+  const threads = [];
+  const labels = new Map();
+  let nextId = 1;
+
+  const mkLabel = (name) => ({ getName: () => name });
+  const api = {
+    getUserLabelByName: (n) => labels.get(n) || null,
+    createLabel(n) { const l = mkLabel(n); labels.set(n, l); return l; },
+    search(query, start = 0, max = 500) {
+      const from = (/from:(\S+)/.exec(query) || [])[1];
+      const notLabel = (/-label:(\S+)/.exec(query) || [])[1];
+      const days = (/newer_than:(\d+)d/.exec(query) || [])[1];
+      const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
+      return threads
+        .filter((t) => (!from || t.messages.some((m) => m.getFrom().includes(from))))
+        .filter((t) => !notLabel || !t.labelNames.has(notLabel))
+        .filter((t) => t.messages.some((m) => m.getDate().getTime() >= cutoff))
+        .slice(start, start + max);
+    },
+    getMessageById: () => unsupported("GmailApp.getMessageById")
+  };
+
+  // Test helper: add an email (own thread unless threadWith is given).
+  function addEmail({ from, subject, body, daysAgo = 0, threadWith }) {
+    const msg = {
+      _id: "m" + nextId++,
+      getSubject: () => subject, getPlainBody: () => body, getFrom: () => from,
+      getDate: () => new Date(Date.now() - daysAgo * 86400000 + 1000 * nextId),
+      getId() { return this._id; }, getAttachments: () => []
+    };
+    let thread = threadWith;
+    if (!thread) {
+      thread = {
+        messages: [], labelNames: new Set(),
+        getMessages() { return this.messages; },
+        addLabel(l) { this.labelNames.add(l.getName()); },
+        removeLabel(l) { this.labelNames.delete(l.getName()); },
+        getFirstMessageSubject() { return this.messages[0].getSubject(); }
+      };
+      threads.push(thread);
+    }
+    thread.messages.push(msg);
+    return thread;
+  }
+  return { api, addEmail, threads };
+}
+
 function buildServices(state) {
   const ss = new FakeSpreadsheet();
   const props = new Map();
@@ -196,8 +247,9 @@ function buildServices(state) {
     getProperties: () => Object.fromEntries(m)
   });
 
+  const gmail = buildGmail();
   return {
-    ss, props, cache, fetchLog, uiLog,
+    ss, props, cache, fetchLog, uiLog, gmail,
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => uiChain
@@ -257,7 +309,7 @@ function buildServices(state) {
       newTrigger: () => unsupported("ScriptApp.newTrigger"),
       getService: () => ({ getUrl: () => "http://localhost/fake-exec" })
     },
-    GmailApp: new Proxy({}, { get: (_, p) => () => unsupported("GmailApp." + String(p)) }),
+    GmailApp: gmail.api,
     DriveApp: new Proxy({}, { get: (_, p) => () => unsupported("DriveApp." + String(p)) }),
     Logger: { log: (...a) => { if (state.verbose) console.log("[Logger]", ...a); } }
   };

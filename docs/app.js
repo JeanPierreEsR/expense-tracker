@@ -251,7 +251,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
-  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend"
+  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend", "addRecurringExpense"
 ]);
 
 function newRequestId_() {
@@ -1375,6 +1375,19 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   const saveBtn = document.getElementById("rate-save-btn");
   saveBtn.disabled = true;
   try {
+    // A typo like 37 instead of 3.7 would silently rewrite every report for
+    // that month, so a rate that differs a lot from the previous one has to be
+    // confirmed (rule from specs/entries-and-categories.md, Exchange Rates).
+    const [yy, mm] = month.split("-").map(Number);
+    const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
+    const prev = (await callApi("getLatestRateOnOrBefore", { currency, month: prevMonth })).rate;
+    if (prev && Math.abs(rate / prev - 1) > 0.10) {
+      const pct = Math.round(Math.abs(rate / prev - 1) * 100);
+      if (!confirm(`This rate (${rate}) is ${pct}% ${rate > prev ? "higher" : "lower"} than the previous one (${prev}). Save it anyway?`)) {
+        saveBtn.disabled = false;
+        return;
+      }
+    }
     await callApi("setExchangeRate", { currency, month, rate });
     closeRateModal_(rate);
   } catch (err) {
@@ -3859,7 +3872,13 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
   if (!confirm("Delete this budget? This can't be undone.")) return;
   const id = drilldownBudget.id;
   closeDrilldown();
-  await callApi("deleteBudget", { id });
+  try {
+    await callApi("deleteBudget", { id });
+  } catch (err) {
+    // The dialog is already closed — without this the failure (offline, slow
+    // network) was invisible and the budget just reappeared on next refresh.
+    alert("Couldn't delete the budget (" + err.message + "). It's still there — try again.");
+  }
   refreshBudgetsInBackground_();
 });
 

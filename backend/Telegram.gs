@@ -46,6 +46,7 @@ function promptSetTelegramToken() {
     if (token) {
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_BOT_TOKEN', token);
       PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_UPDATE_OFFSET');
+      PropertiesService.getScriptProperties().deleteProperty('TELEGRAM_CHAT_ID');   // unlink: the next /start links afresh
       ui.alert('Saved. Now message your bot on Telegram: /start <your access code>');
     }
   }
@@ -396,7 +397,13 @@ function pollTelegramUpdates() {
 
   res.result.forEach(function (update) {
     props.setProperty('TELEGRAM_UPDATE_OFFSET', String(update.update_id + 1));
-    handleTelegramUpdate_(update);
+    // One bad update must not abort the rest of the batch (the offset has
+    // already moved past it, so it is simply skipped — same as the webhook).
+    try {
+      handleTelegramUpdate_(update);
+    } catch (err) {
+      console.error('Telegram update ' + update.update_id + ' failed: ' + err);
+    }
   });
 }
 
@@ -496,7 +503,17 @@ function handleTelegramMessage_(msg) {
 
   if (text.indexOf('/start') === 0) {
     var code = text.replace('/start', '').trim();
-    if (isValidAccessCode(code)) {
+    var alreadyLinked = getOwnerTelegramChatId_();
+    if (isValidAccessCode(code) && alreadyLinked && !isOwnerChat_(msg.chat.id)) {
+      // Someone who knows (or guessed) the code must not be able to silently
+      // redirect every review card to their own chat. Moving the bot to a new
+      // chat is deliberate: re-run "Set Telegram bot token" in the sheet menu,
+      // which unlinks the old chat first.
+      telegramApi_('sendMessage', {
+        chat_id: msg.chat.id, text: "This bot is already linked to another chat. To move it, re-run 'Set Telegram bot token' from the spreadsheet menu first.",
+        reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+      });
+    } else if (isValidAccessCode(code)) {
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
       telegramApi_('sendMessage', {
         chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",

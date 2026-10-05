@@ -105,9 +105,8 @@ function saveRecurringExpenseSplits(payload) {
 
   var splits = (payload.splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
   if (splits.length) {
-    var sheet = getSheet('Recurring Expense Splits');
     splits.forEach(function (s) {
-      sheet.appendRow([Utilities.getUuid(), recurringExpenseId, s.friend_id, Number(s.amount)]);
+      appendRowObject('Recurring Expense Splits', { id: Utilities.getUuid(), recurring_expense_id: recurringExpenseId, friend_id: s.friend_id, amount: Number(s.amount) });
     });
   }
   return { splits: splits };
