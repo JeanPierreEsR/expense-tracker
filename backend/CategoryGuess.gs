@@ -205,12 +205,16 @@ function backfillEntryMerchants(payload) {
           var fields = rule.extract(subject, body);
           if (!fields || !fields.merchant) continue;
           var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
-          var row = rowByExternalId[computeEmailExternalId_(sender, dateStr, fields)];
+          // Entries made before 2026-10-05 carry the message-less key, newer ones the
+          // message-id key — try both.
+          var extKey = computeEmailExternalId_(sender, dateStr, fields, message.getId());
+          var row = rowByExternalId[extKey];
+          if (row === undefined) { extKey = computeEmailExternalId_(sender, dateStr, fields); row = rowByExternalId[extKey]; }
           if (row === undefined) continue;
           var merchant = normalizeMerchant_(fields.merchant);
           if (!merchant) continue;
           merchants[row][0] = merchant;
-          delete rowByExternalId[computeEmailExternalId_(sender, dateStr, fields)];
+          delete rowByExternalId[extKey];
           result.matched++;
           if (result.sample.length < 15) result.sample.push(merchant);
         }

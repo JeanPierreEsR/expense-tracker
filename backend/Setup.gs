@@ -70,6 +70,11 @@ var TABLE_DEFINITIONS = {
   // One row per skipped occurrence ("rent waived this month"). `month` is the
   // occurrence's YYYY-MM, so a skip survives the item's day being edited.
   'Recurring Skips': ['id', 'recurring_expense_id', 'month'],
+  // One row per bank email already handled (Gmail message id). Replaces the
+  // per-conversation "Processed" label as the thing that decides what to read,
+  // because Gmail groups same-subject emails into one conversation. Pruned after
+  // 14 days (the scan only looks back 3).
+  'Processed Emails': ['message_id', 'processed_at'],
   // Not part of the original spec — a programmed item (recurring or
   // one-time) can be shared with a friend just like a real expense (see
   // CLAUDE.md). Same shape as Entry Splits, deliberately: it only ever
@@ -113,6 +118,7 @@ var DATE_LIKE_COLUMNS = {
   Loans: ['date', 'due_date'],
   'Recurring Expenses': ['date', 'start_date', 'end_date'],
   'Recurring Skips': ['month'],
+  'Processed Emails': ['message_id', 'processed_at'],
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],

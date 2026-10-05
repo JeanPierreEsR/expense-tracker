@@ -491,8 +491,15 @@ var EMAIL_RULES = [
 
 // Shared by capture (processOneMessage_) and the merchant backfill so both
 // compute the exact same dedup fingerprint for a given email.
-function computeEmailExternalId_(sender, dateStr, fields) {
-  return fields.externalId || fallbackExternalId_(sender, dateStr, fields.amount, fields.description);
+// An email with no operation number is identified by sender+date+amount+
+// description AND its own Gmail message id (messageId, when known): two
+// genuinely separate identical purchases on one day are two different emails
+// and must be two entries (the "possible duplicate" warning flags the pair),
+// while re-reading the SAME email still gives the same id. Callers without a
+// message (the old merchant back-fill) get the older, message-less key.
+function computeEmailExternalId_(sender, dateStr, fields, messageId) {
+  return fields.externalId ||
+    fallbackExternalId_(sender, dateStr, fields.amount, (fields.description || '') + (messageId ? '|' + messageId : ''));
 }
 
 /**
@@ -574,28 +581,93 @@ function processEmails(opts) {
   ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
 
-  (opts.senders || uniqueSenders_()).forEach(function (sender) {
-    var threads = GmailApp.search('from:' + sender + (opts.days ? '' : ' -label:ExpenseTracker-Processed') + ' newer_than:' + (opts.days || 3) + 'd');
+  var senders = opts.senders || uniqueSenders_();
+  // Per-email memory (not Gmail's per-conversation label): the one-off
+  // back-check (opts.days) deliberately re-reads everything, so it skips it.
+  var tracking = !opts.days;
+  var handled = tracking ? loadProcessedEmailIds_(senders) : {};
+
+  senders.forEach(function (sender) {
+    var threads = GmailApp.search('from:' + sender + ' newer_than:' + (opts.days || 3) + 'd');
     threads.forEach(function (thread) {
       var threadFailed = false;
       thread.getMessages().forEach(function (message) {
-        // One bad email must not block the rest of the run. A thread with
-        // a failure is left unlabeled so the next run retries it (the
-        // duplicate check keeps already-written entries from doubling).
+        var messageId = String(message.getId());
+        if (tracking && handled[messageId]) return;
+        // One bad email must not block the rest of the run, and is NOT marked
+        // handled, so the next run retries it (the duplicate check keeps
+        // already-written entries from doubling).
         try {
           processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
+          if (tracking) { recordProcessedEmail_(messageId); handled[messageId] = true; }
         } catch (err) {
           results.errors++;
           threadFailed = true;
           console.error('processOneMessage_: ' + err);
         }
       });
+      // The label is now only a visible hint in Gmail (and the switch-over seed).
       if (!threadFailed) thread.addLabel(label);
     });
   });
 
   Logger.log('processEmails: ' + JSON.stringify(results));
   return results;
+}
+
+// ---- Per-email memory (sheet "Processed Emails") ----
+
+function ensureProcessedEmailsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Processed Emails')) return;
+  var sheet = ss.insertSheet('Processed Emails');
+  var headers = TABLE_DEFINITIONS['Processed Emails'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  // Gmail ids are hex strings; Sheets would turn some (all digits, or like
+  // "123e45") into numbers.
+  sheet.getRange(1, 1, sheet.getMaxRows(), 2).setNumberFormat('@');
+}
+
+function recordProcessedEmail_(messageId) {
+  appendRowObject('Processed Emails', { message_id: messageId, processed_at: nowTimestamp_() });
+}
+
+// message id -> true for every email already handled. Also tidies up and, the
+// very first time (nothing remembered yet), seeds the memory from the old
+// per-conversation label so emails handled before the switch-over are not
+// created a second time.
+function loadProcessedEmailIds_(senders) {
+  ensureProcessedEmailsSheet_();
+  var rows = getAllRows('Processed Emails');
+
+  if (rows.length > 300) {
+    var cutoff = Utilities.formatDate(new Date(Date.now() - 14 * 86400000), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+    deleteRowsWhere_('Processed Emails', function (r) { return String(r.processed_at) < cutoff; });
+    rows = getAllRows('Processed Emails');
+  }
+
+  var handled = {};
+  rows.forEach(function (r) { handled[String(r.message_id)] = true; });
+
+  if (!rows.length) {
+    var now = nowTimestamp_();
+    var seed = [];
+    senders.forEach(function (sender) {
+      GmailApp.search('from:' + sender + ' label:ExpenseTracker-Processed newer_than:3d').forEach(function (thread) {
+        thread.getMessages().forEach(function (m) {
+          var id = String(m.getId());
+          if (handled[id]) return;
+          handled[id] = true;
+          seed.push({ message_id: id, processed_at: now });
+        });
+      });
+    });
+    appendRowsBulk_('Processed Emails', seed);
+  }
+  return handled;
 }
 
 function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx) {
@@ -624,7 +696,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     return;
   }
 
-  var externalId = computeEmailExternalId_(sender, dateStr, fields);
+  var externalId = computeEmailExternalId_(sender, dateStr, fields, message.getId());
 
   if (existingExternalIds[externalId]) { results.duplicates++; return; }
   existingExternalIds[externalId] = true;

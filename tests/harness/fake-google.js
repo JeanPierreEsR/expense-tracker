@@ -191,11 +191,13 @@ function buildGmail() {
     search(query, start = 0, max = 500) {
       const from = (/from:(\S+)/.exec(query) || [])[1];
       const notLabel = (/-label:(\S+)/.exec(query) || [])[1];
+      const mustLabel = (/(?:^|\s)label:(\S+)/.exec(query) || [])[1];
       const days = (/newer_than:(\d+)d/.exec(query) || [])[1];
       const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
       return threads
         .filter((t) => (!from || t.messages.some((m) => m.getFrom().includes(from))))
         .filter((t) => !notLabel || !t.labelNames.has(notLabel))
+        .filter((t) => !mustLabel || t.labelNames.has(mustLabel))
         .filter((t) => t.messages.some((m) => m.getDate().getTime() >= cutoff))
         .slice(start, start + max);
     },
