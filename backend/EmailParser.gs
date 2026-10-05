@@ -558,7 +558,7 @@ function getProcessedLabel_() {
  */
 function processEmails(opts) {
   opts = opts || {};
-  var results = { created: 0, skipped: 0, duplicates: 0 };
+  var results = { created: 0, skipped: 0, duplicates: 0, unparsed: 0, errors: 0, unparsedSubjects: [] };
   var label = getProcessedLabel_();
 
   // Read the entries table once per run rather than once per message —
@@ -577,10 +577,20 @@ function processEmails(opts) {
   (opts.senders || uniqueSenders_()).forEach(function (sender) {
     var threads = GmailApp.search('from:' + sender + (opts.days ? '' : ' -label:ExpenseTracker-Processed') + ' newer_than:' + (opts.days || 3) + 'd');
     threads.forEach(function (thread) {
+      var threadFailed = false;
       thread.getMessages().forEach(function (message) {
-        processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
+        // One bad email must not block the rest of the run. A thread with
+        // a failure is left unlabeled so the next run retries it (the
+        // duplicate check keeps already-written entries from doubling).
+        try {
+          processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
+        } catch (err) {
+          results.errors++;
+          threadFailed = true;
+          console.error('processOneMessage_: ' + err);
+        }
       });
-      thread.addLabel(label);
+      if (!threadFailed) thread.addLabel(label);
     });
   });
 
@@ -604,7 +614,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (!rule || rule.skip) { results.skipped++; return; }
 
   var fields = rule.extract(subject, body);
-  if (!fields) { results.skipped++; return; }
+  if (!fields) {
+    // The rule matched but the amount/details couldn't be read — most
+    // likely the bank changed its wording. Counted separately so the
+    // owner is told (see runAutomation) instead of it vanishing.
+    results.skipped++;
+    results.unparsed++;
+    results.unparsedSubjects.push(String(subject || '').slice(0, 60));
+    return;
+  }
 
   var externalId = computeEmailExternalId_(sender, dateStr, fields);
 
@@ -658,7 +676,14 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   results.created++;
 
   var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
-  sendTelegramEntryNotification_(entry, guessedCategory ? guessedCategory.name : null, guess.reason);
+  // The entry is already saved as pending, so a failed Telegram send must
+  // not abort the run or leave the email unlabeled — it still shows up in
+  // the app's review queue.
+  try {
+    sendTelegramEntryNotification_(entry, guessedCategory ? guessedCategory.name : null, guess.reason);
+  } catch (err) {
+    console.error('Telegram notification failed: ' + err);
+  }
 }
 
 /**

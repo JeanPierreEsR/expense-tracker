@@ -469,7 +469,10 @@ function createEntry(payload) {
     currency: payload.currency || 'PEN',
     category_id: payload.category_id,
     description: payload.description || '',
-    payment_method_id: payload.paid_by === 'me' ? (payload.payment_method_id || '') : '',
+    // Income always keeps its "Received at" account — its paid_by is a
+    // payor id, never 'me' — so only the other types blank it for a
+    // friend-paid entry (see specs/entries-and-categories.md, Payors).
+    payment_method_id: (payload.type === 'income' || payload.paid_by === 'me') ? (payload.payment_method_id || '') : '',
     paid_by: payload.paid_by || 'me',
     status: 'confirmed',
     source: 'manual',

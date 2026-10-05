@@ -1252,6 +1252,19 @@ document.getElementById("add-tag-btn").addEventListener("click", async () => {
 // still bringing up the numeric keypad on a phone via inputmode="decimal".
 // Shared with the review-queue amount field below.
 function sanitizeAmountInputValue(value) {
+  // Both separators at once ("1,234.50" pasted whole, or "1.234,50"): the
+  // LAST one is the decimal point and the other is a thousands separator.
+  // Without this, the comma became a dot and the second dot was then
+  // dropped, turning 1,234.50 into 1.2345 — a 1000x error. (Typing it key
+  // by key can't be told apart from a decimal comma, so a lone comma still
+  // means "decimal point", as before.)
+  const lastComma = value.lastIndexOf(",");
+  const lastDot = value.lastIndexOf(".");
+  if (lastComma !== -1 && lastDot !== -1) {
+    value = lastComma > lastDot
+      ? value.replace(/\./g, "")
+      : value.replace(/,/g, "");
+  }
   let v = value.replace(/,/g, ".");
   v = v.replace(/[^\d.]/g, "");
   const firstDot = v.indexOf(".");
@@ -1400,6 +1413,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   // the bottom to know whether this save finished an edit of an existing
   // entry, vs. created a brand-new one.
   const wasEditingExistingEntry = !!editingEntryId;
+  // Flips to true the moment every write to the server has succeeded. After
+  // that, a failure (typically the list refresh on a flaky connection) must
+  // not be reported as "save failed" — the owner would just re-enter the
+  // entry and create a duplicate.
+  let writesDone = false;
+  let splitSaveFailed = false;
 
   try {
     const date = document.getElementById("date").value;
@@ -1623,9 +1642,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // the owner paid and nothing was split — guaranteed to be a no-op
       // there, so there's no point in the extra round trip.
       if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
-        await callApi("saveEntrySplits", { entryId: created.id, splits: splits || [] });
+        // The entry itself is already saved at this point. If only the
+        // split fails, failing the whole submit would invite a retry that
+        // creates a SECOND entry — so report it separately instead.
+        try {
+          await callApi("saveEntrySplits", { entryId: created.id, splits: splits || [] });
+        } catch (splitErr) {
+          splitSaveFailed = true;
+        }
       }
     }
+    writesDone = true;
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
@@ -1661,8 +1688,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
+    if (splitSaveFailed) {
+      alert("Your entry was saved, but the split with your friend(s) was NOT. Open it in Recent entries and save the split again. Don't add the entry a second time.");
+    }
   } catch (err) {
-    errorEl.textContent = err.message;
+    errorEl.textContent = writesDone
+      ? "Saved — but the screen couldn't refresh (" + err.message + "). Pull down or reopen the app to see it. Don't add it again."
+      : err.message;
   } finally {
     submitBtn.disabled = false;
   }
@@ -2311,8 +2343,12 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   if (!editingEntryId) return;
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = "Delete this entry? This can't be undone.";
-  if (editingEntryOriginalType === "transfer") {
+  if (["transfer", "expense", "income"].includes(editingEntryOriginalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
+    if (links.forgiveness) {
+      const f = links.forgiveness;
+      confirmText = `This entry records you forgiving ${f.friend}'s debt. Deleting it also undoes the forgiveness, so ${f.direction === "they_owe_me" ? "they owe you" : "you owe them"} that amount again. Continue?`;
+    }
     if (links.loan) {
       alert("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
       return;
@@ -6005,7 +6041,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
   const sign = l.direction === "they_owe_me" ? "+" : "";
   const statusNote = l.status === "forgiven"
-    ? "Forgiven"
+    ? (l.forgiveness_entry_id ? "Forgiven · recorded in your entries" : "Forgiven")
     : l.remaining <= 0.004
       ? "Fully repaid"
       : [
@@ -6583,8 +6619,11 @@ function openForgiveModal(loan, returnFriend) {
 
   const hasBalance = loan.remaining > 0.004;
   const checkbox = document.getElementById("forgive-convert-checkbox");
+  // No opt-out any more: forgiving a debt always registers what was still
+  // owed as an expense/income entry (see forgiveLoan in Loans.gs), so the
+  // checkbox stays hidden and checked.
   const convertRow = checkbox.closest(".checkbox-row");
-  convertRow.hidden = !hasBalance;
+  convertRow.hidden = true;
   checkbox.checked = hasBalance;
 
   // "Convert to expense" when the owner is the one being owed and
@@ -6594,6 +6633,10 @@ function openForgiveModal(loan, returnFriend) {
   // an overpayment.
   const entryType = loan.direction === "they_owe_me" ? "expense" : "income";
   document.getElementById("forgive-convert-label").textContent = `Convert remaining balance to ${entryType === "expense" ? "an expense" : "income"}`;
+  if (hasBalance) {
+    document.getElementById("forgive-context").textContent +=
+      ` — this will be recorded as ${entryType === "expense" ? "an expense" : "income"} in the category below.`;
+  }
   populateCategoryOptionsForSelect_("forgive-category", entryType);
   document.getElementById("forgive-date").value = todayLocalISO();
   document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
@@ -6621,7 +6664,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   errorEl.textContent = "";
   if (!forgiveLoanTarget) return;
 
-  const convert = document.getElementById("forgive-convert-checkbox").checked && forgiveLoanTarget.remaining > 0.004;
+  const convert = forgiveLoanTarget.remaining > 0.004;
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
   if (convert && !categoryId) { errorEl.textContent = "Pick a category."; return; }

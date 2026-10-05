@@ -357,8 +357,11 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   var text = emoji + ' ' + categoryDisplayName + ': ' + actualPercent + '% of your ' + budget.currency + ' ' +
     amountStr + ' budget (' + budget.currency + ' ' + spentStr + ' spent ' + periodLabel + ').';
 
-  telegramApi_('sendMessage', { chat_id: chatId, text: text });
-  return true;
+  // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
+  // chat id, etc. — only a real ok counts as sent, so the caller doesn't
+  // log the alert as delivered and never retry it.
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  return !!(res && res.ok);
 }
 
 // Phase 5.6: loan due-date alerts, same bot, same "false means not
@@ -372,8 +375,11 @@ function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var text = '⏰ Overdue: ' + directionText + ' ' + loan.currency + ' ' + moneyFmt_(loan.remaining) +
     ' (due ' + loan.due_date + ').' + (loan.description ? ' ' + loan.description : '');
 
-  telegramApi_('sendMessage', { chat_id: chatId, text: text });
-  return true;
+  // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
+  // chat id, etc. — only a real ok counts as sent, so the caller doesn't
+  // log the alert as delivered and never retry it.
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  return !!(res && res.ok);
 }
 
 // ---- Polling for replies / button taps ----
@@ -459,8 +465,20 @@ function handleTelegramCallback_(cb) {
       reply = '✅ Confirmed.';
     }
   } else if (action === 'discard') {
-    if (entry) deleteEntry_(entryId);
-    reply = entry ? '🗑️ Discarded.' : 'ℹ️ This entry no longer exists.';
+    if (!entry) {
+      reply = 'ℹ️ This entry no longer exists.';
+    } else if (entry.status === 'confirmed') {
+      // Confirmed from the app after this card was sent — a late tap on
+      // an old card must never delete a real, confirmed entry.
+      reply = 'ℹ️ Already confirmed — delete it from the app if you really want it gone.';
+    } else {
+      try {
+        discardEntryWithRepayments_(entryId);
+        reply = '🗑️ Discarded.';
+      } catch (err) {
+        reply = '⚠️ Not discarded — ' + err.message;
+      }
+    }
   }
   if (reply) {
     telegramApi_('sendMessage', {

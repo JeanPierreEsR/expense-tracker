@@ -24,7 +24,12 @@ function saveEntrySplits(entryId, splits) {
   var entry = getEntryById_(entryId);
   if (!entry) throw new Error('Entry not found');
 
-  deleteEntrySplitsAndLoansForEntry_(entryId);
+  // A loan that already has a repayment against it can't be deleted (that
+  // would silently lose the repayment), so it is reused in place below
+  // instead of being re-created — otherwise the friend would owe the old
+  // loan AND a brand-new full one.
+  var reusable = settledEntryLoans_(entryId);
+  deleteEntrySplitsAndLoansForEntry_(entryId, true);
 
   splits = (splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
 
@@ -43,7 +48,7 @@ function saveEntrySplits(entryId, splits) {
     // Nothing to do here when splits is empty (a plain, fully-owned
     // expense — no one else involved).
     splits.forEach(function (s) {
-      createLoan_({
+      upsertEntryLoan_(reusable, {
         friend_id: s.friend_id,
         direction: 'they_owe_me',
         origin: 'entry',
@@ -64,7 +69,7 @@ function saveEntrySplits(entryId, splits) {
     // loan of their own — what they owe the payer is a debt between the
     // two of them, outside this app's scope (see CLAUDE.md's "Loan scope
     // is owner-centric").
-    createLoan_({
+    upsertEntryLoan_(reusable, {
       friend_id: entry.paid_by,
       direction: 'i_owe_them',
       origin: 'entry',
@@ -76,7 +81,52 @@ function saveEntrySplits(entryId, splits) {
     });
   }
 
+  // Any repaid loan that no longer matches the new split (e.g. that friend
+  // was removed from it) keeps its repayment history but stops being
+  // linked to this entry.
+  reusable.forEach(function (l) {
+    if (!l.used) updateRowFields_('Loans', l.id, { entry_id: '' });
+  });
+
   return { splits: splits };
+}
+
+// Loans this entry created that already have a Settlement recorded.
+function settledEntryLoans_(entryId) {
+  var settled = protectedLoanIds_();
+  return getAllRows('Loans')
+    .filter(function (l) { return l.origin === 'entry' && l.entry_id === entryId && settled[l.id]; })
+    .map(function (l) { return { id: l.id, friend_id: l.friend_id, direction: l.direction, forgiven: l.status === 'forgiven', used: false }; });
+}
+
+// Loans that must never be deleted/re-created when their entry is edited:
+// ones with a Settlement recorded, and forgiven ones (a forgiven loan has
+// no Settlement, but deleting it would make the friend owe the money again
+// while the forgiveness expense stayed booked).
+function protectedLoanIds_() {
+  var ids = {};
+  getAllRows('Settlements').forEach(function (s) { ids[s.loan_id] = true; });
+  getAllRows('Loans').forEach(function (l) { if (l.status === 'forgiven') ids[l.id] = true; });
+  return ids;
+}
+
+// Updates a matching repaid loan (same friend + direction) to the new
+// amount, or creates a fresh loan when there is none.
+function upsertEntryLoan_(reusable, fields) {
+  var match = reusable.find(function (l) {
+    return !l.used && l.friend_id === fields.friend_id && l.direction === fields.direction;
+  });
+  if (!match) { createLoan_(fields); return; }
+  match.used = true;
+  // A forgiven loan keeps its amount: the forgiveness expense was booked
+  // for that figure, and nothing is owed any more.
+  if (match.forgiven) return;
+  updateRowFields_('Loans', match.id, {
+    amount: fields.amount,
+    currency: fields.currency,
+    date: fields.date,
+    description: fields.description
+  });
 }
 
 // Only ever touches loans THIS entry created (origin='entry' + matching
@@ -86,14 +136,24 @@ function saveEntrySplits(entryId, splits) {
 // entry it started from was edited or deleted; it simply stops being
 // linked to that entry (its own row still holds the real debt/repayment
 // history).
-function deleteEntrySplitsAndLoansForEntry_(entryId) {
+//
+// `keepSettledLinked` is for saveEntrySplits, which reuses those repaid
+// loans itself; every other caller (entry deleted, entry no longer
+// shared) wants them unlinked, which is done here by clearing entry_id.
+function deleteEntrySplitsAndLoansForEntry_(entryId, keepSettledLinked) {
   deleteRowsWhere_('Entry Splits', function (row) { return row.entry_id === entryId; });
 
-  var settledLoanIds = {};
-  getAllRows('Settlements').forEach(function (s) { settledLoanIds[s.loan_id] = true; });
+  var settledLoanIds = protectedLoanIds_();
   deleteRowsWhere_('Loans', function (row) {
     return row.origin === 'entry' && row.entry_id === entryId && !settledLoanIds[row.id];
   });
+  if (!keepSettledLinked) {
+    getAllRows('Loans').forEach(function (l) {
+      if (l.origin === 'entry' && l.entry_id === entryId && settledLoanIds[l.id]) {
+        updateRowFields_('Loans', l.id, { entry_id: '' });
+      }
+    });
+  }
 }
 
 // ---- Loan/repayment transfer entries (added 2026-09-23) ----
@@ -113,6 +173,16 @@ function deleteEntrySplitsAndLoansForEntry_(entryId) {
 function transferCategoryId_() {
   var cat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
   return cat ? cat.id : '';
+}
+
+// Self-healing, same pattern as the column below: links a forgiven loan to
+// the expense/income entry its forgiveness booked.
+function ensureLoansForgivenessEntryColumn_() {
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('forgiveness_entry_id') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('forgiveness_entry_id');
+  }
 }
 
 function ensureLoansTransferEntryColumn_() {
@@ -832,6 +902,11 @@ function getEntryRepaymentLinks(payload) {
   var id = payload.id;
   var loans = getAllRows('Loans');
   if (loans.some(function (l) { return l.transfer_entry_id === id; })) return { loan: true, repayment: null };
+  var forgiven = loans.find(function (l) { return l.forgiveness_entry_id === id; });
+  if (forgiven) {
+    var fr = getAllRows('Friends').find(function (f) { return f.id === forgiven.friend_id; });
+    return { loan: false, repayment: null, forgiveness: { friend: fr ? fr.name : '', direction: forgiven.direction } };
+  }
   var linked = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === id; });
   if (!linked.length) return { loan: false, repayment: null };
   var loanById = {};
@@ -865,6 +940,13 @@ function discardEntryWithRepayments_(entryId) {
   if (links.loan) {
     throw new Error("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
   }
+  if (links.forgiveness) {
+    // Deleting the entry a forgiveness booked undoes the forgiveness: the
+    // loan is owed again (status recalculated from its repayments).
+    var forgivenLoan = getAllRows('Loans').find(function (l) { return l.forgiveness_entry_id === entryId; });
+    updateRowFields_('Loans', forgivenLoan.id, { status: 'outstanding', forgiveness_entry_id: '' });
+    updateLoanStatusFromSettlements_(forgivenLoan.id);
+  }
   if (links.repayment) {
     var touched = {};
     getAllRows('Settlements').forEach(function (s) {
@@ -874,7 +956,7 @@ function discardEntryWithRepayments_(entryId) {
     Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
   }
   deleteEntry_(entryId);
-  return { done: true, undone_repayment: !!links.repayment };
+  return { done: true, undone_repayment: !!links.repayment, undone_forgiveness: !!links.forgiveness };
 }
 
 function findOrCreatePayorByName_(name) {
@@ -914,10 +996,14 @@ function forgiveLoan(payload) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loan.id);
   if (rowIndex === -1) throw new Error('Loan not found');
-  setCellByRow_(sheet, headers, rowIndex, 'status', 'forgiven');
 
+  // Whatever is still owed is always registered as the owner's own
+  // expense (or income, if the owner was the debtor) — assuming that money
+  // is a real cost, so forgiving never just makes it vanish. The entry is
+  // created and validated BEFORE the loan is marked forgiven, so a failed
+  // validation can't leave a forgiven loan with nothing booked.
   var entry = null;
-  if (payload.convert && remaining > 0.004) {
+  if (remaining > 0.004) {
     if (!payload.category_id) throw new Error('Pick a category.');
     if (!payload.date) throw new Error('Date is required.');
 
@@ -937,6 +1023,13 @@ function forgiveLoan(payload) {
       payment_method_id: '',
       description: description
     });
+  }
+
+  setCellByRow_(sheet, headers, rowIndex, 'status', 'forgiven');
+  if (entry) {
+    ensureLoansForgivenessEntryColumn_();
+    headers = getHeaders(sheet);   // the column may have just been added
+    setCellByRow_(sheet, headers, rowIndex, 'forgiveness_entry_id', entry.id);
   }
 
   return { loan: getAllRows('Loans').find(function (l) { return l.id === loan.id; }), entry: entry };

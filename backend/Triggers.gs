@@ -14,12 +14,48 @@ function runAutomation() {
   // runs either — check via menu item 12/13's wording, or the Apps
   // Script project's Triggers page, to confirm one of the two is active.
   pingWebApp_();
-  processEmails();
-  pollTelegramUpdates();
-  checkBudgets();
-  checkOverdueLoans();
-  try { backfillInvestmentCategories_(); } catch (e) { console.error('investment categories: ' + e); }
-  try { scanStatementInbox_(); retryStatementInboxNudges_(); } catch (e) { console.error('statement inbox: ' + e); }
+  var failures = [];
+  var emailResults = runAutomationStep_('emails', failures, processEmails);
+  runAutomationStep_('telegram', failures, pollTelegramUpdates);
+  runAutomationStep_('budgets', failures, checkBudgets);
+  runAutomationStep_('loan reminders', failures, checkOverdueLoans);
+  runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
+  runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
+
+  if (emailResults && (emailResults.unparsed || emailResults.errors)) {
+    failures.push('emails: ' + emailResults.unparsed + ' could not be read'
+      + (emailResults.errors ? ', ' + emailResults.errors + ' errored (will retry)' : '')
+      + (emailResults.unparsedSubjects.length ? ' — e.g. "' + emailResults.unparsedSubjects[0] + '"' : ''));
+  }
+  if (failures.length) alertAutomationFailures_(failures);
+  else PropertiesService.getScriptProperties().setProperty('LAST_AUTOMATION_OK', new Date().toISOString());
+}
+
+// Runs one automation step so a failure in it can't stop the later ones.
+// Failures are collected and reported (see alertAutomationFailures_)
+// instead of vanishing into the Apps Script log.
+function runAutomationStep_(name, failures, fn) {
+  try {
+    return fn();
+  } catch (e) {
+    console.error('automation step "' + name + '": ' + e);
+    failures.push(name + ': ' + (e && e.message ? e.message : e));
+    return null;
+  }
+}
+
+// Tells the owner on Telegram, at most once every 6 hours so a problem
+// that persists doesn't send a message every 15 minutes.
+function alertAutomationFailures_(failures) {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty('LAST_AUTOMATION_ALERT') || 0);
+  if (Date.now() - last < 6 * 3600 * 1000) return;
+  props.setProperty('LAST_AUTOMATION_ALERT', String(Date.now()));
+  var lastOk = props.getProperty('LAST_AUTOMATION_OK');
+  try {
+    sendTelegramText_('⚠️ Automatic scan problem:\n• ' + failures.join('\n• ')
+      + '\nLast fully clean run: ' + (lastOk || 'unknown'));
+  } catch (e) { console.error('automation alert failed: ' + e); }
 }
 
 function enableAutomaticScanning() {
