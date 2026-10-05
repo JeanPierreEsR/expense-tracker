@@ -1231,6 +1231,29 @@ button.primary:disabled {
   font-weight: 600;
 }
 
+.expected-recurring-actions {
+  display: flex;
+  gap: 14px;
+  padding: 0 0 8px 4px;
+}
+
+.expected-recurring-actions button {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font-size: 0.78rem;
+  color: var(--accent, #0a66d6);
+  cursor: pointer;
+}
+
+.skipped-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.85rem;
+}
+
 .type-dot {
   display: inline-block;
   width: 8px;

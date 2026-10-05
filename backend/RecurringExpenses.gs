@@ -38,16 +38,58 @@ function ensureRecurringExpensesSheet_() {
     sheet.setFrozenRows(1);
     return;
   }
-  var existingHeaders = getHeaders(sheet);
-  if (existingHeaders.indexOf('date') === -1) {
-    sheet.getRange(1, existingHeaders.length + 1).setValue('date');
-  }
+  // Columns added after the sheet already held real data are appended in
+  // place, one at a time (the header row is re-read after each append).
+  ['date', 'start_date', 'end_date'].forEach(function (col) {
+    var headers = getHeaders(sheet);
+    if (headers.indexOf(col) === -1) {
+      sheet.getRange(1, headers.length + 1).setValue(col);
+      if (col !== 'date') sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    }
+  });
 }
 
+function ensureRecurringSkipsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Recurring Skips')) return;
+  var sheet = ss.insertSheet('Recurring Skips');
+  var headers = TABLE_DEFINITIONS['Recurring Skips'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, headers.indexOf('month') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+}
+
+// Every consumer (Budgets chart, Projections, "Programmed this month",
+// category guessing) gets its rows here, so each row carries its skipped
+// months (`skip_months`) and recurringExpenseOccurrencesInRange_ — also the
+// one place start/end dates are applied — needs no extra sheet reads.
 function getRecurringExpenseRows_() {
   ensureRecurringExpensesSheet_();
   ensureEntriesRecurringLinkColumn_();
-  return getAllRows('Recurring Expenses');
+  ensureRecurringSkipsSheet_();
+  var skipsById = {};
+  getAllRows('Recurring Skips').forEach(function (s) {
+    (skipsById[s.recurring_expense_id] = skipsById[s.recurring_expense_id] || []).push(String(s.month));
+  });
+  return getAllRows('Recurring Expenses').map(function (r) {
+    r.skip_months = (skipsById[r.id] || []).sort();
+    return r;
+  });
+}
+
+var RECURRING_DATE_RE_ = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+// Optional start/end dates: blank is fine; otherwise real dates, end not
+// before start. Returns the cleaned pair.
+function validateRecurringWindow_(startDate, endDate) {
+  startDate = startDate ? String(startDate).trim() : '';
+  endDate = endDate ? String(endDate).trim() : '';
+  if (startDate && !RECURRING_DATE_RE_.test(startDate)) throw new Error('The start date must be a real date (YYYY-MM-DD).');
+  if (endDate && !RECURRING_DATE_RE_.test(endDate)) throw new Error('The end date must be a real date (YYYY-MM-DD).');
+  if (startDate && endDate && endDate < startDate) throw new Error('The end date is before the start date.');
+  return { start_date: startDate, end_date: endDate };
 }
 
 // Entries already existed (Phase 0) when this column was added, so unlike
@@ -179,6 +221,9 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     month: r.month ? Number(r.month) : 1,
     date: r.date || '',
     active: String(r.active) !== 'false',
+    start_date: r.start_date || '',
+    end_date: r.end_date || '',
+    skipped_months: (r.skip_months || []).slice(),
     split_total: splitTotal
   };
 }
@@ -186,6 +231,7 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
 function addRecurringExpense(payload) {
   ensureRecurringExpensesSheet_();
   var frequency = normalizeRecurringFrequency_(payload.frequency);
+  var windowDates = frequency === 'once' ? { start_date: '', end_date: '' } : validateRecurringWindow_(payload.start_date, payload.end_date);
   var re = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
@@ -196,7 +242,9 @@ function addRecurringExpense(payload) {
     day: frequency === 'once' ? '' : (payload.day || 1),
     month: frequency === 'once' ? '' : (payload.month || 1),
     date: frequency === 'once' ? (payload.date || '') : '',
-    active: payload.active === false ? 'false' : 'true'
+    active: payload.active === false ? 'false' : 'true',
+    start_date: windowDates.start_date,
+    end_date: windowDates.end_date
   };
   appendRowObject('Recurring Expenses', re);
   var categoryById = rowsById_(getAllRows('Categories'));
@@ -210,7 +258,18 @@ function updateRecurringExpense(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error('Recurring expense not found');
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active'].forEach(function (field) {
+  headers = getHeaders(sheet);   // the ensure above may have just added the date columns
+  if (payload.start_date !== undefined || payload.end_date !== undefined) {
+    var current = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.id; });
+    var cleaned = validateRecurringWindow_(
+      payload.start_date !== undefined ? payload.start_date : current.start_date,
+      payload.end_date !== undefined ? payload.end_date : current.end_date
+    );
+    if (payload.start_date !== undefined) payload.start_date = cleaned.start_date;
+    if (payload.end_date !== undefined) payload.end_date = cleaned.end_date;
+  }
+
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active', 'start_date', 'end_date'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'description') value = String(value || '').trim();
@@ -376,7 +435,79 @@ function deleteRecurringExpense(id) {
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
   ensureRecurringExpenseSplitsSheet_();
   deleteRowsWhere_('Recurring Expense Splits', function (row) { return row.recurring_expense_id === id; });
+  ensureRecurringSkipsSheet_();
+  deleteRowsWhere_('Recurring Skips', function (row) { return row.recurring_expense_id === id; });
   return { done: true };
+}
+
+// ---- Skipping one occurrence / marking an entry as the payment ----
+
+function assertRecurringMonth_(month) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) throw new Error('Month must look like 2026-09.');
+}
+
+function assertRecurringExists_(id) {
+  ensureRecurringExpensesSheet_();
+  if (!getAllRows('Recurring Expenses').some(function (r) { return r.id === id; })) {
+    throw new Error('Recurring expense not found');
+  }
+}
+
+// "This month's rent is waived / the trip was cancelled": that one
+// occurrence stops counting as expected (Programmed this month, Budgets,
+// Projections) without touching the item or its other months. Idempotent.
+function skipRecurringOccurrence(payload) {
+  assertRecurringMonth_(payload.month);
+  assertRecurringExists_(payload.id);
+  ensureRecurringSkipsSheet_();
+  var already = getAllRows('Recurring Skips').some(function (s) {
+    return s.recurring_expense_id === payload.id && String(s.month) === payload.month;
+  });
+  if (!already) appendRowObject('Recurring Skips', { id: Utilities.getUuid(), recurring_expense_id: payload.id, month: payload.month });
+  return { done: true };
+}
+
+function unskipRecurringOccurrence(payload) {
+  assertRecurringMonth_(payload.month);
+  ensureRecurringSkipsSheet_();
+  deleteRowsWhere_('Recurring Skips', function (s) {
+    return s.recurring_expense_id === payload.id && String(s.month) === payload.month;
+  });
+  return { done: true };
+}
+
+// Manual override for the rare case automatic matching (same category and
+// currency, ~10% amount, within 5 days) misses a real payment: point one
+// entry at the item it paid ('' to unlink). Automatic matching stays on.
+function linkEntryToRecurring(payload) {
+  if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
+  return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
+}
+
+// The picker for "Mark as paid": this calendar month's confirmed entries of
+// the item's own kind (income vs expense), the closest amount first.
+function listEntriesForRecurringMonth(payload) {
+  assertRecurringMonth_(payload.month);
+  var re = getRecurringExpenseRows_().find(function (r) { return r.id === payload.id; });
+  if (!re) throw new Error('Recurring expense not found');
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var cat = categoryById[re.category_id];
+  var type = cat ? cat.type : 'expense';
+  var target = Number(re.amount);
+  return getAllRows('Entries')
+    .filter(function (e) {
+      return e.status === 'confirmed' && e.type === type && String(e.date).substring(0, 7) === payload.month;
+    })
+    .map(function (e) {
+      return {
+        id: e.id, date: e.date, amount: Number(e.amount), currency: e.currency,
+        description: e.description || '', category_name: categoryById[e.category_id] ? categoryById[e.category_id].name : '',
+        linked_here: e.recurring_expense_id === re.id,
+        _distance: e.currency === (re.currency || 'PEN') ? Math.abs(Number(e.amount) - target) : Infinity
+      };
+    })
+    .sort(function (a, b) { return a._distance - b._distance || (a.date < b.date ? 1 : -1); })
+    .map(function (e) { delete e._distance; return e; });
 }
 
 // The calendar dates (YYYY-MM-DD) on which a recurring expense actually
@@ -390,6 +521,19 @@ function deleteRecurringExpense(id) {
 // rather than skipping short months entirely.
 function recurringExpenseOccurrencesInRange_(re, startDate, endDate) {
   if (String(re.active) === 'false') return [];
+  var dates = recurringExpenseOccurrencesRaw_(re, startDate, endDate);
+  if (re.frequency === 'once') return dates;
+  // Optional start/end dates and skipped months (monthly/yearly only; a
+  // one-time item is already a single dated payment).
+  var skipped = re.skip_months || [];
+  return dates.filter(function (d) {
+    if (re.start_date && d < re.start_date) return false;
+    if (re.end_date && d > re.end_date) return false;
+    return skipped.indexOf(d.substring(0, 7)) === -1;
+  });
+}
+
+function recurringExpenseOccurrencesRaw_(re, startDate, endDate) {
   var start = new Date(startDate + 'T00:00:00');
   var end = new Date(endDate + 'T00:00:00');
   var day = re.day ? Number(re.day) : 1;

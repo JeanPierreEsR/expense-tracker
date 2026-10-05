@@ -62,7 +62,14 @@ var TABLE_DEFINITIONS = {
   // it occurs (1-31, clamped to each month's real length); `month` (1-12)
   // is only meaningful when frequency is 'yearly'. `active` lets one be
   // paused without deleting its history of use.
-  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date'],
+  // start_date / end_date (optional YYYY-MM-DD, added 2026-10-05, self-heal in
+  // ensureRecurringExpensesSheet_): an item only occurs between them. Ending
+  // an item with an end date keeps its past occurrences (pausing via `active`
+  // removes them all).
+  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date', 'start_date', 'end_date'],
+  // One row per skipped occurrence ("rent waived this month"). `month` is the
+  // occurrence's YYYY-MM, so a skip survives the item's day being edited.
+  'Recurring Skips': ['id', 'recurring_expense_id', 'month'],
   // Not part of the original spec — a programmed item (recurring or
   // one-time) can be shared with a friend just like a real expense (see
   // CLAUDE.md). Same shape as Entry Splits, deliberately: it only ever
@@ -104,6 +111,8 @@ var TABLE_DEFINITIONS = {
 var DATE_LIKE_COLUMNS = {
   Entries: ['date', 'created_at', 'updated_at'],
   Loans: ['date', 'due_date'],
+  'Recurring Expenses': ['date', 'start_date', 'end_date'],
+  'Recurring Skips': ['month'],
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],

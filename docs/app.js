@@ -4904,6 +4904,8 @@ function setRecurringFrequency_(freq) {
   });
   const dateInput = document.getElementById("recurring-occurrence-date");
   const todayIso = todayLocalISO();
+  // Start/end dates only make sense for an item that repeats.
+  document.getElementById("recurring-window-fields").hidden = freq === "once";
   if (freq === "once") {
     document.getElementById("recurring-occurrence-date-label").textContent = "Date";
     document.getElementById("recurring-occurrence-date-hint").textContent =
@@ -4950,6 +4952,9 @@ async function openRecurringModal(re) {
   }
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
+  document.getElementById("recurring-start-date").value = re ? (re.start_date || "") : "";
+  document.getElementById("recurring-end-date").value = re ? (re.end_date || "") : "";
+  renderRecurringSkips_(re);
 
   // "Find past entries" only makes sense for an item that already exists
   // (it searches by this item's own id) — reset any previous search's
@@ -4990,6 +4995,33 @@ async function openRecurringModal(re) {
       renderRecurringSplitSummary();
     }
   }
+}
+
+// Skipped months of the item being edited, each with an Undo.
+function renderRecurringSkips_(re) {
+  const section = document.getElementById("recurring-skips-section");
+  const list = document.getElementById("recurring-skips-list");
+  const months = re && re.skipped_months ? re.skipped_months : [];
+  section.hidden = months.length === 0;
+  list.innerHTML = "";
+  months.forEach((m) => {
+    const [y, mm] = m.split("-").map(Number);
+    const row = document.createElement("div");
+    row.className = "skipped-month-row";
+    row.innerHTML = `<span>${MONTH_NAMES_SHORT[mm - 1]} ${y}</span><button type="button" class="add-inline">Undo skip</button>`;
+    row.querySelector("button").addEventListener("click", async () => {
+      try {
+        await callApi("unskipRecurringOccurrence", { id: re.id, month: m });
+        re.skipped_months = re.skipped_months.filter((x) => x !== m);
+        renderRecurringSkips_(re);
+        refreshRecurringExpenses();
+        refreshExpectedRecurring();
+      } catch (err) {
+        document.getElementById("recurring-form-error").textContent = err.message;
+      }
+    });
+    list.appendChild(row);
+  });
 }
 
 function closeRecurringModal() {
@@ -5120,7 +5152,10 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       amount,
       currency,
       frequency: recurringFrequency,
-      active
+      active,
+      // Blank clears; the server checks they are real dates and in order.
+      start_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-start-date").value,
+      end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value
     };
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence
@@ -5224,7 +5259,19 @@ async function refreshExpectedRecurring(prefetchedGroups) {
         <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
         <span class="expected-recurring-item-amount">${item.overdue ? "⚠️ " : ""}Day ${item.day} · ${g.currency} ${moneyFmt(item.amount)}</span>
       </div>
+      <div class="expected-recurring-actions">
+        <button type="button" data-act="paid" data-id="${item.id}">✓ Mark as paid…</button>
+        <button type="button" data-act="skip" data-id="${item.id}">⏭ Skip this month</button>
+      </div>
     `).join("");
+    detail.querySelectorAll(".expected-recurring-actions button").forEach((btn) => {
+      const item = g.items.find((i) => i.id === btn.dataset.id);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
+        else openPaidPicker_(item, g.currency);
+      });
+    });
 
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
@@ -5239,6 +5286,72 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     container.appendChild(group);
   });
 }
+
+// "Skip this month": that one occurrence stops counting as expected (here, in
+// Budgets and in Projections); the item itself and its other months are
+// untouched, and it can be undone from the item's edit screen.
+async function skipRecurringThisMonth_(item) {
+  const label = item.description || item.category_name;
+  if (!confirm(`Skip "${label}" for this month? It stops counting as expected for this month only. You can undo it from the item's edit screen.`)) return;
+  try {
+    await callApi("skipRecurringOccurrence", { id: item.id, month: todayLocalISO().slice(0, 7) });
+    await refreshExpectedRecurring();
+    refreshRecurringExpenses();
+  } catch (err) {
+    alert("Couldn't skip it (" + err.message + ").");
+  }
+}
+
+// "Mark as paid…": a manual override for when automatic matching (same
+// category and currency, about the same amount, within a few days) missed the
+// real payment. Pick the entry that paid it; automatic matching stays on.
+async function openPaidPicker_(item, currency) {
+  const backdrop = document.getElementById("paid-picker-modal-backdrop");
+  const list = document.getElementById("paid-picker-list");
+  const errorEl = document.getElementById("paid-picker-error");
+  errorEl.textContent = "";
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+  document.getElementById("paid-picker-empty").hidden = true;
+  document.getElementById("paid-picker-title").textContent = "Mark as paid";
+  document.getElementById("paid-picker-hint").textContent =
+    `Which entry this month paid "${item.description || item.category_name}" (${currency} ${moneyFmt(item.amount)})? Closest amounts first.`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  try {
+    const entries = await callApi("listEntriesForRecurringMonth", { id: item.id, month: todayLocalISO().slice(0, 7) });
+    list.innerHTML = "";
+    document.getElementById("paid-picker-empty").hidden = entries.length > 0;
+    entries.forEach((e) => {
+      const row = document.createElement("div");
+      row.className = "link-candidate-row";
+      row.style.cursor = "pointer";
+      row.innerHTML = `
+        <div class="link-candidate-text">
+          <div class="link-candidate-date">${e.date} · ${e.currency} ${moneyFmt(e.amount)}</div>
+          <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || "(no description)")}</div>
+        </div>`;
+      row.addEventListener("click", async () => {
+        try {
+          await callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id });
+          backdrop.hidden = true;
+          await refreshExpectedRecurring();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      });
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = "";
+    errorEl.textContent = "Couldn't load entries: " + err.message;
+  }
+}
+document.getElementById("paid-picker-close").addEventListener("click", () => {
+  document.getElementById("paid-picker-modal-backdrop").hidden = true;
+});
+document.getElementById("paid-picker-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "paid-picker-modal-backdrop") e.target.hidden = true;
+});
 
 // ---- Projections ----
 //

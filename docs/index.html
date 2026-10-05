@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-05T15:39:05Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-05T17:25:18Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -712,6 +712,21 @@
     </div>
   </div>
 
+  <div id="paid-picker-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="paid-picker-title">Mark as paid</span>
+        <button type="button" id="paid-picker-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="paid-picker-hint"></p>
+        <div id="paid-picker-list"></div>
+        <p class="hint" id="paid-picker-empty" hidden>No confirmed entries this month yet.</p>
+        <p class="hint" id="paid-picker-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+  </div>
+
   <div id="forgive-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -880,6 +895,19 @@
         <input type="date" id="recurring-occurrence-date">
         <p class="hint" id="recurring-occurrence-date-hint"></p>
 
+        <div id="recurring-window-fields">
+          <label for="recurring-start-date">Starts on (optional)</label>
+          <input type="date" id="recurring-start-date">
+          <label for="recurring-end-date">Ends on (optional)</label>
+          <input type="date" id="recurring-end-date">
+          <p class="hint">Leave blank for no start or end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
+        </div>
+
+        <div id="recurring-skips-section" hidden>
+          <label>Skipped months</label>
+          <div id="recurring-skips-list"></div>
+        </div>
+
         <label class="checkbox-row">
           <input type="checkbox" id="recurring-active-checkbox" checked>
           <span>Active</span>
@@ -973,8 +1001,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-10-05T15:39:05Z"></script>
-  <script src="statement-parsers.js?v=2026-10-05T15:39:05Z"></script>
-  <script src="statements.js?v=2026-10-05T15:39:05Z"></script>
+  <script src="app.js?v=2026-10-05T17:25:18Z"></script>
+  <script src="statement-parsers.js?v=2026-10-05T17:25:18Z"></script>
+  <script src="statements.js?v=2026-10-05T17:25:18Z"></script>
 </body>
 </html>

@@ -238,6 +238,10 @@ function routeAction(action, payload) {
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
+    case 'unskipRecurringOccurrence': return unskipRecurringOccurrence(payload);
+    case 'linkEntryToRecurring': return linkEntryToRecurring(payload);
+    case 'listEntriesForRecurringMonth': return listEntriesForRecurringMonth(payload);
     case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
     case 'saveRecurringExpenseSplits': return saveRecurringExpenseSplits(payload);
     case 'listExpectedRecurringItems': return listExpectedRecurringItems();
@@ -299,6 +303,8 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  start_date: 'yyyy-MM-dd',   // Recurring Expenses (a Sheets Date is turned back into text on read)
+  end_date: 'yyyy-MM-dd',
   opening_balance_date: 'yyyy-MM-dd',
   as_of: "yyyy-MM-dd'T'HH:mm:ss",
   period_start: 'yyyy-MM-dd',
