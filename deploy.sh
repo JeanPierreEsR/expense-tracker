@@ -12,6 +12,13 @@ ID_FILE="../deploy-id.txt"
 [ -f "$ID_FILE" ] || { echo "Missing $ID_FILE (live deployment id)"; exit 1; }
 DEPLOY_ID="$(tr -d '[:space:]' < "$ID_FILE")"
 
+# 0. Safety net: the backend tests run the real backend code against a fake
+# Google layer with made-up data (see tests/README.md). A failing test stops
+# the deploy before anything is uploaded or pushed.
+echo "Running backend tests..."
+node --test tests/backend/ > /tmp/expense-tracker-tests.log 2>&1 || { tail -40 /tmp/expense-tracker-tests.log; echo "Tests FAILED — not deploying."; exit 1; }
+grep -E "^ℹ (tests|pass|fail)" /tmp/expense-tracker-tests.log
+
 run() { if [ "$DRY" = "--dry-run" ]; then echo "[dry-run] $*"; else "$@"; fi; }
 
 # 1. Version bump — only when frontend files changed (uncommitted changes).
@@ -35,7 +42,7 @@ else
 fi
 
 # 3. Commit + push (GitHub Pages serves docs/).
-git add -A backend docs cloudflare-worker deploy.sh
+git add -A backend docs cloudflare-worker tests deploy.sh
 if git diff --cached --quiet; then
   echo "Nothing new to commit."
 else
