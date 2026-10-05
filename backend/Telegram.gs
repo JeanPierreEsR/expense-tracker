@@ -648,7 +648,7 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
     var msg = '✅ Marked as a repayment to ' + friend.name + '.';
     if (repayResult.overpaid > 0.004) {
       msg += ' ' + entry.currency + ' ' + moneyFmt_(repayResult.overpaid) +
-        ' was more than they were owed — that part wasn’t recorded; handle it from the Loans tab in the app if needed.';
+        ' was more than they were owed — the extra is in your review queue in the app, waiting for a category.';
     }
     return { message: msg, removed: true };
   }

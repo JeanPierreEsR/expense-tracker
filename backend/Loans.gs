@@ -624,7 +624,26 @@ function recordRepayment(payload) {
 
   Object.keys(touchedLoanIds).forEach(updateLoanStatusFromSettlements_);
 
-  return { overpaid: cashLeft > 0.004 ? cashLeft : 0, currency: currency };
+  // Whatever is left once nothing more is owed is real money and must never be
+  // lost, so it is recorded HERE, in the same request as the repayment —
+  // confirmed when the caller already has a category (overpay_category_id),
+  // otherwise as a PENDING entry in the review queue to categorise later. It
+  // used to depend on a second screen the owner could simply close.
+  var overpaid = cashLeft > 0.004 ? cashLeft : 0;
+  var overpaymentEntry = null;
+  if (overpaid > 0) {
+    overpaymentEntry = createOverpaymentEntry_(payload.direction === 'they_owe_me' ? 'income' : 'expense', {
+      friend_id: payload.friend_id,
+      amount: Math.round(overpaid * 100) / 100,
+      currency: currency,
+      date: payload.date,
+      payment_method_id: payload.payment_method_id,
+      category_id: payload.overpay_category_id || '',
+      pending: !payload.overpay_category_id
+    });
+  }
+
+  return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };
 }
 
 // The leftover from recordRepayment, above, once nothing more is owed —
@@ -644,28 +663,53 @@ function recordRepayment(payload) {
 // any other plain expense; it's deliberately NOT split with the friend
 // (this money already isn't a debt with them, by definition — it's what
 // was left over once every debt was gone).
+//
+// `payload.pending` (set by recordRepayment when the caller gave no category)
+// creates the entry as PENDING with no category, to be categorised from the
+// review queue. A later non-pending call with the same figures (the app's
+// "pick a category" step, which still calls recordOverpaymentIncome/Expense)
+// COMPLETES that pending entry instead of adding a second one.
 function createOverpaymentEntry_(type, payload) {
   if (!payload.friend_id) throw new Error('Missing friend.');
   if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.category_id) throw new Error('Pick a category.');
+  if (!payload.pending && !payload.category_id) throw new Error('Pick a category.');
   if (!payload.date) throw new Error('Date is required.');
 
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
   if (!friend) throw new Error('Friend not found');
 
+  var description = payload.description || (type === 'income'
+    ? "Overpayment from " + friend.name + "'s loan repayment"
+    : "Overpayment to " + friend.name + "'s loan repayment");
+  var amount = Number(payload.amount);
+  var currency = payload.currency || 'PEN';
+
+  if (!payload.pending) {
+    var waiting = getAllRows('Entries').find(function (e) {
+      return e.status === 'pending' && e.source === 'manual' && e.type === type && e.description === description &&
+        e.currency === currency && e.date === payload.date && Math.abs(Number(e.amount) - amount) < 0.005;
+    });
+    if (waiting) {
+      updateEntryFields(waiting.id, {
+        category_id: payload.category_id,
+        payment_method_id: payload.payment_method_id || waiting.payment_method_id || '',
+        status: 'confirmed'
+      });
+      return getEntryById_(waiting.id);
+    }
+  }
+
   var entry = {
     id: Utilities.getUuid(),
     type: type,
     date: payload.date,
-    amount: Number(payload.amount),
-    currency: payload.currency || 'PEN',
-    category_id: payload.category_id,
-    description: payload.description || (type === 'income'
-      ? "Overpayment from " + friend.name + "'s loan repayment"
-      : "Overpayment to " + friend.name + "'s loan repayment"),
+    amount: amount,
+    currency: currency,
+    category_id: payload.pending ? '' : payload.category_id,
+    description: description,
     payment_method_id: payload.payment_method_id || '',
     paid_by: type === 'income' ? findOrCreatePayorByName_(friend.name).id : 'me',
-    status: 'confirmed',
+    status: payload.pending ? 'pending' : 'confirmed',
     source: 'manual',
     external_id: '',
     import_batch_id: '',
@@ -794,20 +838,10 @@ function convertEntryInto_(payload, kind) {
       currency: payload.currency,
       date: payload.date,
       payment_method_id: payload.payment_method_id,
-      description: payload.description
+      description: payload.description,
+      overpay_category_id: payload.overpay_category_id   // recordRepayment books the extra itself
     });
-    var overEntry = null;
-    if (result.overpaid > 0.004) {
-      overEntry = createOverpaymentEntry_(payload.direction === 'they_owe_me' ? 'income' : 'expense', {
-        friend_id: payload.friend_id,
-        amount: result.overpaid,
-        currency: result.currency,
-        date: payload.date,
-        payment_method_id: payload.payment_method_id,
-        category_id: payload.overpay_category_id
-      });
-    }
-    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: overEntry };
+    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
     // Undo: remove whatever was written, put the original back exactly as
     // it was.

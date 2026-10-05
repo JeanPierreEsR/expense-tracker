@@ -1514,25 +1514,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       } else if (isLoanKind) {
         result = await callApi("addLoan", fields);
       } else {
-        result = await callApi("recordRepayment", fields);
-        if (result.overpaid > 0.004) {
-          // More than was owed (or nothing was owed): the leftover is a real
-          // income/expense, same as the Loans tab's Repayments sheet.
-          if (!overpayCategoryId) {
-            throw new Error(`Repayment saved, but ${currency} ${moneyFmt(result.overpaid)} was extra and needs a category — record it from the Loans tab.`);
-          }
-          await callApi(direction === "they_owe_me" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
-            friend_id: friendId,
-            amount: result.overpaid,
-            currency: result.currency,
-            date,
-            payment_method_id: paymentMethodId,
-            category_id: overpayCategoryId
-          });
-        }
+        // More than was owed (or nothing was owed): the server books the
+        // leftover itself, in the same request — confirmed if a category was
+        // chosen, otherwise as a pending entry in the review queue.
+        result = await callApi("recordRepayment", { ...fields, overpay_category_id: overpayCategoryId });
       }
       if (!isLoanKind && result.overpaid > 0.004) {
-        extraNote = ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${direction === "they_owe_me" ? "income" : "an expense"}.`;
+        const kind = direction === "they_owe_me" ? "income" : "an expense";
+        extraNote = overpayCategoryId
+          ? ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${kind}.`
+          : ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt — it's in your review queue as ${kind}, waiting for a category.`;
+        refreshReviewQueue().catch(() => {});
       }
       refreshLoans().catch(() => {});
       showFormNotice_(isLoanKind
@@ -6599,7 +6591,14 @@ async function openRepaymentModal(friendId, friendName, netByCurrency) {
 function closeSettlementModal() {
   document.getElementById("settlement-modal-backdrop").hidden = true;
   editingSettlementId = null;
-  pendingOverpay = null;
+  // Closed without picking a category for the extra: nothing is lost — the
+  // server already saved it as a pending entry. Say so and show it.
+  if (pendingOverpay) {
+    const p = pendingOverpay;
+    pendingOverpay = null;
+    alert(`The extra ${p.currency} ${moneyFmt(p.amount)} is saved in your review queue as ${p.entryType === "income" ? "income" : "an expense"} — categorize it there.`);
+    refreshReviewQueue().catch(() => {});
+  }
 }
 
 async function refreshAfterSettlementChange_() {
@@ -6665,8 +6664,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       const isIncome = repaymentDirection === "they_owe_me";
       pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId, entryType: isIncome ? "income" : "expense" };
       document.getElementById("settlement-overpay-note").textContent = isIncome
-        ? `${repaymentFriendName} paid ${result.currency} ${moneyFmt(result.overpaid)} more than they owed — recording it as income.`
-        : `You paid ${repaymentFriendName} ${result.currency} ${moneyFmt(result.overpaid)} more than you owed — recording it as an expense.`;
+        ? `${repaymentFriendName} paid ${result.currency} ${moneyFmt(result.overpaid)} more than they owed — recording it as income. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).`
+        : `You paid ${repaymentFriendName} ${result.currency} ${moneyFmt(result.overpaid)} more than you owed — recording it as an expense. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).`;
       populateOverpayCategoryOptions(pendingOverpay.entryType);
       document.getElementById("settlement-overpay-error").textContent = "";
       document.getElementById("settlement-form").hidden = true;
@@ -6713,8 +6712,10 @@ document.getElementById("settlement-overpay-save-btn").addEventListener("click",
       payment_method_id: pendingOverpay.paymentMethodId,
       category_id: categoryId
     });
+    pendingOverpay = null;   // resolved: no "saved in your review queue" notice
     closeSettlementModal();
     await refreshEntryList();
+    refreshReviewQueue().catch(() => {});
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -6963,7 +6964,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
       });
       await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
-        alert(`Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. Check their balance on the Loans tab if you need to handle the extra.`);
+        alert(`Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. The extra is in your review queue, waiting for a category.`);
       }
     } else {
       await callApi("addLoan", {
