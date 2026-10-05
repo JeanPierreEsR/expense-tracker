@@ -66,6 +66,16 @@ function photoLooseAmount_(lines, titleRe) {
       // prefix is not trusted.
       if (amount > 0 && /^[Ss5$]\s*[\/1lI|]/.test(lines[j])) return { amount: amount, currency: 'PEN' };
     }
+    // Sometimes the "S/" is dropped entirely and the line is just the
+    // number with two decimals plus a stray character ("35.00 u"). Only a
+    // two-decimal figure is trusted: the masked card line, the date and the
+    // operation code never look like that.
+    for (var k = i + 1; k < lines.length && k <= i + 6; k++) {
+      var d = lines[k].match(/^(\d[\d,]*\.\d{2})\s*\S{0,2}$/);
+      if (!d) continue;
+      var bare = parseFloat(d[1].replace(/,/g, ''));
+      if (bare > 0) return { amount: bare, currency: 'PEN' };
+    }
   }
   return null;
 }
