@@ -25,3 +25,25 @@ test("plin photo: masked card line, date and code are never taken as the amount"
   const text = PLIN_NO_PREFIX.replace("12.50 u", "");
   assert.equal(parse(rt, text).error, "amount");
 });
+
+// Received Yape ("¡Te Yapearon!"): same lost-"S/" reading, plus an ad line below.
+const YAPE_NO_PREFIX = [
+  "¡Te Yapearon!", "", "18.00 a", "", "Ana Lo*", "05 Oct 2026 | 09:15 a.m.",
+  "Código de operación: 00765432", "", "*$150 y gana con tu Yape", "Compartir"
+].join("\n");
+
+test("yape received: amount line with the S/ lost is read, ad line ignored", () => {
+  const { rt } = freshApp({ small: true });
+  const r = parse(rt, YAPE_NO_PREFIX);
+  assert.equal(r.kind, "yape_received");
+  assert.equal(r.type, "income");
+  assert.equal(r.amount, 18);
+  assert.equal(r.counterparty, "Ana Lo*");
+  assert.equal(r.externalId, "00765432");
+});
+
+test("yape received: normal 'S/ 18.00' reading still wins", () => {
+  const { rt } = freshApp({ small: true });
+  const r = parse(rt, YAPE_NO_PREFIX.replace("18.00 a", "S/ 18.00"));
+  assert.equal(r.amount, 18);
+});
