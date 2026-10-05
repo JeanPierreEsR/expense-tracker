@@ -527,34 +527,30 @@ function validateBudgetAmount_(amount) {
   if (amount === null || amount === '' || !isFinite(n) || n <= 0) throw new Error('The budget amount must be a number greater than 0.');
 }
 
-// One budget per category per timeframe: two monthly budgets for Travel would
-// count the same spending twice and alert twice. A monthly and a yearly one
-// for the same category are fine. Two budgets conflict when they have the
-// same period_type AND share at least one category; 'ALL' (every expense
-// category) only conflicts with another 'ALL'. `excludeId` is the budget
-// being edited, so saving it unchanged is not a conflict with itself.
+// A budget may not repeat EXACTLY the same set of categories as another one
+// with the same timeframe (monthly/yearly): that would count the same spending
+// twice and alert twice. Anything else coexists — a monthly and a yearly budget
+// for one category, a one-category budget alongside a multi-category budget
+// that includes it, two multi-category budgets that merely overlap. 'ALL'
+// (every expense category) counts as one set, equal only to another 'ALL'.
+// Order doesn't matter. `excludeId` is the budget being edited, so saving it
+// unchanged is not a conflict with itself.
 function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
   var mine = parseBudgetCategoryIds_(categoryRaw);   // null = ALL
+  var key = function (ids) { return ids === null ? 'ALL' : ids.slice().sort().join(','); };
+  var myKey = key(mine);
   var names = {};
   getAllRows('Categories').forEach(function (c) { names[c.id] = c.name; });
 
   getAllRows('Budgets').forEach(function (other) {
     if (other.id === excludeId) return;
     if ((other.period_type === 'yearly' ? 'yearly' : 'monthly') !== periodType) return;
-    var theirs = parseBudgetCategoryIds_(other.category_id);
-    var overlap;
-    if (mine === null || theirs === null) {
-      overlap = mine === null && theirs === null;
-    } else {
-      overlap = mine.filter(function (id) { return theirs.indexOf(id) !== -1; });
-      overlap = overlap.length ? overlap : null;
-    }
-    if (!overlap) return;
-    var what = overlap === true || mine === null
+    if (key(parseBudgetCategoryIds_(other.category_id)) !== myKey) return;
+    var what = mine === null
       ? 'all expense categories'
-      : '"' + (names[overlap[0]] || 'this category') + '"';
-    throw new Error('You already have a ' + periodType + ' budget for ' + what +
-      '. Edit that one instead, or pick a different timeframe (a monthly and a yearly budget can coexist).');
+      : mine.map(function (id) { return '"' + (names[id] || 'this category') + '"'; }).join(' + ');
+    throw new Error('You already have a ' + periodType + ' budget for exactly ' + what +
+      '. Edit that one instead, or pick a different timeframe or set of categories.');
   });
 }
 
