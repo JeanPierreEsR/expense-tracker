@@ -2189,8 +2189,11 @@ function setupEntrySearch_() {
 
 // ---- Editing a previously confirmed entry ----
 
+let editingEntrySummary_ = "";
+
 async function startEditEntry(entry) {
   editingEntryId = entry.id;
+  editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
 
@@ -2347,7 +2350,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
   // A repayment's transfer entry takes the repayment with it — say so first.
-  let confirmText = "Delete this entry? This can't be undone.";
+  let confirmText = `Delete ${editingEntrySummary_ || "this entry"}? This can't be undone.`;
   if (["transfer", "expense", "income"].includes(editingEntryOriginalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
     if (links.forgiveness) {
@@ -2450,6 +2453,16 @@ document.getElementById("edit-entry-modal-close").addEventListener("click", canc
 document.getElementById("edit-entry-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "edit-entry-modal-backdrop") cancelEdit();
 });
+
+// A delete/discard prompt that says WHAT is about to go ("Delete "Gym" —
+// PEN 80.00?") instead of a generic "this item" — with a list of similar
+// rows it was impossible to be sure the right one was open. Pieces that are
+// blank are left out.
+function describeForConfirm_(label, amountText, extra) {
+  const head = label ? `"${label}"` : "this item";
+  const detail = [amountText, extra].filter(Boolean).join(", ");
+  return detail ? `${head} (${detail})` : head;
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");
@@ -2970,7 +2983,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     });
 
     discardBtn.addEventListener("click", () => {
-      if (!confirm("Discard this transaction? This can't be undone.")) return;
+      if (!confirm(`Discard ${describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date)}? This can't be undone.`)) return;
 
       queueReviewAction_(entry.id, "discard", null);
       item.remove();
@@ -3883,7 +3896,7 @@ document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
 document.getElementById("drilldown-menu-delete").addEventListener("click", async () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (!drilldownBudget) return;
-  if (!confirm("Delete this budget? This can't be undone.")) return;
+  if (!confirm(`Delete the ${drilldownBudget.period_type === "yearly" ? "yearly" : "monthly"} budget ${describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "")}? This can't be undone.`)) return;
   const id = drilldownBudget.id;
   closeDrilldown();
   try {
@@ -4107,7 +4120,9 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
 
 document.getElementById("budget-delete-btn").addEventListener("click", async () => {
   if (!editingBudgetId) return;
-  if (!confirm("Delete this budget? This can't be undone.")) return;
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : null;
+  const budgetLabel = document.getElementById("budget-name").value.trim() || (b && b.category_name) || "";
+  if (!confirm(`Delete the ${budgetPeriodType === "yearly" ? "yearly" : "monthly"} budget ${describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "")}? This can't be undone.`)) return;
   const id = editingBudgetId;
   closeBudgetModal();
   closeDrilldown();
@@ -5208,7 +5223,10 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
 
 document.getElementById("recurring-delete-btn").addEventListener("click", async () => {
   if (!editingRecurringId) return;
-  if (!confirm("Delete this item? This can't be undone.")) return;
+  const recLabel = document.getElementById("recurring-description").value.trim();
+  const recAmount = document.getElementById("recurring-amount").value.trim();
+  const recCurrency = document.getElementById("recurring-currency").value;
+  if (!confirm(`Delete the programmed item ${describeForConfirm_(recLabel, recAmount ? `${recCurrency} ${recAmount}` : "")}? Its skipped months go with it. This can't be undone.`)) return;
   const id = editingRecurringId;
   closeRecurringModal();
   await callApi("deleteRecurringExpense", { id });
@@ -6430,7 +6448,12 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
 
 document.getElementById("loan-delete-btn").addEventListener("click", async () => {
   if (!editingLoanId) return;
-  if (!confirm("Delete this loan? This can't be undone.")) return;
+  const loanFriend = document.getElementById("loan-friend");
+  const loanWho = loanFriend && loanFriend.selectedOptions[0] ? loanFriend.selectedOptions[0].textContent : "";
+  const loanDesc = document.getElementById("loan-description").value.trim();
+  const loanAmt = document.getElementById("loan-amount").value.trim();
+  const loanCur = document.getElementById("loan-currency").value;
+  if (!confirm(`Delete the loan ${describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "")}? This can't be undone.`)) return;
   const errorEl = document.getElementById("loan-form-error");
   errorEl.textContent = "";
 
@@ -6704,7 +6727,9 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
 
 document.getElementById("settlement-delete-btn").addEventListener("click", async () => {
   if (!editingSettlementId) return;
-  if (!confirm("Delete this repayment? This can't be undone.")) return;
+  const repAmt = document.getElementById("settlement-amount").value.trim();
+  const repDate = document.getElementById("settlement-date").value;
+  if (!confirm(`Delete the repayment with ${describeForConfirm_(repaymentFriendName || "", repAmt ? `${repaymentCurrency} ${repAmt}` : "", repDate)}? This can't be undone.`)) return;
 
   try {
     await callApi("deleteSettlement", { id: editingSettlementId });
