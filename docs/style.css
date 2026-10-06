@@ -26,6 +26,14 @@ body {
 /* Sits above everything else in the app, including modals (the highest,
    the rate modal, is 270) — a running instance can have any of those open
    when a new version becomes available. */
+button.update-banner {
+  /* it is a real button now (so screen readers can find and press it) */
+  border: 0;
+  width: 100%;
+  font-family: inherit;
+  min-height: 44px;
+}
+
 .update-banner {
   position: fixed;
   top: 0;
@@ -218,12 +226,17 @@ main {
 }
 
 .period-type-chip {
-  flex: 0 0 auto;
+  /* The four buttons share the full row equally (owner's request); min-width
+     keeps a label from ever being squeezed, and the row still scrolls if a
+     very narrow screen can't fit them. */
+  flex: 1 1 0;
+  min-width: max-content;
   min-height: 44px;
   border: 1px solid var(--border);
   background: white;
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 8px 10px;
+  text-align: center;
   font-size: 0.85rem;
   font-family: inherit;
   cursor: pointer;

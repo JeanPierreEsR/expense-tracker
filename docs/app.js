@@ -1658,6 +1658,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
     }
     writesDone = true;
+    clearEntryDraft_();
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
@@ -2187,6 +2188,112 @@ function setupEntrySearch_() {
   setTimeout(() => { syncSearchIndex_().then(renderSearchResults_).catch(() => {}); }, 2500);
 }
 
+// ---- Unsaved new-entry draft ----
+// A half-typed NEW entry is kept on the phone as it is typed and restored the
+// next time the app opens (after the update banner's reload, an app switch the
+// phone kills, a call), then cleared the moment it is saved. Nothing is sent
+// anywhere; it never exists for an entry being edited or confirmed. Splits and
+// repayments are not part of it. Older than a day = dropped.
+const ENTRY_DRAFT_KEY = "entryDraft_v1";
+const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
+let entryDraftTimer_ = null;
+let entryDateTouched_ = false;   // the owner picked the date themselves
+
+function entryFormIsNewEntry_() {
+  return !editingEntryId && !confirmingPendingId && !editingViaPopup;
+}
+
+// undefined = not a new entry right now (leave any stored draft alone);
+// null = a new entry with nothing worth keeping; otherwise the draft.
+function captureEntryDraft_() {
+  if (!entryFormIsNewEntry_()) return undefined;
+  if (typeof repaymentActive_ === "function" && repaymentActive_()) return undefined;
+  const amount = document.getElementById("amount").value.trim();
+  const description = document.getElementById("description").value.trim();
+  if (!amount && !description) return null;
+  return {
+    v: 1, savedAt: Date.now(), type: selectedType, categoryId: getCategoryId() || "",
+    amount, description,
+    currency: document.getElementById("currency").value,
+    paidBy: document.getElementById("paid_by").value,
+    paymentMethodId: document.getElementById("payment_method").value,
+    toPaymentMethodId: document.getElementById("to_payment_method").value,
+    date: entryDateTouched_ ? document.getElementById("date").value : "",
+    tagIds: [...selectedTagIds]
+  };
+}
+
+function saveEntryDraftNow_() {
+  clearTimeout(entryDraftTimer_);
+  try {
+    const d = captureEntryDraft_();
+    if (d === undefined) return;
+    if (d === null) localStorage.removeItem(ENTRY_DRAFT_KEY);
+    else localStorage.setItem(ENTRY_DRAFT_KEY, JSON.stringify(d));
+  } catch (err) { /* storage unavailable (private mode): the draft is a convenience */ }
+}
+
+function clearEntryDraft_() {
+  clearTimeout(entryDraftTimer_);
+  try { localStorage.removeItem(ENTRY_DRAFT_KEY); } catch (err) { /* ignore */ }
+}
+
+function scheduleEntryDraftSave_() {
+  clearTimeout(entryDraftTimer_);
+  entryDraftTimer_ = setTimeout(saveEntryDraftNow_, 400);
+}
+
+// Puts a saved draft back into the form. Returns true if it did.
+function restoreEntryDraft_() {
+  if (!entryFormIsNewEntry_()) return false;
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (err) { d = null; }
+  if (!d || d.v !== 1 || !(Date.now() - d.savedAt < ENTRY_DRAFT_MAX_AGE_MS)) { clearEntryDraft_(); return false; }
+  if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) return false;
+
+  selectedType = d.type;
+  document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === d.type));
+  populateCategoryOptions();
+  populatePaidByOptions();
+  const category = findCategory(d.categoryId);
+  if (ICON_PICKER_TYPES.includes(d.type)) {
+    showDetailForm(category || null);
+  } else {
+    showDetailForm(null);
+    document.getElementById("category").value = d.categoryId || "";
+  }
+  document.getElementById("amount").value = d.amount;
+  document.getElementById("description").value = d.description;
+  selectCurrency(d.currency || "PEN", "entry");
+  if (d.date) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
+  if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
+  togglePaymentMethodVisibility();
+  if (d.paymentMethodId) document.getElementById("payment_method").value = d.paymentMethodId;
+  document.getElementById("to_payment_method").value = d.toPaymentMethodId || "";
+  selectedTagIds.clear();
+  (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
+  populateTags();
+  showFormNotice_("↩️ Restored the entry you were typing — it wasn't saved yet. Clear the amount and description to drop it.");
+  return true;
+}
+
+(function setupEntryDraft_() {
+  const card = document.getElementById("entry-card");
+  ["input", "change", "click"].forEach((evt) => card.addEventListener(evt, scheduleEntryDraftSave_));
+  document.getElementById("date").addEventListener("input", () => { entryDateTouched_ = true; });
+  // iOS can kill a backgrounded app without warning, so save on the way out.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      saveEntryDraftNow_();
+    } else if (document.visibilityState === "visible" && entryFormIsNewEntry_() && !entryDateTouched_) {
+      // The form's date is an automatic "today" — after midnight it must not stay yesterday.
+      const dateEl = document.getElementById("date");
+      if (dateEl.value && dateEl.value !== todayLocalISO()) dateEl.value = todayLocalISO();
+    }
+  });
+  window.addEventListener("pagehide", saveEntryDraftNow_);
+})();
+
 // ---- Editing a previously confirmed entry ----
 
 let editingEntrySummary_ = "";
@@ -2306,6 +2413,7 @@ function exitEditMode() {
 // the same account the same day faster — see resetToFreshEntryScreen_
 // below for the "finishing an edit" case, which also resets these.
 function resetEntryFormFields_() {
+  clearEntryDraft_();
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
   lastAutoDescription = "";
@@ -4290,6 +4398,7 @@ async function init() {
       showDetailForm(null);
     }
     renderPeriodSelector();
+    restoreEntryDraft_();
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
@@ -4307,8 +4416,10 @@ async function init() {
   // the fast pending check below can resolve well before the rest of the
   // bundle does. Nothing is skipped on a first-ever (uncached) load, since
   // nothing could have been touched yet.
-  const formBusyNow = () => paintedFromCache &&
-    document.activeElement && document.activeElement.closest("#entry-form");
+  const formBusyNow = () => (paintedFromCache &&
+    document.activeElement && document.activeElement.closest("#entry-form")) ||
+    // a restored/typed draft must not have its dropdowns reset by the live data landing
+    !!(document.getElementById("amount").value.trim() || document.getElementById("description").value.trim());
   const reviewBusyNow = () => paintedFromCache &&
     document.activeElement && document.activeElement.closest("#review-list");
 
@@ -4401,6 +4512,7 @@ async function init() {
         showDetailForm(null);
       }
       renderPeriodSelector();
+      restoreEntryDraft_();
       document.getElementById("loading-screen").hidden = true;
       document.getElementById("app").hidden = false;
       document.getElementById("bottom-nav").hidden = false;
@@ -6006,6 +6118,7 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
         return;
       }
       if (data.version !== knownVersion) {
+        banner.textContent = "🔄 New version available — tap to reload";   // re-set so a screen reader announces it
         banner.hidden = false;
         // Pushes the save-failed banner down below this one instead of
         // the two overlapping — both are position:fixed/top:0 (see
@@ -6019,6 +6132,7 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
   }
 
   banner.addEventListener("click", () => {
+    saveEntryDraftNow_();   // a half-typed new entry survives the reload (restored at startup)
     location.href = location.pathname + "?cb=" + Date.now();
   });
 
