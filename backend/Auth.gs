@@ -30,6 +30,7 @@ function onOpen() {
     .addItem('21. Fill transfer descriptions (from X to Y)', 'menuFillTransferDescriptions')
     .addItem('22. Check access code strength', 'menuCheckAccessCodeStrength')
     .addItem('23. Generate a strong access code', 'menuGenerateAccessCode')
+    .addItem('24. Protect the Telegram webhook', 'menuProtectTelegramWebhook')
     .addToUi();
 }
 

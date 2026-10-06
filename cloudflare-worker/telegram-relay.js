@@ -57,12 +57,35 @@ async function fetchAppsScript(body) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method !== 'POST') {
       return new Response('Telegram relay is up.', { status: 200 });
     }
 
-    const body = await request.text();
+    let body = await request.text();
+
+    // Webhook protection (see menuProtectTelegramWebhook in Telegram.gs). When a
+    // RELAY_SECRET is configured in Cloudflare (Settings → Variables and
+    // Secrets), only requests carrying it in Telegram's own header are
+    // forwarded, and the secret is added to what Apps Script receives — Apps
+    // Script can't read headers, and its URL is public, so it checks the body.
+    // A rejected request still gets a plain 200 (so a stray request can't make
+    // Telegram back off) but is dropped here. With no RELAY_SECRET set, nothing
+    // changes — safe to paste this version before turning protection on.
+    const secret = env && env.RELAY_SECRET;
+    if (secret) {
+      if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== secret) {
+        return new Response(JSON.stringify({ ok: false }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      try {
+        body = JSON.stringify(Object.assign(JSON.parse(body), { relay_secret: secret }));
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
 
     try {
       const resultText = await fetchAppsScript(body);

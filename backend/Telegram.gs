@@ -91,13 +91,59 @@ function promptSetTelegramRelayUrl() {
   }
 }
 
+// ---- Protecting the webhook (2026-10-05) ----
+// One shared secret, three holders: Telegram sends it as the
+// X-Telegram-Bot-Api-Secret-Token header (setWebhook's secret_token); the
+// Cloudflare relay checks that header and adds the secret to the body it
+// forwards (Apps Script can't read headers); doPost checks the body's
+// relay_secret. Unset = not protected yet, nothing changes.
+function getTelegramRelaySecret_() {
+  return PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_SECRET') || '';
+}
+
+function isTelegramRelayAuthorized_(body) {
+  var secret = getTelegramRelaySecret_();
+  return !secret || body.relay_secret === secret;
+}
+
+function telegramWebhookPayload_() {
+  var payload = { url: getTelegramWebhookTargetUrl_() };
+  var secret = getTelegramRelaySecret_();
+  if (secret) payload.secret_token = secret;
+  return payload;
+}
+
+function menuProtectTelegramWebhook() {
+  var ui = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  if (!getTelegramToken_()) { ui.alert('Set the Telegram bot token first (menu item 9).'); return; }
+  if (!props.getProperty('TELEGRAM_RELAY_URL')) {
+    ui.alert('Set the Telegram relay URL first (menu item 17) — this protection works through the Cloudflare relay.');
+    return;
+  }
+  var answer = ui.alert('Protect the Telegram webhook?',
+    'This creates a secret and switches protection on immediately. Telegram buttons and replies will PAUSE (Telegram retries them) until you paste the updated Worker code and the secret into Cloudflare — the next screen shows exactly what to do. Continue?',
+    ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+
+  var secret = generateAccessCode_();   // 32 letters/digits — allowed by Telegram's secret_token
+  props.setProperty('TELEGRAM_RELAY_SECRET', secret);
+  var res = telegramApi_('setWebhook', telegramWebhookPayload_());
+  if (!res.ok) {
+    props.deleteProperty('TELEGRAM_RELAY_SECRET');   // don't leave it on half-configured
+    ui.alert('Could not re-register the webhook, so protection was NOT switched on: ' + (res.description || JSON.stringify(res)));
+    return;
+  }
+  ui.alert('Protection is ON. Now, in Cloudflare (Workers → your relay → Edit code), paste the updated telegram-relay.js, then Settings → Variables and Secrets → add a SECRET named RELAY_SECRET with this value, and Deploy. Your secret (shown only now): ' + secret);
+}
+
 function enableTelegramWebhook() {
   var ui = SpreadsheetApp.getUi();
   if (!getTelegramToken_()) {
     ui.alert('Set the Telegram bot token first (menu item 9).');
     return;
   }
-  var res = telegramApi_('setWebhook', { url: getTelegramWebhookTargetUrl_() });
+  var res = telegramApi_('setWebhook', telegramWebhookPayload_());
   ui.alert(res.ok
     ? 'Done — Confirm/Discard and edit replies now apply and respond instantly.'
     : 'Could not enable it: ' + (res.description || JSON.stringify(res)));

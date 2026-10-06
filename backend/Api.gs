@@ -37,6 +37,16 @@ function doPost(e) {
     }
 
     if (body && body.update_id !== undefined) {
+      // The URL of this web app is public, so anyone can POST something that
+      // looks like a Telegram update. Once the owner has turned on webhook
+      // protection (sheet menu 24), only updates carrying the shared secret —
+      // added by the Cloudflare relay after it verified Telegram's own header —
+      // are handled. Not configured yet = accepted as before.
+      if (!isTelegramRelayAuthorized_(body)) {
+        recordFailedAccessAttempt_('telegram webhook');
+        return ContentService.createTextOutput(JSON.stringify({ ok: false }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
       // Telegram webhooks are "at least once" delivery — if doPost is slow
       // to respond (Apps Script cold start, a slow Sheet write), Telegram
       // can retry the same update, which would otherwise run
