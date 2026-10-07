@@ -4745,10 +4745,18 @@ async function openDevicesModal_() {
   const backdrop = document.getElementById("devices-modal-backdrop");
   const list = document.getElementById("devices-list");
   const errorEl = document.getElementById("devices-error");
+  const statusEl = document.getElementById("devices-status");
   errorEl.textContent = "";
+  statusEl.textContent = "";
   list.innerHTML = '<div class="status-msg">Loading…</div>';
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  // Still holding the old stored code (the background switch-over hasn't worked
+  // yet)? Try it now, so the list below is right.
+  if (!getSessionToken() && getAccessCode()) await migrateLegacyCodeToSession_();
+  statusEl.textContent = getSessionToken()
+    ? "✅ This phone is signed in with a session key (the access code is not stored here)."
+    : "⚠️ This phone is still using the access code directly. It will switch to a session key the next time the app opens with a connection.";
   let sessions;
   try {
     sessions = await callApi("listSessions", {});
