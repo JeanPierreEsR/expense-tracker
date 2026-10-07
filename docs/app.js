@@ -238,6 +238,44 @@ function setAccessCode(code) {
   localStorage.setItem("accessCode", code);
 }
 
+// Sign-in sessions (2026-10-05): the access code is typed once, to `login`; the
+// phone then keeps only a long random session key (never the code) and each
+// request carries that. An older copy of the app that still sends the code keeps
+// working until the owner switches sessions to "required" (sheet menu 26).
+function getSessionToken() {
+  return localStorage.getItem("sessionToken") || "";
+}
+
+function setSessionToken(token) {
+  localStorage.setItem("sessionToken", token);
+}
+
+// "iPhone · home-screen app" — what the Signed-in devices list shows.
+function deviceName_() {
+  const ua = navigator.userAgent || "";
+  const kind = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Device";
+  const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  return `${kind} · ${standalone ? "home-screen app" : "browser"}`;
+}
+
+// What this phone keeps about the signed-in owner: the session key, any old
+// stored code, and the cached financial data / drafts (so a signed-out device
+// holds nothing).
+function clearLocalSignIn_() {
+  localStorage.removeItem("sessionToken");
+  localStorage.removeItem("accessCode");
+  localStorage.removeItem(STARTUP_CACHE_KEY);
+  localStorage.removeItem(ENTRY_DRAFT_KEY);
+  clearSearchCache_();
+}
+
+function showSignedOutScreen_(message) {
+  document.getElementById("loading-screen").hidden = true;
+  document.getElementById("app").hidden = true;
+  document.getElementById("bottom-nav").hidden = true;
+  showSetupScreen(message);
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Apps Script's free Web App "falls asleep" after a period of inactivity —
@@ -278,7 +316,9 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
       res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ accessCode: getAccessCode(), action, payload: payload || {} }),
+        body: JSON.stringify(getSessionToken()
+          ? { sessionToken: getSessionToken(), action, payload: payload || {} }
+          : { accessCode: getAccessCode(), action, payload: payload || {} }),
         signal: controller.signal
       });
     } finally {
@@ -299,6 +339,12 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
   perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
+  if (!json.ok && json.error === "Invalid access code" && getSessionToken()) {
+    // This device's session was ended (signed out from another device, the
+    // sheet menu, or unused for 90 days): go back to the sign-in screen.
+    clearLocalSignIn_();
+    showSignedOutScreen_("You were signed out on this device. Enter your access code to sign in again.");
+  }
   if (!json.ok) throw new Error(json.error || "Unknown error");
   return json.data;
 }
@@ -414,8 +460,18 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const code = document.getElementById("setup-code-input").value.trim();
   if (!code) return;
-  setAccessCode(code);
-  await init();
+  const errorEl = document.getElementById("setup-error");
+  errorEl.textContent = "Signing in…";
+  try {
+    const res = await callApi("login", { code, deviceName: deviceName_() });
+    setSessionToken(res.sessionToken);
+    localStorage.removeItem("accessCode");
+    document.getElementById("setup-code-input").value = "";
+    errorEl.textContent = "";
+    await init();
+  } catch (err) {
+    errorEl.textContent = err.message;   // "Wrong access code." / "Too many wrong codes. Try again in N minutes."
+  }
 });
 
 // ---- Meta loading & form population ----
@@ -431,6 +487,14 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
 // way, so anything opened fresh (a new pop-up, the next screen) sees
 // current data; only this one already-open form keeps its stale-but-
 // still-valid picker contents for the rest of the session.
+// A friend added from ANY inline "+ Add friend…" (Paid by, repayment, loan,
+// review) must show up at once in the expense form's split chips and the
+// Programmed split chips too — those lists are only drawn when asked.
+function refreshFriendChips_() {
+  renderSplitFriendChips();
+  if (typeof renderRecurringSplitFriendChips === "function") renderRecurringSplitFriendChips();
+}
+
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
   if (skipFormPopulate) return;
@@ -774,6 +838,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
     meta.friends.push(friend);
+    refreshFriendChips_();
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = friend.id;
   }
@@ -1139,6 +1204,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   const friend = await callApi("addFriend", { name: name.trim() });
   friend.last_used = todayLocalISO();
   meta.friends.push(friend);
+  refreshFriendChips_();
   splitFriendIds.add(friend.id);
   renderSplitFriendChips();
   renderSplitRows();
@@ -1191,6 +1257,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     if (name && name.trim()) {
       const friend = await callApi("addFriend", { name: name.trim() });
       meta.friends.push(friend);
+      refreshFriendChips_();
       populatePaidByOptions();
       document.getElementById("paid_by").value = friend.id;
     }
@@ -4359,8 +4426,27 @@ async function refreshBudgets() {
 
 // ---- Init ----
 
+// An older copy of the app stored the access code itself. In the background
+// (so opening the app is never slowed down), trade it for a session key once
+// and stop keeping the code on the phone. Offline or a server hiccup: nothing
+// happens, the code is still accepted until sessions are required, and it is
+// tried again the next time the app opens. attempt=6 = no retries here.
+async function migrateLegacyCodeToSession_() {
+  try {
+    const res = await callApi("login", { code: getAccessCode(), deviceName: deviceName_() }, 6);
+    setSessionToken(res.sessionToken);
+    localStorage.removeItem("accessCode");
+  } catch (err) {
+    if (/wrong|too many/i.test(err.message)) {
+      clearLocalSignIn_();
+      showSignedOutScreen_(err.message);
+    }
+  }
+}
+
 async function init() {
-  if (!getAccessCode()) {
+  if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
+  if (!getSessionToken() && !getAccessCode()) {
     showSetupScreen();
     return;
   }
@@ -4532,13 +4618,8 @@ async function init() {
     if (err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
       // action would keep silently failing — surface it instead.
-      document.getElementById("loading-screen").hidden = true;
-      document.getElementById("app").hidden = true;
-      document.getElementById("bottom-nav").hidden = true;
-      localStorage.removeItem("accessCode");
-      localStorage.removeItem(STARTUP_CACHE_KEY);
-      clearSearchCache_();
-      showSetupScreen("That code wasn't accepted. Try again.");
+      clearLocalSignIn_();
+      showSignedOutScreen_("That code wasn't accepted. Try again.");
       return;
     }
     if (paintedFromCache) {
@@ -4640,6 +4721,84 @@ document.getElementById("more-recurring-btn").addEventListener("click", showRecu
 document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("more-exchange-rates-btn").addEventListener("click", showExchangeRatesScreen);
 document.getElementById("more-perf-btn").addEventListener("click", showPerfScreen);
+
+// ---- Signed-in devices / sign out ----
+
+async function signOutThisDevice_() {
+  try { await callApi("logout", {}); } catch (err) { /* offline: the key is still dropped on this phone */ }
+  clearLocalSignIn_();
+  showSignedOutScreen_("Signed out. Enter your access code to sign in again.");
+}
+
+document.getElementById("more-signout-btn").addEventListener("click", async () => {
+  if (!confirm("Sign out of this device? Its saved data and any unsaved entry are removed from this phone; you'll need your access code to sign in again.")) return;
+  await signOutThisDevice_();
+});
+
+function formatSessionTime_(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+async function openDevicesModal_() {
+  const backdrop = document.getElementById("devices-modal-backdrop");
+  const list = document.getElementById("devices-list");
+  const errorEl = document.getElementById("devices-error");
+  errorEl.textContent = "";
+  list.innerHTML = '<div class="status-msg">Loading…</div>';
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let sessions;
+  try {
+    sessions = await callApi("listSessions", {});
+  } catch (err) {
+    list.innerHTML = "";
+    errorEl.textContent = "Couldn't load the list: " + err.message;
+    return;
+  }
+  list.innerHTML = "";
+  if (!sessions.length) {
+    list.innerHTML = '<p class="hint">No signed-in devices yet. This device is using the access code directly and will sign in the next time the app opens.</p>';
+  }
+  sessions.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "skipped-month-row";
+    row.innerHTML = `
+      <div>
+        <div>${escapeHtml(s.device_name || "Device")}${s.current ? ' <span class="hint">(this device)</span>' : ""}</div>
+        <div class="hint">Last used ${escapeHtml(formatSessionTime_(s.last_used_at))}</div>
+      </div>
+      <button type="button" class="add-inline">${s.current ? "Sign out" : "Sign out"}</button>`;
+    row.querySelector("button").addEventListener("click", async () => {
+      const label = s.current ? "this device" : `"${s.device_name}"`;
+      if (!confirm(`Sign out ${label}? It stops working immediately.`)) return;
+      if (s.current) { await signOutThisDevice_(); return; }
+      try {
+        await callApi("revokeSession", { id: s.id });
+        openDevicesModal_();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+    list.appendChild(row);
+  });
+}
+
+document.getElementById("more-devices-btn").addEventListener("click", openDevicesModal_);
+document.getElementById("devices-modal-close").addEventListener("click", () => { document.getElementById("devices-modal-backdrop").hidden = true; });
+document.getElementById("devices-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
+});
+document.getElementById("devices-signout-others-btn").addEventListener("click", async () => {
+  if (!confirm("Sign out all your other devices? Only this one stays signed in.")) return;
+  try {
+    await callApi("revokeOtherSessions", {});
+    openDevicesModal_();
+  } catch (err) {
+    document.getElementById("devices-error").textContent = err.message;
+  }
+});
 document.getElementById("perf-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("perf-clear-btn").addEventListener("click", () => {
   localStorage.removeItem(PERF_LOG_KEY);
@@ -5022,6 +5181,7 @@ document.getElementById("recurring-split-add-friend-btn").addEventListener("clic
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   meta.friends.push(friend);
+  refreshFriendChips_();
   recurringSplitFriendIds.add(friend.id);
   renderRecurringSplitFriendChips();
   renderRecurringSplitRows();
@@ -6436,6 +6596,7 @@ document.getElementById("loan-friend").addEventListener("change", async (e) => {
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
     meta.friends.push(friend);
+    refreshFriendChips_();
     populateLoanFriendOptions();
     document.getElementById("loan-friend").value = friend.id;
   }
@@ -7029,6 +7190,7 @@ document.getElementById("review-transfer-friend").addEventListener("change", asy
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
     meta.friends.push(friend);
+    refreshFriendChips_();
     populateReviewTransferFriendOptions();
     document.getElementById("review-transfer-friend").value = friend.id;
   }

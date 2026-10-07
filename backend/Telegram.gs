@@ -550,7 +550,17 @@ function handleTelegramMessage_(msg) {
   if (text.indexOf('/start') === 0) {
     var code = text.replace('/start', '').trim();
     var alreadyLinked = getOwnerTelegramChatId_();
+    // Same lockout as signing in (10 wrong codes -> 10 minutes), shared.
+    var startLock = loginLockState_();
+    if (startLock.locked) {
+      telegramApi_('sendMessage', {
+        chat_id: msg.chat.id, text: lockMessage_(startLock),
+        reply_to_message_id: msg.message_id, allow_sending_without_reply: true
+      });
+      return;
+    }
     if (isValidAccessCode(code) && alreadyLinked && !isOwnerChat_(msg.chat.id)) {
+      clearLoginFailures_();
       // Someone who knows (or guessed) the code must not be able to silently
       // redirect every review card to their own chat. Moving the bot to a new
       // chat is deliberate: re-run "Set Telegram bot token" in the sheet menu,
@@ -560,12 +570,14 @@ function handleTelegramMessage_(msg) {
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     } else if (!isValidAccessCode(code)) {
+      noteLoginFailure_();
       recordFailedAccessAttempt_('telegram');
       telegramApi_('sendMessage', {
         chat_id: msg.chat.id, text: "That code wasn't recognized.",
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     } else {
+      clearLoginFailures_();
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
       telegramApi_('sendMessage', {
         chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",

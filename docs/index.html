@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-06T01:57:34Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-07T12:33:11Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -383,6 +383,14 @@
             <span>🏦 Statements</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-devices-btn">
+            <span>📱 Signed-in devices</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-signout-btn">
+            <span>🚪 Sign out of this device</span>
+            <span class="more-list-chevron">›</span>
+          </button>
         </div>
       </div>
     </div>
@@ -712,6 +720,21 @@
     </div>
   </div>
 
+  <div id="devices-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span>Signed-in devices</span>
+        <button type="button" id="devices-modal-close" class="currency-modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
+        <div id="devices-list"></div>
+        <p class="hint" id="devices-error" style="color:#d64545;"></p>
+        <button type="button" class="add-inline" id="devices-signout-others-btn">Sign out all my other devices</button>
+      </div>
+    </div>
+  </div>
+
   <div id="paid-picker-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1001,8 +1024,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-10-06T01:57:34Z"></script>
-  <script src="statement-parsers.js?v=2026-10-06T01:57:34Z"></script>
-  <script src="statements.js?v=2026-10-06T01:57:34Z"></script>
+  <script src="app.js?v=2026-10-07T12:33:11Z"></script>
+  <script src="statement-parsers.js?v=2026-10-07T12:33:11Z"></script>
+  <script src="statements.js?v=2026-10-07T12:33:11Z"></script>
 </body>
 </html>

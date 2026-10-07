@@ -70,6 +70,9 @@ var TABLE_DEFINITIONS = {
   // One row per skipped occurrence ("rent waived this month"). `month` is the
   // occurrence's YYYY-MM, so a skip survives the item's day being edited.
   'Recurring Skips': ['id', 'recurring_expense_id', 'month'],
+  // One row per signed-in device (2026-10-05). Only a SHA-256 hash of the long
+  // random session key is stored, so reading the sheet can't sign anyone in.
+  Sessions: ['id', 'token_hash', 'device_name', 'created_at', 'last_used_at'],
   // One row per bank email already handled (Gmail message id). Replaces the
   // per-conversation "Processed" label as the thing that decides what to read,
   // because Gmail groups same-subject emails into one conversation. Pruned after
@@ -119,6 +122,7 @@ var DATE_LIKE_COLUMNS = {
   'Recurring Expenses': ['date', 'start_date', 'end_date'],
   'Recurring Skips': ['month'],
   'Processed Emails': ['message_id', 'processed_at'],
+  Sessions: ['token_hash', 'created_at', 'last_used_at'],
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],

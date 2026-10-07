@@ -64,7 +64,11 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (!isValidAccessCode(body.accessCode)) {
+    if (body && body.action === 'login') {
+      // The one request that needs no key: it trades the access code for a
+      // session key (see Auth.gs), behind its own lockout.
+      response = { ok: true, data: loginWithCode_(body.payload || {}) };
+    } else if (!authenticateRequest_(body)) {
       recordFailedAccessAttempt_('app');
       response = { ok: false, error: 'Invalid access code' };
     } else {
@@ -119,6 +123,10 @@ function routeActionOnce_(action, payload) {
 
 function routeAction(action, payload) {
   switch (action) {
+    case 'logout': return logout();
+    case 'listSessions': return listSessions();
+    case 'revokeSession': return revokeSession(payload);
+    case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': return getMeta();
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
