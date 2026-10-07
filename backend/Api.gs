@@ -281,6 +281,8 @@ function routeAction(action, payload) {
     case 'getEntry': return getEntryById_(payload.id);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
+    case 'getEntryBill': return getEntryBill(payload);
+    case 'saveEntryBill': return saveEntryBill(payload);
     case 'getEntryTags': return getEntryTags(payload);
     case 'saveEntryTags': return saveEntryTags(payload);
     case 'listPaymentMethodBalances': return listPaymentMethodBalances();

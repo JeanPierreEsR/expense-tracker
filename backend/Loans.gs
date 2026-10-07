@@ -29,6 +29,9 @@ function saveEntrySplits(entryId, splits) {
   // instead of being re-created — otherwise the friend would owe the old
   // loan AND a brand-new full one.
   splits = (splits || []).filter(function (s) { return s.friend_id && Number(s.amount) > 0; });
+  // No split any more -> the bill behind it (EntryBills.gs) has nothing left
+  // to explain.
+  if (!splits.length) deleteEntryBill_(entryId);
   var requestedTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   if (requestedTotal > Number(entry.amount) + 0.005) {
     throw new Error("The split (" + requestedTotal.toFixed(2) + ") is larger than the expense (" + Number(entry.amount).toFixed(2) + ").");
@@ -807,6 +810,7 @@ function convertEntryInto_(payload, kind) {
     entry: entry,
     splits: getAllRows('Entry Splits').filter(function (r) { return r.entry_id === entry.id; }),
     tags: getAllRows('Entry Tags').filter(function (r) { return r.entry_id === entry.id; }),
+    bills: entryBillsSheetExists_() ? getAllRows('Entry Bills').filter(function (r) { return r.entry_id === entry.id; }) : [],
     loans: ownLoans
   };
   var settlementIdsBefore = {};
@@ -855,6 +859,7 @@ function convertEntryInto_(payload, kind) {
       appendRowObject('Entries', snapshot.entry);
       snapshot.splits.forEach(function (r) { appendRowObject('Entry Splits', r); });
       snapshot.tags.forEach(function (r) { appendRowObject('Entry Tags', r); });
+      snapshot.bills.forEach(function (r) { appendRowObject('Entry Bills', r); });
       snapshot.loans.forEach(function (r) { appendRowObject('Loans', r); });
       getAllRows('Loans').filter(function (l) { return l.friend_id === payload.friend_id; })
         .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });

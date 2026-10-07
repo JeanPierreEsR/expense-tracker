@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-07T19:17:48Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-07T20:02:07Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -589,6 +589,7 @@
         <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="bill-scroll">
+        <p class="hint bill-check-bad" id="bill-stale-note" hidden>This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
         <label for="bill-total">Bill total before discounts (<span id="bill-currency">PEN</span>)</label>
         <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
         <p class="hint">The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.</p>
@@ -1075,9 +1076,9 @@
     </div>
   </div>
 
-  <script src="bill-split.js?v=2026-10-07T19:17:48Z"></script>
-  <script src="app.js?v=2026-10-07T19:17:48Z"></script>
-  <script src="statement-parsers.js?v=2026-10-07T19:17:48Z"></script>
-  <script src="statements.js?v=2026-10-07T19:17:48Z"></script>
+  <script src="bill-split.js?v=2026-10-07T20:02:07Z"></script>
+  <script src="app.js?v=2026-10-07T20:02:07Z"></script>
+  <script src="statement-parsers.js?v=2026-10-07T20:02:07Z"></script>
+  <script src="statements.js?v=2026-10-07T20:02:07Z"></script>
 </body>
 </html>

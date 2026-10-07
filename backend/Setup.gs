@@ -13,6 +13,9 @@ var TABLE_DEFINITIONS = {
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
   Tags: ['id', 'name', 'color'],
   'Entry Tags': ['entry_id', 'tag_id'],
+  // Not part of the original spec — the bill behind a split expense (see
+  // EntryBills.gs). Self-heals via ensureEntryBillsSheet_ on first save.
+  'Entry Bills': ['entry_id', 'bill_json', 'updated_at'],
   // opening_balance / opening_balance_date / opening_balance_currency: an
   // optional starting balance for account-balance tracking — blank means
   // "not tracked". Self-heals via ensurePaymentMethodBalanceColumns_

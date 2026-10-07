@@ -953,6 +953,7 @@ function toggleSplitFieldVisibility() {
 
 function resetSplitState() {
   billState = null;
+  billApplied = false;
   splitFriendIds = new Set();
   splitMode = "equal";
   customSplitAmounts = {};
@@ -1534,6 +1535,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   // entry and create a duplicate.
   let writesDone = false;
   let splitSaveFailed = false;
+  let billSaveFailed = false;
 
   try {
     const date = document.getElementById("date").value;
@@ -1697,7 +1699,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // how switching away from "expense" clears old splits/loans instead
       // of silently orphaning them.
       const sendSplits = selectedType === "expense" || editingEntryWasSplittable;
-      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds);
+      // The bill behind the split is saved only when it was (re)applied in this
+      // edit and a split still exists; undefined = leave the stored bill alone.
+      const billToSave = billApplied && splits && splits.length ? billToJSON_() : undefined;
+      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
       // Re-rendered from what's already in hand (with the queued edit
@@ -1761,6 +1766,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         } catch (splitErr) {
           splitSaveFailed = true;
         }
+        // The bill behind the split, so its items can be edited later. Its
+        // failure is only reported — the entry and split are already saved.
+        if (!splitSaveFailed && billApplied && splits && splits.length) {
+          try {
+            await callApi("saveEntryBill", { entryId: created.id, bill: billToJSON_() });
+          } catch (billErr) {
+            billSaveFailed = true;
+          }
+        }
       }
     }
     writesDone = true;
@@ -1802,6 +1816,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     }
     if (splitSaveFailed) {
       alert("Your entry was saved, but the split with your friend(s) was NOT. Open it in Recent entries and save the split again. Don't add the entry a second time.");
+    } else if (billSaveFailed) {
+      alert("Your entry and its split were saved, but the bill's item list could not be kept, so you won't be able to edit its items later. Don't add the entry a second time.");
     }
   } catch (err) {
     errorEl.textContent = writesDone
@@ -2374,7 +2390,8 @@ function restoreEntryDraft_() {
   if (d.date) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
-  if (d.paymentMethodId) document.getElementById("payment_method").value = d.paymentMethodId;
+  // A transfer's "From" may legitimately be None (blank).
+  if (d.paymentMethodId || d.type === "transfer") document.getElementById("payment_method").value = d.paymentMethodId || "";
   document.getElementById("to_payment_method").value = d.toPaymentMethodId || "";
   selectedTagIds.clear();
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
@@ -2827,9 +2844,9 @@ function findQueuedEdit_(id) {
 
 // splits: null means "don't touch splits for this entry" (not an expense,
 // never was) — [] means "send an empty list" (clears any existing splits).
-function queueEntryEdit_(id, fields, splits, tagIds) {
+function queueEntryEdit_(id, fields, splits, tagIds, bill) {
   const edits = getQueuedEdits_().filter((e) => e.id !== id);
-  edits.push({ id, fields, splits, tagIds, status: "saving", lastError: null, queuedAt: Date.now() });
+  edits.push({ id, fields, splits, tagIds, bill, status: "saving", lastError: null, queuedAt: Date.now() });
   setQueuedEdits_(edits);
   renderSaveFailedBanner_();
 }
@@ -2952,6 +2969,7 @@ async function flushEntryEdit_(id) {
           await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
         }
         await callApi("saveEntryTags", { entryId: edit.id, tagIds: edit.tagIds });
+        if (edit.bill) await callApi("saveEntryBill", { entryId: edit.id, bill: edit.bill });
       } catch (err) {
         markQueuedEditStatus_(id, "failed", err.message);
         renderEntryListFromCache_();
@@ -7723,6 +7741,7 @@ document.getElementById("balance-clear-btn").addEventListener("click", async () 
 // with each friend's total — the entry is then saved the usual way, so
 // category, account, date and the debts all go through the existing flow.
 let billState = null;
+let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
 let billShowAllFriends = false;
 
@@ -7765,7 +7784,70 @@ function billInput_() {
   };
 }
 
-function openBillModal() {
+// The stored form of a bill (see backend/EntryBills.gs): plain JSON, versioned,
+// holding only what the person typed — never the computed amounts.
+function billToJSON_() {
+  return {
+    v: 1,
+    total: billState.total,
+    people: Array.from(billState.people),
+    items: billState.items.map((it) => ({ id: it.id, name: it.name, price: it.price, people: Array.from(it.people), discount: !!it.discount })),
+    adjs: billState.adjs.map((a) => ({ id: a.id, kind: a.kind, name: a.name, amount: a.amount, mode: a.mode })),
+    tip: { type: billState.tip.type, percent: billState.tip.percent, amount: billState.tip.amount, mode: billState.tip.mode }
+  };
+}
+
+// Friends deleted since the bill was saved are quietly dropped.
+function billFromJSON_(j) {
+  const known = new Set(meta.friends.map((f) => f.id));
+  const st = newBillState_();
+  st.total = String(j.total || "");
+  st.people = new Set((j.people || []).filter((id) => known.has(id)));
+  st.items = (j.items || []).map((it) => ({
+    id: it.id, name: it.name || "", price: String(it.price || ""), discount: !!it.discount,
+    people: new Set((it.people || []).filter((id) => id === "me" || st.people.has(id)))
+  }));
+  st.adjs = (j.adjs || []).map((a) => ({ id: a.id, kind: a.kind === "charge" ? "charge" : "discount", name: a.name || "", amount: String(a.amount || ""), mode: a.mode === "equal" ? "equal" : "proportional" }));
+  const t = j.tip || {};
+  st.tip = { type: t.type === "amount" ? "amount" : "percent", percent: String(t.percent || ""), amount: String(t.amount || ""), mode: t.mode === "equal" ? "equal" : "proportional" };
+  billNextId = Math.max(billNextId, ...st.items.map((x) => Number(x.id) || 0), ...st.adjs.map((x) => Number(x.id) || 0)) + 1;
+  return st;
+}
+
+// Does what the bill works out to still equal the entry as it stands in the
+// form (its amount and each friend's share)? False after the amount or the
+// split was changed by hand since the bill was saved.
+function billMatchesForm_() {
+  const res = BillSplit.compute(billInput_());
+  if (!res.ok) return false;
+  const amountCents = Math.round((parseFloat(document.getElementById("amount").value) || 0) * 100);
+  if (amountCents !== res.grandCents) return false;
+  if (!document.getElementById("split-toggle").checked) return Array.from(billState.people).every((id) => res.perPerson[id].total === 0);
+  const now = {};
+  getSplitPayload().forEach((x) => { now[x.friend_id] = Math.round(x.amount * 100); });
+  return Array.from(billState.people).every((id) => (now[id] || 0) === res.perPerson[id].total) &&
+    Object.keys(now).every((id) => billState.people.has(id));
+}
+
+async function openBillModal() {
+  let loadedSaved = false;
+  // Reopening a saved entry: fetch the bill that was stored with it (on demand,
+  // so the entry list never has to carry it).
+  if (!billState && editingEntryId) {
+    const btn = document.getElementById("bill-open-btn");
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Loading the saved bill…";
+    try {
+      const r = await callApi("getEntryBill", { entryId: editingEntryId });
+      if (r && r.bill) { billState = billFromJSON_(r.bill); loadedSaved = true; }
+    } catch (err) {
+      /* no saved bill (or it could not be read) — start a blank one */
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
   if (!billState) billState = newBillState_();
   document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || "PEN").toUpperCase();
   document.getElementById("bill-total").value = billState.total;
@@ -7774,6 +7856,8 @@ function openBillModal() {
   renderBillItems_();
   renderBillAdjs_();
   recomputeBill_();
+  const stale = document.getElementById("bill-stale-note");
+  stale.hidden = !(loadedSaved && !billMatchesForm_());
   document.getElementById("bill-modal-backdrop").hidden = false;
 }
 
@@ -8080,6 +8164,7 @@ function applyBillToForm_() {
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
+  billApplied = true;
   closeBillModal();
 }
 
