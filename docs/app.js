@@ -572,8 +572,8 @@ function showDetailForm(category) {
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
-  document.getElementById("paid-by-label").hidden = false;
-  document.getElementById("paid_by").hidden = false;
+  document.getElementById("paid-by-label").hidden = selectedType === "transfer";
+  document.getElementById("paid_by").hidden = selectedType === "transfer";
   updateRepaymentUi_();
 
   const amountInput = document.getElementById("amount");
@@ -781,6 +781,13 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-label").textContent = isInvestment ? "Platform" : "To (account it goes into)";
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
   updateFromNoneOption_();
+  // A transfer has no "Paid by": who it came from is the From account (or
+  // None). Friends are handled by the loan/repayment kinds. Kept at "me" so
+  // the From account is always saved.
+  const isTransfer = selectedType === "transfer";
+  document.getElementById("paid-by-label").hidden = isTransfer;
+  document.getElementById("paid_by").hidden = isTransfer;
+  if (isTransfer) document.getElementById("paid_by").value = "me";
   document.getElementById("investment-direction-field").hidden = !isInvestment;
   populateToPaymentMethodOptions();
 
@@ -911,8 +918,8 @@ function updateRepaymentUi_() {
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
   // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
-  document.getElementById("paid-by-label").hidden = false;
-  document.getElementById("paid_by").hidden = false;
+  document.getElementById("paid-by-label").hidden = selectedType === "transfer";
+  document.getElementById("paid_by").hidden = selectedType === "transfer";
   // Converting a friend-paid expense: that friend is almost certainly the
   // one being repaid.
   const paidBy = document.getElementById("paid_by").value;
