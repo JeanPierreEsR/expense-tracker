@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-07T15:29:42Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-07T17:51:36Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -139,6 +139,7 @@
           </div>
 
           <div id="split-field" hidden>
+            <button type="button" class="add-inline" id="bill-open-btn">🧾 Split a bill by items…</button>
             <label class="checkbox-row">
               <input type="checkbox" id="split-toggle">
               <span>Split this expense</span>
@@ -577,6 +578,52 @@
         </div>
         <div class="currency-option-list" id="drilldown-list"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="bill-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal bill-modal">
+      <div class="currency-modal-header">
+        <span>🧾 Split a bill by items</span>
+        <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="bill-scroll">
+        <label for="bill-total">Total printed on the bill (<span id="bill-currency">PEN</span>)</label>
+        <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
+        <p class="hint">After discounts, before the tip. The items below must add up to this.</p>
+
+        <label>Who is splitting (you are always in)</label>
+        <div class="tags-list" id="bill-people-chips"></div>
+        <div class="add-inline" id="bill-add-friend">+ Add friend…</div>
+
+        <label>Items</label>
+        <div id="bill-items"></div>
+        <div class="add-inline" id="bill-add-item">+ Add item</div>
+
+        <label>Discounts &amp; extra charges</label>
+        <p class="hint">A promo, a voucher, a service fee that isn't a dish. Choose how it is shared.</p>
+        <div id="bill-adjs"></div>
+        <div class="bill-add-row">
+          <div class="add-inline" id="bill-add-discount">+ Discount</div>
+          <div class="add-inline" id="bill-add-charge">+ Extra charge</div>
+        </div>
+
+        <label>Tip</label>
+        <div class="type-tabs budget-period-tabs" id="bill-tip-type-tabs">
+          <div class="type-tab active" data-v="percent">Percent</div>
+          <div class="type-tab" data-v="amount">Fixed amount</div>
+        </div>
+        <input type="text" id="bill-tip-value" inputmode="decimal" placeholder="0" autocomplete="off">
+        <div class="type-tabs budget-period-tabs" id="bill-tip-mode-tabs">
+          <div class="type-tab active" data-v="proportional">By what each ordered</div>
+          <div class="type-tab" data-v="equal">Equal</div>
+        </div>
+
+        <p class="hint" id="bill-check"></p>
+        <div id="bill-result"></div>
+      </div>
+      <p class="hint" id="bill-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="bill-apply">Use this split</button>
     </div>
   </div>
 
@@ -1025,8 +1072,9 @@
     </div>
   </div>
 
-  <script src="app.js?v=2026-10-07T15:29:42Z"></script>
-  <script src="statement-parsers.js?v=2026-10-07T15:29:42Z"></script>
-  <script src="statements.js?v=2026-10-07T15:29:42Z"></script>
+  <script src="bill-split.js?v=2026-10-07T17:51:36Z"></script>
+  <script src="app.js?v=2026-10-07T17:51:36Z"></script>
+  <script src="statement-parsers.js?v=2026-10-07T17:51:36Z"></script>
+  <script src="statements.js?v=2026-10-07T17:51:36Z"></script>
 </body>
 </html>

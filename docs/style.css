@@ -2032,3 +2032,20 @@ button.primary:disabled {
   color: #8a4b00;
   font-size: 0.85rem;
 }
+
+/* ---- Split a bill by items ---- */
+.bill-modal { max-height: 92vh; max-height: 92dvh; height: 92dvh; }
+.bill-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
+.bill-item { border-bottom: 1px solid var(--border); padding: 8px 0 10px; }
+.bill-item-line { display: flex; gap: 8px; align-items: center; }
+.bill-item-line input { margin: 0; }
+.bill-item-name { flex: 1 1 auto; min-width: 0; }
+.bill-item-price { flex: 0 0 96px; width: 96px; text-align: right; }
+.bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
+.bill-item .tags-list { margin-top: 8px; }
+.bill-adj .budget-period-tabs { margin: 8px 0 0; }
+.bill-add-row { display: flex; gap: 16px; }
+.bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
+.bill-check-ok { color: #2e8b57; }
+.bill-check-bad { color: #d64545; }

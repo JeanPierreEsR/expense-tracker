@@ -949,6 +949,7 @@ function toggleSplitFieldVisibility() {
 }
 
 function resetSplitState() {
+  billState = null;
   splitFriendIds = new Set();
   splitMode = "equal";
   customSplitAmounts = {};
@@ -7682,5 +7683,371 @@ document.getElementById("balance-clear-btn").addEventListener("click", async () 
     document.getElementById("balance-form-error").textContent = err.message;
   }
 });
+
+// ---- Split a bill by items ----
+// A sheet opened from the expense form's split section. The maths lives in
+// bill-split.js (tested on its own); this is only the screen. "Use this split"
+// fills the normal form: amount = bill + tip, split switched on in Custom mode
+// with each friend's total — the entry is then saved the usual way, so
+// category, account, date and the debts all go through the existing flow.
+let billState = null;
+let billNextId = 1;
+let billShowAllFriends = false;
+
+function newBillState_() {
+  return {
+    total: "",
+    people: new Set(),
+    items: [],
+    adjs: [],
+    tip: { type: "percent", value: "", mode: "proportional" }
+  };
+}
+
+function billFriendName_(id) {
+  if (id === "me") return "Me";
+  const f = meta.friends.find((x) => x.id === id);
+  return f ? f.name : "?";
+}
+
+function billPeopleKeys_() {
+  return ["me", ...Array.from(billState.people)];
+}
+
+function billInput_() {
+  return {
+    people: billPeopleKeys_(),
+    items: billState.items.map((it) => ({ id: it.id, name: it.name, price: it.price, people: Array.from(it.people) })),
+    adjustments: billState.adjs.map((a) => ({
+      name: a.name,
+      amount: (a.kind === "discount" ? -1 : 1) * (parseFloat(a.amount) || 0),
+      mode: a.mode
+    })),
+    tip: billState.tip,
+    printedTotal: billState.total
+  };
+}
+
+function openBillModal() {
+  if (!billState) billState = newBillState_();
+  document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || "PEN").toUpperCase();
+  document.getElementById("bill-total").value = billState.total;
+  document.getElementById("bill-tip-value").value = billState.tip.value;
+  syncBillTabs_();
+  renderBillPeople_();
+  renderBillItems_();
+  renderBillAdjs_();
+  recomputeBill_();
+  document.getElementById("bill-modal-backdrop").hidden = false;
+}
+
+function closeBillModal() {
+  document.getElementById("bill-modal-backdrop").hidden = true;
+}
+
+function syncBillTabs_() {
+  document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.type));
+  document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.mode));
+  document.getElementById("bill-tip-value").placeholder = billState.tip.type === "percent" ? "e.g. 10" : "0.00";
+}
+
+function renderBillPeople_() {
+  const box = document.getElementById("bill-people-chips");
+  box.innerHTML = "";
+  const sorted = meta.friends.slice().sort((a, b) =>
+    (billState.people.has(b.id) - billState.people.has(a.id)) || (b.last_used || "").localeCompare(a.last_used || ""));
+  const LIMIT = 10;
+  const shown = billShowAllFriends ? sorted : sorted.slice(0, Math.max(LIMIT, billState.people.size));
+  shown.forEach((f) => {
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (billState.people.has(f.id) ? " selected" : "");
+    chip.textContent = f.name;
+    chip.addEventListener("click", () => {
+      if (billState.people.has(f.id)) {
+        billState.people.delete(f.id);
+        billState.items.forEach((it) => it.people.delete(f.id));
+      } else {
+        billState.people.add(f.id);
+      }
+      renderBillPeople_();
+      renderBillItems_();
+      recomputeBill_();
+    });
+    box.appendChild(chip);
+  });
+  if (sorted.length > shown.length || billShowAllFriends) {
+    const more = document.createElement("div");
+    more.className = "tag-chip more-chip";
+    more.textContent = billShowAllFriends ? "Less" : "More…";
+    more.addEventListener("click", () => { billShowAllFriends = !billShowAllFriends; renderBillPeople_(); });
+    box.appendChild(more);
+  }
+}
+
+function renderBillItems_() {
+  const box = document.getElementById("bill-items");
+  box.innerHTML = "";
+  const keys = billPeopleKeys_();
+  billState.items.forEach((it) => {
+    const row = document.createElement("div");
+    row.className = "bill-item";
+
+    const line = document.createElement("div");
+    line.className = "bill-item-line";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "bill-item-name";
+    name.placeholder = "Item";
+    name.value = it.name;
+    name.addEventListener("input", () => { it.name = name.value; });
+    const price = document.createElement("input");
+    price.type = "text";
+    price.inputMode = "decimal";
+    price.className = "bill-item-price";
+    price.placeholder = "0.00";
+    price.value = it.price;
+    price.addEventListener("input", (e) => {
+      const clean = sanitizeAmountInputValue(e.target.value);
+      if (clean !== e.target.value) e.target.value = clean;
+      it.price = clean;
+      recomputeBill_();
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "bill-item-remove";
+    del.textContent = "✕";
+    del.addEventListener("click", () => {
+      billState.items = billState.items.filter((x) => x !== it);
+      renderBillItems_();
+      recomputeBill_();
+    });
+    line.append(name, price, del);
+
+    const chips = document.createElement("div");
+    chips.className = "tags-list";
+    const everyone = keys.every((k) => it.people.has(k));
+    const all = document.createElement("div");
+    all.className = "tag-chip" + (everyone ? " selected" : "");
+    all.textContent = "Everyone";
+    all.addEventListener("click", () => {
+      if (everyone) it.people.clear(); else keys.forEach((k) => it.people.add(k));
+      renderBillItems_();
+      recomputeBill_();
+    });
+    chips.appendChild(all);
+    keys.forEach((k) => {
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (it.people.has(k) ? " selected" : "");
+      chip.textContent = billFriendName_(k);
+      chip.addEventListener("click", () => {
+        if (it.people.has(k)) it.people.delete(k); else it.people.add(k);
+        renderBillItems_();
+        recomputeBill_();
+      });
+      chips.appendChild(chip);
+    });
+
+    row.append(line, chips);
+    box.appendChild(row);
+  });
+}
+
+function addBillItem_() {
+  billState.items.push({ id: billNextId++, name: "", price: "", people: new Set() });
+  renderBillItems_();
+  recomputeBill_();
+  const names = document.querySelectorAll("#bill-items .bill-item-name");
+  if (names.length) names[names.length - 1].focus();
+}
+
+function renderBillAdjs_() {
+  const box = document.getElementById("bill-adjs");
+  box.innerHTML = "";
+  billState.adjs.forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "bill-item bill-adj";
+
+    const line = document.createElement("div");
+    line.className = "bill-item-line";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "bill-item-name";
+    name.placeholder = a.kind === "discount" ? "Discount" : "Extra charge";
+    name.value = a.name;
+    name.addEventListener("input", () => { a.name = name.value; });
+    const amt = document.createElement("input");
+    amt.type = "text";
+    amt.inputMode = "decimal";
+    amt.className = "bill-item-price";
+    amt.placeholder = "0.00";
+    amt.value = a.amount;
+    amt.addEventListener("input", (e) => {
+      const clean = sanitizeAmountInputValue(e.target.value);
+      if (clean !== e.target.value) e.target.value = clean;
+      a.amount = clean;
+      recomputeBill_();
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "bill-item-remove";
+    del.textContent = "✕";
+    del.addEventListener("click", () => {
+      billState.adjs = billState.adjs.filter((x) => x !== a);
+      renderBillAdjs_();
+      recomputeBill_();
+    });
+    line.append(name, amt, del);
+
+    const tabs = document.createElement("div");
+    tabs.className = "type-tabs budget-period-tabs";
+    [["proportional", "By what each ordered"], ["equal", "Equal"]].forEach(([v, label]) => {
+      const t = document.createElement("div");
+      t.className = "type-tab" + (a.mode === v ? " active" : "");
+      t.textContent = label;
+      t.addEventListener("click", () => {
+        a.mode = v;
+        tabs.querySelectorAll(".type-tab").forEach((x) => x.classList.toggle("active", x === t));
+        recomputeBill_();
+      });
+      tabs.appendChild(t);
+    });
+
+    row.append(line, tabs);
+    box.appendChild(row);
+  });
+}
+
+function recomputeBill_() {
+  const res = BillSplit.compute(billInput_());
+  const cur = (document.getElementById("currency").value || "PEN").toUpperCase();
+  const fmt = (cents) => `${cur} ${moneyFmt(cents / 100)}`;
+
+  const check = document.getElementById("bill-check");
+  const adjText = res.adjCents ? ` ${res.adjCents < 0 ? "−" : "+"} ${res.adjCents < 0 ? "discounts" : "charges"} ${fmt(Math.abs(res.adjCents))}` : "";
+  const counted = `Items ${fmt(res.itemsCents)}${adjText}`;
+  if (res.printedCents > 0) {
+    if (res.diffCents === 0) {
+      check.className = "hint bill-check-ok";
+      check.textContent = `✓ ${counted} = bill total ${fmt(res.printedCents)}`;
+    } else {
+      check.className = "hint bill-check-bad";
+      const lead = res.adjCents ? `${counted} comes to ${fmt(res.billCents)}` : `Items add up to ${fmt(res.itemsCents)}`;
+      check.textContent = res.diffCents > 0
+        ? `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
+        : `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. A wrong price, or add a discount.`;
+    }
+  } else {
+    check.className = "hint";
+    check.textContent = res.itemsCents ? `Items so far: ${fmt(res.itemsCents)}. Enter the bill total above to check them.` : "";
+  }
+
+  const out = document.getElementById("bill-result");
+  out.innerHTML = "";
+  if (res.itemsCents) {
+    billPeopleKeys_().forEach((k) => {
+      const p = res.perPerson[k];
+      const row = document.createElement("div");
+      row.className = "bill-result-row";
+      const left = document.createElement("div");
+      const nm = document.createElement("div");
+      nm.textContent = billFriendName_(k);
+      const sub = document.createElement("div");
+      sub.className = "bill-result-sub";
+      const bits = [`items ${moneyFmt(p.items / 100)}`];
+      if (p.adjustments) bits.push(`${p.adjustments < 0 ? "−" : "+"}${moneyFmt(Math.abs(p.adjustments) / 100)} adjustments`);
+      if (p.tip) bits.push(`+${moneyFmt(p.tip / 100)} tip`);
+      sub.textContent = bits.join(" · ");
+      left.append(nm, sub);
+      const right = document.createElement("strong");
+      right.textContent = fmt(p.total);
+      row.append(left, right);
+      out.appendChild(row);
+    });
+    if (res.tipCents) {
+      const t = document.createElement("p");
+      t.className = "hint";
+      t.textContent = `Tip ${fmt(res.tipCents)} · you pay the restaurant ${fmt(res.grandCents)} in total.`;
+      out.appendChild(t);
+    }
+  }
+  const err = document.getElementById("bill-error");
+  // Only the blocking reason that isn't already visible above.
+  err.textContent = res.ok ? "" : res.errors.filter((e) => !/don't add up/.test(e)).join(" ");
+  document.getElementById("bill-apply").disabled = !res.ok;
+  return res;
+}
+
+function applyBillToForm_() {
+  const res = recomputeBill_();
+  if (!res.ok) return;
+  const amountEl = document.getElementById("amount");
+  amountEl.value = (res.grandCents / 100).toFixed(2);
+  amountEl.dispatchEvent(new Event("input"));
+
+  const friendIds = Array.from(billState.people).filter((id) => res.perPerson[id].total > 0);
+  splitFriendIds = new Set(friendIds);
+  customSplitAmounts = {};
+  friendIds.forEach((id) => { customSplitAmounts[id] = (res.perPerson[id].total / 100).toFixed(2); });
+  customOwnAmount = (res.perPerson.me.total / 100).toFixed(2);
+  splitMode = "custom";
+  splitFriendsExpanded = false;
+  const on = friendIds.length > 0;
+  document.getElementById("split-toggle").checked = on;
+  document.getElementById("split-detail").hidden = !on;
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+  closeBillModal();
+}
+
+document.getElementById("bill-open-btn").addEventListener("click", openBillModal);
+document.getElementById("bill-modal-close").addEventListener("click", closeBillModal);
+document.getElementById("bill-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "bill-modal-backdrop") closeBillModal();
+});
+document.getElementById("bill-apply").addEventListener("click", applyBillToForm_);
+document.getElementById("bill-add-item").addEventListener("click", addBillItem_);
+document.getElementById("bill-add-discount").addEventListener("click", () => {
+  billState.adjs.push({ id: billNextId++, kind: "discount", name: "", amount: "", mode: "proportional" });
+  renderBillAdjs_();
+  recomputeBill_();
+});
+document.getElementById("bill-add-charge").addEventListener("click", () => {
+  billState.adjs.push({ id: billNextId++, kind: "charge", name: "", amount: "", mode: "proportional" });
+  renderBillAdjs_();
+  recomputeBill_();
+});
+document.getElementById("bill-add-friend").addEventListener("click", async () => {
+  const name = prompt("Friend's name:");
+  if (!name || !name.trim()) return;
+  const friend = await callApi("addFriend", { name: name.trim() });
+  friend.last_used = todayLocalISO();
+  meta.friends.push(friend);
+  refreshFriendChips_();
+  billState.people.add(friend.id);
+  renderBillPeople_();
+  renderBillItems_();
+  recomputeBill_();
+});
+document.getElementById("bill-total").addEventListener("input", (e) => {
+  const clean = sanitizeAmountInputValue(e.target.value);
+  if (clean !== e.target.value) e.target.value = clean;
+  billState.total = clean;
+  recomputeBill_();
+});
+document.getElementById("bill-tip-value").addEventListener("input", (e) => {
+  const clean = sanitizeAmountInputValue(e.target.value);
+  if (clean !== e.target.value) e.target.value = clean;
+  billState.tip.value = clean;
+  recomputeBill_();
+});
+document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.addEventListener("click", () => {
+  billState.tip.type = t.dataset.v; syncBillTabs_(); recomputeBill_();
+}));
+document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.addEventListener("click", () => {
+  billState.tip.mode = t.dataset.v; syncBillTabs_(); recomputeBill_();
+}));
+
 
 init();
