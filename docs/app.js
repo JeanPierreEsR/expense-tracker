@@ -2400,6 +2400,35 @@ function restoreEntryDraft_() {
   window.addEventListener("pagehide", saveEntryDraftNow_);
 })();
 
+// ---- Cancelling a NEW entry mid-way ----
+// "Cancel edit" exists for an entry that is being edited; this is the same for
+// a brand-new one: back to the category screen, everything typed discarded
+// (and the unsaved draft with it). It only shows while the form is open for a
+// new entry — i.e. the form is visible and the edit-mode banner is not.
+function syncCancelNewEntryButton_() {
+  const formOpen = !document.getElementById("entry-form").hidden;
+  const editing = !document.getElementById("edit-mode-banner").hidden;
+  document.getElementById("cancel-new-entry-btn").hidden = !(formOpen && !editing && entryFormIsNewEntry_());
+}
+
+(function setupCancelNewEntry_() {
+  const watch = new MutationObserver(syncCancelNewEntryButton_);
+  ["entry-form", "edit-mode-banner"].forEach((id) =>
+    watch.observe(document.getElementById(id), { attributes: true, attributeFilter: ["hidden"] }));
+  syncCancelNewEntryButton_();
+
+  document.getElementById("cancel-new-entry-btn").addEventListener("click", () => {
+    const typed = document.getElementById("amount").value.trim() || document.getElementById("description").value.trim();
+    if (typed && !confirm("Cancel this entry? What you've typed will be discarded.")) return;
+    selectedTagIds.clear();
+    populateTags();
+    resetSplitState();
+    entryDateTouched_ = false;
+    resetToFreshEntryScreen_();   // also clears the unsaved draft
+    document.getElementById("form-error").textContent = "";
+  });
+})();
+
 // ---- Editing a previously confirmed entry ----
 
 let editingEntrySummary_ = "";
