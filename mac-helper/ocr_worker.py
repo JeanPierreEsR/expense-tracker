@@ -9,7 +9,8 @@ party), and posts the recognised text back. The server then does the same
 parsing and pending-entry creation it does for Google's text.
 
 Needs: `brew install tesseract`, the Spanish model in ./tessdata, and a
-config.json next to this file: {"api_url": "...", "access_code": "..."}.
+config.json next to this file: {"api_url": "...", "helper_key": "..."} (or the older
+"access_code" instead of "helper_key").
 Outbound HTTPS only — nothing on the Mac is exposed to the internet.
 """
 import base64, json, os, subprocess, sys, tempfile, time
@@ -28,7 +29,10 @@ def call(action, payload=None, tries=4):
     """POST to the Apps Script API. Google sometimes answers with an empty or
     HTML body (cold start, rate limit, dropped connection), so retry a few
     times before giving up."""
-    body = json.dumps({'accessCode': CFG['access_code'], 'action': action, 'payload': payload or {}})
+    # The helper's own key (menu item 25 in the sheet) is good only for reading
+    # receipt photos; the access code still works until sessions are required.
+    auth = {'helperKey': CFG['helper_key']} if CFG.get('helper_key') else {'accessCode': CFG['access_code']}
+    body = json.dumps(dict(auth, action=action, payload=payload or {}))
     last = 'no response'
     for attempt in range(tries):
         if attempt:
