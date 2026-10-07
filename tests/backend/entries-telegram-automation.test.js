@@ -96,6 +96,31 @@ test("budget alert is NOT logged as sent when Telegram rejects it (so it retries
   assert.equal(alertRows(rt, b.id).length, 1);
 });
 
+test("cancelling the expense that triggered a budget alert re-arms that alert", () => {
+  const { rt, data } = freshApp();
+  linkTelegram(rt);
+  // The made-up data already has spend in this category, so size the budget
+  // so that only the big entry pushes it past 75%.
+  const cat = data.cats.filter((c) => c.type === "expense")[14];
+  const b = rt.api("addBudget", { category_id: cat.id, amount: 5000, currency: "PEN", period_type: "monthly", thresholds: "75" });
+  const spend = (description) => rt.api("createEntry", {
+    type: "expense", date: today(), amount: 4500, currency: "PEN", category_id: cat.id,
+    description, paid_by: "me", payment_method_id: data.pms[3].id
+  });
+  spend("Big spend");
+  rt.run("checkBudgets()");
+  assert.equal(alertRows(rt, b.id).length, 1);
+
+  const entry = rt.rows("Entries").find((e) => e.description === "Big spend");
+  rt.api("discardEntry", { id: entry.id });
+  rt.run("checkBudgets()");
+  assert.equal(alertRows(rt, b.id).length, 0);
+
+  spend("Again");
+  rt.run("checkBudgets()");
+  assert.equal(alertRows(rt, b.id).length, 1);
+});
+
 test("one failing automation step does not stop the others, and the owner is alerted", () => {
   const { rt } = freshApp();
   linkTelegram(rt);

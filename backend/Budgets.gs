@@ -679,6 +679,7 @@ function checkBudgetsLocked_() {
   });
 
   var alertsSent = 0;
+  var staleKeys = {};
   budgets.forEach(function (budget) {
     var progress = computeBudgetProgressWithContext_(budget, ctx);
     if (progress.percent == null) return; // no exchange rate on file yet for this budget's currency
@@ -688,6 +689,16 @@ function checkBudgetsLocked_() {
       .map(function (t) { return Number(String(t).trim()); })
       .filter(function (t) { return !isNaN(t); })
       .sort(function (a, b) { return a - b; });
+
+    // Spend fell back below a threshold already alerted this period (an
+    // expense was discarded/deleted/edited down) -> forget that alert, so
+    // crossing it again warns again.
+    thresholds.forEach(function (threshold) {
+      if (progress.percent < threshold) {
+        var staleKey = budget.id + '|' + progress.periodKey + '|' + threshold;
+        if (alertedSet[staleKey]) { staleKeys[staleKey] = true; delete alertedSet[staleKey]; }
+      }
+    });
 
     var newlyCrossed = thresholds.filter(function (threshold) {
       if (progress.percent < threshold) return false;
@@ -714,6 +725,11 @@ function checkBudgetsLocked_() {
     alertsSent++;
   });
 
+  if (Object.keys(staleKeys).length) {
+    deleteRowsWhere_('Budget Alert Log', function (r) {
+      return staleKeys[r.budget_id + '|' + r.period + '|' + r.threshold] === true;
+    });
+  }
   return { checked: budgets.length, alertsSent: alertsSent };
 }
 
