@@ -739,12 +739,35 @@ function updateAutoTransferDescription_() {
     const from = nameOf(document.getElementById("payment_method").value);
     const to = nameOf(document.getElementById("to_payment_method").value);
     if (from) text = to ? `from ${from} to ${to}` : `from ${from}`;
+    else if (to) text = `into ${to}`;
   }
   desc.value = text;
   lastAutoDescription = text;
 }
 document.getElementById("payment_method").addEventListener("change", updateAutoTransferDescription_);
 document.getElementById("to_payment_method").addEventListener("change", updateAutoTransferDescription_);
+
+// A transfer may have no "From" (money arriving from outside the app, e.g.
+// the USD side of a currency exchange: the PEN leaves one account as its own
+// entry, the USD arrives here as another). Only transfers get the extra
+// "None" choice; it sits after the accounts so the default stays the first
+// account.
+function updateFromNoneOption_() {
+  const select = document.getElementById("payment_method");
+  const existing = select.querySelector("option[data-none]");
+  if (selectedType === "transfer" && !existing) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.dataset.none = "1";
+    opt.textContent = "None (money comes from outside)";
+    const addOpt = Array.from(select.options).find((o) => o.value === "__add__");
+    select.insertBefore(opt, addOpt || null);
+  } else if (selectedType !== "transfer" && existing) {
+    const wasNone = select.value === "";
+    existing.remove();
+    if (wasNone && select.options.length) select.selectedIndex = 0;
+  }
+}
 
 function togglePaymentMethodVisibilityBase_() {
   // A transfer moves money between two accounts, so its payment method
@@ -757,6 +780,7 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? "Platform" : "To (account it goes into)";
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
+  updateFromNoneOption_();
   document.getElementById("investment-direction-field").hidden = !isInvestment;
   populateToPaymentMethodOptions();
 
@@ -1531,7 +1555,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error("Pick a category.");
     // Investments send no category at all — the server files them under its default.
     const categoryField = isInvestmentEntry ? {} : { category_id: categoryId };
-    if (usesPaymentMethod && !paymentMethodId) throw new Error("Pick a payment method.");
+    if (selectedType === "transfer" && !isRepayment && !paymentMethodId && !toPaymentMethodId) {
+      throw new Error("Pick the account the money leaves (From) or the one it goes into (To).");
+    }
+    // A transfer may have only a "To" (money arriving from outside the app).
+    if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId)) throw new Error("Pick a payment method.");
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
 
