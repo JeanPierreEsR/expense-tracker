@@ -45,7 +45,7 @@ test("proportional discount follows each person's order", () => {
     people: ["me", "a"],
     items: [{ id: 1, price: "60", people: ["me"] }, { id: 2, price: "40", people: ["a"] }],
     adjustments: [{ name: "Promo", amount: "-10", mode: "proportional" }],
-    printedTotal: "90"
+    printedTotal: "100"
   });
   assert.ok(r.ok, r.errors.join("; "));
   assert.equal(r.perPerson.me.total, 5400);
@@ -57,12 +57,75 @@ test("equal discount is shared evenly but never takes anyone below zero", () => 
     people: ["me", "a"],
     items: [{ id: 1, price: "5", people: ["me"] }, { id: 2, price: "50", people: ["a"] }],
     adjustments: [{ name: "Voucher", amount: "-20", mode: "equal" }],
-    printedTotal: "35"
+    printedTotal: "55"
   });
   assert.ok(r.ok, r.errors.join("; "));
   assert.equal(r.perPerson.me.total, 0);        // 5.00 fully covered, not 10.00 off
   assert.equal(r.perPerson.a.total, 3500);      // the rest of the discount lands on Ana
   assert.equal(sumTotals(r), 3500);
+});
+
+test("the printed total is the bill BEFORE discounts; the tip is on what is left after them", () => {
+  const r = compute({
+    people: ["me", "a"],
+    items: [{ id: 1, price: "60", people: ["me"] }, { id: 2, price: "40", people: ["a"] }],
+    adjustments: [{ name: "Promo", amount: "-20", mode: "proportional" }],
+    tip: { type: "percent", value: 10, mode: "proportional" },
+    printedTotal: "100"
+  });
+  assert.ok(r.ok, r.errors.join("; "));
+  assert.equal(r.preDiscountCents, 10000);
+  assert.equal(r.discountsCents, 2000);
+  assert.equal(r.billCents, 8000);
+  assert.equal(r.tipCents, 800);        // 10% of 80.00, not of 100.00
+  assert.equal(r.grandCents, 8800);
+});
+
+test("a negative line under an item is merged: only the net amount is shared, with the item's people", () => {
+  const r = compute({
+    people: ["me", "a"],
+    items: [
+      { id: 1, price: "40", people: ["me", "a"] },
+      { id: 2, price: "-10", people: [] },            // "Promo" printed under the dish
+      { id: 3, price: "20", people: ["a"] }
+    ],
+    printedTotal: "50"                                // 40 - 10 + 20
+  });
+  assert.ok(r.ok, r.errors.join("; "));
+  assert.equal(r.itemsCents, 5000);
+  assert.equal(r.perPerson.me.total, 1500);           // half of the net 30.00
+  assert.equal(r.perPerson.a.total, 3500);            // other half + her own 20.00
+});
+
+test("the merged net is shared once, so odd cents come out as if the item cost the net", () => {
+  const r = compute({
+    people: ["me", "a", "b"],
+    items: [{ id: 1, price: "10.00", people: ["me", "a", "b"] }, { id: 2, price: "-0.01", people: [] }],
+    printedTotal: "9.99"
+  });
+  assert.ok(r.ok, r.errors.join("; "));
+  assert.equal(r.perPerson.me.total, 333);
+  assert.equal(r.perPerson.a.total, 333);
+  assert.equal(r.perPerson.b.total, 333);
+});
+
+test("a negative line with no item above it, or bigger than its item, is refused", () => {
+  const first = compute({ people: ["me"], items: [{ id: 1, price: "-5", people: [] }, { id: 2, price: "20", people: ["me"] }], printedTotal: "20" });
+  assert.equal(first.ok, false);
+  assert.match(first.errors.join(" "), /needs an item above/);
+  const big = compute({ people: ["me"], items: [{ id: 1, price: "10", people: ["me"] }, { id: 2, price: "-15", people: [] }], printedTotal: "10" });
+  assert.equal(big.ok, false);
+  assert.match(big.errors.join(" "), /bigger than the item/);
+});
+
+test("a fully discounted item (2x1) costs nothing and needs nobody assigned", () => {
+  const r = compute({
+    people: ["me"],
+    items: [{ id: 1, price: "12", people: [] }, { id: 2, price: "-12", people: [] }, { id: 3, price: "8", people: ["me"] }],
+    printedTotal: "8"
+  });
+  assert.ok(r.ok, r.errors.join("; "));
+  assert.equal(r.perPerson.me.total, 800);
 });
 
 test("tip as a percent is shared in proportion; the grand total includes it", () => {
@@ -117,7 +180,7 @@ test("many random bills always add up to the cent", () => {
       people, items,
       adjustments: [{ name: "d", amount: -disc / 100, mode: rnd() < 0.5 ? "equal" : "proportional" }],
       tip: { type: rnd() < 0.5 ? "percent" : "amount", value: rnd() < 0.5 ? 10 : 3.33, mode: rnd() < 0.5 ? "equal" : "proportional" },
-      printedTotal: (itemsSum - disc) / 100
+      printedTotal: itemsSum / 100
     });
     if (r.errors.some((e) => /bigger than what someone ordered/.test(e))) continue;  // legal refusal
     assert.ok(r.ok, r.errors.join("; "));

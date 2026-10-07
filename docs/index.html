@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-07T17:51:36Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-07T19:09:27Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -588,9 +588,9 @@
         <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="bill-scroll">
-        <label for="bill-total">Total printed on the bill (<span id="bill-currency">PEN</span>)</label>
+        <label for="bill-total">Bill total before discounts (<span id="bill-currency">PEN</span>)</label>
         <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
-        <p class="hint">After discounts, before the tip. The items below must add up to this.</p>
+        <p class="hint">The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.</p>
 
         <label>Who is splitting (you are always in)</label>
         <div class="tags-list" id="bill-people-chips"></div>
@@ -609,12 +609,14 @@
         </div>
 
         <label>Tip</label>
-        <div class="type-tabs budget-period-tabs" id="bill-tip-type-tabs">
+        <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-type-tabs">
           <div class="type-tab active" data-v="percent">Percent</div>
           <div class="type-tab" data-v="amount">Fixed amount</div>
         </div>
-        <input type="text" id="bill-tip-value" inputmode="decimal" placeholder="0" autocomplete="off">
-        <div class="type-tabs budget-period-tabs" id="bill-tip-mode-tabs">
+        <label for="bill-tip-value" id="bill-tip-label">Tip percent (%)</label>
+        <input type="text" id="bill-tip-value" class="bill-tip-input" inputmode="decimal" placeholder="e.g. 10" autocomplete="off">
+        <p class="hint" id="bill-tip-preview"></p>
+        <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-mode-tabs">
           <div class="type-tab active" data-v="proportional">By what each ordered</div>
           <div class="type-tab" data-v="equal">Equal</div>
         </div>
@@ -1072,9 +1074,9 @@
     </div>
   </div>
 
-  <script src="bill-split.js?v=2026-10-07T17:51:36Z"></script>
-  <script src="app.js?v=2026-10-07T17:51:36Z"></script>
-  <script src="statement-parsers.js?v=2026-10-07T17:51:36Z"></script>
-  <script src="statements.js?v=2026-10-07T17:51:36Z"></script>
+  <script src="bill-split.js?v=2026-10-07T19:09:27Z"></script>
+  <script src="app.js?v=2026-10-07T19:09:27Z"></script>
+  <script src="statement-parsers.js?v=2026-10-07T19:09:27Z"></script>
+  <script src="statements.js?v=2026-10-07T19:09:27Z"></script>
 </body>
 </html>

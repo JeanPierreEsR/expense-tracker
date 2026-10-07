@@ -2049,3 +2049,12 @@ button.primary:disabled {
 .bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
 .bill-check-ok { color: #2e8b57; }
 .bill-check-bad { color: #d64545; }
+
+/* Bill sheet: breathing room between the tip choice, its input and the share mode */
+.bill-tabs { margin-bottom: 12px; }
+.bill-tip-input { margin-bottom: 6px; }
+#bill-tip-mode-tabs { margin-top: 12px; }
+.bill-item-discount .bill-item-price { color: #2e8b57; }
+.bill-discount-note { margin: 0; flex: 1 1 100%; }
+.bill-discount-toggle { color: var(--muted); }
+.bill-discount-toggle.selected { color: white; }

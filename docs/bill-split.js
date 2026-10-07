@@ -74,7 +74,8 @@
   //   adjustments: [{name, amount, mode}] amount < 0 = discount, > 0 = extra
   //                charge; mode "proportional" | "equal"
   //   tip:         {type: "percent" | "amount", value, mode}
-  //   printedTotal: the total printed on the bill (after discounts, before tip)
+  //   printedTotal: the total printed on the bill BEFORE discounts and tip
+  //                 (items + any extra charge); discounts come off after it
   function compute(input) {
     const people = input.people || [OWNER];
     const errors = [];
@@ -84,13 +85,27 @@
     people.forEach((k) => { subtotal[k] = 0; });
     const unassigned = [];
     let itemsCents = 0;
+    // A NEGATIVE line (a discount printed under a dish, "-10.00") is folded into
+    // the nearest positive line above it, so only the NET amount of that item is
+    // shared — and with the same people, whatever the discount line itself says.
+    const lines = [];
+    let discountWithoutItem = false;
     (input.items || []).forEach((it) => {
       const cents = toCents(it.price);
-      if (cents <= 0) return;                       // blank / zero lines are ignored
-      itemsCents += cents;
-      const who = people.filter((k) => (it.people || []).includes(k));   // no repeats, list order
-      if (!who.length) { unassigned.push(it.id); return; }
-      const shares = allocate(cents, who, who.reduce((w, k) => (w[k] = 1, w), {}));
+      if (cents > 0) lines.push({ id: it.id, cents, people: it.people || [] });
+      else if (cents < 0) {
+        if (!lines.length) discountWithoutItem = true;
+        else lines[lines.length - 1].cents += cents;
+      }                                             // blank / zero lines are ignored
+    });
+    if (discountWithoutItem) errors.push("A discount line needs an item above it.");
+    lines.forEach((ln) => {
+      if (ln.cents < 0) { errors.push("A discount is bigger than the item it is under."); return; }
+      if (ln.cents === 0) return;                   // fully discounted: nothing to share
+      itemsCents += ln.cents;
+      const who = people.filter((k) => ln.people.includes(k));   // no repeats, list order
+      if (!who.length) { unassigned.push(ln.id); return; }
+      const shares = allocate(ln.cents, who, who.reduce((w, k) => (w[k] = 1, w), {}));
       who.forEach((k) => { subtotal[k] += shares[k]; });
     });
     if (itemsCents === 0) errors.push("Add at least one item with a price.");
@@ -128,10 +143,19 @@
     if (people.some((k) => afterAdj[k] < 0)) errors.push("A discount is bigger than what someone ordered.");
 
     // ---- reconciliation with the printed total ----
+    // The printed total is the bill BEFORE discounts: items plus any extra
+    // charge (service fee). Discounts are taken off after it, so only the
+    // positive adjustments take part in the check.
+    const chargesCents = (input.adjustments || []).reduce((sum, a) => {
+      const c = toCents(a.amount);
+      return c > 0 ? sum + c : sum;
+    }, 0);
+    const preDiscountCents = itemsCents + chargesCents;
+    const discountsCents = chargesCents - adjCents;      // positive number
     const printedCents = toCents(input.printedTotal);
-    const diffCents = printedCents - billCents;
+    const diffCents = printedCents - preDiscountCents;
     if (!(printedCents > 0)) errors.push("Enter the total printed on the bill.");
-    else if (diffCents !== 0) errors.push("Items and discounts don't add up to the bill total yet.");
+    else if (diffCents !== 0) errors.push("Items and charges don't add up to the bill total yet.");
 
     // ---- tip ----
     const tipIn = input.tip || {};
@@ -160,6 +184,8 @@
       itemsCents,
       adjCents,
       billCents,
+      preDiscountCents,
+      discountsCents,
       printedCents,
       diffCents,
       tipCents,

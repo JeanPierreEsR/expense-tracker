@@ -572,6 +572,9 @@ function showDetailForm(category) {
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
+  // Safety net: whichever way the form was reached, the labels and the
+  // From/To/Paid-by fields always match the entry type being shown.
+  togglePaymentMethodVisibilityBase_();
   document.getElementById("paid-by-label").hidden = selectedType === "transfer";
   document.getElementById("paid_by").hidden = selectedType === "transfer";
   updateRepaymentUi_();
@@ -7700,7 +7703,9 @@ function newBillState_() {
     people: new Set(),
     items: [],
     adjs: [],
-    tip: { type: "percent", value: "", mode: "proportional" }
+    // A percent and a fixed amount are different numbers — each keeps its own
+    // value, so "100" typed as an amount can't turn into 100% on switching tabs.
+    tip: { type: "percent", percent: "", amount: "", mode: "proportional" }
   };
 }
 
@@ -7717,13 +7722,16 @@ function billPeopleKeys_() {
 function billInput_() {
   return {
     people: billPeopleKeys_(),
-    items: billState.items.map((it) => ({ id: it.id, name: it.name, price: it.price, people: Array.from(it.people) })),
+    items: billState.items.map((it) => ({
+      id: it.id, name: it.name, people: Array.from(it.people),
+      price: it.discount && it.price ? "-" + it.price : it.price     // a discount line is a negative line
+    })),
     adjustments: billState.adjs.map((a) => ({
       name: a.name,
       amount: (a.kind === "discount" ? -1 : 1) * (parseFloat(a.amount) || 0),
       mode: a.mode
     })),
-    tip: billState.tip,
+    tip: { type: billState.tip.type, mode: billState.tip.mode, value: billState.tip.type === "percent" ? billState.tip.percent : billState.tip.amount },
     printedTotal: billState.total
   };
 }
@@ -7732,7 +7740,6 @@ function openBillModal() {
   if (!billState) billState = newBillState_();
   document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || "PEN").toUpperCase();
   document.getElementById("bill-total").value = billState.total;
-  document.getElementById("bill-tip-value").value = billState.tip.value;
   syncBillTabs_();
   renderBillPeople_();
   renderBillItems_();
@@ -7748,7 +7755,12 @@ function closeBillModal() {
 function syncBillTabs_() {
   document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.type));
   document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.mode));
-  document.getElementById("bill-tip-value").placeholder = billState.tip.type === "percent" ? "e.g. 10" : "0.00";
+  const isPercent = billState.tip.type === "percent";
+  const cur = (document.getElementById("currency").value || "PEN").toUpperCase();
+  document.getElementById("bill-tip-label").textContent = isPercent ? "Tip percent (%)" : `Tip amount (${cur})`;
+  const box = document.getElementById("bill-tip-value");
+  box.placeholder = isPercent ? "e.g. 10" : "0.00";
+  box.value = isPercent ? billState.tip.percent : billState.tip.amount;
 }
 
 function renderBillPeople_() {
@@ -7825,27 +7837,51 @@ function renderBillItems_() {
 
     const chips = document.createElement("div");
     chips.className = "tags-list";
-    const everyone = keys.every((k) => it.people.has(k));
-    const all = document.createElement("div");
-    all.className = "tag-chip" + (everyone ? " selected" : "");
-    all.textContent = "Everyone";
-    all.addEventListener("click", () => {
-      if (everyone) it.people.clear(); else keys.forEach((k) => it.people.add(k));
-      renderBillItems_();
-      recomputeBill_();
-    });
-    chips.appendChild(all);
-    keys.forEach((k) => {
-      const chip = document.createElement("div");
-      chip.className = "tag-chip" + (it.people.has(k) ? " selected" : "");
-      chip.textContent = billFriendName_(k);
-      chip.addEventListener("click", () => {
-        if (it.people.has(k)) it.people.delete(k); else it.people.add(k);
+    if (it.discount) {
+      // A discount line printed under a dish: it comes off the item above and
+      // is shared by whoever shares THAT item, so it has no people of its own.
+      row.classList.add("bill-item-discount");
+      name.placeholder = "Discount";
+      const idx = billState.items.indexOf(it);
+      let parent = null;
+      for (let i = idx - 1; i >= 0; i--) if (!billState.items[i].discount) { parent = billState.items[i]; break; }
+      const note = document.createElement("div");
+      note.className = "hint bill-discount-note";
+      note.textContent = parent ? `↳ comes off “${parent.name || "the item above"}” (shared by whoever shares it)` : "↳ needs an item above it";
+      chips.appendChild(note);
+    } else {
+      const everyone = keys.every((k) => it.people.has(k));
+      const all = document.createElement("div");
+      all.className = "tag-chip" + (everyone ? " selected" : "");
+      all.textContent = "Everyone";
+      all.addEventListener("click", () => {
+        if (everyone) it.people.clear(); else keys.forEach((k) => it.people.add(k));
         renderBillItems_();
         recomputeBill_();
       });
-      chips.appendChild(chip);
+      chips.appendChild(all);
+      keys.forEach((k) => {
+        const chip = document.createElement("div");
+        chip.className = "tag-chip" + (it.people.has(k) ? " selected" : "");
+        chip.textContent = billFriendName_(k);
+        chip.addEventListener("click", () => {
+          if (it.people.has(k)) it.people.delete(k); else it.people.add(k);
+          renderBillItems_();
+          recomputeBill_();
+        });
+        chips.appendChild(chip);
+      });
+    }
+    // The number pad has no minus key, so a line is marked as a discount here.
+    const disc = document.createElement("div");
+    disc.className = "tag-chip bill-discount-toggle" + (it.discount ? " selected" : "");
+    disc.textContent = "− Discount line";
+    disc.addEventListener("click", () => {
+      it.discount = !it.discount;
+      renderBillItems_();
+      recomputeBill_();
     });
+    chips.appendChild(disc);
 
     row.append(line, chips);
     box.appendChild(row);
@@ -7923,18 +7959,20 @@ function recomputeBill_() {
   const fmt = (cents) => `${cur} ${moneyFmt(cents / 100)}`;
 
   const check = document.getElementById("bill-check");
-  const adjText = res.adjCents ? ` ${res.adjCents < 0 ? "−" : "+"} ${res.adjCents < 0 ? "discounts" : "charges"} ${fmt(Math.abs(res.adjCents))}` : "";
-  const counted = `Items ${fmt(res.itemsCents)}${adjText}`;
+  // The bill total is BEFORE discounts: items (+ any extra charge) must match
+  // it; discounts come off afterwards, then the tip.
+  const chargesCents = res.preDiscountCents - res.itemsCents;
+  const counted = chargesCents ? `Items ${fmt(res.itemsCents)} + charges ${fmt(chargesCents)}` : `Items ${fmt(res.itemsCents)}`;
   if (res.printedCents > 0) {
     if (res.diffCents === 0) {
       check.className = "hint bill-check-ok";
-      check.textContent = `✓ ${counted} = bill total ${fmt(res.printedCents)}`;
+      check.textContent = `✓ ${counted} = bill total ${fmt(res.printedCents)}` +
+        (res.discountsCents ? ` · after discounts −${fmt(res.discountsCents)}: ${fmt(res.billCents)}` : "");
     } else {
       check.className = "hint bill-check-bad";
-      const lead = res.adjCents ? `${counted} comes to ${fmt(res.billCents)}` : `Items add up to ${fmt(res.itemsCents)}`;
       check.textContent = res.diffCents > 0
-        ? `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
-        : `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. A wrong price, or add a discount.`;
+        ? `${counted} comes to ${fmt(res.preDiscountCents)}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
+        : `${counted} comes to ${fmt(res.preDiscountCents)}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. Check a price.`;
     }
   } else {
     check.className = "hint";
@@ -7969,6 +8007,21 @@ function recomputeBill_() {
       t.textContent = `Tip ${fmt(res.tipCents)} · you pay the restaurant ${fmt(res.grandCents)} in total.`;
       out.appendChild(t);
     }
+  }
+  // Live line under the tip box: what the typed tip actually comes to, so a
+  // slip like 100 instead of 10 is obvious right where it is typed.
+  const preview = document.getElementById("bill-tip-preview");
+  const tipTyped = billState.tip.type === "percent" ? billState.tip.percent : billState.tip.amount;
+  if (!tipTyped || !res.tipCents) {
+    preview.className = "hint";
+    preview.textContent = res.billCents > 0 ? `Tip is taken on ${fmt(res.billCents)} (the bill after discounts).` : "";
+  } else {
+    const pct = res.billCents > 0 ? (res.tipCents / res.billCents) * 100 : 0;
+    const odd = pct > 30;
+    preview.className = "hint" + (odd ? " bill-check-bad" : "");
+    preview.textContent = billState.tip.type === "percent"
+      ? `${tipTyped}% of ${fmt(res.billCents)} = ${fmt(res.tipCents)}${odd ? " — that's a very large tip, is that right?" : ""}`
+      : `${fmt(res.tipCents)} is ${pct.toFixed(1)}% of ${fmt(res.billCents)}${odd ? " — that's a very large tip, is that right?" : ""}`;
   }
   const err = document.getElementById("bill-error");
   // Only the blocking reason that isn't already visible above.
@@ -8039,7 +8092,7 @@ document.getElementById("bill-total").addEventListener("input", (e) => {
 document.getElementById("bill-tip-value").addEventListener("input", (e) => {
   const clean = sanitizeAmountInputValue(e.target.value);
   if (clean !== e.target.value) e.target.value = clean;
-  billState.tip.value = clean;
+  if (billState.tip.type === "percent") billState.tip.percent = clean; else billState.tip.amount = clean;
   recomputeBill_();
 });
 document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.addEventListener("click", () => {
