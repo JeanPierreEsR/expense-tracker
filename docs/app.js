@@ -954,6 +954,7 @@ function toggleSplitFieldVisibility() {
 function resetSplitState() {
   billState = null;
   billApplied = false;
+  billItemsEdited = false;
   splitFriendIds = new Set();
   splitMode = "equal";
   customSplitAmounts = {};
@@ -7741,6 +7742,7 @@ document.getElementById("balance-clear-btn").addEventListener("click", async () 
 // with each friend's total — the entry is then saved the usual way, so
 // category, account, date and the debts all go through the existing flow.
 let billState = null;
+let billItemsEdited = false;    // items typed/changed/inserted by hand since the last photo read
 let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
 let billShowAllFriends = false;
@@ -7928,7 +7930,7 @@ function renderBillItems_() {
     name.className = "bill-item-name";
     name.placeholder = "Item";
     name.value = it.name;
-    name.addEventListener("input", () => { it.name = name.value; });
+    name.addEventListener("input", () => { it.name = name.value; billItemsEdited = true; });
     const price = document.createElement("input");
     price.type = "text";
     price.inputMode = "decimal";
@@ -7939,6 +7941,7 @@ function renderBillItems_() {
       const clean = sanitizeAmountInputValue(e.target.value);
       if (clean !== e.target.value) e.target.value = clean;
       it.price = clean;
+      billItemsEdited = true;
       recomputeBill_();
     });
     const del = document.createElement("button");
@@ -7947,6 +7950,7 @@ function renderBillItems_() {
     del.textContent = "✕";
     del.addEventListener("click", () => {
       billState.items = billState.items.filter((x) => x !== it);
+      billItemsEdited = true;
       renderBillItems_();
       recomputeBill_();
     });
@@ -7995,10 +7999,26 @@ function renderBillItems_() {
     disc.textContent = "− Discount line";
     disc.addEventListener("click", () => {
       it.discount = !it.discount;
+      billItemsEdited = true;
       renderBillItems_();
       recomputeBill_();
     });
     chips.appendChild(disc);
+    // A new line right under this one — order matters, because a discount line
+    // comes off the item above it.
+    const ins = document.createElement("div");
+    ins.className = "tag-chip bill-insert-chip";
+    ins.textContent = "+ Insert a line below";
+    ins.addEventListener("click", () => {
+      const at = billState.items.indexOf(it) + 1;
+      billState.items.splice(at, 0, { id: billNextId++, name: "", price: "", people: new Set() });
+      billItemsEdited = true;
+      renderBillItems_();
+      recomputeBill_();
+      const names = document.querySelectorAll("#bill-items .bill-item-name");
+      if (names[at]) names[at].focus();
+    });
+    chips.appendChild(ins);
 
     row.append(line, chips);
     box.appendChild(row);
@@ -8006,6 +8026,7 @@ function renderBillItems_() {
 }
 
 function addBillItem_() {
+  billItemsEdited = true;
   billState.items.push({ id: billNextId++, name: "", price: "", people: new Set() });
   renderBillItems_();
   recomputeBill_();
@@ -8027,7 +8048,7 @@ function renderBillAdjs_() {
     name.className = "bill-item-name";
     name.placeholder = a.kind === "discount" ? "Discount" : "Extra charge";
     name.value = a.name;
-    name.addEventListener("input", () => { a.name = name.value; });
+    name.addEventListener("input", () => { a.name = name.value; billItemsEdited = true; });
     const amt = document.createElement("input");
     amt.type = "text";
     amt.inputMode = "decimal";
@@ -8038,6 +8059,7 @@ function renderBillAdjs_() {
       const clean = sanitizeAmountInputValue(e.target.value);
       if (clean !== e.target.value) e.target.value = clean;
       a.amount = clean;
+      billItemsEdited = true;
       recomputeBill_();
     });
     const del = document.createElement("button");
@@ -8046,6 +8068,7 @@ function renderBillAdjs_() {
     del.textContent = "✕";
     del.addEventListener("click", () => {
       billState.adjs = billState.adjs.filter((x) => x !== a);
+      billItemsEdited = true;
       renderBillAdjs_();
       recomputeBill_();
     });
@@ -8181,11 +8204,13 @@ document.getElementById("bill-modal-backdrop").addEventListener("click", (e) => 
 document.getElementById("bill-apply").addEventListener("click", applyBillToForm_);
 document.getElementById("bill-add-item").addEventListener("click", addBillItem_);
 document.getElementById("bill-add-discount").addEventListener("click", () => {
+  billItemsEdited = true;
   billState.adjs.push({ id: billNextId++, kind: "discount", name: "", amount: "", mode: "proportional" });
   renderBillAdjs_();
   recomputeBill_();
 });
 document.getElementById("bill-add-charge").addEventListener("click", () => {
+  billItemsEdited = true;
   billState.adjs.push({ id: billNextId++, kind: "charge", name: "", amount: "", mode: "proportional" });
   renderBillAdjs_();
   recomputeBill_();
@@ -8302,9 +8327,19 @@ async function recognizeReceiptText_(canvas, onProgress) {
 
 // Puts what was read into the open sheet (replacing what was there only after
 // asking, if the sheet already has items).
-function applyReceiptToBill_(parsed) {
-  if (billState.items.some((it) => it.price) && !confirm("Replace the items already in the sheet with the ones read from the photo?")) return false;
-  billState.items = parsed.items.map((it) => ({ id: billNextId++, name: it.name, price: it.price, people: new Set(), discount: it.discount }));
+function applyReceiptToBill_(parsed, opts) {
+  opts = opts || {};
+  if (!opts.noConfirm && billState.items.some((it) => it.price) && !confirm("Replace the items already in the sheet with the ones read from the photo?")) return false;
+  // Lines that are unchanged keep who shared them (matched by name + price).
+  const previous = billState.items.slice();
+  const keepPeople = (it) => {
+    if (!opts.keepAssignments || it.discount) return new Set();
+    const at = previous.findIndex((o) => !o.discount && o.name.trim().toLowerCase() === it.name.trim().toLowerCase() && o.price === it.price);
+    if (at < 0) return new Set();
+    return new Set(previous.splice(at, 1)[0].people);
+  };
+  billState.items = parsed.items.map((it) => ({ id: billNextId++, name: it.name, price: it.price, people: keepPeople(it), discount: it.discount }));
+  billItemsEdited = false;
   billState.adjs = [
     ...parsed.charges.map((c) => ({ id: billNextId++, kind: "charge", name: c.name, amount: c.amount, mode: "proportional" })),
     ...parsed.discounts.map((d) => ({ id: billNextId++, kind: "discount", name: d.name, amount: d.amount, mode: "proportional" }))
@@ -8319,10 +8354,16 @@ function applyReceiptToBill_(parsed) {
   return true;
 }
 
-async function readBillPhoto_(file) {
+function billPhotoSay_(text, bad) {
   const status = document.getElementById("bill-photo-status");
+  status.hidden = false;
+  status.textContent = text;
+  status.className = "hint" + (bad ? " bill-check-bad" : "");
+}
+
+async function readBillPhoto_(file) {
   const btn = document.getElementById("bill-photo-btn");
-  const say = (text, bad) => { status.hidden = false; status.textContent = text; status.className = "hint" + (bad ? " bill-check-bad" : ""); };
+  const say = billPhotoSay_;
   btn.disabled = true;
   try {
     say("Preparing the photo…");
@@ -8333,7 +8374,7 @@ async function readBillPhoto_(file) {
       if (m.status === "recognizing text") say(`Reading the photo… ${Math.round((m.progress || 0) * 100)}%`);
       else if (/loading/i.test(m.status)) say("Loading the reader (first time only, a few MB)…");
     });
-    document.getElementById("bill-photo-text").textContent = text;
+    document.getElementById("bill-photo-text").value = text;
     document.getElementById("bill-photo-raw").hidden = false;
     const parsed = ReceiptParse.parseReceipt(text);
     if (!parsed.items.length) {
@@ -8352,6 +8393,14 @@ async function readBillPhoto_(file) {
 }
 
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
+document.getElementById("bill-photo-reparse").addEventListener("click", () => {
+  const parsed = ReceiptParse.parseReceipt(document.getElementById("bill-photo-text").value);
+  if (!parsed.items.length) { billPhotoSay_("No items could be found in that text — check it and try again.", true); return; }
+  if (billItemsEdited && !confirm("This replaces the items you changed by hand below with what the text says. Continue?")) return;
+  applyReceiptToBill_(parsed, { noConfirm: true, keepAssignments: true });
+  const dishes = parsed.items.filter((i) => !i.discount).length;
+  billPhotoSay_(`Worked out ${dishes} item${dishes === 1 ? "" : "s"} again from your text.` + (parsed.warnings.length ? " " + parsed.warnings.join(" ") : ""), parsed.warnings.length > 0);
+});
 document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   e.target.value = "";           // picking the same photo again must work

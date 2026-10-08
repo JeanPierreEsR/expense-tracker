@@ -2059,4 +2059,5 @@ button.primary:disabled {
 .bill-discount-toggle { color: var(--muted); }
 .bill-discount-toggle.selected { color: white; }
 
-.bill-photo-text { white-space: pre-wrap; font-size: 0.7rem; background: var(--bg, #f6f6f6); border: 1px solid var(--border); border-radius: 8px; padding: 8px; max-height: 180px; overflow: auto; }
+.bill-photo-text { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; line-height: 1.35; white-space: pre; overflow: auto; min-height: 140px; }
+.bill-insert-chip { border-style: dashed; color: var(--accent); }

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-08T14:34:29Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-08T23:05:49Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -593,8 +593,10 @@
         <input type="file" id="bill-photo-input" accept="image/*" hidden>
         <p class="hint" id="bill-photo-status" hidden></p>
         <details id="bill-photo-raw" hidden>
-          <summary class="hint">What the phone read from the photo</summary>
-          <pre id="bill-photo-text" class="bill-photo-text"></pre>
+          <summary class="hint">What the phone read — you can correct it here</summary>
+          <p class="hint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
+          <textarea id="bill-photo-text" class="bill-photo-text" rows="9" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+          <button type="button" class="add-inline" id="bill-photo-reparse">↻ Work out the items again from this text</button>
         </details>
         <p class="hint bill-check-bad" id="bill-stale-note" hidden>This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
         <label for="bill-total">Bill total before discounts (<span id="bill-currency">PEN</span>)</label>
@@ -1083,10 +1085,10 @@
     </div>
   </div>
 
-  <script src="receipt-parse.js?v=2026-10-08T14:34:29Z"></script>
-  <script src="bill-split.js?v=2026-10-08T14:34:29Z"></script>
-  <script src="app.js?v=2026-10-08T14:34:29Z"></script>
-  <script src="statement-parsers.js?v=2026-10-08T14:34:29Z"></script>
-  <script src="statements.js?v=2026-10-08T14:34:29Z"></script>
+  <script src="receipt-parse.js?v=2026-10-08T23:05:49Z"></script>
+  <script src="bill-split.js?v=2026-10-08T23:05:49Z"></script>
+  <script src="app.js?v=2026-10-08T23:05:49Z"></script>
+  <script src="statement-parsers.js?v=2026-10-08T23:05:49Z"></script>
+  <script src="statements.js?v=2026-10-08T23:05:49Z"></script>
 </body>
 </html>
