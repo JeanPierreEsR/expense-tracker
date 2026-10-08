@@ -7848,7 +7848,11 @@ async function openBillModal() {
       btn.textContent = label;
     }
   }
-  if (!billState) billState = newBillState_();
+  if (!billState) {
+    billState = newBillState_();
+    document.getElementById("bill-photo-status").hidden = true;
+    document.getElementById("bill-photo-raw").hidden = true;
+  }
   document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || "PEN").toUpperCase();
   document.getElementById("bill-total").value = billState.total;
   syncBillTabs_();
@@ -8076,6 +8080,7 @@ function recomputeBill_() {
   // it; discounts come off afterwards, then the tip.
   const chargesCents = res.preDiscountCents - res.itemsCents;
   const counted = chargesCents ? `Items ${fmt(res.itemsCents)} + charges ${fmt(chargesCents)}` : `Items ${fmt(res.itemsCents)}`;
+  const lead = chargesCents ? `${counted} comes to ${fmt(res.preDiscountCents)}` : `Items add up to ${fmt(res.itemsCents)}`;
   if (res.printedCents > 0) {
     if (res.diffCents === 0) {
       check.className = "hint bill-check-ok";
@@ -8084,8 +8089,8 @@ function recomputeBill_() {
     } else {
       check.className = "hint bill-check-bad";
       check.textContent = res.diffCents > 0
-        ? `${counted} comes to ${fmt(res.preDiscountCents)}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
-        : `${counted} comes to ${fmt(res.preDiscountCents)}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. Check a price.`;
+        ? `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
+        : `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. Check a price.`;
     }
   } else {
     check.className = "hint";
@@ -8215,6 +8220,143 @@ document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.addE
 document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.addEventListener("click", () => {
   billState.tip.mode = t.dataset.v; syncBillTabs_(); recomputeBill_();
 }));
+
+
+// ---- Reading a receipt photo (step 3) ----
+// All on the phone: the photo is shrunk and cleaned up on a canvas, read by
+// self-hosted tesseract.js (docs/vendor/tesseract/), and the text goes through
+// ReceiptParse (receipt-parse.js). Nothing is uploaded and the photo is not
+// kept. The result only FILLS the sheet — items still have to be assigned to
+// people, and the sheet's own total check catches a misread line.
+let tesseractLoading_ = null;
+
+function loadTesseract_() {
+  if (window.Tesseract) return Promise.resolve();
+  if (!tesseractLoading_) {
+    tesseractLoading_ = new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "vendor/tesseract/tesseract.min.js";
+      el.onload = resolve;
+      el.onerror = () => { tesseractLoading_ = null; reject(new Error("Couldn't load the photo reader. Check your connection and try again.")); };
+      document.head.appendChild(el);
+    });
+  }
+  return tesseractLoading_;
+}
+
+// Long side ~2000px, greyscale, contrast stretched — phone photos are far
+// bigger than the reader needs, and flat lighting is what hurts it most.
+async function prepareReceiptImage_(file) {
+  const bmp = await createImageBitmap(file);   // applies the photo's rotation
+  const scale = Math.min(2000 / Math.max(bmp.width, bmp.height), 2);
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bmp, 0, 0, w, h);
+  if (bmp.close) bmp.close();
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    d[i] = d[i + 1] = d[i + 2] = g;
+    hist[g]++;
+  }
+  // stretch between the 2nd and 98th percentile
+  const total = w * h;
+  let lo = 0, hi = 255, acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * 0.02) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * 0.02) { hi = v; break; } }
+  const span = Math.max(1, hi - lo);
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.max(0, Math.min(255, Math.round(((d[i] - lo) * 255) / span)));
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+async function recognizeReceiptText_(canvas, onProgress) {
+  await loadTesseract_();
+  const base = new URL("vendor/tesseract/", location.href).href;
+  const worker = await Tesseract.createWorker("spa", 1, {
+    workerPath: base + "worker.min.js",
+    corePath: base,
+    langPath: base,
+    logger: (m) => { if (m && m.status && onProgress) onProgress(m); }
+  });
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+    const { data } = await worker.recognize(canvas);
+    return data.text || "";
+  } finally {
+    await worker.terminate();
+  }
+}
+
+// Puts what was read into the open sheet (replacing what was there only after
+// asking, if the sheet already has items).
+function applyReceiptToBill_(parsed) {
+  if (billState.items.some((it) => it.price) && !confirm("Replace the items already in the sheet with the ones read from the photo?")) return false;
+  billState.items = parsed.items.map((it) => ({ id: billNextId++, name: it.name, price: it.price, people: new Set(), discount: it.discount }));
+  billState.adjs = [
+    ...parsed.charges.map((c) => ({ id: billNextId++, kind: "charge", name: c.name, amount: c.amount, mode: "proportional" })),
+    ...parsed.discounts.map((d) => ({ id: billNextId++, kind: "discount", name: d.name, amount: d.amount, mode: "proportional" }))
+  ];
+  if (parsed.total) {
+    billState.total = parsed.total;
+    document.getElementById("bill-total").value = parsed.total;
+  }
+  renderBillItems_();
+  renderBillAdjs_();
+  recomputeBill_();
+  return true;
+}
+
+async function readBillPhoto_(file) {
+  const status = document.getElementById("bill-photo-status");
+  const btn = document.getElementById("bill-photo-btn");
+  const say = (text, bad) => { status.hidden = false; status.textContent = text; status.className = "hint" + (bad ? " bill-check-bad" : ""); };
+  btn.disabled = true;
+  try {
+    say("Preparing the photo…");
+    const canvas = await prepareReceiptImage_(file);
+    const first = !window.Tesseract;
+    say(first ? "Loading the reader (first time only, a few MB)…" : "Reading the photo…");
+    const text = await recognizeReceiptText_(canvas, (m) => {
+      if (m.status === "recognizing text") say(`Reading the photo… ${Math.round((m.progress || 0) * 100)}%`);
+      else if (/loading/i.test(m.status)) say("Loading the reader (first time only, a few MB)…");
+    });
+    document.getElementById("bill-photo-text").textContent = text;
+    document.getElementById("bill-photo-raw").hidden = false;
+    const parsed = ReceiptParse.parseReceipt(text);
+    if (!parsed.items.length) {
+      say("Couldn't find items in that photo. Try again with the whole receipt flat, in good light — or add the items by hand. (The text it read is below.)", true);
+      return;
+    }
+    if (!applyReceiptToBill_(parsed)) { say("Left the sheet as it was."); return; }
+    const dishes = parsed.items.filter((i) => !i.discount).length;
+    const notes = parsed.warnings.length ? " " + parsed.warnings.join(" ") : "";
+    say(`Read ${dishes} item${dishes === 1 ? "" : "s"}. Check every line against the receipt, fix what's wrong, then tap who shared each one.${notes}`, parsed.warnings.length > 0);
+  } catch (err) {
+    say(err.message || "Couldn't read that photo.", true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
+document.getElementById("bill-photo-input").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";           // picking the same photo again must work
+  if (file) readBillPhoto_(file);
+});
 
 
 init();

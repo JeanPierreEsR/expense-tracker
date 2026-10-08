@@ -2058,3 +2058,5 @@ button.primary:disabled {
 .bill-discount-note { margin: 0; flex: 1 1 100%; }
 .bill-discount-toggle { color: var(--muted); }
 .bill-discount-toggle.selected { color: white; }
+
+.bill-photo-text { white-space: pre-wrap; font-size: 0.7rem; background: var(--bg, #f6f6f6); border: 1px solid var(--border); border-radius: 8px; padding: 8px; max-height: 180px; overflow: auto; }

@@ -133,7 +133,9 @@
       } else {
         shares = allocate(cents, people, subtotal);
       }
-      if (!shares) { errors.push(`"${a.name || "Adjustment"}" has nobody to be shared among.`); return; }
+      // (While items are still unassigned nobody has an order yet, so this
+      // would only repeat "nobody assigned" in a more confusing way.)
+      if (!shares) { if (!unassigned.length) errors.push(`"${a.name || "Adjustment"}" has nobody to be shared among.`); return; }
       Object.keys(shares).forEach((k) => { adjustments[k] += shares[k]; });
     });
 

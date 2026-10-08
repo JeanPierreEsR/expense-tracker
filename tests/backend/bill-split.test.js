@@ -188,3 +188,15 @@ test("many random bills always add up to the cent", () => {
     Object.values(r.perPerson).forEach((p) => assert.ok(p.total >= 0));
   }
 });
+
+test("a service charge read from a photo doesn't add a confusing error while items are still unassigned", () => {
+  const r = compute({
+    people: ["me", "a"],
+    items: [{ id: 1, price: "50", people: [] }],
+    adjustments: [{ name: "Servicio", amount: "5", mode: "proportional" }],
+    printedTotal: "55"
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0], /nobody assigned/);
+});

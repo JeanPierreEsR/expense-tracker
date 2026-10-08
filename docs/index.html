@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-07T20:02:07Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-08T14:34:29Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -589,6 +589,13 @@
         <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="bill-scroll">
+        <button type="button" class="add-inline" id="bill-photo-btn">📷 Read the items from a photo</button>
+        <input type="file" id="bill-photo-input" accept="image/*" hidden>
+        <p class="hint" id="bill-photo-status" hidden></p>
+        <details id="bill-photo-raw" hidden>
+          <summary class="hint">What the phone read from the photo</summary>
+          <pre id="bill-photo-text" class="bill-photo-text"></pre>
+        </details>
         <p class="hint bill-check-bad" id="bill-stale-note" hidden>This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
         <label for="bill-total">Bill total before discounts (<span id="bill-currency">PEN</span>)</label>
         <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
@@ -1076,9 +1083,10 @@
     </div>
   </div>
 
-  <script src="bill-split.js?v=2026-10-07T20:02:07Z"></script>
-  <script src="app.js?v=2026-10-07T20:02:07Z"></script>
-  <script src="statement-parsers.js?v=2026-10-07T20:02:07Z"></script>
-  <script src="statements.js?v=2026-10-07T20:02:07Z"></script>
+  <script src="receipt-parse.js?v=2026-10-08T14:34:29Z"></script>
+  <script src="bill-split.js?v=2026-10-08T14:34:29Z"></script>
+  <script src="app.js?v=2026-10-08T14:34:29Z"></script>
+  <script src="statement-parsers.js?v=2026-10-08T14:34:29Z"></script>
+  <script src="statements.js?v=2026-10-08T14:34:29Z"></script>
 </body>
 </html>
