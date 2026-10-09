@@ -8269,20 +8269,65 @@ function loadTesseract_() {
   return tesseractLoading_;
 }
 
-// Long side ~2000px, greyscale, contrast stretched — phone photos are far
-// bigger than the reader needs, and flat lighting is what hurts it most.
-async function prepareReceiptImage_(file) {
+// Finds the paper in the photo (the big bright region) so the table, hand or
+// background around it never reaches the reader. Returns the whole photo when
+// no clear paper stands out.
+async function receiptPaperBox_(bmp) {
+  const sw = 200, sh = Math.max(1, Math.round(bmp.height * sw / bmp.width));
+  const c = document.createElement("canvas");
+  c.width = sw;
+  c.height = sh;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(bmp, 0, 0, sw, sh);
+  const d = x.getImageData(0, 0, sw, sh).data;
+  const g = new Uint8Array(sw * sh);
+  const hist = new Array(256).fill(0);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) { g[p] = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); hist[g[p]]++; }
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sB = 0, wB = 0, best = 0, thr = 128;
+  const tot = sw * sh;
+  for (let t = 0; t < 256; t++) {            // Otsu: the brightness that best splits paper from background
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = tot - wB;
+    if (!wF) break;
+    sB += t * hist[t];
+    const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > best) { best = v; thr = t; }
+  }
+  const col = new Array(sw).fill(0), row = new Array(sh).fill(0);
+  for (let y = 0; y < sh; y++) for (let xx = 0; xx < sw; xx++) if (g[y * sw + xx] > thr) { col[xx]++; row[y]++; }
+  const cm = Math.max(...col), rm = Math.max(...row);
+  const cx = col.map((v, i) => (v > cm * 0.3 ? i : -1)).filter((i) => i >= 0);
+  const ry = row.map((v, i) => (v > rm * 0.3 ? i : -1)).filter((i) => i >= 0);
+  const whole = { x: 0, y: 0, w: bmp.width, h: bmp.height };
+  if (!cx.length || !ry.length) return whole;
+  const pad = 0.015;
+  const x0 = Math.max(0, cx[0] / sw - pad), x1 = Math.min(1, (cx[cx.length - 1] + 1) / sw + pad);
+  const y0 = Math.max(0, ry[0] / sh - pad), y1 = Math.min(1, (ry[ry.length - 1] + 1) / sh + pad);
+  const box = { x: Math.round(x0 * bmp.width), y: Math.round(y0 * bmp.height), w: Math.round((x1 - x0) * bmp.width), h: Math.round((y1 - y0) * bmp.height) };
+  return box.w > 0.92 * bmp.width && box.h > 0.92 * bmp.height ? whole : box;
+}
+
+// Greyscale + contrast stretch, optionally cropped to the paper. Tried on 16 real
+// photos: cropping read more receipts than not cropping, but not the SAME ones —
+// so the reader tries the crop first and the whole photo second (see readBillPhoto_).
+async function prepareReceiptImage_(file, opts) {
+  opts = opts || { crop: false, maxLong: 2000 };
   const bmp = await createImageBitmap(file);   // applies the photo's rotation
-  const scale = Math.min(2000 / Math.max(bmp.width, bmp.height), 2);
-  const w = Math.max(1, Math.round(bmp.width * scale));
-  const h = Math.max(1, Math.round(bmp.height * scale));
+  const box = opts.crop ? await receiptPaperBox_(bmp) : { x: 0, y: 0, w: bmp.width, h: bmp.height };
+  const scale = Math.min(opts.crop ? Math.min(1500 / box.w, 3200 / box.h) : (opts.maxLong || 2000) / Math.max(box.w, box.h), 3);
+  const w = Math.max(1, Math.round(box.w * scale));
+  const h = Math.max(1, Math.round(box.h * scale));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, box.x, box.y, box.w, box.h, 0, 0, w, h);
   if (bmp.close) bmp.close();
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
@@ -8307,6 +8352,74 @@ async function prepareReceiptImage_(file) {
   return canvas;
 }
 
+// --- two reads, then a merge -------------------------------------------------
+// Pass 1 reads the whole receipt. Pass 2 re-reads ONLY the number columns
+// (cropped, so no table or margin noise around them) — that is where thermal
+// printers' dotted zeros get misread as 8 or 9. For every number the more
+// confident of the two readings is kept. Words the reader itself is unsure
+// about AND that are 1-3 characters long (the "A A e" junk picked up from the
+// table at the edge) are dropped.
+const RECEIPT_NUM_WORD = /^[-\dOolI.,]*\d[-\dOolI.,]*$/;
+const RECEIPT_AMOUNT_WORD = /^\d{1,6}[.,]\d{2,3}$/;
+
+function receiptLines_(data) {
+  return ((data && data.blocks) || [])
+    .flatMap((b) => b.paragraphs.flatMap((p) => p.lines))
+    .map((l) => ({
+      y0: l.bbox.y0, y1: l.bbox.y1,
+      words: (l.words || []).map((w) => ({ text: w.text, conf: w.confidence, x0: w.bbox.x0, x1: w.bbox.x1 }))
+        .filter((w) => w.text && w.text.trim())
+    }));
+}
+
+function receiptJunkWord_(w) {
+  const letters = w.text.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñü0-9]/g, "");
+  if (!letters) return true;                                   // "—", "*", ":" on their own
+  if (RECEIPT_NUM_WORD.test(w.text)) return false;             // numbers are never junk here
+  return letters.length <= 3 && w.conf < 45;
+}
+
+function receiptLineText_(words, height) {
+  let out = "";
+  words.forEach((w, i) => {
+    if (i) out += w.x0 - words[i - 1].x1 > height * 1.5 ? "   " : " ";
+    out += w.text;
+  });
+  return out;
+}
+
+function trailingNumberRun_(words) {
+  let n = 0;
+  while (n < words.length && RECEIPT_NUM_WORD.test(words[words.length - 1 - n].text)) n++;
+  return n;
+}
+
+function mergeReceiptPasses_(lines1, lines2) {
+  return lines1.map((l1) => {
+    const h1 = Math.max(1, l1.y1 - l1.y0);
+    let best = null, bestOverlap = 0;
+    lines2.forEach((l2) => {
+      const overlap = Math.min(l1.y1, l2.y1) - Math.max(l1.y0, l2.y0);
+      const ratio = overlap / Math.max(1, Math.min(h1, l2.y1 - l2.y0));
+      if (ratio > bestOverlap) { bestOverlap = ratio; best = l2; }
+    });
+    let words = l1.words.slice();
+    if (best && bestOverlap >= 0.5) {
+      const n1 = trailingNumberRun_(words), n2 = trailingNumberRun_(best.words);
+      const k = Math.min(n1, n2, 3);
+      if (k >= 1) {
+        const left = words.slice(0, words.length - k);
+        const mine = words.slice(words.length - k);
+        const theirs = best.words.slice(best.words.length - k);
+        // the more confident reading of each number (ties go to the digits-only pass)
+        const chosen = mine.map((w, i) => (theirs[i].conf >= w.conf ? theirs[i] : w));
+        words = left.concat(chosen);
+      }
+    }
+    return receiptLineText_(words.filter((w) => !receiptJunkWord_(w)), h1);
+  }).join("\n");
+}
+
 async function recognizeReceiptText_(canvas, onProgress) {
   await loadTesseract_();
   const base = new URL("vendor/tesseract/", location.href).href;
@@ -8318,8 +8431,26 @@ async function recognizeReceiptText_(canvas, onProgress) {
   });
   try {
     await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
-    const { data } = await worker.recognize(canvas);
-    return data.text || "";
+    const first = await worker.recognize(canvas, {}, { blocks: true, text: true });
+    const lines1 = receiptLines_(first.data);
+    if (!lines1.length) return first.data.text || "";
+    try {
+      // Where do the amounts start? (a little left of the leftmost amount column,
+      // to take in a quantity column)
+      const xs = lines1.flatMap((l) => l.words).filter((w) => RECEIPT_AMOUNT_WORD.test(w.text)).map((w) => w.x0).sort((a, b) => a - b);
+      if (xs.length >= 4) {
+        const startX = Math.max(0, Math.round(xs[Math.floor(xs.length * 0.15)] - canvas.width * 0.075));
+        const strip = document.createElement("canvas");
+        strip.width = canvas.width - startX;
+        strip.height = canvas.height;
+        strip.getContext("2d").drawImage(canvas, startX, 0, strip.width, strip.height, 0, 0, strip.width, strip.height);
+        const second = await worker.recognize(strip, {}, { blocks: true });
+        return mergeReceiptPasses_(lines1, receiptLines_(second.data));
+      }
+    } catch (err) {
+      /* the second read is only an improvement — fall back to the first */
+    }
+    return mergeReceiptPasses_(lines1, []);
   } finally {
     await worker.terminate();
   }
@@ -8361,22 +8492,41 @@ function billPhotoSay_(text, bad) {
   status.className = "hint" + (bad ? " bill-check-bad" : "");
 }
 
+// Reads a receipt photo: tries it cropped to the paper first and, if the result
+// doesn't add up to its own printed total, the whole photo second (they fail on
+// different receipts); returns the better reading {text, parsed, reconciled}.
+async function readReceiptFile_(file, say) {
+  say = say || (() => {});
+  const attempts = [{ crop: true }, { crop: false, maxLong: 2000 }];
+  let best = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const canvas = await prepareReceiptImage_(file, attempts[i]);
+    const first = !window.Tesseract;
+    say(i ? "That didn't add up — reading it again another way…" : first ? "Loading the reader (first time only, a few MB)…" : "Reading the photo…");
+    const text = await recognizeReceiptText_(canvas, (m) => {
+      if (m.status === "recognizing text") say(`${i ? "Reading it again" : "Reading the photo"}… ${Math.round((m.progress || 0) * 100)}%`);
+      else if (/loading/i.test(m.status)) say("Loading the reader (first time only, a few MB)…");
+    });
+    const parsed = ReceiptParse.parseReceipt(text);
+    const f = ReceiptParse.fit(parsed);
+    // better = adds up > closer to the total > more items
+    const score = (f.reconciled ? 1e9 : 0) - (f.known ? f.gap : 1e7) + parsed.items.length * 0.01;
+    if (!best || score > best.score) best = { text, parsed, score, reconciled: f.reconciled, attempt: i };
+    if (best.reconciled) break;
+  }
+  return best;
+}
+
 async function readBillPhoto_(file) {
   const btn = document.getElementById("bill-photo-btn");
   const say = billPhotoSay_;
   btn.disabled = true;
   try {
     say("Preparing the photo…");
-    const canvas = await prepareReceiptImage_(file);
-    const first = !window.Tesseract;
-    say(first ? "Loading the reader (first time only, a few MB)…" : "Reading the photo…");
-    const text = await recognizeReceiptText_(canvas, (m) => {
-      if (m.status === "recognizing text") say(`Reading the photo… ${Math.round((m.progress || 0) * 100)}%`);
-      else if (/loading/i.test(m.status)) say("Loading the reader (first time only, a few MB)…");
-    });
-    document.getElementById("bill-photo-text").value = text;
+    const best = await readReceiptFile_(file, say);
+    document.getElementById("bill-photo-text").value = best.text;
     document.getElementById("bill-photo-raw").hidden = false;
-    const parsed = ReceiptParse.parseReceipt(text);
+    const parsed = best.parsed;
     if (!parsed.items.length) {
       say("Couldn't find items in that photo. Try again with the whole receipt flat, in good light — or add the items by hand. (The text it read is below.)", true);
       return;

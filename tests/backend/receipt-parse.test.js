@@ -40,7 +40,8 @@ test("a discount printed under a dish (negative or DSCTO) is a discount line", (
     "DSCTO PROMO LOMO  -10.00",
     "TOTAL            38.00"
   ].join("\n"));
-  assert.deepEqual(names(r), ["Lomo Saltado:42.00", "Inca Kola 500:6.00", "Promo Lomo:-10.00"]);
+  // the discount names the Lomo, so it is moved to sit right under it
+  assert.deepEqual(names(r), ["Lomo Saltado:42.00", "Promo Lomo:-10.00", "Inca Kola 500:6.00"]);
   assert.equal(r.total, "38.00");
   assert.deepEqual(r.warnings, []);
 });
@@ -125,4 +126,124 @@ test("an unreadable service line is NOT guessed when the gap is implausibly larg
   const r = parseReceipt("1 SOPA 10.00\nSERVICIO 10%  ???\nTOTAL 40.00");
   assert.deepEqual(r.charges, []);
   assert.match(r.warnings.join(" "), /add up to 10\.00 but the bill says 40\.00/);
+});
+
+// ---- the Cant / P.U / Importe layout (made-up items; layout and reader slips as seen on a real photo) ----
+const COLUMNS = [
+  "18/09/2026 22:54:19",
+  "Articulo        Cant   P.U  Importe",
+  "Agua Mora: 500 ML    1  12.00  12.00",
+  "  SIN GAS",
+  "Agua Mora: 500 ML    1  12.00  12.08",
+  "  CON GAS",
+  "Limonada Frozen      2  14.00  28.00",
+  "Lomo Fino            1  55.00  55.00",
+  "Papas Rusticas       1  22.00  22.08",
+  "Helado Mixto         2  16.00  32.00",
+  "Cafe Cortado         1   9.00   9.00",
+  "Postre Casa          1   0.00   0.00",
+  "total Venta:               S/ 170.00",
+  "Dcto (Otros):              S/  20.00",
+  "total a pagar:             S/ 150.00"
+].join("\n");
+
+test("quantity AFTER the name, wrapped names, a Dcto line after the total, 0-read-as-8 repaired", () => {
+  const r = parseReceipt(COLUMNS);
+  assert.deepEqual(names(r), [
+    "Agua Mora: 500 ML Sin Gas:12.00",
+    "Agua Mora: 500 ML Con Gas:12.00",   // 12.08 -> 12.00 (quantity x unit says so)
+    "Limonada Frozen x2:28.00",
+    "Lomo Fino:55.00",
+    "Papas Rusticas:22.00",              // 22.08 -> 22.00
+    "Helado Mixto x2:32.00",
+    "Cafe Cortado:9.00",                 // a real 9 is left alone
+    "Postre Casa:0.00"
+  ]);
+  assert.equal(r.total, "170.00");       // the total BEFORE the bill-wide discount
+  assert.deepEqual(r.discounts, [{ name: "Dcto (Otros)", amount: "20.00" }]);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("a stray third decimal and a comma decimal are read as prices", () => {
+  const r = parseReceipt("Ceviche    1  48.060  48.00\nSopa   1  45,00  45,00\nTOTAL  93.00");
+  assert.deepEqual(names(r), ["Ceviche:48.00", "Sopa:45.00"]);
+  assert.equal(r.total, "93.00");
+});
+
+test("when the lines don't add up, the one line whose 8/9 should be a 0 is fixed and flagged", () => {
+  const r = parseReceipt("Ceviche 38.00\nSopa 12.08\nArroz 20.00\nTOTAL 70.00");
+  assert.deepEqual(names(r), ["Ceviche:38.00", "Sopa:12.00", "Arroz:20.00"]);
+  assert.match(r.warnings.join(" "), /Fixed a number.*"Sopa"/);
+});
+
+test("a total whose own 0 was read as a 9 is repaired from the lines", () => {
+  const r = parseReceipt("Ceviche 38.00\nSopa 12.00\nTOTAL 50.09");
+  assert.equal(r.total, "50.00");
+  assert.deepEqual(r.warnings, []);
+});
+
+test("an ambiguous misread is NOT guessed", () => {
+  // two lines could each be the culprit for a 0.08 gap -> leave both, say so
+  const r = parseReceipt("Plato A 10.08\nPlato B 10.08\nTOTAL 20.08");
+  assert.equal(r.total, "20.08");
+  assert.deepEqual(names(r), ["Plato A:10.08", "Plato B:10.08"]);
+});
+
+test("junk words with no letters in a wrapped line are not glued onto a dish name", () => {
+  const r = parseReceipt("Lomo Fino   1  55.00  55.00\na AZ\nTOTAL 55.00");
+  assert.deepEqual(names(r), ["Lomo Fino:55.00"]);
+});
+
+test("a zero misread in the whole-soles part is fixed when quantity x unit price agrees", () => {
+  // real line is 2 x 50.00 = 100.00; the reader gave 50.08 and 109.08
+  const r = parseReceipt("Pasta Nera: 2    2  50.08  109.08\nTOTAL 100.00");
+  assert.deepEqual(names(r), ["Pasta Nera: 2 x2:100.00"]);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("a free item misread as 8.09 is a free item (0.00 x 1 says so)", () => {
+  const r = parseReceipt("Flan Casero   1  0.00  8.09\nLomo Fino   1  55.00  55.00\nTOTAL 55.00");
+  assert.deepEqual(names(r), ["Flan Casero:0.00", "Lomo Fino:55.00"]);
+});
+
+test("a last number that lost a digit (16.0) is read as 16.00", () => {
+  const r = parseReceipt("Agua Mora   1  16.00  16.0\nTOTAL 16.00");
+  assert.deepEqual(names(r), ["Agua Mora:16.00"]);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("a bill that prices items WITHOUT its taxes: IGV / surcharge between SUBTOTAL and TOTAL are added as charges", () => {
+  const r = parseReceipt([
+    "1 HAMBURGUESA CLASICA   28.00",
+    "1 PAPAS FRITAS          10.00",
+    "SUBTOTAL: 38.00",
+    "RECARGO CONSUMO: 2.66",
+    "IGV: 6.84",
+    "TOTAL: 47.50"
+  ].join("\n"));
+  assert.equal(r.total, "47.50");
+  assert.deepEqual(r.charges.map((c) => c.amount).sort(), ["2.66", "6.84"]);
+  assert.match(r.warnings.join(" "), /adds .* on top of the item prices/i);
+});
+
+test("taxes printed AFTER the total (already inside the prices) are not charges", () => {
+  const r = parseReceipt("1 SOPA 30.00\n1 JUGO 8.00\nTotal a Pagar S/ 38.00\nIGV 18.00% S/ 5.80\nImporte Total S/ 38.00");
+  assert.deepEqual(r.charges, []);
+  assert.equal(r.total, "38.00");
+  assert.deepEqual(r.warnings, []);
+});
+
+test("a dish line whose price the reader missed is kept with an empty price; a single one is filled from the total", () => {
+  const one = parseReceipt("1 SPRITE\n1 PILSEN CALLAO   14.00\n1 LOMO FINO   20.00\nTotal : S/.44.00");
+  assert.deepEqual(one.items.map((i) => `${i.name}:${i.price}`), ["Sprite:10.00", "Pilsen Callao:14.00", "Lomo Fino:20.00"]);
+  assert.match(one.warnings.join(" "), /price of "Sprite" wasn't read; 10\.00/);
+  const two = parseReceipt("1 SPRITE\n1 VASO SMIRNOFF\n1 PILSEN CALLAO   14.00\nTotal : S/.60.00");
+  assert.deepEqual(two.items.map((i) => `${i.name}:${i.price}`), ["Sprite:", "Vaso Smirnoff:", "Pilsen Callao:14.00"]);
+  assert.match(two.warnings.join(" "), /2 lines have no price read/);
+});
+
+test("free modifier lines (no price) are dropped when the bill already adds up without them", () => {
+  const r = parseReceipt("1 CAFE LATTE   14.00\n+LECHE DE ALMENDRA   1\n1 GALLETA   9.00\nTotal Venta: S/ 23.00");
+  assert.deepEqual(r.items.map((i) => `${i.name}:${i.price}`), ["Cafe Latte:14.00", "Galleta:9.00"]);
+  assert.deepEqual(r.warnings, []);
 });
