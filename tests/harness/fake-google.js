@@ -189,13 +189,17 @@ function buildGmail() {
     getUserLabelByName: (n) => labels.get(n) || null,
     createLabel(n) { const l = mkLabel(n); labels.set(n, l); return l; },
     search(query, start = 0, max = 500) {
-      const from = (/from:(\S+)/.exec(query) || [])[1];
+      // from:addr, from:me (the test user), or from:(a OR b)
+      const fromRaw = (/from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
+      const froms = fromRaw ? fromRaw.replace(/[()]/g, "").split(/\s+OR\s+/).map((f) => (f === "me" ? "test@example.com" : f)) : null;
+      const needAttachment = /has:attachment/.test(query);
       const notLabel = (/-label:(\S+)/.exec(query) || [])[1];
       const mustLabel = (/(?:^|\s)label:(\S+)/.exec(query) || [])[1];
       const days = (/newer_than:(\d+)d/.exec(query) || [])[1];
       const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
       return threads
-        .filter((t) => (!from || t.messages.some((m) => m.getFrom().includes(from))))
+        .filter((t) => (!froms || t.messages.some((m) => froms.some((f) => m.getFrom().includes(f)))))
+        .filter((t) => !needAttachment || t.messages.some((m) => m.getAttachments().length))
         .filter((t) => !notLabel || !t.labelNames.has(notLabel))
         .filter((t) => !mustLabel || t.labelNames.has(mustLabel))
         .filter((t) => t.messages.some((m) => m.getDate().getTime() >= cutoff))
@@ -205,12 +209,13 @@ function buildGmail() {
   };
 
   // Test helper: add an email (own thread unless threadWith is given).
-  function addEmail({ from, subject, body, daysAgo = 0, threadWith }) {
+  function addEmail({ from, subject, body, daysAgo = 0, threadWith, attachments = [] }) {
     const msg = {
       _id: "m" + nextId++,
       getSubject: () => subject, getPlainBody: () => body, getFrom: () => from,
       getDate: () => new Date(Date.now() - daysAgo * 86400000 + 1000 * nextId),
-      getId() { return this._id; }, getAttachments: () => []
+      getId() { return this._id; },
+      getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => [] }))
     };
     let thread = threadWith;
     if (!thread) {
@@ -294,7 +299,8 @@ function buildServices(state) {
     },
     Session: {
       getScriptTimeZone: () => TZ,
-      getActiveUser: () => ({ getEmail: () => "test@example.com" })
+      getActiveUser: () => ({ getEmail: () => "test@example.com" }),
+      getEffectiveUser: () => ({ getEmail: () => "test@example.com" })
     },
     ContentService: {
       MimeType: { JSON: "json", TEXT: "text" },

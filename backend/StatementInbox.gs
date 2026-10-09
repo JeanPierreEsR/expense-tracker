@@ -21,7 +21,10 @@ var STATEMENT_SENDERS_ = [
   { address: 'estadodecuenta@dinersonline.com.pe', label: 'Diners', bank: 'diners', creditOnly: false },
   { address: 'dinersenlinea@dinersclub.com.pe', label: 'Diners', bank: 'diners', creditOnly: false },
   { address: 'no-reply@servicioalcliente.sip.pe', label: 'SIP', bank: 'sip', creditOnly: false },
-  { address: 'notificaciones@notificacionesbcp.com.pe', label: 'BCP', bank: 'bcp', creditOnly: false }
+  { address: 'notificaciones@notificacionesbcp.com.pe', label: 'BCP', bank: 'bcp', creditOnly: false },
+  // AhorraMás is a savings product inside the SIP app (its accounts sit under the SIP bank); this
+  // address also sends SIP operation emails, but those carry no PDF, so only statements get through.
+  { address: 'no-reply@operaciones.agora.pe', label: 'AhorraMás', bank: 'sip', creditOnly: false }
 ];
 
 function ensureStatementInboxSheet_() {
@@ -34,16 +37,46 @@ function stmtIsStatementAttachment_(name) {
   return /\.pdf$/i.test(n) && !/promo|retira|logo|folleto|brochure|cartilla/i.test(n);
 }
 
+// Statements the owner mails to himself (banks that send nothing automatically).
+// With no bank address to go on, the bank is recognized from the PDF's file name
+// (the first matching rule) or, failing that, a bank word in the file name or
+// subject. A self-sent PDF that matches none is not a statement as far as we
+// know (he also mails himself other PDFs) and is left out of the inbox.
+var STATEMENT_SELF_FILENAME_RULES_ = [
+  { pattern: /^account_summary/i, label: 'Interbank', bank: 'interbank' },
+  { pattern: /^EECC/i, label: 'BCP', bank: 'bcp' }
+];
+var STATEMENT_SELF_BANK_WORDS_ = [
+  { pattern: /interbank|\bibk\b/i, label: 'Interbank', bank: 'interbank' },
+  { pattern: /diners/i, label: 'Diners', bank: 'diners' },
+  { pattern: /\bbcp\b/i, label: 'BCP', bank: 'bcp' },
+  { pattern: /\bsip\b/i, label: 'SIP', bank: 'sip' }
+];
+
+function stmtSelfSentBank_(fileName, subject) {
+  var byName = STATEMENT_SELF_FILENAME_RULES_.filter(function (r) { return r.pattern.test(String(fileName || '')); })[0];
+  if (byName) return byName;
+  var text = String(fileName || '') + ' ' + String(subject || '');
+  return STATEMENT_SELF_BANK_WORDS_.filter(function (r) { return r.pattern.test(text); })[0] || null;
+}
+
 function scanStatementInbox_() {
   ensureStatementInboxSheet_();
   var rows = getAllRows('Statement Inbox');
   var first = rows.length === 0;
   var seenMessage = {};
   rows.forEach(function (r) { seenMessage[r.message_id] = true; });
-  var query = 'from:(' + STATEMENT_SENDERS_.map(function (s) { return s.address; }).join(' OR ') + ') has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
+  var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
   var tz = Session.getScriptTimeZone();
+  var me = '';
+  try { me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) { me = ''; }
   var added = [];
-  GmailApp.search(query, 0, 50).forEach(function (thread) {
+  function note(m, sender, att, selfSent) {
+    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: selfSent ? 'self' : sender.address,
+      bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
+      status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
+  }
+  GmailApp.search('from:(' + STATEMENT_SENDERS_.map(function (s) { return s.address; }).join(' OR ') + ')' + window, 0, 50).forEach(function (thread) {
     thread.getMessages().forEach(function (m) {
       var id = m.getId();
       if (seenMessage[id]) return;
@@ -51,14 +84,27 @@ function scanStatementInbox_() {
       var sender = STATEMENT_SENDERS_.filter(function (s) { return from.indexOf(s.address) >= 0; })[0];
       if (!sender) return;
       m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
-        if (!stmtIsStatementAttachment_(a.getName())) return;
-        added.push({ id: Utilities.getUuid(), message_id: id, attachment_name: a.getName(), sender_key: sender.address,
-          bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
-          status: 'new', size_kb: Math.round(a.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
+        if (stmtIsStatementAttachment_(a.getName())) note(m, sender, a, false);
       });
       seenMessage[id] = true;
     });
   });
+  // The owner's own mails to himself (only if his address is known, so we never match someone else's).
+  if (me) {
+    GmailApp.search('from:me to:me' + window, 0, 50).forEach(function (thread) {
+      thread.getMessages().forEach(function (m) {
+        var id = m.getId();
+        if (seenMessage[id]) return;
+        if (String(m.getFrom()).toLowerCase().indexOf(me) < 0) return;
+        m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
+          if (!stmtIsStatementAttachment_(a.getName())) return;
+          var bank = stmtSelfSentBank_(a.getName(), m.getSubject());
+          if (bank) note(m, bank, a, true);
+        });
+        seenMessage[id] = true;
+      });
+    });
+  }
   // Older ones found on the very first scan are listed silently; later ones get one nudge each.
   added.forEach(function (o) {
     if (!o.notified) {
