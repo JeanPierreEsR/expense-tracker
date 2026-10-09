@@ -64,6 +64,12 @@ function stmtSelfSentBank_(fileName, subject, body) {
   return STATEMENT_SENDERS_.filter(function (s) { return lower.indexOf(s.address) >= 0; })[0] || null;
 }
 
+/** True when the message's sender is among its own recipients (a mail he sent to himself). */
+function stmtSentToSelf_(m) {
+  var from = (/[\w.+-]+@[\w.-]+/.exec(String(m.getFrom()).toLowerCase()) || [])[0];
+  return !!from && String(m.getTo()).toLowerCase().indexOf(from) >= 0;
+}
+
 function scanStatementInbox_() {
   ensureStatementInboxSheet_();
   var rows = getAllRows('Statement Inbox');
@@ -72,8 +78,6 @@ function scanStatementInbox_() {
   rows.forEach(function (r) { seenMessage[r.message_id] = true; });
   var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
   var tz = Session.getScriptTimeZone();
-  var me = '';
-  try { me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) { me = ''; }
   var added = [];
   function note(m, sender, att, selfSent) {
     added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: selfSent ? 'self' : sender.address,
@@ -93,13 +97,16 @@ function scanStatementInbox_() {
       seenMessage[id] = true;
     });
   });
-  // The owner's own mails to himself (only if his address is known, so we never match someone else's).
-  if (me) {
+  // The owner's own mails to himself. Gmail's `from:me to:me` finds the threads; each message is then
+  // checked to really be one he sent to himself (its sender is among its recipients), so a stranger's
+  // reply inside the same thread is never taken. (No Session email lookup: that needs a permission
+  // the app was never granted, and failed silently — see CHANGELOG.)
+  {
     GmailApp.search('from:me to:me' + window, 0, 50).forEach(function (thread) {
       thread.getMessages().forEach(function (m) {
         var id = m.getId();
         if (seenMessage[id]) return;
-        if (String(m.getFrom()).toLowerCase().indexOf(me) < 0) return;
+        if (!stmtSentToSelf_(m)) return;
         m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
           if (!stmtIsStatementAttachment_(a.getName())) return;
           var bank = stmtSelfSentBank_(a.getName(), m.getSubject(), m.getPlainBody());

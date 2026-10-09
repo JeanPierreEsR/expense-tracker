@@ -46,7 +46,7 @@ test("a self-sent PDF that matches no bank is ignored, and so is a non-PDF", () 
 test("someone else's email with an account_summary PDF is not taken, and a rescan does not add twice", () => {
   const { rt } = freshApp({ entries: 50 });
   warmUp(rt);
-  rt.svc.gmail.addEmail({ from: "Stranger <x@evil.test>", subject: "hi", body: "", attachments: [{ name: "account_summary.pdf" }] });
+  rt.svc.gmail.addEmail({ from: "Stranger <x@evil.test>", to: ME, subject: "hi", body: "", attachments: [{ name: "account_summary.pdf" }] });
   rt.svc.gmail.addEmail({ from: ME, subject: "s", body: "", attachments: [{ name: "account_summary.pdf" }] });
   assert.equal(scan(rt).found, 1);
   assert.equal(scan(rt).found, 0);

@@ -209,10 +209,10 @@ function buildGmail() {
   };
 
   // Test helper: add an email (own thread unless threadWith is given).
-  function addEmail({ from, subject, body, daysAgo = 0, threadWith, attachments = [] }) {
+  function addEmail({ from, to, subject, body, daysAgo = 0, threadWith, attachments = [] }) {
     const msg = {
       _id: "m" + nextId++,
-      getSubject: () => subject, getPlainBody: () => body, getFrom: () => from,
+      getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => body, getFrom: () => from,
       getDate: () => new Date(Date.now() - daysAgo * 86400000 + 1000 * nextId),
       getId() { return this._id; },
       getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => [] }))
@@ -300,7 +300,7 @@ function buildServices(state) {
     Session: {
       getScriptTimeZone: () => TZ,
       getActiveUser: () => ({ getEmail: () => "test@example.com" }),
-      getEffectiveUser: () => ({ getEmail: () => "test@example.com" })
+      getEffectiveUser: () => { throw new Error("Session.getEffectiveUser: userinfo.email scope not granted (as in production)"); }
     },
     ContentService: {
       MimeType: { JSON: "json", TEXT: "text" },
