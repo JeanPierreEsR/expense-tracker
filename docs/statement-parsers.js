@@ -285,16 +285,20 @@
       });
     });
 
+    var credit = {};        // per currency: negative sum of subtotals when the card is in credit
     if (!monthly) errors.push('"PAGO DEL MES" total not found.');
     else {
       ['PEN', 'USD'].forEach(function (cur) {
         var sum = round2(['payments', 'purchases', 'fees'].reduce(function (a, k) { return a + ((subtotals[k] && subtotals[k][cur]) || 0); }, 0));
+        // Paid more than owed: the bank prints PAGO DEL MES as 0.00 but the subtotals add to a
+        // negative (a credit balance carried to the next statement) — that is consistent, not an error.
+        if (round2(monthly[cur] || 0) === 0 && sum < 0) { credit[cur] = sum; return; }
         if (round2(monthly[cur] || 0) !== sum) errors.push('Sum of subtotals ' + sum.toFixed(2) + ' ≠ PAGO DEL MES ' + (monthly[cur] || 0).toFixed(2) + ' (' + cur + ').');
       });
     }
     var balances = {};
     ['PEN', 'USD'].forEach(function (cur) {
-      balances[cur] = { opening: round2(-(prev[cur] || 0)), closing: round2(-(monthly ? (monthly[cur] || 0) : 0)) };
+      balances[cur] = { opening: round2(-(prev[cur] || 0)), closing: round2(credit[cur] !== undefined ? -credit[cur] : -(monthly ? (monthly[cur] || 0) : 0)) };
     });
     return {
       ok: errors.length === 0, errors: errors, kind: 'visa', bank: 'Interbank',
