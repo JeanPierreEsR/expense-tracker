@@ -39,11 +39,11 @@ function stmtIsStatementAttachment_(name) {
 
 // Statements the owner mails to himself (banks that send nothing automatically).
 // With no bank address to go on, the bank is recognized from the PDF's file name
-// (the first matching rule) or, failing that, a bank word in the file name or
-// subject. A self-sent PDF that matches none is not a statement as far as we
+// (the first matching rule), failing that a bank word in the file name or
+// subject, failing that a known bank address quoted in a forwarded body. A self-sent PDF that matches none is not a statement as far as we
 // know (he also mails himself other PDFs) and is left out of the inbox.
 var STATEMENT_SELF_FILENAME_RULES_ = [
-  { pattern: /^account_summary/i, label: 'Interbank', bank: 'interbank' },
+  { pattern: /^account_sum+ary/i, label: 'Interbank', bank: 'interbank' },
   { pattern: /^EECC/i, label: 'BCP', bank: 'bcp' }
 ];
 var STATEMENT_SELF_BANK_WORDS_ = [
@@ -53,11 +53,15 @@ var STATEMENT_SELF_BANK_WORDS_ = [
   { pattern: /\bsip\b/i, label: 'SIP', bank: 'sip' }
 ];
 
-function stmtSelfSentBank_(fileName, subject) {
+function stmtSelfSentBank_(fileName, subject, body) {
   var byName = STATEMENT_SELF_FILENAME_RULES_.filter(function (r) { return r.pattern.test(String(fileName || '')); })[0];
   if (byName) return byName;
   var text = String(fileName || '') + ' ' + String(subject || '');
-  return STATEMENT_SELF_BANK_WORDS_.filter(function (r) { return r.pattern.test(text); })[0] || null;
+  var byWord = STATEMENT_SELF_BANK_WORDS_.filter(function (r) { return r.pattern.test(text); })[0];
+  if (byWord) return byWord;
+  // A forwarded bank email still quotes the original sender's address ("De: … <address>").
+  var lower = String(body || '').toLowerCase();
+  return STATEMENT_SENDERS_.filter(function (s) { return lower.indexOf(s.address) >= 0; })[0] || null;
 }
 
 function scanStatementInbox_() {
@@ -98,7 +102,7 @@ function scanStatementInbox_() {
         if (String(m.getFrom()).toLowerCase().indexOf(me) < 0) return;
         m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
           if (!stmtIsStatementAttachment_(a.getName())) return;
-          var bank = stmtSelfSentBank_(a.getName(), m.getSubject());
+          var bank = stmtSelfSentBank_(a.getName(), m.getSubject(), m.getPlainBody());
           if (bank) note(m, bank, a, true);
         });
         seenMessage[id] = true;

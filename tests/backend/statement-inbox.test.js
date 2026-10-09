@@ -78,3 +78,21 @@ test("IBK in a self-sent subject or file name means Interbank", () => {
   scan(rt);
   assert.equal(inbox(rt)[0].bank_label, "Interbank");
 });
+
+test("a forwarded bank email is recognized by the original sender address quoted in its body", () => {
+  const { rt } = freshApp({ entries: 50 });
+  warmUp(rt);
+  rt.svc.gmail.addEmail({ from: ME, subject: "Fwd: Tu estado de cuenta", attachments: [{ name: "20260930_0001.pdf" }],
+    body: "---------- Forwarded message ---------\nDe: Banco <tarjetasdecredito@eecc.interbank.pe>\n" });
+  assert.equal(scan(rt).found, 1);
+  assert.equal(inbox(rt)[0].bank_keyword, "interbank");
+});
+
+test("the owner's real-looking case: forwarded 'IBK dolares' mail with a misspelled account_sumary file is noted", () => {
+  const { rt } = freshApp({ entries: 50 });
+  warmUp(rt);
+  rt.svc.gmail.addEmail({ from: "Owner Name <test@example.com>", subject: "Fwd: IBK dolares septiembre 2026", body: "---------- Forwarded message ---------", attachments: [{ name: "account_sumary_0001.pdf" }] });
+  rt.svc.gmail.addEmail({ from: "Owner Name <test@example.com>", subject: "x", body: "", attachments: [{ name: "account_sumary_0002.pdf" }] });
+  assert.equal(scan(rt).found, 2);
+  assert.deepEqual(inbox(rt).map((r) => r.bank_label), ["Interbank", "Interbank"]);
+});
