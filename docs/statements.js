@@ -73,7 +73,11 @@
     try { inbox = (await callApi("listStatementInbox", {})).items; }
     catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
     if (!inbox.length) { list.innerHTML = '<p class="hint">Nothing waiting. New statements from your banks show up here.</p>'; return; }
-    list.innerHTML = inbox.map((i) => {
+    const waitingCount = inbox.filter((i) => i.status === "new").length;
+    const openAll = waitingCount > 1
+      ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-inbox-open-all">Open all ${waitingCount} waiting</button></div>`
+      : "";
+    list.innerHTML = openAll + inbox.map((i) => {
       const done = i.status === "processed";
       const note = done ? "✅ Processed" : (i.probably_processed ? `Probably already processed (you processed this account on ${fmtDate(i.last_processed, true)})` : "🟡 Not processed");
       return `<div class="stmt-row"><div class="stmt-row-main">
@@ -86,24 +90,46 @@
     }).join("");
   }
 
+  // Fetches one inbox statement from Gmail and reads it (asks its password). Throws on failure.
+  async function fetchAndReadInboxItem(id) {
+    const att = await callApi("getStatementAttachment", { id });
+    const bin = atob(att.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+    const file = new File([bytes], att.name, { type: "application/pdf" });
+    file.inboxId = id;
+    if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
+    await readStatementFile(file);
+  }
+
   async function openInboxItem(id, btn) {
-    const item = inbox.find((i) => i.id === id);
-    if (!item) return;
+    if (!inbox.find((i) => i.id === id)) return;
     btn.disabled = true; btn.textContent = "Fetching…";
     try {
-      const att = await callApi("getStatementAttachment", { id });
-      const bin = atob(att.base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
-      const file = new File([bytes], att.name, { type: "application/pdf" });
-      file.inboxId = id;
-      if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-      await readStatementFile(file);
+      await fetchAndReadInboxItem(id);
       $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       alert("Couldn't fetch that statement: " + (err && err.message ? err.message : err));
     }
     btn.disabled = false; btn.textContent = "Open";
+  }
+
+  // Opens every statement still waiting in the inbox, one after another (easy on a phone's memory;
+  // each asks its own password). One that fails to fetch is reported at the end, the rest continue.
+  async function openAllInboxItems(btn) {
+    const waiting = inbox.filter((i) => i.status === "new");
+    if (!waiting.length) return;
+    const label = btn.textContent;
+    btn.disabled = true;
+    const failed = [];
+    for (let n = 0; n < waiting.length; n++) {
+      btn.textContent = `Opening ${n + 1} of ${waiting.length}…`;
+      try { await fetchAndReadInboxItem(waiting[n].id); }
+      catch (err) { failed.push(`${waiting[n].bank} (${waiting[n].received}): ${err && err.message ? err.message : err}`); }
+    }
+    btn.disabled = false; btn.textContent = label;
+    $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (failed.length) alert("Couldn't fetch:\n" + failed.join("\n"));
   }
 
   // ---- coverage list ----
@@ -779,8 +805,9 @@
   });
   $("statement-review-btn").addEventListener("click", runReview);
   $("statement-inbox-list").addEventListener("click", async (e) => {
-    const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss");
-    if (open) openInboxItem(open.dataset.id, open);
+    const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
+    if (all) openAllInboxItems(all);
+    else if (open) openInboxItem(open.dataset.id, open);
     else if (dis && confirm("Dismiss this statement? It disappears from the inbox (it is not deleted from your email).")) {
       try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert("Couldn't dismiss: " + err.message); }
       refreshStatementInbox(); refreshStatementCoverage();
