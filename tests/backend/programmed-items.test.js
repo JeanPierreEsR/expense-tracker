@@ -223,3 +223,72 @@ test("skip / undo work even if Sheets stored the month as a real date", () => {
   assert.equal(rt.rows("Recurring Skips").filter((s) => s.recurring_expense_id === r.id).length, 0);
   assert.equal(occ(rt, r.id, "2026-01-01", "2026-05-31").length, 5);
 });
+
+// ---- matching across currencies; wider match pickers (2026-10-10) ----------------
+test("a USD charge matches a PEN item when the converted amounts agree", () => {
+  const { rt, data } = freshApp();
+  const cat = quietCat(rt, data);
+  const day = Number(today().slice(8, 10));
+  rt.api("setExchangeRate", { currency: "USD", month: ym(), rate: 3.8 });
+  const r = item(rt, data, { category_id: cat.id, day, amount: 12.9, currency: "PEN" });
+  assert.ok(expectedIds(rt).includes(r.id));
+  rt.api("createEntry", { type: "expense", date: today(), amount: 3.4, currency: "USD", category_id: cat.id, description: "iCloud", paid_by: "me", payment_method_id: data.pms[3].id });
+  assert.ok(!expectedIds(rt).includes(r.id), "3.40 USD x 3.8 = 12.92 PEN counts as paid");
+});
+
+test("a USD charge far from the PEN amount does not match", () => {
+  const { rt, data } = freshApp();
+  const cat = quietCat(rt, data);
+  rt.api("setExchangeRate", { currency: "USD", month: ym(), rate: 3.8 });
+  const r = item(rt, data, { category_id: cat.id, day: Number(today().slice(8, 10)), amount: 12.9, currency: "PEN" });
+  rt.api("createEntry", { type: "expense", date: today(), amount: 9, currency: "USD", category_id: cat.id, description: "x", paid_by: "me", payment_method_id: data.pms[3].id });
+  assert.ok(expectedIds(rt).includes(r.id));
+});
+
+test("the Mark-as-paid picker shows every entry of the month: top 10 by similarity, the rest by date", () => {
+  const { rt, data } = freshApp();
+  const M = "2031-05"; // an empty month: the sample data has nothing there
+  const cat = quietCat(rt, data);
+  rt.api("setExchangeRate", { currency: "USD", month: M, rate: 3.8 });
+  const r = item(rt, data, { category_id: cat.id, day: 15, amount: 12.9, currency: "PEN" });
+  const mk = (day, amount, currency, description) => rt.api("createEntry", { type: "expense", date: M + "-" + String(day).padStart(2, "0"), amount, currency, category_id: cat.id, description, paid_by: "me", payment_method_id: data.pms[3].id });
+  const usd = mk(2, 3.4, "USD", "iCloud");
+  for (let i = 0; i < 14; i++) mk(3 + i, 500 + i, "PEN", "other " + i);
+  const list = rt.api("listEntriesForRecurringMonth", { id: r.id, month: M });
+  assert.equal(list.length, 15, "nothing is hidden");
+  assert.equal(list[0].id, usd.id, "the USD charge is the best guess");
+  assert.equal(list.filter((x) => x.is_top).length, 10);
+  assert.ok(list.slice(0, 10).every((x) => x.is_top) && list.slice(10).every((x) => !x.is_top));
+  const rest = list.slice(10).map((x) => x.date);
+  assert.deepEqual(rest, [...rest].sort().reverse(), "the rest is by date, newest first");
+});
+
+test("an item on the 1st also sees the last two days of the previous month", () => {
+  const { rt, data } = freshApp();
+  const cat = quietCat(rt, data);
+  const r = item(rt, data, { category_id: cat.id, day: 1, amount: 50 });
+  const prevEnd = new Date(Number(ym().slice(0, 4)), Number(ym().slice(5, 7)) - 1, 0);
+  const d = (back) => { const x = new Date(prevEnd); x.setDate(x.getDate() - back); return x.toISOString().slice(0, 10); };
+  const mk = (date) => rt.api("createEntry", { type: "expense", date, amount: 50, currency: "PEN", category_id: cat.id, description: "d" + date, paid_by: "me", payment_method_id: data.pms[3].id });
+  const lastDay = mk(d(0)), twoBefore = mk(d(1)), threeBefore = mk(d(2));
+  const ids = rt.api("listEntriesForRecurringMonth", { id: r.id, month: ym() }).map((x) => x.id);
+  assert.ok(ids.includes(lastDay.id) && ids.includes(twoBefore.id));
+  assert.ok(!ids.includes(threeBefore.id));
+});
+
+test("the statement picker lists the whole month in any currency, best matches first", () => {
+  const { rt, data } = freshApp();
+  const cat = quietCat(rt, data);
+  rt.api("setExchangeRate", { currency: "USD", month: "2031-05", rate: 3.8 });
+  const mk = (date, amount, currency, description) => rt.api("createEntry", { type: "expense", date, amount, currency, category_id: cat.id, description, paid_by: "me", payment_method_id: data.pms[3].id });
+  const far = mk("2031-05-28", 20, "PEN", "unrelated");
+  const hit = mk("2031-05-03", 3.4, "USD", "iCloud");
+  const list = rt.api("getEntriesNear", { date: "2031-05-20", amount: 12.9, currency: "PEN", description: "APPLE ICLOUD", kind: "purchase" });
+  assert.deepEqual(list.map((x) => x.id), [hit.id, far.id].sort((a, b) => (a === hit.id ? -1 : 1)));
+  assert.ok(list.every((x) => x.is_top));
+  const early = rt.api("getEntriesNear", { date: "2031-06-01", amount: 20, currency: "PEN", description: "x", kind: "purchase" });
+  assert.ok(early.length === 0, "June 1st with nothing in late May or June");
+  const mayEnd = mk("2031-05-31", 20, "PEN", "late");
+  const early2 = rt.api("getEntriesNear", { date: "2031-06-02", amount: 20, currency: "PEN", description: "x", kind: "purchase" });
+  assert.deepEqual(early2.map((x) => x.id), [mayEnd.id]);
+});

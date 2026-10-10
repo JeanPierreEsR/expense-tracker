@@ -492,17 +492,24 @@ function listStatementBatches() {
   }).sort(function (x, y) { return x.processed_at < y.processed_at ? 1 : -1; }).slice(0, 5);
 }
 
-/** Existing entries near a date — for the "match this line to an entry" picker. */
+/**
+ * Existing entries for the "match this line to an entry" picker: the whole
+ * calendar month of the line's date (plus the last two days of the previous
+ * month when the line falls on the 1st/2nd), in ANY currency. The 10 most
+ * similar come first (is_top), then everything else by date.
+ * payload: { date, amount, currency, description, kind ('income' or other) }
+ */
 function getEntriesNear(payload) {
-  var days = Number(payload.days) || 10;
-  var lo = covAddDays_(payload.date, -days), hi = covAddDays_(payload.date, days);
+  var win = matchPickerWindow_(payload.date);
+  var wantIncome = payload.kind === 'income';
   var catsById = rowsById_(getAllRows('Categories'));
   var pmsById = rowsById_(getAllRows('Payment Methods'));
-  return getAllRows('Entries').filter(function (e) {
-    return e.date >= lo && e.date <= hi && (!payload.currency || e.currency === payload.currency);
-  }).map(function (e) { return stmtEntrySummary_(e, catsById, pmsById); })
-    .sort(function (a, b) { return Math.abs(stmtDayNumber_(a.date) - stmtDayNumber_(payload.date)) - Math.abs(stmtDayNumber_(b.date) - stmtDayNumber_(payload.date)); })
-    .slice(0, 60);
+  var candidates = getAllRows('Entries').filter(function (e) {
+    return e.date >= win.lo && e.date <= win.hi && ((e.type === 'income') === wantIncome);
+  }).map(function (e) { return stmtEntrySummary_(e, catsById, pmsById); });
+  return orderMatchCandidates_(candidates, {
+    amount: payload.amount, currency: payload.currency, date: payload.date, description: payload.description
+  });
 }
 
 

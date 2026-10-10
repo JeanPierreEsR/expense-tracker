@@ -5716,14 +5716,24 @@ async function openPaidPicker_(item, currency) {
   document.getElementById("paid-picker-empty").hidden = true;
   document.getElementById("paid-picker-title").textContent = "Mark as paid";
   document.getElementById("paid-picker-hint").textContent =
-    `Which entry this month paid "${item.description || item.category_name}" (${currency} ${moneyFmt(item.amount)})? Closest amounts first.`;
+    `Which entry this month paid "${item.description || item.category_name}" (${currency} ${moneyFmt(item.amount)})? Most similar first, then everything this month by date.`;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   try {
     const entries = await callApi("listEntriesForRecurringMonth", { id: item.id, month: todayLocalISO().slice(0, 7) });
     list.innerHTML = "";
     document.getElementById("paid-picker-empty").hidden = entries.length > 0;
-    entries.forEach((e) => {
+    const topCount = entries.filter((e) => e.is_top).length;
+    const addHeading = (text) => {
+      const h = document.createElement("p");
+      h.className = "hint";
+      h.style.cssText = "margin:8px 0 4px;font-weight:600;";
+      h.textContent = text;
+      list.appendChild(h);
+    };
+    entries.forEach((e, i) => {
+      if (topCount && i === 0) addHeading("Most similar");
+      if (topCount && i === topCount) addHeading("All of the month, by date");
       const row = document.createElement("div");
       row.className = "link-candidate-row";
       row.style.cursor = "pointer";

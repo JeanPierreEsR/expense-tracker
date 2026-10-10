@@ -59,12 +59,12 @@ function photoLooseAmount_(lines, titleRe) {
   for (var i = 0; i < lines.length; i++) {
     if (!titleRe.test(lines[i])) continue;
     for (var j = i + 1; j < lines.length && j <= i + 6; j++) {
-      var m = lines[j].match(/^[Ss5$]\s*[\/1lI|]?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*\S{0,2}$/);
+      var m = lines[j].match(/^[Ss5$]\s*[\/1lI|i]?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*\S{0,2}$/);
       if (!m) continue;
       var amount = parseFloat(m[1].replace(/,/g, ''));
       // "5170" -> the "51" was "S/"; a bare 4+ digit token with no slash-like
       // prefix is not trusted.
-      if (amount > 0 && /^[Ss5$]\s*[\/1lI|]/.test(lines[j])) return { amount: amount, currency: 'PEN' };
+      if (amount > 0 && /^[Ss5$]\s*[\/1lI|i]/.test(lines[j])) return { amount: amount, currency: 'PEN' };
     }
     // Sometimes the "S/" is dropped entirely and the line is just the
     // number with two decimals plus a stray character ("35.00 u"). Only a
@@ -118,6 +118,64 @@ function photoLineAfter_(lines, markerRe) {
   return null;
 }
 
+// Lower-case, accent-free, "*" and punctuation removed, words split.
+function photoNameTokens_(name) {
+  return String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Is the (masked) name printed on a Yape image the owner's? Yape masks the end of
+ * the surname ("Ana Lo*"), so each word of the masked name must match a word of
+ * one of the owner's names in order, the LAST one as a prefix. `ownerNames` is the
+ * Settings value `owner_names`: comma-separated, e.g. the full name and/or how Yape
+ * shows it. At least two words must match, so a lone first name never counts.
+ */
+function photoIsOwnerName_(maskedName, ownerNames) {
+  var m = photoNameTokens_(maskedName);
+  if (m.length < 2) return false;
+  return String(ownerNames || '').split(',').some(function (variant) {
+    var v = photoNameTokens_(variant), at = 0;
+    if (v.length < 2) return false;
+    for (var j = 0; j < m.length; j++) {
+      var last = j === m.length - 1, found = -1;
+      for (var k = at; k < v.length; k++) {
+        if (last ? v[k].indexOf(m[j]) === 0 : v[k] === m[j]) { found = k; break; }
+      }
+      if (found < 0) return false;
+      at = found + 1;
+    }
+    return true;
+  });
+}
+
+// The optional message the sender typed ("almuerzo del menu"): the line right
+// after the date/time line, unless that is already the next block.
+function photoNoteAfterDate_(lines) {
+  for (var i = 0; i < lines.length - 1; i++) {
+    if (!/\d{1,2}\s+[A-Za-zñÑ]{3,4}\.?\s+\d{4}/.test(lines[i])) continue;
+    var l = lines[i + 1].trim();
+    // OCR turns the little message icon into a stray character in front of the text.
+    l = l.replace(/^[^A-Za-zÁÉÍÓÚáéíóúñÑ0-9]*[A-Za-z0-9]\s+(?=\S{2})/, '').trim();
+    if (l && /[A-Za-zÁÉÍÓÚáéíóúñÑ]{3,}/.test(l) && !/c[oó]digo\s+de\s+seguridad|datos\s+de\s+la\s+transacci/i.test(l)) return l;
+    return null;
+  }
+  return null;
+}
+
+// Yape prints the other person's name masked ("Ana Lo*"). When the text holds a title
+// followed, within a few lines, by a line ending in "*", that is the name — more reliable
+// than "the first wordy line", which OCR noise (icons, the logo) can fool.
+function photoMaskedNameAfter_(lines, markerRe) {
+  for (var i = 0; i < lines.length; i++) {
+    if (!markerRe.test(lines[i])) continue;
+    for (var j = i + 1; j < lines.length && j <= i + 4; j++) {
+      if (/^[^\d]*[A-Za-zÁÉÍÓÚáéíóúñÑ]{2,}[^\d]*\*\s*$/.test(lines[j]) && !/compartir|\$/i.test(lines[j])) return lines[j].replace(/^[^A-Za-zÁÉÍÓÚáéíóúñÑ]+/, '').trim();
+    }
+  }
+  return null;
+}
+
 /**
  * Returns null when the text isn't a recognised receipt, otherwise
  * { kind, type, amount, currency, description, date, time, externalId,
@@ -151,7 +209,7 @@ function parsePhotoReceipt_(text) {
   if (/yapearon/i.test(clean)) {
     var amtIn = photoAmount_(clean, false) || photoLooseAmount_(lines, /yapearon/i);
     if (!amtIn) return { kind: 'yape_received', error: 'amount' };
-    var sender = photoLineAfter_(lines.filter(function (l) { return !/compartir/i.test(l); }), /yapearon/i);
+    var sender = photoMaskedNameAfter_(lines, /yapearon/i) || photoLineAfter_(lines.filter(function (l) { return !/compartir/i.test(l); }), /yapearon/i);
     // The amount sits on its own line between the title and the name; the
     // helper skips it (digits) and lands on the sender's name.
     return {
@@ -159,6 +217,24 @@ function parsePhotoReceipt_(text) {
       amount: amtIn.amount, currency: amtIn.currency,
       description: sender ? 'Yape de ' + sender : 'Yape recibido',
       counterparty: sender,
+      date: when && when.date, time: when && when.time,
+      externalId: opCode, accountByCurrency: BCP_ACCOUNTS
+    };
+  }
+
+  // Yape "¡Yapeaste!" screen: money OUT (to the BCP account of that currency) —
+  // unless the name on it is the owner's own, which processPhotoText_ turns into income
+  // (people send him their own "Yapeaste" screenshot as proof of payment).
+  if (/yapeaste/i.test(clean)) {
+    var amtOut = photoAmount_(clean, false) || photoLooseAmount_(lines, /yapeaste/i);
+    if (!amtOut) return { kind: 'yape_sent', error: 'amount' };
+    var recipientY = photoMaskedNameAfter_(lines, /yapeaste/i) || photoLineAfter_(lines, /yapeaste/i);
+    var note = photoNoteAfterDate_(lines);
+    return {
+      kind: 'yape_sent', type: 'expense',
+      amount: amtOut.amount, currency: amtOut.currency,
+      description: (recipientY ? 'Yape a ' + recipientY : 'Yape') + (note ? ' — ' + note : ''),
+      counterparty: recipientY, note: note,
       date: when && when.date, time: when && when.time,
       externalId: opCode, accountByCurrency: BCP_ACCOUNTS
     };
@@ -259,6 +335,14 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     return;
   }
 
+  // A "Yapeaste" image whose name is the owner's was a payment TO him: income, not expense.
+  var ownerMatched = false;
+  if (parsed.kind === 'yape_sent' && photoIsOwnerName_(parsed.counterparty, getSettingsMap().owner_names)) {
+    ownerMatched = true;
+    parsed.type = 'income';
+    parsed.description = 'Yape recibido' + (parsed.note ? ' — ' + parsed.note : '');
+  }
+
   var tz = Session.getScriptTimeZone();
   var now = new Date();
   var dateStr = parsed.date || Utilities.formatDate(now, tz, 'yyyy-MM-dd');
@@ -313,6 +397,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   };
   appendRowObject('Entries', entry);
   sendTelegramEntryNotification_(entry, null, autoReason);
+  if (ownerMatched) photoReply_(chatId, replyToMessageId, "The name on this image matches yours, so I counted it as money you received (income). If that's wrong, discard it and tell me.");
 }
 
 // ---- Job queue for the Mac Mini's Tesseract helper ----

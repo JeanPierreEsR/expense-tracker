@@ -677,16 +677,26 @@
       const backdrop = $("statement-match-backdrop");
       const list = $("statement-match-list");
       $("statement-match-title").textContent = `${fmtDate(it.line.date)} · ${it.line.description} · ${fmtMoney(it.line.currency, it.line.amount)}`;
-      list.innerHTML = '<p class="hint">Looking for entries around that date…</p>';
+      list.innerHTML = '<p class="hint">Looking for entries that month…</p>';
       bringModalToFront_(backdrop);
       backdrop.hidden = false;
       const close = (val) => { backdrop.hidden = true; list.onclick = null; $("statement-match-cancel").onclick = null; resolve(val); };
       $("statement-match-cancel").onclick = () => close(null);
       let entries = [];
-      try { entries = await callApi("getEntriesNear", { date: it.line.date, days: 10, currency: it.line.currency }); }
+      try {
+        entries = await callApi("getEntriesNear", {
+          date: it.line.date, amount: it.line.amount, currency: it.line.currency,
+          description: it.line.description, kind: it.kind
+        });
+      }
       catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
-      if (!entries.length) { list.innerHTML = '<p class="hint">No entries in that currency within 10 days.</p>'; return; }
-      list.innerHTML = entries.map((e, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${entryText(e)}</button>`).join("");
+      if (!entries.length) { list.innerHTML = '<p class="hint">No entries found in that month.</p>'; return; }
+      // Backend order: the 10 most similar first (is_top), then everything else by date.
+      const heading = (t) => `<p class="hint" style="margin:8px 0 4px;font-weight:600;">${t}</p>`;
+      const topCount = entries.filter((e) => e.is_top).length;
+      list.innerHTML = (topCount ? heading("Most similar") : "") + entries.map((e, i) =>
+        (topCount && i === topCount && entries.length > topCount ? heading("All of the month, by date") : "") +
+        `<button type="button" class="stmt-match-row" data-i="${i}">${entryText(e)}</button>`).join("");
       list.onclick = (ev) => { const b = ev.target.closest(".stmt-match-row"); if (b) close(entries[Number(b.dataset.i)]); };
     });
   }

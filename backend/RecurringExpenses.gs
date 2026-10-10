@@ -484,8 +484,10 @@ function linkEntryToRecurring(payload) {
   return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
 }
 
-// The picker for "Mark as paid": this calendar month's confirmed entries of
-// the item's own kind (income vs expense), the closest amount first.
+// The picker for "Mark as paid": EVERY confirmed entry of the item's own kind
+// (income vs expense) in this calendar month, in any currency, plus the last
+// two days of the previous month when the item falls on the 1st/2nd. The 10
+// most similar come first (is_top), then all the rest by date.
 function listEntriesForRecurringMonth(payload) {
   assertRecurringMonth_(payload.month);
   var re = getRecurringExpenseRows_().find(function (r) { return r.id === payload.id; });
@@ -493,21 +495,28 @@ function listEntriesForRecurringMonth(payload) {
   var categoryById = rowsById_(getAllRows('Categories'));
   var cat = categoryById[re.category_id];
   var type = cat ? cat.type : 'expense';
-  var target = Number(re.amount);
-  return getAllRows('Entries')
+  var y = Number(payload.month.substring(0, 4)), m = Number(payload.month.substring(5, 7));
+  var monthStart = payload.month + '-01';
+  var monthEnd = payload.month + '-' + pad2_(new Date(y, m, 0).getDate());
+  // The item's billing date this month (a yearly item in another month has
+  // none: fall back to its day, clamped, so ranking still has a date).
+  var occ = recurringExpenseOccurrencesInRange_(re, monthStart, monthEnd)[0] ||
+    formatCalendarDate_(clampedCalendarDate_(y, m, re.day ? Number(re.day) : 1));
+  var win = matchPickerWindow_(occ);
+  var candidates = getAllRows('Entries')
     .filter(function (e) {
-      return e.status === 'confirmed' && e.type === type && String(e.date).substring(0, 7) === payload.month;
+      return e.status === 'confirmed' && e.type === type && e.date >= win.lo && e.date <= win.hi;
     })
     .map(function (e) {
       return {
         id: e.id, date: e.date, amount: Number(e.amount), currency: e.currency,
         description: e.description || '', category_name: categoryById[e.category_id] ? categoryById[e.category_id].name : '',
-        linked_here: e.recurring_expense_id === re.id,
-        _distance: e.currency === (re.currency || 'PEN') ? Math.abs(Number(e.amount) - target) : Infinity
+        linked_here: e.recurring_expense_id === re.id
       };
-    })
-    .sort(function (a, b) { return a._distance - b._distance || (a.date < b.date ? 1 : -1); })
-    .map(function (e) { delete e._distance; return e; });
+    });
+  return orderMatchCandidates_(candidates, {
+    amount: Number(re.amount), currency: re.currency || 'PEN', date: occ, description: re.description
+  });
 }
 
 // The calendar dates (YYYY-MM-DD) on which a recurring expense actually
@@ -561,6 +570,64 @@ function recurringExpenseOccurrencesRaw_(re, startDate, endDate) {
     }
   }
   return dates;
+}
+
+// An amount in PEN using the latest rate on file at or before the date's
+// month (the app-wide rule); null when that currency has no rate at all.
+function amountInPen_(amount, currency, dateStr) {
+  var rate = getLatestRateOnOrBefore_(currency || 'PEN', String(dateStr).substring(0, 7));
+  return rate == null ? null : Number(amount) * rate;
+}
+
+// Do two amounts in possibly different currencies agree within
+// RECURRING_MATCH_TOLERANCE? Used by the category guess, which doesn't go
+// through entryMatchesRecurringOccurrence_.
+function amountsCloseAcrossCurrencies_(amountA, currencyA, amountB, currencyB, dateStr) {
+  if (currencyA === currencyB) return Math.abs(amountA - amountB) <= amountB * RECURRING_MATCH_TOLERANCE;
+  var a = amountInPen_(amountA, currencyA, dateStr), b = amountInPen_(amountB, currencyB, dateStr);
+  if (a == null || b == null) return false;
+  return Math.abs(a - b) <= b * RECURRING_MATCH_TOLERANCE;
+}
+
+// The span a "match this to an existing entry" picker shows: the WHOLE
+// calendar month of dateStr, plus the last two days of the previous month
+// when dateStr falls on the 1st or 2nd (a charge dated the 1st is often
+// entered on the 30th/31st). Returns { lo, hi } as YYYY-MM-DD.
+function matchPickerWindow_(dateStr) {
+  var y = Number(String(dateStr).substring(0, 4)), m = Number(String(dateStr).substring(5, 7));
+  var day = Number(String(dateStr).substring(8, 10));
+  return {
+    lo: day <= 2 ? formatCalendarDate_(new Date(y, m - 1, -1)) : y + '-' + pad2_(m) + '-01',
+    hi: y + '-' + pad2_(m) + '-' + pad2_(new Date(y, m, 0).getDate())
+  };
+}
+
+// Orders match-picker candidates: the 10 most similar first (is_top), then
+// every other candidate by date, newest first. Similarity is plain and
+// explainable: amount closeness in PEN (so a USD charge can match a PEN
+// item), a shared real word in the descriptions, and nearness in days.
+// candidates: [{date, amount, currency, description, ...}];
+// target: {amount, currency, date, description}.
+function orderMatchCandidates_(candidates, target) {
+  var targetWords = significantWords_(target.description);
+  var targetAbs = Math.abs(Number(target.amount));
+  candidates.forEach(function (c) {
+    var cAmt = amountInPen_(Math.abs(Number(c.amount)), c.currency, c.date);
+    var tAmt = amountInPen_(targetAbs, target.currency, c.date);
+    var amountScore = cAmt == null || tAmt == null ? 0 : Math.max(0, 1 - Math.abs(cAmt - tAmt) / Math.max(cAmt, tAmt, 1));
+    var wordScore = significantWords_(c.description).some(function (w) { return targetWords.indexOf(w) !== -1; }) ? 0.5 : 0;
+    var days = Math.abs(daysBetweenDates_(c.date, target.date));
+    c._days = days;
+    c._score = amountScore + wordScore + 0.3 * Math.max(0, 1 - days / 10);
+    c.is_top = false;
+  });
+  var ranked = candidates.slice().sort(function (a, b) {
+    return b._score - a._score || a._days - b._days || (a.date < b.date ? 1 : -1);
+  });
+  var top = ranked.slice(0, 10);
+  top.forEach(function (c) { c.is_top = true; });
+  var rest = ranked.slice(10).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return top.concat(rest).map(function (c) { delete c._score; delete c._days; return c; });
 }
 
 // Same ~10% tolerance the app already uses elsewhere to flag a notable
@@ -619,9 +686,20 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
     var entryMonth = String(entry.date).substring(0, 7);
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
-  if (entry.category_id !== recurring.category_id || entry.currency !== (recurring.currency || 'PEN')) return false;
+  if (entry.category_id !== recurring.category_id) return false;
+  var recCurrency = recurring.currency || 'PEN';
   var amt = recurringOwnAmount_(recurring, recurringSplitSums);
   var entryAmt = Number(entry.amount) - ((entrySplitSums && entrySplitSums[entry.id]) || 0);
+  if (entry.currency !== recCurrency) {
+    // Different currency (e.g. a PEN 12.90 subscription the bank charges in
+    // USD): compare both in PEN using the entry's month's rate. No rate on
+    // file for either currency = no match (never guess).
+    var entryPen = amountInPen_(entryAmt, entry.currency, entry.date);
+    var recPen = amountInPen_(amt, recCurrency, entry.date);
+    if (entryPen == null || recPen == null) return false;
+    entryAmt = entryPen;
+    amt = recPen;
+  }
   if (Math.abs(entryAmt - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
   return occurrenceDates.some(function (occDate) {
     return Math.abs(daysBetweenDates_(entry.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
