@@ -289,7 +289,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
-  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend", "addRecurringExpense"
+  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend", "addRecurringExpense",
+  "exportData"
 ]);
 
 function newRequestId_() {
@@ -4910,6 +4911,106 @@ document.getElementById("perf-copy-btn").addEventListener("click", async () => {
   setTimeout(() => { btn.textContent = "Copy report"; }, 2000);
 });
 document.getElementById("exchange-rates-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Export data screen (More tab) ----
+// The server builds the chosen files and emails them to the address saved in
+// the backend (Export.gs) — the app only says which files and which dates, so
+// there is nothing to download on the phone and no way to point the data at
+// another address from here.
+
+const EXPORT_PREFS_KEY = "exportPrefs";
+
+function exportEl_(id) { return document.getElementById(id); }
+
+function loadExportPrefs_() {
+  try { return JSON.parse(localStorage.getItem(EXPORT_PREFS_KEY) || "{}") || {}; } catch (err) { return {}; }
+}
+
+function saveExportPrefs_() {
+  try {
+    localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify({
+      entries: exportEl_("export-entries-check").checked,
+      backup: exportEl_("export-backup-check").checked,
+      range: exportEl_("export-range").value,
+      pending: exportEl_("export-pending-check").checked
+    }));
+  } catch (err) { /* private mode etc.: the screen works without it */ }
+}
+
+function showExportScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-export"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  const prefs = loadExportPrefs_();
+  exportEl_("export-entries-check").checked = !!prefs.entries;
+  exportEl_("export-backup-check").checked = !!prefs.backup;
+  exportEl_("export-pending-check").checked = !!prefs.pending;
+  if (["month", "year", "all", "custom"].includes(prefs.range)) exportEl_("export-range").value = prefs.range;
+  exportEl_("export-status").textContent = "";
+  refreshExportScreen_();
+}
+
+function refreshExportScreen_() {
+  const entries = exportEl_("export-entries-check").checked;
+  exportEl_("export-entries-options").hidden = !entries;
+  exportEl_("export-custom-fields").hidden = exportEl_("export-range").value !== "custom";
+  exportEl_("export-send-btn").disabled = !(entries || exportEl_("export-backup-check").checked);
+}
+
+// The dates for the picked range, as YYYY-MM-DD (empty = no limit on that side).
+function exportDateRange_() {
+  const range = exportEl_("export-range").value;
+  const today = todayLocalISO();
+  const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+  if (range === "month") {
+    const last = new Date(y, m, 0).getDate();
+    return { startDate: `${today.slice(0, 7)}-01`, endDate: `${today.slice(0, 7)}-${String(last).padStart(2, "0")}` };
+  }
+  if (range === "year") return { startDate: `${y}-01-01`, endDate: `${y}-12-31` };
+  if (range === "custom") return { startDate: exportEl_("export-start").value, endDate: exportEl_("export-end").value };
+  return { startDate: "", endDate: "" };
+}
+
+async function sendExport_() {
+  const status = exportEl_("export-status");
+  const btn = exportEl_("export-send-btn");
+  const cards = [];
+  if (exportEl_("export-entries-check").checked) cards.push("entries");
+  if (exportEl_("export-backup-check").checked) cards.push("backup");
+  if (!cards.length) return;
+  const range = exportDateRange_();
+  if (cards.includes("entries") && exportEl_("export-range").value === "custom" && !range.startDate && !range.endDate) {
+    status.style.color = "#d64545";
+    status.textContent = "Pick a From and/or To date for the custom range.";
+    return;
+  }
+  btn.disabled = true;
+  status.style.color = "";
+  status.textContent = "Preparing and sending… this can take up to a minute for All time.";
+  try {
+    const res = await callApi("exportData", {
+      cards, startDate: range.startDate, endDate: range.endDate,
+      includePending: exportEl_("export-pending-check").checked
+    });
+    const parts = res.files.map((f) => f.kind === "entries"
+      ? `${f.name} (${f.rows.toLocaleString()} entries)`
+      : `${f.name} (${f.rows.toLocaleString()} records)`);
+    status.textContent = `✓ Sent to your email: ${parts.join(" and ")}.`;
+  } catch (err) {
+    status.style.color = "#d64545";
+    status.textContent = err.message;
+  } finally {
+    refreshExportScreen_();
+  }
+}
+
+document.getElementById("more-export-btn").addEventListener("click", showExportScreen);
+document.getElementById("export-back-btn").addEventListener("click", () => showScreen("more"));
+["export-entries-check", "export-backup-check", "export-range", "export-pending-check"].forEach((id) => {
+  exportEl_(id).addEventListener("change", () => { refreshExportScreen_(); saveExportPrefs_(); });
+});
+document.getElementById("export-send-btn").addEventListener("click", sendExport_);
 
 // ---- Performance log screen (More tab) ----
 

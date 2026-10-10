@@ -13,6 +13,10 @@ const J = (rt, code) => JSON.parse(rt.run(`JSON.stringify(${code})`));
 function setup() {
   const { rt, data } = freshApp({ entries: 200 });
   const pm = data.pms[3];
+  // The made-up data is generated relative to "now" while D is fixed, so a seeded
+  // entry on this account can drift to just after D (it did on 2026-10-10) and
+  // change the balance. Start from an account holding only what each test adds.
+  rt.run(`deleteRowsWhere_('Entries', function (e) { return e.payment_method_id === ${JSON.stringify(pm.id)} || e.to_payment_method_id === ${JSON.stringify(pm.id)}; })`);
   const balance = () => rt.api("listPaymentMethodBalances").find((b) => b.id === pm.id).balances.find((x) => x.currency === "PEN").amount;
   const stmt = (lines, closing = 1000) => ({
     key: pm.last_4, kind: "savings", verified: true, period: { start: "2026-08-01", end: D },

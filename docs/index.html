@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-10T17:05:53Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-10T21:59:53Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -385,6 +385,10 @@
             <span>🏦 Statements</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-export-btn">
+            <span>📤 Export data</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
             <span>📱 Signed-in devices</span>
             <span class="more-list-chevron">›</span>
@@ -446,6 +450,58 @@
           <button type="button" class="add-inline" id="perf-copy-btn">Copy report</button>
           <button type="button" class="add-inline" id="perf-clear-btn">Clear</button>
         </div>
+      </div>
+    </div>
+
+    <div id="screen-export" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="export-back-btn">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;">Export data</h2>
+        <p class="hint">Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.</p>
+
+        <div class="export-option">
+          <label class="checkbox-row">
+            <input type="checkbox" id="export-entries-check">
+            <span><strong>Entries spreadsheet (CSV)</strong></span>
+          </label>
+          <p class="hint">One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.</p>
+          <div id="export-entries-options" hidden>
+            <label for="export-range">Which entries</label>
+            <select id="export-range">
+              <option value="month">This month</option>
+              <option value="year">This year</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom dates…</option>
+            </select>
+            <div id="export-custom-fields" class="row" hidden>
+              <div>
+                <label for="export-start">From</label>
+                <input type="date" id="export-start">
+              </div>
+              <div>
+                <label for="export-end">To</label>
+                <input type="date" id="export-end">
+              </div>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="export-pending-check">
+              <span>Include entries still waiting for review</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="export-option">
+          <label class="checkbox-row">
+            <input type="checkbox" id="export-backup-check">
+            <span><strong>Full backup (JSON)</strong></span>
+          </label>
+          <p class="hint">Every record in the app as stored (entries, loans, repayments, budgets, programmed items, rates…). For safekeeping, not for reading. Receipt photos and sign-in details are not included.</p>
+        </div>
+
+        <button type="button" class="primary" id="export-send-btn" disabled>Send to my email</button>
+        <p class="hint" id="export-status" role="status"></p>
       </div>
     </div>
 
@@ -1085,10 +1141,10 @@
     </div>
   </div>
 
-  <script src="receipt-parse.js?v=2026-10-10T17:05:53Z"></script>
-  <script src="bill-split.js?v=2026-10-10T17:05:53Z"></script>
-  <script src="app.js?v=2026-10-10T17:05:53Z"></script>
-  <script src="statement-parsers.js?v=2026-10-10T17:05:53Z"></script>
-  <script src="statements.js?v=2026-10-10T17:05:53Z"></script>
+  <script src="receipt-parse.js?v=2026-10-10T21:59:53Z"></script>
+  <script src="bill-split.js?v=2026-10-10T21:59:53Z"></script>
+  <script src="app.js?v=2026-10-10T21:59:53Z"></script>
+  <script src="statement-parsers.js?v=2026-10-10T21:59:53Z"></script>
+  <script src="statements.js?v=2026-10-10T21:59:53Z"></script>
 </body>
 </html>

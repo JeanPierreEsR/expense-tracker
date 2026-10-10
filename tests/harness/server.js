@@ -17,6 +17,8 @@ let rt, data;
 function boot() {
   rt = createRuntime();
   data = seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000) });
+  // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
+  rt.api("admin_setExportEmail", { email: "owner@example.com" });
 }
 boot();
 
@@ -33,6 +35,11 @@ http.createServer((req, res) => {
     return;
   }
   if (req.method === "POST" && url === "/__reset") { boot(); res.end("reset"); return; }
+  if (url === "/__mail") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(rt.svc.mailLog.map((m) => ({ to: m.to, subject: m.subject, body: m.body, attachments: m.attachments.map((a) => ({ name: a.name, chars: a.data.length, head: a.data.slice(0, 300) })) }))));
+    return;
+  }
   if (url === "/__info") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ accessCode: ACCESS_CODE, friends: data.friends.map((f) => f.name) }));

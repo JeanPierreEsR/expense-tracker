@@ -96,7 +96,8 @@ function doPost(e) {
 var ONCE_ACTIONS_ = {
   createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1,
-  addLoan: 1, addFriend: 1, addRecurringExpense: 1
+  addLoan: 1, addFriend: 1, addRecurringExpense: 1,
+  exportData: 1   // a resend must not email the same files twice
 };
 
 function routeActionOnce_(action, payload) {
@@ -166,6 +167,8 @@ function routeAction(action, payload) {
     case 'getPhotoJob': return getPhotoJob(payload);
     case 'submitPhotoJobText': return submitPhotoJobText(payload);
     case 'failPhotoJob': return failPhotoJob(payload);
+    case 'exportData': return exportData(payload);
+    case 'admin_setExportEmail': return adminSetExportEmail(payload);
     case 'admin_setTelegramToken':
       var newToken = String(payload.token || '').trim();
       if (!newToken) throw new Error('No token provided');

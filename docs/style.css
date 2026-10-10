@@ -1518,6 +1518,16 @@ button.primary:disabled {
   padding: 20px;
 }
 
+/* ---- Export data screen (More tab) ---- */
+
+.export-option {
+  border-top: 1px solid var(--border);
+  padding: 4px 0 14px;
+  margin-top: 14px;
+}
+
+#export-send-btn { margin-top: 6px; }
+
 /* ---- More tab ---- */
 
 .more-list-item {

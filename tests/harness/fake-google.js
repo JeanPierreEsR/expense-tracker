@@ -240,6 +240,7 @@ function buildServices(state) {
   const cache = new Map();
   const fetchLog = [];
   const uiLog = [];
+  const mailLog = [];
 
   const uiChain = {
     addItem() { return uiChain; }, addToUi() { return uiChain; },
@@ -265,7 +266,7 @@ function buildServices(state) {
 
   const gmail = buildGmail();
   return {
-    ss, props, cache, fetchLog, uiLog, gmail,
+    ss, props, cache, fetchLog, uiLog, mailLog, gmail,
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => uiChain
@@ -277,6 +278,7 @@ function buildServices(state) {
       computeDigest(alg, input) {
         return [...crypto.createHash(alg).update(String(input)).digest()].map((b) => (b > 127 ? b - 256 : b));
       },
+      newBlob: (data, contentType, name) => ({ data, contentType, name, getName: () => name, getDataAsString: () => String(data) }),
       base64Encode: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64"),
       base64EncodeWebSafe: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64url"),
       parseCsv: () => unsupported("Utilities.parseCsv")
@@ -325,6 +327,11 @@ function buildServices(state) {
       deleteTrigger() {},
       newTrigger: () => unsupported("ScriptApp.newTrigger"),
       getService: () => ({ getUrl: () => "http://localhost/fake-exec" })
+    },
+    // Outgoing mail is recorded in mailLog; quota is whatever state.mailQuota says (default plenty).
+    MailApp: {
+      sendEmail(msg) { mailLog.push(msg); },
+      getRemainingDailyQuota: () => (state.mailQuota === undefined ? 100 : state.mailQuota)
     },
     GmailApp: gmail.api,
     DriveApp: new Proxy({}, { get: (_, p) => () => unsupported("DriveApp." + String(p)) }),
