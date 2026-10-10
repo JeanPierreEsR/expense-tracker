@@ -21,7 +21,8 @@ TESSERACT = '/opt/homebrew/bin/tesseract'
 ENV = dict(os.environ, TESSDATA_PREFIX=os.path.join(HERE, 'tessdata'))
 # Different layout modes read different parts of a receipt best: 11 (sparse)
 # catches the big stylised amount, 3 (auto) and 6 (block) catch the rest.
-# The server's parser reads the joined text, first match wins.
+# The server's parser reads the joined text, first match wins. ocr() also adds
+# two passes on a shrunk copy of the image (see shrunk_copy).
 PSM_MODES = ['11', '3', '6']
 
 
@@ -52,12 +53,33 @@ def call(action, payload=None, tries=4):
     raise RuntimeError(last)
 
 
+def shrunk_copy(path, width=420):
+    """A small copy of the image (macOS's built-in `sips`, nothing to install).
+    Tesseract often cannot read the huge stylised amount on a Yape/Plin screen at
+    full size ("S/ 4" comes out as noise) but reads it at about this width."""
+    out = path + '.small.png'
+    r = subprocess.run(['/usr/bin/sips', '--resampleWidth', str(width), path, '--out', out],
+                       capture_output=True)
+    return out if r.returncode == 0 and os.path.exists(out) else None
+
+
 def ocr(path):
     texts = []
     for psm in PSM_MODES:
         r = subprocess.run([TESSERACT, path, '-', '-l', 'spa', '--psm', psm],
                            capture_output=True, env=ENV)
         texts.append(r.stdout.decode('utf-8', 'replace'))
+    # Extra passes on a shrunk copy, for the big amount. If this fails the
+    # full-size text above is still sent.
+    small = shrunk_copy(path)
+    if small:
+        try:
+            for psm in ('6', '11'):
+                r = subprocess.run([TESSERACT, small, '-', '-l', 'spa', '--psm', psm],
+                                   capture_output=True, env=ENV)
+                texts.append(r.stdout.decode('utf-8', 'replace'))
+        finally:
+            os.unlink(small)
     return '\n\n'.join(texts)
 
 
