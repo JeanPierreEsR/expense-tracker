@@ -3390,8 +3390,37 @@ function refreshCurrentPeriodScreen() {
   if (!document.getElementById("screen-projections").hidden) refreshProjectionsScreen();
 }
 
+// The screens reached from the More list (not tabs of their own). If one of
+// them is open when the owner taps another tab, tapping More again puts them
+// back on that same screen — not on the top-level More list — at the same
+// scroll position. Restoring just un-hides the screen, with no refresh, so
+// anything half-done on it (a statement being reviewed, an unsent export
+// choice) is still there.
+const MORE_SUBSCREENS = ["recurring", "exchange-rates", "perf", "export", "statements"];
+let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
+
 document.querySelectorAll(".nav-btn").forEach((btn) => {
-  btn.addEventListener("click", () => showScreen(btn.dataset.screen));
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.screen;
+    const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
+    const visibleName = visible ? visible.id.replace(/^screen-/, "") : null;
+    if (target !== "more" && MORE_SUBSCREENS.includes(visibleName)) {
+      moreReturn = { name: visibleName, scrollY: window.scrollY };
+    } else if (target !== "more" && visibleName === "more") {
+      moreReturn = null;
+    }
+    if (target === "more" && moreReturn && !MORE_SUBSCREENS.includes(visibleName) && visibleName !== "more") {
+      const { name, scrollY } = moreReturn;
+      moreReturn = null;
+      document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
+      document.querySelectorAll(".nav-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.screen === "more");
+      });
+      window.scrollTo(0, scrollY);
+      return;
+    }
+    showScreen(target);
+  });
 });
 
 // ---- Overview: period selector ----
