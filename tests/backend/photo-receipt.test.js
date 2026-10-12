@@ -142,3 +142,20 @@ test("noisy Tesseract text: the masked name beats noise lines, the stray icon le
   assert.equal(r.note, "almuerzo del menu");
   assert.equal(r.amount, 6.5);
 });
+
+// A photo sent to Telegram goes straight to the Mac Mini queue: Google OCR is never tried.
+test("telegram photo: queued for the Mac Mini at once, no Google text-reader message", () => {
+  const { linkTelegram } = require("./helpers");
+  const { rt } = freshApp({ small: true });
+  const chatId = linkTelegram(rt);
+  rt.run("handleTelegramPhoto_(" + JSON.stringify({
+    chat: { id: chatId }, message_id: 7, photo: [{ file_id: "small" }, { file_id: "big" }]
+  }) + ")");
+  const jobs = rt.run("getAllRows('Photo Jobs')");
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].file_id, "big");
+  assert.equal(jobs[0].status, "queued");
+  const sent = rt.svc.fetchLog.map((f) => f.options.payload).join(" ");
+  assert.match(sent, /queued for your Mac Mini/);
+  assert.doesNotMatch(sent, /Google/);
+});

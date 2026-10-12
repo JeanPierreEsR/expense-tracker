@@ -6,7 +6,7 @@
  * Built for payments that generate NO email: a Plin payment made from
  * WhatsApp (Interbank's "¡Plineaste!" image) and money received by Yape
  * ("¡Te Yapearon!" screen). Flow:
- *   Telegram photo -> download -> free Google Drive OCR -> per-receipt
+ *   Telegram photo -> queued for the Mac Mini (Tesseract) -> per-receipt
  *   reader (parsePhotoReceipt_, below) -> pending Entry -> the usual
  *   Confirm/Discard card.
  *
@@ -15,7 +15,7 @@
  * amount can't be read, saves NOTHING and says so.
  *
  * The readers are pure functions of the OCR text so they can be tested
- * without Apps Script; everything that touches Telegram/Drive/Sheets is in
+ * without Apps Script; everything that touches Telegram/Sheets is in
  * the handler at the bottom.
  */
 
@@ -256,27 +256,6 @@ function downloadTelegramFile_(fileId) {
   return res.getBlob();
 }
 
-/**
- * OCR via Google Drive (free): uploading an image with ocr:true converts it
- * into a Google Doc whose text is the recognised text. Needs the Drive
- * advanced service (appsscript.json). The temporary doc is always deleted.
- * Google throttles this hard for some accounts ("User rate limit exceeded
- * for OCR"), so ONE attempt is made and any failure hands the photo to the
- * Mac Mini's Tesseract instead (see the job queue below).
- */
-function ocrImageToText_(blob) {
-  var file = Drive.Files.insert(
-    { title: 'ocr-temp-' + Date.now(), mimeType: blob.getContentType() },
-    blob,
-    { ocr: true, ocrLanguage: 'es' }
-  );
-  try {
-    return DriveApp.getFileById(file.id).getAs('text/plain').getDataAsString('UTF-8');
-  } finally {
-    try { Drive.Files.remove(file.id); } catch (e) { /* best effort */ }
-  }
-}
-
 function photoFileIdFromMessage_(msg) {
   if (msg.photo && msg.photo.length) {
     // Telegram sends several sizes; the last is the largest.
@@ -297,31 +276,22 @@ function photoReply_(chatId, replyToMessageId, text) {
 
 /**
  * Called from handleTelegramMessage_ for an owner message carrying an image.
- * Tries Google's OCR once; if that fails for any reason the photo is queued
- * for the Mac Mini helper (mac-helper/ocr_worker.py), which reads it with
- * Tesseract and posts the text back via submitPhotoJobText.
+ * Images are always read by the Mac Mini helper (mac-helper/ocr_worker.py,
+ * Tesseract): the photo is queued straight away and the helper posts the text
+ * back via submitPhotoJobText. Google's OCR is deliberately not tried.
  */
 function handleTelegramPhoto_(msg) {
   var fileId = photoFileIdFromMessage_(msg);
-  var blob = downloadTelegramFile_(fileId);
-  if (!blob) { photoReply_(msg.chat.id, msg.message_id, "Couldn't download that image from Telegram."); return; }
-
-  var text;
-  try {
-    text = ocrImageToText_(blob);
-  } catch (err) {
-    enqueuePhotoJob_(fileId, msg.chat.id, msg.message_id);
-    photoReply_(msg.chat.id, msg.message_id,
-      "Google's text reader is unavailable, so I queued this for your Mac Mini — it should show up within a minute or so.");
-    return;
-  }
-  processPhotoText_(msg.chat.id, msg.message_id, text);
+  if (!fileId) { photoReply_(msg.chat.id, msg.message_id, "Couldn't find an image in that message."); return; }
+  enqueuePhotoJob_(fileId, msg.chat.id, msg.message_id);
+  photoReply_(msg.chat.id, msg.message_id,
+    "Got it — queued for your Mac Mini. It should show up within a minute or so.");
 }
 
 /**
  * Reads the recognised text and, if it's a known receipt, writes the pending
- * entry and sends its Confirm/Discard card. Shared by the Google path and the
- * Mac Mini path so both behave identically.
+ * entry and sends its Confirm/Discard card. Called when the Mac Mini helper
+ * posts back the text it read.
  */
 function processPhotoText_(chatId, replyToMessageId, text) {
   var parsed = parsePhotoReceipt_(text);
@@ -482,15 +452,4 @@ function failPhotoJob(payload) {
   setPhotoJobStatus_(job.id, 'failed');
   photoReply_(job.chat_id, job.message_id, "The Mac Mini couldn't read that image (" + String(payload.error || 'unknown error') + '). Try a sharper screenshot.');
   return { done: true };
-}
-
-/**
- * Run ONCE from the Apps Script editor after this feature is pushed: it
- * makes Google ask you to approve the new Drive permission (used only for
- * the temporary OCR copy of each image, deleted right after). Until this is
- * approved, deploying would break the web app's existing endpoints.
- */
-function authorizeDriveOcr() {
-  var about = Drive.About.get();
-  Logger.log('Drive OCR is authorized for ' + about.user.emailAddress);
 }
