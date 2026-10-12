@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-12T18:10:05Z">
+  <title data-i18n="app.title">Expense Tracker</title>
+  <link rel="stylesheet" href="style.css?v=2026-10-12T19:48:28Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -18,7 +18,7 @@
   </div>
 
   <header>
-    <h1>Expense Tracker</h1>
+    <h1 data-i18n="app.title">Expense Tracker</h1>
   </header>
 
   <div id="setup-screen" class="setup-screen" hidden>
@@ -38,11 +38,11 @@
     <div id="screen-entries" class="screen">
       <div class="card entry-search-card">
         <div class="entry-search-row">
-          <input type="search" id="entry-search" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
-          <button type="button" id="entry-search-clear" class="entry-search-clear" aria-label="Clear search" hidden>✕</button>
+          <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
+          <button type="button" id="entry-search-clear" class="entry-search-clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" aria-label="Clear search" hidden>✕</button>
         </div>
         <p class="hint" id="entry-search-hint" hidden></p>
-        <button type="button" class="add-inline" id="entry-search-refresh" hidden>↻ Reload all entries</button>
+        <button type="button" class="add-inline" id="entry-search-refresh" hidden data-i18n="search.reloadAll">↻ Reload all entries</button>
       </div>
 
       <div class="card search-results-card" id="search-results-card" hidden>
@@ -51,109 +51,109 @@
 
       <div class="card" id="entry-card">
         <div class="type-tabs" id="entry-type-tabs">
-          <div class="type-tab active" data-type="expense">Expense</div>
-          <div class="type-tab" data-type="income">Income</div>
-          <div class="type-tab" data-type="investment">Investment</div>
-          <div class="type-tab" data-type="transfer">Transfer</div>
+          <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
+          <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>
+          <div class="type-tab" data-type="investment" data-i18n="type.investment">Investment</div>
+          <div class="type-tab" data-type="transfer" data-i18n="type.transfer">Transfer</div>
         </div>
 
         <p class="hint" id="meta-check-status" hidden></p>
 
         <div id="category-picker" class="category-grid" hidden></div>
 
-        <div id="edit-mode-banner" class="edit-mode-banner" hidden>✏️ Editing entry</div>
+        <div id="edit-mode-banner" class="edit-mode-banner" hidden data-i18n="entry.editing">✏️ Editing entry</div>
 
         <form id="entry-form" hidden>
           <div id="selected-category-banner" class="category-banner" hidden>
             <span id="selected-category-icon" class="category-banner-icon"></span>
             <span id="selected-category-name"></span>
-            <button type="button" class="add-inline" id="change-category-btn">Change</button>
+            <button type="button" class="add-inline" id="change-category-btn" data-i18n="common.change">Change</button>
           </div>
 
           <div id="category-select-field">
-            <label for="category">Category</label>
+            <label for="category" data-i18n="field.category">Category</label>
             <select id="category" required></select>
           </div>
 
           <div id="repayment-field" hidden>
-            <label for="transfer-kind">Type of transfer</label>
+            <label for="transfer-kind" data-i18n="transfer.kind">Type of transfer</label>
             <select id="transfer-kind">
-              <option value="between">Between Accounts</option>
-              <option value="repayment">Repayments</option>
-              <option value="loan">New loan</option>
+              <option value="between" data-i18n="transfer.kind.between">Between Accounts</option>
+              <option value="repayment" data-i18n="transfer.kind.repayment">Repayments</option>
+              <option value="loan" data-i18n="transfer.kind.loan">New loan</option>
             </select>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
-                <div class="type-tab active" data-direction="i_owe_them">I paid them</div>
-                <div class="type-tab" data-direction="they_owe_me">They paid me</div>
+                <div class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</div>
+                <div class="type-tab" data-direction="they_owe_me" data-i18n="transfer.theyPaid">They paid me</div>
               </div>
-              <label for="repayment-friend">Friend</label>
+              <label for="repayment-friend" data-i18n="common.friend">Friend</label>
               <select id="repayment-friend"></select>
               <p class="hint" id="repayment-hint"></p>
               <div id="repayment-overpay-block">
-                <label for="repayment-overpay-category" id="repayment-overpay-category-label">Category if you paid extra</label>
+                <label for="repayment-overpay-category" id="repayment-overpay-category-label" data-i18n="transfer.overpayCategory">Category if you paid extra</label>
                 <select id="repayment-overpay-category"></select>
-                <p class="hint">Only used if the amount is more than what was owed — the extra becomes a real entry in this category.</p>
+                <p class="hint" data-i18n="transfer.overpayHint">Only used if the amount is more than what was owed — the extra becomes a real entry in this category.</p>
               </div>
               <div id="loan-due-block" hidden>
-                <label for="loan-due-date">Due date (optional)</label>
+                <label for="loan-due-date" data-i18n="loan.dueDateOptional">Due date (optional)</label>
                 <input type="date" id="loan-due-date">
-                <p class="hint">Left blank, it's set to a week after the date.</p>
+                <p class="hint" data-i18n="loan.dueDateHint">Left blank, it's set to a week after the date.</p>
               </div>
             </div>
           </div>
 
           <div id="investment-direction-field" hidden>
             <div class="type-tabs budget-period-tabs" id="investment-direction-tabs">
-              <div class="type-tab active" data-direction="deposit">Deposit</div>
-              <div class="type-tab" data-direction="withdrawal">Withdrawal</div>
+              <div class="type-tab active" data-direction="deposit" data-i18n="investment.deposit">Deposit</div>
+              <div class="type-tab" data-direction="withdrawal" data-i18n="investment.withdrawal">Withdrawal</div>
             </div>
-            <p class="hint" id="investment-direction-hint">Money you put into the platform.</p>
+            <p class="hint" id="investment-direction-hint" data-i18n="investment.depositHint">Money you put into the platform.</p>
           </div>
 
-          <label for="amount">Amount</label>
+          <label for="amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
-          <label for="date">Date</label>
+          <label for="date" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
 
-          <label>Currency</label>
+          <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
           <div class="currency-chips" id="currency-chips"></div>
 
-          <label for="description">Description</label>
-          <input type="text" id="description" placeholder="Optional">
+          <label for="description" data-i18n="field.description">Description</label>
+          <input type="text" id="description" data-i18n-placeholder="common.optional" placeholder="Optional">
 
-          <label for="paid_by" id="paid-by-label">Paid by</label>
+          <label for="paid_by" id="paid-by-label" data-i18n="field.paidBy">Paid by</label>
           <select id="paid_by"></select>
 
           <div id="payment-method-field">
-            <label for="payment_method" id="payment-method-label">Payment method</label>
+            <label for="payment_method" id="payment-method-label" data-i18n="field.paymentMethod">Payment method</label>
             <select id="payment_method"></select>
           </div>
 
           <div id="to-payment-method-field" hidden>
-            <label for="to_payment_method" id="to-payment-method-label">To (account it goes into)</label>
+            <label for="to_payment_method" id="to-payment-method-label" data-i18n="field.toAccount">To (account it goes into)</label>
             <select id="to_payment_method"></select>
-            <p class="hint" id="to-payment-method-hint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it. Money arriving from outside (e.g. the USD side of a currency exchange)? Set From to "None" and enter the amount in its own currency; record the PEN leaving as a separate transfer with To left empty.</p>
+            <p class="hint" id="to-payment-method-hint" data-i18n="transfer.toHint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it. Money arriving from outside (e.g. the USD side of a currency exchange)? Set From to "None" and enter the amount in its own currency; record the PEN leaving as a separate transfer with To left empty.</p>
           </div>
 
           <div id="split-field" hidden>
-            <button type="button" class="add-inline" id="bill-open-btn">🧾 Split a bill by items…</button>
+            <button type="button" class="add-inline" id="bill-open-btn" data-i18n="split.openBill">🧾 Split a bill by items…</button>
             <label class="checkbox-row">
               <input type="checkbox" id="split-toggle">
-              <span>Split this expense</span>
+              <span data-i18n="split.toggle">Split this expense</span>
             </label>
 
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
-                <div class="type-tab active" data-mode="equal">Equal</div>
-                <div class="type-tab" data-mode="custom">Custom</div>
+                <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
+                <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
               </div>
 
-              <label>Shared with</label>
+              <label data-i18n="split.sharedWith">Shared with</label>
               <div class="tags-list" id="split-friend-chips"></div>
-              <div class="add-inline" id="split-add-friend-btn">+ Add friend…</div>
+              <div class="add-inline" id="split-add-friend-btn" data-i18n="common.addFriend">+ Add friend…</div>
 
               <div id="split-rows"></div>
               <p class="hint" id="split-summary"></p>
@@ -162,24 +162,24 @@
           </div>
 
           <div id="tags-field">
-            <label>Tags</label>
+            <label data-i18n="field.tags">Tags</label>
             <div class="tags-list" id="tags-list"></div>
-            <div class="add-inline" id="add-tag-btn">+ Add tag…</div>
+            <div class="add-inline" id="add-tag-btn" data-i18n="common.addTag">+ Add tag…</div>
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
-          <button type="submit" class="primary" id="submit-btn">Save entry</button>
-          <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden>Cancel entry</button>
-          <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden>Cancel edit</button>
-          <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden>Delete this entry</button>
+          <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
+          <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
+          <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
+          <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
         </form>
       </div>
 
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
-        <h2>Needs review (<span id="review-count">0</span>)</h2>
-        <p class="hint">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
+        <h2><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</h2>
+        <p class="hint" data-i18n="review.intro">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
         <div id="review-list"></div>
       </div>
 
@@ -192,7 +192,7 @@
       </div>
 
       <div class="card entry-list">
-        <h2>Recent entries</h2>
+        <h2 data-i18n="entries.recent">Recent entries</h2>
         <p class="hint" id="entries-check-status" hidden></p>
         <div id="entry-list"></div>
       </div>
@@ -201,23 +201,23 @@
     <div id="screen-overview" class="screen" hidden>
       <div class="card" id="period-selector-card">
         <div class="period-selector">
-          <button type="button" class="period-nav-btn" id="period-prev" aria-label="Previous period">‹</button>
+          <button type="button" class="period-nav-btn" id="period-prev" data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
           <div id="period-label">Month</div>
-          <button type="button" class="period-nav-btn" id="period-next" aria-label="Next period">›</button>
+          <button type="button" class="period-nav-btn" id="period-next" data-i18n-aria-label="period.next" aria-label="Next period">›</button>
         </div>
         <div class="period-type-chips" id="period-type-chips">
-          <button type="button" class="period-type-chip active" data-period-type="month">Month</button>
-          <button type="button" class="period-type-chip" data-period-type="year">Year</button>
-          <button type="button" class="period-type-chip" data-period-type="alltime">All-time</button>
-          <button type="button" class="period-type-chip" data-period-type="custom">Custom</button>
+          <button type="button" class="period-type-chip active" data-period-type="month" data-i18n="period.month">Month</button>
+          <button type="button" class="period-type-chip" data-period-type="year" data-i18n="period.year">Year</button>
+          <button type="button" class="period-type-chip" data-period-type="alltime" data-i18n="period.alltime">All-time</button>
+          <button type="button" class="period-type-chip" data-period-type="custom" data-i18n="period.custom">Custom</button>
         </div>
         <div id="custom-range-fields" class="row" hidden>
           <div>
-            <label for="custom-start">From</label>
+            <label for="custom-start" data-i18n="period.from">From</label>
             <input type="date" id="custom-start">
           </div>
           <div>
-            <label for="custom-end">To</label>
+            <label for="custom-end" data-i18n="period.to">To</label>
             <input type="date" id="custom-end">
           </div>
         </div>
@@ -560,32 +560,32 @@
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button type="button" class="nav-btn active" data-screen="entries">
-      <span class="nav-icon">📝</span><span>Entries</span>
+      <span class="nav-icon">📝</span><span data-i18n="nav.entries">Entries</span>
     </button>
     <button type="button" class="nav-btn" data-screen="overview">
-      <span class="nav-icon">📊</span><span>Overview</span>
+      <span class="nav-icon">📊</span><span data-i18n="nav.overview">Overview</span>
     </button>
     <button type="button" class="nav-btn" data-screen="budgets">
-      <span class="nav-icon">🎯</span><span>Budgets</span>
+      <span class="nav-icon">🎯</span><span data-i18n="nav.budgets">Budgets</span>
     </button>
     <button type="button" class="nav-btn" data-screen="projections">
-      <span class="nav-icon">🔮</span><span>Projections</span>
+      <span class="nav-icon">🔮</span><span data-i18n="nav.projections">Projections</span>
     </button>
     <button type="button" class="nav-btn" data-screen="loans">
-      <span class="nav-icon">🤝</span><span>Loans</span>
+      <span class="nav-icon">🤝</span><span data-i18n="nav.loans">Loans</span>
     </button>
     <button type="button" class="nav-btn" data-screen="more">
-      <span class="nav-icon">⋯</span><span>More</span>
+      <span class="nav-icon">⋯</span><span data-i18n="nav.more">More</span>
     </button>
   </nav>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span>Choose a currency</span>
+        <span data-i18n="currency.choose">Choose a currency</span>
         <button type="button" id="currency-modal-close" class="currency-modal-close">✕</button>
       </div>
-      <input type="text" id="currency-search" placeholder="Search code or name…" autocomplete="off">
+      <input type="text" id="currency-search" data-i18n-placeholder="currency.search" placeholder="Search code or name…" autocomplete="off">
       <div class="currency-option-list" id="currency-option-list"></div>
     </div>
   </div>
@@ -594,9 +594,9 @@
     <div class="currency-modal" id="drilldown-modal-inner">
       <div class="currency-modal-header" id="drilldown-header">
         <div class="drilldown-header-left">
-          <button type="button" id="drilldown-period-prev" class="period-nav-btn" hidden aria-label="Previous period">‹</button>
+          <button type="button" id="drilldown-period-prev" class="period-nav-btn" hidden data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
           <span id="drilldown-title">Category</span>
-          <button type="button" id="drilldown-period-next" class="period-nav-btn" hidden aria-label="Next period">›</button>
+          <button type="button" id="drilldown-period-next" class="period-nav-btn" hidden data-i18n-aria-label="period.next" aria-label="Next period">›</button>
         </div>
         <div class="drilldown-header-actions">
           <div class="drilldown-menu-wrap">
@@ -915,25 +915,25 @@
       <div class="budget-modal-body">
         <p class="hint" id="review-transfer-context"></p>
 
-        <label for="review-transfer-friend">Friend</label>
+        <label for="review-transfer-friend" data-i18n="common.friend">Friend</label>
         <select id="review-transfer-friend"></select>
 
-        <label for="review-transfer-amount">Amount</label>
+        <label for="review-transfer-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="review-transfer-amount" placeholder="0.00">
 
-        <label for="review-transfer-date">Date</label>
+        <label for="review-transfer-date" data-i18n="field.date">Date</label>
         <input type="date" id="review-transfer-date">
 
-        <label for="review-transfer-payment-method">Payment method</label>
+        <label for="review-transfer-payment-method" data-i18n="field.paymentMethod">Payment method</label>
         <select id="review-transfer-payment-method"></select>
 
         <div id="review-transfer-description-field">
-          <label for="review-transfer-description">Description</label>
-          <input type="text" id="review-transfer-description" placeholder="Optional">
+          <label for="review-transfer-description" data-i18n="field.description">Description</label>
+          <input type="text" id="review-transfer-description" data-i18n-placeholder="common.optional" placeholder="Optional">
         </div>
 
         <p class="hint" id="review-transfer-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="review-transfer-save-btn">Save</button>
+        <button type="button" class="primary" id="review-transfer-save-btn" data-i18n="common.save">Save</button>
       </div>
     </div>
   </div>
@@ -941,7 +941,7 @@
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="edit-entry-modal-title">Edit transaction</span>
+        <span id="edit-entry-modal-title" data-i18n="entry.editTitle">Edit transaction</span>
         <button type="button" id="edit-entry-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="edit-entry-modal-body" id="edit-entry-modal-body"></div>
@@ -1016,7 +1016,7 @@
         <div id="recurring-split-field" hidden>
           <label class="checkbox-row">
             <input type="checkbox" id="recurring-split-toggle">
-            <span>Split this expense</span>
+            <span data-i18n="split.toggle">Split this expense</span>
           </label>
 
           <div id="recurring-split-detail" hidden>
@@ -1152,12 +1152,12 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="i18n.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="receipt-parse.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="bill-split.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="app.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="statement-parsers.js?v=2026-10-12T18:10:05Z"></script>
-  <script src="statements.js?v=2026-10-12T18:10:05Z"></script>
+  <script src="strings.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="i18n.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="receipt-parse.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="bill-split.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="app.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="statement-parsers.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="statements.js?v=2026-10-12T19:48:28Z"></script>
 </body>
 </html>

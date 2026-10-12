@@ -3,10 +3,10 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec";
 
 const TYPE_LABELS = {
-  expense: "Expense",
-  income: "Income",
-  investment: "Investment",
-  transfer: "Transfer"
+  expense: tr("type.expense"),
+  income: tr("type.income"),
+  investment: tr("type.investment"),
+  transfer: tr("type.transfer")
 };
 
 // Shared by every pop-up sheet (currency picker, drill-down, entry edit,
@@ -64,46 +64,46 @@ let confirmingPendingId = null;
 // ---- Currencies ----
 
 const CURRENCIES = [
-  { code: "PEN", flag: "🇵🇪", name: "Peruvian Sol" },
-  { code: "USD", flag: "🇺🇸", name: "US Dollar" },
-  { code: "EUR", flag: "🇪🇺", name: "Euro" },
-  { code: "ARS", flag: "🇦🇷", name: "Argentine Peso" },
-  { code: "MXN", flag: "🇲🇽", name: "Mexican Peso" },
-  { code: "BRL", flag: "🇧🇷", name: "Brazilian Real" },
-  { code: "CLP", flag: "🇨🇱", name: "Chilean Peso" },
-  { code: "COP", flag: "🇨🇴", name: "Colombian Peso" },
-  { code: "BOB", flag: "🇧🇴", name: "Bolivian Boliviano" },
-  { code: "UYU", flag: "🇺🇾", name: "Uruguayan Peso" },
-  { code: "PYG", flag: "🇵🇾", name: "Paraguayan Guaraní" },
-  { code: "VES", flag: "🇻🇪", name: "Venezuelan Bolívar" },
-  { code: "GTQ", flag: "🇬🇹", name: "Guatemalan Quetzal" },
-  { code: "CRC", flag: "🇨🇷", name: "Costa Rican Colón" },
-  { code: "PAB", flag: "🇵🇦", name: "Panamanian Balboa" },
-  { code: "DOP", flag: "🇩🇴", name: "Dominican Peso" },
-  { code: "HNL", flag: "🇭🇳", name: "Honduran Lempira" },
-  { code: "NIO", flag: "🇳🇮", name: "Nicaraguan Córdoba" },
-  { code: "CUP", flag: "🇨🇺", name: "Cuban Peso" },
-  { code: "GBP", flag: "🇬🇧", name: "British Pound" },
-  { code: "CAD", flag: "🇨🇦", name: "Canadian Dollar" },
-  { code: "CHF", flag: "🇨🇭", name: "Swiss Franc" },
-  { code: "JPY", flag: "🇯🇵", name: "Japanese Yen" },
-  { code: "CNY", flag: "🇨🇳", name: "Chinese Yuan" },
-  { code: "KRW", flag: "🇰🇷", name: "South Korean Won" },
-  { code: "INR", flag: "🇮🇳", name: "Indian Rupee" },
-  { code: "AUD", flag: "🇦🇺", name: "Australian Dollar" },
-  { code: "NZD", flag: "🇳🇿", name: "New Zealand Dollar" },
-  { code: "SGD", flag: "🇸🇬", name: "Singapore Dollar" },
-  { code: "HKD", flag: "🇭🇰", name: "Hong Kong Dollar" },
-  { code: "SEK", flag: "🇸🇪", name: "Swedish Krona" },
-  { code: "NOK", flag: "🇳🇴", name: "Norwegian Krone" },
-  { code: "DKK", flag: "🇩🇰", name: "Danish Krone" },
-  { code: "PLN", flag: "🇵🇱", name: "Polish Złoty" },
-  { code: "TRY", flag: "🇹🇷", name: "Turkish Lira" },
-  { code: "ZAR", flag: "🇿🇦", name: "South African Rand" },
-  { code: "AED", flag: "🇦🇪", name: "UAE Dirham" },
-  { code: "THB", flag: "🇹🇭", name: "Thai Baht" },
-  { code: "RUB", flag: "🇷🇺", name: "Russian Ruble" },
-  { code: "ILS", flag: "🇮🇱", name: "Israeli Shekel" }
+  { code: "PEN", flag: "🇵🇪", name: tr("currency.PEN") },
+  { code: "USD", flag: "🇺🇸", name: tr("currency.USD") },
+  { code: "EUR", flag: "🇪🇺", name: tr("currency.EUR") },
+  { code: "ARS", flag: "🇦🇷", name: tr("currency.ARS") },
+  { code: "MXN", flag: "🇲🇽", name: tr("currency.MXN") },
+  { code: "BRL", flag: "🇧🇷", name: tr("currency.BRL") },
+  { code: "CLP", flag: "🇨🇱", name: tr("currency.CLP") },
+  { code: "COP", flag: "🇨🇴", name: tr("currency.COP") },
+  { code: "BOB", flag: "🇧🇴", name: tr("currency.BOB") },
+  { code: "UYU", flag: "🇺🇾", name: tr("currency.UYU") },
+  { code: "PYG", flag: "🇵🇾", name: tr("currency.PYG") },
+  { code: "VES", flag: "🇻🇪", name: tr("currency.VES") },
+  { code: "GTQ", flag: "🇬🇹", name: tr("currency.GTQ") },
+  { code: "CRC", flag: "🇨🇷", name: tr("currency.CRC") },
+  { code: "PAB", flag: "🇵🇦", name: tr("currency.PAB") },
+  { code: "DOP", flag: "🇩🇴", name: tr("currency.DOP") },
+  { code: "HNL", flag: "🇭🇳", name: tr("currency.HNL") },
+  { code: "NIO", flag: "🇳🇮", name: tr("currency.NIO") },
+  { code: "CUP", flag: "🇨🇺", name: tr("currency.CUP") },
+  { code: "GBP", flag: "🇬🇧", name: tr("currency.GBP") },
+  { code: "CAD", flag: "🇨🇦", name: tr("currency.CAD") },
+  { code: "CHF", flag: "🇨🇭", name: tr("currency.CHF") },
+  { code: "JPY", flag: "🇯🇵", name: tr("currency.JPY") },
+  { code: "CNY", flag: "🇨🇳", name: tr("currency.CNY") },
+  { code: "KRW", flag: "🇰🇷", name: tr("currency.KRW") },
+  { code: "INR", flag: "🇮🇳", name: tr("currency.INR") },
+  { code: "AUD", flag: "🇦🇺", name: tr("currency.AUD") },
+  { code: "NZD", flag: "🇳🇿", name: tr("currency.NZD") },
+  { code: "SGD", flag: "🇸🇬", name: tr("currency.SGD") },
+  { code: "HKD", flag: "🇭🇰", name: tr("currency.HKD") },
+  { code: "SEK", flag: "🇸🇪", name: tr("currency.SEK") },
+  { code: "NOK", flag: "🇳🇴", name: tr("currency.NOK") },
+  { code: "DKK", flag: "🇩🇰", name: tr("currency.DKK") },
+  { code: "PLN", flag: "🇵🇱", name: tr("currency.PLN") },
+  { code: "TRY", flag: "🇹🇷", name: tr("currency.TRY") },
+  { code: "ZAR", flag: "🇿🇦", name: tr("currency.ZAR") },
+  { code: "AED", flag: "🇦🇪", name: tr("currency.AED") },
+  { code: "THB", flag: "🇹🇭", name: tr("currency.THB") },
+  { code: "RUB", flag: "🇷🇺", name: tr("currency.RUB") },
+  { code: "ILS", flag: "🇮🇱", name: tr("currency.ILS") }
 ];
 
 const DEFAULT_RECENT_CURRENCIES = ["PEN", "USD", "EUR", "ARS", "MXN"];
@@ -183,7 +183,7 @@ function renderCurrencyChips(target) {
   const moreChip = document.createElement("button");
   moreChip.type = "button";
   moreChip.className = "currency-chip more";
-  moreChip.textContent = "More…";
+  moreChip.textContent = tr("common.more");
   moreChip.addEventListener("click", () => openCurrencyModal(target));
   container.appendChild(moreChip);
 }
@@ -337,7 +337,7 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
       return callApi(action, payload, attempt + 1, startedAt);
     }
     perfRecordCall_(action, performance.now() - startedAt, attempt, null, null, false);
-    throw new Error("Couldn't reach the server. Check your connection and try again.");
+    throw new Error(tr("error.unreachable"));
   }
   perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
   if (!json.ok && json.error === "Invalid access code" && getSessionToken()) {
@@ -346,7 +346,7 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     clearLocalSignIn_();
     showSignedOutScreen_("You were signed out on this device. Enter your access code to sign in again.");
   }
-  if (!json.ok) throw new Error(json.error || "Unknown error");
+  if (!json.ok) throw new Error(json.error || tr("error.unknown"));
   return json.data;
 }
 
@@ -621,7 +621,7 @@ function populatePaidByOptions() {
   select.innerHTML = "";
 
   if (selectedType === "income") {
-    label.textContent = "Received from";
+    label.textContent = tr("field.receivedFrom");
     meta.payors.forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
@@ -630,13 +630,13 @@ function populatePaidByOptions() {
     });
     const addOpt = document.createElement("option");
     addOpt.value = "__add_payor__";
-    addOpt.textContent = "+ Add payor…";
+    addOpt.textContent = tr("common.addPayor");
     select.appendChild(addOpt);
   } else {
-    label.textContent = "Paid by";
+    label.textContent = tr("field.paidBy");
     const meOpt = document.createElement("option");
     meOpt.value = "me";
-    meOpt.textContent = "Me";
+    meOpt.textContent = tr("common.me");
     select.appendChild(meOpt);
 
     meta.friends.forEach((f) => {
@@ -648,7 +648,7 @@ function populatePaidByOptions() {
 
     const addOpt = document.createElement("option");
     addOpt.value = "__add__";
-    addOpt.textContent = "+ Add friend…";
+    addOpt.textContent = tr("common.addFriend");
     select.appendChild(addOpt);
   }
 
@@ -662,7 +662,7 @@ function populatePaymentMethodOptions() {
   if (meta.paymentMethods.length === 0) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "No payment methods yet";
+    opt.textContent = tr("common.noPaymentMethods");
     select.appendChild(opt);
   }
 
@@ -677,7 +677,7 @@ function populatePaymentMethodOptions() {
 
   const addOpt = document.createElement("option");
   addOpt.value = "__add__";
-  addOpt.textContent = "+ Add payment method…";
+  addOpt.textContent = tr("common.addPaymentMethod");
   select.appendChild(addOpt);
 }
 
@@ -691,7 +691,7 @@ function populateToPaymentMethodOptions() {
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = selectedType === "investment" ? "Pick a platform…" : "None";
+  noneOpt.textContent = selectedType === "investment" ? tr("form.pickPlatform") : tr("form.noneAccount");
   select.appendChild(noneOpt);
   // An investment's "To" is a platform; a transfer's is a real account.
   const wantPlatforms = selectedType === "investment";
@@ -742,8 +742,8 @@ function updateAutoTransferDescription_() {
     const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname.replace(/\s*\(\s*\d+\s*\)\s*$/, "") : ""; };  // nickname only, never the account digits
     const from = nameOf(document.getElementById("payment_method").value);
     const to = nameOf(document.getElementById("to_payment_method").value);
-    if (from) text = to ? `from ${from} to ${to}` : `from ${from}`;
-    else if (to) text = `into ${to}`;
+    if (from) text = to ? tr("transfer.autoFromTo", { from, to }) : tr("transfer.autoFrom", { from });
+    else if (to) text = tr("transfer.autoInto", { to });
   }
   desc.value = text;
   lastAutoDescription = text;
@@ -763,7 +763,7 @@ function updateFromNoneOption_() {
     const opt = document.createElement("option");
     opt.value = "";
     opt.dataset.none = "1";
-    opt.textContent = "None (money comes from outside)";
+    opt.textContent = tr("form.noneFromOutside");
     const addOpt = Array.from(select.options).find((o) => o.value === "__add__");
     select.insertBefore(opt, addOpt || null);
   } else if (selectedType !== "transfer" && existing) {
@@ -778,11 +778,11 @@ function togglePaymentMethodVisibilityBase_() {
   // reads as "From" and a "To" picker appears alongside it.
   const isInvestment = selectedType === "investment";
   document.getElementById("payment-method-label").textContent =
-    selectedType === "transfer" || isInvestment ? "From" :
-    selectedType === "income" ? "Received at" :
-    "Payment method";
+    selectedType === "transfer" || isInvestment ? tr("field.from") :
+    selectedType === "income" ? tr("field.receivedAt") :
+    tr("field.paymentMethod");
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
-  document.getElementById("to-payment-method-label").textContent = isInvestment ? "Platform" : "To (account it goes into)";
+  document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
   updateFromNoneOption_();
   // A transfer has no "Paid by": who it came from is the From account (or
@@ -861,14 +861,14 @@ function populateRepaymentFriendOptions_() {
   });
   const addOpt = document.createElement("option");
   addOpt.value = "__add__";
-  addOpt.textContent = "+ Add friend…";
+  addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
   if (previous && previous !== "__add__" && meta.friends.some((f) => f.id === previous)) select.value = previous;
 }
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -901,15 +901,11 @@ function updateRepaymentUi_() {
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
     populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
-    document.getElementById("repayment-overpay-category-label").textContent = `Category if ${iPaid ? "you paid" : "they paid"} extra (${iPaid ? "expense" : "income"})`;
+    document.getElementById("repayment-overpay-category-label").textContent = iPaid ? tr("transfer.overpayCategoryIPaid") : tr("transfer.overpayCategoryTheyPaid");
   }
   document.getElementById("repayment-hint").textContent = isLoan
-    ? (iPaid
-      ? "You lent them this money, so they now owe you it back. It is not an expense."
-      : "They lent you this money, so you now owe them it back. It is not income.")
-    : (iPaid
-      ? "Pays down what you owe them. It is not an expense — only your debt balance changes."
-      : "Pays down what they owe you. It is not income — only their debt balance changes.");
+    ? (iPaid ? tr("transfer.hintLoanIPaid") : tr("transfer.hintLoanTheyPaid"))
+    : (iPaid ? tr("transfer.hintRepayIPaid") : tr("transfer.hintRepayTheyPaid"));
 
   // This replaces the transfer's own fields: no "Paid by", no "To" — just
   // the one account the money moved through.
@@ -917,7 +913,7 @@ function updateRepaymentUi_() {
   document.getElementById("paid_by").hidden = true;
   document.getElementById("to-payment-method-field").hidden = true;
   document.getElementById("payment-method-field").hidden = false;
-  document.getElementById("payment-method-label").textContent = iPaid ? "Paid from (account)" : "Received into (account)";
+  document.getElementById("payment-method-label").textContent = iPaid ? tr("field.paidFromAccount") : tr("field.receivedIntoAccount");
 }
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
@@ -1015,7 +1011,7 @@ function renderSplitFriendChips() {
   });
 
   if (splitFriendsExpanded) {
-    toggle.textContent = "Less";
+    toggle.textContent = tr("common.less");
     container.appendChild(toggle);
     return;
   }
@@ -1029,7 +1025,7 @@ function renderSplitFriendChips() {
   };
   if (rowCount() <= SPLIT_FRIEND_MAX_ROWS) return; // everyone fits, no "More" needed
 
-  toggle.textContent = "More…";
+  toggle.textContent = tr("common.more");
   container.appendChild(toggle);
   // Hide chips from the end until the "More…" chip lands within row 3.
   let visible = chips.length;
@@ -1075,7 +1071,7 @@ function renderSplitRows() {
     container.appendChild(row);
   };
 
-  addRow("me", "Me", () => customOwnAmount, (v) => { customOwnAmount = v; });
+  addRow("me", tr("common.me"), () => customOwnAmount, (v) => { customOwnAmount = v; });
   Array.from(splitFriendIds).forEach((id) => {
     const friend = meta.friends.find((f) => f.id === id);
     if (!friend) return;
@@ -1143,13 +1139,13 @@ function renderSplitSummary() {
   const friendIds = Array.from(splitFriendIds);
 
   if (friendIds.length === 0) {
-    summaryEl.textContent = "Pick who else this is shared with.";
+    summaryEl.textContent = tr("split.pickWho");
     return;
   }
 
   if (splitMode === "equal") {
     const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
-    summaryEl.textContent = `${currency} ${moneyFmt(shareEach)} each · ${currency} ${moneyFmt(ownerShare)} to you`;
+    summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else {
     const shares = computeCustomShares();
     // Empty boxes show what they'd get, as their placeholder.
@@ -1158,13 +1154,13 @@ function renderSplitSummary() {
     });
     if (shares.over) {
       summaryEl.textContent = "";
-      errorEl.textContent = "That's more than the total amount.";
+      errorEl.textContent = tr("split.errorOver");
     } else if (shares.unassigned) {
       summaryEl.textContent = "";
-      errorEl.textContent = `Everyone's filled in, but it adds up to ${currency} ${moneyFmt(amount - shares.unassigned / 100)}, not ${currency} ${moneyFmt(amount)}. Clear one box to let it take the rest.`;
+      errorEl.textContent = tr("split.errorEveryoneFilled", { cur: currency, sum: moneyFmt(amount - shares.unassigned / 100), total: moneyFmt(amount) });
     } else {
       const friendsTotal = friendIds.reduce((sum, id) => sum + (shares.amounts[id] || 0), 0);
-      summaryEl.textContent = `${currency} ${moneyFmt(friendsTotal)} of ${currency} ${moneyFmt(amount)} to friends · ${currency} ${moneyFmt(shares.amounts.me)} to you`;
+      summaryEl.textContent = tr("split.summaryCustom", { cur: currency, friends: moneyFmt(friendsTotal), total: moneyFmt(amount), own: moneyFmt(shares.amounts.me) });
     }
   }
 }
@@ -1193,19 +1189,19 @@ function validateSplitIfEnabled() {
   const amount = parseFloat(document.getElementById("amount").value) || 0;
   const friendIds = Array.from(splitFriendIds);
   if (friendIds.length === 0) {
-    throw new Error("Pick at least one friend to split with, or turn the split toggle off.");
+    throw new Error(tr("split.errNoFriend"));
   }
 
   const splits = getSplitPayload();
   const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
   if (splitMode === "custom") {
     const shares = computeCustomShares();
-    if (shares.over) throw new Error("The split adds up to more than the total amount.");
-    if (shares.unassigned) throw new Error("The amounts don't add up to the total — clear one box to let it take the rest.");
-    if (assigned <= 0) throw new Error("Enter at least one friend's amount.");
+    if (shares.over) throw new Error(tr("split.errOverTotal"));
+    if (shares.unassigned) throw new Error(tr("split.errNotTotal"));
+    if (assigned <= 0) throw new Error(tr("split.errNoAmount"));
   }
   if (assigned - amount > 0.004) {
-    throw new Error("The split adds up to more than the total amount.");
+    throw new Error(tr("split.errOverTotal"));
   }
   return splits;
 }
@@ -1237,7 +1233,7 @@ document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
 });
 
 document.getElementById("split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   friend.last_used = todayLocalISO();
@@ -1262,8 +1258,8 @@ function setInvestmentDirection(direction) {
   investmentDirection = direction;
   document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.direction === direction));
   document.getElementById("investment-direction-hint").textContent = direction === "withdrawal"
-    ? "Money coming back from the platform to your account."
-    : "Money you put into the platform.";
+    ? tr("investment.withdrawalHint")
+    : tr("investment.depositHint");
 }
 
 document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) => {
@@ -1290,7 +1286,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
 
 document.getElementById("paid_by").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const name = prompt("Friend's name:");
+    const name = prompt(tr("prompt.friendName"));
     e.target.value = "me";
     if (name && name.trim()) {
       const friend = await callApi("addFriend", { name: name.trim() });
@@ -1300,7 +1296,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
       document.getElementById("paid_by").value = friend.id;
     }
   } else if (e.target.value === "__add_payor__") {
-    const name = prompt("Payor's name (e.g. a client or employer):");
+    const name = prompt(tr("prompt.payorName"));
     e.target.value = meta.payors.length ? meta.payors[0].id : "";
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
@@ -1312,9 +1308,23 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
   togglePaymentMethodVisibility();
 });
 
+// The type is stored in English in the Sheet (credit, debit, cash, transfer,
+// wallet); the owner may type it in either language.
+const PAYMENT_METHOD_TYPE_WORDS = {
+  credit: "credit", "crédito": "credit", credito: "credit", "tarjeta de crédito": "credit",
+  debit: "debit", "débito": "debit", debito: "debit", "tarjeta de débito": "debit",
+  cash: "cash", efectivo: "cash",
+  transfer: "transfer", transferencia: "transfer",
+  wallet: "wallet", billetera: "wallet"
+};
+function paymentMethodTypeFromAnswer_(answer) {
+  const word = String(answer || "").trim().toLowerCase();
+  return PAYMENT_METHOD_TYPE_WORDS[word] || (word ? word : "credit");
+}
+
 document.getElementById("payment_method").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const nickname = prompt("Payment method name (e.g. \"BCP Visa\"):");
+    const nickname = prompt(tr("prompt.paymentMethodName"));
     if (!nickname || !nickname.trim()) {
       e.target.value = "";
       return;
@@ -1329,8 +1339,8 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
       return;
     }
 
-    const type = prompt("Type: credit, debit, cash, transfer, or wallet?", "credit") || "credit";
-    const last4 = prompt("Last 4 digits (leave blank if none):") || "";
+    const type = paymentMethodTypeFromAnswer_(prompt(tr("prompt.paymentMethodType"), "credit"));
+    const last4 = prompt(tr("prompt.last4")) || "";
     const pm = await callApi("addPaymentMethod", { nickname: trimmed, type: type.trim(), last_4: last4.trim() });
     meta.paymentMethods.push(pm);
     populatePaymentMethodOptions();
@@ -1340,7 +1350,7 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
 });
 
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
-  const name = prompt("New tag name:");
+  const name = prompt(tr("prompt.tagName"));
   if (name && name.trim()) {
     const tag = await callApi("addTag", { name: name.trim() });
     meta.tags.push(tag);
@@ -1394,7 +1404,7 @@ async function ensureExchangeRate(currency, dateStr) {
 
   const rate = await openRateModal(currency, month, /* required */ true);
   if (rate == null) {
-    throw new Error("An exchange rate is required to save this entry.");
+    throw new Error(tr("error.rateRequired"));
   }
 }
 
@@ -1557,24 +1567,24 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // from transfer, or clearing the destination, actually clears it.
     const toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
     if (selectedType === "transfer" && toPaymentMethodId && toPaymentMethodId === paymentMethodId) {
-      throw new Error("From and To can't be the same account.");
+      throw new Error(tr("error.sameAccount"));
     }
     if (selectedType === "investment" && !toPaymentMethodId && !editingEntryId) {
-      throw new Error("Pick the platform.");
+      throw new Error(tr("error.pickPlatform"));
     }
     const isWithdrawal = selectedType === "investment" && investmentDirection === "withdrawal";
 
-    if (!date) throw new Error("Date is required.");
-    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!date) throw new Error(tr("error.dateRequired"));
+    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const isInvestmentEntry = selectedType === "investment";
-    if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error("Pick a category.");
+    if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error(tr("error.pickCategory"));
     // Investments send no category at all — the server files them under its default.
     const categoryField = isInvestmentEntry ? {} : { category_id: categoryId };
     if (selectedType === "transfer" && !isRepayment && !paymentMethodId && !toPaymentMethodId) {
-      throw new Error("Pick the account the money leaves (From) or the one it goes into (To).");
+      throw new Error(tr("error.pickAccount"));
     }
     // A transfer may have only a "To" (money arriving from outside the app).
-    if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId)) throw new Error("Pick a payment method.");
+    if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId)) throw new Error(tr("error.pickPaymentMethod"));
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
 
@@ -1594,7 +1604,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     if (isRepayment) {
       const friendId = document.getElementById("repayment-friend").value;
-      if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
+      if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const isLoanKind = transferKind_() === "loan";
       const direction = debtDirection_();
@@ -1630,16 +1640,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         result = await callApi("recordRepayment", { ...fields, overpay_category_id: overpayCategoryId });
       }
       if (!isLoanKind && result.overpaid > 0.004) {
-        const kind = direction === "they_owe_me" ? "income" : "an expense";
-        extraNote = overpayCategoryId
-          ? ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt, so it was also recorded as ${kind}.`
-          : ` ${currency} ${moneyFmt(result.overpaid)} was more than the debt — it's in your review queue as ${kind}, waiting for a category.`;
+        const isIncome = direction === "they_owe_me";
+        const noteKey = (overpayCategoryId ? "repay.overpaidRecorded" : "repay.overpaidPending") + (isIncome ? "Income" : "Expense");
+        extraNote = tr(noteKey, { cur: currency, amount: moneyFmt(result.overpaid) });
         refreshReviewQueue().catch(() => {});
       }
       refreshLoans().catch(() => {});
       showFormNotice_(isLoanKind
-        ? `Loan ${direction === "they_owe_me" ? "to" : "from"} ${friendName} recorded.`
-        : `Repayment ${direction === "they_owe_me" ? "from" : "to"} ${friendName} recorded.${extraNote}`);
+        ? tr(direction === "they_owe_me" ? "repay.loanTo" : "repay.loanFrom", { name: friendName })
+        : tr(direction === "they_owe_me" ? "repay.repaymentFrom" : "repay.repaymentTo", { name: friendName }) + extraNote);
     } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,
@@ -1805,7 +1814,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // category picker like a normal save does — that jump would hide
       // #form-error, along with it the only sign this became a Programmed
       // item instead of a real entry, before the owner ever saw it.
-      showFormNotice_(`Programmed for ${date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.`);
+      showFormNotice_(tr("entry.programmedNotice", { date }));
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
       // returns the screen to exactly what a fresh app open looks like,
@@ -1817,13 +1826,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       showCategoryPicker();
     }
     if (splitSaveFailed) {
-      alert("Your entry was saved, but the split with your friend(s) was NOT. Open it in Recent entries and save the split again. Don't add the entry a second time.");
+      alert(tr("entry.splitSaveFailed"));
     } else if (billSaveFailed) {
-      alert("Your entry and its split were saved, but the bill's item list could not be kept, so you won't be able to edit its items later. Don't add the entry a second time.");
+      alert(tr("entry.billSaveFailed"));
     }
   } catch (err) {
     errorEl.textContent = writesDone
-      ? "Saved — but the screen couldn't refresh (" + err.message + "). Pull down or reopen the app to see it. Don't add it again."
+      ? tr("entry.savedNotRefreshed", { error: err.message })
       : err.message;
   } finally {
     submitBtn.disabled = false;
@@ -1873,7 +1882,7 @@ function renderEntryAmountHtml(entry) {
     if (!hasSplit) {
       return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
     }
-    const totalLine = `<span class="original-amt">Total PEN ${moneyFmt(entry.amount)}</span>`;
+    const totalLine = `<span class="original-amt">${tr("common.total")} PEN ${moneyFmt(entry.amount)}</span>`;
     return `<span class="primary-amt">PEN ${moneyFmt(entry.own_share)}</span>${totalLine}`;
   }
 
@@ -1893,7 +1902,7 @@ function renderEntryAmountHtml(entry) {
 
   const primaryPen = entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen;
   const ownShareLine = `<span class="original-amt">${formatAmount(entry.own_share, entry.currency)}</span>`;
-  const totalLine = `<span class="original-amt">Total ${formatAmount(entry.amount, entry.currency)}</span>`;
+  const totalLine = `<span class="original-amt">${tr("common.total")} ${formatAmount(entry.amount, entry.currency)}</span>`;
   return `<span class="primary-amt">PEN ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
 }
 
@@ -1914,8 +1923,8 @@ function entryHeadline_(entry) {
     const l = entry.link;
     const paidThem = l.direction === "i_owe_them"; // repayment: I paid them; loan: they lent me
     const text = l.kind === "repayment"
-      ? (paidThem ? `Repayment to ${l.friend}` : `Repayment from ${l.friend}`)
-      : (paidThem ? `Loan from ${l.friend}` : `Loan to ${l.friend}`);
+      ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
+      : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
   }
   if (entry.type !== "investment") {
@@ -1933,15 +1942,15 @@ function entryHeadline_(entry) {
   // transfer's grey one) — the owner liked it, so it stays instead of an icon.
   const marker = `<span class="type-dot" data-type="investment"></span>`;
   const title = platform
-    ? (withdrawal ? `Withdrawal from ${escapeHtml(platform)}` : `Investment in ${escapeHtml(platform)}`)
-    : `${withdrawal ? "Withdrawal" : "Investment"} — ${escapeHtml(categoryName(entry.category_id))}`;
-  const metaText = account ? `${withdrawal ? "received at" : "from"} ${escapeHtml(account)}` : "no account set";
+    ? tr(withdrawal ? "entry.withdrawalFrom" : "entry.investmentIn", { platform: escapeHtml(platform) })
+    : tr(withdrawal ? "entry.withdrawalCategory" : "entry.investmentCategory", { category: escapeHtml(categoryName(entry.category_id)) });
+  const metaText = account ? tr(withdrawal ? "entry.receivedAt" : "entry.fromAccount", { account: escapeHtml(account) }) : tr("entry.noAccount");
   return { title: `${marker}${title}`, meta: metaText };
 }
 
 function categoryName(id) {
   const c = findCategory(id);
-  return c ? c.name : "(unknown category)";
+  return c ? c.name : tr("entry.unknownCategory");
 }
 
 function paidByLabel(entryOrPaidBy) {
@@ -1953,7 +1962,7 @@ function paidByLabel(entryOrPaidBy) {
     const p = meta.payors.find((payor) => payor.id === paidBy);
     return p ? p.name : paidBy;
   }
-  if (paidBy === "me") return "Me";
+  if (paidBy === "me") return tr("common.me");
   const f = meta.friends.find((fr) => fr.id === paidBy);
   return f ? f.name : paidBy;
 }
@@ -1977,9 +1986,9 @@ function buildEntryRow_(entry) {
   // retried. Shown right under the description so it's never mistaken
   // for an already-landed change.
   const statusLine = entry._queueStatus === "saving"
-    ? `<div class="entry-queue-status">💾 Saving…</div>`
+    ? `<div class="entry-queue-status">${tr("entry.saving")}</div>`
     : entry._queueStatus === "failed"
-      ? `<div class="entry-queue-status entry-queue-failed">⚠️ Couldn't save — tap to retry</div>`
+      ? `<div class="entry-queue-status entry-queue-failed">${tr("entry.saveFailedRetry")}</div>`
       : "";
 
   const left = document.createElement("div");
@@ -2017,10 +2026,10 @@ function setLoadMoreButton_(list, hasMore) {
   btn.type = "button";
   btn.id = "entry-load-more";
   btn.className = "cancel-edit-btn";
-  btn.textContent = "Load more";
+  btn.textContent = tr("common.loadMore");
   btn.addEventListener("click", async () => {
     btn.disabled = true;
-    btn.textContent = "Loading…";
+    btn.textContent = tr("common.loading");
     try {
       // Only the next page is fetched and appended — earlier rows stay put.
       const fetched = await callApi("listEntries", { limit: ENTRY_PAGE_SIZE + 1, offset: entriesShown });
@@ -2033,7 +2042,7 @@ function setLoadMoreButton_(list, hasMore) {
       setLoadMoreButton_(list, more);
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = "Load more";
+      btn.textContent = tr("common.loadMore");
     }
   });
   list.appendChild(btn);
@@ -2067,7 +2076,7 @@ function renderEntryListFromCache_() {
   list.innerHTML = "";
 
   if (entries.length === 0) {
-    list.innerHTML = '<div class="status-msg">No entries yet — add your first one above.</div>';
+    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("entries.empty"))}</div>`;
     return;
   }
 
@@ -2202,7 +2211,7 @@ function buildSearchRow_(entry) {
 async function refreshSearchAfterEdit_() {
   const box = document.getElementById("search-results");
   box.classList.add("entry-updating");
-  document.getElementById("entry-search-hint").textContent = "Updating…";
+  document.getElementById("entry-search-hint").textContent = tr("search.updating");
   try { await syncSearchIndex_(); } catch (err) { /* keeps the old list */ }
   box.classList.remove("entry-updating");
   renderSearchResults_();
@@ -2218,13 +2227,13 @@ function renderSearchResults_() {
   hint.hidden = false;
 
   if (term.length < SEARCH_MIN_CHARS) {
-    hint.textContent = `Type at least ${SEARCH_MIN_CHARS} letters…`;
+    hint.textContent = tr("search.minChars", { n: SEARCH_MIN_CHARS });
     return;
   }
   if (!searchIndex) {
     hint.textContent = searchIndexError
-      ? `Couldn't load your entries for search (${searchIndexError}). Keep typing to retry.`
-      : "Loading all your entries for instant search… (first time only)";
+      ? tr("search.loadFailed", { error: searchIndexError })
+      : tr("search.loadingAll");
     return;
   }
 
@@ -2232,10 +2241,10 @@ function renderSearchResults_() {
   const matches = searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1));
   hint.textContent = matches.length === 0
     ? ""
-    : `${matches.length} matching ${matches.length === 1 ? "entry" : "entries"} — tap one to edit.`;
+    : tr("search.matches", { n: matches.length });
 
   if (matches.length === 0) {
-    box.innerHTML = `<div class="status-msg">No entries match “${escapeHtml(term)}”.</div>`;
+    box.innerHTML = `<div class="status-msg">${escapeHtml(tr("search.noMatch", { term }))}</div>`;
     return;
   }
   matches.slice(0, searchShown).forEach((entry) => box.appendChild(buildSearchRow_(entry)));
@@ -2243,7 +2252,7 @@ function renderSearchResults_() {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "cancel-edit-btn search-show-more";
-    more.textContent = `Show more (${matches.length - searchShown} left)`;
+    more.textContent = tr("search.showMore", { n: matches.length - searchShown });
     more.addEventListener("click", () => { searchShown += SEARCH_PAGE_SIZE; renderSearchResults_(); });
     box.appendChild(more);
   }
@@ -2295,7 +2304,7 @@ function setupEntrySearch_() {
   });
   document.getElementById("entry-search-refresh").addEventListener("click", () => {
     const hint = document.getElementById("entry-search-hint");
-    hint.textContent = "Reloading everything…";
+    hint.textContent = tr("search.reloading");
     syncSearchIndex_({ force: true }).then(renderSearchResults_).catch(renderSearchResults_);
   });
 
@@ -2398,7 +2407,7 @@ function restoreEntryDraft_() {
   selectedTagIds.clear();
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
-  showFormNotice_("↩️ Restored the entry you were typing — it wasn't saved yet. Clear the amount and description to drop it.");
+  showFormNotice_(tr("entry.draftRestored"));
   return true;
 }
 
@@ -2438,7 +2447,7 @@ function syncCancelNewEntryButton_() {
 
   document.getElementById("cancel-new-entry-btn").addEventListener("click", () => {
     const typed = document.getElementById("amount").value.trim() || document.getElementById("description").value.trim();
-    if (typed && !confirm("Cancel this entry? What you've typed will be discarded.")) return;
+    if (typed && !confirm(tr("entry.confirmCancelNew"))) return;
     selectedTagIds.clear();
     populateTags();
     resetSplitState();
@@ -2532,7 +2541,7 @@ async function startEditEntry(entry) {
   populateTags();
 
   document.getElementById("edit-mode-banner").hidden = false;
-  document.getElementById("submit-btn").textContent = "Update entry";
+  document.getElementById("submit-btn").textContent = tr("entry.update");
   document.getElementById("cancel-edit-btn-2").hidden = false;
   document.getElementById("delete-entry-btn").hidden = false;
 
@@ -2546,7 +2555,7 @@ function exitEditMode() {
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
-  document.getElementById("submit-btn").textContent = "Save entry";
+  document.getElementById("submit-btn").textContent = tr("entry.save");
   document.getElementById("cancel-edit-btn-2").hidden = true;
   document.getElementById("delete-entry-btn").hidden = true;
   selectedTagIds.clear();
@@ -2612,21 +2621,20 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
   // A repayment's transfer entry takes the repayment with it — say so first.
-  let confirmText = `Delete ${editingEntrySummary_ || "this entry"}? This can't be undone.`;
+  let confirmText = tr("confirm.deleteEntry", { what: editingEntrySummary_ || tr("confirm.thisEntry") });
   if (["transfer", "expense", "income"].includes(editingEntryOriginalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
     if (links.forgiveness) {
       const f = links.forgiveness;
-      confirmText = `This entry records you forgiving ${f.friend}'s debt. Deleting it also undoes the forgiveness, so ${f.direction === "they_owe_me" ? "they owe you" : "you owe them"} that amount again. Continue?`;
+      confirmText = tr(f.direction === "they_owe_me" ? "delete.forgivenessTheyOweMe" : "delete.forgivenessIOweThem", { friend: f.friend });
     }
     if (links.loan) {
-      alert("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
+      alert(tr("delete.isLoan"));
       return;
     }
     if (links.repayment) {
       const r = links.repayment;
-      confirmText = `This is a repayment ${r.direction === "they_owe_me" ? "from" : "to"} ${r.friend} (${r.currency} ${moneyFmt(r.total)}). ` +
-        `Deleting it also cancels the repayment, so ${r.direction === "they_owe_me" ? "they owe you" : "you owe them"} that amount again. Continue?`;
+      confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
   if (!confirm(confirmText)) return;
@@ -2651,7 +2659,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
 
 function openEditPopup(entry) {
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
-  document.getElementById("edit-entry-modal-title").textContent = "Edit transaction";
+  document.getElementById("edit-entry-modal-title").textContent = tr("entry.editTitle");
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -2688,9 +2696,9 @@ async function openConfirmPendingPopup(entry) {
   // silently overwrite the overrides below back to "Update entry" a
   // moment after this function returned — caught live in testing.
   await startEditEntry(entry);
-  document.getElementById("edit-entry-modal-title").textContent = "Confirm transaction";
-  document.getElementById("edit-mode-banner").textContent = "✏️ Confirming entry";
-  document.getElementById("submit-btn").textContent = "Confirm entry";
+  document.getElementById("edit-entry-modal-title").textContent = tr("entry.confirmTitle");
+  document.getElementById("edit-mode-banner").textContent = tr("entry.confirmingBanner");
+  document.getElementById("submit-btn").textContent = tr("entry.confirmButton");
   // Discarding is the review queue row's own separate action — hidden
   // here rather than duplicated, so there's only one place to do it.
   document.getElementById("delete-entry-btn").hidden = true;
@@ -2721,9 +2729,14 @@ document.getElementById("edit-entry-modal-backdrop").addEventListener("click", (
 // rows it was impossible to be sure the right one was open. Pieces that are
 // blank are left out.
 function describeForConfirm_(label, amountText, extra) {
-  const head = label ? `"${label}"` : "this item";
+  const head = label ? tr("confirm.label", { label }) : tr("confirm.thisItem");
   const detail = [amountText, extra].filter(Boolean).join(", ");
   return detail ? `${head} (${detail})` : head;
+}
+
+// A status word from the server, in the current language (unknown ones as-is).
+function statusLabel_(status) {
+  return ["pending", "confirmed", "discarded"].includes(status) ? tr("status." + status) : status;
 }
 
 function escapeHtml(str) {
@@ -2875,7 +2888,7 @@ function markQueuedEditStatus_(id, status, error) {
 function blockedWhileSavingEdit_(id) {
   const q = findQueuedEdit_(id);
   if (q && q.status === "saving") {
-    alert("Still saving your last change to this entry — try again in a moment.");
+    alert(tr("entry.stillSaving"));
     return true;
   }
   return false;
@@ -3015,9 +3028,7 @@ function renderSaveFailedBanner_() {
     banner.hidden = true;
     return;
   }
-  banner.textContent = failed.length === 1
-    ? "⚠️ 1 entry couldn't save — tap to review"
-    : `⚠️ ${failed.length} entries couldn't save — tap to review`;
+  banner.textContent = tr("banner.saveFailed", { n: failed.length });
   banner.hidden = false;
   // Stacks below the update banner rather than overlapping it, on the
   // rare chance both are showing at once — both are position:fixed/top:0.
@@ -3036,7 +3047,7 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
   if (entry) {
     startEditEntry(entry);
   } else {
-    alert("That entry isn't in the currently loaded list — scroll Recent entries to find it, or pull down to refresh.");
+    alert(tr("entry.notInList"));
   }
 });
 
@@ -3049,7 +3060,7 @@ function investmentPlatformOptions_(selectedId) {
   const opts = meta.paymentMethods.filter((pm) => pm.type === "investment").map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
   );
-  return `<option value="">Pick the platform…</option>` + opts.join("");
+  return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
 
 function transferAccountOptions_(selectedId, blankLabel) {
@@ -3077,26 +3088,26 @@ function transferAccountOptions_(selectedId, blankLabel) {
 function setCheckStatus_(elementId, state, noun) {
   const el = document.getElementById(elementId);
   if (state === "checking") {
-    el.textContent = `🔄 Checking for new ${noun}…`;
+    el.textContent = tr("check.checking." + noun);
     el.hidden = false;
   } else if (state === "failed") {
-    el.textContent = `⚠️ Couldn't confirm — showing the last known ${noun}. Pull down to retry.`;
+    el.textContent = tr("check.failed." + noun);
     el.hidden = false;
   } else {
     el.hidden = true;
   }
 }
 function setReviewCheckStatus_(state) {
-  setCheckStatus_("review-check-status", state, "review items");
+  setCheckStatus_("review-check-status", state, "review");
 }
 function setEntriesCheckStatus_(state) {
   setCheckStatus_("entries-check-status", state, "entries");
 }
 function setMetaCheckStatus_(state) {
-  setCheckStatus_("meta-check-status", state, "categories & accounts");
+  setCheckStatus_("meta-check-status", state, "meta");
 }
 function setRecurringCheckStatus_(state) {
-  setCheckStatus_("recurring-check-status", state, "programmed items");
+  setCheckStatus_("recurring-check-status", state, "recurring");
 }
 
 // Entries/meta/recurring all come from the one getStartupBundle call, so
@@ -3142,40 +3153,40 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     item.innerHTML = `
       <div class="review-item-top">
         <div>
-          <div class="review-item-desc">${escapeHtml(entry.description || "(no description)")}</div>
-          <div class="review-item-meta">${entry.date} · ${entry.type}</div>
+          <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
+          <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
         </div>
         <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
       </div>
-      ${(entry.twins || []).length ? `<div class="review-dup-warning">⚠️ Possible duplicate — same day, amount and merchant as ${(entry.twins || []).map((t) => `"${escapeHtml(t.description || "an entry")}" (${t.status})`).join(", ")}. Discard if it's a copy; confirm if it's a real repeat.</div>` : ""}
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<select class="review-category">
-          <option value="">Pick a category…</option>
+          <option value="">${escapeHtml(tr("review.pickCategory"))}</option>
           ${categoryOptions}
         </select>`}
-        <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="Description">
-        <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="Amount">
+        <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}">
+        <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}">
         ${entry.type === "transfer" ? `
-        <label class="review-transfer-label">⬆️ From</label>
-        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, "Pick the account it left…")}</select>
-        <label class="review-transfer-label">⬇️ To</label>
-        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, "Pick the account it went into…")}</select>` : ""}
+        <label class="review-transfer-label">${tr("review.fromLabel")}</label>
+        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccountLeft"))}</select>
+        <label class="review-transfer-label">${tr("review.toLabel")}</label>
+        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccountEntered"))}</select>` : ""}
         ${entry.type === "investment" ? `
-        <label class="review-transfer-label">📈 Platform${Number(entry.amount) < 0 ? " (withdrawal — money coming back)" : ""}</label>
+        <label class="review-transfer-label">${tr("review.platformLabel")}${Number(entry.amount) < 0 ? tr("review.platformWithdrawal") : ""}</label>
         <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>
         ${Number(entry.amount) < 0 ? `
-        <label class="review-transfer-label">⬇️ Received at</label>
-        <select class="review-land">${transferAccountOptions_(entry.payment_method_id, "Pick the account…")}</select>` : ""}` : ""}
+        <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
+        <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
       <div class="review-item-actions">
-        <button type="button" class="review-confirm-btn">✅ Confirm</button>
-        <button type="button" class="review-discard-btn">❌ Discard</button>
+        <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
+        <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
       ${entry.type === "expense" || entry.type === "income" ? `
       <div class="review-item-secondary-actions">
-        ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">🔀 Split</button>` : ""}
-        <button type="button" class="add-inline review-repay-btn">💰 Mark as repayment</button>
-        <button type="button" class="add-inline review-loan-btn">🤝 Convert to loan</button>
+        ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
+        <button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
+        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>
       </div>` : ""}
     `;
 
@@ -3196,11 +3207,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const amount = parseFloat(amountStr);
 
       if (!categoryId && entry.type !== "investment") {
-        alert("Pick a category first.");
+        alert(tr("review.pickCategoryFirst"));
         return;
       }
       if (!amountStr || isNaN(amount) || amount <= 0) {
-        alert("Enter a valid amount.");
+        alert(tr("error.validAmount"));
         return;
       }
 
@@ -3214,7 +3225,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const fromId = item.querySelector(".review-from").value;
         const toId = item.querySelector(".review-to").value;
         if (fromId && toId && fromId === toId) {
-          alert("From and To can't be the same account.");
+          alert(tr("error.sameAccount"));
           return;
         }
         fields.payment_method_id = fromId;
@@ -3223,7 +3234,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (entry.type === "investment") {
         const platformId = item.querySelector(".review-platform").value;
         if (!platformId) {
-          alert("Pick the platform first — an investment only counts once it has one.");
+          alert(tr("review.pickPlatformFirst"));
           return;
         }
         fields.to_payment_method_id = platformId;
@@ -3246,7 +3257,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     });
 
     discardBtn.addEventListener("click", () => {
-      if (!confirm(`Discard ${describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date)}? This can't be undone.`)) return;
+      if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
 
       queueReviewAction_(entry.id, "discard", null);
       item.remove();
@@ -3284,7 +3295,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           fresh = await callApi("getEntry", { id: entry.id });
         } catch (err) { /* offline / slow: fall back to what the row has */ }
         if (!fresh || fresh.status !== "pending") {
-          alert("This entry was already confirmed, changed or removed elsewhere — refreshing the list.");
+          alert(tr("review.alreadyHandled"));
           refreshReviewQueue().catch(() => {});
           return null;
         }
@@ -3450,11 +3461,11 @@ function yearBounds(d) {
 function getPeriodBounds() {
   if (periodType === "month") return monthBounds(periodAnchor);
   if (periodType === "year") return yearBounds(periodAnchor);
-  if (periodType === "alltime") return { startDate: null, endDate: null, label: "All-time" };
+  if (periodType === "alltime") return { startDate: null, endDate: null, label: tr("period.alltime") };
   if (periodType === "custom") {
     const start = document.getElementById("custom-start").value;
     const end = document.getElementById("custom-end").value;
-    return { startDate: start || null, endDate: end || null, label: "Custom range" };
+    return { startDate: start || null, endDate: end || null, label: tr("period.customRange") };
   }
   return { startDate: null, endDate: null, label: "" };
 }
@@ -4379,7 +4390,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     if (selectedBudgetCategoryIds.size === 0) {
       throw new Error("Pick at least one category.");
     }
-    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
 
     // Stores the compact "ALL" form whenever the selection happens to
     // cover every category that exists right now — whether the owner got
@@ -4752,7 +4763,7 @@ async function init() {
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
     document.getElementById("entry-list").innerHTML =
-      `<div class="status-msg">Couldn't load data: ${escapeHtml(err.message)}</div>`;
+      `<div class="status-msg">${escapeHtml(tr("error.loadData", { error: err.message }))}</div>`;
   }
 }
 
@@ -5406,18 +5417,18 @@ function renderRecurringSplitSummary() {
   const friendIds = Array.from(recurringSplitFriendIds);
 
   if (friendIds.length === 0) {
-    summaryEl.textContent = "Pick who else this is shared with.";
+    summaryEl.textContent = tr("split.pickWho");
     return;
   }
 
   if (recurringSplitMode === "equal") {
     const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
-    summaryEl.textContent = `${currency} ${moneyFmt(shareEach)} each · ${currency} ${moneyFmt(ownerShare)} to you`;
+    summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else {
     const assigned = friendIds.reduce((sum, id) => sum + (parseFloat(recurringCustomSplitAmounts[id]) || 0), 0);
     const remaining = amount - assigned;
     summaryEl.textContent = `${currency} ${moneyFmt(assigned)} of ${currency} ${moneyFmt(amount)} assigned · ${currency} ${moneyFmt(Math.max(remaining, 0))} left to you`;
-    if (remaining < -0.004) errorEl.textContent = "That's more than the total amount.";
+    if (remaining < -0.004) errorEl.textContent = tr("split.errorOver");
   }
 }
 
@@ -5444,16 +5455,16 @@ function validateRecurringSplitIfEnabled() {
   const amount = parseFloat(document.getElementById("recurring-amount").value) || 0;
   const friendIds = Array.from(recurringSplitFriendIds);
   if (friendIds.length === 0) {
-    throw new Error("Pick at least one friend to split with, or turn the split toggle off.");
+    throw new Error(tr("split.errNoFriend"));
   }
 
   const splits = getRecurringSplitPayload();
   const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
   if (recurringSplitMode === "custom" && assigned <= 0) {
-    throw new Error("Enter at least one friend's amount.");
+    throw new Error(tr("split.errNoAmount"));
   }
   if (assigned - amount > 0.004) {
-    throw new Error("The split adds up to more than the total amount.");
+    throw new Error(tr("split.errOverTotal"));
   }
   return splits;
 }
@@ -5475,7 +5486,7 @@ document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((tab) 
 });
 
 document.getElementById("recurring-split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   meta.friends.push(friend);
@@ -5737,8 +5748,8 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     const occurrenceDate = document.getElementById("recurring-occurrence-date").value;
     const active = document.getElementById("recurring-active-checkbox").checked;
 
-    if (!selectedRecurringCategoryId) throw new Error("Pick a category.");
-    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
+    if (!selectedRecurringCategoryId) throw new Error(tr("error.pickCategory"));
+    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!occurrenceDate) throw new Error("Pick a date.");
 
     // Validated up front, same as the entry form — a bad split blocks the
@@ -6893,13 +6904,13 @@ function populateLoanFriendOptions() {
   });
   const addOpt = document.createElement("option");
   addOpt.value = "__add__";
-  addOpt.textContent = "+ Add friend…";
+  addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
 }
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -6915,7 +6926,7 @@ function populateLoanPaymentMethodOptions() {
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = "None";
+  noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
   meta.paymentMethods.forEach((pm) => {
     const opt = document.createElement("option");
@@ -7000,9 +7011,9 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     const paymentMethodId = document.getElementById("loan-payment-method").value;
     const description = document.getElementById("loan-description").value.trim();
 
-    if (!friendId || friendId === "__add__") throw new Error("Pick a friend.");
-    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
-    if (!date) throw new Error("Date is required.");
+    if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
+    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
+    if (!date) throw new Error(tr("error.dateRequired"));
 
     saveBtn.disabled = true;
     const fields = {
@@ -7077,7 +7088,7 @@ function populateSettlementPaymentMethodOptions() {
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = "None";
+  noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
   meta.paymentMethods.forEach((pm) => {
     const opt = document.createElement("option");
@@ -7250,8 +7261,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
     const date = document.getElementById("settlement-date").value;
     const paymentMethodId = document.getElementById("settlement-payment-method").value;
 
-    if (!amount || amount <= 0) throw new Error("Enter a valid amount.");
-    if (!date) throw new Error("Date is required.");
+    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
+    if (!date) throw new Error(tr("error.dateRequired"));
 
     saveBtn.disabled = true;
 
@@ -7434,7 +7445,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
   if (convert && !categoryId) { errorEl.textContent = "Pick a category."; return; }
-  if (convert && !date) { errorEl.textContent = "Date is required."; return; }
+  if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
   const saveBtn = document.getElementById("forgive-save-btn");
   saveBtn.disabled = true;
@@ -7491,13 +7502,13 @@ function populateReviewTransferFriendOptions() {
   });
   const addOpt = document.createElement("option");
   addOpt.value = "__add__";
-  addOpt.textContent = "+ Add friend…";
+  addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
 }
 
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -7513,7 +7524,7 @@ function populateReviewTransferPaymentMethodOptions() {
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = "None";
+  noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
   meta.paymentMethods.forEach((pm) => {
     const opt = document.createElement("option");
@@ -7528,14 +7539,14 @@ function openReviewTransferModal(entry, mode) {
   reviewTransferMode = mode;
 
   document.getElementById("review-transfer-modal-title").textContent =
-    mode === "repay" ? "Mark as repayment" : "Convert to loan";
+    mode === "repay" ? tr("review.repayTitle") : tr("review.loanTitle");
   // Say which way the money moves — it follows the entry's type (an income
   // is money that came IN, so the friend is the one paying/lending).
   const incoming = entry.type === "income";
   document.getElementById("review-transfer-context").textContent =
-    `${entry.description || "Transaction"} · ${entry.currency} ${moneyFmt(entry.amount)}` +
+    `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` +
     (incoming
-      ? (mode === "repay" ? " — a friend paying you back what they owed" : " — a friend lending you this")
+      ? (mode === "repay" ? tr("review.contextRepay") : tr("review.contextLoan"))
       : "");
   document.getElementById("review-transfer-form-error").textContent = "";
 
@@ -7552,7 +7563,7 @@ function openReviewTransferModal(entry, mode) {
   // instead of silently falling back to the pending entry's own text.
   document.getElementById("review-transfer-description").value = entry.description || "";
   document.getElementById("review-transfer-save-btn").textContent =
-    mode === "repay" ? "Mark as repayment" : "Convert to loan";
+    mode === "repay" ? tr("review.repayTitle") : tr("review.loanTitle");
 
   const backdrop = document.getElementById("review-transfer-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -7581,9 +7592,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   const date = document.getElementById("review-transfer-date").value;
   const paymentMethodId = document.getElementById("review-transfer-payment-method").value;
 
-  if (!friendId || friendId === "__add__") { errorEl.textContent = "Pick a friend."; return; }
-  if (!amount || amount <= 0) { errorEl.textContent = "Enter a valid amount."; return; }
-  if (!date) { errorEl.textContent = "Date is required."; return; }
+  if (!friendId || friendId === "__add__") { errorEl.textContent = tr("error.pickFriend"); return; }
+  if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
+  if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
   const saveBtn = document.getElementById("review-transfer-save-btn");
   saveBtn.disabled = true;
@@ -7611,9 +7622,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
       });
       await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
-        alert(incoming
-          ? `Marked as a repayment from ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they owed you. The extra is in your review queue, waiting for a category.`
-          : `Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. The extra is in your review queue, waiting for a category.`);
+        alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
       await callApi("addLoan", {
@@ -8447,7 +8456,7 @@ document.getElementById("bill-add-charge").addEventListener("click", () => {
   recomputeBill_();
 });
 document.getElementById("bill-add-friend").addEventListener("click", async () => {
-  const name = prompt("Friend's name:");
+  const name = prompt(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   friend.last_used = todayLocalISO();
