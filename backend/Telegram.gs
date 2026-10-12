@@ -370,6 +370,12 @@ function telegramEditHelpText_(entry) {
     lines.push('repayment — "repayment Ana" (you paying down what you owed them)');
     lines.push('loan — "loan Ana" (you lending them this)');
   }
+  if (entry.type === 'income') {
+    lines.push('');
+    lines.push('Or instead of confirming as income:');
+    lines.push('repayment — "repayment Ana" (this is a friend paying you back what they owed)');
+    lines.push('loan — "loan Ana" (a friend lent you this — you now owe them)');
+  }
   return lines.join('\n');
 }
 
@@ -674,18 +680,27 @@ function removeCardButtons_(chatId, messageId) {
 // "repayment Ana" / "mark as repayment Ana" or "loan Ana" / "convert
 // to loan Ana" — the Telegram equivalent of the review queue's own
 // "💰 Mark as repayment" / "🤝 Convert to loan" (see CLAUDE.md's Review
-// queue section for the shared reasoning: every pending entry is money
-// the owner sent OUT, so there's exactly one sensible direction for
-// each, never a picker). Reuses the exact same backend calls those make.
+// queue section). The direction follows the pending entry's type, so
+// there's never a picker:
+// - a pending EXPENSE is money the owner sent OUT: repayment = paying down
+//   what the owner owed ('i_owe_them'), loan = the owner lending it
+//   ('they_owe_me');
+// - a pending INCOME is money that CAME IN (e.g. a "Te Yapearon" photo):
+//   repayment = the friend paying back what they owed ('they_owe_me'),
+//   loan = the friend lending it to the owner ('i_owe_them').
+// Reuses the exact same backend calls the app's buttons make.
 function applyTerminalReviewAction_(entryId, fullText, friendText) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
   if (entry.status !== 'pending') {
     return { message: "This entry is already confirmed — repayment/loan only works on a pending one. Handle it from the Loans tab in the app." };
   }
-  if (entry.type !== 'expense') {
-    return { message: "This is an internal transfer, not a friend transaction — repayment/loan doesn't apply here." };
+  if (entry.type !== 'expense' && entry.type !== 'income') {
+    return { message: entry.type === 'transfer'
+      ? "This is an internal transfer, not a friend transaction — repayment/loan doesn't apply here."
+      : "Repayment/loan only works on an expense or an income — this one is a " + entry.type + "." };
   }
+  var incoming = entry.type === 'income';
 
   var friend = fuzzyFindFriend_(String(friendText).trim());
   if (!friend) {
@@ -695,26 +710,36 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
   var isRepayment = /^(?:mark\s+as\s+)?repayment/i.test(fullText.trim());
 
   if (isRepayment) {
-    var repayResult = recordRepayment({
-      friend_id: friend.id,
-      direction: 'i_owe_them',
-      amount: Number(entry.amount),
-      currency: entry.currency,
-      date: entry.date,
-      payment_method_id: entry.payment_method_id || ''
-    });
+    var repayResult;
+    try {
+      repayResult = recordRepayment({
+        friend_id: friend.id,
+        direction: incoming ? 'they_owe_me' : 'i_owe_them',
+        amount: Number(entry.amount),
+        currency: entry.currency,
+        date: entry.date,
+        payment_method_id: entry.payment_method_id || '',
+        // Income only: nothing owed = nothing to repay, so refuse and leave
+        // the pending entry alone (see recordRepayment).
+        require_owed: incoming
+      });
+    } catch (err) {
+      if (incoming) return { message: err.message + ' The entry is unchanged.' };
+      throw err;
+    }
     deleteEntry_(entryId);
-    var msg = '✅ Marked as a repayment to ' + friend.name + '.';
+    var msg = '✅ Marked as a repayment ' + (incoming ? 'from ' : 'to ') + friend.name + '.';
     if (repayResult.overpaid > 0.004) {
       msg += ' ' + entry.currency + ' ' + moneyFmt_(repayResult.overpaid) +
-        ' was more than they were owed — the extra is in your review queue in the app, waiting for a category.';
+        (incoming ? ' was more than they owed you' : ' was more than they were owed') +
+        ' — the extra is in your review queue in the app, waiting for a category.';
     }
     return { message: msg, removed: true };
   }
 
   addLoan({
     friend_id: friend.id,
-    direction: 'they_owe_me',
+    direction: incoming ? 'i_owe_them' : 'they_owe_me',
     amount: Number(entry.amount),
     currency: entry.currency,
     date: entry.date,
@@ -723,7 +748,9 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
   });
   deleteEntry_(entryId);
   return {
-    message: '✅ Converted to a loan — ' + friend.name + ' now owes you ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.',
+    message: incoming
+      ? '✅ Converted to a loan — you now owe ' + friend.name + ' ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.'
+      : '✅ Converted to a loan — ' + friend.name + ' now owes you ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.',
     removed: true
   };
 }

@@ -121,10 +121,18 @@ test("deleting an item deletes its skips", () => {
 // ---- "Programmed this month" -------------------------------------------------
 const expectedIds = (rt) => rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items.map((i) => i.id));
 // A category nobody else logs into this month, so only OUR entries could match.
+// Later in the month the made-up data touches every category (it broke on
+// 2026-10-11), so when none is untouched the first free one is emptied of this
+// month's entries instead of the test depending on the calendar.
 const quietCat = (rt, data) => {
   const used = new Set(rt.rows("Entries").filter((e) => e.date.startsWith(ym())).map((e) => e.category_id));
   const rec = new Set(rt.rows("Recurring Expenses").map((r) => r.category_id));
-  return data.cats.filter((c) => c.type === "expense").find((c) => !used.has(c.id) && !rec.has(c.id));
+  const free = data.cats.filter((c) => c.type === "expense").filter((c) => !rec.has(c.id));
+  const quiet = free.find((c) => !used.has(c.id));
+  if (quiet) return quiet;
+  const pick = free[0];
+  rt.run(`deleteRowsWhere_('Entries', function (e) { return e.category_id === ${JSON.stringify(pick.id)} && String(e.date).indexOf(${JSON.stringify(ym())}) === 0; })`);
+  return pick;
 };
 
 test("an item expected this month disappears when skipped, and comes back when un-skipped", () => {

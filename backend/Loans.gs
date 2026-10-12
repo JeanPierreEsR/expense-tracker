@@ -566,6 +566,18 @@ function recordRepayment(payload) {
   var primary = payload.direction === 'they_owe_me' ? theyOweMe : iOweThem;
   var secondary = payload.direction === 'they_owe_me' ? iOweThem : theyOweMe;
 
+  // Set by the review queue / Telegram when converting a pending INCOME entry
+  // ("this money was really a friend paying me back"). With no debt on record
+  // there is nothing to pay down, and carrying on would just swap the income
+  // for an identical "overpayment" income — so stop BEFORE any row is written
+  // and let the caller leave the pending entry as it is.
+  if (payload.require_owed && !primary.length) {
+    throw new Error(payload.direction === 'they_owe_me'
+      ? friend.name + ' has no ' + currency + ' loan from you on record, so there is nothing for this to repay. ' +
+        'Add the loan first (Loans tab), or use "Convert to loan" if they lent you this money.'
+      : 'You have no ' + currency + ' debt to ' + friend.name + ' on record, so there is nothing for this to repay.');
+  }
+
   // Phase 1 — offset opposite-direction debt first, oldest-first on both
   // sides.
   var primaryLeft = primary.map(function (l) { return l.remaining; });

@@ -3171,9 +3171,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">✅ Confirm</button>
         <button type="button" class="review-discard-btn">❌ Discard</button>
       </div>
-      ${entry.type === "expense" ? `
+      ${entry.type === "expense" || entry.type === "income" ? `
       <div class="review-item-secondary-actions">
-        <button type="button" class="add-inline review-split-btn">🔀 Split</button>
+        ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">🔀 Split</button>` : ""}
         <button type="button" class="add-inline review-repay-btn">💰 Mark as repayment</button>
         <button type="button" class="add-inline review-loan-btn">🤝 Convert to loan</button>
       </div>` : ""}
@@ -3259,7 +3259,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     });
 
     // Phase 5.7's three deferred review-queue actions — only ever shown
-    // for a pending expense (never a plain internal transfer, which is
+    // for a pending expense (Split too) or a pending income (the two friend
+    // actions only — never a plain internal transfer, which is
     // always the owner's own account-to-account move, never a friend
     // transaction; see EmailParser.gs). Unlike Confirm/Discard, above,
     // these don't use the offline-optimistic queue — they're rarer,
@@ -3267,7 +3268,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense") {
+    if (entry.type === "expense" || entry.type === "income") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -3301,7 +3302,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
-      item.querySelector(".review-split-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      const splitBtn = item.querySelector(".review-split-btn"); // expenses only
+      if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       item.querySelector(".review-repay-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
       item.querySelector(".review-loan-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
     }
@@ -7385,10 +7387,10 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
 });
 
 // ---- Review queue: Mark as repayment / Convert to loan (Phase 5.7) ----
-// Every pending entry email parsing catches is money the owner sent out
-// (there's no deposit/income detection built — see CLAUDE.md's Email
-// automation section), so both actions have a fixed, known direction —
-// there's nothing to pick:
+// Email parsing only catches money the owner sent OUT (expenses); a pending
+// INCOME comes from a "Te Yapearon" photo or a manual entry. Either way the
+// direction follows the entry's type, so there's nothing to pick. For a
+// pending EXPENSE:
 // - "Mark as repayment" means the owner paying this money down what THEY
 //   owed the friend — direction 'i_owe_them', through the exact same
 //   recordRepayment FIFO + offset engine the Loans tab's own "Record
@@ -7397,8 +7399,12 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
 //   — direction 'they_owe_me' (the friend now owes it back), through the
 //   same addLoan as the Loans tab's "+ Add loan" (including its own
 //   +7-day due-date default when none's given).
+// For a pending INCOME the friend is on the other side: "Mark as repayment" =
+// they pay back what they owed (they_owe_me paid down, and refused with
+// nothing written if no such debt exists — require_owed), "Convert to loan"
+// = they lent it to the owner (i_owe_them).
 // Either way, the pending entry itself is discarded afterward — it was
-// never really an expense, so it shouldn't become a confirmed one.
+// never really an expense/income, so it shouldn't become a confirmed one.
 
 let reviewTransferEntry = null;
 let reviewTransferMode = null; // "repay" | "loan"
@@ -7452,8 +7458,14 @@ function openReviewTransferModal(entry, mode) {
 
   document.getElementById("review-transfer-modal-title").textContent =
     mode === "repay" ? "Mark as repayment" : "Convert to loan";
+  // Say which way the money moves — it follows the entry's type (an income
+  // is money that came IN, so the friend is the one paying/lending).
+  const incoming = entry.type === "income";
   document.getElementById("review-transfer-context").textContent =
-    `${entry.description || "Transaction"} · ${entry.currency} ${moneyFmt(entry.amount)}`;
+    `${entry.description || "Transaction"} · ${entry.currency} ${moneyFmt(entry.amount)}` +
+    (incoming
+      ? (mode === "repay" ? " — a friend paying you back what they owed" : " — a friend lending you this")
+      : "");
   document.getElementById("review-transfer-form-error").textContent = "";
 
   populateReviewTransferFriendOptions();
@@ -7510,24 +7522,32 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     const description = document.getElementById("review-transfer-description").value.trim() ||
       reviewTransferEntry.description || "";
 
+    // An expense is money the owner sent out; an income is money that came in
+    // — the friend is then the one repaying (they_owe_me paid down) or
+    // lending (i_owe_them). An income with no debt on record is refused by the
+    // backend (require_owed) before anything is written, so the entry stays.
+    const incoming = reviewTransferEntry.type === "income";
     if (reviewTransferMode === "repay") {
       const result = await callApi("recordRepayment", {
         friend_id: friendId,
-        direction: "i_owe_them",
+        direction: incoming ? "they_owe_me" : "i_owe_them",
         amount,
         currency,
         date,
         payment_method_id: paymentMethodId,
-        description
+        description,
+        require_owed: incoming
       });
       await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
-        alert(`Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. The extra is in your review queue, waiting for a category.`);
+        alert(incoming
+          ? `Marked as a repayment from ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they owed you. The extra is in your review queue, waiting for a category.`
+          : `Marked as a repayment to ${friendName} — ${currency} ${moneyFmt(result.overpaid)} was more than they were owed. The extra is in your review queue, waiting for a category.`);
       }
     } else {
       await callApi("addLoan", {
         friend_id: friendId,
-        direction: "they_owe_me",
+        direction: incoming ? "i_owe_them" : "they_owe_me",
         amount,
         currency,
         date,
