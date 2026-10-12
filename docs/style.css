@@ -186,7 +186,10 @@ main {
   cursor: pointer;
 }
 
+.nav-btn { min-width: 0; }
 .nav-btn .nav-icon { font-size: 1.2rem; }
+/* Spanish labels are longer ("Movimientos", "Presupuestos", "Proyecciones"). */
+html[lang="es"] .nav-btn { font-size: 0.58rem; margin: 6px 1px; }
 
 .nav-btn.active {
   color: var(--accent);

@@ -10,8 +10,9 @@ const DOCS = path.join(__dirname, "..", "..", "docs");
 const STRINGS = require(path.join(DOCS, "strings.js"));
 const I18n = require(path.join(DOCS, "i18n.js"));
 
-function placeholders(value) {
-  return [...String(value).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
+function placeholders(value, form) {
+  // A "one" form may drop {n}: Spanish says "el día que queda", not "1 día".
+  return [...String(value).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((p) => !(form === "one" && p === "n")).sort().join(",");
 }
 function forms(value) {
   return typeof value === "object" ? { one: value.one, other: value.other } : { text: value };
@@ -25,7 +26,7 @@ test("every text exists in both languages, filled in, with the same {placeholder
     for (const form of Object.keys(en)) {
       assert.ok(String(en[form] || "").trim(), `${key}.${form}: English is empty`);
       assert.ok(String(es[form] || "").trim(), `${key}.${form}: Spanish is empty`);
-      assert.equal(placeholders(es[form]), placeholders(en[form]), `${key}.${form}: {placeholders} differ between English and Spanish`);
+      assert.equal(placeholders(es[form], form), placeholders(en[form], form), `${key}.${form}: {placeholders} differ between English and Spanish`);
     }
   }
 });
@@ -93,6 +94,7 @@ test("dates: English is unchanged, Spanish uses the capitalised month names and 
   assert.equal(I18n.monthShort(8), "Sep");
   I18n.setLang("es");
   assert.equal(I18n.fmtMonthYear(d), "Septiembre de 2026");
+  assert.equal(I18n.fmtMonthYear(d, true), "septiembre de 2026", "inside a sentence the month stays lowercase");
   assert.equal(I18n.fmtDateMedium(d), "5 sep 2026");
   assert.equal(I18n.fmtMonthDay(d, false), "5 sep");
   assert.equal(I18n.fmtMonthDay(d, true), "5 sep 2026");

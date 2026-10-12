@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-12T19:48:28Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-12T21:31:25Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -186,8 +186,8 @@
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
       <div class="card" id="expected-recurring-card" hidden>
-        <h2>🔁 Programmed this month</h2>
-        <p class="hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
+        <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
+        <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
         <div id="expected-recurring-groups"></div>
       </div>
 
@@ -226,56 +226,56 @@
       <div class="card">
         <div class="summary-grid">
           <div class="summary-item">
-            <span class="summary-label">Income</span>
+            <span class="summary-label" data-i18n="summary.income">Income</span>
             <span class="summary-value income" id="summary-income">PEN 0.00</span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">Expenses</span>
+            <span class="summary-label" data-i18n="summary.expenses">Expenses</span>
             <span class="summary-value expense" id="summary-expense">PEN 0.00</span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">Investments</span>
+            <span class="summary-label" data-i18n="summary.investments">Investments</span>
             <span class="summary-value investment" id="summary-investment">PEN 0.00</span>
           </div>
           <div class="summary-item">
-            <span class="summary-label">Net</span>
+            <span class="summary-label" data-i18n="summary.net">Net</span>
             <span class="summary-value" id="summary-net">PEN 0.00</span>
           </div>
         </div>
         <p class="hint" id="overview-excluded-note" hidden></p>
-        <p class="hint" id="overview-empty-note" hidden>No entries in this period yet.</p>
+        <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
 
       <div class="card" id="balances-card">
         <div class="budgets-header">
-          <h2>Balances</h2>
-          <button type="button" class="add-inline" id="add-balance-btn">+ Add balance</button>
+          <h2 data-i18n="balances.title">Balances</h2>
+          <button type="button" class="add-inline" id="add-balance-btn" data-i18n="balances.add">+ Add balance</button>
         </div>
-        <p class="hint">What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.</p>
+        <p class="hint" data-i18n="balances.hint">What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.</p>
         <div id="balances-list"></div>
         <div id="balances-totals" class="balances-totals" hidden>
-          <div class="balances-totals-title">Net by currency</div>
+          <div class="balances-totals-title" data-i18n="balances.netByCurrency">Net by currency</div>
           <div id="balances-totals-lines"></div>
         </div>
-        <p class="hint" id="balances-empty-note" hidden>No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
+        <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
       <div class="card" id="investments-card" hidden>
         <div class="budgets-header">
-          <h2>Investments</h2>
+          <h2 data-i18n="summary.investments">Investments</h2>
         </div>
-        <p class="hint">Net cash you've put into each platform (deposits minus withdrawals). Not the platform's current value, and not affected by the period above.</p>
+        <p class="hint" data-i18n="invest.hint">Net cash you've put into each platform (deposits minus withdrawals). Not the platform's current value, and not affected by the period above.</p>
         <div id="investments-list"></div>
       </div>
 
       <div class="card">
         <div class="type-tabs overview-type-tabs" id="overview-type-tabs">
-          <div class="type-tab active" data-type="expense">Expense</div>
-          <div class="type-tab" data-type="income">Income</div>
+          <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
+          <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>
         </div>
 
         <div class="breakdown-section">
-          <h3>By category</h3>
+          <h3 data-i18n="overview.byCategory">By category</h3>
           <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>
           </div>
@@ -283,7 +283,7 @@
         </div>
 
         <div class="breakdown-section">
-          <h3>By tag</h3>
+          <h3 data-i18n="overview.byTag">By tag</h3>
           <div class="pie-chart-wrap" id="pie-wrap-tag">
             <div class="pie-chart" id="pie-tag"></div>
           </div>
@@ -291,7 +291,7 @@
         </div>
 
         <div class="breakdown-section">
-          <h3>By payment method</h3>
+          <h3 data-i18n="overview.byPaymentMethod">By payment method</h3>
           <div class="pie-chart-wrap" id="pie-wrap-paymentMethod">
             <div class="pie-chart" id="pie-paymentMethod"></div>
           </div>
@@ -303,20 +303,20 @@
     <div id="screen-budgets" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <h2>Budgets</h2>
-          <button type="button" class="add-inline" id="add-budget-btn">+ Add budget</button>
+          <h2 data-i18n="nav.budgets">Budgets</h2>
+          <button type="button" class="add-inline" id="add-budget-btn" data-i18n="budgets.add">+ Add budget</button>
         </div>
         <div id="budgets-list"></div>
-        <p class="hint" id="budgets-empty-note" hidden>No budgets yet — add one to start tracking a category.</p>
+        <p class="hint" id="budgets-empty-note" hidden data-i18n="budgets.empty">No budgets yet — add one to start tracking a category.</p>
       </div>
 
       <div class="card" id="budgets-summary-card" hidden>
         <div class="budgets-summary-row">
-          <span class="budgets-summary-label">Total per month</span>
+          <span class="budgets-summary-label" data-i18n="budgets.totalMonth">Total per month</span>
           <span class="budgets-summary-value" id="budgets-summary-monthly">PEN 0.00</span>
         </div>
         <div class="budgets-summary-row">
-          <span class="budgets-summary-label">Total per year</span>
+          <span class="budgets-summary-label" data-i18n="budgets.totalYear">Total per year</span>
           <span class="budgets-summary-value" id="budgets-summary-yearly">PEN 0.00</span>
         </div>
         <p class="hint" id="budgets-summary-note" hidden></p>
@@ -327,54 +327,54 @@
 
     <div id="screen-projections" class="screen" hidden>
       <div class="card">
-        <h2>Projections</h2>
+        <h2 data-i18n="nav.projections">Projections</h2>
         <p class="hint" id="projections-month-label"></p>
         <div id="projections-body"></div>
         <p class="hint" id="projections-method-note"></p>
       </div>
 
       <div class="card">
-        <h2>By category</h2>
+        <h2 data-i18n="overview.byCategory">By category</h2>
         <div id="projections-categories-list"></div>
-        <p class="hint" id="projections-categories-empty-note" hidden>Nothing to project yet — add a recurring item or log some expenses.</p>
+        <p class="hint" id="projections-categories-empty-note" hidden data-i18n="projections.empty">Nothing to project yet — add a recurring item or log some expenses.</p>
       </div>
     </div>
 
     <div id="screen-loans" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <h2>💸 Owes you</h2>
-          <button type="button" class="add-inline" id="add-loan-btn">+ Add loan</button>
+          <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
+          <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
         </div>
         <div class="budgets-summary-row" id="loans-owed-to-me-total-row" hidden>
-          <span class="budgets-summary-label">Total owed to you</span>
+          <span class="budgets-summary-label" data-i18n="loans.totalOwed">Total owed to you</span>
           <span class="loan-total-values income" id="loans-owed-to-me-total"></span>
         </div>
         <div id="loans-owed-to-me-list"></div>
-        <p class="hint" id="loans-owed-to-me-empty-note" hidden>No one owes you anything right now.</p>
+        <p class="hint" id="loans-owed-to-me-empty-note" hidden data-i18n="loans.noneOwed">No one owes you anything right now.</p>
       </div>
 
       <div class="card">
-        <h2>📉 You owe</h2>
+        <h2 data-i18n="loans.youOwe">📉 You owe</h2>
         <div class="budgets-summary-row" id="loans-i-owe-total-row" hidden>
-          <span class="budgets-summary-label">Total you owe</span>
+          <span class="budgets-summary-label" data-i18n="loans.totalYouOwe">Total you owe</span>
           <span class="loan-total-values" id="loans-i-owe-total"></span>
         </div>
         <div id="loans-i-owe-list"></div>
-        <p class="hint" id="loans-i-owe-empty-note" hidden>You don't owe anyone right now.</p>
+        <p class="hint" id="loans-i-owe-empty-note" hidden data-i18n="loans.noneYouOwe">You don't owe anyone right now.</p>
       </div>
     </div>
 
     <div id="screen-more" class="screen" hidden>
       <div class="card">
-        <h2>More</h2>
+        <h2 data-i18n="nav.more">More</h2>
         <div class="more-list">
           <button type="button" class="more-list-item" id="more-recurring-btn">
-            <span>🔁 Programmed income/expenses</span>
+            <span data-i18n="more.programmed">🔁 Programmed income/expenses</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
-            <span>💱 Exchange rates</span>
+            <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-perf-btn">
@@ -410,29 +410,29 @@
     <div id="screen-recurring" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="recurring-back-btn">‹ Back</button>
-          <button type="button" class="add-inline" id="add-recurring-btn">+ Add</button>
+          <button type="button" class="add-inline" id="recurring-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="add-recurring-btn" data-i18n="common.add">+ Add</button>
         </div>
-        <h2 style="margin-top:0;">Programmed income/expenses</h2>
-        <p class="hint">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
+        <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
+        <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
 
         <div class="breakdown-section">
-          <h3>🔁 Recurring</h3>
-          <p class="hint">Repeats on a schedule — rent, subscriptions, gym, salary.</p>
+          <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
+          <p class="hint" data-i18n="recurring.recurringHint">Repeats on a schedule — rent, subscriptions, gym, salary.</p>
           <div id="recurring-list"></div>
-          <p class="hint" id="recurring-empty-note" hidden>No recurring items yet.</p>
+          <p class="hint" id="recurring-empty-note" hidden data-i18n="recurring.empty">No recurring items yet.</p>
           <button type="button" class="add-inline" id="recurring-past-toggle" hidden></button>
           <div id="recurring-past-section" hidden>
-            <p class="hint">Ended or paused — not counted in Programmed this month, Budgets or Projections. Tap one to edit, reactivate or delete it.</p>
+            <p class="hint" data-i18n="recurring.pastHint">Ended or paused — not counted in Programmed this month, Budgets or Projections. Tap one to edit, reactivate or delete it.</p>
             <div id="recurring-past-list"></div>
           </div>
         </div>
 
         <div class="breakdown-section">
-          <h3>📌 Programmed, one-time</h3>
-          <p class="hint">A single known future payment — stays out of "Recent entries" until it actually happens and gets confirmed for real.</p>
+          <h3 data-i18n="recurring.oneTime">📌 Programmed, one-time</h3>
+          <p class="hint" data-i18n="recurring.oneTimeHint">A single known future payment — stays out of "Recent entries" until it actually happens and gets confirmed for real.</p>
           <div id="recurring-onetime-list"></div>
-          <p class="hint" id="recurring-onetime-empty-note" hidden>No one-time programmed items yet.</p>
+          <p class="hint" id="recurring-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
         </div>
       </div>
     </div>
@@ -440,19 +440,19 @@
     <div id="screen-exchange-rates" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="exchange-rates-back-btn">‹ Back</button>
+          <button type="button" class="add-inline" id="exchange-rates-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;">Exchange rates</h2>
-        <p class="hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
+        <h2 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h2>
+        <p class="hint" data-i18n="rates.hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
         <div id="exchange-rates-list"></div>
-        <p class="hint" id="exchange-rates-empty-note" hidden>No exchange rates on file yet.</p>
+        <p class="hint" id="exchange-rates-empty-note" hidden data-i18n="rates.empty">No exchange rates on file yet.</p>
       </div>
     </div>
 
     <div id="screen-perf" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="perf-back-btn">‹ Back</button>
+          <button type="button" class="add-inline" id="perf-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;">Performance log</h2>
         <p class="hint">How long each server call and each app start took on this phone (last ~600 events). "server" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.</p>
@@ -467,7 +467,7 @@
     <div id="screen-export" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="export-back-btn">‹ Back</button>
+          <button type="button" class="add-inline" id="export-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;">Export data</h2>
         <p class="hint">Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.</p>
@@ -519,7 +519,7 @@
     <div id="screen-statements" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="statements-back-btn">‹ Back</button>
+          <button type="button" class="add-inline" id="statements-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;">Statements</h2>
         <p class="hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
@@ -595,15 +595,15 @@
       <div class="currency-modal-header" id="drilldown-header">
         <div class="drilldown-header-left">
           <button type="button" id="drilldown-period-prev" class="period-nav-btn" hidden data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
-          <span id="drilldown-title">Category</span>
+          <span id="drilldown-title" data-i18n="field.category">Category</span>
           <button type="button" id="drilldown-period-next" class="period-nav-btn" hidden data-i18n-aria-label="period.next" aria-label="Next period">›</button>
         </div>
         <div class="drilldown-header-actions">
           <div class="drilldown-menu-wrap">
-            <button type="button" id="drilldown-menu-btn" class="drilldown-menu-btn" aria-label="Budget options" hidden>⋮</button>
+            <button type="button" id="drilldown-menu-btn" class="drilldown-menu-btn" data-i18n-aria-label="drill.budgetOptions" aria-label="Budget options" hidden>⋮</button>
             <div id="drilldown-menu" class="drilldown-menu" hidden>
-              <button type="button" id="drilldown-menu-edit" class="drilldown-menu-item">✏️ Modify budget</button>
-              <button type="button" id="drilldown-menu-delete" class="drilldown-menu-item delete">🗑️ Delete budget</button>
+              <button type="button" id="drilldown-menu-edit" class="drilldown-menu-item" data-i18n="drill.modifyBudget">✏️ Modify budget</button>
+              <button type="button" id="drilldown-menu-delete" class="drilldown-menu-item delete" data-i18n="drill.deleteBudget">🗑️ Delete budget</button>
             </div>
           </div>
           <button type="button" id="drilldown-modal-close" class="currency-modal-close">✕</button>
@@ -615,21 +615,21 @@
         <div id="drilldown-chart" hidden>
           <div id="drilldown-chart-svg"></div>
           <div class="drilldown-chart-legend">
-            <span><span class="chart-legend-swatch legend-actual"></span>Actual spend</span>
-            <span><span class="chart-legend-swatch legend-pace"></span><span id="drilldown-chart-legend-2">Pace to stay in budget</span></span>
+            <span><span class="chart-legend-swatch legend-actual"></span><span data-i18n="drill.actualSpend">Actual spend</span></span>
+            <span><span class="chart-legend-swatch legend-pace"></span><span id="drilldown-chart-legend-2" data-i18n="drill.pace">Pace to stay in budget</span></span>
           </div>
           <p class="hint" id="drilldown-chart-pace-note"></p>
         </div>
         <div id="drilldown-projection-split" hidden>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-programmed-row">
-            <span>🔁 Programmed <span class="hint">(tap to trace)</span></span>
+            <span><span data-i18n="drill.programmed">🔁 Programmed</span> <span class="hint" data-i18n="drill.tapToTrace">(tap to trace)</span></span>
             <span id="drilldown-projection-programmed-amount">PEN 0.00</span>
           </div>
           <div id="drilldown-projection-programmed-detail" class="drilldown-projection-expandable-detail" hidden>
             <div id="drilldown-projection-programmed-items"></div>
           </div>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-expected-row">
-            <span>📈 Expected <span class="hint">(tap to trace)</span></span>
+            <span><span data-i18n="drill.expected">📈 Expected</span> <span class="hint" data-i18n="drill.tapToTrace">(tap to trace)</span></span>
             <span id="drilldown-projection-expected-amount">PEN 0.00</span>
           </div>
           <div id="drilldown-projection-expected-detail" class="drilldown-projection-expandable-detail" hidden>
@@ -639,8 +639,8 @@
         </div>
         <div class="drilldown-projection-row" id="drilldown-projection-row" hidden>
           <div class="drilldown-projection-label">
-            <div>🔮 Projected remaining</div>
-            <div class="hint" id="drilldown-projection-override-note" hidden>Manually set</div>
+            <div data-i18n="drill.projectedRemaining">🔮 Projected remaining</div>
+            <div class="hint" id="drilldown-projection-override-note" hidden data-i18n="drill.manuallySet">Manually set</div>
           </div>
           <div class="drilldown-projection-amount" id="drilldown-projection-amount">PEN 0.00</div>
         </div>
@@ -710,13 +710,13 @@
   <div id="loan-detail-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="loan-detail-title">Friend</span>
+        <span id="loan-detail-title" data-i18n="common.friend">Friend</span>
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
-      <button type="button" class="add-inline" id="record-repayment-btn" hidden>💰 Record repayment</button>
+      <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
       <div class="currency-option-list" id="loan-detail-list"></div>
-      <p class="hint" id="loan-detail-empty-note" hidden>No loans with this friend yet.</p>
+      <p class="hint" id="loan-detail-empty-note" hidden data-i18n="loanDetail.empty">No loans with this friend yet.</p>
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
@@ -726,36 +726,36 @@
   <div id="balance-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="balance-modal-title">Account balance</span>
+        <span id="balance-modal-title" data-i18n="balance.title">Account balance</span>
         <button type="button" id="balance-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
         <div id="balance-account-picker-wrap" hidden>
-          <label for="balance-account-picker">Account (✓ = already has balances)</label>
+          <label for="balance-account-picker" data-i18n="balance.accountPicker">Account (✓ = already has balances)</label>
           <select id="balance-account-picker"></select>
         </div>
 
         <div id="balance-current" hidden>
-          <div class="balance-current-label">Balance now</div>
+          <div class="balance-current-label" data-i18n="balance.now">Balance now</div>
           <div id="balance-current-lines"></div>
 
-          <label for="balance-check-input">Check against my app</label>
+          <label for="balance-check-input" data-i18n="balance.check">Check against my app</label>
           <select id="balance-check-currency" hidden></select>
-          <input type="text" id="balance-check-input" placeholder="What the real app/statement shows (− if negative)">
+          <input type="text" id="balance-check-input" data-i18n-placeholder="balance.checkPlaceholder" placeholder="What the real app/statement shows (− if negative)">
           <p class="hint" id="balance-check-result"></p>
         </div>
 
-        <h3 class="balance-section-title">Starting balances</h3>
-        <p class="hint">One per currency the account holds. Entries on or after each "from" date are added to (or taken from) it; earlier ones are ignored.</p>
+        <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
+        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Entries on or after each "from" date are added to (or taken from) it; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
-        <button type="button" class="add-inline" id="balance-add-row-btn">+ Add another currency</button>
+        <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
         <p class="hint" id="balance-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="balance-save-btn">Save starting balances</button>
-        <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden>Stop tracking this account</button>
+        <button type="button" class="primary" id="balance-save-btn" data-i18n="balance.save">Save starting balances</button>
+        <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden data-i18n="balance.stop">Stop tracking this account</button>
 
         <div id="balance-movements-wrap" hidden>
-          <h3 class="balance-section-title">Movements since the starting date</h3>
+          <h3 class="balance-section-title" data-i18n="balance.movements">Movements since the starting date</h3>
           <div id="balance-movements"></div>
         </div>
       </div>
@@ -765,43 +765,43 @@
   <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="loan-modal-title">Add loan</span>
+        <span id="loan-modal-title" data-i18n="loanModal.add">Add loan</span>
         <button type="button" id="loan-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <label for="loan-friend">Friend</label>
+        <label for="loan-friend" data-i18n="common.friend">Friend</label>
         <select id="loan-friend"></select>
 
-        <label>Direction</label>
+        <label data-i18n="loanModal.direction">Direction</label>
         <div class="type-tabs budget-period-tabs" id="loan-direction-tabs">
-          <div class="type-tab active" data-direction="they_owe_me">They owe me</div>
-          <div class="type-tab" data-direction="i_owe_them">I owe them</div>
+          <div class="type-tab active" data-direction="they_owe_me" data-i18n="loanModal.theyOweMe">They owe me</div>
+          <div class="type-tab" data-direction="i_owe_them" data-i18n="loanModal.iOweThem">I owe them</div>
         </div>
 
-        <label for="loan-amount">Amount</label>
+        <label for="loan-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
 
-        <label>Currency</label>
+        <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="loan-currency" value="PEN">
         <div class="currency-chips" id="loan-currency-chips"></div>
 
-        <label for="loan-date">Date</label>
+        <label for="loan-date" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
 
-        <label for="loan-due-date">Due date</label>
+        <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
-        <p class="hint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
+        <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
 
-        <label for="loan-payment-method">Payment method</label>
+        <label for="loan-payment-method" data-i18n="field.paymentMethod">Payment method</label>
         <select id="loan-payment-method"></select>
-        <p class="hint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
+        <p class="hint" data-i18n="loanModal.pmHint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
 
-        <label for="loan-description">Description</label>
-        <input type="text" id="loan-description" placeholder="Optional">
+        <label for="loan-description" data-i18n="field.description">Description</label>
+        <input type="text" id="loan-description" data-i18n-placeholder="common.optional" placeholder="Optional">
 
         <p class="hint" id="loan-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="loan-save-btn">Save loan</button>
-        <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden>Delete this loan</button>
+        <button type="button" class="primary" id="loan-save-btn" data-i18n="loanModal.save">Save loan</button>
+        <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden data-i18n="loanModal.delete">Delete this loan</button>
       </div>
     </div>
   </div>
@@ -809,7 +809,7 @@
   <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="settlement-modal-title">Repayments</span>
+        <span id="settlement-modal-title" data-i18n="transfer.kind.repayment">Repayments</span>
         <button type="button" id="settlement-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
@@ -817,31 +817,31 @@
         <div class="currency-chips" id="settlement-currency-chips" hidden></div>
 
         <div id="settlement-list"></div>
-        <p class="hint" id="settlement-list-empty-note" hidden>No repayments recorded yet.</p>
+        <p class="hint" id="settlement-list-empty-note" hidden data-i18n="settle.empty">No repayments recorded yet.</p>
 
         <div id="settlement-form">
-          <label for="settlement-amount">Amount</label>
+          <label for="settlement-amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
 
-          <label for="settlement-date">Date</label>
+          <label for="settlement-date" data-i18n="field.date">Date</label>
           <input type="date" id="settlement-date">
 
-          <label for="settlement-payment-method">Payment method</label>
+          <label for="settlement-payment-method" data-i18n="field.paymentMethod">Payment method</label>
           <select id="settlement-payment-method"></select>
-          <p class="hint">Optional — which account received/paid the cash.</p>
+          <p class="hint" data-i18n="settle.pmHint">Optional — which account received/paid the cash.</p>
 
           <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
-          <button type="button" class="primary" id="settlement-save-btn">Save repayment</button>
-          <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden>Cancel edit</button>
-          <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden>Delete this repayment</button>
+          <button type="button" class="primary" id="settlement-save-btn" data-i18n="settle.save">Save repayment</button>
+          <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
+          <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden data-i18n="settle.delete">Delete this repayment</button>
         </div>
 
         <div id="settlement-overpay-section" hidden>
           <p class="hint" id="settlement-overpay-note"></p>
-          <label for="settlement-overpay-category" id="settlement-overpay-category-label">Category</label>
+          <label for="settlement-overpay-category" id="settlement-overpay-category-label" data-i18n="field.category">Category</label>
           <select id="settlement-overpay-category"></select>
           <p class="hint" id="settlement-overpay-error" style="color:#d64545;"></p>
-          <button type="button" class="primary" id="settlement-overpay-save-btn">Save</button>
+          <button type="button" class="primary" id="settlement-overpay-save-btn" data-i18n="common.save">Save</button>
         </div>
       </div>
     </div>
@@ -866,13 +866,13 @@
   <div id="paid-picker-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="paid-picker-title">Mark as paid</span>
+        <span id="paid-picker-title" data-i18n="paid.title">Mark as paid</span>
         <button type="button" id="paid-picker-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="paid-picker-hint"></p>
         <div id="paid-picker-list"></div>
-        <p class="hint" id="paid-picker-empty" hidden>No confirmed entries this month yet.</p>
+        <p class="hint" id="paid-picker-empty" hidden data-i18n="paid.empty">No confirmed entries this month yet.</p>
         <p class="hint" id="paid-picker-error" style="color:#d64545;"></p>
       </div>
     </div>
@@ -881,7 +881,7 @@
   <div id="forgive-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span>Forgive loan</span>
+        <span data-i18n="forgive.title">Forgive loan</span>
         <button type="button" id="forgive-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
@@ -889,19 +889,19 @@
 
         <label class="checkbox-row">
           <input type="checkbox" id="forgive-convert-checkbox" checked>
-          <span id="forgive-convert-label">Convert remaining balance to an expense</span>
+          <span id="forgive-convert-label" data-i18n="forgive.convert">Convert remaining balance to an expense</span>
         </label>
 
         <div id="forgive-convert-fields">
-          <label for="forgive-category">Category</label>
+          <label for="forgive-category" data-i18n="field.category">Category</label>
           <select id="forgive-category"></select>
 
-          <label for="forgive-date">Date</label>
+          <label for="forgive-date" data-i18n="field.date">Date</label>
           <input type="date" id="forgive-date">
         </div>
 
         <p class="hint" id="forgive-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="forgive-save-btn">Forgive loan</button>
+        <button type="button" class="primary" id="forgive-save-btn" data-i18n="forgive.title">Forgive loan</button>
       </div>
     </div>
   </div>
@@ -951,44 +951,44 @@
   <div id="budget-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="budget-modal-title">Add budget</span>
+        <span id="budget-modal-title" data-i18n="budgetModal.add">Add budget</span>
         <button type="button" id="budget-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <label for="budget-name">Name (optional)</label>
-        <input type="text" id="budget-name" placeholder="Defaults to the category name">
+        <label for="budget-name" data-i18n="budgetModal.name">Name (optional)</label>
+        <input type="text" id="budget-name" data-i18n-placeholder="budgetModal.namePlaceholder" placeholder="Defaults to the category name">
 
-        <label>Categories</label>
+        <label data-i18n="budgetModal.categories">Categories</label>
         <label class="checkbox-row">
           <input type="checkbox" id="budget-all-categories-checkbox">
-          <span>All expense categories</span>
+          <span data-i18n="budgetModal.allCategories">All expense categories</span>
         </label>
         <div class="tags-list" id="budget-category-chips"></div>
 
-        <label for="budget-amount">Amount</label>
+        <label for="budget-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="budget-amount" placeholder="0.00">
 
-        <label>Currency</label>
+        <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="budget-currency" value="PEN">
         <div class="currency-chips" id="budget-currency-chips"></div>
         <p class="hint" id="budget-rate-warning" hidden>
-          ⚠️ No exchange rate on file for <span id="budget-rate-warning-currency"></span> yet.
-          <span class="add-inline" id="budget-rate-warning-link">Set one</span>
+          <span id="budget-rate-warning-text">⚠️ No exchange rate on file yet.</span>
+          <span class="add-inline" id="budget-rate-warning-link" data-i18n="budgetModal.setOne">Set one</span>
         </p>
 
-        <label>Period</label>
+        <label data-i18n="budgetModal.period">Period</label>
         <div class="type-tabs budget-period-tabs" id="budget-period-tabs">
-          <div class="type-tab active" data-period="monthly">Monthly</div>
-          <div class="type-tab" data-period="yearly">Yearly</div>
+          <div class="type-tab active" data-period="monthly" data-i18n="period.monthly">Monthly</div>
+          <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
         </div>
 
-        <label for="budget-thresholds">Alert at (%)</label>
+        <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
-        <p class="hint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
+        <p class="hint" data-i18n="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
 
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="budget-save-btn">Save budget</button>
-        <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden>Delete this budget</button>
+        <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
+        <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden data-i18n="budgetModal.delete">Delete this budget</button>
       </div>
     </div>
   </div>
@@ -996,20 +996,20 @@
   <div id="recurring-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="recurring-modal-title">Add recurring item</span>
+        <span id="recurring-modal-title" data-i18n="recModal.add">Add recurring item</span>
         <button type="button" id="recurring-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <label for="recurring-description">Description</label>
-        <input type="text" id="recurring-description" placeholder="e.g. Rent, Netflix, Gym, Salary">
+        <label for="recurring-description" data-i18n="field.description">Description</label>
+        <input type="text" id="recurring-description" data-i18n-placeholder="recModal.descPlaceholder" placeholder="e.g. Rent, Netflix, Gym, Salary">
 
-        <label>Category</label>
+        <label data-i18n="field.category">Category</label>
         <div class="tags-list" id="recurring-category-chips"></div>
 
-        <label for="recurring-amount">Amount</label>
+        <label for="recurring-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="recurring-amount" placeholder="0.00">
 
-        <label>Currency</label>
+        <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="recurring-currency" value="PEN">
         <div class="currency-chips" id="recurring-currency-chips"></div>
 
@@ -1021,13 +1021,13 @@
 
           <div id="recurring-split-detail" hidden>
             <div class="type-tabs budget-period-tabs" id="recurring-split-mode-tabs">
-              <div class="type-tab active" data-mode="equal">Equal</div>
-              <div class="type-tab" data-mode="custom">Custom</div>
+              <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
+              <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
             </div>
 
-            <label>Shared with</label>
+            <label data-i18n="split.sharedWith">Shared with</label>
             <div class="tags-list" id="recurring-split-friend-chips"></div>
-            <div class="add-inline" id="recurring-split-add-friend-btn">+ Add friend…</div>
+            <div class="add-inline" id="recurring-split-add-friend-btn" data-i18n="common.addFriend">+ Add friend…</div>
 
             <div id="recurring-split-rows"></div>
             <p class="hint" id="recurring-split-summary"></p>
@@ -1035,48 +1035,48 @@
           </div>
         </div>
 
-        <label>Frequency</label>
+        <label data-i18n="recModal.frequency">Frequency</label>
         <div class="type-tabs budget-period-tabs" id="recurring-frequency-tabs">
-          <div class="type-tab active" data-frequency="monthly">Monthly</div>
-          <div class="type-tab" data-frequency="yearly">Yearly</div>
-          <div class="type-tab" data-frequency="once">One-time</div>
+          <div class="type-tab active" data-frequency="monthly" data-i18n="period.monthly">Monthly</div>
+          <div class="type-tab" data-frequency="yearly" data-i18n="period.yearly">Yearly</div>
+          <div class="type-tab" data-frequency="once" data-i18n="recModal.once">One-time</div>
         </div>
 
-        <label for="recurring-occurrence-date" id="recurring-occurrence-date-label">Day of month</label>
+        <label for="recurring-occurrence-date" id="recurring-occurrence-date-label" data-i18n="recModal.dayOfMonth">Day of month</label>
         <input type="date" id="recurring-occurrence-date">
         <p class="hint" id="recurring-occurrence-date-hint"></p>
 
         <div id="recurring-window-fields">
-          <label for="recurring-start-date">Starts on (optional)</label>
+          <label for="recurring-start-date" data-i18n="recModal.startsOn">Starts on (optional)</label>
           <input type="date" id="recurring-start-date">
-          <label for="recurring-end-date">Ends on (optional)</label>
+          <label for="recurring-end-date" data-i18n="recModal.endsOn">Ends on (optional)</label>
           <input type="date" id="recurring-end-date">
-          <p class="hint">Leave blank for no start or end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
+          <p class="hint" data-i18n="recModal.endHint">Leave blank for no start or end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
         </div>
 
         <div id="recurring-skips-section" hidden>
-          <label>Skipped months</label>
+          <label data-i18n="recModal.skipped">Skipped months</label>
           <div id="recurring-skips-list"></div>
         </div>
 
         <label class="checkbox-row">
           <input type="checkbox" id="recurring-active-checkbox" checked>
-          <span>Active</span>
+          <span data-i18n="recModal.active">Active</span>
         </label>
 
         <div id="recurring-link-section" hidden>
-          <button type="button" class="add-inline" id="recurring-find-matches-btn">🔎 Find past entries for this</button>
+          <button type="button" class="add-inline" id="recurring-find-matches-btn" data-i18n="recModal.findMatches">🔎 Find past entries for this</button>
           <div id="recurring-link-results" hidden>
-            <p class="hint">Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, "less certain" ones don't.</p>
-            <p class="hint" id="recurring-link-empty-note" hidden>No unlinked past entries look like a match.</p>
+            <p class="hint" data-i18n="recModal.linkHint">Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, "less certain" ones don't.</p>
+            <p class="hint" id="recurring-link-empty-note" hidden data-i18n="recModal.linkEmpty">No unlinked past entries look like a match.</p>
             <div id="recurring-link-list"></div>
-            <button type="button" class="add-inline" id="recurring-link-selected-btn" hidden>Link selected</button>
+            <button type="button" class="add-inline" id="recurring-link-selected-btn" hidden data-i18n="recModal.linkSelected">Link selected</button>
           </div>
         </div>
 
         <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="recurring-save-btn">Save</button>
-        <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden>Delete this item</button>
+        <button type="button" class="primary" id="recurring-save-btn" data-i18n="common.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden data-i18n="recModal.delete">Delete this item</button>
       </div>
     </div>
   </div>
@@ -1084,7 +1084,7 @@
   <div id="rate-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="rate-modal-title">Exchange rate</span>
+        <span id="rate-modal-title" data-i18n="rateModal.title">Exchange rate</span>
         <button type="button" id="rate-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="rate-modal-subtitle"></p>
@@ -1095,25 +1095,25 @@
         <input type="text" inputmode="decimal" id="rate-value-input" placeholder="0.00">
         <span class="rate-equation-label" id="rate-right-label">PEN</span>
       </div>
-      <button type="button" class="add-inline" id="rate-invert-btn">⇅ Enter it the other way around</button>
+      <button type="button" class="add-inline" id="rate-invert-btn" data-i18n="rateModal.invert">⇅ Enter it the other way around</button>
 
       <p class="hint" id="rate-form-error" style="color:#d64545;"></p>
-      <button type="button" class="primary" id="rate-save-btn">Save rate</button>
-      <button type="button" class="cancel-edit-btn" id="rate-cancel-btn">Skip for now</button>
+      <button type="button" class="primary" id="rate-save-btn" data-i18n="rateModal.save">Save rate</button>
+      <button type="button" class="cancel-edit-btn" id="rate-cancel-btn" data-i18n="rateModal.skip">Skip for now</button>
     </div>
   </div>
 
   <div id="projection-override-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="projection-override-modal-title">Edit projected total</span>
+        <span id="projection-override-modal-title" data-i18n="projOverride.title">Edit projected total</span>
         <button type="button" id="projection-override-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="projection-override-modal-subtitle"></p>
 
       <div class="type-tabs budget-period-tabs" id="projection-override-mode-tabs">
-        <div class="type-tab active" data-mode="total">Total for period</div>
-        <div class="type-tab" data-mode="remaining">Remaining (from today)</div>
+        <div class="type-tab active" data-mode="total" data-i18n="projOverride.total">Total for period</div>
+        <div class="type-tab" data-mode="remaining" data-i18n="projOverride.remaining">Remaining (from today)</div>
       </div>
 
       <div class="rate-equation">
@@ -1123,9 +1123,9 @@
       <p class="hint" id="projection-override-mode-hint"></p>
 
       <p class="hint" id="projection-override-form-error" style="color:#d64545;"></p>
-      <button type="button" class="primary" id="projection-override-save-btn">Save</button>
-      <button type="button" class="add-inline" id="projection-override-reset-btn">Reset to calculated</button>
-      <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn">Cancel</button>
+      <button type="button" class="primary" id="projection-override-save-btn" data-i18n="common.save">Save</button>
+      <button type="button" class="add-inline" id="projection-override-reset-btn" data-i18n="projOverride.reset">Reset to calculated</button>
+      <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn" data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 
@@ -1152,12 +1152,12 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="i18n.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="receipt-parse.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="bill-split.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="app.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="statement-parsers.js?v=2026-10-12T19:48:28Z"></script>
-  <script src="statements.js?v=2026-10-12T19:48:28Z"></script>
+  <script src="strings.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="i18n.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="receipt-parse.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="bill-split.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="app.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="statement-parsers.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="statements.js?v=2026-10-12T21:31:25Z"></script>
 </body>
 </html>

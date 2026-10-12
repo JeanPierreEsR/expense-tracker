@@ -88,6 +88,9 @@
     "common.total": { en: "Total", es: "Total" },
     "common.loadMore": { en: "Load more", es: "Cargar más" },
     "common.loading": { en: "Loading…", es: "Cargando…" },
+    "common.back": { en: "‹ Back", es: "‹ Atrás" },
+    "common.add": { en: "+ Add", es: "+ Agregar" },
+    "common.cancel": { en: "Cancel", es: "Cancelar" },
 
     // ---- field ----
     "field.category": { en: "Category", es: "Categoría" },
@@ -115,7 +118,7 @@
     "transfer.theyPaid": { en: "They paid me", es: "Me pagó" },
     "transfer.overpayCategory": { en: "Category if you paid extra", es: "Categoría si pagaste de más" },
     "transfer.overpayHint": { en: "Only used if the amount is more than what was owed — the extra becomes a real entry in this category.", es: "Solo se usa si el monto es mayor a lo que se debía: el excedente se registra como un movimiento real en esta categoría." },
-    "transfer.toHint": { en: "Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it. Money arriving from outside (e.g. the USD side of a currency exchange)? Set From to \"None\" and enter the amount in its own currency; record the PEN leaving as a separate transfer with To left empty.", es: "Opcional: por ejemplo, recargar el saldo de Starbucks o de Yape desde una tarjeta. Así el saldo de esa cuenta lo toma en cuenta. ¿Dinero que llega de afuera (por ejemplo, la parte en dólares de un cambio de moneda)? Pon \"Ninguna\" en Desde e ingresa el monto en su propia moneda; registra los soles que salen como otra transferencia con Hacia vacío." },
+    "transfer.toHint": { en: "Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it. Money arriving from outside (e.g. the USD side of a currency exchange)? Set From to \"None\" and enter the amount in its own currency; record the PEN leaving as a separate transfer with To left empty.", es: "Opcional: e.g. recargar el saldo de Starbucks o de Yape desde una tarjeta. Así el saldo de esa cuenta lo toma en cuenta. ¿Dinero que llega de afuera (e.g. la parte en dólares de un cambio de moneda)? Pon \"Ninguna\" en Desde e ingresa el monto en su propia moneda; registra los soles que salen como otra transferencia con Hacia vacío." },
     "transfer.autoFromTo": { en: "from {from} to {to}", es: "de {from} a {to}" },
     "transfer.autoFrom": { en: "from {from}", es: "de {from}" },
     "transfer.autoInto": { en: "into {to}", es: "hacia {to}" },
@@ -129,6 +132,8 @@
     // ---- loan ----
     "loan.dueDateOptional": { en: "Due date (optional)", es: "Fecha de vencimiento (opcional)" },
     "loan.dueDateHint": { en: "Left blank, it's set to a week after the date.", es: "Si la dejas en blanco, se pone una semana después de la fecha." },
+    "loan.recordRepayment": { en: "💰 Record repayment", es: "💰 Registrar repago" },
+    "loan.word": { en: "Loan", es: "Préstamo" },
 
     // ---- investment ----
     "investment.deposit": { en: "Deposit", es: "Depósito" },
@@ -200,6 +205,10 @@
     "period.from": { en: "From", es: "Desde" },
     "period.to": { en: "To", es: "Hasta" },
     "period.customRange": { en: "Custom range", es: "Rango personalizado" },
+    "period.monthly": { en: "Monthly", es: "Mensual" },
+    "period.yearly": { en: "Yearly", es: "Anual" },
+    "period.wordMonth": { en: "month", es: "mes" },
+    "period.wordYear": { en: "year", es: "año" },
 
     // ---- nav ----
     "nav.entries": { en: "Entries", es: "Movimientos" },
@@ -274,9 +283,9 @@
 
     // ---- prompt ----
     "prompt.friendName": { en: "Friend's name:", es: "Nombre del amigo:" },
-    "prompt.payorName": { en: "Payor's name (e.g. a client or employer):", es: "Nombre del pagador (por ejemplo, un cliente o empleador):" },
-    "prompt.paymentMethodName": { en: "Payment method name (e.g. \"BCP Visa\"):", es: "Nombre del medio de pago (por ejemplo, \"BCP Visa\"):" },
-    "prompt.paymentMethodType": { en: "Type: credit, debit, cash, transfer, or wallet?", es: "Tipo: crédito, débito, efectivo, transferencia o billetera?" },
+    "prompt.payorName": { en: "Payor's name (e.g. a client or employer):", es: "Nombre del pagador (e.g. un cliente o empleador):" },
+    "prompt.paymentMethodName": { en: "Payment method name (e.g. \"BCP Visa\"):", es: "Nombre del medio de pago (e.g. \"BCP Visa\"):" },
+    "prompt.paymentMethodType": { en: "Type: credit, debit, cash, transfer, or wallet?", es: "Tipo (crédito, débito, efectivo, transferencia o billetera):" },
     "prompt.last4": { en: "Last 4 digits (leave blank if none):", es: "Últimos 4 dígitos (déjalo en blanco si no tiene):" },
     "prompt.tagName": { en: "New tag name:", es: "Nombre de la nueva etiqueta:" },
 
@@ -320,7 +329,310 @@
     // ---- status ----
     "status.pending": { en: "pending", es: "pendiente" },
     "status.confirmed": { en: "confirmed", es: "confirmado" },
-    "status.discarded": { en: "discarded", es: "descartado" }
+    "status.discarded": { en: "discarded", es: "descartado" },
+
+    // ---- programmed ----
+    "programmed.title": { en: "🔁 Programmed this month", es: "🔁 Programado este mes" },
+    "programmed.hint": { en: "From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).", es: "De tus ingresos y gastos recurrentes que aún no se emparejan con un movimiento real: desaparecerán solos cuando se confirme el movimiento real (por correo, como siempre)." },
+
+    // ---- summary ----
+    "summary.income": { en: "Income", es: "Ingresos" },
+    "summary.expenses": { en: "Expenses", es: "Gastos" },
+    "summary.investments": { en: "Investments", es: "Inversiones" },
+    "summary.net": { en: "Net", es: "Neto" },
+
+    // ---- overview ----
+    "overview.empty": { en: "No entries in this period yet.", es: "Aún no hay movimientos en este periodo." },
+    "overview.byCategory": { en: "By category", es: "Por categoría" },
+    "overview.byTag": { en: "By tag", es: "Por etiqueta" },
+    "overview.byPaymentMethod": { en: "By payment method", es: "Por medio de pago" },
+    "overview.excluded": { en: { one: "{n} entry excluded — missing an exchange rate for that month.", other: "{n} entries excluded — missing an exchange rate for that month." }, es: { one: "{n} movimiento excluido: falta el tipo de cambio de ese mes.", other: "{n} movimientos excluidos: falta el tipo de cambio de ese mes." } },
+    "overview.nothingYet": { en: "Nothing here yet.", es: "Aún no hay nada aquí." },
+    "overview.others": { en: "Others ({n})", es: "Otros ({n})" },
+    "overview.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
+    "overview.untagged": { en: "Untagged", es: "Sin etiqueta" },
+
+    // ---- balances ----
+    "balances.title": { en: "Balances", es: "Saldos" },
+    "balances.add": { en: "+ Add balance", es: "+ Agregar saldo" },
+    "balances.hint": { en: "What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.", es: "Lo que debería tener cada cuenta ahora, a partir de su saldo inicial más cada movimiento desde entonces. No depende del periodo de arriba." },
+    "balances.netByCurrency": { en: "Net by currency", es: "Neto por moneda" },
+    "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, Yape, una tarjeta de Starbucks…) para empezar a seguirla." },
+
+    // ---- invest ----
+    "invest.hint": { en: "Net cash you've put into each platform (deposits minus withdrawals). Not the platform's current value, and not affected by the period above.", es: "Efectivo neto que has puesto en cada plataforma (depósitos menos retiros). No es el valor actual de la plataforma y no depende del periodo de arriba." },
+    "invest.nothingYet": { en: "Nothing yet", es: "Aún nada" },
+    "invest.noMoves": { en: "No deposits or withdrawals yet.", es: "Aún no hay depósitos ni retiros." },
+    "invest.fromAccount": { en: " · from {account}", es: " · desde {account}" },
+    "invest.toAccount": { en: " · to {account}", es: " · hacia {account}" },
+
+    // ---- budgets ----
+    "budgets.add": { en: "+ Add budget", es: "+ Agregar presupuesto" },
+    "budgets.empty": { en: "No budgets yet — add one to start tracking a category.", es: "Aún no hay presupuestos: agrega uno para empezar a seguir una categoría." },
+    "budgets.totalMonth": { en: "Total per month", es: "Total por mes" },
+    "budgets.totalYear": { en: "Total per year", es: "Total por año" },
+
+    // ---- projections ----
+    "projections.empty": { en: "Nothing to project yet — add a recurring item or log some expenses.", es: "Aún no hay nada que proyectar: agrega un movimiento recurrente o registra algunos gastos." },
+    "projections.projectedFor": { en: "Projected for {period}", es: "Proyección para {period}" },
+    "projections.lineIncome": { en: "Income: {actual} confirmed + {programmed} programmed.", es: "Ingresos: {actual} confirmados + {programmed} programados." },
+    "projections.lineExpenses": { en: "Expenses: {actual} confirmed + {programmed} programmed + {expected} expected.", es: "Gastos: {actual} confirmados + {programmed} programados + {expected} esperados." },
+    "projections.lineInvestments": { en: "Investments: {actual} confirmed + {programmed} programmed + {expected} expected.", es: "Inversiones: {actual} confirmadas + {programmed} programadas + {expected} esperadas." },
+    "projections.method": { en: "Each figure is what's already confirmed this period, plus what's still programmed (recurring, not yet matched to a real entry) and, for expenses and investments, still expected (a year-to-date rate, pro-rated to the days left).", es: "Cada cifra es lo que ya está confirmado en este periodo, más lo que sigue programado (recurrente, aún sin emparejar con un movimiento real) y, en gastos e inversiones, lo que aún se espera (según el ritmo del año hasta hoy, prorrateado a los días que quedan)." },
+    "projections.actual": { en: "Actual", es: "Real" },
+    "projections.remainingManual": { en: "Remaining · Manually set", es: "Restante · Fijado manualmente" },
+    "projections.programmed": { en: "Programmed", es: "Programado" },
+    "projections.expected": { en: "Expected", es: "Esperado" },
+    "projections.nothingOutstanding": { en: "Nothing outstanding — already matched to a confirmed entry, or nothing due this period.", es: "Nada pendiente: ya se emparejó con un movimiento confirmado, o no hay nada por vencer en este periodo." },
+    "projections.notEnoughHistory": { en: "Not enough history yet to break this down.", es: "Aún no hay suficiente historial para desglosar esto." },
+    "projections.formulaBased": { en: { one: "Based on {total} spent over {n} month ({span}) → {rate}/month.", other: "Based on {total} spent over {n} months ({span}) → {rate}/month." }, es: { one: "Según {total} gastados en {n} mes ({span}) → {rate}/mes.", other: "Según {total} gastados en {n} meses ({span}) → {rate}/mes." } },
+    "projections.formulaProrated": { en: { one: "{rate}/month × {n} day left ÷ 30 → {amount} still expected.", other: "{rate}/month × {n} days left ÷ 30 → {amount} still expected." }, es: { one: "{rate}/mes × {n} día restante ÷ 30 → {amount} aún esperados.", other: "{rate}/mes × {n} días restantes ÷ 30 → {amount} aún esperados." } },
+    "projections.notStarted": { en: "This period hasn't started yet.", es: "Este periodo aún no empieza." },
+    "projections.ended": { en: "This period has ended.", es: "Este periodo ya terminó." },
+    "projections.daysLeft": { en: { one: "{amount} projected for the {n} day left.", other: "{amount} projected for the {n} days left." }, es: { one: "{amount} proyectados para el día que queda.", other: "{amount} proyectados para los {n} días que quedan." } },
+
+    // ---- loans ----
+    "loans.owesYou": { en: "💸 Owes you", es: "💸 Te deben" },
+    "loans.add": { en: "+ Add loan", es: "+ Agregar préstamo" },
+    "loans.totalOwed": { en: "Total owed to you", es: "Total que te deben" },
+    "loans.noneOwed": { en: "No one owes you anything right now.", es: "Nadie te debe nada por ahora." },
+    "loans.youOwe": { en: "📉 You owe", es: "📉 Debes" },
+    "loans.totalYouOwe": { en: "Total you owe", es: "Total que debes" },
+    "loans.noneYouOwe": { en: "You don't owe anyone right now.", es: "No le debes nada a nadie por ahora." },
+
+    // ---- recurring ----
+    "recurring.title": { en: "Programmed income/expenses", es: "Ingresos y gastos programados" },
+    "recurring.intro": { en: "Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.", es: "Montos conocidos que quieres tener en cuenta con anticipación: Presupuestos y Proyecciones los usan para distinguir los montos seguros del resto." },
+    "recurring.recurring": { en: "🔁 Recurring", es: "🔁 Recurrentes" },
+    "recurring.recurringHint": { en: "Repeats on a schedule — rent, subscriptions, gym, salary.", es: "Se repiten según un calendario: alquiler, suscripciones, gimnasio, sueldo." },
+    "recurring.empty": { en: "No recurring items yet.", es: "Aún no hay movimientos recurrentes." },
+    "recurring.pastHint": { en: "Ended or paused — not counted in Programmed this month, Budgets or Projections. Tap one to edit, reactivate or delete it.", es: "Finalizados o pausados: no se cuentan en Programado este mes, Presupuestos ni Proyecciones. Toca uno para editarlo, reactivarlo o eliminarlo." },
+    "recurring.oneTime": { en: "📌 Programmed, one-time", es: "📌 Programados, una sola vez" },
+    "recurring.oneTimeHint": { en: "A single known future payment — stays out of \"Recent entries\" until it actually happens and gets confirmed for real.", es: "Un pago futuro conocido y único: no aparece en \"Movimientos recientes\" hasta que ocurre de verdad y se confirma." },
+    "recurring.oneTimeEmpty": { en: "No one-time programmed items yet.", es: "Aún no hay movimientos programados de una sola vez." },
+    "recurring.freqYearly": { en: "Yearly, {month} {day}", es: "Anual, {day} {month}" },
+    "recurring.freqMonthly": { en: "Monthly, day {day}", es: "Mensual, día {day}" },
+    "recurring.paused": { en: " · Paused", es: " · Pausado" },
+    "recurring.ended": { en: " · Ended {date}", es: " · Terminó el {date}" },
+    "recurring.ends": { en: " · Ends {date}", es: " · Termina el {date}" },
+    "recurring.splitTag": { en: " · Split", es: " · Dividido" },
+    "recurring.hidePast": { en: "Hide past recurring items ({n})", es: "Ocultar movimientos recurrentes pasados ({n})" },
+    "recurring.showPast": { en: "Show past recurring items ({n})", es: "Mostrar movimientos recurrentes pasados ({n})" },
+    "recurring.noCurrent": { en: "No current recurring items.", es: "No hay movimientos recurrentes vigentes." },
+
+    // ---- rates ----
+    "rates.title": { en: "Exchange rates", es: "Tipos de cambio" },
+    "rates.hint": { en: "Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.", es: "Cada moneda y mes para los que has fijado un tipo de cambio. Toca uno para cambiarlo: todos los movimientos que lo usaron se actualizan solos, porque los montos en PEN siempre se calculan al momento, nunca se guardan." },
+    "rates.empty": { en: "No exchange rates on file yet.", es: "Aún no hay tipos de cambio registrados." },
+
+    // ---- drill ----
+    "drill.budgetOptions": { en: "Budget options", es: "Opciones del presupuesto" },
+    "drill.modifyBudget": { en: "✏️ Modify budget", es: "✏️ Modificar presupuesto" },
+    "drill.deleteBudget": { en: "🗑️ Delete budget", es: "🗑️ Eliminar presupuesto" },
+    "drill.actualSpend": { en: "Actual spend", es: "Gasto real" },
+    "drill.pace": { en: "Pace to stay in budget", es: "Ritmo para no pasarte del presupuesto" },
+    "drill.programmed": { en: "🔁 Programmed", es: "🔁 Programado" },
+    "drill.expected": { en: "📈 Expected", es: "📈 Esperado" },
+    "drill.tapToTrace": { en: "(tap to trace)", es: "(toca para ver el detalle)" },
+    "drill.projectedRemaining": { en: "🔮 Projected remaining", es: "🔮 Proyección restante" },
+    "drill.manuallySet": { en: "Manually set", es: "Fijado manualmente" },
+    "drill.loadFailed": { en: "Couldn't load: {error}", es: "No se pudo cargar: {error}" },
+    "drill.projectedLegend": { en: "Projected", es: "Proyección" },
+    "drill.budgetYear": { en: "Year · Budget {cur} {amount}", es: "Año · Presupuesto {cur} {amount}" },
+    "drill.budgetMonth": { en: "Month · Budget {cur} {amount}", es: "Mes · Presupuesto {cur} {amount}" },
+    "drill.noEntries": { en: "No transactions in this period.", es: "No hay movimientos en este periodo." },
+
+    // ---- loanDetail ----
+    "loanDetail.empty": { en: "No loans with this friend yet.", es: "Aún no hay préstamos con este amigo." },
+    "loanDetail.net": { en: "Net: {parts}", es: "Neto: {parts}" },
+    "loanDetail.settled": { en: "All settled up.", es: "Todo saldado." },
+    "loanDetail.nothingPending": { en: "Nothing pending — see already paid below.", es: "Nada pendiente: mira los ya pagados abajo." },
+    "loanDetail.showPaid": { en: { one: "📜 Show {n} already paid", other: "📜 Show {n} already paid" }, es: { one: "📜 Mostrar {n} ya pagado", other: "📜 Mostrar {n} ya pagados" } },
+    "loanDetail.hidePaid": { en: "📜 Hide already paid", es: "📜 Ocultar ya pagados" },
+    "loanDetail.forgivenRecorded": { en: "Forgiven · recorded in your entries", es: "Perdonado · registrado en tus movimientos" },
+    "loanDetail.forgiven": { en: "Forgiven", es: "Perdonado" },
+    "loanDetail.fullyRepaid": { en: "Fully repaid", es: "Repagado por completo" },
+    "loanDetail.overdueSince": { en: "⚠️ Overdue since {date}", es: "⚠️ Vencido desde el {date}" },
+    "loanDetail.repaidSoFar": { en: "{cur} {amount} repaid so far", es: "{cur} {amount} repagados hasta ahora" },
+    "loanDetail.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
+    "loanDetail.forgive": { en: "🙏 Forgive", es: "🙏 Perdonar" },
+    "loanDetail.expenseNotFound": { en: "That expense couldn't be found — it may have been deleted.", es: "No se encontró ese gasto: puede que se haya eliminado." },
+
+    // ---- balance ----
+    "balance.title": { en: "Account balance", es: "Saldo de la cuenta" },
+    "balance.accountPicker": { en: "Account (✓ = already has balances)", es: "Cuenta (✓ = ya tiene saldos)" },
+    "balance.now": { en: "Balance now", es: "Saldo ahora" },
+    "balance.check": { en: "Check against my app", es: "Comparar con mi app" },
+    "balance.checkPlaceholder": { en: "What the real app/statement shows (− if negative)", es: "Lo que muestra la app real o el estado de cuenta (− si es negativo)" },
+    "balance.starting": { en: "Starting balances", es: "Saldos iniciales" },
+    "balance.startingHint": { en: "One per currency the account holds. Entries on or after each \"from\" date are added to (or taken from) it; earlier ones are ignored.", es: "Uno por cada moneda que tiene la cuenta. Los movimientos desde cada fecha \"desde\" en adelante se suman (o se restan); los anteriores se ignoran." },
+    "balance.addCurrency": { en: "+ Add another currency", es: "+ Agregar otra moneda" },
+    "balance.save": { en: "Save starting balances", es: "Guardar saldos iniciales" },
+    "balance.stop": { en: "Stop tracking this account", es: "Dejar de seguir esta cuenta" },
+    "balance.movements": { en: "Movements since the starting date", es: "Movimientos desde la fecha inicial" },
+    "balance.noAccounts": { en: "No accounts yet. Use \"+ Add payment method…\" on the entry form first.", es: "Aún no hay cuentas. Primero usa \"+ Agregar medio de pago…\" en el formulario de movimientos." },
+    "balance.addTitle": { en: "Add account balance", es: "Agregar saldo de cuenta" },
+    "balance.loadingMoves": { en: "Loading…", es: "Cargando…" },
+    "balance.nothingSince": { en: "Nothing since the starting date.", es: "Nada desde la fecha inicial." },
+    "balance.moveTo": { en: " · to {account}", es: " · hacia {account}" },
+    "balance.moveFrom": { en: " · from {account}", es: " · desde {account}" },
+    "balance.remove": { en: "Remove", es: "Quitar" },
+    "balance.negative": { en: "Negative — I owe this (e.g. a credit card)", es: "Negativo: lo debo (e.g. una tarjeta de crédito)" },
+    "balance.fromDate": { en: "From date", es: "Desde la fecha" },
+    "balance.matches": { en: "✓ Matches — no difference.", es: "✓ Coincide: sin diferencia." },
+    "balance.more": { en: "Your app shows {cur} {amount} MORE than tracked here — likely a top-up, income or refund not logged yet.", es: "Tu app muestra {cur} {amount} MÁS de lo que se sigue aquí: probablemente una recarga, un ingreso o un reembolso que aún no registraste." },
+    "balance.less": { en: "Your app shows {cur} {amount} LESS than tracked here — likely a purchase or fee not logged yet.", es: "Tu app muestra {cur} {amount} MENOS de lo que se sigue aquí: probablemente una compra o una comisión que aún no registraste." },
+    "balance.pickAccount": { en: "Pick an account.", es: "Elige una cuenta." },
+    "balance.enterStarting": { en: "Enter the starting balance for {cur} (0 is fine).", es: "Ingresa el saldo inicial en {cur} (0 está bien)." },
+    "balance.pickFromDate": { en: "Pick the from date for {cur}.", es: "Elige la fecha desde la que cuenta {cur}." },
+    "balance.listedTwice": { en: "{cur} is listed twice.", es: "{cur} aparece dos veces." },
+    "balance.confirmStop": { en: "Stop tracking this account's balances? Its entries aren't touched.", es: "¿Dejar de seguir los saldos de esta cuenta? Sus movimientos no se tocan." },
+
+    // ---- loanModal ----
+    "loanModal.add": { en: "Add loan", es: "Agregar préstamo" },
+    "loanModal.direction": { en: "Direction", es: "Dirección" },
+    "loanModal.theyOweMe": { en: "They owe me", es: "Me debe" },
+    "loanModal.iOweThem": { en: "I owe them", es: "Le debo" },
+    "loanModal.dueDate": { en: "Due date", es: "Fecha de vencimiento" },
+    "loanModal.dueHint": { en: "Optional — set this to get an overdue reminder if it's still unpaid past this date.", es: "Opcional: ponla para recibir un aviso si sigue sin pagarse después de esta fecha." },
+    "loanModal.pmHint": { en: "Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.", es: "Opcional: por qué cuenta se movió el dinero, si fue por alguna. Si esa cuenta tiene un saldo seguido, prestar lo baja y pedir prestado lo sube." },
+    "loanModal.save": { en: "Save loan", es: "Guardar préstamo" },
+    "loanModal.delete": { en: "Delete this loan", es: "Eliminar este préstamo" },
+    "loanModal.edit": { en: "Edit loan", es: "Editar préstamo" },
+    "loanModal.confirmDelete": { en: "Delete the loan {what}? This can't be undone.", es: "¿Eliminar el préstamo {what}? No se puede deshacer." },
+
+    // ---- settle ----
+    "settle.empty": { en: "No repayments recorded yet.", es: "Aún no hay repagos registrados." },
+    "settle.pmHint": { en: "Optional — which account received/paid the cash.", es: "Opcional: la cuenta que recibió o pagó el dinero." },
+    "settle.save": { en: "Save repayment", es: "Guardar repago" },
+    "settle.delete": { en: "Delete this repayment", es: "Eliminar este repago" },
+    "settle.categoryOf": { en: "Category ({type})", es: "Categoría ({type})" },
+    "settle.contextTheyOwe": { en: "{name} owes you {cur} {amount}", es: "{name} te debe {cur} {amount}" },
+    "settle.contextIOwe": { en: "You owe {name} {cur} {amount}", es: "Le debes {cur} {amount} a {name}" },
+    "settle.saveChanges": { en: "Save changes", es: "Guardar cambios" },
+    "settle.offsetAgainst": { en: "↔ Offset against \"{desc}\"", es: "↔ Compensado con \"{desc}\"" },
+    "settle.extraSavedIncome": { en: "The extra {cur} {amount} is saved in your review queue as income — categorize it there.", es: "El excedente de {cur} {amount} quedó en tu lista por revisar como ingreso: categorízalo ahí." },
+    "settle.extraSavedExpense": { en: "The extra {cur} {amount} is saved in your review queue as an expense — categorize it there.", es: "El excedente de {cur} {amount} quedó en tu lista por revisar como gasto: categorízalo ahí." },
+    "settle.overpaidIncome": { en: "{name} paid {cur} {amount} more than they owed — recording it as income. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).", es: "{name} pagó {cur} {amount} más de lo que debía: se registra como ingreso. Elige una categoría ahora, o cierra esto y categorízalo después desde tu lista por revisar (ya está guardado ahí)." },
+    "settle.overpaidExpense": { en: "You paid {name} {cur} {amount} more than you owed — recording it as an expense. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).", es: "Le pagaste a {name} {cur} {amount} más de lo que debías: se registra como gasto. Elige una categoría ahora, o cierra esto y categorízalo después desde tu lista por revisar (ya está guardado ahí)." },
+    "settle.confirmDelete": { en: "Delete the repayment with {what}? This can't be undone.", es: "¿Eliminar el repago con {what}? No se puede deshacer." },
+
+    // ---- paid ----
+    "paid.title": { en: "Mark as paid", es: "Marcar como pagado" },
+    "paid.empty": { en: "No confirmed entries this month yet.", es: "Aún no hay movimientos confirmados este mes." },
+    "paid.hint": { en: "Which entry this month paid \"{name}\" ({cur} {amount})? Most similar first, then everything this month by date.", es: "¿Qué movimiento de este mes pagó \"{name}\" ({cur} {amount})? Primero los más parecidos y luego todo el mes por fecha." },
+    "paid.mostSimilar": { en: "Most similar", es: "Más parecidos" },
+    "paid.allMonth": { en: "All of the month, by date", es: "Todo el mes, por fecha" },
+    "paid.loadFailed": { en: "Couldn't load entries: {error}", es: "No se pudieron cargar los movimientos: {error}" },
+
+    // ---- forgive ----
+    "forgive.title": { en: "Forgive loan", es: "Perdonar préstamo" },
+    "forgive.convert": { en: "Convert remaining balance to an expense", es: "Convertir el saldo restante en un gasto" },
+    "forgive.context": { en: "{name} · {cur} {amount} remaining", es: "{name} · quedan {cur} {amount}" },
+    "forgive.convertIncome": { en: "Convert remaining balance to income", es: "Convertir el saldo restante en ingreso" },
+    "forgive.recordedExpense": { en: " — this will be recorded as an expense in the category below.", es: " — se registrará como gasto en la categoría de abajo." },
+    "forgive.recordedIncome": { en: " — this will be recorded as income in the category below.", es: " — se registrará como ingreso en la categoría de abajo." },
+
+    // ---- budgetModal ----
+    "budgetModal.add": { en: "Add budget", es: "Agregar presupuesto" },
+    "budgetModal.name": { en: "Name (optional)", es: "Nombre (opcional)" },
+    "budgetModal.namePlaceholder": { en: "Defaults to the category name", es: "Por defecto es el nombre de la categoría" },
+    "budgetModal.categories": { en: "Categories", es: "Categorías" },
+    "budgetModal.allCategories": { en: "All expense categories", es: "Todas las categorías de gasto" },
+    "budgetModal.setOne": { en: "Set one", es: "Fijar uno" },
+    "budgetModal.period": { en: "Period", es: "Periodo" },
+    "budgetModal.alertAt": { en: "Alert at (%)", es: "Avisar al (%)" },
+    "budgetModal.alertHint": { en: "Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.", es: "Porcentajes del presupuesto separados por comas. Recibirás un mensaje de Telegram la primera vez que el gasto cruce cada uno, una vez por periodo." },
+    "budgetModal.save": { en: "Save budget", es: "Guardar presupuesto" },
+    "budgetModal.delete": { en: "Delete this budget", es: "Eliminar este presupuesto" },
+    "budgetModal.noRate": { en: "⚠️ No exchange rate on file for {currency} yet.", es: "⚠️ Aún no hay un tipo de cambio registrado para {currency}." },
+    "budgetModal.edit": { en: "Edit budget", es: "Editar presupuesto" },
+
+    // ---- recModal ----
+    "recModal.add": { en: "Add recurring item", es: "Agregar movimiento recurrente" },
+    "recModal.descPlaceholder": { en: "e.g. Rent, Netflix, Gym, Salary", es: "e.g. Alquiler, Netflix, Gimnasio, Sueldo" },
+    "recModal.frequency": { en: "Frequency", es: "Frecuencia" },
+    "recModal.once": { en: "One-time", es: "Una sola vez" },
+    "recModal.dayOfMonth": { en: "Day of month", es: "Día del mes" },
+    "recModal.startsOn": { en: "Starts on (optional)", es: "Empieza el (opcional)" },
+    "recModal.endsOn": { en: "Ends on (optional)", es: "Termina el (opcional)" },
+    "recModal.endHint": { en: "Leave blank for no start or end. After an end date the item stops counting, but the months before it keep their history. \"Active\" off removes the whole item from every period instead.", es: "Déjalo en blanco si no tiene inicio ni fin. Después de la fecha de fin el movimiento deja de contar, pero los meses anteriores conservan su historial. Si desactivas \"Activo\", el movimiento se quita de todos los periodos." },
+    "recModal.skipped": { en: "Skipped months", es: "Meses omitidos" },
+    "recModal.active": { en: "Active", es: "Activo" },
+    "recModal.findMatches": { en: "🔎 Find past entries for this", es: "🔎 Buscar movimientos pasados para este" },
+    "recModal.linkHint": { en: "Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, \"less certain\" ones don't.", es: "No se vinculan automáticamente: revisa y ajusta, y luego vincula. Ordenados por probabilidad de coincidir, de mejor a peor; los seguros vienen marcados, los \"menos seguros\" no." },
+    "recModal.linkEmpty": { en: "No unlinked past entries look like a match.", es: "Ningún movimiento pasado sin vincular parece coincidir." },
+    "recModal.linkSelected": { en: "Link selected", es: "Vincular seleccionados" },
+    "recModal.delete": { en: "Delete this item", es: "Eliminar este movimiento programado" },
+    "recModal.onceHint": { en: "A single future payment — once it happens and gets confirmed as a real entry, it drops off the \"Programmed this month\" list on its own.", es: "Un solo pago futuro: cuando ocurra y se confirme como un movimiento real, sale solo de la lista \"Programado este mes\"." },
+    "recModal.dayAndMonth": { en: "Day and month", es: "Día y mes" },
+    "recModal.yearlyHint": { en: "Pick any date — its day and month repeat every year (the year itself is ignored).", es: "Elige cualquier fecha: su día y mes se repiten cada año (el año se ignora)." },
+    "recModal.monthlyHint": { en: "Pick any date — only the day is used (a 31st lands on the last day of shorter months). Browse to a longer month to pick a late day.", es: "Elige cualquier fecha: solo se usa el día (un 31 cae en el último día de los meses más cortos). Ve a un mes más largo para elegir un día tardío." },
+    "recModal.addItem": { en: "Add programmed item", es: "Agregar movimiento programado" },
+    "recModal.editItem": { en: "Edit programmed item", es: "Editar movimiento programado" },
+    "recModal.undoSkip": { en: "Undo skip", es: "Deshacer omisión" },
+    "recModal.undoSkipFailed": { en: "Couldn't undo the skip ({error}).", es: "No se pudo deshacer la omisión ({error})." },
+    "recModal.searching": { en: "Searching…", es: "Buscando…" },
+    "recModal.lessCertain": { en: "(less certain)", es: "(menos seguro)" },
+    "recModal.searchFailed": { en: "Couldn't search: {error}", es: "No se pudo buscar: {error}" },
+    "recModal.pickDate": { en: "Pick a date.", es: "Elige una fecha." },
+    "recModal.confirmDelete": { en: "Delete the programmed item {what}? Its skipped months go with it. This can't be undone.", es: "¿Eliminar el movimiento programado {what}? Sus meses omitidos se eliminan con él. No se puede deshacer." },
+
+    // ---- rateModal ----
+    "rateModal.invert": { en: "⇅ Enter it the other way around", es: "⇅ Ingrésalo al revés" },
+    "rateModal.save": { en: "Save rate", es: "Guardar tipo de cambio" },
+    "rateModal.skip": { en: "Skip for now", es: "Omitir por ahora" },
+    "rateModal.title": { en: "Exchange rate", es: "Tipo de cambio" },
+    "rateModal.titleWithCurrency": { en: "Exchange rate — {currency}", es: "Tipo de cambio — {currency}" },
+    "rateModal.editing": { en: "Editing the rate on file for {currency} in {month}.", es: "Estás editando el tipo de cambio registrado para {currency} en {month}." },
+    "rateModal.none": { en: "No rate on file for {currency} in {month} yet.", es: "Aún no hay un tipo de cambio registrado para {currency} en {month}." },
+    "rateModal.validNumber": { en: "Enter a valid number.", es: "Ingresa un número válido." },
+    "rateModal.confirmHigher": { en: "This rate ({rate}) is {pct}% higher than the previous one ({prev}). Save it anyway?", es: "Este tipo de cambio ({rate}) es {pct}% más alto que el anterior ({prev}). ¿Guardarlo de todos modos?" },
+    "rateModal.confirmLower": { en: "This rate ({rate}) is {pct}% lower than the previous one ({prev}). Save it anyway?", es: "Este tipo de cambio ({rate}) es {pct}% más bajo que el anterior ({prev}). ¿Guardarlo de todos modos?" },
+
+    // ---- projOverride ----
+    "projOverride.title": { en: "Edit projected total", es: "Editar total proyectado" },
+    "projOverride.total": { en: "Total for period", es: "Total del periodo" },
+    "projOverride.remaining": { en: "Remaining (from today)", es: "Restante (desde hoy)" },
+    "projOverride.reset": { en: "Reset to calculated", es: "Restablecer al valor calculado" },
+    "projOverride.hintTotal": { en: "Includes the {actual} already actual this period.", es: "Incluye los {actual} que ya son reales en este periodo." },
+    "projOverride.hintRemaining": { en: "What's left to happen — the {actual} already actual gets added automatically.", es: "Lo que falta por ocurrir: los {actual} que ya son reales se suman automáticamente." },
+    "projOverride.subtitleManual": { en: "{category} — currently manually set at {amount} total.", es: "{category}: actualmente fijado manualmente en {amount} en total." },
+    "projOverride.subtitleCalculated": { en: "{category} — currently calculated at {amount} total.", es: "{category}: actualmente calculado en {amount} en total." },
+
+    // ---- pace ----
+    "pace.over": { en: "You're already over budget for this {period}.", es: "Ya te pasaste del presupuesto de este {period}." },
+    "pace.recurringUsesUp": { en: "{cur} {amount} in upcoming recurring expenses uses up what's left — nothing free to spend for the rest of this {period}.", es: "{cur} {amount} en próximos gastos recurrentes se llevan lo que queda: no hay nada libre para gastar el resto de este {period}." },
+    "pace.afterRecurring": { en: " after {cur} {amount} in upcoming recurring expenses", es: " después de {cur} {amount} en próximos gastos recurrentes" },
+    "pace.leftToSpend": { en: { one: "{cur} {amount} left to spend freely{after} — about {cur} {perDay}/day for the {n} day left.", other: "{cur} {amount} left to spend freely{after} — about {cur} {perDay}/day for the {n} days left." }, es: { one: "Te quedan {cur} {amount} para gastar con libertad{after}: unos {cur} {perDay} por día durante el día que queda.", other: "Te quedan {cur} {amount} para gastar con libertad{after}: unos {cur} {perDay} por día durante los {n} días que quedan." } },
+
+    // ---- budget ----
+    "budget.confirmDeleteYearly": { en: "Delete the yearly budget {what}? This can't be undone.", es: "¿Eliminar el presupuesto anual {what}? No se puede deshacer." },
+    "budget.confirmDeleteMonthly": { en: "Delete the monthly budget {what}? This can't be undone.", es: "¿Eliminar el presupuesto mensual {what}? No se puede deshacer." },
+    "budget.deleteFailed": { en: "Couldn't delete the budget ({error}). It's still there — try again.", es: "No se pudo eliminar el presupuesto ({error}). Sigue ahí: inténtalo de nuevo." },
+    "budget.pickCategory": { en: "Pick at least one category.", es: "Elige al menos una categoría." },
+    "budget.refreshFailed": { en: "Couldn't refresh: {error}", es: "No se pudo actualizar: {error}" },
+    "budget.needsRate": { en: "Needs an exchange rate for {cur}", es: "Necesita un tipo de cambio para {cur}" },
+    "budget.thisYear": { en: "this year", es: "este año" },
+    "budget.thisMonth": { en: "this month", es: "este mes" },
+    "budget.annualized": { en: " (monthly × 12)", es: " (mensual × 12)" },
+    "budget.excluded": { en: { one: "{n} budget excluded — missing an exchange rate.", other: "{n} budgets excluded — missing an exchange rate." }, es: { one: "{n} presupuesto excluido: falta un tipo de cambio.", other: "{n} presupuestos excluidos: falta un tipo de cambio." } },
+
+    // ---- recSplit ----
+    "recSplit.summaryCustom": { en: "{cur} {assigned} of {cur} {total} assigned · {cur} {left} left to you", es: "{cur} {assigned} de {cur} {total} asignados · te quedan {cur} {left}" },
+
+    // ---- expected ----
+    "expected.needsRate": { en: "Needs an exchange rate", es: "Necesita un tipo de cambio" },
+    "expected.day": { en: "Day {day}", es: "Día {day}" },
+    "expected.markPaid": { en: "✓ Mark as paid…", es: "✓ Marcar como pagado…" },
+    "expected.skipMonth": { en: "⏭ Skip this month", es: "⏭ Omitir este mes" },
+    "expected.count": { en: { one: "🔁 {n} programmed", other: "🔁 {n} programmed" }, es: { one: "🔁 {n} programado", other: "🔁 {n} programados" } },
+    "expected.confirmSkip": { en: "Skip \"{label}\" for this month? It stops counting as expected for this month only. You can undo it from the item's edit screen.", es: "¿Omitir \"{label}\" este mes? Solo este mes deja de contar como esperado. Puedes deshacerlo desde la pantalla de edición del movimiento." },
+    "expected.skipFailed": { en: "Couldn't skip it ({error}).", es: "No se pudo omitir ({error})." },
+
+    // ---- more ----
+    "more.programmed": { en: "🔁 Programmed income/expenses", es: "🔁 Ingresos y gastos programados" },
+    "more.exchangeRates": { en: "💱 Exchange rates", es: "💱 Tipos de cambio" }
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = STRINGS;

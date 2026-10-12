@@ -74,10 +74,11 @@
   function capitalize(w) { return w.charAt(0).toUpperCase() + w.slice(1); }
   function asDate(d) { return d instanceof Date ? d : new Date(d); }
 
-  // "September 2026" / "Septiembre de 2026" (a month that starts a text is capitalised)
-  function fmtMonthYear(d) {
+  // "September 2026" / "Septiembre de 2026" (a month that starts a text is
+  // capitalised; pass midText = true when it sits inside a sentence)
+  function fmtMonthYear(d, midText) {
     d = asDate(d);
-    if (lang === "es") return `${capitalize(MONTHS.es.long[d.getMonth()])} de ${d.getFullYear()}`;
+    if (lang === "es") return `${midText ? MONTHS.es.long[d.getMonth()] : capitalize(MONTHS.es.long[d.getMonth()])} de ${d.getFullYear()}`;
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
   // "Sep 5, 2026" / "5 sep 2026"
