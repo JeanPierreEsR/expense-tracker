@@ -318,7 +318,7 @@ function telegramEditHelpText_(entry) {
     lines = [
       'Reply to edit:',
       'from — "from Plin"',
-      'to — "to Diners" (or both: "from Plin, to Diners")',
+      'to — "to Diners" (or both: "from Plin, to Diners"). Use "from none" / "to none" when that end isn\'t one of your own accounts.',
       'amount — "amount 90"',
       'description — "description Taxi"',
       'currency — "currency USD"',
@@ -976,7 +976,11 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', landPm.id);
   } else if (field === 'from' || field === 'to' || field === 'received at') {
     if (entry.type !== 'transfer' || field === 'received at') return null;
-    var endPm = fuzzyFindPaymentMethod_(value);
+    // "from none" / "to none": that end of the move isn't one of the owner's
+    // own accounts (e.g. a Yape that came in from someone else's account), so
+    // it is left empty — a balance only moves for the end that is set.
+    var clearEnd = /^(?:none|nothing|no\s+account|clear|-)$/i.test(value);
+    var endPm = clearEnd ? { id: '' } : fuzzyFindPaymentMethod_(value);
     if (!endPm) return null;
     if (field === 'from') {
       setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
@@ -1012,6 +1016,15 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       var transferCat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
       setCellByRow_(sheet, headers, rowIndex, 'category_id', transferCat ? transferCat.id : '');
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
+      // An income's account is where the money LANDED, so on a transfer it is
+      // the "To" end, not the "From" end (a received Yape on BCP became
+      // "From BCP", as if the money had left it). The other end is unknown —
+      // reply "from Plin" if it was one of the owner's own accounts.
+      if (entry.type === 'income') {
+        ensureEntriesToPaymentMethodColumn_();
+        setEntryField_(entryId, 'to_payment_method_id', entry.payment_method_id || '');
+        setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', '');
+      }
       // A transfer can't carry a split — clear one left over from when
       // this was still a pending expense (same cleanup updateEntry's
       // caller in app.js does for a type change via the Split popup).
@@ -1044,6 +1057,11 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       }
       if (entry.type === 'transfer' || entry.type === 'investment') {
         ensureEntriesToPaymentMethodColumn_();
+        // Becoming income: its "Received at" is the account the money went INTO
+        // (the transfer's "To"), mirroring the income -> transfer move above.
+        if (entry.type === 'transfer' && newType === 'income' && entry.to_payment_method_id) {
+          setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', entry.to_payment_method_id);
+        }
         setEntryField_(entryId, 'to_payment_method_id', '');
       }
       // Only investments carry a negative amount (a withdrawal).

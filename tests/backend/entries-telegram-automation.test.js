@@ -156,3 +156,58 @@ test("automation alerts are throttled (not every 15 minutes)", () => {
   const alerts = rt.svc.fetchLog.filter((f) => /Automatic scan problem/.test(f.options.payload));
   assert.equal(alerts.length, 1);
 });
+
+// ---- Telegram "type transfer" on a received (income) entry; "from none" ----
+function pendingYapeReceived(rt, data) {
+  const e = rt.api("createEntry", {
+    type: "income", date: "2026-10-12", amount: 1, currency: "PEN", category_id: "", description: "Yape de Ana Lo*",
+    payment_method_id: data.pms[3].id, paid_by: ""
+  });
+  rt.run(`updateEntryFields(${JSON.stringify(e.id)}, { status: 'pending' })`);
+  return e;
+}
+const edit = (rt, id, text) => JSON.parse(rt.run(`JSON.stringify(applyEditCommand_(${JSON.stringify(id)}, ${JSON.stringify(text)}))`));
+const row = (rt, id) => rt.rows("Entries").find((e) => e.id === id);
+
+test("income -> 'type transfer': the receiving account becomes the To end, From stays empty", () => {
+  const { rt, data } = freshApp();
+  const e = pendingYapeReceived(rt, data);
+  edit(rt, e.id, "type transfer");
+  const after = row(rt, e.id);
+  assert.equal(after.type, "transfer");
+  assert.equal(after.to_payment_method_id, data.pms[3].id, "money landed in the account it was received at");
+  assert.equal(after.payment_method_id, "", "the From end is not guessed");
+});
+
+test("'from none' clears the From end, 'to none' clears the To end; an unknown name still fails", () => {
+  const { rt, data } = freshApp();
+  const e = rt.api("createEntry", { type: "transfer", date: "2026-10-12", amount: 5, currency: "PEN", category_id: "", payment_method_id: data.pms[3].id, to_payment_method_id: data.pms[2].id, paid_by: "me" });
+  const r1 = edit(rt, e.id, "from None");
+  assert.doesNotMatch(r1.message || "", /Couldn't apply/);
+  assert.equal(row(rt, e.id).payment_method_id, "");
+  assert.equal(row(rt, e.id).to_payment_method_id, data.pms[2].id);
+  edit(rt, e.id, "to none");
+  assert.equal(row(rt, e.id).to_payment_method_id, "");
+  assert.match(edit(rt, e.id, "from Nonexistent Bank").message, /Didn.t recognize/);
+});
+
+test("the income-transfer move round-trips: transfer -> 'type income' receives at the To account", () => {
+  const { rt, data } = freshApp();
+  const e = pendingYapeReceived(rt, data);
+  edit(rt, e.id, "type transfer");
+  edit(rt, e.id, "type income");
+  const after = row(rt, e.id);
+  assert.equal(after.type, "income");
+  assert.equal(after.payment_method_id, data.pms[3].id);
+  assert.equal(after.to_payment_method_id, "");
+});
+
+test("an expense -> 'type transfer' still keeps its account as the From end", () => {
+  const { rt, data } = freshApp();
+  const e = rt.api("createEntry", { type: "expense", date: "2026-10-12", amount: 1, currency: "PEN", category_id: data.cats.find((c) => c.type === "expense").id, payment_method_id: data.pms[3].id, paid_by: "me" });
+  rt.run(`updateEntryFields(${JSON.stringify(e.id)}, { status: 'pending' })`);
+  edit(rt, e.id, "type transfer");
+  const after = row(rt, e.id);
+  assert.equal(after.payment_method_id, data.pms[3].id);
+  assert.equal(after.to_payment_method_id || "", "");
+});
