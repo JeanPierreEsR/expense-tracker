@@ -3438,7 +3438,7 @@ function monthBounds(d) {
   return {
     startDate: `${y}-${pad2(m + 1)}-01`,
     endDate: `${y}-${pad2(m + 1)}-${pad2(lastDay)}`,
-    label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    label: I18n.fmtMonthYear(d)
   };
 }
 
@@ -4857,7 +4857,7 @@ document.getElementById("more-signout-btn").addEventListener("click", async () =
 function formatSessionTime_(ts) {
   if (!ts) return "";
   const d = new Date(ts);
-  return isNaN(d) ? ts : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return isNaN(d) ? ts : I18n.fmtDateTime(d);
 }
 
 async function openDevicesModal_() {
@@ -4913,6 +4913,17 @@ async function openDevicesModal_() {
 }
 
 document.getElementById("more-devices-btn").addEventListener("click", openDevicesModal_);
+
+// Language picker (More tab). The choice is remembered on this phone; the app
+// reloads so every screen is rebuilt in the new language.
+(function setupLanguagePicker() {
+  const select = document.getElementById("language-select");
+  select.value = I18n.getLang();
+  select.addEventListener("change", () => {
+    I18n.saveLang(select.value);
+    window.location.reload();
+  });
+})();
 document.getElementById("devices-modal-close").addEventListener("click", () => { document.getElementById("devices-modal-backdrop").hidden = true; });
 document.getElementById("devices-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
@@ -5025,8 +5036,8 @@ async function sendExport_() {
       includePending: exportEl_("export-pending-check").checked
     });
     const parts = res.files.map((f) => f.kind === "entries"
-      ? `${f.name} (${f.rows.toLocaleString()} entries)`
-      : `${f.name} (${f.rows.toLocaleString()} records)`);
+      ? `${f.name} (${f.rows.toLocaleString("en-US")} entries)`
+      : `${f.name} (${f.rows.toLocaleString("en-US")} records)`);
     status.textContent = `✓ Sent to your email: ${parts.join(" and ")}.`;
   } catch (err) {
     status.style.color = "#d64545";
@@ -5162,7 +5173,7 @@ let recurringCustomSplitAmounts = {};
 function recurringFreqLabel_(re) {
   if (re.frequency === "once") {
     const d = new Date(re.date + "T00:00:00");
-    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    return I18n.fmtDateMedium(d);
   }
   if (re.frequency === "yearly") return `Yearly, ${MONTH_NAMES_SHORT[re.month - 1]} ${re.day}`;
   return `Monthly, day ${re.day}`;
@@ -5181,20 +5192,69 @@ function renderRecurringAmountHtml_(re) {
   return `${primary}<span class="original-amt">Total ${formatAmount(re.amount, re.currency)}</span>`;
 }
 
+// Today as YYYY-MM-DD in the phone's own time zone (end dates are plain dates).
+function localTodayISO_() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// A monthly/yearly item that no longer applies: paused, or its end date has
+// passed (an end date of today still counts as running today). One-time items
+// are never "past" here — a one-time item whose date went by may still be
+// unpaid, so it stays visible. See specs/recurring.md.
+function recurringIsPast_(re, todayISO) {
+  if (re.frequency === "once") return false;
+  return !re.active || (!!re.end_date && re.end_date < todayISO);
+}
+
+function recurringDateLabel_(iso) {
+  return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+// " · Paused", " · Ended 30 Sep 2026" or " · Ends 30 Nov 2026" (still running).
+function recurringStatusLabel_(re, todayISO) {
+  if (re.frequency === "once") return "";
+  if (!re.active) return " · Paused";
+  if (!re.end_date) return "";
+  return re.end_date < todayISO ? ` · Ended ${recurringDateLabel_(re.end_date)}` : ` · Ends ${recurringDateLabel_(re.end_date)}`;
+}
+
 function renderRecurringRow_(re) {
   const isIncome = re.category_type === "income";
+  const todayISO = localTodayISO_();
   const row = document.createElement("div");
-  row.className = "recurring-row" + (re.active ? "" : " inactive");
+  row.className = "recurring-row" + (recurringIsPast_(re, todayISO) || !re.active ? " inactive" : "");
   row.innerHTML = `
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.active ? "" : " · Paused"}${re.split_total > 0.005 ? " · Split" : ""}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? " · Split" : ""}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${renderRecurringAmountHtml_(re)}</div>
   `;
   row.addEventListener("click", () => openRecurringModal(re));
   return row;
 }
+
+// The past (ended / paused) recurring items sit behind a button, closed until
+// asked for. Stays open while the owner edits one, closes on leaving the app.
+let showPastRecurring = false;
+
+function renderRecurringPastToggle_(count) {
+  const btn = document.getElementById("recurring-past-toggle");
+  const section = document.getElementById("recurring-past-section");
+  btn.hidden = count === 0;
+  if (count === 0) showPastRecurring = false;
+  section.hidden = !showPastRecurring;
+  btn.textContent = showPastRecurring
+    ? `Hide past recurring items (${count})`
+    : `Show past recurring items (${count})`;
+}
+
+document.getElementById("recurring-past-toggle").addEventListener("click", () => {
+  showPastRecurring = !showPastRecurring;
+  const count = document.getElementById("recurring-past-list").children.length;
+  renderRecurringPastToggle_(count);
+});
 
 async function refreshRecurringExpenses() {
   const list = document.getElementById("recurring-list");
@@ -5211,19 +5271,30 @@ async function refreshRecurringExpenses() {
     return;
   }
 
-  const recurring = items.filter((re) => re.frequency !== "once");
+  const todayISO = localTodayISO_();
+  const allRecurring = items.filter((re) => re.frequency !== "once");
+  const recurring = allRecurring.filter((re) => !recurringIsPast_(re, todayISO));
+  // Most recently ended first; paused ones (no end date) after them.
+  const past = allRecurring.filter((re) => recurringIsPast_(re, todayISO))
+    .sort((a, b) => (b.end_date || "").localeCompare(a.end_date || ""));
   const onetime = items.filter((re) => re.frequency === "once");
 
   list.innerHTML = "";
+  emptyNote.textContent = allRecurring.length ? "No current recurring items." : "No recurring items yet.";
   emptyNote.hidden = recurring.length > 0;
   recurring.forEach((re) => list.appendChild(renderRecurringRow_(re)));
+
+  const pastList = document.getElementById("recurring-past-list");
+  pastList.innerHTML = "";
+  past.forEach((re) => pastList.appendChild(renderRecurringRow_(re)));
+  renderRecurringPastToggle_(past.length);
 
   onetimeList.innerHTML = "";
   onetimeEmptyNote.hidden = onetime.length > 0;
   onetime.forEach((re) => onetimeList.appendChild(renderRecurringRow_(re)));
 }
 
-const MONTH_NAMES_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i, true));   // capitalised in Spanish: every use starts a label
 
 function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
@@ -6515,7 +6586,7 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
         return;
       }
       if (data.version !== knownVersion) {
-        banner.textContent = "🔄 New version available — tap to reload";   // re-set so a screen reader announces it
+        banner.textContent = tr("banner.update");   // re-set so a screen reader announces it
         banner.hidden = false;
         // Pushes the save-failed banner down below this one instead of
         // the two overlapping — both are position:fixed/top:0 (see

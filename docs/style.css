@@ -1549,6 +1549,15 @@ button.primary:disabled {
   color: var(--muted);
 }
 
+.language-label {
+  display: block;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* ---- Recurring expenses screen (reuses the budget row's look) ---- */
 
 .recurring-row {
@@ -1563,6 +1572,8 @@ button.primary:disabled {
 .recurring-row:last-child { border-bottom: none; }
 
 .recurring-row.inactive { opacity: 0.5; }
+#recurring-past-toggle { margin-top: 10px; }
+#recurring-past-section { margin-top: 8px; }
 
 .recurring-row-name {
   font-weight: 600;
