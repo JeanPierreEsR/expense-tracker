@@ -220,7 +220,7 @@ function moneyFmt_(n) {
 function formatEntryForTelegram_(entry, categoryName, autoReason) {
   if (!categoryName && entry.category_id) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
-    categoryName = cat ? cat.name : null;
+    categoryName = cat ? categoryLabel_(cat) : null;
   }
   var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
@@ -906,7 +906,7 @@ function applyEditCommand_(entryId, text) {
   var categoryName = null;
   if (updated.category_id) {
     var found = getAllRows('Categories').find(function (c) { return c.id === updated.category_id; });
-    categoryName = found ? found.name : null;
+    categoryName = found ? categoryLabel_(found) : null;
   }
 
   // Everything applied and nothing to warn about: the refreshed card that
@@ -1260,7 +1260,9 @@ function pickByName_(items, text, nameOf) {
 
 function fuzzyFindCategory_(text, type) {
   var cats = getAllRows('Categories').filter(function (c) { return c.type === type; });
-  return pickByName_(cats, text, function (c) { return c.name; });
+  // The stored (English) name first, then the Spanish one — the owner may type either.
+  return pickByName_(cats, text, function (c) { return c.name; }) ||
+    pickByName_(cats, text, function (c) { return categoryLabel_(c, 'es'); });
 }
 
 function fuzzyFindFriend_(text) {

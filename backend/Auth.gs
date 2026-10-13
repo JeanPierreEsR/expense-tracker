@@ -34,6 +34,8 @@ function onOpen() {
     .addItem('25. Generate a key for the Mac helper', 'menuGenerateHelperKey')
     .addItem('26. Require sign-in sessions (on/off)', 'menuRequireSessions')
     .addItem('27. Sign out all devices', 'menuSignOutAllDevices')
+    .addItem('28. Categories cleanup: preview (changes nothing)', 'menuCategoriesCleanupPreview')
+    .addItem('29. Categories cleanup: apply', 'menuCategoriesCleanupApply')
     .addToUi();
 }
 

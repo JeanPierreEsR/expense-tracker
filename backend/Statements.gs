@@ -267,7 +267,7 @@ function stmtEntrySummary_(e, catsById, pmsById) {
   return {
     id: e.id, date: e.date, type: e.type, description: e.description,
     amount: Number(e.amount), currency: e.currency, status: e.status,
-    category: catsById[e.category_id] ? catsById[e.category_id].name : '',
+    category: catsById[e.category_id] ? categoryLabel_(catsById[e.category_id]) : '',
     account: pmsById[e.payment_method_id] ? pmsById[e.payment_method_id].nickname : '',
     to_account: pmsById[e.to_payment_method_id] ? pmsById[e.to_payment_method_id].nickname : ''
   };
@@ -409,7 +409,7 @@ function analyzeStatements(payload) {
           counts.income++;
           // Interest earned is the one kind of income worth registering.
           if (savingsReturn && /INTER[EÉ]S/i.test(l.description)) {
-            o.suggestion = { categoryId: savingsReturn.id, categoryName: savingsReturn.name, reason: 'interest earned' };
+            o.suggestion = { categoryId: savingsReturn.id, categoryName: categoryLabel_(savingsReturn), reason: 'interest earned' };
           } else if (pm && pm.type === 'credit') {
             o.reversal = stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat);
           }
@@ -424,7 +424,7 @@ function analyzeStatements(payload) {
         if (r.guess === 'expense' && l.amount < 0 && !r.pairedWith) {
           var g = guessFromMerchantHistory_(stmtMerchantKey_(l.description), ctx) ||
             guessFromProgrammed_({ currency: l.currency, amount: Math.abs(l.amount) }, l.date, ctx);
-          if (g) o.suggestion = { categoryId: g.categoryId, categoryName: ctx.categoriesById[g.categoryId] ? ctx.categoriesById[g.categoryId].name : '', reason: g.reason };
+          if (g) o.suggestion = { categoryId: g.categoryId, categoryName: ctx.categoriesById[g.categoryId] ? categoryLabel_(ctx.categoriesById[g.categoryId]) : '', reason: g.reason };
         }
       }
       return o;

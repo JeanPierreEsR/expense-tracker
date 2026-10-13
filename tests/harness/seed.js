@@ -39,8 +39,8 @@ function seedData(rt, options = {}) {
 
   // Categories the statement import relies on (created by hand in the real sheet).
   const have = (name, type) => rt.rows("Categories").some((c) => c.name === name && c.type === type);
-  if (!have("Bank fees", "expense")) bulk("Categories", [{ id: uuid(), name: "Bank fees", type: "expense", icon: "🧾", color: "#cccccc", parent_id: "", period_type: "" }]);
-  if (!have("Between Accounts", "transfer")) bulk("Categories", [{ id: uuid(), name: "Between Accounts", type: "transfer", icon: "🔁", color: "#cccccc", parent_id: "", period_type: "" }]);
+  if (!have("Bank fees", "expense")) bulk("Categories", [{ id: uuid(), name: "Bank fees", type: "expense", icon: "🧾", color: "#cccccc", parent_id: "", period_type: "", key: "bank_fees" }]);
+  if (!have("Between Accounts", "transfer")) bulk("Categories", [{ id: uuid(), name: "Between Accounts", type: "transfer", icon: "🔁", color: "#cccccc", parent_id: "", period_type: "", key: "between_accounts" }]);
   const cats = rt.rows("Categories");
   const byType = (t) => cats.filter((c) => c.type === t);
   const expenseCats = byType("expense"), incomeCats = byType("income");

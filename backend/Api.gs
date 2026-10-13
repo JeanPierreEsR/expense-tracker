@@ -24,9 +24,13 @@ function doPost(e) {
   PERF_INSTANCE_WARM_ = true;
   RATES_MEMO_ = null;   // never carry rates over from a previous request
   STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
+  REQUEST_LANG_ = null;         // nor the previous request's language (see Strings.gs)
   var response;
   try {
     var body = JSON.parse(e.postData.contents);
+    // The app tells us which language the person is using; everything this
+    // request says back (errors, labels, category names) follows it.
+    if (body && body.lang) REQUEST_LANG_ = normalizeLang_(body.lang);
 
     if (body && body.ping === true) {
       // Keep-warm ping (see pingWebApp_ in Triggers.gs) — answered before
@@ -129,6 +133,7 @@ function routeAction(action, payload) {
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': return getMeta();
+    case 'setLanguage': return setLanguage(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
     case 'listEntries': return listEntries(payload);
@@ -421,7 +426,7 @@ function findRowIndexById(sheet, headers, id) {
 function getMeta() {
   ensureInvestmentPlatforms_();
   return {
-    categories: getAllRowsCached_('Categories'),
+    categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
     paymentMethods: getAllRowsCached_('Payment Methods'),
     tags: getAllRowsCached_('Tags'),
@@ -732,7 +737,7 @@ function entrySearchText_(e, lk) {
   var parts = [
     e.description, e.merchant, e.type, e.date, e.currency,
     e.amount, isNaN(Number(e.amount)) ? '' : Number(e.amount).toFixed(2),
-    cat && cat.name, parent && parent.name,
+    cat && categorySearchNames_(cat), parent && categorySearchNames_(parent),
     lk.methodsById[e.payment_method_id] && lk.methodsById[e.payment_method_id].nickname,
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),

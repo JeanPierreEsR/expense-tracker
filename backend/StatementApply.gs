@@ -518,7 +518,7 @@ function ensureRefundsCategory_() {
   var found = getAllRows('Categories').filter(function (c) { return c.type === 'income' && c.name === 'Refunds'; })[0];
   if (found) return found;
   var row = { id: Utilities.getUuid(), name: 'Refunds', type: 'income', icon: '↩️',
-    color: CATEGORY_COLOR_PALETTE[getAllRows('Categories').length % CATEGORY_COLOR_PALETTE.length], parent_id: '' };
+    color: CATEGORY_COLOR_PALETTE[getAllRows('Categories').length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'refunds' };
   appendRowObject('Categories', row);
   return row;
 }

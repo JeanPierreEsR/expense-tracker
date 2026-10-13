@@ -317,9 +317,10 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
       res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
+        // `lang`: the server answers (errors, category names…) in the app's language.
         body: JSON.stringify(getSessionToken()
-          ? { sessionToken: getSessionToken(), action, payload: payload || {} }
-          : { accessCode: getAccessCode(), action, payload: payload || {} }),
+          ? { sessionToken: getSessionToken(), action, payload: payload || {}, lang: I18n.getLang() }
+          : { accessCode: getAccessCode(), action, payload: payload || {}, lang: I18n.getLang() }),
         signal: controller.signal
       });
     } finally {
@@ -378,7 +379,10 @@ const STARTUP_CACHE_KEY = "startupCache";
 
 function loadStartupCache_() {
   try {
-    return JSON.parse(localStorage.getItem(STARTUP_CACHE_KEY));
+    const cached = JSON.parse(localStorage.getItem(STARTUP_CACHE_KEY));
+    // Saved in another language (category names come from the server already
+    // translated): don't paint it, load the live data instead.
+    return cached && cached.lang === I18n.getLang() ? cached : null;
   } catch (err) {
     return null;
   }
@@ -386,7 +390,7 @@ function loadStartupCache_() {
 
 function saveStartupCache_(bundle) {
   try {
-    localStorage.setItem(STARTUP_CACHE_KEY, JSON.stringify(bundle));
+    localStorage.setItem(STARTUP_CACHE_KEY, JSON.stringify({ ...bundle, lang: I18n.getLang() }));
   } catch (err) {
     // Storage full/unavailable — next open just falls back to the
     // loading-screen behaviour, same as before this cache existed.
@@ -496,8 +500,19 @@ function refreshFriendChips_() {
   if (typeof renderRecurringSplitFriendChips === "function") renderRecurringSplitFriendChips();
 }
 
+// The language chosen on this phone is kept in the Sheet too (see the picker in
+// More). Re-sent once per app open if the Sheet disagrees, so a choice made
+// before this existed — or while offline — still reaches the server.
+let languageSynced_ = false;
+function syncLanguageSetting_() {
+  if (languageSynced_ || !meta || !meta.settings || !I18n.hasChosenLang()) return;
+  languageSynced_ = true;
+  if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).catch(() => {});
+}
+
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  syncLanguageSetting_();
   if (skipFormPopulate) return;
   populateCategoryOptions();
   populateCategoryPicker();
@@ -508,11 +523,23 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   renderSplitFriendChips();
 }
 
+// Categories are always offered alphabetically by the name SHOWN (so the order
+// follows the language), with "Other" last. A built-in carries key "other";
+// before the categories cleanup has run, the name is the test.
+function isOtherCategory_(c) { return c.key === "other" || (!c.key && c.name === "Other"); }
+function sortedCategories_(list) {
+  const locale = I18n.getLang() === "es" ? "es" : "en";
+  return list.slice().sort((a, b) => {
+    const aLast = isOtherCategory_(a), bLast = isOtherCategory_(b);
+    if (aLast !== bLast) return aLast ? 1 : -1;
+    return String(a.name).localeCompare(String(b.name), locale, { sensitivity: "base" });
+  });
+}
+
 function populateCategoryOptions() {
   const select = document.getElementById("category");
   select.innerHTML = "";
-  meta.categories
-    .filter((c) => c.type === selectedType)
+  sortedCategories_(meta.categories.filter((c) => c.type === selectedType))
     .forEach((c) => {
       const opt = document.createElement("option");
       opt.value = c.id;
@@ -529,8 +556,7 @@ const ICON_PICKER_TYPES = ["expense", "income"];
 function populateCategoryPicker() {
   const grid = document.getElementById("category-picker");
   grid.innerHTML = "";
-  meta.categories
-    .filter((c) => c.type === selectedType)
+  sortedCategories_(meta.categories.filter((c) => c.type === selectedType))
     .forEach((c) => {
       const tile = document.createElement("button");
       tile.type = "button";
@@ -4935,8 +4961,11 @@ document.getElementById("more-devices-btn").addEventListener("click", openDevice
 (function setupLanguagePicker() {
   const select = document.getElementById("language-select");
   select.value = I18n.getLang();
-  select.addEventListener("change", () => {
-    I18n.saveLang(select.value);
+  select.addEventListener("change", async () => {
+    const lang = I18n.saveLang(select.value);
+    // Also saved in the Sheet so the bot, alerts and e-mails speak the same
+    // language; don't make the person wait long if the server is slow to wake.
+    try { await Promise.race([callApi("setLanguage", { lang }), sleep(3000)]); } catch (err) { /* saved on the next app open */ }
     window.location.reload();
   });
 })();
@@ -7383,7 +7412,7 @@ let forgiveReturnFriend = null;
 function populateCategoryOptionsForSelect_(selectId, type) {
   const select = document.getElementById(selectId);
   select.innerHTML = "";
-  meta.categories.filter((c) => c.type === type).forEach((c) => {
+  sortedCategories_(meta.categories.filter((c) => c.type === type)).forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c.id;
     opt.textContent = (c.icon ? c.icon + " " : "") + c.name;

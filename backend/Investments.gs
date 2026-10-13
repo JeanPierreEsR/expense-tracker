@@ -33,7 +33,7 @@ function defaultInvestmentCategoryId_() {
   var id = Utilities.getUuid();
   appendRowObject('Categories', {
     id: id, name: 'Investments', type: 'investment', icon: '📈',
-    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'investments'
   });
   return id;
 }
@@ -118,7 +118,7 @@ function adminSetupInvestmentPlatforms(payload) {
     if (!dryRun) {
       appendRowObject('Categories', {
         id: Utilities.getUuid(), name: 'Investment returns', type: 'income', icon: '📈',
-        color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+        color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'investment_returns'
       });
     }
   }

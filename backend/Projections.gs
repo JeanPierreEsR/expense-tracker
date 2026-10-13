@@ -226,7 +226,7 @@ function computeAllCategoryProjections_(bounds) {
     if (String(category.period_type || '').toLowerCase() === 'yearly' && bounds.periodType !== 'yearly') {
       return {
         category_id: category.id,
-        category_name: category.name,
+        category_name: categoryLabel_(category),
         category_icon: category.icon,
         category_color: category.color,
         category_type: category.type,
@@ -383,7 +383,7 @@ function computeAllCategoryProjections_(bounds) {
 
     return {
       category_id: category.id,
-      category_name: category.name,
+      category_name: categoryLabel_(category),
       category_icon: category.icon,
       category_color: category.color,
       category_type: category.type,
@@ -436,7 +436,7 @@ function getCategoryProjectionDetail(payload) {
     // to render rather than erroring.
     match = {
       category_id: payload.categoryId,
-      category_name: category ? category.name : '(unknown category)',
+      category_name: category ? categoryLabel_(category) : '(unknown category)',
       category_icon: category ? category.icon : '',
       category_color: category ? category.color : '',
       category_type: category ? category.type : 'expense',

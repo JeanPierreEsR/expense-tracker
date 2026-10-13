@@ -147,14 +147,14 @@ function resolveBudgetCategoryDisplay_(categoryIds, categoryById) {
   if (categoryIds.length === 1) {
     var cat = categoryById[categoryIds[0]];
     return {
-      name: cat ? cat.name : '(unknown category)',
+      name: cat ? categoryLabel_(cat) : '(unknown category)',
       icon: cat ? cat.icon : '',
       color: cat ? cat.color : ''
     };
   }
   var names = categoryIds.map(function (id) {
     var c = categoryById[id];
-    return c ? c.name : '(unknown category)';
+    return c ? categoryLabel_(c) : '(unknown category)';
   });
   return { name: names.join(', '), icon: '🗂️', color: '' };
 }
@@ -366,7 +366,7 @@ function listBudgets(payload) {
       }
       if (shared.length === 0) continue;
       var sharedNames = shared.map(function (id) {
-        return categoryById[id] ? categoryById[id].name : id;
+        return categoryById[id] ? categoryLabel_(categoryById[id]) : id;
       }).join(', ');
       overlapNotes.push(
         '"' + budgets[a].category_name + '" and "' + budgets[c].category_name +
@@ -540,7 +540,7 @@ function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
   var key = function (ids) { return ids === null ? 'ALL' : ids.slice().sort().join(','); };
   var myKey = key(mine);
   var names = {};
-  getAllRows('Categories').forEach(function (c) { names[c.id] = c.name; });
+  getAllRows('Categories').forEach(function (c) { names[c.id] = categoryLabel_(c); });
 
   getAllRows('Budgets').forEach(function (other) {
     if (other.id === excludeId) return;
@@ -798,7 +798,7 @@ function generateTopCategoryBudgets(payload) {
     return {
       id: budget.id,
       category_id: r.category_id,
-      category_name: categoryById[r.category_id].name,
+      category_name: categoryLabel_(categoryById[r.category_id]),
       amount: budget.amount
     };
   });

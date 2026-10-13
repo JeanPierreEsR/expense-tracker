@@ -209,7 +209,7 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
   return {
     id: r.id,
     category_id: r.category_id,
-    category_name: cat ? cat.name : '(unknown category)',
+    category_name: cat ? categoryLabel_(cat) : '(unknown category)',
     category_icon: cat ? cat.icon : '',
     category_color: cat ? cat.color : '',
     category_type: cat ? cat.type : 'expense',
@@ -510,7 +510,7 @@ function listEntriesForRecurringMonth(payload) {
     .map(function (e) {
       return {
         id: e.id, date: e.date, amount: Number(e.amount), currency: e.currency,
-        description: e.description || '', category_name: categoryById[e.category_id] ? categoryById[e.category_id].name : '',
+        description: e.description || '', category_name: categoryById[e.category_id] ? categoryLabel_(categoryById[e.category_id]) : '',
         linked_here: e.recurring_expense_id === re.id
       };
     });
@@ -781,7 +781,7 @@ function listExpectedRecurringItems() {
     group.items.push({
       id: r.id,
       description: r.description || '',
-      category_name: cat ? cat.name : '(unknown category)',
+      category_name: cat ? categoryLabel_(cat) : '(unknown category)',
       category_icon: cat ? cat.icon : '',
       amount: ownAmount,
       // The occurrence's own actual (clamped) day, not the raw configured

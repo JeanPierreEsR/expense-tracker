@@ -46,6 +46,10 @@
     try { stored = root.localStorage.getItem(STORAGE_KEY); } catch (err) { /* blocked storage: use the default */ }
     return setLang(stored);
   }
+  // True once the person has picked a language on this phone (rather than the default).
+  function hasChosenLang() {
+    try { return !!root.localStorage.getItem(STORAGE_KEY); } catch (err) { return false; }
+  }
   // Saves the choice on this phone; the caller reloads the app afterwards.
   function saveLang(next) {
     const chosen = setLang(next);
@@ -121,7 +125,7 @@
 
   const api = {
     SUPPORTED, DEFAULT_LANG, MONTHS,
-    tr, setLang, getLang, loadStoredLang, saveLang, applyStatic,
+    tr, setLang, getLang, loadStoredLang, saveLang, hasChosenLang, applyStatic,
     fmtMonthYear, fmtDateMedium, fmtMonthDay, fmtDateTime, monthShort
   };
   if (typeof module !== "undefined" && module.exports) {

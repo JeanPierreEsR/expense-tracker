@@ -158,7 +158,7 @@ function buildEntriesCsv_(opts) {
 
     var cat = lk.categoriesById[e.category_id];
     var parent = cat && cat.parent_id ? lk.categoriesById[cat.parent_id] : null;
-    var category = cat ? (parent ? parent.name + ' › ' + cat.name : cat.name) : '';
+    var category = cat ? (parent ? categoryLabel_(parent) + ' › ' + categoryLabel_(cat) : categoryLabel_(cat)) : '';
     var method = lk.methodsById[e.payment_method_id];
     var toMethod = lk.methodsById[e.to_payment_method_id];
     var link = lk.transferLinks[e.id];

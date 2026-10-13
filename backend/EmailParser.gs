@@ -752,7 +752,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   // not abort the run or leave the email unlabeled — it still shows up in
   // the app's review queue.
   try {
-    sendTelegramEntryNotification_(entry, guessedCategory ? guessedCategory.name : null, guess.reason);
+    sendTelegramEntryNotification_(entry, guessedCategory ? categoryLabel_(guessedCategory) : null, guess.reason);
   } catch (err) {
     console.error('Telegram notification failed: ' + err);
   }

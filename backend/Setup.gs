@@ -10,7 +10,11 @@ var TABLE_DEFINITIONS = {
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
     'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
-  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type'],
+  // key (added 2026-10-13, see adminMigrateCategories in Migrations.gs): the
+  // hidden internal name of a BUILT-IN category (e.g. 'groceries'); `name`
+  // keeps the English text forever and the Spanish name is looked up by key
+  // when shown (Strings.gs). Blank for categories the owner created.
+  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type', 'key'],
   Tags: ['id', 'name', 'color'],
   'Entry Tags': ['entry_id', 'tag_id'],
   // Not part of the original spec — the bill behind a split expense (see
@@ -254,20 +258,23 @@ var CATEGORY_COLOR_PALETTE = ['#F7C6D9', '#C9E4F7', '#FFE0B2', '#D9F2D9',
 // app), with one emoji icon per category so the entry screen can show a
 // tappable icon grid instead of a dropdown. Investment/Transfer don't have
 // icon sets yet and keep the plain dropdown.
+// The starter list for NEW installs. The owner's own copy also has "Annual
+// budget" and "AELU" (personal categories, not offered to new users) and had
+// "Savings" / "Loan" until the 2026-10-13 cleanup (adminMigrateCategories).
 var EXPENSE_CATEGORIES = [
-  ['Annual budget', '📅'], ['Car', '🚗'], ['Travel', '✈️'],
+  ['Car', '🚗'], ['Travel', '✈️'],
   ['Food & Drink', '🍽️'], ['Family & Personal', '👪'], ['Entertainment', '🎭'],
   ['Home', '🏠'], ['Shopping', '🛍️'], ['Healthcare', '🏥'], ['Other', '📦'],
   ['Transport', '🚌'], ['Groceries', '🛒'], ['Education', '🎓'],
-  ['Gifts', '🎁'], ['Work', '💼'], ['Savings', '💰'], ['Loan', '🏦'],
+  ['Gifts', '🎁'], ['Work', '💼'],
   ['Party', '🎉'], ['Mobile Phone', '📱'], ['Donations', '🤲'],
-  ['Credit card', '💳'], ['Gym', '🏋️'], ['AELU', '🏟️'],
+  ['Credit card', '💳'], ['Gym', '🏋️'], ['Sports', '⚽'],
   ['Psychologist', '🧠'], ['AI', '🤖']
 ];
 
 var INCOME_CATEGORIES = [
   ['Other', '📦'], ['Gifts', '🎁'], ['Business', '👔'], ['Salary', '💰'],
-  ['Insurance Payout', '🛡️'], ['Parental Leave', '👶'], ['Loan', '🏦'],
+  ['Insurance Payout', '🛡️'], ['Parental Leave', '👶'],
   ['Extra Income', '💵'], ['Savings return', '🪙'], ['Sales', '🏷️']
 ];
 
@@ -277,13 +284,14 @@ function seedCategories() {
     list.forEach(function (c, i) {
       cats.push({
         id: Utilities.getUuid(), name: c[0], type: type, icon: c[1],
-        color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: ''
+        color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: '',
+        key: categoryKeyFromName_(c[0])
       });
     });
   }
   function addCats(names, type) {
     names.forEach(function (name) {
-      cats.push({ id: Utilities.getUuid(), name: name, type: type, icon: '', color: '', parent_id: '' });
+      cats.push({ id: Utilities.getUuid(), name: name, type: type, icon: '', color: '', parent_id: '', key: categoryKeyFromName_(name) });
     });
   }
 
@@ -310,8 +318,9 @@ function resetCategoriesForType(type, list) {
   var keep = data.filter(function (row) { return row[typeIdx] !== type; });
 
   var newRows = list.map(function (c, i) {
-    return [Utilities.getUuid(), c[0], type, c[1],
-      CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], ''];
+    var obj = { id: Utilities.getUuid(), name: c[0], type: type, icon: c[1],
+      color: CATEGORY_COLOR_PALETTE[i % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: categoryKeyFromName_(c[0]) };
+    return headers.map(function (h) { return obj[h] !== undefined ? obj[h] : ''; });   // as wide as the sheet
   });
 
   var allRows = keep.concat(newRows);
@@ -396,6 +405,7 @@ function seedFriends() {
 function seedSettings() {
   seedIfEmpty('Settings', [
     { key: 'default_currency', value: 'PEN' },
+    { key: 'language', value: 'en' },
     { key: 'alert_thresholds', value: '50,80,100' },
     { key: 'notification_channel', value: '' },
     { key: 'notification_target', value: '' }
