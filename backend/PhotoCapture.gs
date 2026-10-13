@@ -282,10 +282,10 @@ function photoReply_(chatId, replyToMessageId, text) {
  */
 function handleTelegramPhoto_(msg) {
   var fileId = photoFileIdFromMessage_(msg);
-  if (!fileId) { photoReply_(msg.chat.id, msg.message_id, "Couldn't find an image in that message."); return; }
+  if (!fileId) { photoReply_(msg.chat.id, msg.message_id, tr_('photo.noImage')); return; }
   enqueuePhotoJob_(fileId, msg.chat.id, msg.message_id);
   photoReply_(msg.chat.id, msg.message_id,
-    "Got it — queued for your Mac Mini. It should show up within a minute or so.");
+    tr_('photo.queued'));
 }
 
 /**
@@ -296,12 +296,11 @@ function handleTelegramPhoto_(msg) {
 function processPhotoText_(chatId, replyToMessageId, text) {
   var parsed = parsePhotoReceipt_(text);
   if (!parsed) {
-    photoReply_(chatId, replyToMessageId, "That doesn't look like a Plin or Yape receipt, so I saved nothing.");
+    photoReply_(chatId, replyToMessageId, tr_('photo.notAReceipt'));
     return;
   }
   if (parsed.error) {
-    photoReply_(chatId, replyToMessageId, "It looks like a " + parsed.kind.replace('_', ' ') +
-      " receipt but I couldn't read the amount, so I saved nothing. Try a sharper screenshot.");
+    photoReply_(chatId, replyToMessageId, tr_('photo.noAmount', { kind: tr_('photo.kind.' + parsed.kind) }));
     return;
   }
 
@@ -330,7 +329,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   var duplicate = getAllRows('Entries').some(function (e) {
     return e.external_id && stripZeros(e.external_id) === stripZeros(externalId);
   });
-  if (duplicate) { photoReply_(chatId, replyToMessageId, 'Already recorded — skipped this duplicate.'); return; }
+  if (duplicate) { photoReply_(chatId, replyToMessageId, tr_('photo.duplicate')); return; }
 
   var pm = getAllRows('Payment Methods').find(function (p) {
     return p.nickname === parsed.accountByCurrency[parsed.currency];
@@ -367,7 +366,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   };
   appendRowObject('Entries', entry);
   sendTelegramEntryNotification_(entry, null, autoReason);
-  if (ownerMatched) photoReply_(chatId, replyToMessageId, "The name on this image matches yours, so I counted it as money you received (income). If that's wrong, discard it and tell me.");
+  if (ownerMatched) photoReply_(chatId, replyToMessageId, tr_('photo.ownerName'));
 }
 
 // ---- Job queue for the Mac Mini's Tesseract helper ----
@@ -431,7 +430,7 @@ function getPhotoJob(payload) {
   var blob = downloadTelegramFile_(job.file_id);
   if (!blob) {
     setPhotoJobStatus_(job.id, 'failed');
-    photoReply_(job.chat_id, job.message_id, "Couldn't download that image from Telegram (it may be too old) — please send it again.");
+    photoReply_(job.chat_id, job.message_id, tr_('photo.downloadFailed'));
     throw new Error('Could not download the image');
   }
   return { id: job.id, mime: blob.getContentType(), base64: Utilities.base64Encode(blob.getBytes()) };
@@ -450,6 +449,6 @@ function failPhotoJob(payload) {
   var job = photoJobById_(payload.id);
   if (!job) throw new Error('Unknown photo job');
   setPhotoJobStatus_(job.id, 'failed');
-  photoReply_(job.chat_id, job.message_id, "The Mac Mini couldn't read that image (" + String(payload.error || 'unknown error') + '). Try a sharper screenshot.');
+  photoReply_(job.chat_id, job.message_id, tr_('photo.macFailed', { error: String(payload.error || tr_('photo.unknownError')) }));
   return { done: true };
 }

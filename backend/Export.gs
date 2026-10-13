@@ -34,11 +34,13 @@ var EXPORT_BACKUP_TABS_ = [
 
 var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per message
 
+// Column headings are texts in Strings.gs (export.h.<key>), in the active language.
+// The CELLS stay as stored (type / status / source values are not translated).
 var EXPORT_CSV_HEADERS_ = [
-  'ID', 'Date', 'Type', 'Description', 'Merchant', 'Category',
-  'Amount', 'Currency', 'Amount (PEN)', 'Your share', 'Your share (PEN)', 'Split with',
-  'Payment method', 'To account', 'Paid by', 'Linked friend', 'Linked as',
-  'Tags', 'Status', 'Source', 'Created at'
+  'id', 'date', 'type', 'description', 'merchant', 'category',
+  'amount', 'currency', 'amountPen', 'share', 'sharePen', 'splitWith',
+  'method', 'toAccount', 'paidBy', 'friend', 'linkedAs',
+  'tags', 'status', 'source', 'created'
 ];
 
 function exportData(payload) {
@@ -68,13 +70,15 @@ function exportData(payload) {
     var csv = buildEntriesCsv_({
       startDate: range.startDate, endDate: range.endDate, includePending: !!payload.includePending
     });
-    var label = range.startDate || range.endDate ? (range.startDate || 'start') + '_to_' + (range.endDate || 'today') : 'all-time';
+    var label = range.startDate || range.endDate
+      ? tr_('export.label.range', { start: range.startDate || tr_('export.label.start'), end: range.endDate || tr_('export.label.today') })
+      : tr_('export.label.all');
     // The leading BOM makes Excel / Numbers read the accents as UTF-8.
-    addFile('entries_' + label + '.csv', 'text/csv', '﻿' + csv.text, 'entries', csv.rows);
+    addFile(tr_('export.file.entries', { label: label }), 'text/csv', '﻿' + csv.text, 'entries', csv.rows);
   }
   if (wantBackup) {
     var backup = buildBackupJson_(now);
-    addFile('backup_' + stamp + '.json', 'application/json', backup.text, 'backup', backup.rows);
+    addFile(tr_('export.file.backup', { date: stamp }), 'application/json', backup.text, 'backup', backup.rows);
   }
 
   if (bytes > EXPORT_MAX_BYTES_) {
@@ -82,13 +86,13 @@ function exportData(payload) {
   }
   if (MailApp.getRemainingDailyQuota() < 1) throw new Error(tr_('export.quota'));
 
-  var lines = files.map(function (f) { return '- ' + f.name + ' (' + f.rows + ' ' + (f.kind === 'entries' ? 'entries' : 'rows across all tabs') + ')'; });
+  var lines = files.map(function (f) { return '- ' + tr_(f.kind === 'entries' ? 'export.line.entries' : 'export.line.backup', { name: f.name, n: f.rows }); });
   MailApp.sendEmail({
     to: to,
-    subject: 'Expense tracker export — ' + stamp,
-    body: 'Your export is attached.\n\n' + lines.join('\n'),
+    subject: tr_('export.subject', { date: stamp }),
+    body: tr_('export.body', { files: lines.join('\n') }),
     attachments: blobs,
-    name: 'Expense tracker'
+    name: 'Expense Tracker'
   });
   return { sent: true, files: files };
 }
@@ -146,7 +150,7 @@ function buildEntriesCsv_(opts) {
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push(s);
   });
 
-  var lines = [EXPORT_CSV_HEADERS_.map(function (h) { return csvCell_(h); }).join(',')];
+  var lines = [EXPORT_CSV_HEADERS_.map(function (h) { return csvCell_(tr_('export.h.' + h)); }).join(',')];
   entries.forEach(function (e) {
     var amount = Number(e.amount);
     var splits = splitsByEntry[e.id] || [];
@@ -164,7 +168,7 @@ function buildEntriesCsv_(opts) {
     var link = lk.transferLinks[e.id];
 
     var paidBy = '';
-    if (e.paid_by === 'me') paidBy = 'Me';
+    if (e.paid_by === 'me') paidBy = tr_('export.me');
     else if (e.paid_by) {
       var payer = e.type === 'income' ? lk.payorsById[e.paid_by] : lk.friendsById[e.paid_by];
       paidBy = payer ? payer.name : String(e.paid_by);
@@ -177,8 +181,8 @@ function buildEntriesCsv_(opts) {
 
     var linkedAs = '';
     if (link) {
-      linkedAs = (link.kind === 'repayment' ? 'Repayment' : 'Loan') +
-        (link.direction === 'they_owe_me' ? ' (they owe me)' : link.direction === 'i_owe_them' ? ' (I owe them)' : '');
+      linkedAs = tr_(link.kind === 'repayment' ? 'export.linked.repayment' : 'export.linked.loan') +
+        (link.direction === 'they_owe_me' ? tr_('export.linked.theyOwe') : link.direction === 'i_owe_them' ? tr_('export.linked.iOwe') : '');
     }
 
     lines.push([
@@ -223,7 +227,7 @@ function buildBackupJson_(now) {
   });
   var text = JSON.stringify({
     exported_at: now.toISOString(),
-    note: 'Raw rows of each data tab, exactly as stored (amounts stay in their original currency).',
+    note: tr_('export.backupNote'),
     tables: tables
   });
   return { text: text, rows: total };

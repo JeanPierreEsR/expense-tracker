@@ -28,7 +28,7 @@
     "search.loadFailed": { en: "Couldn't load your entries for search ({error}). Keep typing to retry.", es: "No se pudieron cargar tus movimientos para buscar ({error}). Sigue escribiendo para reintentar." },
     "search.loadingAll": { en: "Loading all your entries for instant search… (first time only)", es: "Cargando todos tus movimientos para la búsqueda instantánea… (solo la primera vez)" },
     "search.matches": { en: { one: "{n} matching entry — tap one to edit.", other: "{n} matching entries — tap one to edit." }, es: { one: "{n} movimiento coincide: tócalo para editarlo.", other: "{n} movimientos coinciden: toca uno para editarlo." } },
-    "search.noMatch": { en: "No entries match “{term}”.", es: "Ningún movimiento coincide con “{term}”." },
+    "search.noMatch": { en: "No entries match \"{term}\".", es: "Ningún movimiento coincide con \"{term}\"." },
     "search.showMore": { en: "Show more ({n} left)", es: "Mostrar más (quedan {n})" },
     "search.reloading": { en: "Reloading everything…", es: "Recargando todo…" },
 
@@ -44,10 +44,10 @@
     "entry.cancelNew": { en: "Cancel entry", es: "Cancelar movimiento" },
     "entry.cancelEdit": { en: "Cancel edit", es: "Cancelar edición" },
     "entry.delete": { en: "Delete this entry", es: "Eliminar este movimiento" },
-    "entry.editTitle": { en: "Edit transaction", es: "Editar movimiento" },
+    "entry.editTitle": { en: "Edit entry", es: "Editar movimiento" },
     "entry.programmedNotice": { en: "Programmed for {date} — see More → Programmed income/expenses. It'll turn into a real entry once it actually happens.", es: "Programado para el {date}: míralo en Más → Ingresos y gastos programados. Se convertirá en un movimiento real cuando ocurra." },
-    "entry.splitSaveFailed": { en: "Your entry was saved, but the split with your friend(s) was NOT. Open it in Recent entries and save the split again. Don't add the entry a second time.", es: "Tu movimiento se guardó, pero la división con tus amigos NO. Ábrelo en Movimientos recientes y guarda la división de nuevo. No vuelvas a agregar el movimiento." },
-    "entry.billSaveFailed": { en: "Your entry and its split were saved, but the bill's item list could not be kept, so you won't be able to edit its items later. Don't add the entry a second time.", es: "Tu movimiento y su división se guardaron, pero no se pudo conservar la lista de ítems de la cuenta, así que no podrás editar sus ítems después. No vuelvas a agregar el movimiento." },
+    "entry.splitSaveFailed": { en: "Your entry was saved, but the split with your friend(s) was NOT. Open it in Recent entries and save the split again. Don't add the entry a second time.", es: "Tu movimiento se guardó, pero la repartición con tus amigos NO. Ábrelo en Movimientos recientes y guarda la repartición de nuevo. No vuelvas a agregar el movimiento." },
+    "entry.billSaveFailed": { en: "Your entry and its split were saved, but the bill's item list could not be kept, so you won't be able to edit its items later. Don't add the entry a second time.", es: "Tu movimiento y su repartición se guardaron, pero no se pudo conservar la lista de ítems de la cuenta, así que no podrás editar sus ítems después. No vuelvas a agregar el movimiento." },
     "entry.savedNotRefreshed": { en: "Saved — but the screen couldn't refresh ({error}). Pull down or reopen the app to see it. Don't add it again.", es: "Se guardó, pero la pantalla no pudo actualizarse ({error}). Desliza hacia abajo o vuelve a abrir la app para verlo. No lo agregues otra vez." },
     "entry.repaymentTo": { en: "Repayment to {friend}", es: "Repago a {friend}" },
     "entry.repaymentFrom": { en: "Repayment from {friend}", es: "Repago de {friend}" },
@@ -67,7 +67,7 @@
     "entry.confirmCancelNew": { en: "Cancel this entry? What you've typed will be discarded.", es: "¿Cancelar este movimiento? Lo que escribiste se descartará." },
     "entry.update": { en: "Update entry", es: "Actualizar movimiento" },
     "entry.confirmButton": { en: "Confirm entry", es: "Confirmar movimiento" },
-    "entry.confirmTitle": { en: "Confirm transaction", es: "Confirmar movimiento" },
+    "entry.confirmTitle": { en: "Confirm entry", es: "Confirmar movimiento" },
     "entry.confirmingBanner": { en: "✏️ Confirming entry", es: "✏️ Confirmando movimiento" },
     "entry.stillSaving": { en: "Still saving your last change to this entry — try again in a moment.", es: "Todavía se está guardando tu último cambio en este movimiento: inténtalo de nuevo en un momento." },
     "entry.notInList": { en: "That entry isn't in the currently loaded list — scroll Recent entries to find it, or pull down to refresh.", es: "Ese movimiento no está en la lista cargada: desplázate por Movimientos recientes para encontrarlo, o desliza hacia abajo para actualizar." },
@@ -144,8 +144,8 @@
     "investment.withdrawalHint": { en: "Money coming back from the platform to your account.", es: "Dinero que vuelve de la plataforma a tu cuenta." },
 
     // ---- split ----
-    "split.openBill": { en: "🧾 Split a bill by items…", es: "🧾 Dividir una cuenta por ítems…" },
-    "split.toggle": { en: "Split this expense", es: "Dividir este gasto" },
+    "split.openBill": { en: "🧾 Split a bill by items…", es: "🧾 Repartir una cuenta por ítems…" },
+    "split.toggle": { en: "Split this expense", es: "Repartir este gasto" },
     "split.equal": { en: "Equal", es: "Igual" },
     "split.custom": { en: "Custom", es: "Personalizado" },
     "split.sharedWith": { en: "Shared with", es: "Compartido con" },
@@ -154,8 +154,8 @@
     "split.errorOver": { en: "That's more than the total amount.", es: "Eso es más que el monto total." },
     "split.errorEveryoneFilled": { en: "Everyone's filled in, but it adds up to {cur} {sum}, not {cur} {total}. Clear one box to let it take the rest.", es: "Todos tienen monto, pero suman {cur} {sum}, no {cur} {total}. Vacía una casilla para que se quede con el resto." },
     "split.summaryCustom": { en: "{cur} {friends} of {cur} {total} to friends · {cur} {own} to you", es: "{cur} {friends} de {cur} {total} para los amigos · {cur} {own} para ti" },
-    "split.errNoFriend": { en: "Pick at least one friend to split with, or turn the split toggle off.", es: "Elige al menos un amigo para dividir, o desactiva la división." },
-    "split.errOverTotal": { en: "The split adds up to more than the total amount.", es: "La división suma más que el monto total." },
+    "split.errNoFriend": { en: "Pick at least one friend to split with, or turn the split toggle off.", es: "Elige al menos un amigo para repartir, o desactiva la repartición." },
+    "split.errOverTotal": { en: "The split adds up to more than the total amount.", es: "La repartición suma más que el monto total." },
     "split.errNotTotal": { en: "The amounts don't add up to the total — clear one box to let it take the rest.", es: "Los montos no suman el total: vacía una casilla para que se quede con el resto." },
     "split.errNoAmount": { en: "Enter at least one friend's amount.", es: "Ingresa el monto de al menos un amigo." },
 
@@ -178,7 +178,7 @@
     "review.pickAccount": { en: "Pick the account…", es: "Elige la cuenta…" },
     "review.confirm": { en: "✅ Confirm", es: "✅ Confirmar" },
     "review.discard": { en: "❌ Discard", es: "❌ Descartar" },
-    "review.split": { en: "🔀 Split", es: "🔀 Dividir" },
+    "review.split": { en: "🔀 Split", es: "🔀 Repartir" },
     "review.markRepayment": { en: "💰 Mark as repayment", es: "💰 Marcar como repago" },
     "review.convertLoan": { en: "🤝 Convert to loan", es: "🤝 Convertir en préstamo" },
     "review.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
@@ -187,7 +187,7 @@
     "review.alreadyHandled": { en: "This entry was already confirmed, changed or removed elsewhere — refreshing the list.", es: "Este movimiento ya se confirmó, cambió o eliminó en otro lugar: se está actualizando la lista." },
     "review.repayTitle": { en: "Mark as repayment", es: "Marcar como repago" },
     "review.loanTitle": { en: "Convert to loan", es: "Convertir en préstamo" },
-    "review.transactionFallback": { en: "Transaction", es: "Movimiento" },
+    "review.transactionFallback": { en: "Entry", es: "Movimiento" },
     "review.contextRepay": { en: " — a friend paying you back what they owed", es: " — un amigo te devuelve lo que te debía" },
     "review.contextLoan": { en: " — a friend lending you this", es: " — un amigo te presta esto" },
     "review.overpaidIncoming": { en: "Marked as a repayment from {name} — {cur} {amount} was more than they owed you. The extra is in your review queue, waiting for a category.", es: "Se marcó como repago de {name}: {cur} {amount} era más de lo que te debía. El excedente está en tu lista por revisar, esperando una categoría." },
@@ -303,7 +303,7 @@
 
     // ---- confirm ----
     "confirm.thisEntry": { en: "this entry", es: "este movimiento" },
-    "confirm.thisItem": { en: "this item", es: "este elemento" },
+    "confirm.thisItem": { en: "this item", es: "este ítem" },
     "confirm.label": { en: "\"{label}\"", es: "\"{label}\"" },
     "confirm.deleteEntry": { en: "Delete {what}? This can't be undone.", es: "¿Eliminar {what}? No se puede deshacer." },
 
@@ -405,7 +405,7 @@
     "recurring.intro": { en: "Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.", es: "Montos conocidos que quieres tener en cuenta con anticipación: Presupuestos y Proyecciones los usan para distinguir los montos seguros del resto." },
     "recurring.recurring": { en: "🔁 Recurring", es: "🔁 Recurrentes" },
     "recurring.recurringHint": { en: "Repeats on a schedule — rent, subscriptions, gym, salary.", es: "Se repiten según un calendario: alquiler, suscripciones, gimnasio, sueldo." },
-    "recurring.empty": { en: "No recurring items yet.", es: "Aún no hay movimientos recurrentes." },
+    "recurring.empty": { en: "No recurring items yet.", es: "Aún no hay movimientos programados." },
     "recurring.pastHint": { en: "Ended or paused — not counted in Programmed this month, Budgets or Projections. Tap one to edit, reactivate or delete it.", es: "Finalizados o pausados: no se cuentan en Programado este mes, Presupuestos ni Proyecciones. Toca uno para editarlo, reactivarlo o eliminarlo." },
     "recurring.oneTime": { en: "📌 Programmed, one-time", es: "📌 Programados, una sola vez" },
     "recurring.oneTimeHint": { en: "A single known future payment — stays out of \"Recent entries\" until it actually happens and gets confirmed for real.", es: "Un pago futuro conocido y único: no aparece en \"Movimientos recientes\" hasta que ocurre de verdad y se confirma." },
@@ -415,8 +415,8 @@
     "recurring.paused": { en: " · Paused", es: " · Pausado" },
     "recurring.ended": { en: " · Ended {date}", es: " · Terminó el {date}" },
     "recurring.ends": { en: " · Ends {date}", es: " · Termina el {date}" },
-    "recurring.splitTag": { en: " · Split", es: " · Dividido" },
-    "recurring.hidePast": { en: "Hide past recurring items ({n})", es: "Ocultar movimientos recurrentes pasados ({n})" },
+    "recurring.splitTag": { en: " · Split", es: " · Repartido" },
+    "recurring.hidePast": { en: "Hide past recurring items ({n})", es: "Ocultar movimientos programados pasados ({n})" },
     "recurring.showPast": { en: "Show past recurring items ({n})", es: "Mostrar movimientos recurrentes pasados ({n})" },
     "recurring.noCurrent": { en: "No current recurring items.", es: "No hay movimientos recurrentes vigentes." },
 
@@ -440,7 +440,7 @@
     "drill.projectedLegend": { en: "Projected", es: "Proyección" },
     "drill.budgetYear": { en: "Year · Budget {cur} {amount}", es: "Año · Presupuesto {cur} {amount}" },
     "drill.budgetMonth": { en: "Month · Budget {cur} {amount}", es: "Mes · Presupuesto {cur} {amount}" },
-    "drill.noEntries": { en: "No transactions in this period.", es: "No hay movimientos en este periodo." },
+    "drill.noEntries": { en: "No entries in this period.", es: "No hay movimientos en este periodo." },
 
     // ---- loanDetail ----
     "loanDetail.empty": { en: "No loans with this friend yet.", es: "Aún no hay préstamos con este amigo." },
@@ -480,8 +480,8 @@
     "balance.negative": { en: "Negative — I owe this (e.g. a credit card)", es: "Negativo: lo debo (e.g. una tarjeta de crédito)" },
     "balance.fromDate": { en: "From date", es: "Desde la fecha" },
     "balance.matches": { en: "✓ Matches — no difference.", es: "✓ Coincide: sin diferencia." },
-    "balance.more": { en: "Your app shows {cur} {amount} MORE than tracked here — likely a top-up, income or refund not logged yet.", es: "Tu app muestra {cur} {amount} MÁS de lo que se sigue aquí: probablemente una recarga, un ingreso o un reembolso que aún no registraste." },
-    "balance.less": { en: "Your app shows {cur} {amount} LESS than tracked here — likely a purchase or fee not logged yet.", es: "Tu app muestra {cur} {amount} MENOS de lo que se sigue aquí: probablemente una compra o una comisión que aún no registraste." },
+    "balance.more": { en: "Your app shows {cur} {amount} MORE than tracked here — likely a top-up, income or refund not logged yet.", es: "Tu app muestra {cur} {amount} MÁS de lo que está registrado aquí: probablemente una recarga, un ingreso o un reembolso que aún no registraste." },
+    "balance.less": { en: "Your app shows {cur} {amount} LESS than tracked here — likely a purchase or fee not logged yet.", es: "Tu app muestra {cur} {amount} MENOS de lo que está registrado aquí: probablemente una compra o una comisión que aún no registraste." },
     "balance.pickAccount": { en: "Pick an account.", es: "Elige una cuenta." },
     "balance.enterStarting": { en: "Enter the starting balance for {cur} (0 is fine).", es: "Ingresa el saldo inicial en {cur} (0 está bien)." },
     "balance.pickFromDate": { en: "Pick the from date for {cur}.", es: "Elige la fecha desde la que cuenta {cur}." },
@@ -549,7 +549,7 @@
     "budgetModal.edit": { en: "Edit budget", es: "Editar presupuesto" },
 
     // ---- recModal ----
-    "recModal.add": { en: "Add recurring item", es: "Agregar movimiento recurrente" },
+    "recModal.add": { en: "Add recurring item", es: "Agregar movimiento programado" },
     "recModal.descPlaceholder": { en: "e.g. Rent, Netflix, Gym, Salary", es: "e.g. Alquiler, Netflix, Gimnasio, Sueldo" },
     "recModal.frequency": { en: "Frequency", es: "Frecuencia" },
     "recModal.once": { en: "One-time", es: "Una sola vez" },
@@ -567,7 +567,7 @@
     "recModal.onceHint": { en: "A single future payment — once it happens and gets confirmed as a real entry, it drops off the \"Programmed this month\" list on its own.", es: "Un solo pago futuro: cuando ocurra y se confirme como un movimiento real, sale solo de la lista \"Programado este mes\"." },
     "recModal.dayAndMonth": { en: "Day and month", es: "Día y mes" },
     "recModal.yearlyHint": { en: "Pick any date — its day and month repeat every year (the year itself is ignored).", es: "Elige cualquier fecha: su día y mes se repiten cada año (el año se ignora)." },
-    "recModal.monthlyHint": { en: "Pick any date — only the day is used (a 31st lands on the last day of shorter months). Browse to a longer month to pick a late day.", es: "Elige cualquier fecha: solo se usa el día (un 31 cae en el último día de los meses más cortos). Ve a un mes más largo para elegir un día tardío." },
+    "recModal.monthlyHint": { en: "Pick any date — only the day is used (a 31st lands on the last day of shorter months). Browse to a longer month to pick a late day.", es: "Elige cualquier fecha: solo se usa el día (un 31 cae en el último día de los meses más cortos). Ve a un mes más largo para poder elegir un día como el 31." },
     "recModal.addItem": { en: "Add programmed item", es: "Agregar movimiento programado" },
     "recModal.editItem": { en: "Edit programmed item", es: "Editar movimiento programado" },
     "recModal.undoSkip": { en: "Undo skip", es: "Deshacer omisión" },
@@ -579,7 +579,7 @@
     "recModal.confirmDelete": { en: "Delete the programmed item {what}? Its skipped months go with it. This can't be undone.", es: "¿Eliminar el movimiento programado {what}? Sus meses omitidos se eliminan con él. No se puede deshacer." },
 
     // ---- rateModal ----
-    "rateModal.invert": { en: "⇅ Enter it the other way around", es: "⇅ Ingrésalo al revés" },
+    "rateModal.invert": { en: "⇅ Enter it the other way around", es: "⇅ Ingresarlo al revés" },
     "rateModal.save": { en: "Save rate", es: "Guardar tipo de cambio" },
     "rateModal.skip": { en: "Skip for now", es: "Omitir por ahora" },
     "rateModal.title": { en: "Exchange rate", es: "Tipo de cambio" },
@@ -652,7 +652,7 @@
 
     // ---- perf ----
     "perf.title": { en: "Performance log", es: "Registro de rendimiento" },
-    "perf.hint": { en: "How long each server call and each app start took on this phone (last ~600 events). \"server\" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.", es: "Cuánto tardó cada llamada al servidor y cada arranque de la app en este teléfono (últimos ~600 eventos). \"servidor\" es el tiempo dentro del backend; el resto es red y tiempo de despertar. Las filas ◆ son fases del arranque de la app." },
+    "perf.hint": { en: "How long each server call and each app start took on this phone (last ~600 events). \"server\" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.", es: "Cuánto tardó cada llamada al servidor y cada arranque de la app en este teléfono (últimos ~600 eventos). \"servidor\" es el tiempo dentro del backend; el resto es la red y el tiempo de arranque del servidor. Las filas ◆ son fases del arranque de la app." },
     "perf.copy": { en: "Copy report", es: "Copiar reporte" },
     "perf.clear": { en: "Clear", es: "Borrar" },
     "perf.copied": { en: "Copied ✓", es: "Copiado ✓" },
@@ -668,7 +668,7 @@
 
     // ---- export ----
     "export.title": { en: "Export data", es: "Exportar datos" },
-    "export.hint": { en: "Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.", es: "Elige lo que quieras y toca Enviar. Los archivos se envían al correo propio que se configuró para esta app: no se descarga nada en el teléfono." },
+    "export.hint": { en: "Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.", es: "Elige lo que quieras y toca Enviar. Los archivos se envían al correo que se configuró para esta app (el tuyo): no se descarga nada en el teléfono." },
     "export.entriesCsv": { en: "Entries spreadsheet (CSV)", es: "Hoja de movimientos (CSV)" },
     "export.entriesHint": { en: "One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.", es: "Una fila por movimiento, con categoría, cuenta, amigo y valores en PEN en palabras simples. Se abre en Excel, Numbers o Google Sheets." },
     "export.which": { en: "Which entries", es: "Qué movimientos" },
@@ -813,7 +813,7 @@
     "stmt.counts": { en: "{lines} lines · {inApp} already in the app · {handled} handled before · {notYet} not there yet", es: "{lines} líneas · {inApp} ya están en la app · {handled} gestionadas antes · {notYet} aún no están" },
     "stmt.applySuggested": { en: "✨ Apply suggested", es: "✨ Aplicar sugerencias" },
     "stmt.ignoreIncome": { en: "Ignore income except interest", es: "Ignorar ingresos excepto intereses" },
-    "stmt.ignorePeople": { en: "Ignore payments to people under 50", es: "Ignorar pagos a personas menores de 50" },
+    "stmt.ignorePeople": { en: "Ignore payments to people for less than 50", es: "Ignorar pagos a personas por menos de 50" },
     "stmt.quickHint": { en: "\"Apply suggested\" selects the safe ones: transfers, fees, completing transfers, setting accounts, and reversals (which still land as pending entries). Purchases and possible matches are always your call. Nothing is saved until you press Save.", es: "\"Aplicar sugerencias\" selecciona las opciones seguras: transferencias, comisiones, completar transferencias, asignar cuentas y reversiones (que igual quedan como movimientos pendientes). Las compras y las posibles coincidencias siempre las decides tú. No se guarda nada hasta que presiones Guardar." },
     "stmt.group.balance": { en: "Balance check", es: "Comprobación de saldo" },
     "stmt.group.balanceHint": { en: "The statement's closing balance against what the app says at that date. Your newest registered balance always wins over an older statement.", es: "El saldo final del estado de cuenta frente a lo que dice la app a esa fecha. Tu saldo registrado más reciente siempre prevalece sobre un estado de cuenta más antiguo." },
@@ -870,15 +870,15 @@
     "stmt.outcome.ignored": { en: "ignored", es: "ignorado" },
 
     // ---- bill ----
-    "bill.title": { en: "🧾 Split a bill by items", es: "🧾 Dividir una cuenta por ítems" },
+    "bill.title": { en: "🧾 Split a bill by items", es: "🧾 Repartir una cuenta por ítems" },
     "bill.photo": { en: "📷 Read the items from a photo", es: "📷 Leer los ítems desde una foto" },
     "bill.rawSummary": { en: "What the phone read — you can correct it here", es: "Lo que leyó el teléfono: puedes corregirlo aquí" },
     "bill.rawHint": { en: "Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.", es: "Corrige una línea o un número mal leído en este texto y toca el botón: los ítems, descuentos y total se calculan de nuevo a partir de él. Quién compartió qué se conserva en las líneas que no cambiaste." },
     "bill.reparse": { en: "↻ Work out the items again from this text", es: "↻ Recalcular los ítems a partir de este texto" },
-    "bill.stale": { en: "This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.", es: "El monto o la división de este movimiento cambió después de guardar la cuenta, así que la cuenta de abajo ya no coincide. Al presionar “Usar esta división” se reemplazarán el monto y la división con los números de la cuenta." },
+    "bill.stale": { en: "This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing \"Use this split\" will replace the amount and the split with the bill's numbers.", es: "El monto o la repartición de este movimiento cambió después de guardar la cuenta, así que la cuenta de abajo ya no coincide. Al presionar \"Usar esta repartición\" se reemplazarán el monto y la repartición con los números de la cuenta." },
     "bill.totalBefore": { en: "Bill total before discounts", es: "Total de la cuenta antes de descuentos" },
     "bill.totalHint": { en: "The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.", es: "La suma de todo lo que hay en la cuenta, antes de cualquier descuento y de la propina. Los ítems de abajo deben sumar esto; los descuentos se restan después." },
-    "bill.who": { en: "Who is splitting (you are always in)", es: "Quiénes dividen (tú siempre estás)" },
+    "bill.who": { en: "Who is splitting (you are always in)", es: "Quiénes se reparten la cuenta (tú siempre estás)" },
     "bill.items": { en: "Items", es: "Ítems" },
     "bill.addItem": { en: "+ Add item", es: "+ Agregar ítem" },
     "bill.adjs": { en: "Discounts & extra charges", es: "Descuentos y cargos adicionales" },
@@ -890,7 +890,7 @@
     "bill.tipAmountTab": { en: "Fixed amount", es: "Monto fijo" },
     "bill.tipPercentLabel": { en: "Tip percent (%)", es: "Porcentaje de propina (%)" },
     "bill.byOrdered": { en: "By what each ordered", es: "Según lo que pidió cada uno" },
-    "bill.apply": { en: "Use this split", es: "Usar esta división" },
+    "bill.apply": { en: "Use this split", es: "Usar esta repartición" },
     "bill.err.discountNeedsItem": { en: "A discount line needs an item above it.", es: "Una línea de descuento necesita un ítem encima." },
     "bill.err.discountTooBig": { en: "A discount is bigger than the item it is under.", es: "Un descuento es mayor que el ítem al que está debajo." },
     "bill.err.addItem": { en: "Add at least one item with a price.", es: "Agrega al menos un ítem con precio." },
@@ -905,7 +905,7 @@
     "bill.placeholderItem": { en: "Item", es: "Ítem" },
     "bill.placeholderDiscount": { en: "Discount", es: "Descuento" },
     "bill.placeholderCharge": { en: "Extra charge", es: "Cargo adicional" },
-    "bill.comesOff": { en: "↳ comes off “{name}” (shared by whoever shares it)", es: "↳ se descuenta de “{name}” (lo comparte quien comparta ese ítem)" },
+    "bill.comesOff": { en: "↳ comes off \"{name}\" (shared by whoever shares it)", es: "↳ se descuenta de \"{name}\" (lo comparte quien comparta ese ítem)" },
     "bill.itemAbove": { en: "the item above", es: "el ítem de arriba" },
     "bill.needsItemAbove": { en: "↳ needs an item above it", es: "↳ necesita un ítem encima" },
     "bill.everyone": { en: "Everyone", es: "Todos" },
@@ -933,8 +933,8 @@
     "devices.title": { en: "Signed-in devices", es: "Dispositivos con sesión iniciada" },
     "devices.hint": { en: "Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.", es: "Cada teléfono o computadora que inició sesión con tu código de acceso. Cierra la sesión de uno que perdiste o ya no usas: deja de funcionar al instante. Un dispositivo que dejas de usar se elimina después de 90 días." },
     "devices.signOutOthers": { en: "Sign out all my other devices", es: "Cerrar la sesión de todos mis otros dispositivos" },
-    "devices.statusSession": { en: "✅ This phone is signed in with a session key (the access code is not stored here).", es: "✅ Este teléfono inició sesión con una llave de sesión (el código de acceso no se guarda aquí)." },
-    "devices.statusCode": { en: "⚠️ This phone is still using the access code directly. It will switch to a session key the next time the app opens with a connection.", es: "⚠️ Este teléfono todavía usa el código de acceso directamente. Cambiará a una llave de sesión la próxima vez que la app abra con conexión." },
+    "devices.statusSession": { en: "✅ This phone is signed in with a session key (the access code is not stored here).", es: "✅ Este teléfono inició sesión con una clave de sesión (el código de acceso no se guarda aquí)." },
+    "devices.statusCode": { en: "⚠️ This phone is still using the access code directly. It will switch to a session key the next time the app opens with a connection.", es: "⚠️ Este teléfono todavía usa el código de acceso directamente. Cambiará a una clave de sesión la próxima vez que la app abra con conexión." },
     "devices.loadFailed": { en: "Couldn't load the list: {error}", es: "No se pudo cargar la lista: {error}" },
     "devices.empty": { en: "No signed-in devices yet. This device is using the access code directly and will sign in the next time the app opens.", es: "Aún no hay dispositivos con sesión iniciada. Este dispositivo usa el código de acceso directamente e iniciará sesión la próxima vez que abra la app." },
     "devices.thisDevice": { en: "(this device)", es: "(este dispositivo)" },
@@ -951,6 +951,8 @@
     "device.other": { en: "Device", es: "Dispositivo" },
 
     // ---- receipt ----
+    "receipt.nameService": { en: "Service", es: "Servicio" },
+    "receipt.nameTax": { en: "Tax", es: "Impuesto" },
     "receipt.addedTaxes": { en: { one: "This bill adds {names} on top of the item prices — included as a charge.", other: "This bill adds {names} on top of the item prices — included as charges." }, es: { one: "Esta cuenta suma {names} encima de los precios de los ítems: se incluyó como cargo.", other: "Esta cuenta suma {names} encima de los precios de los ítems: se incluyeron como cargos." } },
     "receipt.unreadCharge": { en: "The amount of \"{name}\" couldn't be read; {amount} was worked out from the total — check it.", es: "No se pudo leer el monto de \"{name}\"; se calculó {amount} a partir del total: revísalo." },
     "receipt.fixedNumbers": { en: { one: "Fixed a number that didn't add up ({names}) — check it.", other: "Fixed {n} numbers that didn't add up ({names}) — check them." }, es: { one: "Se corrigió un número que no cuadraba ({names}): revísalo.", other: "Se corrigieron {n} números que no cuadraban ({names}): revísalos." } },
@@ -1000,6 +1002,15 @@
     "sp.openingDebt": { en: "Opening debt {a} ≠ statement {b}.", es: "Deuda inicial {a} ≠ estado de cuenta {b}." },
     "sp.purchasesInterest": { en: "Purchases + interest read {a} ≠ statement {b}.", es: "Compras + intereses leídos {a} ≠ estado de cuenta {b}." },
     "sp.paymentsReversals": { en: "Payments + reversals read {a} ≠ statement {b}.", es: "Pagos + reversiones leídos {a} ≠ estado de cuenta {b}." },
+    "sp.noClosing": { en: "No closing \"SALDO CONTABLE AL\" line found.", es: "No se encontró la línea de cierre \"SALDO CONTABLE AL\"." },
+    "sp.noAccount": { en: "Could not identify the account (name / number).", es: "No se pudo identificar la cuenta (nombre / número)." },
+    "sp.noOpening": { en: "Opening balance (\"EMPEZASTE … CON\") not found.", es: "No se encontró el saldo inicial (\"EMPEZASTE … CON\")." },
+    "sp.noCardPeriod": { en: "Could not read the card number / statement period.", es: "No se pudo leer el número de tarjeta ni el periodo del estado de cuenta." },
+    "sp.noCardPeriodTotal": { en: "Could not read card number / period / total.", es: "No se pudo leer el número de tarjeta, el periodo ni el total." },
+    "sp.noCodePeriod": { en: "Could not read the account code / period.", es: "No se pudo leer el código de cuenta ni el periodo." },
+    "sp.noPeriodCurrencyAccount": { en: "Could not read the period / currency / account.", es: "No se pudo leer el periodo, la moneda ni la cuenta." },
+    "sp.noCardCycle": { en: "Could not read the card number / billing cycle.", es: "No se pudo leer el número de tarjeta ni el ciclo de facturación." },
+    "sp.ahorramasNoBalance": { en: "AhorraMás statements have no opening or running balance, so the reading could not be checked against totals.", es: "Los estados de AhorraMás no traen saldo inicial ni saldos corridos, así que la lectura no se pudo comprobar contra totales." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };
 

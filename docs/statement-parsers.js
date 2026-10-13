@@ -133,18 +133,18 @@
     // "how to read your statement" page, which shows another person's sample
     // account — it must never be read.
     var end = rows.findIndex(function (r) { return /^SALDO CONTABLE AL\b/i.test(r.text); });
-    if (end === -1) return fail('savings', ['No closing "SALDO CONTABLE AL" line found.']);
+    if (end === -1) return fail('savings', [msg('sp.noClosing')]);
     var body = rows.slice(0, end + 1);
 
     var title = body.map(function (r) { return r.text; }).join('\n');
     var kindM = title.match(/CUENTA\s+(SIMPLE|SUELDO)\s+(SOLES|D[ÓO]LARES)/i) || title.match(/AHORRO\s+(SUELDO|SIMPLE)\s+(SOLES|D[ÓO]LARES)/i);
     var numM = title.match(/\b(\d{3})-(\d{7,})\b/);
-    if (!kindM || !numM) return fail('savings', ['Could not identify the account (name / number).']);
+    if (!kindM || !numM) return fail('savings', [msg('sp.noAccount')]);
     var currency = /SOLES/i.test(kindM[2]) ? 'PEN' : 'USD';
     var number = numM[1] + '-' + numM[2];
 
     var openM = title.match(/EMPEZASTE[^\n]*?CON\s+(-?[\d,]+\.\d{2})/i);
-    if (!openM) return fail('savings', ['Opening balance ("EMPEZASTE … CON") not found.']);
+    if (!openM) return fail('savings', [msg('sp.noOpening')]);
     var opening = num(openM[1]);
 
     var lines = [];
@@ -211,7 +211,7 @@
     var all = rows.map(function (r) { return r.text; }).join('\n');
     var l4 = all.match(/INTERBANK VISA[^\n]*?(\d{4})\s*-\s*SOLES/i) || all.match(/\*{2,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+cierre\s+de\s+(\d{2})\/(\d{2})\/(\d{4})/i);
-    if (!l4 || !pm) return fail('visa', ['Could not read the card number / statement period.']);
+    if (!l4 || !pm) return fail('visa', [msg('sp.noCardPeriod')]);
     var start = iso(pm[3], +pm[2], +pm[1]);
     var endY = +pm[6], endM = +pm[5];
     var end = iso(endY, endM, +pm[4]);
@@ -319,7 +319,7 @@
     var pm = all.match(/PERIODO FACTURADO DEL\s+(\d{1,2})\s+([A-Z]{3})\s+AL\s+(\d{1,2})\s+([A-Z]{3})/i);
     var due = all.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
     var total = all.match(/S\/\s*([\d,]+\.\d{2})\s*\/\s*US\$\s*([\d,]+\.\d{2})/);
-    if (!l4 || !pm || !due || !total) return fail('diners', ['Could not read card number / period / total.']);
+    if (!l4 || !pm || !due || !total) return fail('diners', [msg('sp.noCardPeriodTotal')]);
     var endM = MONTHS[pm[4].toLowerCase()], endD = +pm[3];
     var endY = endM <= +due[2] ? +due[3] : +due[3] - 1;
     var startM = MONTHS[pm[2].toLowerCase()];
@@ -390,7 +390,7 @@
     var all = rows.map(function (r) { return r.text; }).join('\n');
     var codeM = all.match(/\b(\d{3}-\d{8}-\d-\d{2})\b/);
     var pm = all.match(/DEL\s+(\d{2})\/(\d{2})\/(\d{2})\s+AL\s+(\d{2})\/(\d{2})\/(\d{2})/);
-    if (!codeM || !pm) return fail('bcp', ['Could not read the account code / period.']);
+    if (!codeM || !pm) return fail('bcp', [msg('sp.noCodePeriod')]);
     var currency = /\bSOLES\b/.test(all.split('\n').slice(0, 14).join('\n')) ? 'PEN' : 'USD';
     var digits = codeM[1].replace(/-/g, '');
     var y = 2000 + +pm[6];
@@ -471,7 +471,7 @@
     var cur = all.match(/Moneda\s+(Soles|D[óo]lares)/i);
     var acct = all.match(/N°\s*de tu cuenta\s+(\d+)/i);
     var avail = all.match(/Ahorros disponible:\s*(?:S\/|US\$)\s*([\d,]+\.\d{2})/i);
-    if (!pm || !cur || !acct) return fail('ahorramas', ['Could not read the period / currency / account.']);
+    if (!pm || !cur || !acct) return fail('ahorramas', [msg('sp.noPeriodCurrencyAccount')]);
     var currency = /Soles/i.test(cur[1]) ? 'PEN' : 'USD';
     var start = iso(pm[3], +pm[2], +pm[1]), end = iso(pm[6], +pm[5], +pm[4]);
     var lines = [], skipped = 0;
@@ -491,7 +491,7 @@
     balances[currency] = { opening: null, closing: null };
     return {
       ok: true, errors: [], verified: false,
-      warnings: ['AhorraMás statements have no opening or running balance, so the reading could not be checked against totals.'],
+      warnings: [msg('sp.ahorramasNoBalance')],
       kind: 'ahorramas', bank: 'AhorraMás',
       account: { last4: acct[1].slice(-4), number: acct[1], label: 'AhorraMás ' + (currency === 'PEN' ? 'soles' : 'dólares') },
       period: { start: start, end: end }, balances: balances, lines: lines,
@@ -508,7 +508,7 @@
     var all = rows.map(function (r) { return r.text; }).join('\n');
     var l4 = all.match(/\*{4,}(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
-    if (!l4 || !pm) return fail('sip', ['Could not read the card number / billing cycle.']);
+    if (!l4 || !pm) return fail('sip', [msg('sp.noCardCycle')]);
     var lines = [];
     var prev = null, opening = null;
     var charges = 0, credits = 0;

@@ -53,8 +53,7 @@ function alertAutomationFailures_(failures) {
   props.setProperty('LAST_AUTOMATION_ALERT', String(Date.now()));
   var lastOk = props.getProperty('LAST_AUTOMATION_OK');
   try {
-    sendTelegramText_('⚠️ Automatic scan problem:\n• ' + failures.join('\n• ')
-      + '\nLast fully clean run: ' + (lastOk || 'unknown'));
+    sendTelegramText_(tr_('notice.autoProblem', { list: failures.join('\n• '), last: lastOk || tr_('notice.unknown') }));
   } catch (e) { console.error('automation alert failed: ' + e); }
 }
 

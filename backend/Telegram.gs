@@ -184,8 +184,8 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   if (entry.status !== 'confirmed') {
     payload.reply_markup = {
       inline_keyboard: [[
-        { text: '✅ Confirm', callback_data: 'confirm:' + entry.id },
-        { text: '❌ Discard', callback_data: 'discard:' + entry.id }
+        { text: tr_('bot.confirmButton'), callback_data: 'confirm:' + entry.id },
+        { text: tr_('bot.discardButton'), callback_data: 'discard:' + entry.id }
       ]]
     };
   }
@@ -224,42 +224,42 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   }
   var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
-  lines.push(icon + ' ' + (entry.description || '(no description)') + (entry.status === 'confirmed' ? ' ✅ Confirmed' : ''));
+  lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
   if (entry.type === 'investment') {
     // No category for investments (see defaultInvestmentCategoryId_).
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
   } else {
-    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || 'needs category') +
-      (autoReason ? ' 🤖 auto (' + autoReason + ')' : ''));
+    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
+      (autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   }
-  lines.push(entry.date + ' · ' + entry.type);
+  lines.push(entry.date + ' · ' + tr_('bot.type.' + entry.type));
   if (entry.type === 'transfer') {
     // A transfer moves money between two of the owner's own accounts, so
     // it shows both ends explicitly (and no "Paid by" — it's always the
     // owner) instead of one ambiguous payment method.
-    lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "from Plin"'));
-    lines.push('⬇️ To: ' + paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "to Diners"'));
+    lines.push(tr_('bot.fromLabel') + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetFrom')));
+    lines.push(tr_('bot.toLabel') + paymentMethodDisplayName_(entry.to_payment_method_id, tr_('bot.notSetTo')));
   } else if (entry.type === 'investment') {
     // Money from one of the owner's accounts into an investment platform.
-    var platformName = paymentMethodDisplayName_(entry.to_payment_method_id, 'not set — reply "platform Hapi"');
+    var platformName = paymentMethodDisplayName_(entry.to_payment_method_id, tr_('bot.notSetPlatform'));
     if (Number(entry.amount) < 0) {
-      lines.push('↩️ Withdrawal — money coming back from the platform');
-      lines.push('📈 From platform: ' + platformName);
-      lines.push('⬇️ Received at: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "received at Interbank"'));
+      lines.push(tr_('bot.withdrawalLine'));
+      lines.push(tr_('bot.fromPlatform') + platformName);
+      lines.push(tr_('bot.receivedAt') + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetReceivedAt')));
     } else {
-      lines.push('⬆️ From: ' + paymentMethodDisplayName_(entry.payment_method_id, 'not set — reply "payment method Interbank"'));
-      lines.push('📈 Platform: ' + platformName);
+      lines.push(tr_('bot.fromLabel') + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
+      lines.push(tr_('bot.platformLabel') + platformName);
     }
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
     var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
-    lines.push('📥 Received from: ' + (payor ? payor.name : '❓ not set — reply "paid by Acme"'));
+    lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
     if (entry.payment_method_id) {
       var inPm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
       if (inPm) lines.push('💳 ' + inPm.nickname + (inPm.last_4 ? ' (' + inPm.last_4 + ')' : ''));
     }
   } else {
-    lines.push('Paid by: ' + paidByDisplayName_(entry.paid_by));
+    lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
     if (entry.payment_method_id) {
       var pm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
       if (pm) lines.push('💳 ' + pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : ''));
@@ -274,8 +274,8 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
       var parts = splits.map(function (s) {
         return paidByDisplayName_(s.friend_id) + ' ' + entry.currency + ' ' + moneyFmt_(s.amount);
       });
-      parts.push('you ' + entry.currency + ' ' + moneyFmt_(ownShare));
-      lines.push('🔀 Split: ' + parts.join(', '));
+      parts.push(tr_('bot.you') + ' ' + entry.currency + ' ' + moneyFmt_(ownShare));
+      lines.push(tr_('bot.splitLabel') + parts.join(', '));
     }
   }
 
@@ -283,27 +283,27 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   if (tagIds.length) {
     var tagsById = rowsById_(getAllRows('Tags'));
     var tagNames = tagIds.map(function (id) { return tagsById[id] ? tagsById[id].name : id; });
-    lines.push('🏷️ Labels: ' + tagNames.join(', '));
+    lines.push(tr_('bot.labelsLabel') + tagNames.join(', '));
   }
 
   var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
   if (twins.length) {
     lines.push('');
-    lines.push('⚠️ Possible duplicate — same day, amount and merchant as ' + twins.map(function (t) {
-      return '"' + (t.description || 'an entry') + '" (' + t.status + ')';
-    }).join(', ') + '. Discard if it is a copy; confirm if it is a real repeat.');
+    lines.push(tr_('bot.duplicate', { list: twins.map(function (t) {
+      return tr_('bot.duplicateItem', { name: t.description || tr_('bot.anEntry'), status: (t.status === 'pending' || t.status === 'confirmed') ? tr_('bot.status.' + t.status) : t.status });
+    }).join(', ') }));
   }
 
   lines.push('');
   if (entry.type === 'transfer') {
-    lines.push('Reply to edit — from, to, amount, description, currency, date, category, label, or type. Reply "help" for examples.');
+    lines.push(tr_('bot.hintTransfer'));
     return lines.join('\n');
   }
   if (entry.type === 'investment') {
-    lines.push('Reply to edit — platform, withdrawal/deposit, payment method (received at, for a withdrawal), amount, description, currency, date, label, or type. Reply "help" for examples.');
+    lines.push(tr_('bot.hintInvestment'));
     return lines.join('\n');
   }
-  lines.push('Reply to edit — category, amount, description, paid by, payment method, currency, date, label, split, or type. Reply "help" for examples.');
+  lines.push(tr_('bot.hintOther'));
   return lines.join('\n');
 }
 
@@ -313,70 +313,20 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
 // itself stays short. See formatEntryForTelegram_, above, and
 // handleTelegramMessage_, below.
 function telegramEditHelpText_(entry) {
-  var lines;
+  var help = function (keys) {
+    return keys.map(function (k) { return k === '' ? '' : tr_('help.' + k); }).join('\n');
+  };
+  var tail = ['', 'bothLanguages'];
   if (entry.type === 'transfer') {
-    lines = [
-      'Reply to edit:',
-      'from — "from Plin"',
-      'to — "to Diners" (or both: "from Plin, to Diners"). Use "from none" / "to none" when that end isn\'t one of your own accounts.',
-      'amount — "amount 90"',
-      'description — "description Taxi"',
-      'currency — "currency USD"',
-      'date — "date 2026-09-12"',
-      'category — "category Transport"',
-      'label — "label Trip, Work" (or "label none")',
-      'type — "type expense", "type income" or "type investment" (this wasn\'t actually a transfer)',
-      '',
-      'Combine several with commas: "from Plin, to Diners, amount 90".'
-    ];
-    return lines.join('\n');
+    return help(['intro', 't.from', 't.to', 't.amount', 'descTaxi', 'currency', 'date', 't.category', 'label', 't.type', '', 't.combine'].concat(tail));
   }
   if (entry.type === 'investment') {
-    return [
-      'Reply to edit:',
-      'platform — "platform Hapi"',
-      'direction — "withdrawal" (money coming back from the platform) or "deposit" (the default)',
-      'payment method — "payment method Interbank" (deposit: the account the money left)',
-      'received at — "received at Interbank" or "to Interbank" (withdrawal only: the account the money lands in — a withdrawal has no payment method)',
-      'amount — "amount 500"',
-      'description — "description Monthly deposit"',
-      'currency — "currency USD"',
-      'date — "date 2026-09-12"',
-      'label — "label Trip, Work" (or "label none")',
-      'type — "type expense", "type income" or "type transfer" (this wasn\'t actually an investment)',
-      '',
-      'Combine several with commas: "platform Hapi, amount 500" or "withdrawal, platform Hapi, received at Interbank".'
-    ].join('\n');
+    return help(['intro', 'i.platform', 'i.direction', 'i.paymentMethod', 'i.receivedAt', 'i.amount', 'descDeposit', 'currency', 'date', 'label', 'i.type', '', 'i.combine'].concat(tail));
   }
-  lines = [
-    'Reply to edit:',
-    'category — "category groceries"',
-    'amount — "amount 45.50"',
-    'description — "description Uber"',
-    'paid by — "paid by Ana"',
-    'payment method — "payment method Interbank"',
-    'currency — "currency USD"',
-    'date — "date 2026-09-12"',
-    'label — "label Trip, Work" (or "label none")',
-    'split — "split equal Ana", "split Ana 20, Carlos 15", "split Ana, me 30" (your share; Ana owes the rest), or "split none"',
-    'type — "type transfer" (this was actually a move between your own accounts — follow with "from Plin, to Diners" in the same reply or a later one), or "type investment" (money you put into a platform — follow with "platform Hapi")',
-    '',
-    'Combine several with commas: "category groceries, amount 48, description Uber".',
-    'Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.'
-  ];
-  if (entry.type === 'expense') {
-    lines.push('');
-    lines.push('Or instead of confirming as an expense:');
-    lines.push('repayment — "repayment Ana" (you paying down what you owed them)');
-    lines.push('loan — "loan Ana" (you lending them this)');
-  }
-  if (entry.type === 'income') {
-    lines.push('');
-    lines.push('Or instead of confirming as income:');
-    lines.push('repayment — "repayment Ana" (this is a friend paying you back what they owed)');
-    lines.push('loan — "loan Ana" (a friend lent you this — you now owe them)');
-  }
-  return lines.join('\n');
+  var keys = ['intro', 'o.category', 'o.amount', 'descUber', 'o.paidBy', 'o.paymentMethod', 'currency', 'date', 'label', 'o.split', 'o.type', '', 'o.combine', 'o.names'];
+  if (entry.type === 'expense') keys = keys.concat(['', 'expense.intro', 'expense.repayment', 'expense.loan']);
+  if (entry.type === 'income') keys = keys.concat(['', 'income.intro', 'income.repayment', 'income.loan']);
+  return help(keys.concat(tail));
 }
 
 function paymentMethodDisplayName_(id, missingText) {
@@ -386,7 +336,7 @@ function paymentMethodDisplayName_(id, missingText) {
 }
 
 function paidByDisplayName_(id) {
-  if (id === 'me') return 'Me';
+  if (id === 'me') return tr_('bot.me');
   var friend = getAllRows('Friends').find(function (f) { return f.id === id; });
   return friend ? friend.name : id;
 }
@@ -398,7 +348,7 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
 
-  var periodLabel = budget.period_type === 'yearly' ? 'this year' : 'this month';
+  var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : 'bot.thisMonth');
   var emoji = progress.percent >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
   var amountStr = moneyFmt_(budget.amount);
@@ -407,8 +357,8 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   // has usually already moved past it (e.g. 77%), so the message says
   // where things actually stand, not the round number that tripped it.
   var actualPercent = Math.round(progress.percent);
-  var text = emoji + ' ' + categoryDisplayName + ': ' + actualPercent + '% of your ' + budget.currency + ' ' +
-    amountStr + ' budget (' + budget.currency + ' ' + spentStr + ' spent ' + periodLabel + ').';
+  var text = tr_('bot.budgetAlert', { emoji: emoji, category: categoryDisplayName, percent: actualPercent, cur: budget.currency,
+    amount: amountStr, spent: spentStr, period: periodLabel });
 
   // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
   // chat id, etc. — only a real ok counts as sent, so the caller doesn't
@@ -424,9 +374,9 @@ function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
 
-  var directionText = loan.direction === 'they_owe_me' ? friendName + ' owes you' : 'You owe ' + friendName;
-  var text = '⏰ Overdue: ' + directionText + ' ' + loan.currency + ' ' + moneyFmt_(loan.remaining) +
-    ' (due ' + loan.due_date + ').' + (loan.description ? ' ' + loan.description : '');
+  var text = tr_(loan.direction === 'they_owe_me' ? 'bot.overdueTheyOwe' : 'bot.overdueIOwe', {
+    friend: friendName, cur: loan.currency, amount: moneyFmt_(loan.remaining), date: loan.due_date,
+    description: loan.description ? ' ' + loan.description : '' });
 
   // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
   // chat id, etc. — only a real ok counts as sent, so the caller doesn't
@@ -506,36 +456,36 @@ function handleTelegramCallback_(cb) {
   var keepButtons = false;
   if (action === 'confirm') {
     if (entry && entry.status === 'confirmed') {
-      reply = 'ℹ️ Already confirmed.';
+      reply = tr_('bot.alreadyConfirmed');
     } else if (!entry) {
-      reply = 'ℹ️ This entry no longer exists.';
+      reply = tr_('bot.entryGone');
     } else if (entry.type !== 'investment' && !entry.category_id) {
       // Same rule as the app's Confirm: no category, no confirmation. The
       // buttons stay so the owner can reply "category Stocks" and tap again.
-      reply = '⚠️ Not confirmed — it needs a category first. Reply to the card with "category groceries" (or another category), then tap Confirm.';
+      reply = tr_('bot.needCategoryFirst');
       keepButtons = true;
     } else if (entry.type === 'investment' && !entry.to_payment_method_id) {
       // Not confirmed, and the buttons stay on the card (see below) so the
       // owner can set the platform and tap Confirm again.
-      reply = '⚠️ Not confirmed — an investment needs its platform first. Reply to the card with "platform Hapi" (or another platform), then tap Confirm.';
+      reply = tr_('bot.needPlatformFirst');
       keepButtons = true;
     } else {
       confirmEntryWithLearning_(entryId);
-      reply = '✅ Confirmed.';
+      reply = tr_('bot.confirmed');
     }
   } else if (action === 'discard') {
     if (!entry) {
-      reply = 'ℹ️ This entry no longer exists.';
+      reply = tr_('bot.entryGone');
     } else if (entry.status === 'confirmed') {
       // Confirmed from the app after this card was sent — a late tap on
       // an old card must never delete a real, confirmed entry.
-      reply = 'ℹ️ Already confirmed — delete it from the app if you really want it gone.';
+      reply = tr_('bot.alreadyConfirmedDelete');
     } else {
       try {
         discardEntryWithRepayments_(entryId);
-        reply = '🗑️ Discarded.';
+        reply = tr_('bot.discarded');
       } catch (err) {
-        reply = '⚠️ Not discarded — ' + err.message;
+        reply = tr_('bot.notDiscarded', { error: err.message });
       }
     }
   }
@@ -572,21 +522,21 @@ function handleTelegramMessage_(msg) {
       // chat is deliberate: re-run "Set Telegram bot token" in the sheet menu,
       // which unlinks the old chat first.
       telegramApi_('sendMessage', {
-        chat_id: msg.chat.id, text: "This bot is already linked to another chat. To move it, re-run 'Set Telegram bot token' from the spreadsheet menu first.",
+        chat_id: msg.chat.id, text: tr_('bot.alreadyLinked'),
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     } else if (!isValidAccessCode(code)) {
       noteLoginFailure_();
       recordFailedAccessAttempt_('telegram');
       telegramApi_('sendMessage', {
-        chat_id: msg.chat.id, text: "That code wasn't recognized.",
+        chat_id: msg.chat.id, text: tr_('bot.codeNotRecognized'),
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     } else {
       clearLoginFailures_();
       PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
       telegramApi_('sendMessage', {
-        chat_id: msg.chat.id, text: "✅ Linked! I'll send you transactions to review here.",
+        chat_id: msg.chat.id, text: tr_('bot.linked'),
         reply_to_message_id: msg.message_id, allow_sending_without_reply: true
       });
     }
@@ -604,7 +554,7 @@ function handleTelegramMessage_(msg) {
 
   if (!msg.reply_to_message) {
     telegramApi_('sendMessage', {
-      chat_id: msg.chat.id, text: 'Reply directly to a transaction message to edit it.',
+      chat_id: msg.chat.id, text: tr_('bot.replyToACard'),
       reply_to_message_id: msg.message_id, allow_sending_without_reply: true
     });
     return;
@@ -615,7 +565,7 @@ function handleTelegramMessage_(msg) {
 
   if (!mapping) {
     telegramApi_('sendMessage', {
-      chat_id: msg.chat.id, text: "Couldn't find that transaction — it may be too old.",
+      chat_id: msg.chat.id, text: tr_('bot.tooOld'),
       reply_to_message_id: msg.message_id, allow_sending_without_reply: true
     });
     return;
@@ -625,11 +575,11 @@ function handleTelegramMessage_(msg) {
   // sends the full syntax + examples for this entry's type, kept off the
   // card itself. Checked before the edit parser so it can't also be read as
   // a (failing) field-edit segment.
-  if (/^\/?help$/i.test(text)) {
+  if (/^\/?(?:help|ayuda)$/i.test(text)) {
     var helpEntry = getEntryById_(mapping.entry_id);
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id,
-      text: helpEntry ? telegramEditHelpText_(helpEntry) : "Couldn't find that transaction — it may be too old.",
+      text: helpEntry ? telegramEditHelpText_(helpEntry) : tr_('bot.tooOld'),
       reply_to_message_id: msg.message_id, allow_sending_without_reply: true
     });
     return;
@@ -639,8 +589,8 @@ function handleTelegramMessage_(msg) {
   // reroute the WHOLE entry to the Loans tab instead of editing a field
   // on it (see applyTerminalReviewAction_, below), so they don't try to
   // combine with other edits the way "category X, amount Y" does.
-  var terminalMatch = text.match(/^(?:mark\s+as\s+)?repayment\s+(.+)/i) ||
-    text.match(/^(?:convert\s+to\s+)?loan\s+(.+)/i);
+  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)\s+(.+)/i) ||
+    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)\s+(.+)/i);
   var result = terminalMatch
     ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1])
     : applyEditCommand_(mapping.entry_id, text);
@@ -691,23 +641,23 @@ function removeCardButtons_(chatId, messageId) {
 // Reuses the exact same backend calls the app's buttons make.
 function applyTerminalReviewAction_(entryId, fullText, friendText) {
   var entry = getEntryById_(entryId);
-  if (!entry) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
+  if (!entry) return { message: tr_('bot.entryNotFound') };
   if (entry.status !== 'pending') {
-    return { message: "This entry is already confirmed — repayment/loan only works on a pending one. Handle it from the Loans tab in the app." };
+    return { message: tr_('bot.alreadyConfirmedNoLoan') };
   }
   if (entry.type !== 'expense' && entry.type !== 'income') {
     return { message: entry.type === 'transfer'
-      ? "This is an internal transfer, not a friend transaction — repayment/loan doesn't apply here."
-      : "Repayment/loan only works on an expense or an income — this one is a " + entry.type + "." };
+      ? tr_('bot.internalTransfer')
+      : tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
   var incoming = entry.type === 'income';
 
   var friend = fuzzyFindFriend_(String(friendText).trim());
   if (!friend) {
-    return { message: 'Didn\'t recognize the friend "' + String(friendText).trim() + '".' };
+    return { message: tr_('bot.unknownFriend', { name: String(friendText).trim() }) };
   }
 
-  var isRepayment = /^(?:mark\s+as\s+)?repayment/i.test(fullText.trim());
+  var isRepayment = /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(fullText.trim());
 
   if (isRepayment) {
     var repayResult;
@@ -724,15 +674,13 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
         require_owed: incoming
       });
     } catch (err) {
-      if (incoming) return { message: err.message + ' The entry is unchanged.' };
+      if (incoming) return { message: tr_('bot.entryUnchanged', { error: err.message }) };
       throw err;
     }
     deleteEntry_(entryId);
-    var msg = '✅ Marked as a repayment ' + (incoming ? 'from ' : 'to ') + friend.name + '.';
+    var msg = tr_(incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: friend.name });
     if (repayResult.overpaid > 0.004) {
-      msg += ' ' + entry.currency + ' ' + moneyFmt_(repayResult.overpaid) +
-        (incoming ? ' was more than they owed you' : ' was more than they were owed') +
-        ' — the extra is in your review queue in the app, waiting for a category.';
+      msg += tr_(incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(repayResult.overpaid) });
     }
     return { message: msg, removed: true };
   }
@@ -749,8 +697,8 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
   deleteEntry_(entryId);
   return {
     message: incoming
-      ? '✅ Converted to a loan — you now owe ' + friend.name + ' ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.'
-      : '✅ Converted to a loan — ' + friend.name + ' now owes you ' + entry.currency + ' ' + moneyFmt_(entry.amount) + '.',
+      ? tr_('bot.loanIOwe', { friend: friend.name, cur: entry.currency, amount: moneyFmt_(entry.amount) })
+      : tr_('bot.loanTheyOwe', { friend: friend.name, cur: entry.currency, amount: moneyFmt_(entry.amount) }),
     removed: true
   };
 }
@@ -762,28 +710,59 @@ function isOwnerChat_(chatId) {
 
 // ---- Command parser (keyword-based, no AI — see file header) ----
 
+// The type word in a "type ..." reply, in English (what is stored): "gasto" ->
+// "expense", "inversión" -> "investment", and so on.
+function entryTypeFromWord_(word) {
+  var w = String(word || '').trim().toLowerCase();
+  var map = { gasto: 'expense', ingreso: 'income', transferencia: 'transfer', 'inversión': 'investment', inversion: 'investment' };
+  return map[w] || w;
+}
+
+// A typed amount ("45.50", "1,234.50", "45,50", "1.234,50"). Dots and commas
+// follow the same rule as the app's amount box: when both appear the LAST one is
+// the decimal point; a comma alone is a thousands separator only in the usual
+// grouping (1,234 / 1,234,567) and a decimal comma otherwise (45,50 -> 45.50).
+// NaN when it can't be read.
+function parseTypedAmount_(raw) {
+  var s = String(raw == null ? '' : raw).replace(/\s/g, '');
+  if (!/^[\d.,]+$/.test(s)) return NaN;
+  var lastComma = s.lastIndexOf(','), lastDot = s.lastIndexOf('.');
+  if (lastComma !== -1 && lastDot !== -1) {
+    return lastComma > lastDot
+      ? parseFloat(s.replace(/\./g, '').replace(',', '.'))
+      : parseFloat(s.replace(/,/g, ''));
+  }
+  if (lastComma !== -1) {
+    if (/^\d{1,3}(,\d{3})+$/.test(s)) return parseFloat(s.replace(/,/g, ''));
+    if (s.indexOf(',') !== lastComma) return NaN;   // 1,2,3 — not a number
+    return parseFloat(s.replace(',', '.'));
+  }
+  return parseFloat(s);
+}
+
 var EDIT_COMMAND_PATTERNS = [
-  { field: 'category', re: /^category\s+(.+)/i },
-  { field: 'amount', re: /^amount\s+([\d.,]+)/i },
-  { field: 'description', re: /^description\s+(.+)/i },
-  { field: 'paid by', re: /^paid\s*by\s+(.+)/i },
-  { field: 'currency', re: /^currency\s+([a-zA-Z]{3})/i },
-  { field: 'date', re: /^date\s+(.+)/i },
+  { field: 'category', re: /^(?:category|categor[ií]a)\s+(.+)/i },
+  { field: 'amount', re: /^(?:amount|monto)\s+([\d.,]+)/i },
+  { field: 'description', re: /^(?:description|descripci[oó]n)\s+(.+)/i },
+  { field: 'paid by', re: /^(?:paid\s*by|pagado\s*por)\s+(.+)/i },
+  // The code must be a whole word: "moneda extranjera" must not read as EXT.
+  { field: 'currency', re: /^(?:currency|moneda)\s+([a-zA-Z]{3})(?![a-zA-Z])/i },
+  { field: 'date', re: /^(?:date|fecha)\s+(.+)/i },
   // Added 2026-09-17 alongside full text-command parity with the app's
   // own Split UI — see parseSplitCommand_, below, for the three forms
   // this accepts ("equal ...", "Name amount, Name amount", "none").
-  { field: 'split', re: /^split\s+(.+)/i },
+  { field: 'split', re: /^(?:split|repartir|dividir)\s+(.+)/i },
   // Payment method and label(s) — same parity goal, requested directly:
   // whatever the app's own entry-editing pop-up can change, a Telegram
   // reply should be able to change too. "payment method" (not "payment"
   // alone) to read unambiguously in a help line next to "paid by".
-  { field: 'payment method', re: /^payment\s*method\s+(.+)/i },
+  { field: 'payment method', re: /^(?:payment\s*method|medio\s*de\s*pago)\s+(.+)/i },
   // Transfers only (see applyOneEditSegment_): the two ends of the move.
-  { field: 'from', re: /^from\s+(.+)/i },
-  { field: 'to', re: /^to\s+(.+)/i },
+  { field: 'from', re: /^(?:from|desde)\s+(.+)/i },
+  { field: 'to', re: /^(?:to|hasta|hacia)\s+(.+)/i },
   // Withdrawals only: same as "to", worded the way it reads for money coming back.
-  { field: 'received at', re: /^received\s*at\s+(.+)/i },
-  { field: 'label', re: /^label\s+(.+)/i },
+  { field: 'received at', re: /^(?:received\s*at|recibido\s*en)\s+(.+)/i },
+  { field: 'label', re: /^(?:labels?|tags?|etiquetas?)\s+(.+)/i },
   // Reclassifies the whole entry — e.g. a self-transfer between the
   // owner's own accounts that the email parser couldn't confirm as one
   // (isOwnAccount_ in EmailParser.gs only recognizes the owner's own full
@@ -793,11 +772,11 @@ var EDIT_COMMAND_PATTERNS = [
   // transfer" before "from"/"to" in the same reply — those two only
   // apply to an entry that's already a transfer by the time they run.
   // Investments only (see applyOneEditSegment_): which platform the money went to.
-  { field: 'platform', re: /^platform\s+(.+)/i },
+  { field: 'platform', re: /^(?:platform|plataforma)\s+(.+)/i },
   // Investments only: which way the money moved. A withdrawal is stored as
   // a NEGATIVE amount (see Investments.gs), a deposit as a positive one.
-  { field: 'direction', re: /^(withdrawal|deposit)\b/i },
-  { field: 'type', re: /^type\s+(expense|income|transfer|investment)\b/i }
+  { field: 'direction', re: /^(withdrawal|deposit|retiro|dep[oó]sito)(?![\wáéíóúñ])/i },
+  { field: 'type', re: /^(?:type|tipo)\s+(expense|income|transfer|investment|gasto|ingreso|transferencia|inversi[oó]n)(?![\wáéíóúñ])/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -809,7 +788,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|amount|description|paid\\s*by|currency|date|split|payment\\s*method|label|from|to|received\\s*at|platform|type)\\s+|(?:withdrawal|deposit)\\b)';
+var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|categor[ií]a|amount|monto|description|descripci[oó]n|paid\\s*by|pagado\\s*por|currency|moneda|date|fecha|split|repartir|dividir|payment\\s*method|medio\\s*de\\s*pago|labels?|tags?|etiquetas?|from|desde|to|hasta|hacia|received\\s*at|recibido\\s*en|platform|plataforma|type|tipo)\\s+|(?:withdrawal|deposit|retiro|dep[oó]sito)(?![\\wáéíóúñ]))';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -827,9 +806,9 @@ function splitEditCommands_(text) {
 // button), or null if nothing is.
 function telegramConfirmBlocker_(entry) {
   if (entry.type === 'investment') {
-    return entry.to_payment_method_id ? null : 'an investment needs its platform first — reply "platform Hapi"';
+    return entry.to_payment_method_id ? null : tr_('bot.blockerPlatform');
   }
-  return entry.category_id ? null : 'it needs a category first — reply "category groceries"';
+  return entry.category_id ? null : tr_('bot.blockerCategory');
 }
 
 // Runs after a reply's edits were applied (2026-10-02, owner's request):
@@ -847,8 +826,8 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
   if (!entry) return '';
   if (statusBefore === 'pending') {
     var blocker = telegramConfirmBlocker_(entry);
-    if (!allApplied) return 'Not confirmed yet, since part of that reply didn\'t apply — fix it, or tap Confirm.';
-    if (blocker) return 'Not confirmed yet — ' + blocker + '.';
+    if (!allApplied) return tr_('bot.notConfirmedPartial');
+    if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
     confirmEntryWithLearning_(entryId);
     return ''; // the refreshed card says "✅ Confirmed" itself
   }
@@ -856,7 +835,7 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
     var blocker2 = telegramConfirmBlocker_(entry);
     if (blocker2) {
       setEntryField_(entryId, 'status', 'pending');
-      return '⚠️ Back to pending — ' + blocker2 + '.';
+      return tr_('bot.backToPending', { blocker: blocker2 });
     }
     if (entry.type === 'expense') {
       var current = getEntrySplits(entryId).map(function (sp) {
@@ -874,17 +853,29 @@ function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
-  if (rowIndex === -1) return { message: 'Entry not found — it may have already been confirmed or discarded.' };
+  if (rowIndex === -1) return { message: tr_('bot.entryNotFound') };
 
   var appliedFields = [];
   var failedSegments = [];
   var statusBefore = (getEntryById_(entryId) || {}).status;
 
   withWriteBatch_(function () {
+    var previousField = null;
     splitEditCommands_(text).forEach(function (segment) {
       var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
-      if (field) appliedFields.push(field);
-      else failedSegments.push(segment);
+      if (field) {
+        appliedFields.push(field);
+        previousField = field;
+      } else if (previousField === 'description' && FORMAT_KEYWORD_RE_.test(segment)) {
+        // "description Dinner, date of my birthday": a date / currency / amount
+        // keyword whose value is not one is almost surely part of the description
+        // the person was writing, so keep the text instead of losing it.
+        var current = getEntryById_(entryId);
+        setCellByRow_(sheet, headers, rowIndex, 'description', String(current.description || '') + ', ' + segment);
+      } else {
+        failedSegments.push(segment);
+        previousField = null;
+      }
     });
   });
 
@@ -892,14 +883,14 @@ function applyEditCommand_(entryId, text) {
   var helpText = telegramEditHelpText_(getEntryById_(entryId));
 
   if (!appliedFields.length) {
-    return { message: 'Didn\'t recognize that.\n\n' + helpText };
+    return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
   }
 
-  var messageParts = ['Updated ' + appliedFields.join(', ') + '.'];
+  var messageParts = [tr_('bot.updated', { fields: appliedFields.map(function (f) { return tr_('bot.field.' + String(f).replace(/ /g, '_')); }).join(', ') })];
   var statusNote = finishTelegramEdit_(entryId, statusBefore, !failedSegments.length);
   if (statusNote) messageParts.push(statusNote);
   if (failedSegments.length) {
-    messageParts.push('Couldn\'t apply: ' + failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') + '.\n\n' + helpText);
+    messageParts.push(tr_('bot.couldntApply', { list: failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') }) + '\n\n' + helpText);
   }
 
   var updated = getEntryById_(entryId);
@@ -913,6 +904,50 @@ function applyEditCommand_(entryId, text) {
   // follows shows the result, so a separate "Updated X." bubble is noise.
   var quiet = !failedSegments.length && !statusNote;
   return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName };
+}
+
+// Keywords whose value must have a strict shape. Only these are folded back into
+// a description when the value is not valid (a typo in "category Gorceries" must
+// still be reported, not silently turned into description text).
+var FORMAT_KEYWORD_RE_ = /^(?:date|fecha|currency|moneda|amount|monto)(?![a-záéíóúñ])/i;
+
+// The currencies the app's picker offers (docs/app.js CURRENCIES), plus any
+// already in the exchange-rate table.
+var KNOWN_CURRENCY_CODES_ = ['PEN', 'USD', 'EUR', 'ARS', 'MXN', 'BRL', 'CLP', 'COP', 'BOB', 'UYU', 'PYG', 'VES', 'GTQ', 'CRC', 'PAB', 'DOP', 'HNL', 'NIO', 'CUP', 'GBP', 'CAD', 'CHF', 'JPY', 'CNY', 'KRW', 'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'PLN', 'TRY', 'ZAR', 'AED', 'THB', 'RUB', 'ILS'];
+
+function isKnownCurrencyCode_(code) {
+  if (KNOWN_CURRENCY_CODES_.indexOf(code) >= 0) return true;
+  return getAllRows('Exchange Rates').some(function (r) { return String(r.currency).toUpperCase() === code; });
+}
+
+// The order the person writes numeric dates in: the Settings row `date_format`
+// ('ymd' | 'dmy' | 'mdy', set by the onboarding once it exists), otherwise the one
+// that goes with the active language (Spanish day/month/year, English month/day/year).
+function userDateOrder_() {
+  var saved = '';
+  try { saved = String(getSettingsMap().date_format || '').toLowerCase(); } catch (err) { /* sheet unreadable */ }
+  if (saved === 'ymd' || saved === 'dmy' || saved === 'mdy') return saved;
+  return currentLang_() === 'es' ? 'dmy' : 'mdy';
+}
+
+// A typed date as 'YYYY-MM-DD', or '' when it is not a real calendar day. Year
+// first (2026-09-12, 2026/09/12) is always understood; otherwise the person's own
+// order (see userDateOrder_), with / - or . between the parts and a 2- or 4-digit year.
+function parseTypedDate_(text) {
+  var t = String(text).trim();
+  var y, mo, d, m = t.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+  if (m) { y = m[1]; mo = m[2]; d = m[3]; }
+  else {
+    m = t.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4}|\d{2})$/);
+    if (!m) return '';
+    y = m[3].length === 2 ? '20' + m[3] : m[3];
+    var order = userDateOrder_();
+    if (order === 'ymd') return '';   // year-first people write it year-first: no guessing
+    if (order === 'mdy') { mo = m[1]; d = m[2]; } else { d = m[1]; mo = m[2]; }
+  }
+  var dt = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (dt.getUTCFullYear() !== Number(y) || dt.getUTCMonth() !== Number(mo) - 1 || dt.getUTCDate() !== Number(d)) return '';
+  return y + '-' + ('0' + Number(mo)).slice(-2) + '-' + ('0' + Number(d)).slice(-2);
 }
 
 // Applies a single "field value" segment. Returns the field name on
@@ -934,7 +969,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (!cat) return null;
     setCellByRow_(sheet, headers, rowIndex, 'category_id', cat.id);
   } else if (field === 'amount') {
-    var amt = parseFloat(value.replace(/,/g, ''));
+    var amt = parseTypedAmount_(value);
     if (isNaN(amt) || amt <= 0) return null;
     // A withdrawal stays negative however its amount is retyped.
     setCellByRow_(sheet, headers, rowIndex, 'amount', entry.type === 'investment' && Number(entry.amount) < 0 ? -amt : amt);
@@ -947,7 +982,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       findOrCreatePayorByName_(value);
     setCellByRow_(sheet, headers, rowIndex, 'paid_by', payorRow.id);
   } else if (field === 'paid by') {
-    if (value.toLowerCase() === 'me') {
+    if (/^(?:me|yo)$/i.test(value.trim())) {
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', 'me');
     } else {
       var friend = fuzzyFindFriend_(value);
@@ -955,9 +990,14 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
       setCellByRow_(sheet, headers, rowIndex, 'paid_by', friend.id);
     }
   } else if (field === 'currency') {
+    // Only a currency the app knows; anything else is reported as not applied.
+    if (!isKnownCurrencyCode_(value.toUpperCase())) return null;
     setCellByRow_(sheet, headers, rowIndex, 'currency', value.toUpperCase());
   } else if (field === 'date') {
-    setCellByRow_(sheet, headers, rowIndex, 'date', value);
+    // Only a real calendar date (see parseTypedDate_); "fecha de mi cumple" is not one.
+    var typedDate = parseTypedDate_(value);
+    if (!typedDate) return null;
+    setCellByRow_(sheet, headers, rowIndex, 'date', typedDate);
   } else if (field === 'split') {
     var parsed = parseSplitCommand_(entry, value);
     if (!parsed) return null;
@@ -979,7 +1019,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     // "from none" / "to none": that end of the move isn't one of the owner's
     // own accounts (e.g. a Yape that came in from someone else's account), so
     // it is left empty — a balance only moves for the end that is set.
-    var clearEnd = /^(?:none|nothing|no\s+account|clear|-)$/i.test(value);
+    var clearEnd = /^(?:none|nothing|no\s+account|clear|-|ninguno|ninguna|nada|sin\s+cuenta)$/i.test(value);
     var endPm = clearEnd ? { id: '' } : fuzzyFindPaymentMethod_(value);
     if (!endPm) return null;
     if (field === 'from') {
@@ -991,7 +1031,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
   } else if (field === 'direction') {
     if (entry.type !== 'investment') return null;
     var absAmount = Math.abs(Number(entry.amount));
-    setCellByRow_(sheet, headers, rowIndex, 'amount', value.toLowerCase() === 'withdrawal' ? -absAmount : absAmount);
+    setCellByRow_(sheet, headers, rowIndex, 'amount', /^(?:withdrawal|retiro)$/i.test(value.trim()) ? -absAmount : absAmount);
   } else if (field === 'platform') {
     if (entry.type !== 'investment') return null;
     var platform = pickByName_(
@@ -1005,7 +1045,7 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (tagIds === null) return null;
     saveEntryTags({ entryId: entryId, tagIds: tagIds });
   } else if (field === 'type') {
-    var newType = value.toLowerCase();
+    var newType = entryTypeFromWord_(value);
     if (newType === entry.type) return field; // no-op, nothing to clean up
     setCellByRow_(sheet, headers, rowIndex, 'type', newType);
     if (newType === 'transfer') {
@@ -1103,9 +1143,9 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
 // amount, or an over-total).
 function parseSplitCommand_(entry, text) {
   var trimmed = String(text).trim();
-  if (/^(none|clear|off)$/i.test(trimmed)) return [];
+  if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
 
-  var equalMatch = trimmed.match(/^equal\s+(.+)/i);
+  var equalMatch = trimmed.match(/^(?:equal|igual)\s+(.+)/i);
   if (equalMatch) {
     var names = equalMatch[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (!names.length) return null;
@@ -1194,7 +1234,7 @@ function parseSplitCommand_(entry, text) {
 // created.
 function parseLabelCommand_(text) {
   var trimmed = String(text).trim();
-  if (/^(none|clear|off)$/i.test(trimmed)) return [];
+  if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
 
   var names = trimmed.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   if (!names.length) return null;

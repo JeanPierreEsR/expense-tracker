@@ -143,7 +143,7 @@
         // A service / tip line whose amount the reader garbled ("SERVICIO 10%  Les 10"):
         // remembered, and filled in from the total below if that fits.
         if (CHARGE.test(line) && !TOTAL.test(line) && !SKIP.test(line)) {
-          unreadCharges.push({ name: tidyName(line.replace(/\d+\s*%/g, "").split(/\s{2,}/)[0]) || "Service", index });
+          unreadCharges.push({ name: tidyName(line.replace(/\d+\s*%/g, "").split(/\s{2,}/)[0]) || tr("receipt.nameService"), index });
           return;
         }
         const bare = stripCode(line);                   // without a leading barcode / quantity
@@ -175,7 +175,7 @@
       const stopDishes = sawSubtotal || sawTotal;
 
       if (/TOTAL\s+(DESC|DSCTO|DCTO)/i.test(line)) {          // "Total Descuento S/ 150.00"
-        if (last.value > 0) items.push({ name: "Discount", cands: [cents(last.value)], pick: 0, discount: true, afterSubtotal: true, index });
+        if (last.value > 0) items.push({ name: tr("bill.placeholderDiscount"), cands: [cents(last.value)], pick: 0, discount: true, afterSubtotal: true, index });
         return;
       }
       if (TOTAL.test(line) && !SKIP.test(line.replace(TOTAL, ""))) {
@@ -187,18 +187,18 @@
         // "DSCTO PROMO LOMO" -> "Promo Lomo"; a bare "DESCUENTO 10%" keeps its word.
         const stripped = rest.replace(DISCOUNT, "");
         const label = !stopDishes && /[A-Za-zÁÉÍÓÚÑáéíóúñü]{2}/.test(stripped) ? stripped : rest;
-        items.push({ name: tidyName(stripCode(label)) || "Discount", cands: [cents(last.value)], pick: 0, discount: true, afterSubtotal: stopDishes, index });
+        items.push({ name: tidyName(stripCode(label)) || tr("bill.placeholderDiscount"), cands: [cents(last.value)], pick: 0, discount: true, afterSubtotal: stopDishes, index });
         return;
       }
       if (CHARGE.test(rest)) {
-        charges.push({ name: tidyName(rest.replace(/\d+\s*%/g, "")) || "Service", cents: cents(last.value), index });
+        charges.push({ name: tidyName(rest.replace(/\d+\s*%/g, "")) || tr("receipt.nameService"), cents: cents(last.value), index });
         return;
       }
       if (SKIP.test(rest) || /\d\s*%/.test(rest) || stopDishes) {
         // Taxes / surcharges between SUBTOTAL and TOTAL: some bills price items WITHOUT
         // them, so they may be part of the total — decided below, only if they make it add up.
         if (sawSubtotal && !sawTotal && last.value > 0 && /\b(IGV|RECARGO|REC\.?\s*(AL\s*)?CONSUMO|R\.?\s*CONS|ICBPER|IMPUESTO|SERVICIO)\b/i.test(rest)) {
-          taxLines.push({ name: tidyName(rest.replace(/\d+([.,]\d+)?\s*%/g, "").replace(/\b(S\/?|SOLES)\b/gi, "")) || "Tax", cents: cents(last.value), index });
+          taxLines.push({ name: tidyName(rest.replace(/\d+([.,]\d+)?\s*%/g, "").replace(/\b(S\/?|SOLES)\b/gi, "")) || tr("receipt.nameTax"), cents: cents(last.value), index });
         }
         return;                                                  // taxes, summaries, nothing after the total
       }

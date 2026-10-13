@@ -48,7 +48,7 @@ if git diff --cached --quiet; then
 else
   run git commit -m "$MSG
 
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 fi
 run git push
 echo "Done."

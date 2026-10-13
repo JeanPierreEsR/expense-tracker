@@ -120,7 +120,7 @@ function scanStatementInbox_() {
   added.forEach(function (o) {
     if (!o.notified) {
       var sent = false;
-      try { sent = sendTelegramText_('📄 New ' + o.bank_label + ' statement (received ' + o.received + '). It waits in More → Statements → Inbox until you open it.'); } catch (e) { sent = false; }
+      try { sent = sendTelegramText_(tr_('notice.statement', { bank: o.bank_label, date: o.received })); } catch (e) { sent = false; }
       if (sent) o.notified = 'true';
     }
   });
@@ -134,7 +134,7 @@ function retryStatementInboxNudges_() {
   getAllRows('Statement Inbox').forEach(function (r) {
     if (r.status !== 'new' || r.notified === 'true' || r.notified === true) return;
     var sent = false;
-    try { sent = sendTelegramText_('📄 New ' + r.bank_label + ' statement (received ' + r.received + '). It waits in More → Statements → Inbox until you open it.'); } catch (e) { sent = false; }
+    try { sent = sendTelegramText_(tr_('notice.statement', { bank: r.bank_label, date: r.received })); } catch (e) { sent = false; }
     if (sent) updateRowFields_('Statement Inbox', r.id, { notified: 'true' });
   });
 }

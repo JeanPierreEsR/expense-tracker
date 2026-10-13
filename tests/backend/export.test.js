@@ -138,7 +138,7 @@ test("entries CSV: PEN value comes from the rate table, share excludes what was 
   assert.equal(row["Amount (PEN)"], "375.00");
   assert.equal(row["Your share"], "60.00");
   assert.equal(row["Your share (PEN)"], "225.00");
-  assert.equal(row["Split with"], "Export Friend 40.00");
+  assert.equal(row["Shared with"], "Export Friend 40.00");
   assert.equal(row["Payment method"], data.pms[3].nickname);
   const catRows = rt.rows("Categories");
   const parent = catRows.find((c) => c.id === cat.parent_id);
@@ -194,4 +194,41 @@ test("a daily-email-limit stop is a clear message, not a crash", () => {
   rt.state.mailQuota = 0;
   assert.throws(() => rt.api("exportData", { cards: ["backup"] }), /daily email limit/);
   assert.equal(mails(rt).length, 0);
+});
+
+// ---- Spanish (step 6c): e-mail, file names and column headings follow the request's language ----
+const exportEs = (rt, payload) => rt.rawPost(JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "exportData", payload, lang: "es" }));
+
+test("in Spanish: e-mail, file names (no accents) and column headings are Spanish", () => {
+  const { rt } = ready();
+  assert.equal(exportEs(rt, { cards: ["entries", "backup"] }).ok, true);
+  const mail = mails(rt)[0];
+  assert.match(mail.subject, /^Exportación de Expense Tracker — \d{4}-\d{2}-\d{2}$/);
+  assert.match(mail.body, /^Tu exportación va adjunta\./);
+  assert.match(mail.body, /- movimientos_todo\.csv \(\d+ movimientos\)/);
+  assert.match(mail.body, /- respaldo_\d{4}-\d{2}-\d{2}\.json \(\d+ filas en todas las hojas\)/);
+  const names = mail.attachments.map((b) => b.name);
+  assert.ok(names.includes("movimientos_todo.csv"), names.join());
+  assert.ok(names.some((n) => /^respaldo_\d{4}-\d{2}-\d{2}\.json$/.test(n)));
+  assert.ok(names.every((n) => /^[a-z0-9_.-]+$/.test(n)), "file names without accents or spaces");
+  const csv = attachment(mail, "movimientos_");
+  const head = csv.data.replace(/^﻿/, "").split("\r\n")[0];
+  assert.equal(head, "ID,Fecha,Tipo,Descripción,Comercio,Categoría,Monto,Moneda,Monto (PEN),Tu parte,Tu parte (PEN),Compartido con,Medio de pago,Hacia la cuenta,Pagado por,Amigo vinculado,Vinculado como,Etiquetas,Estado,Origen,Creado el");
+  assert.match(JSON.parse(attachment(mail, "respaldo_").data).note, /^Filas originales/);
+});
+
+test("in Spanish: date range names and the labels inside the file", () => {
+  const { rt, data } = ready();
+  exportEs(rt, { cards: ["entries"], startDate: "2026-01-01", endDate: "2026-02-01" });
+  exportEs(rt, { cards: ["entries"], startDate: "2026-01-01" });
+  exportEs(rt, { cards: ["entries"], endDate: "2026-02-01" });
+  assert.deepEqual(mails(rt).map((m) => m.attachments[0].name),
+    ["movimientos_2026-01-01_a_2026-02-01.csv", "movimientos_2026-01-01_a_hoy.csv", "movimientos_inicio_a_2026-02-01.csv"]);
+  const friend = rt.api("addFriend", { name: "Debt Friend" });
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: today(), payment_method_id: data.pms[3].id });
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 20, date: today(), currency: "PEN", payment_method_id: data.pms[3].id });
+  exportEs(rt, { cards: ["entries"], startDate: today(), endDate: today() });
+  const rows = csvRows(attachment(mails(rt)[3], "movimientos_")).filter((r) => r["Amigo vinculado"] === "Debt Friend");
+  assert.deepEqual(rows.map((r) => r["Vinculado como"]).sort(), ["Préstamo (me debe)", "Repago (me debe)"]);
+  assert.ok(csvRows(attachment(mails(rt)[3], "movimientos_")).some((r) => r["Pagado por"] === "Yo"));
 });

@@ -133,7 +133,7 @@ function recordFailedAccessAttempt_(source) {
     } finally {
       lock.releaseLock();
     }
-    sendTelegramText_('⚠️ ' + count + ' wrong access-code attempts in the last hour (' + source + '). If that was not you, someone may be guessing your code — check its strength with the sheet menu (item 22) and replace it if it is not long and random (item 23).');
+    sendTelegramText_(tr_('auth.failedAttempts', { n: count, source: source }));
   } catch (err) {
     console.error('recordFailedAccessAttempt_: ' + err);
   }

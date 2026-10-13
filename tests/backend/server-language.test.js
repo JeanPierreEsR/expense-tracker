@@ -38,12 +38,14 @@ test("every server text exists in both languages, filled in, with the same {plac
 
 test("every tr_('key') the server asks for exists", () => {
   for (const f of files.filter((x) => x !== "Strings.gs")) {
-    for (const m of source(f).matchAll(/\btr_\(\s*'([\w.]+)'/g)) assert.ok(dictionary[m[1]], `${f}: missing server text ${m[1]}`);
+    // tr_('area.' + x) is checked as a prefix: some text must start with it.
+    const exists = (k) => (k.endsWith(".") ? Object.keys(dictionary).some((d) => d.startsWith(k)) : !!dictionary[k]);
+    for (const m of source(f).matchAll(/\btr_\(\s*'([\w.]+)'/g)) assert.ok(exists(m[1]), `${f}: missing server text ${m[1]}`);
   }
   // tr_(cond ? 'a.b' : 'c.d') — also look at quoted keys inside a tr_( ... ) call on one line
   for (const f of files.filter((x) => x !== "Strings.gs")) {
     for (const m of source(f).matchAll(/\btr_\(([^;\n]*)/g)) {
-      for (const k of m[1].matchAll(/'([a-z]+\.[\w.]+)'/g)) assert.ok(dictionary[k[1]], `${f}: missing server text ${k[1]}`);
+      for (const k of m[1].matchAll(/'([a-z]+\.[\w.]+)'/g)) assert.ok(k[1].endsWith(".") ? Object.keys(dictionary).some((d) => d.startsWith(k[1])) : dictionary[k[1]], `${f}: missing server text ${k[1]}`);
     }
   }
 });
