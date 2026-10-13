@@ -253,9 +253,9 @@ function setSessionToken(token) {
 // "iPhone · home-screen app" — what the Signed-in devices list shows.
 function deviceName_() {
   const ua = navigator.userAgent || "";
-  const kind = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Device";
+  const kind = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? tr("device.windows") : tr("device.other");
   const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-  return `${kind} · ${standalone ? "home-screen app" : "browser"}`;
+  return tr(standalone ? "device.homeScreen" : "device.browser", { kind });
 }
 
 // What this phone keeps about the signed-in owner: the session key, any old
@@ -344,7 +344,7 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     // This device's session was ended (signed out from another device, the
     // sheet menu, or unused for 90 days): go back to the sign-in screen.
     clearLocalSignIn_();
-    showSignedOutScreen_("You were signed out on this device. Enter your access code to sign in again.");
+    showSignedOutScreen_(tr("signin.signedOutHere"));
   }
   if (!json.ok) throw new Error(json.error || tr("error.unknown"));
   return json.data;
@@ -462,7 +462,7 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
   const code = document.getElementById("setup-code-input").value.trim();
   if (!code) return;
   const errorEl = document.getElementById("setup-error");
-  errorEl.textContent = "Signing in…";
+  errorEl.textContent = tr("signin.signingIn");
   try {
     const res = await callApi("login", { code, deviceName: deviceName_() });
     setSessionToken(res.sessionToken);
@@ -4755,7 +4755,7 @@ async function init() {
       // Keep showing cached data under a now-invalid code, and every
       // action would keep silently failing — surface it instead.
       clearLocalSignIn_();
-      showSignedOutScreen_("That code wasn't accepted. Try again.");
+      showSignedOutScreen_(tr("signin.codeRejected"));
       return;
     }
     if (paintedFromCache) {
@@ -4863,11 +4863,11 @@ document.getElementById("more-perf-btn").addEventListener("click", showPerfScree
 async function signOutThisDevice_() {
   try { await callApi("logout", {}); } catch (err) { /* offline: the key is still dropped on this phone */ }
   clearLocalSignIn_();
-  showSignedOutScreen_("Signed out. Enter your access code to sign in again.");
+  showSignedOutScreen_(tr("signin.signedOut"));
 }
 
 document.getElementById("more-signout-btn").addEventListener("click", async () => {
-  if (!confirm("Sign out of this device? Its saved data and any unsaved entry are removed from this phone; you'll need your access code to sign in again.")) return;
+  if (!confirm(tr("signin.confirmSignOut"))) return;
   await signOutThisDevice_();
 });
 
@@ -4891,32 +4891,31 @@ async function openDevicesModal_() {
   // yet)? Try it now, so the list below is right.
   if (!getSessionToken() && getAccessCode()) await migrateLegacyCodeToSession_();
   statusEl.textContent = getSessionToken()
-    ? "✅ This phone is signed in with a session key (the access code is not stored here)."
-    : "⚠️ This phone is still using the access code directly. It will switch to a session key the next time the app opens with a connection.";
+    ? tr("devices.statusSession")
+    : tr("devices.statusCode");
   let sessions;
   try {
     sessions = await callApi("listSessions", {});
   } catch (err) {
     list.innerHTML = "";
-    errorEl.textContent = "Couldn't load the list: " + err.message;
+    errorEl.textContent = tr("devices.loadFailed", { error: err.message });
     return;
   }
   list.innerHTML = "";
   if (!sessions.length) {
-    list.innerHTML = '<p class="hint">No signed-in devices yet. This device is using the access code directly and will sign in the next time the app opens.</p>';
+    list.innerHTML = `<p class="hint">${escapeHtml(tr("devices.empty"))}</p>`;
   }
   sessions.forEach((s) => {
     const row = document.createElement("div");
     row.className = "skipped-month-row";
     row.innerHTML = `
       <div>
-        <div>${escapeHtml(s.device_name || "Device")}${s.current ? ' <span class="hint">(this device)</span>' : ""}</div>
-        <div class="hint">Last used ${escapeHtml(formatSessionTime_(s.last_used_at))}</div>
+        <div>${escapeHtml(s.device_name || tr("device.other"))}${s.current ? ` <span class="hint">${escapeHtml(tr("devices.thisDevice"))}</span>` : ""}</div>
+        <div class="hint">${escapeHtml(tr("devices.lastUsed", { when: formatSessionTime_(s.last_used_at) }))}</div>
       </div>
-      <button type="button" class="add-inline">${s.current ? "Sign out" : "Sign out"}</button>`;
+      <button type="button" class="add-inline">${escapeHtml(tr("devices.signOut"))}</button>`;
     row.querySelector("button").addEventListener("click", async () => {
-      const label = s.current ? "this device" : `"${s.device_name}"`;
-      if (!confirm(`Sign out ${label}? It stops working immediately.`)) return;
+      if (!confirm(s.current ? tr("devices.confirmThis") : tr("devices.confirmNamed", { name: s.device_name }))) return;
       if (s.current) { await signOutThisDevice_(); return; }
       try {
         await callApi("revokeSession", { id: s.id });
@@ -4946,7 +4945,7 @@ document.getElementById("devices-modal-backdrop").addEventListener("click", (e) 
   if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
 });
 document.getElementById("devices-signout-others-btn").addEventListener("click", async () => {
-  if (!confirm("Sign out all your other devices? Only this one stays signed in.")) return;
+  if (!confirm(tr("devices.confirmOthers"))) return;
   try {
     await callApi("revokeOtherSessions", {});
     openDevicesModal_();
@@ -4963,11 +4962,11 @@ document.getElementById("perf-copy-btn").addEventListener("click", async () => {
   const btn = document.getElementById("perf-copy-btn");
   try {
     await navigator.clipboard.writeText(perfReportText_());
-    btn.textContent = "Copied ✓";
+    btn.textContent = tr("perf.copied");
   } catch (err) {
-    btn.textContent = "Copy failed";
+    btn.textContent = tr("perf.copyFailed");
   }
-  setTimeout(() => { btn.textContent = "Copy report"; }, 2000);
+  setTimeout(() => { btn.textContent = tr("perf.copy"); }, 2000);
 });
 document.getElementById("exchange-rates-back-btn").addEventListener("click", () => showScreen("more"));
 
@@ -5041,21 +5040,19 @@ async function sendExport_() {
   const range = exportDateRange_();
   if (cards.includes("entries") && exportEl_("export-range").value === "custom" && !range.startDate && !range.endDate) {
     status.style.color = "#d64545";
-    status.textContent = "Pick a From and/or To date for the custom range.";
+    status.textContent = tr("export.pickDates");
     return;
   }
   btn.disabled = true;
   status.style.color = "";
-  status.textContent = "Preparing and sending… this can take up to a minute for All time.";
+  status.textContent = tr("export.sending");
   try {
     const res = await callApi("exportData", {
       cards, startDate: range.startDate, endDate: range.endDate,
       includePending: exportEl_("export-pending-check").checked
     });
-    const parts = res.files.map((f) => f.kind === "entries"
-      ? `${f.name} (${f.rows.toLocaleString("en-US")} entries)`
-      : `${f.name} (${f.rows.toLocaleString("en-US")} records)`);
-    status.textContent = `✓ Sent to your email: ${parts.join(" and ")}.`;
+    const parts = res.files.map((f) => tr(f.kind === "entries" ? "export.fileEntries" : "export.fileRecords", { name: f.name, n: f.rows === 1 ? 1 : f.rows.toLocaleString("en-US") }));
+    status.textContent = tr("export.sent", { files: parts.join(tr("export.and")) });
   } catch (err) {
     status.style.color = "#d64545";
     status.textContent = err.message;
@@ -5125,16 +5122,16 @@ function renderPerfScreen() {
   const box = document.getElementById("perf-summary");
   const rows = perfSummaryRows_();
   if (!rows.length) {
-    box.innerHTML = '<div class="status-msg">Nothing recorded yet — use the app for a while, then come back.</div>';
+    box.innerHTML = `<div class="status-msg">${escapeHtml(tr("perf.empty"))}</div>`;
     return;
   }
   const fmt = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
   box.innerHTML = rows.map((r) => `
     <div class="perf-row">
       <div class="perf-name">${escapeHtml(r.name)} <span class="hint">×${r.total.n}</span></div>
-      <div class="hint">median ${fmt(r.total.median)} · p90 ${fmt(r.total.p90)} · max ${fmt(r.total.max)}${
-        r.server ? ` · server ${fmt(r.server.median)}` : ""}${
-        r.cold ? ` · ${r.cold} cold` : ""}${r.retried ? ` · ${r.retried} retried` : ""}${r.failed ? ` · ${r.failed} failed` : ""}</div>
+      <div class="hint">${[tr("perf.median", { v: fmt(r.total.median) }), tr("perf.p90", { v: fmt(r.total.p90) }), tr("perf.max", { v: fmt(r.total.max) }),
+        r.server ? tr("perf.server", { v: fmt(r.server.median) }) : "",
+        r.cold ? tr("perf.cold", { n: r.cold }) : "", r.retried ? tr("perf.retried", { n: r.retried }) : "", r.failed ? tr("perf.failed", { n: r.failed }) : ""].filter(Boolean).join(" · ")}</div>
     </div>`).join("");
 }
 
@@ -8008,7 +8005,7 @@ function newBillState_() {
 }
 
 function billFriendName_(id) {
-  if (id === "me") return "Me";
+  if (id === "me") return tr("common.me");
   const f = meta.friends.find((x) => x.id === id);
   return f ? f.name : "?";
 }
@@ -8087,7 +8084,7 @@ async function openBillModal() {
     const btn = document.getElementById("bill-open-btn");
     const label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Loading the saved bill…";
+    btn.textContent = tr("bill.loadingSaved");
     try {
       const r = await callApi("getEntryBill", { entryId: editingEntryId });
       if (r && r.bill) { billState = billFromJSON_(r.bill); loadedSaved = true; }
@@ -8124,7 +8121,7 @@ function syncBillTabs_() {
   document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.mode));
   const isPercent = billState.tip.type === "percent";
   const cur = (document.getElementById("currency").value || "PEN").toUpperCase();
-  document.getElementById("bill-tip-label").textContent = isPercent ? "Tip percent (%)" : `Tip amount (${cur})`;
+  document.getElementById("bill-tip-label").textContent = isPercent ? tr("bill.tipPercentLabel") : tr("bill.tipAmountLabel", { cur });
   const box = document.getElementById("bill-tip-value");
   box.placeholder = isPercent ? "e.g. 10" : "0.00";
   box.value = isPercent ? billState.tip.percent : billState.tip.amount;
@@ -8157,7 +8154,7 @@ function renderBillPeople_() {
   if (sorted.length > shown.length || billShowAllFriends) {
     const more = document.createElement("div");
     more.className = "tag-chip more-chip";
-    more.textContent = billShowAllFriends ? "Less" : "More…";
+    more.textContent = billShowAllFriends ? tr("common.less") : tr("common.more");
     more.addEventListener("click", () => { billShowAllFriends = !billShowAllFriends; renderBillPeople_(); });
     box.appendChild(more);
   }
@@ -8176,7 +8173,7 @@ function renderBillItems_() {
     const name = document.createElement("input");
     name.type = "text";
     name.className = "bill-item-name";
-    name.placeholder = "Item";
+    name.placeholder = tr("bill.placeholderItem");
     name.value = it.name;
     name.addEventListener("input", () => { it.name = name.value; billItemsEdited = true; });
     const price = document.createElement("input");
@@ -8210,19 +8207,19 @@ function renderBillItems_() {
       // A discount line printed under a dish: it comes off the item above and
       // is shared by whoever shares THAT item, so it has no people of its own.
       row.classList.add("bill-item-discount");
-      name.placeholder = "Discount";
+      name.placeholder = tr("bill.placeholderDiscount");
       const idx = billState.items.indexOf(it);
       let parent = null;
       for (let i = idx - 1; i >= 0; i--) if (!billState.items[i].discount) { parent = billState.items[i]; break; }
       const note = document.createElement("div");
       note.className = "hint bill-discount-note";
-      note.textContent = parent ? `↳ comes off “${parent.name || "the item above"}” (shared by whoever shares it)` : "↳ needs an item above it";
+      note.textContent = parent ? tr("bill.comesOff", { name: parent.name || tr("bill.itemAbove") }) : tr("bill.needsItemAbove");
       chips.appendChild(note);
     } else {
       const everyone = keys.every((k) => it.people.has(k));
       const all = document.createElement("div");
       all.className = "tag-chip" + (everyone ? " selected" : "");
-      all.textContent = "Everyone";
+      all.textContent = tr("bill.everyone");
       all.addEventListener("click", () => {
         if (everyone) it.people.clear(); else keys.forEach((k) => it.people.add(k));
         renderBillItems_();
@@ -8244,7 +8241,7 @@ function renderBillItems_() {
     // The number pad has no minus key, so a line is marked as a discount here.
     const disc = document.createElement("div");
     disc.className = "tag-chip bill-discount-toggle" + (it.discount ? " selected" : "");
-    disc.textContent = "− Discount line";
+    disc.textContent = tr("bill.discountLine");
     disc.addEventListener("click", () => {
       it.discount = !it.discount;
       billItemsEdited = true;
@@ -8256,7 +8253,7 @@ function renderBillItems_() {
     // comes off the item above it.
     const ins = document.createElement("div");
     ins.className = "tag-chip bill-insert-chip";
-    ins.textContent = "+ Insert a line below";
+    ins.textContent = tr("bill.insertLine");
     ins.addEventListener("click", () => {
       const at = billState.items.indexOf(it) + 1;
       billState.items.splice(at, 0, { id: billNextId++, name: "", price: "", people: new Set() });
@@ -8294,7 +8291,7 @@ function renderBillAdjs_() {
     const name = document.createElement("input");
     name.type = "text";
     name.className = "bill-item-name";
-    name.placeholder = a.kind === "discount" ? "Discount" : "Extra charge";
+    name.placeholder = a.kind === "discount" ? tr("bill.placeholderDiscount") : tr("bill.placeholderCharge");
     name.value = a.name;
     name.addEventListener("input", () => { a.name = name.value; billItemsEdited = true; });
     const amt = document.createElement("input");
@@ -8324,7 +8321,7 @@ function renderBillAdjs_() {
 
     const tabs = document.createElement("div");
     tabs.className = "type-tabs budget-period-tabs";
-    [["proportional", "By what each ordered"], ["equal", "Equal"]].forEach(([v, label]) => {
+    [["proportional", tr("bill.byOrdered")], ["equal", tr("split.equal")]].forEach(([v, label]) => {
       const t = document.createElement("div");
       t.className = "type-tab" + (a.mode === v ? " active" : "");
       t.textContent = label;
@@ -8350,22 +8347,22 @@ function recomputeBill_() {
   // The bill total is BEFORE discounts: items (+ any extra charge) must match
   // it; discounts come off afterwards, then the tip.
   const chargesCents = res.preDiscountCents - res.itemsCents;
-  const counted = chargesCents ? `Items ${fmt(res.itemsCents)} + charges ${fmt(chargesCents)}` : `Items ${fmt(res.itemsCents)}`;
-  const lead = chargesCents ? `${counted} comes to ${fmt(res.preDiscountCents)}` : `Items add up to ${fmt(res.itemsCents)}`;
+  const counted = chargesCents ? tr("bill.countedCharges", { items: fmt(res.itemsCents), charges: fmt(chargesCents) }) : tr("bill.counted", { items: fmt(res.itemsCents) });
+  const lead = chargesCents ? tr("bill.leadCharges", { counted, total: fmt(res.preDiscountCents) }) : tr("bill.leadPlain", { items: fmt(res.itemsCents) });
   if (res.printedCents > 0) {
     if (res.diffCents === 0) {
       check.className = "hint bill-check-ok";
-      check.textContent = `✓ ${counted} = bill total ${fmt(res.printedCents)}` +
-        (res.discountsCents ? ` · after discounts −${fmt(res.discountsCents)}: ${fmt(res.billCents)}` : "");
+      check.textContent = tr("bill.checkOk", { counted, printed: fmt(res.printedCents) }) +
+        (res.discountsCents ? tr("bill.checkAfterDiscounts", { discounts: fmt(res.discountsCents), bill: fmt(res.billCents) }) : "");
     } else {
       check.className = "hint bill-check-bad";
       check.textContent = res.diffCents > 0
-        ? `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(res.diffCents)} short. A missing item, or add an extra charge.`
-        : `${lead}, but the bill says ${fmt(res.printedCents)} — ${fmt(-res.diffCents)} too much. Check a price.`;
+        ? tr("bill.checkShort", { lead, printed: fmt(res.printedCents), diff: fmt(res.diffCents) })
+        : tr("bill.checkTooMuch", { lead, printed: fmt(res.printedCents), diff: fmt(-res.diffCents) });
     }
   } else {
     check.className = "hint";
-    check.textContent = res.itemsCents ? `Items so far: ${fmt(res.itemsCents)}. Enter the bill total above to check them.` : "";
+    check.textContent = res.itemsCents ? tr("bill.itemsSoFar", { items: fmt(res.itemsCents) }) : "";
   }
 
   const out = document.getElementById("bill-result");
@@ -8380,9 +8377,9 @@ function recomputeBill_() {
       nm.textContent = billFriendName_(k);
       const sub = document.createElement("div");
       sub.className = "bill-result-sub";
-      const bits = [`items ${moneyFmt(p.items / 100)}`];
-      if (p.adjustments) bits.push(`${p.adjustments < 0 ? "−" : "+"}${moneyFmt(Math.abs(p.adjustments) / 100)} adjustments`);
-      if (p.tip) bits.push(`+${moneyFmt(p.tip / 100)} tip`);
+      const bits = [tr("bill.subItems", { v: moneyFmt(p.items / 100) })];
+      if (p.adjustments) bits.push(tr("bill.subAdjustments", { sign: p.adjustments < 0 ? "−" : "+", v: moneyFmt(Math.abs(p.adjustments) / 100) }));
+      if (p.tip) bits.push(tr("bill.subTip", { v: moneyFmt(p.tip / 100) }));
       sub.textContent = bits.join(" · ");
       left.append(nm, sub);
       const right = document.createElement("strong");
@@ -8393,7 +8390,7 @@ function recomputeBill_() {
     if (res.tipCents) {
       const t = document.createElement("p");
       t.className = "hint";
-      t.textContent = `Tip ${fmt(res.tipCents)} · you pay the restaurant ${fmt(res.grandCents)} in total.`;
+      t.textContent = tr("bill.tipTotal", { tip: fmt(res.tipCents), total: fmt(res.grandCents) });
       out.appendChild(t);
     }
   }
@@ -8403,18 +8400,18 @@ function recomputeBill_() {
   const tipTyped = billState.tip.type === "percent" ? billState.tip.percent : billState.tip.amount;
   if (!tipTyped || !res.tipCents) {
     preview.className = "hint";
-    preview.textContent = res.billCents > 0 ? `Tip is taken on ${fmt(res.billCents)} (the bill after discounts).` : "";
+    preview.textContent = res.billCents > 0 ? tr("bill.tipBase", { bill: fmt(res.billCents) }) : "";
   } else {
     const pct = res.billCents > 0 ? (res.tipCents / res.billCents) * 100 : 0;
     const odd = pct > 30;
     preview.className = "hint" + (odd ? " bill-check-bad" : "");
     preview.textContent = billState.tip.type === "percent"
-      ? `${tipTyped}% of ${fmt(res.billCents)} = ${fmt(res.tipCents)}${odd ? " — that's a very large tip, is that right?" : ""}`
-      : `${fmt(res.tipCents)} is ${pct.toFixed(1)}% of ${fmt(res.billCents)}${odd ? " — that's a very large tip, is that right?" : ""}`;
+      ? tr("bill.tipPctOf", { pct: tipTyped, bill: fmt(res.billCents), tip: fmt(res.tipCents), odd: odd ? tr("bill.tipOdd") : "" })
+      : tr("bill.tipIs", { tip: fmt(res.tipCents), pct: pct.toFixed(1), bill: fmt(res.billCents), odd: odd ? tr("bill.tipOdd") : "" });
   }
   const err = document.getElementById("bill-error");
   // Only the blocking reason that isn't already visible above.
-  err.textContent = res.ok ? "" : res.errors.filter((e) => !/don't add up/.test(e)).join(" ");
+  err.textContent = res.ok ? "" : res.errors.filter((e) => e !== tr("bill.err.dontAddUp")).join(" ");
   document.getElementById("bill-apply").disabled = !res.ok;
   return res;
 }
@@ -8510,7 +8507,7 @@ function loadTesseract_() {
       const el = document.createElement("script");
       el.src = "vendor/tesseract/tesseract.min.js";
       el.onload = resolve;
-      el.onerror = () => { tesseractLoading_ = null; reject(new Error("Couldn't load the photo reader. Check your connection and try again.")); };
+      el.onerror = () => { tesseractLoading_ = null; reject(new Error(tr("photo.loadFailed"))); };
       document.head.appendChild(el);
     });
   }
@@ -8708,7 +8705,7 @@ async function recognizeReceiptText_(canvas, onProgress) {
 // asking, if the sheet already has items).
 function applyReceiptToBill_(parsed, opts) {
   opts = opts || {};
-  if (!opts.noConfirm && billState.items.some((it) => it.price) && !confirm("Replace the items already in the sheet with the ones read from the photo?")) return false;
+  if (!opts.noConfirm && billState.items.some((it) => it.price) && !confirm(tr("photo.confirmReplace"))) return false;
   // Lines that are unchanged keep who shared them (matched by name + price).
   const previous = billState.items.slice();
   const keepPeople = (it) => {
@@ -8750,10 +8747,10 @@ async function readReceiptFile_(file, say) {
   for (let i = 0; i < attempts.length; i++) {
     const canvas = await prepareReceiptImage_(file, attempts[i]);
     const first = !window.Tesseract;
-    say(i ? "That didn't add up — reading it again another way…" : first ? "Loading the reader (first time only, a few MB)…" : "Reading the photo…");
+    say(i ? tr("photo.retry") : first ? tr("photo.loadingReader") : tr("photo.reading"));
     const text = await recognizeReceiptText_(canvas, (m) => {
-      if (m.status === "recognizing text") say(`${i ? "Reading it again" : "Reading the photo"}… ${Math.round((m.progress || 0) * 100)}%`);
-      else if (/loading/i.test(m.status)) say("Loading the reader (first time only, a few MB)…");
+      if (m.status === "recognizing text") say(tr(i ? "photo.readingAgainPct" : "photo.readingPct", { pct: Math.round((m.progress || 0) * 100) }));
+      else if (/loading/i.test(m.status)) say(tr("photo.loadingReader"));
     });
     const parsed = ReceiptParse.parseReceipt(text);
     const f = ReceiptParse.fit(parsed);
@@ -8770,21 +8767,21 @@ async function readBillPhoto_(file) {
   const say = billPhotoSay_;
   btn.disabled = true;
   try {
-    say("Preparing the photo…");
+    say(tr("photo.preparing"));
     const best = await readReceiptFile_(file, say);
     document.getElementById("bill-photo-text").value = best.text;
     document.getElementById("bill-photo-raw").hidden = false;
     const parsed = best.parsed;
     if (!parsed.items.length) {
-      say("Couldn't find items in that photo. Try again with the whole receipt flat, in good light — or add the items by hand. (The text it read is below.)", true);
+      say(tr("photo.noItems"), true);
       return;
     }
-    if (!applyReceiptToBill_(parsed)) { say("Left the sheet as it was."); return; }
+    if (!applyReceiptToBill_(parsed)) { say(tr("photo.leftAsWas")); return; }
     const dishes = parsed.items.filter((i) => !i.discount).length;
     const notes = parsed.warnings.length ? " " + parsed.warnings.join(" ") : "";
-    say(`Read ${dishes} item${dishes === 1 ? "" : "s"}. Check every line against the receipt, fix what's wrong, then tap who shared each one.${notes}`, parsed.warnings.length > 0);
+    say(tr("photo.readN", { n: dishes, notes }), parsed.warnings.length > 0);
   } catch (err) {
-    say(err.message || "Couldn't read that photo.", true);
+    say(err.message || tr("photo.couldntRead"), true);
   } finally {
     btn.disabled = false;
   }
@@ -8793,11 +8790,11 @@ async function readBillPhoto_(file) {
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
 document.getElementById("bill-photo-reparse").addEventListener("click", () => {
   const parsed = ReceiptParse.parseReceipt(document.getElementById("bill-photo-text").value);
-  if (!parsed.items.length) { billPhotoSay_("No items could be found in that text — check it and try again.", true); return; }
-  if (billItemsEdited && !confirm("This replaces the items you changed by hand below with what the text says. Continue?")) return;
+  if (!parsed.items.length) { billPhotoSay_(tr("photo.textNoItems"), true); return; }
+  if (billItemsEdited && !confirm(tr("photo.confirmOverwrite"))) return;
   applyReceiptToBill_(parsed, { noConfirm: true, keepAssignments: true });
   const dishes = parsed.items.filter((i) => !i.discount).length;
-  billPhotoSay_(`Worked out ${dishes} item${dishes === 1 ? "" : "s"} again from your text.` + (parsed.warnings.length ? " " + parsed.warnings.join(" ") : ""), parsed.warnings.length > 0);
+  billPhotoSay_(tr("photo.reworked", { n: dishes }) + (parsed.warnings.length ? " " + parsed.warnings.join(" ") : ""), parsed.warnings.length > 0);
 });
 document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];

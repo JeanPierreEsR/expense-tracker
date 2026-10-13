@@ -17,6 +17,9 @@
 //                                      lines add up to the total), never by guessing blindly
 (function (root) {
   "use strict";
+  // Messages go through the language engine (docs/i18n.js): the browser has it as
+  // root.tr; Node (the tests) loads it, in English.
+  const tr = (key, params) => (typeof module !== "undefined" && module.exports ? require("./i18n.js").tr : root.tr)(key, params);
 
   // Lines that carry an amount but are not dishes.
   const SKIP = /\b(SUB\s*-?\s*TOTAL|I\.?G\.?V\.?|OP\.?\s*[A-Z]{3,}\w*|OP\.|GRAVADA|EXONERAD[OA]|INAFECT[OA]|ICBPER|RUC|R\.U\.C\.?|TELF?|TEL[EÉ]FONO|FAX|FECHA|HORA|MESA|MOZO|MESERO|CAJERO|CAJA|PEDIDO|BOLETA|FACTURA|TICKET|TARJETA|VISA|MASTER\s*CARD|MASTERCARD|EFECTIVO|VUELTO|CAMBIO|REDONDEO|DNI|CLIENTE|PAGO|PAGADO|RECIBIDO|COMENSALES|PERSONAS|CANT\b|DESCRIPCI[OÓ]N|ART[IÍ]CULO|P\.?\s*UNIT|P\.?\s*U\b|IMPORTE\s*$|SALDO|TOTAL\s+NETO|REC(ARGO)?\.?\s+(AL\s+)?CONSUMO|R\.?\s*CONS|CONSUMO|SON|AV|AVDA|CAL|JR|URB|NRO|INT|PSJE|CALLE|AVENIDA|LOTE|PISO|MZ|OBSERVACI[OÓ]N|MONEDA|LOCAL|TIPO|EMPRESA|DIREC\w*|AUTORIZACI[OÓ]N|REPRESENTACI[OÓ]N|CONSULTE|REF)\b/i;
@@ -331,7 +334,7 @@
         const best = solutions.filter((s) => s.changed.length === fewest);
         if (best.length === 1) {
           picks = best[0].cur;
-          fixedNote = `Fixed ${best[0].changed.length === 1 ? "a number" : best[0].changed.length + " numbers"} that didn't add up (${best[0].changed.map((k) => `"${kept[k].name}"`).join(", ")}) — check ${best[0].changed.length === 1 ? "it" : "them"}.`;
+          fixedNote = tr("receipt.fixedNumbers", { n: best[0].changed.length, names: best[0].changed.map((k) => `"${kept[k].name}"`).join(", ") });
         }
       }
     }
@@ -359,14 +362,14 @@
     // needs on top of the items (accepted only if small enough to be a service
     // charge, and always flagged so the person can check it).
     addedTaxes.forEach((x) => usedCharges.push({ name: x.name, cents: x.cents, index: x.index }));
-    if (addedTaxes.length) warnings.push(`This bill adds ${addedTaxes.map((x) => x.name).join(" and ")} on top of the item prices — included as ${addedTaxes.length === 1 ? "a charge" : "charges"}.`);
+    if (addedTaxes.length) warnings.push(tr("receipt.addedTaxes", { n: addedTaxes.length, names: addedTaxes.map((x) => x.name).join(tr("common.and")) }));
     let chargeTotal = chargeSum + addedTaxes.reduce((s, x) => s + x.cents, 0);
     if (unreadCharges.length === 1 && unreadCharges[0].index < lastTotal && totals.length) {
       const gap = totals[totals.length - 1].cents + wideSum - itemsNet - chargeTotal;
       if (gap > 0 && gap <= Math.max(1, Math.round(itemsNet * 0.3))) {
         usedCharges.push({ name: unreadCharges[0].name, cents: gap, index: unreadCharges[0].index });
         chargeTotal += gap;
-        warnings.push(`The amount of "${unreadCharges[0].name}" couldn't be read; ${money(gap)} was worked out from the total — check it.`);
+        warnings.push(tr("receipt.unreadCharge", { name: unreadCharges[0].name, amount: money(gap) }));
       }
     }
     if (fixedNote) warnings.push(fixedNote);
@@ -389,18 +392,18 @@
       const gap = totalCents - (itemsNet + chargeTotal);
       if (unpricedOut.length === 1 && gap > 0 && gap <= Math.round(totalCents * 0.6)) {
         unpricedOut[0].cents = gap;
-        warnings.push(`The price of "${unpricedOut[0].name}" wasn't read; ${money(gap)} was worked out from the total — check it.`);
+        warnings.push(tr("receipt.unreadPrice", { name: unpricedOut[0].name, amount: money(gap) }));
       } else {
-        warnings.push(`${unpricedOut.length === 1 ? "1 line has" : unpricedOut.length + " lines have"} no price read (${unpricedOut.map((u) => `"${u.name}"`).slice(0, 4).join(", ")}) — fill ${unpricedOut.length === 1 ? "it" : "them"} in.`);
+        warnings.push(tr("receipt.noPriceNamed", { n: unpricedOut.length, names: unpricedOut.map((u) => `"${u.name}"`).slice(0, 4).join(", ") }));
       }
     } else if (unpricedOut.length) {
-      warnings.push(`${unpricedOut.length} line${unpricedOut.length === 1 ? "" : "s"} with no price read — fill in the price${unpricedOut.length === 1 ? "" : "s"}.`);
+      warnings.push(tr("receipt.noPrice", { n: unpricedOut.length }));
     }
-    if (totalCents === null) warnings.push("No total found — type the total printed on the bill.");
+    if (totalCents === null) warnings.push(tr("receipt.noTotal"));
     else if (totalCents !== itemsNet + chargeTotal && !unpricedOut.length) {
-      warnings.push(`The lines read add up to ${money(itemsNet + chargeTotal)} but the bill says ${money(totalCents)} — check the list below.`);
+      warnings.push(tr("receipt.mismatch", { read: money(itemsNet + chargeTotal), total: money(totalCents) }));
     }
-    if (!kept.some((i) => !i.discount) && !unpriced.length) warnings.push("No items could be read — add them by hand.");
+    if (!kept.some((i) => !i.discount) && !unpriced.length) warnings.push(tr("receipt.noItems"));
 
     // Receipt order (a discount moved under its dish stays there); a line with no
     // price goes before the first priced line that came after it on the paper.

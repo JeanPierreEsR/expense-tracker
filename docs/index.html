@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-12T21:31:25Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-13T03:32:07Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -22,15 +22,15 @@
   </header>
 
   <div id="setup-screen" class="setup-screen" hidden>
-    <p>Enter the access code to connect this app to your Google Sheet.</p>
+    <p data-i18n="signin.intro">Enter the access code to connect this app to your Google Sheet.</p>
     <form id="setup-form">
-      <input type="password" id="setup-code-input" placeholder="Access code" autocomplete="off" required>
-      <button type="submit" class="primary">Connect</button>
+      <input type="password" id="setup-code-input" data-i18n-placeholder="signin.placeholder" placeholder="Access code" autocomplete="off" required>
+      <button type="submit" class="primary" data-i18n="signin.connect">Connect</button>
     </form>
     <p class="hint" id="setup-error" style="color:#d64545;"></p>
   </div>
 
-  <div id="loading-screen" class="status-msg" hidden>
+  <div id="loading-screen" class="status-msg" hidden data-i18n="signin.loading">
     Connecting… this can take up to 20 seconds if the app hasn't been used in a while.
   </div>
 
@@ -378,23 +378,23 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-perf-btn">
-            <span>⏱ Performance log</span>
+            <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-statements-btn">
-            <span>🏦 Statements</span>
+            <span data-i18n="more.statements">🏦 Statements</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-export-btn">
-            <span>📤 Export data</span>
+            <span data-i18n="more.export">📤 Export data</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
-            <span>📱 Signed-in devices</span>
+            <span data-i18n="more.devices">📱 Signed-in devices</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-signout-btn">
-            <span>🚪 Sign out of this device</span>
+            <span data-i18n="more.signout">🚪 Sign out of this device</span>
             <span class="more-list-chevron">›</span>
           </button>
         </div>
@@ -454,12 +454,12 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="perf-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;">Performance log</h2>
-        <p class="hint">How long each server call and each app start took on this phone (last ~600 events). "server" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.</p>
+        <h2 style="margin-top:0;" data-i18n="perf.title">Performance log</h2>
+        <p class="hint" data-i18n="perf.hint">How long each server call and each app start took on this phone (last ~600 events). "server" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.</p>
         <div id="perf-summary"></div>
         <div style="display:flex;gap:8px;margin-top:12px;">
-          <button type="button" class="add-inline" id="perf-copy-btn">Copy report</button>
-          <button type="button" class="add-inline" id="perf-clear-btn">Clear</button>
+          <button type="button" class="add-inline" id="perf-copy-btn" data-i18n="perf.copy">Copy report</button>
+          <button type="button" class="add-inline" id="perf-clear-btn" data-i18n="perf.clear">Clear</button>
         </div>
       </div>
     </div>
@@ -469,26 +469,26 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="export-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;">Export data</h2>
-        <p class="hint">Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.</p>
+        <h2 style="margin-top:0;" data-i18n="export.title">Export data</h2>
+        <p class="hint" data-i18n="export.hint">Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.</p>
 
         <div class="export-option">
           <label class="checkbox-row">
             <input type="checkbox" id="export-entries-check">
-            <span><strong>Entries spreadsheet (CSV)</strong></span>
+            <span><strong data-i18n="export.entriesCsv">Entries spreadsheet (CSV)</strong></span>
           </label>
-          <p class="hint">One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.</p>
+          <p class="hint" data-i18n="export.entriesHint">One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.</p>
           <div id="export-entries-options" hidden>
-            <label for="export-range">Which entries</label>
+            <label for="export-range" data-i18n="export.which">Which entries</label>
             <select id="export-range">
-              <option value="month">This month</option>
-              <option value="year">This year</option>
-              <option value="all">All time</option>
-              <option value="custom">Custom dates…</option>
+              <option value="month" data-i18n="export.thisMonth">This month</option>
+              <option value="year" data-i18n="export.thisYear">This year</option>
+              <option value="all" data-i18n="export.all">All time</option>
+              <option value="custom" data-i18n="export.custom">Custom dates…</option>
             </select>
             <div id="export-custom-fields" class="row" hidden>
               <div>
-                <label for="export-start">From</label>
+                <label for="export-start" data-i18n="period.from">From</label>
                 <input type="date" id="export-start">
               </div>
               <div>
@@ -498,7 +498,7 @@
             </div>
             <label class="checkbox-row">
               <input type="checkbox" id="export-pending-check">
-              <span>Include entries still waiting for review</span>
+              <span data-i18n="export.includePending">Include entries still waiting for review</span>
             </label>
           </div>
         </div>
@@ -506,12 +506,12 @@
         <div class="export-option">
           <label class="checkbox-row">
             <input type="checkbox" id="export-backup-check">
-            <span><strong>Full backup (JSON)</strong></span>
+            <span><strong data-i18n="export.backupJson">Full backup (JSON)</strong></span>
           </label>
-          <p class="hint">Every record in the app as stored (entries, loans, repayments, budgets, programmed items, rates…). For safekeeping, not for reading. Receipt photos and sign-in details are not included.</p>
+          <p class="hint" data-i18n="export.backupHint">Every record in the app as stored (entries, loans, repayments, budgets, programmed items, rates…). For safekeeping, not for reading. Receipt photos and sign-in details are not included.</p>
         </div>
 
-        <button type="button" class="primary" id="export-send-btn" disabled>Send to my email</button>
+        <button type="button" class="primary" id="export-send-btn" disabled data-i18n="export.send">Send to my email</button>
         <p class="hint" id="export-status" role="status"></p>
       </div>
     </div>
@@ -521,38 +521,38 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="statements-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;">Statements</h2>
-        <p class="hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
+        <h2 style="margin-top:0;" data-i18n="stmt.title">Statements</h2>
+        <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
         <div id="statement-coverage-list"></div>
       </div>
 
       <div class="card" id="statement-inbox-card">
-        <h2 style="margin-top:0;">Inbox</h2>
-        <p class="hint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password each time.</p>
+        <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
+        <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password each time.</p>
         <div id="statement-inbox-list"></div>
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0;">Read a statement</h2>
-        <p class="hint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
+        <h2 style="margin-top:0;" data-i18n="stmt.read">Read a statement</h2>
+        <p class="hint" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
         <label class="stmt-upload-btn">
-          Choose statement PDFs
+          <span data-i18n="stmt.choose">Choose statement PDFs</span>
           <input type="file" id="statement-file-input" accept="application/pdf,.pdf" multiple hidden>
         </label>
         <div id="statement-results"></div>
       </div>
 
       <div class="card" id="statement-review-card" hidden>
-        <h2 style="margin-top:0;">Review</h2>
+        <h2 style="margin-top:0;" data-i18n="stmt.review">Review</h2>
         <p class="hint" id="statement-review-hint"></p>
-        <button type="button" class="primary" id="statement-review-btn">Review</button>
+        <button type="button" class="primary" id="statement-review-btn" data-i18n="stmt.review">Review</button>
         <div id="statement-review"></div>
         <div id="statement-review-status"></div>
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0;">Recent uploads</h2>
-        <p class="hint">Each saved upload can be undone in one step.</p>
+        <h2 style="margin-top:0;" data-i18n="stmt.recent">Recent uploads</h2>
+        <p class="hint" data-i18n="stmt.recentHint">Each saved upload can be undone in one step.</p>
         <div id="statement-batches"></div>
       </div>
     </div>
@@ -652,58 +652,58 @@
   <div id="bill-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal bill-modal">
       <div class="currency-modal-header">
-        <span>🧾 Split a bill by items</span>
+        <span data-i18n="bill.title">🧾 Split a bill by items</span>
         <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="bill-scroll">
-        <button type="button" class="add-inline" id="bill-photo-btn">📷 Read the items from a photo</button>
+        <button type="button" class="add-inline" id="bill-photo-btn" data-i18n="bill.photo">📷 Read the items from a photo</button>
         <input type="file" id="bill-photo-input" accept="image/*" hidden>
         <p class="hint" id="bill-photo-status" hidden></p>
         <details id="bill-photo-raw" hidden>
-          <summary class="hint">What the phone read — you can correct it here</summary>
-          <p class="hint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
+          <summary class="hint" data-i18n="bill.rawSummary">What the phone read — you can correct it here</summary>
+          <p class="hint" data-i18n="bill.rawHint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
           <textarea id="bill-photo-text" class="bill-photo-text" rows="9" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
-          <button type="button" class="add-inline" id="bill-photo-reparse">↻ Work out the items again from this text</button>
+          <button type="button" class="add-inline" id="bill-photo-reparse" data-i18n="bill.reparse">↻ Work out the items again from this text</button>
         </details>
-        <p class="hint bill-check-bad" id="bill-stale-note" hidden>This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
-        <label for="bill-total">Bill total before discounts (<span id="bill-currency">PEN</span>)</label>
+        <p class="hint bill-check-bad" id="bill-stale-note" hidden data-i18n="bill.stale">This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
+        <label for="bill-total"><span data-i18n="bill.totalBefore">Bill total before discounts</span> (<span id="bill-currency">PEN</span>)</label>
         <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
-        <p class="hint">The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.</p>
+        <p class="hint" data-i18n="bill.totalHint">The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.</p>
 
-        <label>Who is splitting (you are always in)</label>
+        <label data-i18n="bill.who">Who is splitting (you are always in)</label>
         <div class="tags-list" id="bill-people-chips"></div>
-        <div class="add-inline" id="bill-add-friend">+ Add friend…</div>
+        <div class="add-inline" id="bill-add-friend" data-i18n="common.addFriend">+ Add friend…</div>
 
-        <label>Items</label>
+        <label data-i18n="bill.items">Items</label>
         <div id="bill-items"></div>
-        <div class="add-inline" id="bill-add-item">+ Add item</div>
+        <div class="add-inline" id="bill-add-item" data-i18n="bill.addItem">+ Add item</div>
 
-        <label>Discounts &amp; extra charges</label>
-        <p class="hint">A promo, a voucher, a service fee that isn't a dish. Choose how it is shared.</p>
+        <label data-i18n="bill.adjs">Discounts &amp; extra charges</label>
+        <p class="hint" data-i18n="bill.adjsHint">A promo, a voucher, a service fee that isn't a dish. Choose how it is shared.</p>
         <div id="bill-adjs"></div>
         <div class="bill-add-row">
-          <div class="add-inline" id="bill-add-discount">+ Discount</div>
-          <div class="add-inline" id="bill-add-charge">+ Extra charge</div>
+          <div class="add-inline" id="bill-add-discount" data-i18n="bill.addDiscount">+ Discount</div>
+          <div class="add-inline" id="bill-add-charge" data-i18n="bill.addCharge">+ Extra charge</div>
         </div>
 
-        <label>Tip</label>
+        <label data-i18n="bill.tip">Tip</label>
         <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-type-tabs">
-          <div class="type-tab active" data-v="percent">Percent</div>
-          <div class="type-tab" data-v="amount">Fixed amount</div>
+          <div class="type-tab active" data-v="percent" data-i18n="bill.tipPercentTab">Percent</div>
+          <div class="type-tab" data-v="amount" data-i18n="bill.tipAmountTab">Fixed amount</div>
         </div>
-        <label for="bill-tip-value" id="bill-tip-label">Tip percent (%)</label>
+        <label for="bill-tip-value" id="bill-tip-label" data-i18n="bill.tipPercentLabel">Tip percent (%)</label>
         <input type="text" id="bill-tip-value" class="bill-tip-input" inputmode="decimal" placeholder="e.g. 10" autocomplete="off">
         <p class="hint" id="bill-tip-preview"></p>
         <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-mode-tabs">
-          <div class="type-tab active" data-v="proportional">By what each ordered</div>
-          <div class="type-tab" data-v="equal">Equal</div>
+          <div class="type-tab active" data-v="proportional" data-i18n="bill.byOrdered">By what each ordered</div>
+          <div class="type-tab" data-v="equal" data-i18n="split.equal">Equal</div>
         </div>
 
         <p class="hint" id="bill-check"></p>
         <div id="bill-result"></div>
       </div>
       <p class="hint" id="bill-error" style="color:#d64545;"></p>
-      <button type="button" class="primary" id="bill-apply">Use this split</button>
+      <button type="button" class="primary" id="bill-apply" data-i18n="bill.apply">Use this split</button>
     </div>
   </div>
 
@@ -850,15 +850,15 @@
   <div id="devices-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span>Signed-in devices</span>
-        <button type="button" id="devices-modal-close" class="currency-modal-close" aria-label="Close">✕</button>
+        <span data-i18n="devices.title">Signed-in devices</span>
+        <button type="button" id="devices-modal-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
+        <p class="hint" data-i18n="devices.hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
         <p class="hint" id="devices-status" style="font-weight:600;"></p>
         <div id="devices-list"></div>
         <p class="hint" id="devices-error" style="color:#d64545;"></p>
-        <button type="button" class="add-inline" id="devices-signout-others-btn">Sign out all my other devices</button>
+        <button type="button" class="add-inline" id="devices-signout-others-btn" data-i18n="devices.signOutOthers">Sign out all my other devices</button>
       </div>
     </div>
   </div>
@@ -1131,33 +1131,33 @@
 
   <div id="statement-match-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
-      <div class="currency-modal-header"><span>Which entry is this?</span></div>
+      <div class="currency-modal-header"><span data-i18n="stmt.whichEntry">Which entry is this?</span></div>
       <p class="hint" id="statement-match-title" style="margin:6px 0;"></p>
       <div class="currency-option-list" id="statement-match-list"></div>
-      <button type="button" class="cancel-edit-btn" id="statement-match-cancel">Cancel</button>
+      <button type="button" class="cancel-edit-btn" id="statement-match-cancel" data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 
   <div id="statement-password-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span>PDF password</span>
+        <span data-i18n="stmt.pdfPassword">PDF password</span>
       </div>
       <p class="hint" id="statement-password-file" style="margin:8px 0 0;"></p>
       <p class="hint" id="statement-password-msg" style="margin:4px 0 8px;"></p>
-      <input type="password" id="statement-password-input" placeholder="Password" autocomplete="off">
-      <p class="hint" style="margin:6px 0 10px;">Asked every time; it is never saved.</p>
-      <button type="button" class="primary" id="statement-password-ok">Open</button>
-      <button type="button" class="cancel-edit-btn" id="statement-password-cancel">Skip this file</button>
+      <input type="password" id="statement-password-input" data-i18n-placeholder="stmt.passwordPlaceholder" placeholder="Password" autocomplete="off">
+      <p class="hint" style="margin:6px 0 10px;" data-i18n="stmt.passwordHint">Asked every time; it is never saved.</p>
+      <button type="button" class="primary" id="statement-password-ok" data-i18n="stmt.open">Open</button>
+      <button type="button" class="cancel-edit-btn" id="statement-password-cancel" data-i18n="stmt.skipFile">Skip this file</button>
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="i18n.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="receipt-parse.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="bill-split.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="app.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="statement-parsers.js?v=2026-10-12T21:31:25Z"></script>
-  <script src="statements.js?v=2026-10-12T21:31:25Z"></script>
+  <script src="strings.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="i18n.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="receipt-parse.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="bill-split.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="app.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="statement-parsers.js?v=2026-10-13T03:32:07Z"></script>
+  <script src="statements.js?v=2026-10-13T03:32:07Z"></script>
 </body>
 </html>

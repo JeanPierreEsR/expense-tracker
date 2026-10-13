@@ -24,6 +24,9 @@
   else root.StatementParsers = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
 
+  // Messages for the person go through the language engine (browser: window.tr; tests: Node, English).
+  function msg(key, params) { return (typeof module === 'object' && module.exports ? require('./i18n.js').tr : window.tr)(key, params); }
+
   var MONTHS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, set: 9, sep: 9, oct: 10, nov: 11, dic: 12 };
   var MONTH_WORDS = {
     enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8,
@@ -152,13 +155,13 @@
       if (c.length < 4 || !/^\d{2}\/\d{2}\/\d{4}$/.test(c[0].str)) return;
       var bal = c[c.length - 1].str, amt = c[c.length - 2].str;
       if (!isAmount(bal) || !/^[+-]/.test(amt) || !isAmount(amt)) {
-        errors.push('Unreadable movement row: ' + r.text);
+        errors.push(msg('sp.unreadableRow', { text: r.text }));
         return;
       }
       var d = c[0].str.split('/');
       var amount = num(amt), balance = num(bal);
       if (round2(running + amount) !== round2(balance)) {
-        errors.push('Running balance breaks at "' + r.text + '" (expected ' + round2(running + amount).toFixed(2) + ').');
+        errors.push(msg('sp.runningBreaks', { text: r.text, expected: round2(running + amount).toFixed(2) }));
       }
       running = balance;
       if (amount > 0) totalIn = round2(totalIn + amount); else totalOut = round2(totalOut + amount);
@@ -171,11 +174,11 @@
 
     var closeRow = body[body.length - 1];
     var cm = closeRow.text.match(/^SALDO CONTABLE AL\s+(\d{2})\/(\d{2})\s+([+-][\d,]+\.\d{2})\s+([+-][\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})/i);
-    if (!cm) return fail('savings', errors.concat(['Closing line unreadable: ' + closeRow.text]));
+    if (!cm) return fail('savings', errors.concat([msg('sp.closingUnreadable', { text: closeRow.text })]));
     var closing = num(cm[5]);
-    if (round2(running) !== round2(closing)) errors.push('Last running balance ' + running.toFixed(2) + ' ≠ closing ' + closing.toFixed(2) + '.');
-    if (round2(totalIn) !== round2(num(cm[3]))) errors.push('Ingresos read ' + totalIn.toFixed(2) + ' ≠ statement total ' + num(cm[3]).toFixed(2) + '.');
-    if (round2(totalOut) !== round2(num(cm[4]))) errors.push('Gastos read ' + totalOut.toFixed(2) + ' ≠ statement total ' + num(cm[4]).toFixed(2) + '.');
+    if (round2(running) !== round2(closing)) errors.push(msg('sp.lastRunning', { a: running.toFixed(2), b: closing.toFixed(2) }));
+    if (round2(totalIn) !== round2(num(cm[3]))) errors.push(msg('sp.ingresosRead', { a: totalIn.toFixed(2), b: num(cm[3]).toFixed(2) }));
+    if (round2(totalOut) !== round2(num(cm[4]))) errors.push(msg('sp.gastosRead', { a: totalOut.toFixed(2), b: num(cm[4]).toFixed(2) }));
 
     var year = lines.length ? +lines[lines.length - 1].date.substring(0, 4) : new Date().getFullYear();
     var endDate = iso(year, +cm[2], +cm[1]);
@@ -253,7 +256,7 @@
         ['PEN', 'USD'].forEach(function (cur) {
           var read = round2((rowsSum[cur] || 0) + (key === 'payments' ? (prev[cur] || 0) : 0));
           var want = sub[cur] === undefined ? 0 : sub[cur];
-          if (round2(read) !== round2(want)) errors.push('Subtotal (' + key + ', ' + cur + ') read ' + read.toFixed(2) + ' ≠ statement ' + want.toFixed(2) + '.');
+          if (round2(read) !== round2(want)) errors.push(msg('sp.subtotal', { key: key, cur: cur, a: read.toFixed(2), b: want.toFixed(2) }));
         });
         subtotals[key] = sub;
         if (section === 'purchases') rowsSum = rowsSum; // purchases may span pages; a subtotal closes it
@@ -274,7 +277,7 @@
       var amts = r.cells.filter(function (c) { return c.x0 > 300 && isAmount(c.str); });
       var desc = r.cells.slice(1).filter(function (c) { return !(c.x0 > 300 && isAmount(c.str)); })
         .map(function (c) { return c.str; }).join(' ');
-      if (!amts.length) { errors.push('Movement without an amount: ' + t); return; }
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: t })); return; }
       amts.forEach(function (c) {
         var cur = currencyByX(c, split);
         var printed = num(c.str);
@@ -286,14 +289,14 @@
     });
 
     var credit = {};        // per currency: negative sum of subtotals when the card is in credit
-    if (!monthly) errors.push('"PAGO DEL MES" total not found.');
+    if (!monthly) errors.push(msg('sp.pagoMissing'));
     else {
       ['PEN', 'USD'].forEach(function (cur) {
         var sum = round2(['payments', 'purchases', 'fees'].reduce(function (a, k) { return a + ((subtotals[k] && subtotals[k][cur]) || 0); }, 0));
         // Paid more than owed: the bank prints PAGO DEL MES as 0.00 but the subtotals add to a
         // negative (a credit balance carried to the next statement) — that is consistent, not an error.
         if (round2(monthly[cur] || 0) === 0 && sum < 0) { credit[cur] = sum; return; }
-        if (round2(monthly[cur] || 0) !== sum) errors.push('Sum of subtotals ' + sum.toFixed(2) + ' ≠ PAGO DEL MES ' + (monthly[cur] || 0).toFixed(2) + ' (' + cur + ').');
+        if (round2(monthly[cur] || 0) !== sum) errors.push(msg('sp.sumSubtotals', { a: sum.toFixed(2), b: (monthly[cur] || 0).toFixed(2), cur: cur }));
       });
     }
     var balances = {};
@@ -340,7 +343,7 @@
         r.cells.filter(function (c) { return isAmount(c.str); }).forEach(function (c) { sub[currencyByX(c, SPLIT)] = num(c.str); });
         ['PEN', 'USD'].forEach(function (cur) {
           var read = round2(rowsSum[cur] || 0), want = sub[cur] === undefined ? 0 : sub[cur];
-          if (read !== round2(want)) errors.push('Sub total (' + section + ', ' + cur + ') read ' + read.toFixed(2) + ' ≠ statement ' + want.toFixed(2) + '.');
+          if (read !== round2(want)) errors.push(msg('sp.subTotalSection', { section: section, cur: cur, a: read.toFixed(2), b: want.toFixed(2) }));
         });
         subtotals[section] = sub;
         section = null;
@@ -354,7 +357,7 @@
       var amts = r.cells.filter(function (c) { return c.x0 > 300 && isAmount(c.str); });
       var desc = r.cells.slice(1).filter(function (c) { return !(c.x0 > 300 && isAmount(c.str)) && !dateRe.test(c.str); })
         .map(function (c) { return c.str; }).join(' ');
-      if (!amts.length) { errors.push('Movement without an amount: ' + t); return; }
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: t })); return; }
       amts.forEach(function (c) {
         var cur = currencyByX(c, SPLIT);
         var printed = num(c.str);
@@ -428,7 +431,7 @@
       var amts = r.cells.filter(function (c) { return c.x0 > 300 && isAmount(c.str); });
       var desc = r.cells.slice(2).filter(function (c) { return c.x0 < 300 && !/^[*\d]$/.test(c.str); })
         .map(function (c) { return c.str; }).join(' ');
-      if (!amts.length) { errors.push('Movement without an amount: ' + t); return; }
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: t })); return; }
       var c = amts[0];
       var value = num(c.str);
       var isCharge = c.x1 < split;
@@ -440,12 +443,12 @@
       });
     });
 
-    if (opening === null || closing === null) errors.push('Opening ("SALDO ANTERIOR") or closing ("SALDO") balance not found.');
-    if (totalCharges === null || totalCredits === null) errors.push('"TOTAL MOVIMIENTO" not found.');
+    if (opening === null || closing === null) errors.push(msg('sp.openingClosingMissing'));
+    if (totalCharges === null || totalCredits === null) errors.push(msg('sp.totalMovMissing'));
     if (opening !== null && closing !== null && totalCharges !== null && totalCredits !== null) {
-      if (round2(opening + totalCredits - totalCharges) !== round2(closing)) errors.push('Opening + credits − charges = ' + round2(opening + totalCredits - totalCharges).toFixed(2) + ' ≠ closing ' + closing.toFixed(2) + '.');
-      if (round2(sumCharges) !== round2(totalCharges)) errors.push('Charges read ' + sumCharges.toFixed(2) + ' ≠ statement ' + totalCharges.toFixed(2) + '.');
-      if (round2(sumCredits) !== round2(totalCredits)) errors.push('Credits read ' + sumCredits.toFixed(2) + ' ≠ statement ' + totalCredits.toFixed(2) + '.');
+      if (round2(opening + totalCredits - totalCharges) !== round2(closing)) errors.push(msg('sp.openingCredits', { a: round2(opening + totalCredits - totalCharges).toFixed(2), b: closing.toFixed(2) }));
+      if (round2(sumCharges) !== round2(totalCharges)) errors.push(msg('sp.chargesRead', { a: sumCharges.toFixed(2), b: totalCharges.toFixed(2) }));
+      if (round2(sumCredits) !== round2(totalCredits)) errors.push(msg('sp.creditsRead', { a: sumCredits.toFixed(2), b: totalCredits.toFixed(2) }));
     }
     var balances = {};
     balances[currency] = { opening: opening, closing: closing };
@@ -523,7 +526,7 @@
       if (!inMovements || !r.cells[0] || !dateRe.test(r.cells[0].str)) return;
       var d = r.cells[0].str.split('/');
       var amtCell = r.cells.filter(function (c) { return isAmount(c.str); }).pop();
-      if (!amtCell) { errors.push('Movement without an amount: ' + t); return; }
+      if (!amtCell) { errors.push(msg('sp.noAmount', { text: t })); return; }
       var printed = num(amtCell.str);
       var desc = r.cells.slice(1).filter(function (c) { return c !== amtCell && !/^[TA]$/.test(c.str); })
         .map(function (c) { return c.str; }).join(' ');
@@ -539,12 +542,12 @@
       var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
       if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
     });
-    if (prev === null) errors.push('"SALDO MES ANTERIOR" not found.');
-    if (!summary) errors.push('"(C) DEUDA TOTAL" summary line not found or does not add up.');
+    if (prev === null) errors.push(msg('sp.prevMissing'));
+    if (!summary) errors.push(msg('sp.summaryMissing'));
     else {
-      if (prev !== null && round2(prev) !== round2(summary[0])) errors.push('Opening debt ' + prev.toFixed(2) + ' ≠ statement ' + summary[0].toFixed(2) + '.');
-      if (round2(charges) !== round2(summary[1])) errors.push('Purchases + interest read ' + charges.toFixed(2) + ' ≠ statement ' + summary[1].toFixed(2) + '.');
-      if (round2(-credits) !== round2(summary[2])) errors.push('Payments + reversals read ' + (-credits).toFixed(2) + ' ≠ statement ' + summary[2].toFixed(2) + '.');
+      if (prev !== null && round2(prev) !== round2(summary[0])) errors.push(msg('sp.openingDebt', { a: prev.toFixed(2), b: summary[0].toFixed(2) }));
+      if (round2(charges) !== round2(summary[1])) errors.push(msg('sp.purchasesInterest', { a: charges.toFixed(2), b: summary[1].toFixed(2) }));
+      if (round2(-credits) !== round2(summary[2])) errors.push(msg('sp.paymentsReversals', { a: (-credits).toFixed(2), b: summary[2].toFixed(2) }));
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
@@ -563,7 +566,7 @@
     if (kind === 'bcp') return parseBcp(rows);
     if (kind === 'ahorramas') return parseAhorramas(rows);
     if (kind === 'sip') return parseSip(rows);
-    return fail(null, ['This statement layout is not recognized yet.']);
+    return fail(null, [msg('sp.notRecognized')]);
   }
 
   return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind };

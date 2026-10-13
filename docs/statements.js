@@ -69,23 +69,23 @@
 
   async function refreshStatementInbox() {
     const list = $("statement-inbox-list");
-    list.innerHTML = '<p class="hint">Loading…</p>';
+    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
     try { inbox = (await callApi("listStatementInbox", {})).items; }
-    catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
-    if (!inbox.length) { list.innerHTML = '<p class="hint">Nothing waiting. New statements from your banks show up here.</p>'; return; }
+    catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
+    if (!inbox.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.inboxEmpty"))}</p>`; return; }
     const waitingCount = inbox.filter((i) => i.status === "new").length;
     const openAll = waitingCount > 1
-      ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-inbox-open-all">Open all ${waitingCount} waiting</button></div>`
+      ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-inbox-open-all">${escapeHtml(tr("stmt.openAll", { n: waitingCount }))}</button></div>`
       : "";
     list.innerHTML = openAll + inbox.map((i) => {
       const done = i.status === "processed";
-      const note = done ? "✅ Processed" : (i.probably_processed ? `Probably already processed (you processed this account on ${fmtDate(i.last_processed, true)})` : "🟡 Not processed");
+      const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
       return `<div class="stmt-row"><div class="stmt-row-main">
-        <div class="stmt-row-title">${escapeHtml(i.bank)} · received ${escapeHtml(fmtDate(i.received, true))}</div>
+        <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.bank, date: fmtDate(i.received, true) }))}</div>
         <div class="stmt-row-sub">${escapeHtml(note)} · ${i.size_kb} KB</div>
         <div class="stmt-choices" style="padding-left:0">
-          <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">Open</button>
-          ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">Dismiss</button>`}
+          <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
+          ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.dismiss"))}</button>`}
         </div></div></div>`;
     }).join("");
   }
@@ -104,14 +104,14 @@
 
   async function openInboxItem(id, btn) {
     if (!inbox.find((i) => i.id === id)) return;
-    btn.disabled = true; btn.textContent = "Fetching…";
+    btn.disabled = true; btn.textContent = tr("stmt.fetching");
     try {
       await fetchAndReadInboxItem(id);
       $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
-      alert("Couldn't fetch that statement: " + (err && err.message ? err.message : err));
+      alert(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
     }
-    btn.disabled = false; btn.textContent = "Open";
+    btn.disabled = false; btn.textContent = tr("stmt.open");
   }
 
   // Opens every statement still waiting in the inbox, one after another (easy on a phone's memory;
@@ -123,30 +123,30 @@
     btn.disabled = true;
     const failed = [];
     for (let n = 0; n < waiting.length; n++) {
-      btn.textContent = `Opening ${n + 1} of ${waiting.length}…`;
+      btn.textContent = tr("stmt.openingN", { i: n + 1, n: waiting.length });
       try { await fetchAndReadInboxItem(waiting[n].id); }
       catch (err) { failed.push(`${waiting[n].bank} (${waiting[n].received}): ${err && err.message ? err.message : err}`); }
     }
     btn.disabled = false; btn.textContent = label;
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (failed.length) alert("Couldn't fetch:\n" + failed.join("\n"));
+    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
   // ---- coverage list ----
 
   const STATUS_LABEL = {
-    ok: ["✅", "Up to date"],
-    due: ["🔴", "Newer statement due"],
-    never: ["⚪", "None processed yet"]
+    ok: ["✅", () => tr("stmt.statusOk")],
+    due: ["🔴", () => tr("stmt.statusDue")],
+    never: ["⚪", () => tr("stmt.statusNever")]
   };
 
   async function refreshStatementCoverage() {
     const list = $("statement-coverage-list");
-    list.innerHTML = '<p class="hint">Loading…</p>';
+    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
     try {
       coverage = await callApi("listStatementCoverage", {});
     } catch (err) {
-      list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
+      list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
       return;
     }
     renderCoverage();
@@ -155,22 +155,23 @@
   function renderCoverage() {
     const list = $("statement-coverage-list");
     if (!coverage || !coverage.accounts.length) {
-      list.innerHTML = '<p class="hint">No accounts to track yet.</p>';
+      list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.noAccounts"))}</p>`;
       return;
     }
     list.innerHTML = coverage.accounts.map((a) => {
-      const [icon, text] = STATUS_LABEL[a.status] || STATUS_LABEL.never;
+      const [icon, textFn] = STATUS_LABEL[a.status] || STATUS_LABEL.never;
+      const text = textFn();
       const last = a.last
-        ? `Last: ${fmtDate(a.last.period_start)} – ${fmtDate(a.last.period_end, true)} · processed ${fmtDate(a.last.processed_at)}${a.last.verified ? "" : " · ⚠ couldn't be verified"}`
-        : "Nothing processed yet";
-      const next = a.next_expected ? `Next expected ≈ ${fmtDate(a.next_expected)}` : "";
+        ? tr("stmt.lastLine", { start: fmtDate(a.last.period_start), end: fmtDate(a.last.period_end, true), when: fmtDate(a.last.processed_at), unverified: a.last.verified ? "" : tr("stmt.unverified") })
+        : tr("stmt.nothingProcessed");
+      const next = a.next_expected ? tr("stmt.nextExpected", { date: fmtDate(a.next_expected) }) : "";
       return `<div class="stmt-row">
         <div class="stmt-row-main">
           <div class="stmt-row-title">${escapeHtml(a.label)}</div>
           <div class="stmt-row-sub">${escapeHtml(last)}</div>
           ${next ? `<div class="stmt-row-sub">${escapeHtml(next)}</div>` : ""}
         </div>
-        <span class="stmt-chip ${a.status}">${a.inbox_waiting ? `🟡 ${a.inbox_waiting} in inbox` : `${icon} ${text}`}</span>
+        <span class="stmt-chip ${a.status}">${a.inbox_waiting ? escapeHtml(tr("stmt.inInbox", { n: a.inbox_waiting })) : `${icon} ${escapeHtml(text)}`}</span>
       </div>`;
     }).join("");
   }
@@ -187,7 +188,7 @@
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = `vendor/pdfjs/pdf.worker.min.js?v=${APP_VERSION}`;
           resolve(window.pdfjsLib);
         };
-        s.onerror = () => { pdfjsPromise = null; reject(new Error("Couldn't load the PDF reader.")); };
+        s.onerror = () => { pdfjsPromise = null; reject(new Error(tr("stmt.pdfLoadFailed"))); };
         document.head.appendChild(s);
       });
     }
@@ -203,8 +204,8 @@
       passwordResolve = resolve;
       $("statement-password-file").textContent = fileName;
       $("statement-password-msg").textContent = reason === 2
-        ? "That password didn't work. Try again."
-        : "This PDF is password-protected.";
+        ? tr("stmt.pwWrong")
+        : tr("stmt.pwProtected");
       $("statement-password-input").value = "";
       const backdrop = $("statement-password-backdrop");
       bringModalToFront_(backdrop);
@@ -226,7 +227,7 @@
   function resultCardShell(fileName) {
     const card = document.createElement("div");
     card.className = "stmt-result";
-    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body"><p class="hint">Reading… (a big statement can take a few seconds)</p></div>`;
+    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body"><p class="hint">${escapeHtml(tr("stmt.reading"))}</p></div>`;
     $("statement-results").prepend(card);
     return card.querySelector(".stmt-result-body");
   }
@@ -236,20 +237,20 @@
     const acct = coverage.accounts.find((a) => a.key === accountKeyOf(result));
     const notes = [];
     if (!acct) {
-      notes.push(["warn", `Not one of your tracked accounts (${escapeHtml(accountKeyOf(result) || "unknown")}).`]);
+      notes.push(["warn", escapeHtml(tr("stmt.noteNotTracked", { key: accountKeyOf(result) || tr("stmt.noteUnknown") }))]);
       return notes;
     }
-    notes.push(["info", `Account: ${escapeHtml(acct.label)}`]);
+    notes.push(["info", escapeHtml(tr("stmt.noteAccount", { label: acct.label }))]);
     const last = acct.last;
     if (!last) return notes;
     if (result.period.end === last.period_end) {
-      notes.push(["warn", `Already processed on ${escapeHtml(fmtDate(last.processed_at, true))} — this is the same period.`]);
+      notes.push(["warn", escapeHtml(tr("stmt.noteSamePeriod", { date: fmtDate(last.processed_at, true) }))]);
     } else if (result.period.end < last.period_end) {
-      notes.push(["warn", `Older than the last statement you processed (it ended ${escapeHtml(fmtDate(last.period_end, true))}).`]);
+      notes.push(["warn", escapeHtml(tr("stmt.noteOlder", { date: fmtDate(last.period_end, true) }))]);
     } else {
-      notes.push(["ok", `Newer than the last one processed (ended ${escapeHtml(fmtDate(last.period_end, true))}).`]);
+      notes.push(["ok", escapeHtml(tr("stmt.noteNewer", { date: fmtDate(last.period_end, true) }))]);
       if (result.period.start && result.period.start > addDaysISO(last.period_end, 1)) {
-        notes.push(["warn", `Gap: ${escapeHtml(fmtDate(addDaysISO(last.period_end, 1)))} to ${escapeHtml(fmtDate(addDaysISO(result.period.start, -1)))} isn't covered by any statement.`]);
+        notes.push(["warn", escapeHtml(tr("stmt.noteGap", { from: fmtDate(addDaysISO(last.period_end, 1)), to: fmtDate(addDaysISO(result.period.start, -1)) }))]);
       }
     }
     return notes;
@@ -257,20 +258,20 @@
 
   function renderResult(body, result) {
     if (!result.kind) {
-      body.innerHTML = `<p class="stmt-verdict bad">✗ Layout not recognised</p><p class="hint">${escapeHtml((result.errors || ["This statement isn't one of the supported layouts yet."])[0])}</p>`;
+      body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p>`;
       return;
     }
     let verdict;
-    if (!result.ok) verdict = '<p class="stmt-verdict bad">✗ Not usable — the numbers don\'t add up</p>';
-    else if (result.verified === false) verdict = '<p class="stmt-verdict warn">⚠ Read, but it couldn\'t be verified (this kind of statement has no balance to check against)</p>';
-    else verdict = '<p class="stmt-verdict good">✓ Read and checked — every total adds up</p>';
+    if (!result.ok) verdict = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.verdictBad"))}</p>`;
+    else if (result.verified === false) verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.verdictWarn"))}</p>`;
+    else verdict = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.verdictGood"))}</p>`;
 
     const notes = coverageNotes(result).map(([cls, msg]) => `<p class="stmt-note ${cls}">${msg}</p>`).join("");
     const period = result.period && result.period.end ? `${fmtDate(result.period.start, true)} – ${fmtDate(result.period.end, true)}` : "—";
     const balances = Object.entries(result.balances || {}).map(([cur, b]) => {
       const rows = [];
-      if (b.opening !== null && b.opening !== undefined) rows.push(`<div class="stmt-kv"><span>${cur} opening</span><span>${escapeHtml(fmtMoney(cur, b.opening))}</span></div>`);
-      if (b.closing !== null && b.closing !== undefined) rows.push(`<div class="stmt-kv"><span>${cur} closing</span><span>${escapeHtml(fmtMoney(cur, b.closing))}</span></div>`);
+      if (b.opening !== null && b.opening !== undefined) rows.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.opening", { cur }))}</span><span>${escapeHtml(fmtMoney(cur, b.opening))}</span></div>`);
+      if (b.closing !== null && b.closing !== undefined) rows.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.closing", { cur }))}</span><span>${escapeHtml(fmtMoney(cur, b.closing))}</span></div>`);
       return rows.join("");
     }).join("");
     const errors = (result.errors || []).slice(0, 6).map((e) => `<li>${escapeHtml(e)}</li>`).join("");
@@ -279,11 +280,11 @@
     ).join("");
 
     body.innerHTML = `${verdict}${notes}
-      <div class="stmt-kv"><span>Period</span><span>${escapeHtml(period)}</span></div>
-      <div class="stmt-kv"><span>Lines read</span><span>${(result.lines || []).length}</span></div>
+      <div class="stmt-kv"><span>${escapeHtml(tr("stmt.period"))}</span><span>${escapeHtml(period)}</span></div>
+      <div class="stmt-kv"><span>${escapeHtml(tr("stmt.linesRead"))}</span><span>${(result.lines || []).length}</span></div>
       ${balances}
       ${errors ? `<ul class="stmt-errors">${errors}</ul>` : ""}
-      ${lines ? `<details class="stmt-lines"><summary>Show the ${(result.lines || []).length} lines</summary>${lines}</details>` : ""}`;
+      ${lines ? `<details class="stmt-lines"><summary>${escapeHtml(tr("stmt.showLines", { n: (result.lines || []).length }))}</summary>${lines}</details>` : ""}`;
   }
 
   async function readStatementFile(file) {
@@ -307,12 +308,12 @@
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
         review = null;
-        $("statement-review").innerHTML = '<p class="hint">Statements changed — press "Review" to compare them again.</p>';
+        $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>`;
         updateReviewButton();
       }
     } catch (err) {
-      if (cancelled) body.innerHTML = '<p class="stmt-verdict warn">Skipped — no password entered.</p>';
-      else body.innerHTML = `<p class="stmt-verdict bad">✗ Couldn't read this file</p><p class="hint">${escapeHtml(err && err.message ? err.message : String(err))}</p>`;
+      if (cancelled) body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.skippedNoPw"))}</p>`;
+      else body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(err && err.message ? err.message : String(err))}</p>`;
     }
   }
 
@@ -326,15 +327,15 @@
   function updateReviewButton() {
     const card = $("statement-review-card");
     card.hidden = usable.length === 0;
-    $("statement-review-btn").textContent = `Review ${usable.length} statement${usable.length === 1 ? "" : "s"}`;
-    $("statement-review-hint").textContent = "Compares the lines with the entries already in the app. Nothing is saved.";
+    $("statement-review-btn").textContent = tr("stmt.reviewButton", { n: usable.length });
+    $("statement-review-hint").textContent = tr("stmt.reviewHint");
   }
 
   async function runReview() {
     const btn = $("statement-review-btn");
     const out = $("statement-review");
     btn.disabled = true;
-    out.innerHTML = '<p class="hint">Comparing with your entries…</p>';
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.comparing"))}</p>`;
     try {
       const analysis = await callApi("analyzeStatements", {
         statements: usable.map(({ result }) => ({
@@ -349,7 +350,7 @@
       review = null;
       renderReview(analysis);
     } catch (err) {
-      out.innerHTML = `<p class="stmt-verdict bad">✗ Couldn't compare</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      out.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.compareFailed"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
     } finally {
       btn.disabled = false;
     }
@@ -366,8 +367,8 @@
     // A transfer has two ends; anything else has the one account it was paid with.
     const where = e.type === "transfer"
       ? `${e.account ? escapeHtml(e.account) : "?"} → ${e.to_account ? escapeHtml(e.to_account) : "?"}`
-      : (e.account ? escapeHtml(e.account) : "no account");
-    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || "(no description)")} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${where}`;
+      : (e.account ? escapeHtml(e.account) : escapeHtml(tr("stmt.noAccount")));
+    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || tr("review.noDescription"))} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${where}`;
   }
 
   // ---- interactive review (milestone 3) ----
@@ -389,7 +390,7 @@
 
   function buildItems(analysis) {
     const sts = analysis.statements;
-    const acct = (si) => (sts[si].account ? sts[si].account.nickname : `unknown account (${sts[si].key})`);
+    const acct = (si) => (sts[si].account ? sts[si].account.nickname : tr("stmt.unknownAccount", { key: sts[si].key }));
     const items = [];
     sts.forEach((st, si) => {
       st.lines.forEach((l, li) => {
@@ -398,13 +399,13 @@
         const base = { id, si, li, line: l, where };
         if (l.status === "handled") { items.push({ ...base, kind: "handled" }); return; }
         if (l.status === "completes") {
-          items.push({ ...base, kind: "completes", choices: [["complete", "Complete it"]],
+          items.push({ ...base, kind: "completes", choices: [["complete", tr("stmt.choice.complete")]],
             build: () => ({ type: "complete_transfer", stmt: si, line: li, entryId: l.completesTransfer.entry.id, side: l.completesTransfer.side }) });
           return;
         }
         if (l.status === "matched") {
           if (l.entryHadNoAccount) {
-            items.push({ ...base, kind: "assign", choices: [["assign", "Assign account"]],
+            items.push({ ...base, kind: "assign", choices: [["assign", tr("stmt.choice.assign")]],
               build: () => ({ type: "assign_account", stmt: si, line: li, entryId: l.entry.id }) });
           } else {
             items.push({ ...base, kind: "matched", auto: () => ({ type: "link", stmt: si, line: li, entryId: l.entry.id }) });
@@ -418,28 +419,28 @@
             const thisIsOut = l.amount < 0;
             items.push({ ...base, kind: "pair", outIsThis: thisIsOut, fromEarlier: true,
               partner: { date: pw.date, description: pw.description, amount: pw.amount, currency: pw.currency }, partnerAcct: pw.account,
-              choices: [["record", "Record"]],
+              choices: [["record", tr("stmt.choice.record")]],
               build: () => (thisIsOut
                 ? { type: "record_transfer", out: { stmt: si, line: li }, in: { stored: pw.lineKey } }
                 : { type: "record_transfer", out: { stored: pw.lineKey }, in: { stmt: si, line: li } }) });
           } else if (l.amount < 0) {
             items.push({ ...base, kind: "pair", outIsThis: true, partner: sts[pw.statement].lines[pw.line], partnerAcct: acct(pw.statement),
-              choices: [["record", "Record"]],
+              choices: [["record", tr("stmt.choice.record")]],
               build: () => ({ type: "record_transfer", out: { stmt: si, line: li }, in: { stmt: pw.statement, line: pw.line } }) });
           }
           return;
         }
         if (l.guess === "fee") {
-          items.push({ ...base, kind: "fee", choices: [["record", "Record"]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
+          items.push({ ...base, kind: "fee", choices: [["record", tr("stmt.choice.record")]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
           return;
         }
         if (l.possible) {
-          items.push({ ...base, kind: "possible", choices: [["match", "Yes, same"]],
+          items.push({ ...base, kind: "possible", choices: [["match", tr("stmt.choice.yesSame")]],
             build: () => ({ type: "match", stmt: si, line: li, entryId: l.possible.entry.id, overwriteAccount: true }) });
           return;
         }
         if (l.waiting) {
-          items.push({ ...base, kind: "waiting", choices: [["wait", "Leave waiting"], ["ignore", "Ignore"]],
+          items.push({ ...base, kind: "waiting", choices: [["wait", tr("stmt.choice.leaveWaiting")], ["ignore", tr("stmt.choice.ignore")]],
             build: (choice) => ({ type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li }) });
           return;
         }
@@ -447,18 +448,18 @@
           const rv = l.reversal;
           const target = rv.candidates.find((c) => c.sameMonth) || rv.candidates[0] || null;
           const choices = [];
-          if (rv.candidates.length) choices.push(["cancel", "Cancel the charge"]);
-          choices.push(["refund", "Refund income"], ["ignore", "Ignore"]);
+          if (rv.candidates.length) choices.push(["cancel", tr("stmt.choice.cancelCharge")]);
+          choices.push(["refund", tr("stmt.choice.refundIncome")], ["ignore", tr("stmt.choice.ignore")]);
           items.push({ ...base, kind: "reversal", choices, suggested: target && target.sameMonth ? "cancel" : "refund",
             build: (choice, r) => {
               if (choice === "cancel") return { type: "cancel_charge", stmt: si, line: li, entryId: r.cancelEntry.get(id) || target.entry.id };
-              if (choice === "refund") return { type: "add_income", stmt: si, line: li, category: rv.refundCategoryId, description: "Refund: " + l.description.replace(/^\s*REV\.?\s*/i, "") };
+              if (choice === "refund") return { type: "add_income", stmt: si, line: li, category: rv.refundCategoryId, description: tr("stmt.refundPrefix") + l.description.replace(/^\s*REV\.?\s*/i, "") };
               return { type: "ignore", stmt: si, line: li };
             } });
           return;
         }
         if (l.guess === "income") {
-          items.push({ ...base, kind: "income", choices: [["add", "Add as income"], ["match", "Match…"], ["ignore", "Ignore"]],
+          items.push({ ...base, kind: "income", choices: [["add", tr("stmt.choice.addIncome")], ["match", tr("stmt.choice.match")], ["ignore", tr("stmt.choice.ignore")]],
             build: (choice, r) => {
               if (choice === "add") return { type: "add_income", stmt: si, line: li, category: r.cat.has(id) ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
               if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
@@ -467,7 +468,7 @@
           return;
         }
         // a purchase not in the app
-        items.push({ ...base, kind: "purchase", choices: [["add", "Add"], ["match", "Match…"], ["ignore", "Ignore"]],
+        items.push({ ...base, kind: "purchase", choices: [["add", tr("stmt.choice.add")], ["match", tr("stmt.choice.match")], ["ignore", tr("stmt.choice.ignore")]],
           build: (choice, r) => {
             if (choice === "add") return { type: "add_purchase", stmt: si, line: li, category: r.cat.get(id) !== undefined ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
             if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
@@ -477,7 +478,7 @@
     });
     (analysis.balance_checks || []).forEach((c) => {
       items.push({ id: `bal:${c.stmt}:${c.currency}`, kind: "balance", check: c, where: acct(c.stmt),
-        choices: c.canSet ? [["set", c.direction === "untracked" ? "Start tracking with this balance" : "Set balance to statement"]] : null,
+        choices: c.canSet ? [["set", c.direction === "untracked" ? tr("stmt.choice.startTracking") : tr("stmt.choice.setBalance")]] : null,
         build: () => ({ type: "set_balance", stmt: c.stmt, currency: c.currency }) });
     });
     return items;
@@ -489,28 +490,28 @@
 
   function balanceHtml(it) {
     const c = it.check, chosen = review.sel.get(it.id);
-    const lines = [`<div class="stmt-kv"><span>Statement closing (${escapeHtml(fmtDate(c.end, true))})</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
+    const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
     let verdict = "";
     if (c.direction === "untracked") {
       verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
     } else {
-      lines.push(`<div class="stmt-kv"><span>In the app at that date</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
-      lines.push(`<div class="stmt-kv"><span>Difference</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
+      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
+      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
       if (c.diff === 0) {
-        verdict = `<p class="stmt-note ok">✓ Matches to the cent.</p>`;
+        verdict = `<p class="stmt-note ok">${escapeHtml(tr("stmt.balMatches"))}</p>`;
       } else if (c.direction === "forward") {
         const parts = [];
-        if (c.notInApp.lines) parts.push(`${signed(c.currency, c.notInApp.net)} from ${c.notInApp.lines} line${c.notInApp.lines === 1 ? "" : "s"} not in the app`);
-        if (c.pending.lines) parts.push(`${signed(c.currency, c.pending.net)} from ${c.pending.lines} pending purchase${c.pending.lines === 1 ? "" : "s"} (counted once confirmed)`);
+        if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
+        if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
         verdict = c.unexplained === 0
-          ? `<p class="stmt-note ok">✓ Fully explained: ${escapeHtml(parts.join(" and "))}.</p>`
-          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(" and ")) + ". " : ""}<b>${escapeHtml(signed(c.currency, c.unexplained))} is unexplained</b> — something in the app differs from this statement.</p>`;
+          ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
+          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
       } else if (c.direction === "backward") {
-        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)} The app's figure at that date is worked back from that newer balance, so a difference means entries dated after ${escapeHtml(fmtDate(c.end))} are missing or wrong — the next statement will show which.</p>`;
+        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
       } else {
         verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
       }
-      if (c.canSet) verdict += `<p class="hint">${escapeHtml(c.reason)} Setting it makes the app agree with the statement from ${escapeHtml(fmtDate(c.end))} on; earlier entries stop counting because the balance already includes them. You can ignore lines and still set it.</p>`;
+      if (c.canSet) verdict += `<p class="hint">${escapeHtml(tr("stmt.balCanSet", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
     }
     const btn = it.choices ? `<div class="stmt-choices" style="padding-left:0">${it.choices.map(([k, label]) =>
       `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}</div>` : "";
@@ -523,42 +524,42 @@
     const chosen = review.sel.get(it.id);
     let sub = "";
     if (it.kind === "completes") {
-      const fill = l.completesTransfer.side === "to" ? "the receiving account (To)" : "the sending account (From)";
-      sub = `${where} would become ${fill} of: ${entryText(l.completesTransfer.entry)}`;
+      const fill = l.completesTransfer.side === "to" ? tr("stmt.fillTo") : tr("stmt.fillFrom");
+      sub = tr("stmt.itemCompletes", { where, fill, entry: entryText(l.completesTransfer.entry) });
     } else if (it.kind === "assign") {
       sub = `${where} → ${entryText(l.entry)}`;
     } else if (it.kind === "fee") {
       sub = where;
     } else if (it.kind === "possible") {
-      const why = l.possible.shareOf ? `looks like your 1/${l.possible.shareOf} share of this bill` : "same amount and date, but assigned to another account";
-      sub = `${where} — ${why}: ${entryText(l.possible.entry)}`;
+      const why = l.possible.shareOf ? tr("stmt.possibleShare", { n: l.possible.shareOf }) : tr("stmt.possibleOther");
+      sub = tr("stmt.itemPossible", { where, why, entry: entryText(l.possible.entry) });
     } else if (it.kind === "waiting") {
-      sub = `${where} — looks like a transfer or card payment; its other side isn't in these statements`;
+      sub = tr("stmt.itemWaiting", { where });
     } else if (it.kind === "reversal") {
       const rv = l.reversal;
-      sub = `${where} — money back on the card (a reversal or refund).`;
-      if (!rv.candidates.length) sub += " No matching charge found in the last 45 days, so it can only be a refund.";
+      sub = tr("stmt.itemReversal", { where });
+      if (!rv.candidates.length) sub += tr("stmt.reversalNoCharge");
       else if (chosen === "cancel") {
         const cur = review.cancelEntry.get(it.id) || (rv.candidates.find((c) => c.sameMonth) || rv.candidates[0]).entry.id;
-        sub += `<br>cancels: ${entryText(rv.candidates.find((c) => c.entry.id === cur).entry)} — adds a pending negative expense`;
-      } else if (chosen === "refund") sub += " Adds pending income in the Refunds category.";
-      else sub += ` Best match: ${entryText(rv.candidates[0].entry)}${rv.candidates[0].sameMonth ? "" : " (an earlier month)"}.`;
+        sub += tr("stmt.reversalCancels", { entry: entryText(rv.candidates.find((c) => c.entry.id === cur).entry) });
+      } else if (chosen === "refund") sub += tr("stmt.reversalRefund");
+      else sub += tr("stmt.reversalBest", { entry: entryText(rv.candidates[0].entry), earlier: rv.candidates[0].sameMonth ? "" : tr("stmt.earlierMonth") });
     } else if (it.kind === "income") {
-      sub = `${where}${l.suggestion ? ` — suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : ""}`;
-      if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
+      sub = `${where}${l.suggestion ? " — " + tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) }) : ""}`;
+      if (chosen === "match" && review.matchEntry.has(it.id)) sub += tr("stmt.matchedTo", { text: escapeHtml(review.matchEntryText.get(it.id) || "") });
     } else if (it.kind === "purchase") {
-      sub = `${where} — ${l.suggestion ? `suggested category: <b>${escapeHtml(l.suggestion.categoryName)}</b> (${escapeHtml(l.suggestion.reason)})` : "no category suggestion"}`;
-      if (chosen === "match" && review.matchEntry.has(it.id)) sub += `<br>matched to: ${escapeHtml(review.matchEntryText.get(it.id) || "")}`;
+      sub = `${where} — ${l.suggestion ? tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) }) : tr("stmt.itemNoSuggestion")}`;
+      if (chosen === "match" && review.matchEntry.has(it.id)) sub += tr("stmt.matchedTo", { text: escapeHtml(review.matchEntryText.get(it.id) || "") });
     } else if (it.kind === "handled") {
       const h = l.handled;
-      sub = `${where} — already handled (${escapeHtml(h.outcome)})${h.entry ? ": " + entryText(h.entry) : ""}`;
+      sub = tr("stmt.itemHandled", { where, outcome: escapeHtml(h.outcome), entry: h.entry ? ": " + entryText(h.entry) : "" });
     } else if (it.kind === "matched") {
-      sub = `${where} → ${entryText(l.entry)}${l.viaTotal ? " · matched on the bill total in its description" : ""}`;
+      sub = `${where} → ${entryText(l.entry)}${l.viaTotal ? escapeHtml(tr("stmt.viaTotal")) : ""}`;
     }
     let head;
     if (it.kind === "pair") {
       const fromAcct = it.outIsThis ? it.where : it.partnerAcct, toAcct = it.outIsThis ? it.partnerAcct : it.where;
-      head = `<div class="stmt-pair-title">${escapeHtml(fromAcct)} → ${escapeHtml(toAcct)} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub" style="padding-left:0">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(it.partner.date))} “${escapeHtml(it.partner.description)}”${it.fromEarlier ? " — the other half is from an earlier upload" : ""}</div>`;
+      head = `<div class="stmt-pair-title">${escapeHtml(fromAcct)} → ${escapeHtml(toAcct)} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub" style="padding-left:0">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(it.partner.date))} “${escapeHtml(it.partner.description)}”${it.fromEarlier ? escapeHtml(tr("stmt.otherHalf")) : ""}</div>`;
     } else {
       head = `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}`;
     }
@@ -569,11 +570,11 @@
       if ((it.kind === "purchase" || it.kind === "income") && chosen === "add") {
         const cur = review.cat.has(it.id) ? review.cat.get(it.id) : ((l.suggestion && l.suggestion.categoryId) || "");
         const cats = it.kind === "income" ? (review.analysis.income_categories || []) : review.analysis.categories;
-        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">No category (decide later)</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
+        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">${escapeHtml(tr("stmt.noCategory"))}</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
       }
       if (it.kind === "reversal" && chosen === "cancel" && l.reversal.candidates.length > 1) {
         const cur = review.cancelEntry.get(it.id) || (l.reversal.candidates.find((c) => c.sameMonth) || l.reversal.candidates[0]).entry.id;
-        controls += `<select class="stmt-cancel" data-item="${escapeHtml(it.id)}">${l.reversal.candidates.map((c) => `<option value="${escapeHtml(c.entry.id)}" ${c.entry.id === cur ? "selected" : ""}>${escapeHtml(entryPlain(c.entry))} (${escapeHtml(c.entry.status)})</option>`).join("")}</select>`;
+        controls += `<select class="stmt-cancel" data-item="${escapeHtml(it.id)}">${l.reversal.candidates.map((c) => `<option value="${escapeHtml(c.entry.id)}" ${c.entry.id === cur ? "selected" : ""}>${escapeHtml(entryPlain(c.entry))} (${escapeHtml(statusLabel_(c.entry.status))})</option>`).join("")}</select>`;
       }
       controls += "</div>";
     }
@@ -595,18 +596,18 @@
   function summarize(actions) {
     const n = (t) => actions.filter((a) => a.type === t).length;
     const parts = [];
-    if (n("record_transfer")) parts.push(`${n("record_transfer")} transfer${n("record_transfer") === 1 ? "" : "s"} between your accounts`);
-    if (n("record_fee")) parts.push(`${n("record_fee")} bank fee${n("record_fee") === 1 ? "" : "s"}`);
-    if (n("cancel_charge")) parts.push(`${n("cancel_charge")} charge${n("cancel_charge") === 1 ? "" : "s"} cancelled by a pending negative expense`);
-    if (n("add_income")) parts.push(`${n("add_income")} income entr${n("add_income") === 1 ? "y" : "ies"} added as pending`);
-    if (n("add_purchase")) parts.push(`${n("add_purchase")} purchase${n("add_purchase") === 1 ? "" : "s"} added as pending`);
-    if (n("complete_transfer")) parts.push(`${n("complete_transfer")} transfer${n("complete_transfer") === 1 ? "" : "s"} completed`);
-    if (n("assign_account")) parts.push(`the account set on ${n("assign_account")} existing entr${n("assign_account") === 1 ? "y" : "ies"}`);
+    if (n("record_transfer")) parts.push(tr("stmt.sum.transfer", { n: n("record_transfer") }));
+    if (n("record_fee")) parts.push(tr("stmt.sum.fee", { n: n("record_fee") }));
+    if (n("cancel_charge")) parts.push(tr("stmt.sum.cancel", { n: n("cancel_charge") }));
+    if (n("add_income")) parts.push(tr("stmt.sum.income", { n: n("add_income") }));
+    if (n("add_purchase")) parts.push(tr("stmt.sum.purchase", { n: n("add_purchase") }));
+    if (n("complete_transfer")) parts.push(tr("stmt.sum.complete", { n: n("complete_transfer") }));
+    if (n("assign_account")) parts.push(tr("stmt.sum.assign", { n: n("assign_account") }));
     const matched = actions.filter((a) => a.type === "match").length;
-    if (matched) parts.push(`${matched} line${matched === 1 ? "" : "s"} matched to existing entries`);
-    if (n("set_balance")) parts.push(`the balance set from the statement on ${n("set_balance")} account${n("set_balance") === 1 ? "" : "s"}`);
-    if (n("ignore")) parts.push(`${n("ignore")} line${n("ignore") === 1 ? "" : "s"} ignored`);
-    if (n("wait")) parts.push(`${n("wait")} left waiting for the other statement`);
+    if (matched) parts.push(tr("stmt.sum.match", { n: matched }));
+    if (n("set_balance")) parts.push(tr("stmt.sum.balance", { n: n("set_balance") }));
+    if (n("ignore")) parts.push(tr("stmt.sum.ignore", { n: n("ignore") }));
+    if (n("wait")) parts.push(tr("stmt.sum.wait", { n: n("wait") }));
     return parts;
   }
 
@@ -622,28 +623,28 @@
     const chosenCount = actions.filter((a) => a.type !== "link").length;
     const summary = summarize(actions);
     out.innerHTML = `
-      <p class="stmt-verdict good">${c.lines} lines · ${c.matched + c.completes} already in the app · ${c.handled} handled before · ${c.unregistered} not there yet</p>
+      <p class="stmt-verdict good">${escapeHtml(tr("stmt.counts", { lines: c.lines, inApp: c.matched + c.completes, handled: c.handled, notYet: c.unregistered }))}</p>
       <div class="stmt-quick">
-        <button type="button" class="stmt-choice" id="stmt-apply-suggested">✨ Apply suggested</button>
-        <button type="button" class="stmt-choice" id="stmt-ignore-income">Ignore income except interest</button>
-        <button type="button" class="stmt-choice" id="stmt-ignore-people">Ignore payments to people under 50</button>
+        <button type="button" class="stmt-choice" id="stmt-apply-suggested">${escapeHtml(tr("stmt.applySuggested"))}</button>
+        <button type="button" class="stmt-choice" id="stmt-ignore-income">${escapeHtml(tr("stmt.ignoreIncome"))}</button>
+        <button type="button" class="stmt-choice" id="stmt-ignore-people">${escapeHtml(tr("stmt.ignorePeople"))}</button>
       </div>
-      <p class="hint">"Apply suggested" selects the safe ones: transfers, fees, completing transfers, setting accounts, and reversals (which still land as pending entries). Purchases and possible matches are always your call. Nothing is saved until you press Save.</p>
-      ${group("Balance check", html("balance"), "The statement's closing balance against what the app says at that date. Your newest registered balance always wins over an older statement.", true, "balance")}
-      ${group("Transfers between your accounts", html("pair"), "Each is ONE transfer (money moving between two of your accounts), not an expense or income.", true, "pair")}
-      ${group("Completes a transfer you already recorded", html("completes"), "You recorded one end of these transfers earlier; this statement is the other end.", true, "completes")}
-      ${group("Bank fees", html("fee"), "Small taxes and card insurance — filed under Bank fees.", true, "fee")}
-      ${group("Purchases not in the app", html("purchase"), "Add = a pending entry in your review queue. Match… = this line IS an entry you already have.", true, "purchase")}
-      ${group("Possible matches to confirm", html("possible"), "", true, "possible")}
-      ${group("Waiting for the other statement", html("waiting"), "These look like money moving between accounts, but the other account's statement isn't here.", true, "waiting")}
-      ${group("Matched entries that have no account yet", html("assign"), "These entries match a statement line but don't say which account they were paid with.", false, "assign")}
-      ${group("Reversals and refunds", html("reversal"), "Money back on a card. In the same month it cancels the charge (a pending negative expense); from an earlier month it becomes pending Refunds income. Either way it waits in your review queue.", true, "reversal")}
-      ${group("Income lines", html("income"), "Mostly repayments you don't register — Ignore remembers that. Add as income is for things like interest earned (it lands as a pending entry).", true, "income")}
-      ${group("Handled before", html("handled"), "", false, "handled")}
-      ${group("Already in the app", html("matched"), "", false, "matched")}
+      <p class="hint">${escapeHtml(tr("stmt.quickHint"))}</p>
+      ${group(tr("stmt.group.balance"), html("balance"), tr("stmt.group.balanceHint"), true, "balance")}
+      ${group(tr("stmt.group.pair"), html("pair"), tr("stmt.group.pairHint"), true, "pair")}
+      ${group(tr("stmt.group.completes"), html("completes"), tr("stmt.group.completesHint"), true, "completes")}
+      ${group(tr("stmt.group.fee"), html("fee"), tr("stmt.group.feeHint"), true, "fee")}
+      ${group(tr("stmt.group.purchase"), html("purchase"), tr("stmt.group.purchaseHint"), true, "purchase")}
+      ${group(tr("stmt.group.possible"), html("possible"), "", true, "possible")}
+      ${group(tr("stmt.group.waiting"), html("waiting"), tr("stmt.group.waitingHint"), true, "waiting")}
+      ${group(tr("stmt.group.assign"), html("assign"), tr("stmt.group.assignHint"), false, "assign")}
+      ${group(tr("stmt.group.reversal"), html("reversal"), tr("stmt.group.reversalHint"), true, "reversal")}
+      ${group(tr("stmt.group.income"), html("income"), tr("stmt.group.incomeHint"), true, "income")}
+      ${group(tr("stmt.group.handled"), html("handled"), "", false, "handled")}
+      ${group(tr("stmt.group.matched"), html("matched"), "", false, "matched")}
       <div class="stmt-savebar">
-        <div class="stmt-save-summary">${summary.length ? escapeHtml(summary.join(" · ")) : "Nothing selected yet."}</div>
-        <button type="button" class="primary" id="stmt-save-btn">${chosenCount ? `Save ${chosenCount} change${chosenCount === 1 ? "" : "s"}` : "Mark statements as processed"}</button>
+        <div class="stmt-save-summary">${summary.length ? escapeHtml(summary.join(" · ")) : escapeHtml(tr("stmt.nothingSelected"))}</div>
+        <button type="button" class="primary" id="stmt-save-btn">${escapeHtml(chosenCount ? tr("stmt.saveN", { n: chosenCount }) : tr("stmt.markProcessed"))}</button>
       </div>`;
   }
 
@@ -668,7 +669,7 @@
   }
 
   function entryPlain(e) {
-    return `${fmtDate(e.date)} · ${e.description || "(no description)"} · ${fmtMoney(e.currency, e.amount)}`;
+    return `${fmtDate(e.date)} · ${e.description || tr("review.noDescription")} · ${fmtMoney(e.currency, e.amount)}`;
   }
 
   // "Match…" — pick which existing entry this statement line is.
@@ -677,7 +678,7 @@
       const backdrop = $("statement-match-backdrop");
       const list = $("statement-match-list");
       $("statement-match-title").textContent = `${fmtDate(it.line.date)} · ${it.line.description} · ${fmtMoney(it.line.currency, it.line.amount)}`;
-      list.innerHTML = '<p class="hint">Looking for entries that month…</p>';
+      list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.lookingForEntries"))}</p>`;
       bringModalToFront_(backdrop);
       backdrop.hidden = false;
       const close = (val) => { backdrop.hidden = true; list.onclick = null; $("statement-match-cancel").onclick = null; resolve(val); };
@@ -689,13 +690,13 @@
           description: it.line.description, kind: it.kind
         });
       }
-      catch (err) { list.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`; return; }
-      if (!entries.length) { list.innerHTML = '<p class="hint">No entries found in that month.</p>'; return; }
+      catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
+      if (!entries.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.noEntriesMonth"))}</p>`; return; }
       // Backend order: the 10 most similar first (is_top), then everything else by date.
       const heading = (t) => `<p class="hint" style="margin:8px 0 4px;font-weight:600;">${t}</p>`;
       const topCount = entries.filter((e) => e.is_top).length;
-      list.innerHTML = (topCount ? heading("Most similar") : "") + entries.map((e, i) =>
-        (topCount && i === topCount && entries.length > topCount ? heading("All of the month, by date") : "") +
+      list.innerHTML = (topCount ? heading(escapeHtml(tr("paid.mostSimilar"))) : "") + entries.map((e, i) =>
+        (topCount && i === topCount && entries.length > topCount ? heading(escapeHtml(tr("paid.allMonth"))) : "") +
         `<button type="button" class="stmt-match-row" data-i="${i}">${entryText(e)}</button>`).join("");
       list.onclick = (ev) => { const b = ev.target.closest(".stmt-match-row"); if (b) close(entries[Number(b.dataset.i)]); };
     });
@@ -734,21 +735,24 @@
     const status = $("statement-review-status");
     const actions = selectedActions();
     const parts = summarize(actions);
-    const msg = (parts.length ? "This will:\n • " + parts.join("\n • ") : "This will only mark these statements as processed.") +
-      "\n\nEverything can be undone in one step afterwards. Continue?";
+    const msg = (parts.length ? tr("stmt.confirmWill") + "\n • " + parts.join("\n • ") : tr("stmt.confirmOnly")) +
+      "\n\n" + tr("stmt.confirmUndoable");
     if (!confirm(msg)) return;
     btn.disabled = true;
-    status.innerHTML = '<p class="hint">Saving…</p>';
+    status.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.saving"))}</p>`;
     try {
       const check = await callApi("applyStatementDecisions", buildSavePayload(true)); // validates first, writes nothing
       if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
       const res = await callApi("applyStatementDecisions", buildSavePayload(false));
       lastBatchId = res.batchId;
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
-      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">✓ Saved</p>
-        <p class="hint">${made} entr${made === 1 ? "y" : "ies"} created (${res.created.transfers} transfers, ${res.created.fees} fees, ${res.created.purchases} pending purchases, ${res.created.income || 0} pending income, ${res.created.reversals || 0} reversals), ${res.changed} existing entr${res.changed === 1 ? "y" : "ies"} updated, ${res.linesRemembered} lines remembered, ${res.statementsRecorded} statement${res.statementsRecorded === 1 ? "" : "s"} recorded as processed.</p>
-        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">Undo this upload</button></div>`;
-      $("statement-review").innerHTML = '<p class="hint">Saved. Press "Review" again to see these lines marked as handled.</p>';
+      const savedParts = [
+        tr("stmt.savedCreated", { n: made, t: res.created.transfers, f: res.created.fees, p: res.created.purchases, i: res.created.income || 0, r: res.created.reversals || 0 }),
+        tr("stmt.savedUpdated", { n: res.changed }), tr("stmt.savedRemembered", { n: res.linesRemembered }), tr("stmt.savedRecorded", { n: res.statementsRecorded })];
+      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(tr("stmt.saved"))}</p>
+        <p class="hint">${escapeHtml(savedParts.join(", "))}.</p>
+        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
+      $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.savedPressReview"))}</p>`;
       review = null;
       coverage = null;
       refreshStatementCoverage();
@@ -756,7 +760,7 @@
       refreshStatementInbox();
       refreshOtherScreens();
     } catch (err) {
-      status.innerHTML = `<p class="stmt-verdict bad">✗ Nothing was saved</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
       btn.disabled = false;
     }
   }
@@ -771,10 +775,10 @@
   }
 
   async function undoBatch(batchId) {
-    if (!confirm("Undo this upload? The entries it created are deleted, the changes it made are reverted, and its statements are un-marked as processed.")) return;
+    if (!confirm(tr("stmt.confirmUndo"))) return;
     try {
       const r = await callApi("undoStatementBatch", { batchId });
-      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">↩ Undone — ${r.deletedEntries} entries removed, ${r.reverted} changes reverted.</p>`;
+      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
       lastBatchId = null;
       review = null;
       $("statement-review").innerHTML = "";
@@ -783,7 +787,7 @@
       refreshStatementBatches();
       refreshOtherScreens();
     } catch (err) {
-      alert("Couldn't undo: " + err.message);
+      alert(tr("stmt.undoFailed", { error: err.message }));
     }
   }
 
@@ -794,8 +798,8 @@
       box.innerHTML = batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
-        <div class="stmt-row-sub">${b.entriesCreated} entries created · ${b.entriesChanged} changed</div></div>
-        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">Undo</button></div>`).join("") : '<p class="hint">No uploads yet.</p>';
+        <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div></div>
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
     }
@@ -818,8 +822,8 @@
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
     if (all) openAllInboxItems(all);
     else if (open) openInboxItem(open.dataset.id, open);
-    else if (dis && confirm("Dismiss this statement? It disappears from the inbox (it is not deleted from your email).")) {
-      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert("Couldn't dismiss: " + err.message); }
+    else if (dis && confirm(tr("stmt.confirmDismiss"))) {
+      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert(tr("stmt.dismissFailed", { error: err.message })); }
       refreshStatementInbox(); refreshStatementCoverage();
     }
   });

@@ -8,6 +8,9 @@
 // the same "odd cent falls to the owner" rule as the normal equal split.
 (function (root) {
   "use strict";
+  // Messages go through the language engine (docs/i18n.js): the browser has it as
+  // root.tr; Node (the tests) loads it, in English.
+  const tr = (key, params) => (typeof module !== "undefined" && module.exports ? require("./i18n.js").tr : root.tr)(key, params);
 
   const OWNER = "me";
 
@@ -98,9 +101,9 @@
         else lines[lines.length - 1].cents += cents;
       }                                             // blank / zero lines are ignored
     });
-    if (discountWithoutItem) errors.push("A discount line needs an item above it.");
+    if (discountWithoutItem) errors.push(tr("bill.err.discountNeedsItem"));
     lines.forEach((ln) => {
-      if (ln.cents < 0) { errors.push("A discount is bigger than the item it is under."); return; }
+      if (ln.cents < 0) { errors.push(tr("bill.err.discountTooBig")); return; }
       if (ln.cents === 0) return;                   // fully discounted: nothing to share
       itemsCents += ln.cents;
       const who = people.filter((k) => ln.people.includes(k));   // no repeats, list order
@@ -108,8 +111,8 @@
       const shares = allocate(ln.cents, who, who.reduce((w, k) => (w[k] = 1, w), {}));
       who.forEach((k) => { subtotal[k] += shares[k]; });
     });
-    if (itemsCents === 0) errors.push("Add at least one item with a price.");
-    if (unassigned.length) errors.push(`${unassigned.length === 1 ? "1 item has" : unassigned.length + " items have"} nobody assigned yet.`);
+    if (itemsCents === 0) errors.push(tr("bill.err.addItem"));
+    if (unassigned.length) errors.push(tr("bill.err.unassigned", { n: unassigned.length }));
 
     // ---- discounts / extra charges ----
     const adjustments = {};
@@ -135,14 +138,14 @@
       }
       // (While items are still unassigned nobody has an order yet, so this
       // would only repeat "nobody assigned" in a more confusing way.)
-      if (!shares) { if (!unassigned.length) errors.push(`"${a.name || "Adjustment"}" has nobody to be shared among.`); return; }
+      if (!shares) { if (!unassigned.length) errors.push(tr("bill.err.nobodyShared", { name: a.name || tr("bill.adjustmentWord") })); return; }
       Object.keys(shares).forEach((k) => { adjustments[k] += shares[k]; });
     });
 
     const afterAdj = {};
     people.forEach((k) => { afterAdj[k] = subtotal[k] + adjustments[k]; });
     const billCents = itemsCents + adjCents;        // what the bill should total
-    if (people.some((k) => afterAdj[k] < 0)) errors.push("A discount is bigger than what someone ordered.");
+    if (people.some((k) => afterAdj[k] < 0)) errors.push(tr("bill.err.discountBiggerThanOrder"));
 
     // ---- reconciliation with the printed total ----
     // The printed total is the bill BEFORE discounts: items plus any extra
@@ -156,8 +159,8 @@
     const discountsCents = chargesCents - adjCents;      // positive number
     const printedCents = toCents(input.printedTotal);
     const diffCents = printedCents - preDiscountCents;
-    if (!(printedCents > 0)) errors.push("Enter the total printed on the bill.");
-    else if (diffCents !== 0) errors.push("Items and charges don't add up to the bill total yet.");
+    if (!(printedCents > 0)) errors.push(tr("bill.err.enterTotal"));
+    else if (diffCents !== 0) errors.push(tr("bill.err.dontAddUp"));
 
     // ---- tip ----
     const tipIn = input.tip || {};
