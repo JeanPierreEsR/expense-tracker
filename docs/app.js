@@ -341,13 +341,17 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     throw new Error(tr("error.unreachable"));
   }
   perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
-  if (!json.ok && json.error === "Invalid access code" && getSessionToken()) {
+  if (!json.ok && (json.code === "invalid_access_code" || json.error === "Invalid access code") && getSessionToken()) {
     // This device's session was ended (signed out from another device, the
     // sheet menu, or unused for 90 days): go back to the sign-in screen.
     clearLocalSignIn_();
     showSignedOutScreen_(tr("signin.signedOutHere"));
   }
-  if (!json.ok) throw new Error(json.error || tr("error.unknown"));
+  if (!json.ok) {
+    const failure = new Error(json.error || tr("error.unknown"));
+    failure.code = json.code;   // the app recognises some errors by code, not by their (translated) text
+    throw failure;
+  }
   return json.data;
 }
 
@@ -3614,15 +3618,9 @@ async function refreshOverview() {
   renderBreakdowns(data.breakdowns[overviewType]);
 }
 
-// The server names the "no category" / "no tag" buckets in English.
-function translateBreakdownNames_(items) {
-  return items.map((it) => it.name === "Uncategorized" ? { ...it, name: tr("overview.uncategorized") }
-    : it.name === "Untagged" ? { ...it, name: tr("overview.untagged") } : it);
-}
-
 function renderBreakdowns(breakdown) {
-  renderPie("category", translateBreakdownNames_(breakdown.byCategory));
-  renderPie("tag", translateBreakdownNames_(breakdown.byTag));
+  renderPie("category", breakdown.byCategory);
+  renderPie("tag", breakdown.byTag);
   renderPie("paymentMethod", breakdown.byPaymentMethod);
 }
 
@@ -4599,7 +4597,7 @@ async function migrateLegacyCodeToSession_() {
     setSessionToken(res.sessionToken);
     localStorage.removeItem("accessCode");
   } catch (err) {
-    if (/wrong|too many/i.test(err.message)) {
+    if (err.code === "wrong_code" || err.code === "locked" || /wrong|too many/i.test(err.message)) {
       clearLocalSignIn_();
       showSignedOutScreen_(err.message);
     }
@@ -4777,7 +4775,7 @@ async function init() {
       perfRecordStartup_("open→usable", performance.now());
     }
   } catch (err) {
-    if (err.message === "Invalid access code") {
+    if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
       // action would keep silently failing — surface it instead.
       clearLocalSignIn_();

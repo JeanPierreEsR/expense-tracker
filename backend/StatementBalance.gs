@@ -55,7 +55,7 @@ function stmtBalanceCheck_(args) {
   if (!governing) {
     out.direction = 'untracked';
     out.canSet = true;
-    out.reason = 'No balance is registered for this account yet — this statement can start it.';
+    out.reason = tr_('sb.untracked');
     return out;
   }
   out.appAtEnd = stmtBalanceAt_(pm.id, cur, args.end, governing, args.confirmed, args.inboundIds);
@@ -65,19 +65,19 @@ function stmtBalanceCheck_(args) {
     // The currency has no snapshot of its own (it counts from the account's earliest one).
     out.direction = 'forward';
     out.canSet = true;
-    out.reason = 'No balance is registered in ' + cur + ' for this account yet.';
+    out.reason = tr_('sb.noCurrency', { cur: cur });
   } else if (args.end > own.date) {
     out.direction = 'forward';
     out.canSet = true;
-    out.reason = 'This statement is newer than the balance registered on ' + own.date + '.';
+    out.reason = tr_('sb.newer', { date: own.date });
   } else if (args.end === own.date) {
     out.direction = 'same-date';
     out.canSet = false;
-    out.reason = 'Your balance registered on ' + own.date + ' is for the same day, so it stays.';
+    out.reason = tr_('sb.sameDay', { date: own.date });
   } else {
     out.direction = 'backward';
     out.canSet = false;
-    out.reason = 'Your balance registered on ' + own.date + ' is newer than this statement, so it stays.';
+    out.reason = tr_('sb.older', { date: own.date });
   }
 
   // When the app's figure was built FORWARD from a snapshot, explain the

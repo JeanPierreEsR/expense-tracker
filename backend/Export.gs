@@ -46,7 +46,7 @@ function exportData(payload) {
   var cards = payload.cards || [];
   var wantEntries = cards.indexOf('entries') !== -1;
   var wantBackup = cards.indexOf('backup') !== -1;
-  if (!wantEntries && !wantBackup) throw new Error('Choose at least one file to send.');
+  if (!wantEntries && !wantBackup) throw new Error(tr_('export.chooseOne'));
 
   var to = getExportEmail_();
   var tz = Session.getScriptTimeZone();
@@ -78,9 +78,9 @@ function exportData(payload) {
   }
 
   if (bytes > EXPORT_MAX_BYTES_) {
-    throw new Error('The export is too large to email (' + Math.round(bytes / 1048576) + ' MB). Try a shorter date range, or send only one file.');
+    throw new Error(tr_('export.tooLarge', { mb: Math.round(bytes / 1048576) }));
   }
-  if (MailApp.getRemainingDailyQuota() < 1) throw new Error("Google's daily email limit has been reached. Try again tomorrow.");
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error(tr_('export.quota'));
 
   var lines = files.map(function (f) { return '- ' + f.name + ' (' + f.rows + ' ' + (f.kind === 'entries' ? 'entries' : 'rows across all tabs') + ')'; });
   MailApp.sendEmail({
@@ -97,13 +97,13 @@ function exportData(payload) {
 
 function getExportEmail_() {
   var email = String(PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL') || '').trim();
-  if (!email) throw new Error('No export email address is set up yet.');
+  if (!email) throw new Error(tr_('export.noEmail'));
   return email;
 }
 
 function adminSetExportEmail(payload) {
   var email = String((payload && payload.email) || '').trim();
-  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) throw new Error('That does not look like an email address.');
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) throw new Error(tr_('export.badEmail'));
   PropertiesService.getScriptProperties().setProperty('EXPORT_EMAIL', email);
   return { done: true };
 }
@@ -125,8 +125,8 @@ function exportDateRange_(payload) {
   var re = /^\d{4}-\d{2}-\d{2}$/;
   var start = payload.startDate ? String(payload.startDate) : '';
   var end = payload.endDate ? String(payload.endDate) : '';
-  if ((start && !re.test(start)) || (end && !re.test(end))) throw new Error('Dates must look like 2026-01-31.');
-  if (start && end && start > end) throw new Error('The start date is after the end date.');
+  if ((start && !re.test(start)) || (end && !re.test(end))) throw new Error(tr_('export.dateFormat'));
+  if (start && end && start > end) throw new Error(tr_('export.dateOrder'));
   return { startDate: start, endDate: end };
 }
 

@@ -192,16 +192,16 @@ function listStatementInbox() {
 /** Fetches ONE statement PDF from the owner's Gmail (only when he taps Open). */
 function getStatementAttachment(payload) {
   var row = getAllRows('Statement Inbox').filter(function (r) { return r.id === payload.id; })[0];
-  if (!row) throw new Error('That statement is not in the inbox');
+  if (!row) throw new Error(tr_('inbox.notThere'));
   var msg = GmailApp.getMessageById(row.message_id);
   var att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) { return a.getName() === row.attachment_name; })[0];
-  if (!att) throw new Error('The attachment is no longer in that email');
+  if (!att) throw new Error(tr_('inbox.attachmentGone'));
   return { id: row.id, name: att.getName(), base64: Utilities.base64Encode(att.getBytes()) };
 }
 
 function dismissStatement(payload) {
   ensureStatementInboxSheet_();
-  if (!updateRowFields_('Statement Inbox', payload.id, { status: payload.undo ? 'new' : 'dismissed' })) throw new Error('That statement is not in the inbox');
+  if (!updateRowFields_('Statement Inbox', payload.id, { status: payload.undo ? 'new' : 'dismissed' })) throw new Error(tr_('inbox.notThere'));
   return { ok: true };
 }
 

@@ -54,13 +54,13 @@ function saveEntryBill(payload) {
     return { bill: null };
   }
   if (typeof bill !== 'object' || Array.isArray(bill) || bill.v !== 1 || !Array.isArray(bill.items)) {
-    throw new Error('That bill is not in a format this app can store.');
+    throw new Error(tr_('bill.format'));
   }
   var entry = getEntryById_(entryId);
-  if (!entry) throw new Error('Entry not found');
-  if (entry.type !== 'expense') throw new Error('Only an expense can have a bill.');
+  if (!entry) throw new Error(tr_('err.entryNotFound'));
+  if (entry.type !== 'expense') throw new Error(tr_('bill.onlyExpense'));
   var json = JSON.stringify(bill);
-  if (json.length > ENTRY_BILL_MAX_CHARS_) throw new Error('That bill is too large to store.');
+  if (json.length > ENTRY_BILL_MAX_CHARS_) throw new Error(tr_('bill.tooLarge'));
 
   ensureEntryBillsSheet_();
   deleteRowsWhere_('Entry Bills', function (row) { return row.entry_id === entryId; });

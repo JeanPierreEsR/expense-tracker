@@ -141,13 +141,13 @@ function applyStatementDecisions(payload) {
       // A line remembered from an earlier upload (left "waiting").
       if (!storedRows) { ensureStatementLinesSheet_(); storedRows = {}; getAllRows('Statement Lines').forEach(function (r) { storedRows[r.line_key] = r; }); }
       var row = storedRows[ref.stored];
-      if (!row || row.outcome !== 'waiting') throw new Error('That earlier statement line is no longer waiting');
+      if (!row || row.outcome !== 'waiting') throw new Error(tr_('sa.laterNotWaiting'));
       return { s: { key: row.account_key, period: { end: row.period_end } },
         l: { date: row.date, description: row.description, amount: Number(row.amount), currency: row.currency },
         key: ref.stored, pm: stmtPmForKey_(pms, row.account_key), stmt: -1, idx: ref.stored };
     }
     var s = stmts[ref.stmt];
-    if (!s || !s.lines[ref.line]) throw new Error('Unknown statement line');
+    if (!s || !s.lines[ref.line]) throw new Error(tr_('sa.unknownLine'));
     return { s: s, l: s.lines[ref.line], key: keys[ref.stmt][ref.line], pm: accounts[ref.stmt], stmt: ref.stmt, idx: ref.line };
   }
 
@@ -171,7 +171,7 @@ function applyStatementDecisions(payload) {
 
   function useLine(L) {
     var k = L.stmt + ':' + L.idx;
-    if (usedLines[k]) throw new Error('A statement line was given two actions');
+    if (usedLines[k]) throw new Error(tr_('sa.twoActions'));
     usedLines[k] = true;
   }
   function remember(L, outcome, entryId) {
@@ -181,7 +181,7 @@ function applyStatementDecisions(payload) {
   }
   function setCell(entryId, field, newValue) {
     var i = rowById[String(entryId)];
-    if (i === undefined) throw new Error('Entry not found: ' + entryId);
+    if (i === undefined) throw new Error(tr_('sa.entryNotFound', { id: entryId }));
     var old = values[i][col[field]];
     if (String(old) === String(newValue)) return;
     changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(entryId), field: field,
@@ -190,7 +190,7 @@ function applyStatementDecisions(payload) {
     colChanged[field] = true;
     report.changed++;
   }
-  function requirePm(L) { if (!L.pm) throw new Error('No account is set up for statement ' + L.s.key); return L.pm; }
+  function requirePm(L) { if (!L.pm) throw new Error(tr_('sa.noAccount', { key: L.s.key })); return L.pm; }
   function newEntry(o) {
     if (existingExternal[o.external_id]) { report.skippedExisting++; return false; }
     existingExternal[o.external_id] = true;
@@ -207,32 +207,32 @@ function applyStatementDecisions(payload) {
       var out = line(a.out), inn = line(a.in);
       useLine(out); useLine(inn);
       if (out.l.amount >= 0 || inn.l.amount <= 0 || out.l.currency !== inn.l.currency || Math.abs(Math.abs(out.l.amount) - inn.l.amount) >= 0.005) {
-        throw new Error('The two lines are not the same transfer (opposite signs, same amount and currency)');
+        throw new Error(tr_('sa.notSameTransfer'));
       }
       var from = requirePm(out), to = requirePm(inn);
       var catId = catByName['transfer:Between Accounts'];
-      if (!catId) throw new Error('Category "Between Accounts" is missing');
+      if (!catId) throw new Error(tr_('sa.catMissingBetween'));
       var made = newEntry({ type: 'transfer', date: out.l.date, amount: inn.l.amount, currency: out.l.currency, category_id: catId,
-        description: 'Transfer ' + from.nickname + ' → ' + to.nickname, payment_method_id: from.id, to_payment_method_id: to.id,
+        description: tr_('desc.transfer', { from: from.nickname, to: to.nickname }), payment_method_id: from.id, to_payment_method_id: to.id,
         status: 'confirmed', external_id: 'stmt-' + out.key });
       if (made) report.created.transfers++;
       var eid = made ? creations[creations.length - 1].id : '';
       remember(out, 'recorded', eid); remember(inn, 'recorded', eid);
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
-      if (f.l.amount >= 0) throw new Error('A fee must be money going out');
+      if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
       var feeCat = catByName['expense:Bank fees'];
-      if (!feeCat) throw new Error('Category "Bank fees" is missing');
+      if (!feeCat) throw new Error(tr_('sa.catMissingFees'));
       var madeFee = newEntry({ type: 'expense', date: f.l.date, amount: Math.abs(f.l.amount), currency: f.l.currency, category_id: feeCat,
         description: stmtFeeDescription_(f.l.description), payment_method_id: requirePm(f).id, status: 'confirmed', external_id: 'stmt-' + f.key });
       if (madeFee) report.created.fees++;
       remember(f, 'recorded', madeFee ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_purchase') {
       var p = line(a); useLine(p);
-      if (p.l.amount >= 0) throw new Error('A purchase must be money going out');
+      if (p.l.amount >= 0) throw new Error(tr_('sa.purchaseOut'));
       var catP = '';
       if (a.category) {
-        if (!catsById[a.category] || catsById[a.category].type !== 'expense') throw new Error('Unknown expense category');
+        if (!catsById[a.category] || catsById[a.category].type !== 'expense') throw new Error(tr_('sa.unknownExpenseCat'));
         catP = a.category;
       }
       var madeP = newEntry({ type: 'expense', date: p.l.date, amount: Math.abs(p.l.amount), currency: p.l.currency, category_id: catP,
@@ -242,10 +242,10 @@ function applyStatementDecisions(payload) {
       remember(p, 'added', madeP ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {
       var inc = line(a); useLine(inc);
-      if (inc.l.amount <= 0) throw new Error('Income must be money coming in');
+      if (inc.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
       var catI = '';
       if (a.category) {
-        if (!catsById[a.category] || catsById[a.category].type !== 'income') throw new Error('Unknown income category');
+        if (!catsById[a.category] || catsById[a.category].type !== 'income') throw new Error(tr_('sa.unknownIncomeCat'));
         catI = a.category;
       }
       var madeI = newEntry({ type: 'income', date: inc.l.date, amount: inc.l.amount, currency: inc.l.currency, category_id: catI,
@@ -255,22 +255,22 @@ function applyStatementDecisions(payload) {
       remember(inc, 'added', madeI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'cancel_charge') {
       var rv = line(a); useLine(rv);
-      if (rv.l.amount <= 0) throw new Error('A reversal must be money coming back');
+      if (rv.l.amount <= 0) throw new Error(tr_('sa.reversalIn'));
       var oi = rowById[String(a.entryId)];
-      if (oi === undefined) throw new Error('The charge to cancel was not found');
-      if (values[oi][col.type] !== 'expense') throw new Error('Only an expense can be cancelled by a reversal');
+      if (oi === undefined) throw new Error(tr_('sa.chargeNotFound'));
+      if (values[oi][col.type] !== 'expense') throw new Error(tr_('sa.onlyExpenseCancel'));
       if (String(values[oi][col.currency] || 'PEN') !== rv.l.currency || Math.abs(Number(values[oi][col.amount]) - rv.l.amount) >= 0.005) {
-        throw new Error('The reversal and the charge are not the same amount and currency');
+        throw new Error(tr_('sa.reversalMismatch'));
       }
       var madeRv = newEntry({ type: 'expense', date: rv.l.date, amount: -rv.l.amount, currency: rv.l.currency,
-        category_id: values[oi][col.category_id] || '', description: 'Reversal: ' + (values[oi][col.description] || ''),
+        category_id: values[oi][col.category_id] || '', description: tr_('desc.reversal', { text: values[oi][col.description] || '' }),
         payment_method_id: requirePm(rv).id, status: 'pending', external_id: 'stmt-' + rv.key });
       if (madeRv) report.created.reversals++;
       remember(rv, 'reversed', a.entryId);
     } else if (a.type === 'match' || a.type === 'assign_account' || a.type === 'link') {
       var m = line(a); useLine(m);
       var i = rowById[String(a.entryId)];
-      if (i === undefined) throw new Error('Entry not found: ' + a.entryId);
+      if (i === undefined) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
       if (a.type !== 'link') {
         var pm = requirePm(m);
         var curFrom = values[i][col.payment_method_id], curTo = values[i][col.to_payment_method_id];
@@ -283,28 +283,28 @@ function applyStatementDecisions(payload) {
     } else if (a.type === 'complete_transfer') {
       var c = line(a); useLine(c);
       var j = rowById[String(a.entryId)];
-      if (j === undefined) throw new Error('Entry not found: ' + a.entryId);
-      if (values[j][col.type] !== 'transfer') throw new Error('Not a transfer');
+      if (j === undefined) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      if (values[j][col.type] !== 'transfer') throw new Error(tr_('sa.notTransfer'));
       var field = a.side === 'to' ? 'to_payment_method_id' : 'payment_method_id';
-      if (values[j][col[field]]) throw new Error('That end of the transfer is already filled in');
+      if (values[j][col[field]]) throw new Error(tr_('sa.endFilled'));
       setCell(a.entryId, field, requirePm(c).id);
       remember(c, 'completed', a.entryId);
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
       var pmB = accounts[a.stmt];
-      if (!sb || !pmB) throw new Error('Unknown statement or account for the balance');
-      if (sb.verified === false) throw new Error('A statement that could not be verified cannot set a balance');
+      if (!sb || !pmB) throw new Error(tr_('sa.unknownBalance'));
+      if (sb.verified === false) throw new Error(tr_('sa.unverifiedBalance'));
       var bal = (sb.balances || {})[a.currency];
-      if (!bal || bal.closing === null || bal.closing === undefined) throw new Error('This statement has no closing balance in ' + a.currency);
-      if (!sb.period || !sb.period.end) throw new Error('This statement has no end date');
+      if (!bal || bal.closing === null || bal.closing === undefined) throw new Error(tr_('sa.noClosing', { cur: a.currency }));
+      if (!sb.period || !sb.period.end) throw new Error(tr_('sa.noEnd'));
       var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
-      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error('The balance registered on ' + ownRow.date + ' is not older than this statement, so it stays');
+      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));
       balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
       remember(g, a.type === 'ignore' ? 'ignored' : 'waiting', '');
     } else {
-      throw new Error('Unknown action: ' + a.type);
+      throw new Error(tr_('sa.unknownAction', { type: a.type }));
     }
   });
 

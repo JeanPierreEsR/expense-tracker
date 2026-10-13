@@ -74,12 +74,12 @@ function doPost(e) {
       response = { ok: true, data: loginWithCode_(body.payload || {}) };
     } else if (!authenticateRequest_(body)) {
       recordFailedAccessAttempt_('app');
-      response = { ok: false, error: 'Invalid access code' };
+      response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
     }
   } catch (err) {
-    response = { ok: false, error: err.message };
+    response = { ok: false, error: err.message, code: err.code || undefined };
   }
   response.serverMs = Date.now() - perfStart;
   response.coldInstance = perfCold;
@@ -843,7 +843,7 @@ function updateEntryFields(entryId, fields) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
-  if (rowIndex === -1) throw new Error('Entry not found');
+  if (rowIndex === -1) throw new Error(tr_('err.entryNotFound'));
 
   withWriteBatch_(function () {
     Object.keys(fields || {}).forEach(function (key) {
@@ -945,10 +945,10 @@ function getLatestRateOnOrBefore_(currency, month) {
 function setExchangeRate(currency, month, rate) {
   currency = String(currency || '').trim().toUpperCase();
   month = String(month || '').trim();
-  if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Currency must be a 3-letter code.');
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Month must look like 2026-09.');
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error(tr_('err.currencyCode'));
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error(tr_('err.monthFormat'));
   rate = Number(rate);
-  if (!isFinite(rate) || rate <= 0) throw new Error('The exchange rate must be a number greater than 0.');
+  if (!isFinite(rate) || rate <= 0) throw new Error(tr_('err.rateGreater'));
   RATES_MEMO_ = null;
   var existing = getExchangeRate(currency, month);
   if (existing) {
@@ -973,7 +973,7 @@ function addFriend(payload) {
   // Idempotent by name (same as addPaymentMethod): a second "Ana" would split
   // that person's loans across two friends and break their FIFO balance.
   var name = String(payload.name || '').trim();
-  if (!name) throw new Error('Enter a name.');
+  if (!name) throw new Error(tr_('err.enterName'));
   var existing = getAllRows('Friends').find(function (f) {
     return String(f.name).trim().toLowerCase() === name.toLowerCase();
   });

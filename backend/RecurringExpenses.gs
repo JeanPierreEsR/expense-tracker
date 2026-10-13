@@ -86,9 +86,9 @@ var RECURRING_DATE_RE_ = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 function validateRecurringWindow_(startDate, endDate) {
   startDate = startDate ? String(startDate).trim() : '';
   endDate = endDate ? String(endDate).trim() : '';
-  if (startDate && !RECURRING_DATE_RE_.test(startDate)) throw new Error('The start date must be a real date (YYYY-MM-DD).');
-  if (endDate && !RECURRING_DATE_RE_.test(endDate)) throw new Error('The end date must be a real date (YYYY-MM-DD).');
-  if (startDate && endDate && endDate < startDate) throw new Error('The end date is before the start date.');
+  if (startDate && !RECURRING_DATE_RE_.test(startDate)) throw new Error(tr_('rec.startDate'));
+  if (endDate && !RECURRING_DATE_RE_.test(endDate)) throw new Error(tr_('rec.endDate'));
+  if (startDate && endDate && endDate < startDate) throw new Error(tr_('rec.endBeforeStart'));
   return { start_date: startDate, end_date: endDate };
 }
 
@@ -209,7 +209,7 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
   return {
     id: r.id,
     category_id: r.category_id,
-    category_name: cat ? categoryLabel_(cat) : '(unknown category)',
+    category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
     category_icon: cat ? cat.icon : '',
     category_color: cat ? cat.color : '',
     category_type: cat ? cat.type : 'expense',
@@ -256,7 +256,7 @@ function updateRecurringExpense(payload) {
   var sheet = getSheet('Recurring Expenses');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
-  if (rowIndex === -1) throw new Error('Recurring expense not found');
+  if (rowIndex === -1) throw new Error(tr_('err.recurringNotFound'));
 
   headers = getHeaders(sheet);   // the ensure above may have just added the date columns
   if (payload.start_date !== undefined || payload.end_date !== undefined) {
@@ -291,7 +291,7 @@ function adminLinkEntryToRecurring(entryId, recurringExpenseId) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
-  if (rowIndex === -1) throw new Error('Entry not found');
+  if (rowIndex === -1) throw new Error(tr_('err.entryNotFound'));
   setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', recurringExpenseId || '');
   return { done: true };
 }
@@ -335,7 +335,7 @@ function significantWords_(text) {
 // fix there.
 function findRecurringLinkCandidates(payload) {
   var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
-  if (!re) throw new Error('Recurring item not found');
+  if (!re) throw new Error(tr_('err.recurringItemNotFound'));
 
   var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
     return r.category_id === re.category_id && String(r.active) !== 'false';
@@ -443,13 +443,13 @@ function deleteRecurringExpense(id) {
 // ---- Skipping one occurrence / marking an entry as the payment ----
 
 function assertRecurringMonth_(month) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) throw new Error('Month must look like 2026-09.');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) throw new Error(tr_('err.monthFormat'));
 }
 
 function assertRecurringExists_(id) {
   ensureRecurringExpensesSheet_();
   if (!getAllRows('Recurring Expenses').some(function (r) { return r.id === id; })) {
-    throw new Error('Recurring expense not found');
+    throw new Error(tr_('err.recurringNotFound'));
   }
 }
 
@@ -491,7 +491,7 @@ function linkEntryToRecurring(payload) {
 function listEntriesForRecurringMonth(payload) {
   assertRecurringMonth_(payload.month);
   var re = getRecurringExpenseRows_().find(function (r) { return r.id === payload.id; });
-  if (!re) throw new Error('Recurring expense not found');
+  if (!re) throw new Error(tr_('err.recurringNotFound'));
   var categoryById = rowsById_(getAllRows('Categories'));
   var cat = categoryById[re.category_id];
   var type = cat ? cat.type : 'expense';
@@ -781,7 +781,7 @@ function listExpectedRecurringItems() {
     group.items.push({
       id: r.id,
       description: r.description || '',
-      category_name: cat ? categoryLabel_(cat) : '(unknown category)',
+      category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
       category_icon: cat ? cat.icon : '',
       amount: ownAmount,
       // The occurrence's own actual (clamped) day, not the raw configured

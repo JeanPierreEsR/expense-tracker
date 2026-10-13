@@ -409,7 +409,7 @@ function analyzeStatements(payload) {
           counts.income++;
           // Interest earned is the one kind of income worth registering.
           if (savingsReturn && /INTER[EÉ]S/i.test(l.description)) {
-            o.suggestion = { categoryId: savingsReturn.id, categoryName: categoryLabel_(savingsReturn), reason: 'interest earned' };
+            o.suggestion = { categoryId: savingsReturn.id, categoryName: categoryLabel_(savingsReturn), reason: tr_('guess.interest') };
           } else if (pm && pm.type === 'credit') {
             o.reversal = stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat);
           }

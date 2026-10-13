@@ -22,7 +22,7 @@ function getEntrySplits(entryId) {
 // to write.
 function saveEntrySplits(entryId, splits) {
   var entry = getEntryById_(entryId);
-  if (!entry) throw new Error('Entry not found');
+  if (!entry) throw new Error(tr_('err.entryNotFound'));
 
   // A loan that already has a repayment against it can't be deleted (that
   // would silently lose the repayment), so it is reused in place below
@@ -34,7 +34,7 @@ function saveEntrySplits(entryId, splits) {
   if (!splits.length) deleteEntryBill_(entryId);
   var requestedTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   if (requestedTotal > Number(entry.amount) + 0.005) {
-    throw new Error("The split (" + requestedTotal.toFixed(2) + ") is larger than the expense (" + Number(entry.amount).toFixed(2) + ").");
+    throw new Error(tr_('loan.splitTooLarge', { split: requestedTotal.toFixed(2), amount: Number(entry.amount).toFixed(2) }));
   }
 
   var reusable = settledEntryLoans_(entryId);
@@ -235,8 +235,8 @@ function createLoanTransferEntry_(loan, friendName) {
     currency: loan.currency,
     payment_method_id: loan.payment_method_id,
     description: loan.description || (loan.direction === 'they_owe_me'
-      ? 'Loan to ' + friendName
-      : 'Loan from ' + friendName)
+      ? tr_('desc.loanTo', { name: friendName })
+      : tr_('desc.loanFrom', { name: friendName }))
   });
 }
 
@@ -253,8 +253,8 @@ function syncLoanTransferEntry_(loan, friendName) {
   setEntryField_(entry.id, 'currency', loan.currency);
   setEntryField_(entry.id, 'payment_method_id', loan.payment_method_id || '');
   setEntryField_(entry.id, 'description', loan.description || (loan.direction === 'they_owe_me'
-    ? 'Loan to ' + friendName
-    : 'Loan from ' + friendName));
+    ? tr_('desc.loanTo', { name: friendName })
+    : tr_('desc.loanFrom', { name: friendName })));
 }
 
 function createLoan_(fields) {
@@ -276,7 +276,7 @@ function createLoan_(fields) {
   };
   if (fields.origin === 'cash') {
     var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
-    var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : '(unknown friend)');
+    var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : tr_('label.unknownFriend'));
     loan.transfer_entry_id = transferEntry.id;
   }
   appendRowObject('Loans', loan);
@@ -332,12 +332,12 @@ function defaultLoanDueDate_(dateStr) {
 }
 
 function addLoan(payload) {
-  if (!payload.friend_id) throw new Error('Pick a friend.');
+  if (!payload.friend_id) throw new Error(tr_('err.pickFriend'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
-    throw new Error('Invalid direction.');
+    throw new Error(tr_('err.invalidDirection'));
   }
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
   return createLoan_({
     friend_id: payload.friend_id,
@@ -360,16 +360,16 @@ function addLoan(payload) {
 // is touched. Editing one of those means editing the expense itself.
 function updateLoan(payload) {
   var existing = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
-  if (!existing) throw new Error('Loan not found');
+  if (!existing) throw new Error(tr_('err.loanNotFound'));
   if (existing.origin !== 'cash') {
-    throw new Error("This loan came from a shared expense — edit that entry instead.");
+    throw new Error(tr_('loan.fromSharedEdit'));
   }
-  if (!payload.friend_id) throw new Error('Pick a friend.');
+  if (!payload.friend_id) throw new Error(tr_('err.pickFriend'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
-    throw new Error('Invalid direction.');
+    throw new Error(tr_('err.invalidDirection'));
   }
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
   var settledSoFar = getAllRows('Settlements')
     .filter(function (s) { return s.loan_id === payload.id; })
@@ -380,17 +380,17 @@ function updateLoan(payload) {
     // silently break its balance. Description/date/due date stay editable.
     if (payload.friend_id !== existing.friend_id || payload.direction !== existing.direction ||
         (payload.currency || 'PEN') !== existing.currency) {
-      throw new Error("This loan already has a repayment recorded — you can't change its friend, direction or currency.");
+      throw new Error(tr_('loan.repaymentLocked'));
     }
     if (Number(payload.amount) < settledSoFar - 0.004) {
-      throw new Error("This loan already has " + settledSoFar.toFixed(2) + " in repayments — the amount can't be lower than that.");
+      throw new Error(tr_('loan.amountBelowSettled', { settled: settledSoFar.toFixed(2) }));
     }
   }
 
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
-  if (rowIndex === -1) throw new Error('Loan not found');
+  if (rowIndex === -1) throw new Error(tr_('err.loanNotFound'));
 
   ['friend_id', 'direction', 'amount', 'currency', 'date', 'due_date', 'payment_method_id', 'description'].forEach(function (field) {
     setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
@@ -398,7 +398,7 @@ function updateLoan(payload) {
 
   var updated = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
   var friend = getAllRows('Friends').find(function (f) { return f.id === updated.friend_id; });
-  syncLoanTransferEntry_(updated, friend ? friend.name : '(unknown friend)');
+  syncLoanTransferEntry_(updated, friend ? friend.name : tr_('label.unknownFriend'));
   return updated;
 }
 
@@ -411,11 +411,11 @@ function deleteLoan(loanId) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
   if (!loan) return;
   if (loan.origin !== 'cash') {
-    throw new Error("This loan came from a shared expense — delete that entry instead.");
+    throw new Error(tr_('loan.fromSharedDelete'));
   }
   var hasSettlement = getAllRows('Settlements').some(function (s) { return s.loan_id === loanId; });
   if (hasSettlement) {
-    throw new Error("This loan has a repayment recorded against it and can't be deleted.");
+    throw new Error(tr_('loan.noDeleteWithRepayment'));
   }
 
   if (loan.transfer_entry_id) {
@@ -537,12 +537,12 @@ function recalculateRepaymentTransferEntry_(transferEntryId) {
 // for it.
 function recordRepayment(payload) {
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
-  if (!friend) throw new Error('Friend not found');
+  if (!friend) throw new Error(tr_('err.friendNotFound'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
-    throw new Error('Invalid direction.');
+    throw new Error(tr_('err.invalidDirection'));
   }
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
   var currency = payload.currency || 'PEN';
 
   ensureSettlementsOffsetColumn_();
@@ -573,9 +573,8 @@ function recordRepayment(payload) {
   // and let the caller leave the pending entry as it is.
   if (payload.require_owed && !primary.length) {
     throw new Error(payload.direction === 'they_owe_me'
-      ? friend.name + ' has no ' + currency + ' loan from you on record, so there is nothing for this to repay. ' +
-        'Add the loan first (Loans tab), or use "Convert to loan" if they lent you this money.'
-      : 'You have no ' + currency + ' debt to ' + friend.name + ' on record, so there is nothing for this to repay.');
+      ? tr_('repay.noLoanFromYou', { friend: friend.name, cur: currency })
+      : tr_('repay.noDebt', { cur: currency, friend: friend.name }));
   }
 
   // Phase 1 — offset opposite-direction debt first, oldest-first on both
@@ -617,8 +616,8 @@ function recordRepayment(payload) {
       currency: currency,
       payment_method_id: payload.payment_method_id,
       description: payload.description || (payload.direction === 'they_owe_me'
-        ? 'Repayment from ' + friend.name
-        : 'Repayment to ' + friend.name)
+        ? tr_('desc.repaymentFrom', { name: friend.name })
+        : tr_('desc.repaymentTo', { name: friend.name }))
     });
     transferEntryId = repaymentTransferEntry.id;
   }
@@ -686,17 +685,17 @@ function recordRepayment(payload) {
 // "pick a category" step, which still calls recordOverpaymentIncome/Expense)
 // COMPLETES that pending entry instead of adding a second one.
 function createOverpaymentEntry_(type, payload) {
-  if (!payload.friend_id) throw new Error('Missing friend.');
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.pending && !payload.category_id) throw new Error('Pick a category.');
-  if (!payload.date) throw new Error('Date is required.');
+  if (!payload.friend_id) throw new Error(tr_('loan.missingFriend'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.pending && !payload.category_id) throw new Error(tr_('err.pickCategory'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
-  if (!friend) throw new Error('Friend not found');
+  if (!friend) throw new Error(tr_('err.friendNotFound'));
 
   var description = payload.description || (type === 'income'
-    ? "Overpayment from " + friend.name + "'s loan repayment"
-    : "Overpayment to " + friend.name + "'s loan repayment");
+    ? tr_('desc.overpaymentFrom', { name: friend.name })
+    : tr_('desc.overpaymentTo', { name: friend.name }));
   var amount = Number(payload.amount);
   var currency = payload.currency || 'PEN';
 
@@ -785,17 +784,16 @@ function withScriptLockOnce_(fn) {
 
 // kind: 'repayment' | 'loan'.
 function convertEntryInto_(payload, kind) {
-  var label = kind === 'loan' ? 'a loan' : 'a repayment';
   var entry = getEntryById_(payload.entry_id);
-  if (!entry) throw new Error('That entry no longer exists — it may already have been converted.');
+  if (!entry) throw new Error(tr_('convert.gone'));
   if (entry.type !== 'expense' && entry.type !== 'transfer') {
-    throw new Error('Only an expense or a transfer can be turned into ' + label + '.');
+    throw new Error(tr_(kind === 'loan' ? 'convert.onlyLoan' : 'convert.onlyRepayment'));
   }
-  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error('Invalid direction.');
-  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error('Friend not found');
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
-  if (kind === 'repayment' && !payload.overpay_category_id) throw new Error('Pick a category for any extra amount.');
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (kind === 'repayment' && !payload.overpay_category_id) throw new Error(tr_('convert.pickExtraCategory'));
 
   ensureLoansTransferEntryColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -806,7 +804,7 @@ function convertEntryInto_(payload, kind) {
     var linked = settlementsBefore.some(function (s) { return s.transfer_entry_id === entry.id; }) ||
       loansBefore.some(function (l) { return l.transfer_entry_id === entry.id; });
     if (linked) {
-      throw new Error("This transfer is already the money movement of a loan or repayment — change it from the Loans tab instead.");
+      throw new Error(tr_('convert.alreadyMovement'));
     }
   }
 
@@ -814,7 +812,7 @@ function convertEntryInto_(payload, kind) {
   var ownLoanIds = {};
   ownLoans.forEach(function (l) { ownLoanIds[l.id] = true; });
   if (settlementsBefore.some(function (s) { return ownLoanIds[s.loan_id]; })) {
-    throw new Error("The debt this expense created already has repayments recorded against it — sort those out from the Loans tab first.");
+    throw new Error(tr_('convert.debtHasRepayments'));
   }
 
   // Snapshot, then delete.
@@ -876,11 +874,10 @@ function convertEntryInto_(payload, kind) {
       getAllRows('Loans').filter(function (l) { return l.friend_id === payload.friend_id; })
         .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
     } catch (undoErr) {
-      throw new Error('Something went wrong AND putting the original back failed — entry "' +
-        (snapshot.entry.description || snapshot.entry.id) + '" (' + snapshot.entry.date + ', ' +
-        snapshot.entry.amount + ') needs re-entering. ' + err.message);
+      throw new Error(tr_('convert.undoFailed', { what: snapshot.entry.description || snapshot.entry.id, date: snapshot.entry.date,
+        amount: snapshot.entry.amount, error: err.message }));
     }
-    throw new Error('Nothing was changed — ' + err.message);
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
   }
 }
 
@@ -1016,7 +1013,7 @@ function getEntryRepaymentLinks(payload) {
 function discardEntryWithRepayments_(entryId) {
   var links = getEntryRepaymentLinks({ id: entryId });
   if (links.loan) {
-    throw new Error("This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.");
+    throw new Error(tr_('loan.entryIsMovement'));
   }
   if (links.forgiveness) {
     // Deleting the entry a forgiveness booked undoes the forgiveness: the
@@ -1064,8 +1061,8 @@ function findOrCreatePayorByName_(name) {
 //   side, same as being overpaid).
 function forgiveLoan(payload) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
-  if (!loan) throw new Error('Loan not found');
-  if (loan.status === 'forgiven') throw new Error('This loan is already forgiven.');
+  if (!loan) throw new Error(tr_('err.loanNotFound'));
+  if (loan.status === 'forgiven') throw new Error(tr_('forgive.already'));
 
   var settled = buildSettlementTotalsByLoan_()[loan.id] || 0;
   var remaining = Number(loan.amount) - settled;
@@ -1073,7 +1070,7 @@ function forgiveLoan(payload) {
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loan.id);
-  if (rowIndex === -1) throw new Error('Loan not found');
+  if (rowIndex === -1) throw new Error(tr_('err.loanNotFound'));
 
   // Whatever is still owed is always registered as the owner's own
   // expense (or income, if the owner was the debtor) — assuming that money
@@ -1082,15 +1079,15 @@ function forgiveLoan(payload) {
   // validation can't leave a forgiven loan with nothing booked.
   var entry = null;
   if (remaining > 0.004) {
-    if (!payload.category_id) throw new Error('Pick a category.');
-    if (!payload.date) throw new Error('Date is required.');
+    if (!payload.category_id) throw new Error(tr_('err.pickCategory'));
+    if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
     var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
-    var friendName = friend ? friend.name : 'a friend';
+    var friendName = friend ? friend.name : tr_('label.friendFallback');
     var type = loan.direction === 'they_owe_me' ? 'expense' : 'income';
     var description = loan.direction === 'they_owe_me'
-      ? 'Forgave ' + friendName + "'s debt"
-      : friendName + ' forgave a debt I owed them';
+      ? tr_('desc.forgave', { name: friendName })
+      : tr_('desc.forgaveMe', { name: friendName });
 
     entry = createOverpaymentEntry_(type, {
       friend_id: loan.friend_id,
@@ -1130,7 +1127,7 @@ function listSettlementsForFriendCurrency(friendId, currency) {
 
   function loanLabel(loan) {
     if (!loan) return '';
-    return loan.description || (loan.origin === 'entry' ? 'Shared expense' : 'Loan');
+    return loan.description || (loan.origin === 'entry' ? tr_('label.sharedExpense') : tr_('label.loan'));
   }
 
   var settlements = getAllRows('Settlements')
@@ -1154,14 +1151,14 @@ function updateSettlement(payload) {
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
-  if (!existing) throw new Error('Repayment not found');
+  if (!existing) throw new Error(tr_('err.repaymentNotFound'));
   if (existing.offset_loan_id) {
-    throw new Error("That was an automatic offset from a repayment, not a real payment — it can't be edited directly.");
+    throw new Error(tr_('repay.autoOffsetEdit'));
   }
   var loan = getAllRows('Loans').find(function (l) { return l.id === existing.loan_id; });
-  if (!loan) throw new Error('Loan not found');
-  if (!(Number(payload.amount) > 0)) throw new Error('Enter a valid amount.');
-  if (!payload.date) throw new Error('Date is required.');
+  if (!loan) throw new Error(tr_('err.loanNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
   // Remaining balance excluding THIS settlement's own current amount —
   // otherwise editing one down and back up again would always look like
@@ -1171,13 +1168,13 @@ function updateSettlement(payload) {
     .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   var remaining = Number(loan.amount) - settledOthers;
   if (Number(payload.amount) - remaining > 0.004) {
-    throw new Error("That's more than the remaining balance (" + loan.currency + ' ' + remaining.toFixed(2) + ').');
+    throw new Error(tr_('repay.moreThanRemaining', { cur: loan.currency, amount: remaining.toFixed(2) }));
   }
 
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
-  if (rowIndex === -1) throw new Error('Repayment not found');
+  if (rowIndex === -1) throw new Error(tr_('err.repaymentNotFound'));
   setCellByRow_(sheet, headers, rowIndex, 'date', payload.date);
   setCellByRow_(sheet, headers, rowIndex, 'amount', Number(payload.amount));
   setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
@@ -1193,7 +1190,7 @@ function deleteSettlement(id) {
   var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
   if (!existing) return;
   if (existing.offset_loan_id) {
-    throw new Error("That was an automatic offset from a repayment, not a real payment — it can't be deleted directly.");
+    throw new Error(tr_('repay.autoOffsetDelete'));
   }
 
   var sheet = getSheet('Settlements');
@@ -1282,7 +1279,7 @@ function listLoanBalances() {
 
     result.push({
       friend_id: friendId,
-      friend_name: friendMap[friendId] || '(unknown friend)',
+      friend_name: friendMap[friendId] || tr_('label.unknownFriend'),
       balances: balances,
       has_overdue: !!overdueFriendIds[friendId]
     });
@@ -1358,7 +1355,7 @@ function checkOverdueLoans() {
     var key = loan.id + '|' + loan.due_date;
     if (alertedSet[key]) return;
 
-    var friendName = friendNameById[loan.friend_id] || '(unknown friend)';
+    var friendName = friendNameById[loan.friend_id] || tr_('label.unknownFriend');
     var sent = sendTelegramLoanOverdueAlert_(loan, friendName);
     if (!sent) return; // Telegram not configured — try again next cycle
 

@@ -142,19 +142,19 @@ function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDat
 // already ellipsizes long names — see budget-row-name in style.css).
 function resolveBudgetCategoryDisplay_(categoryIds, categoryById) {
   if (categoryIds === null) {
-    return { name: 'All expense categories', icon: '🗂️', color: '' };
+    return { name: tr_('budget.allExpense'), icon: '🗂️', color: '' };
   }
   if (categoryIds.length === 1) {
     var cat = categoryById[categoryIds[0]];
     return {
-      name: cat ? categoryLabel_(cat) : '(unknown category)',
+      name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
       icon: cat ? cat.icon : '',
       color: cat ? cat.color : ''
     };
   }
   var names = categoryIds.map(function (id) {
     var c = categoryById[id];
-    return c ? categoryLabel_(c) : '(unknown category)';
+    return c ? categoryLabel_(c) : tr_('label.unknownCategory');
   });
   return { name: names.join(', '), icon: '🗂️', color: '' };
 }
@@ -368,10 +368,7 @@ function listBudgets(payload) {
       var sharedNames = shared.map(function (id) {
         return categoryById[id] ? categoryLabel_(categoryById[id]) : id;
       }).join(', ');
-      overlapNotes.push(
-        '"' + budgets[a].category_name + '" and "' + budgets[c].category_name +
-        '" both include ' + sharedNames + ' — total may overstate your real ceiling.'
-      );
+      overlapNotes.push(tr_('budget.overlap', { a: budgets[a].category_name, b: budgets[c].category_name, names: sharedNames }));
     }
   }
 
@@ -401,7 +398,7 @@ function getBudgetChartSeries(payload) {
   var startDate = payload.startDate;
   var endDate = payload.endDate;
   var rawBudget = getAllRows('Budgets').filter(function (b) { return b.id === payload.budgetId; })[0];
-  if (!rawBudget) throw new Error('Budget not found');
+  if (!rawBudget) throw new Error(tr_('err.budgetNotFound'));
 
   var categoryIds = parseBudgetCategoryIds_(rawBudget.category_id);
   var currency = rawBudget.currency || 'PEN';
@@ -515,7 +512,7 @@ function normalizeBudgetThresholds_(raw) {
   text.split(',').forEach(function (part) {
     var t = part.trim();
     if (!/^\d+(\.\d+)?$/.test(t) || Number(t) <= 0) {
-      throw new Error('Alert thresholds must be positive numbers separated by commas, like 75,100 — "' + t + '" is not valid.');
+      throw new Error(tr_('budget.thresholds', { value: t }));
     }
     if (!seen[Number(t)]) { seen[Number(t)] = true; out.push(Number(t)); }
   });
@@ -524,7 +521,7 @@ function normalizeBudgetThresholds_(raw) {
 
 function validateBudgetAmount_(amount) {
   var n = Number(amount);
-  if (amount === null || amount === '' || !isFinite(n) || n <= 0) throw new Error('The budget amount must be a number greater than 0.');
+  if (amount === null || amount === '' || !isFinite(n) || n <= 0) throw new Error(tr_('budget.amountGreater'));
 }
 
 // A budget may not repeat EXACTLY the same set of categories as another one
@@ -547,10 +544,9 @@ function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
     if ((other.period_type === 'yearly' ? 'yearly' : 'monthly') !== periodType) return;
     if (key(parseBudgetCategoryIds_(other.category_id)) !== myKey) return;
     var what = mine === null
-      ? 'all expense categories'
-      : mine.map(function (id) { return '"' + (names[id] || 'this category') + '"'; }).join(' + ');
-    throw new Error('You already have a ' + periodType + ' budget for exactly ' + what +
-      '. Edit that one instead, or pick a different timeframe or set of categories.');
+      ? tr_('budget.allExpenseLower')
+      : mine.map(function (id) { return '"' + (names[id] || tr_('budget.thisCategory')) + '"'; }).join(' + ');
+    throw new Error(tr_('budget.duplicate', { period: tr_(periodType === 'yearly' ? 'budget.yearly' : 'budget.monthly'), what: what }));
   });
 }
 
@@ -574,7 +570,7 @@ function updateBudget(payload) {
   var sheet = getSheet('Budgets');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
-  if (rowIndex === -1) throw new Error('Budget not found');
+  if (rowIndex === -1) throw new Error(tr_('err.budgetNotFound'));
 
   if (payload.amount !== undefined) validateBudgetAmount_(payload.amount);
   if (payload.category_id !== undefined || payload.period_type !== undefined) {

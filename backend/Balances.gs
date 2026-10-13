@@ -280,7 +280,7 @@ function listPaymentMethodBalances() {
 // the balance detail sheet lists so a difference can be traced by hand.
 function getPaymentMethodMovements(payload) {
   var pm = getAllRows('Payment Methods').find(function (p) { return p.id === payload.paymentMethodId; });
-  if (!pm) throw new Error('Payment method not found');
+  if (!pm) throw new Error(tr_('err.paymentMethodNotFound'));
   var allPms = getAllRows('Payment Methods');
   var pmsById = {};
   allPms.forEach(function (p) { pmsById[p.id] = p; });
@@ -316,18 +316,18 @@ function setPaymentMethodOpeningBalance(payload) {
   var pmSheet = getSheet('Payment Methods');
   var pmHeaders = getHeaders(pmSheet);
   var rowIndex = findRowIndexById(pmSheet, pmHeaders, payload.id);
-  if (rowIndex === -1) throw new Error('Payment method not found');
+  if (rowIndex === -1) throw new Error(tr_('err.paymentMethodNotFound'));
 
   var list = payload.balances || [];
   var seen = {};
   var clean = list.map(function (b) {
     var currency = String(b.currency || 'PEN').toUpperCase();
-    if (seen[currency]) throw new Error('Each currency can only be listed once (' + currency + ').');
+    if (seen[currency]) throw new Error(tr_('bal.listedOnce', { cur: currency }));
     seen[currency] = true;
     if (b.amount === '' || b.amount === null || b.amount === undefined || isNaN(Number(b.amount))) {
-      throw new Error('Enter a valid balance for ' + currency + '.');
+      throw new Error(tr_('bal.validBalance', { cur: currency }));
     }
-    if (!b.date) throw new Error('Pick a from-date for ' + currency + '.');
+    if (!b.date) throw new Error(tr_('bal.pickFromDate', { cur: currency }));
     return { currency: currency, amount: Number(b.amount), date: String(b.date) };
   });
 

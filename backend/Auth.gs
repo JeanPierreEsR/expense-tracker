@@ -199,6 +199,13 @@ function ensureSessionsSheet_() {
   sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
 }
 
+// An error the app can recognise by `code` instead of by its (translated) text.
+function codedError_(code, message) {
+  var err = new Error(message);
+  err.code = code;
+  return err;
+}
+
 // ---- lockout (sign-in and Telegram /start only) ----
 function loginLockState_() {
   var until = Number(CacheService.getScriptCache().get('loginlock') || 0);
@@ -207,7 +214,7 @@ function loginLockState_() {
 }
 
 function lockMessage_(state) {
-  return 'Too many wrong codes. Try again in ' + state.minutesLeft + ' minute' + (state.minutesLeft === 1 ? '' : 's') + '.';
+  return tr_('auth.locked', { n: state.minutesLeft });
 }
 
 function noteLoginFailure_() {
@@ -230,11 +237,11 @@ function clearLoginFailures_() {
 // ---- sessions ----
 function loginWithCode_(payload) {
   var state = loginLockState_();
-  if (state.locked) throw new Error(lockMessage_(state));
+  if (state.locked) throw codedError_('locked', lockMessage_(state));
   if (!isValidAccessCode(String(payload.code || '').trim())) {
     noteLoginFailure_();
     recordFailedAccessAttempt_('sign-in');
-    throw new Error('Wrong access code.');
+    throw codedError_('wrong_code', tr_('auth.wrongCode'));
   }
   clearLoginFailures_();
   return createSession_(payload.deviceName);

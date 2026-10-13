@@ -88,14 +88,14 @@ function getPeriodSummary(payload) {
     excludedCount: excludedCount,
     breakdowns: {
       expense: {
-        byCategory: bucketToList_(acc.expense.category, totals.expense, 'Uncategorized'),
-        byTag: bucketToList_(acc.expense.tag, totals.expense, 'Untagged'),
-        byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, 'Other')
+        byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
+        byTag: bucketToList_(acc.expense.tag, totals.expense, tr_('report.untagged')),
+        byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.otherMethod'))
       },
       income: {
-        byCategory: bucketToList_(acc.income.category, totals.income, 'Uncategorized'),
-        byTag: bucketToList_(acc.income.tag, totals.income, 'Untagged'),
-        byPaymentMethod: bucketToList_(acc.income.paymentMethod, totals.income, 'Other')
+        byCategory: bucketToList_(acc.income.category, totals.income, tr_('report.uncategorized')),
+        byTag: bucketToList_(acc.income.tag, totals.income, tr_('report.untagged')),
+        byPaymentMethod: bucketToList_(acc.income.paymentMethod, totals.income, tr_('report.otherMethod'))
       }
     }
   };
@@ -119,7 +119,8 @@ function bucketToList_(bucket, totalForPercent, fallbackName) {
     var ref = b.ref;
     return {
       id: key === '__none__' ? '' : key,
-      name: ref ? (ref.name || ref.nickname || fallbackName) : fallbackName,
+      // A category row (it has parent_id) is shown with its translated name.
+      name: ref ? (('parent_id' in ref) ? categoryLabel_(ref) : (ref.name || ref.nickname || fallbackName)) : fallbackName,
       color: ref && ref.color ? ref.color : '',
       icon: ref && ref.icon ? ref.icon : '',
       amount_pen: b.amountPen

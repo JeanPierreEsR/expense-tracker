@@ -529,7 +529,7 @@ function confirmEntryWithLearning_(entryId) {
   // Every confirmed entry has a category (the app's own Confirm enforces it
   // too); one without would show as uncategorised in every report.
   if (entry && entry.type !== 'investment' && !entry.category_id) {
-    throw new Error('Pick a category first.');
+    throw new Error(tr_('err.pickCategoryFirst'));
   }
   if (entry && entry.type === 'investment' && needsInvestmentCategory_(entry.category_id)) {
     setEntryField_(entryId, 'category_id', defaultInvestmentCategoryId_());
@@ -537,7 +537,7 @@ function confirmEntryWithLearning_(entryId) {
   // An investment only counts once it says which platform it went to (the
   // per-platform totals and every report read that field).
   if (entry && entry.type === 'investment' && !entry.to_payment_method_id) {
-    throw new Error('Pick the platform first.');
+    throw new Error(tr_('err.pickPlatformFirst'));
   }
   if (entry && entry.type === 'expense' && !getEntrySplits(entryId).length) {
     saveEntrySplits(entryId, []);

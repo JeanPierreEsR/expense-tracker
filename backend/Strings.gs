@@ -20,8 +20,165 @@
 var SUPPORTED_LANGS_ = ['en', 'es'];
 var REQUEST_LANG_ = null;   // set by doPost for the duration of one request
 
+// Server texts — edit by hand: one entry per text, en and es side by side.
 var BACKEND_STRINGS_ = {
-  // Added area by area (step 5b onwards).
+  // ---- err ----
+  "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
+  "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
+  "err.validAmount": { en: "Enter a valid amount.", es: "Ingresa un monto válido." },
+  "err.dateRequired": { en: "Date is required.", es: "La fecha es obligatoria." },
+  "err.pickCategory": { en: "Pick a category.", es: "Elige una categoría." },
+  "err.entryNotFound": { en: "Entry not found", es: "No se encontró el movimiento" },
+  "err.loanNotFound": { en: "Loan not found", es: "No se encontró el préstamo" },
+  "err.repaymentNotFound": { en: "Repayment not found", es: "No se encontró el repago" },
+  "err.friendNotFound": { en: "Friend not found", es: "No se encontró al amigo" },
+  "err.paymentMethodNotFound": { en: "Payment method not found", es: "No se encontró el medio de pago" },
+  "err.budgetNotFound": { en: "Budget not found", es: "No se encontró el presupuesto" },
+  "err.recurringNotFound": { en: "Recurring expense not found", es: "No se encontró el movimiento programado" },
+  "err.recurringItemNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
+  "err.currencyCode": { en: "Currency must be a 3-letter code.", es: "La moneda debe ser un código de 3 letras." },
+  "err.monthFormat": { en: "Month must look like 2026-09.", es: "El mes debe verse así: 2026-09." },
+  "err.rateGreater": { en: "The exchange rate must be a number greater than 0.", es: "El tipo de cambio debe ser un número mayor que 0." },
+  "err.enterName": { en: "Enter a name.", es: "Ingresa un nombre." },
+  "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
+  "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
+
+  // ---- loan ----
+  "loan.missingFriend": { en: "Missing friend.", es: "Falta el amigo." },
+  "loan.fromSharedEdit": { en: "This loan came from a shared expense — edit that entry instead.", es: "Este préstamo viene de un gasto compartido: edita ese movimiento." },
+  "loan.repaymentLocked": { en: "This loan already has a repayment recorded — you can't change its friend, direction or currency.", es: "Este préstamo ya tiene un repago registrado: no puedes cambiar su amigo, dirección ni moneda." },
+  "loan.fromSharedDelete": { en: "This loan came from a shared expense — delete that entry instead.", es: "Este préstamo viene de un gasto compartido: elimina ese movimiento." },
+  "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
+  "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el traspaso de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
+  "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La división ({split}) es mayor que el gasto ({amount})." },
+  "loan.amountBelowSettled": { en: "This loan already has {settled} in repayments — the amount can't be lower than that.", es: "Este préstamo ya tiene {settled} en repagos: el monto no puede ser menor." },
+
+  // ---- convert ----
+  "convert.gone": { en: "That entry no longer exists — it may already have been converted.", es: "Ese movimiento ya no existe: puede que ya se haya convertido." },
+  "convert.pickExtraCategory": { en: "Pick a category for any extra amount.", es: "Elige una categoría para cualquier excedente." },
+  "convert.alreadyMovement": { en: "This transfer is already the money movement of a loan or repayment — change it from the Loans tab instead.", es: "Esta transferencia ya es el traspaso de dinero de un préstamo o repago: cámbiala desde la pestaña Préstamos." },
+  "convert.debtHasRepayments": { en: "The debt this expense created already has repayments recorded against it — sort those out from the Loans tab first.", es: "La deuda que creó este gasto ya tiene repagos registrados: resuélvelos primero desde la pestaña Préstamos." },
+  "convert.onlyLoan": { en: "Only an expense or a transfer can be turned into a loan.", es: "Solo un gasto o una transferencia se puede convertir en un préstamo." },
+  "convert.onlyRepayment": { en: "Only an expense or a transfer can be turned into a repayment.", es: "Solo un gasto o una transferencia se puede convertir en un repago." },
+  "convert.undoFailed": { en: "Something went wrong AND putting the original back failed — entry \"{what}\" ({date}, {amount}) needs re-entering. {error}", es: "Algo salió mal Y no se pudo restaurar el original: el movimiento \"{what}\" ({date}, {amount}) hay que volver a ingresarlo. {error}" },
+  "convert.nothingChanged": { en: "Nothing was changed — {error}", es: "No se cambió nada: {error}" },
+
+  // ---- forgive ----
+  "forgive.already": { en: "This loan is already forgiven.", es: "Este préstamo ya está perdonado." },
+
+  // ---- repay ----
+  "repay.autoOffsetEdit": { en: "That was an automatic offset from a repayment, not a real payment — it can't be edited directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede editar directamente." },
+  "repay.autoOffsetDelete": { en: "That was an automatic offset from a repayment, not a real payment — it can't be deleted directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede eliminar directamente." },
+  "repay.moreThanRemaining": { en: "That's more than the remaining balance ({cur} {amount}).", es: "Eso es más que el saldo restante ({cur} {amount})." },
+  "repay.noLoanFromYou": { en: "{friend} has no {cur} loan from you on record, so there is nothing for this to repay. Add the loan first (Loans tab), or use \"Convert to loan\" if they lent you this money.", es: "{friend} no tiene un préstamo tuyo en {cur} registrado, así que no hay nada que repagar. Agrega primero el préstamo (pestaña Préstamos), o usa \"Convertir en préstamo\" si te prestaron este dinero." },
+  "repay.noDebt": { en: "You have no {cur} debt to {friend} on record, so there is nothing for this to repay.", es: "No tienes una deuda en {cur} con {friend} registrada, así que no hay nada que repagar." },
+
+  // ---- budget ----
+  "budget.amountGreater": { en: "The budget amount must be a number greater than 0.", es: "El monto del presupuesto debe ser un número mayor que 0." },
+  "budget.thresholds": { en: "Alert thresholds must be positive numbers separated by commas, like 75,100 — \"{value}\" is not valid.", es: "Los umbrales de aviso deben ser números positivos separados por comas, como 75,100: \"{value}\" no es válido." },
+  "budget.monthly": { en: "monthly", es: "mensual" },
+  "budget.yearly": { en: "yearly", es: "anual" },
+  "budget.allExpenseLower": { en: "all expense categories", es: "todas las categorías de gasto" },
+  "budget.thisCategory": { en: "this category", es: "esta categoría" },
+  "budget.duplicate": { en: "You already have a {period} budget for exactly {what}. Edit that one instead, or pick a different timeframe or set of categories.", es: "Ya tienes un presupuesto {period} exactamente para {what}. Edita ese, o elige otro periodo u otro conjunto de categorías." },
+  "budget.allExpense": { en: "All expense categories", es: "Todas las categorías de gasto" },
+  "budget.overlap": { en: "\"{a}\" and \"{b}\" both include {names} — total may overstate your real ceiling.", es: "\"{a}\" y \"{b}\" incluyen {names}: el total puede sobrestimar tu tope real." },
+
+  // ---- inbox ----
+  "inbox.notThere": { en: "That statement is not in the inbox", es: "Ese estado de cuenta no está en la bandeja" },
+  "inbox.attachmentGone": { en: "The attachment is no longer in that email", es: "El adjunto ya no está en ese correo" },
+
+  // ---- rec ----
+  "rec.startDate": { en: "The start date must be a real date (YYYY-MM-DD).", es: "La fecha de inicio debe ser una fecha real (AAAA-MM-DD)." },
+  "rec.endDate": { en: "The end date must be a real date (YYYY-MM-DD).", es: "La fecha de fin debe ser una fecha real (AAAA-MM-DD)." },
+  "rec.endBeforeStart": { en: "The end date is before the start date.", es: "La fecha de fin es anterior a la de inicio." },
+
+  // ---- bill ----
+  "bill.format": { en: "That bill is not in a format this app can store.", es: "Esa cuenta no tiene un formato que esta app pueda guardar." },
+  "bill.onlyExpense": { en: "Only an expense can have a bill.", es: "Solo un gasto puede tener una cuenta." },
+  "bill.tooLarge": { en: "That bill is too large to store.", es: "Esa cuenta es demasiado grande para guardarla." },
+
+  // ---- export ----
+  "export.chooseOne": { en: "Choose at least one file to send.", es: "Elige al menos un archivo para enviar." },
+  "export.quota": { en: "Google's daily email limit has been reached. Try again tomorrow.", es: "Se alcanzó el límite diario de correos de Google. Inténtalo de nuevo mañana." },
+  "export.noEmail": { en: "No export email address is set up yet.", es: "Aún no hay un correo configurado para las exportaciones." },
+  "export.badEmail": { en: "That does not look like an email address.", es: "Eso no parece una dirección de correo." },
+  "export.dateFormat": { en: "Dates must look like 2026-01-31.", es: "Las fechas deben verse así: 2026-01-31." },
+  "export.dateOrder": { en: "The start date is after the end date.", es: "La fecha de inicio es posterior a la fecha de fin." },
+  "export.tooLarge": { en: "The export is too large to email ({mb} MB). Try a shorter date range, or send only one file.", es: "La exportación es demasiado grande para enviarla por correo ({mb} MB). Prueba con un rango de fechas más corto o envía solo un archivo." },
+
+  // ---- sa ----
+  "sa.laterNotWaiting": { en: "That earlier statement line is no longer waiting", es: "Esa línea de un estado de cuenta anterior ya no está en espera" },
+  "sa.unknownLine": { en: "Unknown statement line", es: "Línea de estado de cuenta desconocida" },
+  "sa.twoActions": { en: "A statement line was given two actions", es: "A una línea del estado de cuenta se le dieron dos acciones" },
+  "sa.notSameTransfer": { en: "The two lines are not the same transfer (opposite signs, same amount and currency)", es: "Las dos líneas no son la misma transferencia (signos opuestos, mismo monto y moneda)" },
+  "sa.catMissingBetween": { en: "Category \"Between Accounts\" is missing", es: "Falta la categoría \"Entre cuentas\"" },
+  "sa.feeOut": { en: "A fee must be money going out", es: "Una comisión debe ser dinero que sale" },
+  "sa.catMissingFees": { en: "Category \"Bank fees\" is missing", es: "Falta la categoría \"Comisiones bancarias\"" },
+  "sa.purchaseOut": { en: "A purchase must be money going out", es: "Una compra debe ser dinero que sale" },
+  "sa.unknownExpenseCat": { en: "Unknown expense category", es: "Categoría de gasto desconocida" },
+  "sa.incomeIn": { en: "Income must be money coming in", es: "Un ingreso debe ser dinero que entra" },
+  "sa.unknownIncomeCat": { en: "Unknown income category", es: "Categoría de ingreso desconocida" },
+  "sa.reversalIn": { en: "A reversal must be money coming back", es: "Una reversión debe ser dinero que vuelve" },
+  "sa.chargeNotFound": { en: "The charge to cancel was not found", es: "No se encontró el cargo a cancelar" },
+  "sa.onlyExpenseCancel": { en: "Only an expense can be cancelled by a reversal", es: "Solo un gasto se puede cancelar con una reversión" },
+  "sa.reversalMismatch": { en: "The reversal and the charge are not the same amount and currency", es: "La reversión y el cargo no tienen el mismo monto y moneda" },
+  "sa.notTransfer": { en: "Not a transfer", es: "No es una transferencia" },
+  "sa.endFilled": { en: "That end of the transfer is already filled in", es: "Ese extremo de la transferencia ya está completo" },
+  "sa.unknownBalance": { en: "Unknown statement or account for the balance", es: "Estado de cuenta o cuenta desconocidos para el saldo" },
+  "sa.unverifiedBalance": { en: "A statement that could not be verified cannot set a balance", es: "Un estado de cuenta que no se pudo verificar no puede fijar un saldo" },
+  "sa.noEnd": { en: "This statement has no end date", es: "Este estado de cuenta no tiene fecha de fin" },
+  "sa.entryNotFound": { en: "Entry not found: {id}", es: "No se encontró el movimiento: {id}" },
+  "sa.noAccount": { en: "No account is set up for statement {key}", es: "No hay una cuenta configurada para el estado de cuenta {key}" },
+  "sa.noClosing": { en: "This statement has no closing balance in {cur}", es: "Este estado de cuenta no tiene saldo final en {cur}" },
+  "sa.balanceNotOlder": { en: "The balance registered on {date} is not older than this statement, so it stays", es: "El saldo registrado el {date} no es más antiguo que este estado de cuenta, así que se mantiene" },
+  "sa.unknownAction": { en: "Unknown action: {type}", es: "Acción desconocida: {type}" },
+
+  // ---- bal ----
+  "bal.listedOnce": { en: "Each currency can only be listed once ({cur}).", es: "Cada moneda solo puede aparecer una vez ({cur})." },
+  "bal.validBalance": { en: "Enter a valid balance for {cur}.", es: "Ingresa un saldo válido para {cur}." },
+  "bal.pickFromDate": { en: "Pick a from-date for {cur}.", es: "Elige la fecha desde la que cuenta {cur}." },
+
+  // ---- label ----
+  "label.unknownFriend": { en: "(unknown friend)", es: "(amigo desconocido)" },
+  "label.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
+  "label.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
+  "label.loan": { en: "Loan", es: "Préstamo" },
+  "label.friendFallback": { en: "a friend", es: "un amigo" },
+
+  // ---- desc ----
+  "desc.loanTo": { en: "Loan to {name}", es: "Préstamo a {name}" },
+  "desc.loanFrom": { en: "Loan from {name}", es: "Préstamo de {name}" },
+  "desc.repaymentFrom": { en: "Repayment from {name}", es: "Repago de {name}" },
+  "desc.repaymentTo": { en: "Repayment to {name}", es: "Repago a {name}" },
+  "desc.overpaymentFrom": { en: "Overpayment from {name}'s loan repayment", es: "Pago de más de {name} en el repago de su préstamo" },
+  "desc.overpaymentTo": { en: "Overpayment to {name}'s loan repayment", es: "Pago de más a {name} en el repago de su préstamo" },
+  "desc.forgave": { en: "Forgave {name}'s debt", es: "Perdoné la deuda de {name}" },
+  "desc.forgaveMe": { en: "{name} forgave a debt I owed them", es: "{name} me perdonó una deuda" },
+  "desc.transfer": { en: "Transfer {from} → {to}", es: "Transferencia {from} → {to}" },
+  "desc.reversal": { en: "Reversal: {text}", es: "Reversión: {text}" },
+
+  // ---- report ----
+  "report.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
+  "report.untagged": { en: "Untagged", es: "Sin etiqueta" },
+  "report.otherMethod": { en: "Other", es: "Otros" },
+
+  // ---- guess ----
+  "guess.history": { en: "{n} of {total} past \"{merchant}\" entries", es: "{n} de {total} movimientos pasados de \"{merchant}\"" },
+  "guess.programmed": { en: "matches programmed \"{name}\"", es: "coincide con el programado \"{name}\"" },
+  "guess.interest": { en: "interest earned", es: "intereses ganados" },
+
+  // ---- sb ----
+  "sb.untracked": { en: "No balance is registered for this account yet — this statement can start it.", es: "Aún no hay un saldo registrado para esta cuenta: este estado de cuenta puede iniciarlo." },
+  "sb.noCurrency": { en: "No balance is registered in {cur} for this account yet.", es: "Aún no hay un saldo registrado en {cur} para esta cuenta." },
+  "sb.newer": { en: "This statement is newer than the balance registered on {date}.", es: "Este estado de cuenta es más reciente que el saldo registrado el {date}." },
+  "sb.sameDay": { en: "Your balance registered on {date} is for the same day, so it stays.", es: "Tu saldo registrado el {date} es del mismo día, así que se mantiene." },
+  "sb.older": { en: "Your balance registered on {date} is newer than this statement, so it stays.", es: "Tu saldo registrado el {date} es más reciente que este estado de cuenta, así que se mantiene." },
+
+  // ---- auth ----
+  "auth.invalidCode": { en: "Invalid access code", es: "Código de acceso no válido" },
+  "auth.wrongCode": { en: "Wrong access code.", es: "Código de acceso incorrecto." },
+  "auth.locked": { en: { one: "Too many wrong codes. Try again in {n} minute.", other: "Too many wrong codes. Try again in {n} minutes." }, es: { one: "Demasiados códigos incorrectos. Inténtalo de nuevo en {n} minuto.", other: "Demasiados códigos incorrectos. Inténtalo de nuevo en {n} minutos." } }
 };
 
 // Built-in categories: key -> { en: stored name, es: shown name }. Names that

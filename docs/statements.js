@@ -386,6 +386,11 @@
     return `<details class="stmt-group" data-gkey="${escapeHtml(key)}" ${isOpen ? "open" : ""}><summary>${escapeHtml(title)} <span class="stmt-count">${items.length}</span></summary>${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}${items.join("")}</details>`;
   }
 
+  // The word the server stored for a line that was handled before, in the current language.
+  function outcomeLabel_(outcome) {
+    return ["added", "completed", "matched", "recorded", "reversed", "waiting", "ignored"].includes(outcome) ? tr("stmt.outcome." + outcome) : outcome;
+  }
+
   function isPeoplePayment(l) { return /^(YAPE|PLIN)\b/i.test(String(l.description || "").trim()) || /^(YAPE|PLIN)[-.]/i.test(String(l.description || "")); }
 
   function buildItems(analysis) {
@@ -552,7 +557,7 @@
       if (chosen === "match" && review.matchEntry.has(it.id)) sub += tr("stmt.matchedTo", { text: escapeHtml(review.matchEntryText.get(it.id) || "") });
     } else if (it.kind === "handled") {
       const h = l.handled;
-      sub = tr("stmt.itemHandled", { where, outcome: escapeHtml(h.outcome), entry: h.entry ? ": " + entryText(h.entry) : "" });
+      sub = tr("stmt.itemHandled", { where, outcome: escapeHtml(outcomeLabel_(h.outcome)), entry: h.entry ? ": " + entryText(h.entry) : "" });
     } else if (it.kind === "matched") {
       sub = `${where} → ${entryText(l.entry)}${l.viaTotal ? escapeHtml(tr("stmt.viaTotal")) : ""}`;
     }

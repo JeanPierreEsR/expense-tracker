@@ -101,7 +101,7 @@ function guessFromMerchantHistory_(merchant, ctx) {
   if (h.counts[best] / h.total < MERCHANT_MIN_SHARE) return null;
   return {
     categoryId: best,
-    reason: h.counts[best] + ' of ' + h.total + ' past "' + merchant + '" entries'
+    reason: tr_('guess.history', { n: h.counts[best], total: h.total, merchant: merchant })
   };
 }
 
@@ -121,7 +121,7 @@ function guessFromProgrammed_(fields, dateStr, ctx) {
   var catIds = {};
   hits.forEach(function (r) { catIds[r.category_id] = true; });
   if (Object.keys(catIds).length !== 1) return null;
-  return { categoryId: hits[0].category_id, reason: 'matches programmed "' + hits[0].description + '"' };
+  return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }) };
 }
 
 /**
