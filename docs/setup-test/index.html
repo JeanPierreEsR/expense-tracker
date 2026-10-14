@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Setup test</title>
+<!--
+  PROTOTYPE ONLY — a throwaway test of a "one-tap install" for friends & family.
+  Not linked from the real app. It creates a spreadsheet + a copy of the backend
+  (from this public repo) in the Google account of whoever signs in, then checks
+  sign-in, saving, and pushing an update. Holds nothing private: the Client ID
+  below is a public identifier, not a secret.
+-->
+<style>
+  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#666; --card:#fff; --line:#e3e3df; --ok:#1a7f5a; --bad:#b3261e; --accent:#1f5fbf; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --muted:#aaa; --card:#1f1f1f; --line:#333; --ok:#4cc38a; --bad:#ff8a80; --accent:#7aa7ff; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, Helvetica, sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:16px; }
+  .banner { background:#fff3cd; color:#5c4400; border-radius:10px; padding:10px 12px; font-size:14px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin:12px 0; }
+  .step h3 { margin:0 0 6px; font-size:17px; }
+  .step p { margin:6px 0; color:var(--muted); font-size:14px; }
+  button { font:inherit; font-weight:600; padding:12px 16px; border-radius:10px; border:0; background:var(--accent); color:#fff; width:100%; margin-top:6px; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.45; }
+  .done { color:var(--ok); font-weight:600; }
+  input { font:inherit; width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  #log { font:12px/1.4 ui-monospace, Menlo, monospace; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 10px 30px; max-height:320px; overflow:auto; }
+  #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
+  a { color:var(--accent); }
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<main>
+  <h1>Expense Tracker — setup test</h1>
+  <p class="banner">Test page. Use it only with the spare Google account. It creates a new spreadsheet and backend in that account; your real app is not touched.</p>
+
+  <div class="step">
+    <h3>1. Create my tracker</h3>
+    <p>Signs in with Google, then creates the spreadsheet and the backend in your account and publishes it. If Google says the Apps Script API is off, turn it on <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">here</a> and tap again.</p>
+    <div id="s1"></div>
+    <button id="btnInstall">Create my tracker</button>
+  </div>
+
+  <div class="step">
+    <h3>2. Give permission</h3>
+    <p>Opens your new backend. Google asks you to approve it (it will say the app isn't verified — that's expected), then sends you back here.</p>
+    <div id="s2"></div>
+    <button id="btnAuthorize" disabled>Open my backend</button>
+    <p>Button didn't bring you back? Paste the access code shown there:</p>
+    <input id="codeInput" placeholder="access code" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="secondary" id="btnSaveCode">Use this code</button>
+  </div>
+
+  <div class="step">
+    <h3>3. Test the connection</h3>
+    <p>Signs in to your backend like the app does, saves a test entry (S/ 1.00) and reads it back.</p>
+    <div id="s3"></div>
+    <button id="btnTest" disabled>Test connection</button>
+  </div>
+
+  <div class="step">
+    <h3>4. Push an update</h3>
+    <p>Sends a newer copy of the backend, then checks it arrived and the test entry is still there.</p>
+    <div id="s4"></div>
+    <button id="btnUpdate" disabled>Update my backend</button>
+  </div>
+
+  <div class="step">
+    <h3>Diagnostics</h3>
+    <button class="secondary" id="btnStatus" disabled>Check backend status</button>
+    <button class="secondary" id="btnCopy">Copy log</button>
+    <button class="secondary" id="btnForget">Forget this test (start over)</button>
+    <p>“Forget” only clears this page's memory. To remove the test from the account, delete the spreadsheet “Expense Tracker (setup test)” in Google Drive — its backend goes with it.</p>
+  </div>
+
+  <h3>Log</h3>
+  <ol id="log"></ol>
+</main>
+
+<script>
+const CLIENT_ID = '827461318220-df4c2aa4epf6uptbvqntbh16r7l8b2n4.apps.googleusercontent.com';
+const SCOPES = [
+  'https://www.googleapis.com/auth/script.projects',
+  'https://www.googleapis.com/auth/script.deployments',
+  'https://www.googleapis.com/auth/drive.file'
+].join(' ');
+const REPO = 'JeanPierreEsR/expense-tracker';
+const REF = 'main';
+const STORE_KEY = 'setupTestState';
+const SHEET_TITLE = 'Expense Tracker (setup test)';
+
+// ---------- small helpers ----------
+const $ = (id) => document.getElementById(id);
+let state = {};
+try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { state = {}; }
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
+const t0 = Date.now();
+function log(msg, kind) {
+  const li = document.createElement('li');
+  li.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  if (kind) li.className = kind;
+  $('log').appendChild(li);
+  li.scrollIntoView({ block: 'nearest' });
+}
+function secs(start) { return ((Date.now() - start) / 1000).toFixed(1) + ' s'; }
+
+// ---------- Google sign-in (token for the setup page only) ----------
+let accessToken = null, tokenExpires = 0, tokenClient = null;
+function getToken() {
+  if (accessToken && Date.now() < tokenExpires - 60000) return Promise.resolve(accessToken);
+  return new Promise((resolve, reject) => {
+    if (!window.google || !google.accounts || !google.accounts.oauth2) {
+      reject(new Error('Google sign-in did not load yet — wait a second and tap again.'));
+      return;
+    }
+    if (!tokenClient) {
+      tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
+    }
+    tokenClient.callback = (resp) => {
+      if (resp.error) { reject(new Error('Google sign-in: ' + resp.error)); return; }
+      accessToken = resp.access_token;
+      tokenExpires = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+      log('Signed in with Google (setup page permission granted).', 'ok');
+      resolve(accessToken);
+    };
+    tokenClient.error_callback = (err) => reject(new Error('Google sign-in window: ' + (err && err.type || 'closed')));
+    tokenClient.requestAccessToken();
+  });
+}
+
+async function google_(method, url, body) {
+  const token = await getToken();
+  const res = await fetch(url, {
+    method,
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await res.text();
+  let json = {};
+  try { json = text ? JSON.parse(text) : {}; } catch (e) {}
+  if (!res.ok) {
+    const msg = (json.error && json.error.message) || text.slice(0, 300) || ('HTTP ' + res.status);
+    const err = new Error(res.status + ': ' + msg);
+    err.apiOff = /Apps Script API|has not enabled|usersettings/i.test(msg);
+    throw err;
+  }
+  return json;
+}
+
+// ---------- the backend code (from this public repo) ----------
+async function backendFiles(release) {
+  const start = Date.now();
+  const listRes = await fetch('https://api.github.com/repos/' + REPO + '/contents/backend?ref=' + REF);
+  if (!listRes.ok) throw new Error('GitHub file list: HTTP ' + listRes.status);
+  const list = (await listRes.json()).filter((f) => f.type === 'file' && (/\.gs$/.test(f.name) || f.name === 'appsscript.json'));
+  const files = await Promise.all(list.map(async (f) => {
+    const r = await fetch(f.download_url);
+    if (!r.ok) throw new Error('GitHub ' + f.name + ': HTTP ' + r.status);
+    const source = await r.text();
+    return f.name === 'appsscript.json'
+      ? { name: 'appsscript', type: 'JSON', source }
+      : { name: f.name.replace(/\.gs$/, ''), type: 'SERVER_JS', source };
+  }));
+  const firstRun = await fetch('FirstRun.gs', { cache: 'no-store' });
+  if (!firstRun.ok) throw new Error('FirstRun.gs: HTTP ' + firstRun.status);
+  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release) });
+  log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + ').');
+  return files;
+}
+
+async function pushAndVersion(release, label) {
+  const files = await backendFiles(release);
+  let start = Date.now();
+  await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
+  log('Uploaded the code (' + secs(start) + ').', 'ok');
+  start = Date.now();
+  const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions',
+    { description: label + ' ' + release });
+  log('Saved version ' + v.versionNumber + ' (' + secs(start) + ').', 'ok');
+  return v.versionNumber;
+}
+
+// ---------- step 1: install ----------
+async function install() {
+  const start = Date.now();
+  if (!state.spreadsheetId) {
+    const s = Date.now();
+    const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE } });
+    state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
+    log('Created the spreadsheet (' + secs(s) + ').', 'ok');
+  } else log('Spreadsheet already created — reusing it.');
+
+  if (!state.scriptId) {
+    const s = Date.now();
+    const proj = await google_('POST', 'https://script.googleapis.com/v1/projects',
+      { title: 'Expense Tracker backend (setup test)', parentId: state.spreadsheetId });
+    state.scriptId = proj.scriptId; save();
+    log('Created the backend, attached to the spreadsheet (' + secs(s) + ').', 'ok');
+  } else log('Backend already created — reusing it.');
+
+  if (!state.deploymentId) {
+    state.release = new Date().toISOString();
+    const versionNumber = await pushAndVersion(state.release, 'Install');
+    const s = Date.now();
+    const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments',
+      { versionNumber, manifestFileName: 'appsscript', description: 'Setup test' });
+    const web = (dep.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
+    state.deploymentId = dep.deploymentId;
+    state.webAppUrl = web && web.webApp && web.webApp.url || ('https://script.google.com/macros/s/' + dep.deploymentId + '/exec');
+    state.versionNumber = versionNumber; save();
+    log('Published the backend (' + secs(s) + ').', 'ok');
+  } else log('Backend already published — reusing it.');
+
+  log('Step 1 finished in ' + secs(start) + '.', 'ok');
+}
+
+// ---------- step 2: back from the backend with the access code ----------
+function readCodeFromHash() {
+  const m = location.hash.match(/code=([A-Za-z0-9]+)(?:&secs=(\d+))?/);
+  if (!m) return;
+  state.accessCode = m[1]; save();
+  history.replaceState(null, '', location.pathname + location.search);
+  log('Back from the backend: permission given, sheet tabs + starter data built' + (m[2] ? ' in ' + m[2] + ' s' : '') + ', access code received (' + m[1].length + ' characters).', 'ok');
+}
+
+// ---------- calling the backend exactly like the app does ----------
+async function callBackend(body) {
+  const start = Date.now();
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const res = await fetch(state.webAppUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body)
+      });
+      const json = await res.json();
+      json._ms = Date.now() - start;
+      return json;
+    } catch (e) {
+      if (attempt === 4) throw new Error('Backend unreachable: ' + e.message);
+      log('Backend slow to wake up, retrying…');
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+  }
+}
+async function signIn() {
+  const r = await callBackend({ action: 'login', payload: { code: state.accessCode, deviceName: 'Setup test page' } });
+  if (!r.ok) throw new Error('Sign-in failed: ' + r.error);
+  state.sessionToken = r.data.sessionToken; save();
+  log('Signed in to the backend with the access code (' + (r._ms / 1000).toFixed(1) + ' s' + (r.coldInstance ? ', cold start' : '') + ').', 'ok');
+}
+async function api(action, payload) {
+  if (!state.sessionToken) await signIn();
+  let r = await callBackend({ sessionToken: state.sessionToken, action, payload: payload || {} });
+  if (!r.ok && r.code === 'invalid_access_code') { await signIn(); r = await callBackend({ sessionToken: state.sessionToken, action, payload: payload || {} }); }
+  if (!r.ok) throw new Error(action + ' failed: ' + r.error);
+  return r;
+}
+
+// ---------- step 3 ----------
+async function testConnection() {
+  await signIn();
+  const today = new Date().toISOString().slice(0, 10);
+  const created = await api('createEntry', { type: 'expense', date: today, amount: 1, currency: 'PEN', description: 'Setup test entry' });
+  state.testEntryId = created.data.id; save();
+  log('Saved a test entry (' + (created._ms / 1000).toFixed(1) + ' s).', 'ok');
+  const back = await api('getEntry', { id: state.testEntryId });
+  if (!back.data || back.data.id !== state.testEntryId) throw new Error('Saved entry could not be read back.');
+  log('Read the test entry back: "' + back.data.description + '", ' + back.data.amount + ' ' + back.data.currency + '.', 'ok');
+}
+
+// ---------- step 4 ----------
+async function update() {
+  const start = Date.now();
+  const release = new Date().toISOString();
+  const versionNumber = await pushAndVersion(release, 'Update');
+  const s = Date.now();
+  await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
+    { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Setup test update' } });
+  log('Switched the published backend to version ' + versionNumber + ' (' + secs(s) + ').', 'ok');
+  const st = await status();
+  if (st.release !== release) throw new Error('Backend still reports the old release (' + st.release + ').');
+  log('Backend now runs the new release.', 'ok');
+  state.release = release; state.versionNumber = versionNumber; save();
+  if (state.testEntryId) {
+    const back = await api('getEntry', { id: state.testEntryId });
+    if (!back.data) throw new Error('The test entry is gone after the update!');
+    log('Test entry still there after the update.', 'ok');
+  }
+  log('Update finished in ' + secs(start) + '.', 'ok');
+}
+
+async function status() {
+  const res = await fetch(state.webAppUrl + '?check=version', { cache: 'no-store' });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch (e) { throw new Error('Status: not a JSON answer (permission not given yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
+  log('Backend status: release ' + json.release + ', set up: ' + json.setUp + ', hourly timer last ran: ' + (json.heartbeat || 'never') + '.');
+  return json;
+}
+
+// ---------- wiring ----------
+function render() {
+  $('s1').innerHTML = state.webAppUrl ? '<span class="done">✓ Created and published.</span> <a href="' + state.spreadsheetUrl + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '';
+  $('s2').innerHTML = state.accessCode ? '<span class="done">✓ Permission given, access code received.</span>' : '';
+  $('s3').innerHTML = state.testEntryId ? '<span class="done">✓ Sign-in and saving work.</span>' : '';
+  $('btnAuthorize').disabled = !state.webAppUrl;
+  $('btnStatus').disabled = !state.webAppUrl;
+  $('btnTest').disabled = !state.accessCode;
+  $('btnUpdate').disabled = !state.webAppUrl;
+}
+function wire(id, fn) {
+  $(id).addEventListener('click', async () => {
+    const b = $(id); b.disabled = true;
+    try { await fn(); }
+    catch (e) {
+      log(e.message, 'bad');
+      if (e.apiOff) log('→ Turn on "Google Apps Script API" at script.google.com/home/usersettings, then tap again.', 'bad');
+    }
+    finally { render(); if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnSaveCode') b.disabled = false; }
+  });
+}
+wire('btnInstall', install);
+wire('btnAuthorize', async () => {
+  const back = location.origin + location.pathname;
+  log('Opening the backend for permission…');
+  location.href = state.webAppUrl + '?return=' + encodeURIComponent(back);
+});
+wire('btnSaveCode', async () => {
+  const code = $('codeInput').value.trim();
+  if (!/^[A-Za-z0-9]{16,}$/.test(code)) throw new Error('That does not look like an access code.');
+  state.accessCode = code; save(); $('codeInput').value = '';
+  log('Access code entered by hand.', 'ok');
+});
+wire('btnTest', testConnection);
+wire('btnUpdate', update);
+wire('btnStatus', status);
+wire('btnCopy', async () => {
+  const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nUser agent: ' + navigator.userAgent;
+  try { await navigator.clipboard.writeText(text); log('Log copied.'); }
+  catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
+});
+wire('btnForget', async () => {
+  state = {}; save(); accessToken = null;
+  log('This page forgot the test. (Delete the spreadsheet in Drive to remove it from the account.)');
+});
+
+readCodeFromHash();
+render();
+log(state.webAppUrl ? 'Resuming an earlier test.' : 'Ready.');
+</script>
+</body>
+</html>
