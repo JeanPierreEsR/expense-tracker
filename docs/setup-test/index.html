@@ -147,6 +147,7 @@
     <p data-t="updateBody"></p>
     <div id="s5"></div>
     <button class="secondary" id="btnUpdate" data-t="updateBtn" disabled></button>
+    <button class="secondary" id="btnDiag">Diagnose the app addresses (then Copy log)</button>
     <button class="secondary" id="btnStatus" disabled>Check backend status</button>
     <button class="secondary" id="btnCopy">Copy log</button>
     <button class="secondary" id="btnForget">Forget this test on this phone</button>
@@ -873,6 +874,46 @@ async function update(quiet) {
   log('Update finished in ' + secs(start) + '.', 'ok');
 }
 
+// ---------- diagnosis: what does Google actually hold for each app this test created? ----------
+// Found 2026-10-14: newly created apps answer "Google Drive: unable to open the file" at their address.
+// This lists every setup-test app in the person's Drive, what Google says about its deployments, and what
+// each address answers to an anonymous request (an approval page, data, or the Drive error).
+async function peek(url) {
+  try {
+    const r = await fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'check=ping', { cache: 'no-store' });
+    const t = (await r.text()).replace(/\s+/g, ' ').trim();
+    const kind = /^\s*\{/.test(t) ? 'JSON (works)' : /Authorization|authoriz|Review permissions|Revisar permisos|autoriz/i.test(t) ? 'approval/authorization page' : /unable to open|Impossible d|No se puede abrir|Drive/i.test(t.slice(0, 600)) ? 'GOOGLE DRIVE ERROR PAGE' : 'other page';
+    return 'HTTP ' + r.status + ' → ' + kind + ' — "' + t.slice(0, 110) + '"';
+  } catch (e) { return 'could not read the answer (' + e.message + ')'; }
+}
+async function diagnose() {
+  log('--- Diagnosis start ---');
+  const q = encodeURIComponent("appProperties has { key='setupTest' and value='1' } and trashed=false");
+  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime&fields=files(id,createdTime,appProperties)');
+  const apps = res.files || [];
+  log('Apps this test created that are still in Drive: ' + apps.length + '. This phone is working on: script ' + (state.scriptId || 'none') + ', deployment ' + (state.deploymentId || 'none') + '.');
+  for (const f of apps) {
+    const ap = f.appProperties || {};
+    log('· sheet created ' + f.createdTime + ' | script ' + (ap.scriptId || '—') + ' | deployment ' + (ap.deploymentId || '—') + ' | release ' + (ap.release || '—') + ' | approved ' + (ap.permissionDone || 'no') + ' | stages ' + (ap.stages || '—'));
+    if (!ap.scriptId) continue;
+    try {
+      const deps = await google_('GET', 'https://script.googleapis.com/v1/projects/' + ap.scriptId + '/deployments');
+      for (const d of (deps.deployments || [])) {
+        const web = (d.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
+        const url = web && web.webApp && web.webApp.url;
+        log('    deployment ' + d.deploymentId + ' | version ' + (d.deploymentConfig && d.deploymentConfig.versionNumber) + ' | "' + (d.deploymentConfig && d.deploymentConfig.description) + '" | web app: ' + (web ? 'yes' : 'NO') + (web && web.webApp ? ' | config ' + JSON.stringify(web.webApp.entryPointConfig || {}) : ''));
+        if (url) log('      its address answers: ' + (await peek(url)));
+        else if (d.deploymentId !== '@HEAD') log('      no web address listed; built address answers: ' + (await peek(execUrl(d.deploymentId))));
+      }
+      const c = await google_('GET', 'https://script.googleapis.com/v1/projects/' + ap.scriptId + '/content');
+      const man = (c.files || []).find((x) => x.name === 'appsscript');
+      log('    files: ' + (c.files || []).length + ' | manifest: ' + (man ? man.source.replace(/\s+/g, ' ') : 'MISSING'));
+    } catch (e) { log('    could not read this app: ' + e.message, 'bad'); }
+  }
+  log('--- Diagnosis end — tap “Copy log” and send it ---', 'ok');
+  say('s5', '✓ Diagnosis written to the log. Tap “Copy log” and send it.');
+}
+
 // ---------- the one-time "Apps Script API" setting ----------
 let apiRetryTimer = null, apiRetryUntil = 0, apiRetrying = false;
 function startApiWait() {
@@ -1037,6 +1078,7 @@ $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pend
 $('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
 $('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
 $('btnUpdate').addEventListener('click', () => run('s5', () => update(false), 'btnUpdate', ''));
+$('btnDiag').addEventListener('click', () => run('s5', diagnose, 'btnDiag', ''));
 $('btnStatus').addEventListener('click', () => run(null, status, 'btnStatus', ''));
 $('btnCopy').addEventListener('click', async () => {
   const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nLanguage: ' + LANG + '\nUser agent: ' + navigator.userAgent;
