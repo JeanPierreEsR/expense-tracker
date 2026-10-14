@@ -195,6 +195,7 @@ const T = {
     createAsk: '<b>Google will ask you to allow “Expense Tracker Setup” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b>, then tap <b>Continue</b>. If Google says the app is “not verified”, that is normal for a small app: tap <b>Continue</b> anyway.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
+    relinkBtn: 'Sign in again on this phone',
     account: 'Signed in to Google as: {e}',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
@@ -261,6 +262,7 @@ const T = {
     createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> y toca <b>Continuar</b>. Si Google dice que la app “no está verificada”, es normal en una app pequeña: toca <b>Continuar</b> igual.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
+    relinkBtn: 'Iniciar sesión otra vez en este teléfono',
     account: 'Iniciaste sesión en Google como: {e}',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
@@ -669,6 +671,28 @@ async function afterFirstApproval() {
   say('s2', T.approved);
   try { await saveProgress(); } catch (e) { log('Could not save progress to Drive (will retry later): ' + e.message); }
 }
+// The sign-in code lives only on the phone (never in Drive, never in the script text of the
+// setup page). If the phone forgot it — a private tab was closed, Safari data cleared, a new
+// phone — the setup page, which still has Google's authority over the person's own app, makes
+// a NEW code and sends it with an update. Found 2026-10-14: resuming without this gave
+// "Sign-in failed: Wrong access code".
+async function ensureSignIn() {
+  if (state.accessCode) return false;
+  progress(T.p_code2, 82);
+  log('This phone no longer has the app’s sign-in code (the test was forgotten or the tab was closed) — making a new one and sending it to your app…');
+  await update(true);   // update() makes the code (ensureCode), pushes a new version and switches to it
+  return true;
+}
+// Used when the setup page finds an app that was already fully set up: make sure THIS phone can sign in.
+async function repairSignIn() {
+  const remade = await ensureSignIn();
+  if (remade || !localStorage.getItem(HANDOFF_KEY)) {
+    progress(T.p_test, 92);
+    await connectionCheck();
+    handoff();
+    say('s2', T.approved);
+  }
+}
 // What the home-screen check page (app-check.html) reads: the address and sign-in code of the person's app.
 function handoff() {
   try { localStorage.setItem(HANDOFF_KEY, JSON.stringify({ url: state.webAppUrl, code: state.accessCode, at: Date.now() })); } catch (e) {}
@@ -739,8 +763,10 @@ async function finishStage(stage) {
   log('Main app switched to the approved version ' + p.versionNumber + ' (' + secs(s) + ').', 'ok');
   progress(T.p_final, 60);
   const st = await waitForRelease(p.release);
+  await ensureSignIn();
   progress(T.p_test, 80);
   await connectionCheck();
+  handoff();
   if (stage === 'keepawake') {
     if (!st.keepAwake) throw new Error('Keep-awake timer is not on.');
     say('s3', T.keepDone);
@@ -846,7 +872,8 @@ function render(failed) {
   $('btnContinue').hidden = !showRetry || !!state.permissionDone;
   if (!busy) {
     doneBtn('btnInstall', !!state.webAppUrl);
-    $('btnInstall').disabled = !!state.webAppUrl;
+    if (state.webAppUrl && state.permissionDone && !state.accessCode) { $('btnInstall').classList.remove('donebtn'); $('btnInstall').textContent = T.relinkBtn; }
+    $('btnInstall').disabled = !!state.webAppUrl && (!!state.accessCode || !state.permissionDone);
     doneBtn('btnKeep', (state.stages || []).includes('keepawake'));
     doneBtn('btnGmail', !!state.gmailOk);
   }
@@ -887,7 +914,7 @@ async function run(boxId, fn, btnId, step) {
     render(failed);
   }
 }
-$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); }, 'btnInstall', T.stepSetup));
+$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup));
 $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));
 $('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
 $('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
