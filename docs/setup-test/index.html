@@ -121,6 +121,16 @@ function getToken() {
     }
     tokenClient.callback = (resp) => {
       if (resp.error) { reject(new Error('Google sign-in: ' + resp.error)); return; }
+      // Google lets people untick permissions on its consent screen; without all
+      // three, every step below fails. Say so plainly instead of failing later.
+      const scopes = SCOPES.split(' ');
+      if (!google.accounts.oauth2.hasGrantedAllScopes(resp, ...scopes)) {
+        const missing = scopes.filter((sc) => !google.accounts.oauth2.hasGrantedAnyScope(resp, sc)).map((sc) => sc.split('/').pop());
+        log('Google sign-in worked, but not every permission box was ticked (missing: ' + missing.join(', ') + ').', 'bad');
+        try { google.accounts.oauth2.revoke(resp.access_token, () => {}); } catch (e) {}
+        reject(new Error('Please tap the button again and tick "Select all" (Seleccionar todo) on Google\'s screen before Continue.'));
+        return;
+      }
       accessToken = resp.access_token;
       tokenExpires = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
       log('Signed in with Google (setup page permission granted).', 'ok');
@@ -315,12 +325,21 @@ function render() {
 function wire(id, fn) {
   $(id).addEventListener('click', async () => {
     const b = $(id); b.disabled = true;
+    let error = null;
     try { await fn(); }
     catch (e) {
+      error = e;
       log(e.message, 'bad');
       if (e.apiOff) log('→ Turn on "Google Apps Script API" at script.google.com/home/usersettings, then tap again.', 'bad');
     }
-    finally { render(); if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnSaveCode') b.disabled = false; }
+    render();
+    if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnSaveCode') b.disabled = false;
+    // Show the problem right under the button too — the log is far down the page.
+    const box = error && b.closest('.step') && b.closest('.step').querySelector('[id^="s"]');
+    if (box) {
+      box.innerHTML = '<span style="color:var(--bad);font-weight:600"></span>';
+      box.firstChild.textContent = '✗ ' + error.message + (error.apiOff ? ' — turn on the Apps Script API with the link above, then tap again.' : '');
+    }
   });
 }
 wire('btnInstall', install);
