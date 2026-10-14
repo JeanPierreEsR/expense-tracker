@@ -147,6 +147,7 @@
     <p data-t="updateBody"></p>
     <div id="s5"></div>
     <button class="secondary" id="btnUpdate" data-t="updateBtn" disabled></button>
+    <button class="secondary" id="btnDetect">Test: does Google see several accounts? (then Copy log)</button>
     <button class="secondary" id="btnDiag">Diagnose the app addresses (then Copy log)</button>
     <button class="secondary" id="btnStatus" disabled>Check backend status</button>
     <button class="secondary" id="btnCopy">Copy log</button>
@@ -374,7 +375,7 @@ const backUrl = () => location.origin + location.pathname;
 function goTo(url) { location.href = url; }   // the one place the page leaves for Google
 
 // ---------- the general status at the top + the status inside the pressed button ----------
-let lastProgressAt = 0, clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
+let barFloor = 0, lastProgressAt = 0, clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
 function setTop(kind, step, text, pct) {
   $('topStatus').className = 'topstatus ' + kind;
   $('tsStep').textContent = step || '';
@@ -384,7 +385,11 @@ function setTop(kind, step, text, pct) {
   if (kind !== 'running') $('btnCancel').hidden = true;
 }
 // One call updates both: the big text at the top and the label of the button that was pressed.
+// The bar only ever moves forward inside one step (owner saw it shrink on 2026-10-14: the "link your app" update
+// reused small percentages after the sheet build had already reached 80%). Enforced HERE, for every caller.
 function progress(text, pct, step, creepTo) {
+  if (typeof pct === 'number') { pct = Math.min(100, Math.max(pct, barFloor)); barFloor = pct; }
+  if (creepTo) creepTo = Math.min(97, Math.max(creepTo, barFloor));   // a creeping bar never reaches 100 by itself
   lastProgressAt = Date.now();
   $('btnCancel').hidden = true;   // movement again: no need for the way out
   if (step) currentStep = step;
@@ -620,8 +625,9 @@ async function verifyUpload(sent) {
   log('Check after upload: Google holds ' + names.length + ' files (sent ' + sent + '), FirstRun present: ' + hasFirstRun + ', manifest has the web app section: ' + hasWeb + '.', hasWeb && hasFirstRun ? 'ok' : 'bad');
   return hasWeb && hasFirstRun && names.length >= sent;
 }
-async function pushAndVersion(release, stages, label, basePct, fresh) {
-  progress(T.p_code, basePct, undefined, basePct + 18);
+async function pushAndVersion(release, stages, label, basePct, fresh, texts) {
+  texts = texts || { code: T.p_code, version: T.p_version };
+  progress(texts.code, basePct, undefined, basePct + 18);
   const files = await backendFiles(release, stages, fresh);
   let start = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
@@ -632,7 +638,7 @@ async function pushAndVersion(release, stages, label, basePct, fresh) {
     await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
     if (!(await verifyUpload(files.length))) throw new Error('Google did not keep the uploaded code. Tap the button to try again.');
   }
-  progress(T.p_version, basePct + 20, undefined, basePct + 34);
+  progress(texts.version, basePct + 20, undefined, basePct + 34);
   start = Date.now();
   const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions', { description: label + ' ' + release });
   log('Saved version ' + v.versionNumber + ' (' + secs(start) + ').', 'ok');
@@ -908,7 +914,7 @@ async function update(quiet) {
   const start = Date.now();
   ensureCode();
   const release = new Date().toISOString();
-  const versionNumber = await pushAndVersion(release, state.stages || ['base'], 'Update', 10, true);
+  const versionNumber = await pushAndVersion(release, state.stages || ['base'], 'Update', quiet ? 70 : 10, true, quiet ? { code: T.p_code2, version: T.p_code2 } : null);
   const s = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
     { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Main' } });
@@ -971,6 +977,28 @@ async function diagnose() {
   } catch (e) { log('Could not list the test sheets: ' + e.message, 'bad'); }
   log('--- Diagnosis end — tap “Copy log” and send it ---', 'ok');
   say('s5', '✓ Diagnosis written to the log. Tap “Copy log” and send it.');
+}
+
+// ---------- experiment: can the page detect several signed-in Google accounts without asking? ----------
+// A "silent" sign-in request (no window, no hint) is answered by Google at once. With ONE signed-in account that has
+// already allowed this page it should return a token; with several accounts Google cannot choose and should answer
+// "account_selection_required" (different from "consent_required"). Run once in a normal tab (several accounts)
+// and once in a Private tab (one account) and compare the two answers in the log.
+async function detectAccounts() {
+  log('--- Silent check start ---');
+  if (!window.google || !google.accounts || !google.accounts.oauth2) throw new Error('Google sign-in did not load yet.');
+  const answer = await new Promise((resolve) => {
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID, scope: SCOPES, prompt: 'none',
+      callback: (r) => resolve({ via: 'callback', error: r.error, subtype: r.error_subtype, gotToken: !!r.access_token }),
+      error_callback: (e) => resolve({ via: 'window', error: e && e.type })
+    });
+    setTimeout(() => resolve({ via: 'timeout', error: 'no answer in 15 s' }), 15000);
+    tc.requestAccessToken({ prompt: 'none' });
+  });
+  log('Silent sign-in answer: ' + JSON.stringify(answer), answer.gotToken ? 'ok' : '');
+  log('--- Silent check end — tap “Copy log” and send it ---', 'ok');
+  say('s5', '✓ Done — tap “Copy log” and send it.');
 }
 
 // ---------- the one-time "Apps Script API" setting ----------
@@ -1105,6 +1133,7 @@ async function run(boxId, fn, btnId, step) {
   if (boxId) $(boxId).innerHTML = '';
   showRetry = false;
   currentStep = step || '';
+  barFloor = 3;
   setTop('running', currentStep, T.working, 3);
   startClock();
   const work = fn();   // started first: Google's sign-in window must open straight from the tap
@@ -1137,6 +1166,7 @@ $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pend
 $('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
 $('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
 $('btnUpdate').addEventListener('click', () => run('s5', () => update(false), 'btnUpdate', ''));
+$('btnDetect').addEventListener('click', () => run('s5', detectAccounts, 'btnDetect', ''));
 $('btnDiag').addEventListener('click', () => run('s5', diagnose, 'btnDiag', ''));
 $('btnStatus').addEventListener('click', () => run(null, status, 'btnStatus', ''));
 $('btnClearLog').addEventListener('click', () => { savedLog = []; try { localStorage.removeItem(LOG_KEY); } catch (e) {} $('log').innerHTML = ''; log('Log cleared.'); });
