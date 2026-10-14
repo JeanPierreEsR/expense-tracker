@@ -425,11 +425,12 @@ function findRowIndexById(sheet, headers, id) {
 
 function getMeta() {
   ensureInvestmentPlatforms_();
+  ensureAnnualTag_();
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
     paymentMethods: getAllRowsCached_('Payment Methods'),
-    tags: getAllRowsCached_('Tags'),
+    tags: localizeTags_(getAllRowsCached_('Tags')),
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap()
@@ -637,6 +638,13 @@ function listEntries(payload) {
   if (payload && payload.paymentMethodId) {
     entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
   }
+  // A MONTHLY budget's drill-down: the entries it actually counts, so the list
+  // adds up to the budget's own "spent" figure (Annual-tagged ones don't count
+  // against a monthly budget — see excludeAnnual in Budgets.gs).
+  if (payload && payload.excludeAnnual) {
+    var annualIds = annualEntryIdSet_();
+    entries = entries.filter(function (e) { return !annualIds[e.id]; });
+  }
   if (payload && payload.tagId) {
     var entryIdsWithTag = {};
     getAllRows('Entry Tags').forEach(function (et) {
@@ -708,9 +716,12 @@ function searchNormalize_(text) {
 function buildSearchLookups_() {
   var tagsById = rowsById_(getAllRows('Tags'));
   var tagNamesByEntry = {};
+  var tagSearchNamesByEntry = {};
   getAllRows('Entry Tags').forEach(function (et) {
     var tag = tagsById[et.tag_id];
-    if (tag) (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
+    if (!tag) return;
+    (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
+    (tagSearchNamesByEntry[et.entry_id] = tagSearchNamesByEntry[et.entry_id] || []).push(tagSearchNames_(tag));
   });
   return {
     categoriesById: rowsById_(getAllRows('Categories')),
@@ -718,6 +729,7 @@ function buildSearchLookups_() {
     friendsById: rowsById_(getAllRows('Friends')),
     payorsById: rowsById_(getPayorRows_()),
     tagNamesByEntry: tagNamesByEntry,
+    tagSearchNamesByEntry: tagSearchNamesByEntry,
     transferLinks: buildTransferLinkMap_()
   };
 }
@@ -741,7 +753,7 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.payment_method_id] && lk.methodsById[e.payment_method_id].nickname,
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
-    (lk.tagNamesByEntry[e.id] || []).join(' '),
+    (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
     lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
@@ -984,6 +996,11 @@ function addFriend(payload) {
 }
 
 function addTag(payload) {
+  // Typing "annual"/"anual" means the built-in Annual tag — never a second one.
+  if (isAnnualTagName_(payload.name)) {
+    ensureAnnualTag_();
+    return localizeTags_(getAllRows('Tags').filter(function (t) { return t.id === ANNUAL_TAG_ID; }))[0];
+  }
   var tag = { id: Utilities.getUuid(), name: payload.name, color: payload.color || '' };
   appendRowObject('Tags', tag);
   return tag;

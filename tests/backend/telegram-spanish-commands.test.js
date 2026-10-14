@@ -25,8 +25,8 @@ test("Spanish keywords edit a pending entry (category by its Spanish name, decim
   assert.equal(e.category_id, catId(rt, "Groceries"));
   assert.equal(Number(e.amount), 48.5);
   assert.equal(e.description, "Café del barrio");
-  reply("categoria comida y bebida, descripcion Almuerzo");     // no accents
-  assert.equal(entry().category_id, catId(rt, "Food & Drink"));
+  reply("categoria restaurantes, descripcion Almuerzo");     // no accents
+  assert.equal(entry().category_id, catId(rt, "Restaurants"));
   assert.equal(entry().description, "Almuerzo");
   reply("moneda usd, fecha 2026-09-12");
   assert.equal(entry().currency, "USD");
@@ -126,8 +126,8 @@ test("every command word works with AND without accents (and in capitals)", () =
   const { rt, reply, entry } = setup();
   reply("CATEGORÍA transporte, DESCRIPCIÓN Taxi");
   assert.equal(entry().category_id, catId(rt, "Transport"));
-  reply("categoria comida y bebida, descripcion Cena");
-  assert.equal(entry().category_id, catId(rt, "Food & Drink"));
+  reply("categoria restaurantes, descripcion Cena");
+  assert.equal(entry().category_id, catId(rt, "Restaurants"));
   assert.equal(entry().description, "Cena");
   reply("tipo inversion");
   assert.equal(entry().type, "investment");

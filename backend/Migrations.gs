@@ -202,7 +202,11 @@ function adminSetupBcpAccounts(payload) {
 //    stays stored; Spanish is looked up by key when shown);
 //  - "Savings" and "Loan" (expenses AND income) are retired: whatever uses
 //    them moves to "Other" of the same type, then they are deleted;
-//  - the expense category "Sports" (Deporte) is added.
+//  - the expense category "Sports" (Deporte) is added;
+//  - "Food & Drink" is renamed "Restaurants" (Restaurantes), 2026-10-14: the
+//    stored name and key change, the Category Keywords rows that name it follow,
+//    and everything else (entries, budgets, programmed items) points at the
+//    category by id so it moves with it.
 // "Annual budget" and "AELU" are NOT touched: they stay in the owner's sheet
 // (they are only left out of the starter list new users get).
 // Idempotent. Dry-run unless payload.dryRun === false, like the other
@@ -249,7 +253,7 @@ function rewriteColumn_(sheetName, col, fn, dryRun) {
 
 function adminMigrateCategories(payload) {
   var dryRun = !payload || payload.dryRun !== false;
-  var report = { dryRun: dryRun, tagged: [], notBuiltIn: [], retired: [], added: [], notes: [] };
+  var report = { dryRun: dryRun, tagged: [], notBuiltIn: [], retired: [], renamed: [], added: [], notes: [] };
 
   if (!dryRun) ensureCategoryKeyColumn_();
   var cats = getAllRows('Categories');
@@ -296,6 +300,23 @@ function adminMigrateCategories(payload) {
     cats = cats.filter(function (c) { return retiredIds[c.id] === undefined; });
   }
 
+  // 1b) 'Food & Drink' -> 'Restaurants'. Works on copies: in a preview the cached
+  // rows must stay untouched, and step 2 below must see the new name either way.
+  cats = cats.map(function (c) { var copy = {}; Object.keys(c).forEach(function (k) { copy[k] = c[k]; }); return copy; });
+  var restaurantsExists = cats.some(function (c) { return c.type === 'expense' && String(c.name).trim() === 'Restaurants'; });
+  cats.forEach(function (c) {
+    if (c.type !== 'expense' || String(c.name).trim() !== 'Food & Drink') return;
+    if (restaurantsExists) {
+      report.notes.push('Both "Food & Drink" and "Restaurants" exist as expense categories, so "Food & Drink" was left alone — merge them by hand.');
+      return;
+    }
+    report.renamed.push('expense: Food & Drink -> Restaurants');
+    if (!dryRun) updateRowFields_('Categories', c.id, { name: 'Restaurants', key: 'restaurants' });
+    c.name = 'Restaurants';
+    c.key = 'restaurants';
+    rewriteColumn_('Category Keywords', 'category_name', function (v) { return String(v) === 'Food & Drink' ? 'Restaurants' : v; }, dryRun);
+  });
+
   // 2) Internal keys for the built-in categories that still carry their original name
   cats.forEach(function (c) {
     if (c.key) return;
@@ -336,6 +357,7 @@ function categoriesCleanupText_(r) {
   if (!r.retired.length) lines.push('Nothing to retire (already done).');
   lines.push('Keys ' + (r.dryRun ? 'to add' : 'added') + ': ' + r.tagged.length);
   if (r.notBuiltIn.length) lines.push('Left as typed (no key): ' + r.notBuiltIn.join('; '));
+  if (r.renamed.length) lines.push((r.dryRun ? 'Would rename: ' : 'Renamed: ') + r.renamed.join(', '));
   if (r.added.length) lines.push((r.dryRun ? 'Would add: ' : 'Added: ') + r.added.join(', '));
   r.notes.forEach(function (n) { lines.push('NOTE: ' + n); });
   return lines.join('\n');

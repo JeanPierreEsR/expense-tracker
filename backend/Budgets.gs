@@ -63,12 +63,17 @@ function buildBudgetContext_() {
   });
   var ctxForEntryRates = { ratesByCurrency: ratesByCurrency };
 
+  // Entries tagged Annual don't count against a MONTHLY budget (they do count
+  // against a yearly one) — flagged here, decided per budget below.
+  var annualEntryIds = annualEntryIdSet_();
+
   var spendEntries = entries.map(function (e) {
     var entryMonth = String(e.date).substring(0, 7);
     var rate = latestRateAtOrBefore_(ctxForEntryRates, e.currency, entryMonth);
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
     return {
       category_id: e.category_id,
+      annual: annualEntryIds[e.id] === true,
       date: e.date,
       currency: e.currency,
       ownAmount: ownAmount, // in the entry's own original currency
@@ -94,10 +99,11 @@ function categoryIdMatches_(categoryIds, entryCategoryId) {
   return categoryIds === null || categoryIds.indexOf(entryCategoryId) !== -1;
 }
 
-function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate) {
+function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate, excludeAnnual) {
   var total = 0;
   ctx.spendEntries.forEach(function (e) {
     if (!categoryIdMatches_(categoryIds, e.category_id) || e.ownAmountPen == null) return;
+    if (excludeAnnual && e.annual) return;
     if (e.date < startDate || e.date > endDate) return;
     total += e.ownAmountPen;
   });
@@ -113,7 +119,7 @@ function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate) {
 // rate only to drift from what was actually paid whenever that differs
 // from the rate used when the entry itself was saved. Anything in a
 // different currency still goes through PEN, same as everywhere else.
-function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDate, targetCurrency, cutoffMonth) {
+function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDate, targetCurrency, cutoffMonth, excludeAnnual) {
   var rate = null;
   if (targetCurrency !== 'PEN') {
     rate = latestRateAtOrBefore_(ctx, targetCurrency, cutoffMonth);
@@ -123,6 +129,7 @@ function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDat
   var total = 0;
   ctx.spendEntries.forEach(function (e) {
     if (!categoryIdMatches_(categoryIds, e.category_id)) return;
+    if (excludeAnnual && e.annual) return;
     if (e.date < startDate || e.date > endDate) return;
 
     if (e.currency === targetCurrency) {
@@ -195,6 +202,11 @@ function resolveEffectivePeriodType_(budgetPeriodType, displayPeriodType) {
   return budgetPeriodType;
 }
 
+// Monthly budgets leave Annual-tagged expenses out; yearly ones count them.
+function budgetExcludesAnnual_(budget) {
+  return budget.period_type !== 'yearly';
+}
+
 function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, anchorDate) {
   var effectivePeriodType = resolveEffectivePeriodType_(budget.period_type, displayPeriodType);
   var usesAnchor = (displayPeriodType === 'month' || displayPeriodType === 'year') && anchorDate;
@@ -202,7 +214,10 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
 
   var categoryIds = parseBudgetCategoryIds_(budget.category_id);
   var bounds = getBudgetPeriodBounds_(effectivePeriodType, refDate);
-  var spentPen = categorySpendPenFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate);
+  // A budget's own period_type decides (not the widened display period): a
+  // monthly budget never counts Annual-tagged expenses, even when browsed by year.
+  var excludeAnnual = budgetExcludesAnnual_(budget);
+  var spentPen = categorySpendPenFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, excludeAnnual);
 
   // A monthly budget's amount is a per-month figure — shown across a full
   // year, its natural yearly equivalent is that figure times 12. (Never
@@ -214,7 +229,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
 
   var currency = budget.currency || 'PEN';
   var cutoffMonth = bounds.endDate.substring(0, 7);
-  var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth);
+  var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
   // The actual rate behind spent/percent above, surfaced so a foreign-
@@ -407,8 +422,10 @@ function getBudgetChartSeries(payload) {
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
 
   var dailySpend = {};
+  var excludeAnnual = budgetExcludesAnnual_(rawBudget);
   ctx.spendEntries.forEach(function (e) {
     if (!categoryIdMatches_(categoryIds, e.category_id)) return;
+    if (excludeAnnual && e.annual) return;
     if (e.date < startDate || e.date > endDate) return;
     var amt = null;
     if (e.currency === currency) {
@@ -746,8 +763,11 @@ function computeCategoryMonthlyAverages_(startDate, endDate, monthCount) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
+  // These averages suggest MONTHLY budgets, which don't count Annual-tagged expenses.
+  var annualEntryIds = annualEntryIdSet_();
   var totals = {};
   entries.forEach(function (e) {
+    if (annualEntryIds[e.id]) return;
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     if (rate == null) return;
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);

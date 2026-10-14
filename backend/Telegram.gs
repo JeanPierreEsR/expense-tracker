@@ -282,7 +282,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   var tagIds = getEntryTags({ entryId: entry.id });
   if (tagIds.length) {
     var tagsById = rowsById_(getAllRows('Tags'));
-    var tagNames = tagIds.map(function (id) { return tagsById[id] ? tagsById[id].name : id; });
+    var tagNames = tagIds.map(function (id) { return tagsById[id] ? tagLabel_(tagsById[id]) : id; });
     lines.push(tr_('bot.labelsLabel') + tagNames.join(', '));
   }
 
@@ -1249,7 +1249,7 @@ function parseLabelCommand_(text) {
 }
 
 // Lowercased, accent-stripped, punctuation collapsed to single spaces —
-// "Food & Drink" and "food drink" compare equal, "Psicólogo" and
+// "Family & Personal" and "family personal" compare equal, "Psicólogo" and
 // "psicologo" too.
 function normalizeName_(s) {
   return String(s || '').toLowerCase()
@@ -1268,9 +1268,9 @@ function normalizeName_(s) {
 // "AI" sits inside "entertAInment". Tiers, best first — the first tier
 // with any hit decides:
 //   1. the whole name equals what was typed;
-//   2. the name STARTS with what was typed ("food" -> Food & Drink);
-//   3. what was typed starts one of the name's words ("drink" -> Food &
-//      Drink, "card" -> Credit card);
+//   2. the name STARTS with what was typed ("rest" -> Restaurants);
+//   3. what was typed starts one of the name's words ("personal" -> Family &
+//      Personal, "card" -> Credit card);
 //   4. the name appears as whole word(s) INSIDE the typed text
 //      ("groceries store" -> Groceries) — whole words only, never mid-word.
 // A hit is only returned when it's unambiguous: if the winning tier holds
@@ -1310,7 +1310,10 @@ function fuzzyFindFriend_(text) {
 }
 
 function fuzzyFindTag_(text) {
-  return pickByName_(getAllRows('Tags'), text, function (t) { return t.name; });
+  var tags = getAllRows('Tags');
+  // The stored name first, then the Spanish one (the built-in Annual tag is "Anual").
+  return pickByName_(tags, text, function (t) { return t.name; }) ||
+    pickByName_(tags, text, function (t) { return tagLabel_(t, 'es'); });
 }
 
 function fuzzyFindPaymentMethod_(text) {

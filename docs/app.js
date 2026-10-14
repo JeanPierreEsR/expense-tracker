@@ -3874,6 +3874,8 @@ async function openBudgetDrilldown(budget) {
   // no filter at all.
   const payload = { startDate: p.startDate, endDate: p.endDate, type: "expense" };
   if (budget.category_ids) payload.categoryIds = budget.category_ids;
+  // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
+  if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
   await openDrilldownWithPayload_(
     payload,
@@ -6354,6 +6356,7 @@ function renderProjectionSplit_(detail) {
   formulaEl.innerHTML = `
     <div>${escapeHtml(tr("projections.formulaBased", { total: formatPen(breakdown.totalPen), n: breakdown.monthsElapsed, span, rate: formatPen(breakdown.ratePerMonth) }))}</div>
     <div style="margin-top:4px;">${escapeHtml(tr("projections.formulaProrated", { rate: formatPen(breakdown.ratePerMonth), n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) }))}</div>
+    ${breakdown.annualExcludedCount > 0 ? `<div style="margin-top:4px;">${escapeHtml(tr("projections.annualLeftOut", { amount: formatPen(breakdown.annualExcludedPen), n: breakdown.annualExcludedCount }))}</div>` : ""}
   `;
 
   monthsEl.innerHTML = breakdown.months.map((m) => `

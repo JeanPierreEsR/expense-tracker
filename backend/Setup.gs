@@ -233,7 +233,7 @@ function seedStarterData() {
 // anymore — see CategoryGuess.gs.
 function seedCategoryKeywords() {
   seedIfEmpty('Category Keywords', [
-    { id: Utilities.getUuid(), keyword: 'rappi', category_name: 'Food & Drink' },
+    { id: Utilities.getUuid(), keyword: 'rappi', category_name: 'Restaurants' },
     { id: Utilities.getUuid(), keyword: 'plaza vea', category_name: 'Groceries' },
     { id: Utilities.getUuid(), keyword: 'claro', category_name: 'Mobile Phone' }
   ]);
@@ -263,7 +263,7 @@ var CATEGORY_COLOR_PALETTE = ['#F7C6D9', '#C9E4F7', '#FFE0B2', '#D9F2D9',
 // "Savings" / "Loan" until the 2026-10-13 cleanup (adminMigrateCategories).
 var EXPENSE_CATEGORIES = [
   ['Car', '🚗'], ['Travel', '✈️'],
-  ['Food & Drink', '🍽️'], ['Family & Personal', '👪'], ['Entertainment', '🎭'],
+  ['Restaurants', '🍽️'], ['Family & Personal', '👪'], ['Entertainment', '🎭'],
   ['Home', '🏠'], ['Shopping', '🛍️'], ['Healthcare', '🏥'], ['Other', '📦'],
   ['Transport', '🚌'], ['Groceries', '🛒'], ['Education', '🎓'],
   ['Gifts', '🎁'], ['Work', '💼'],

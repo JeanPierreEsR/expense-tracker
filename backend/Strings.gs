@@ -364,6 +364,9 @@ var BACKEND_STRINGS_ = {
   "photo.macFailed": { en: "The Mac Mini couldn't read that image ({error}). Try a sharper screenshot.", es: "Tu Mac Mini no pudo leer esa imagen ({error}). Prueba con una captura más nítida." },
   "photo.unknownError": { en: "unknown error", es: "error desconocido" },
 
+  // ---- tag ----
+  "tag.annual": { en: "Annual", es: "Anual" },
+
   // ---- notice ----
   "notice.statement": { en: "📄 New {bank} statement (received {date}). It waits in More → Statements → Inbox until you open it.", es: "📄 Nuevo estado de cuenta de {bank} (recibido el {date}). Espera en Más → Estados de cuenta → Bandeja de entrada hasta que lo abras." },
   "notice.autoProblem": { en: "⚠️ Automatic scan problem:\n• {list}\nLast fully clean run: {last}", es: "⚠️ Problema en el escaneo automático:\n• {list}\nÚltima ejecución sin problemas: {last}" },
@@ -377,7 +380,10 @@ var CATEGORY_TRANSLATIONS_ = {
   annual_budget: { en: 'Annual budget', es: 'Presupuesto anual' },
   car: { en: 'Car', es: 'Auto' },
   travel: { en: 'Travel', es: 'Viajes' },
-  food_drink: { en: 'Food & Drink', es: 'Comida y bebida' },
+  restaurants: { en: 'Restaurants', es: 'Restaurantes' },
+  // Legacy: the old name of 'restaurants' (renamed 2026-10-14). A sheet that has
+  // not run adminMigrateCategories yet still holds it; this keeps it translated.
+  food_drink: { en: 'Food & Drink', es: 'Restaurantes' },
   family_personal: { en: 'Family & Personal', es: 'Familia y personal' },
   entertainment: { en: 'Entertainment', es: 'Entretenimiento' },
   home: { en: 'Home', es: 'Hogar' },
@@ -450,7 +456,7 @@ function tr_(key, params, langOverride) {
 }
 
 // The internal key a built-in category gets from its English name:
-// 'Food & Drink' -> 'food_drink'.
+// 'Family & Personal' -> 'family_personal'.
 function categoryKeyFromName_(name) {
   return String(name || '').toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }

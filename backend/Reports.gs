@@ -34,7 +34,7 @@ function getPeriodSummary(payload) {
   });
 
   var categoryById = rowsById_(getAllRows('Categories'));
-  var tagById = rowsById_(getAllRows('Tags'));
+  var tagById = rowsById_(localizeTags_(getAllRows('Tags')));
   var pmById = rowsById_(getAllRows('Payment Methods'));
 
   var totals = { income: 0, expense: 0, investment: 0 };

@@ -188,6 +188,9 @@ function computeAllCategoryProjections_(bounds) {
     : [];
   var allRecurring = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false'; });
   var recurringSplitSums = getRecurringExpenseSplitSums_();
+  // Entries tagged Annual are one-off lumps, not part of the monthly rate
+  // (see the YTD pool below). They still count as "actual" in their own month.
+  var annualEntryIds = annualEntryIdSet_();
 
   var splitSumByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
@@ -316,6 +319,11 @@ function computeAllCategoryProjections_(bounds) {
       var ytdNonRecurringPen = 0;
       entriesYtd.forEach(function (e) {
         if (e.category_id !== category.id || e.type !== category.type || matchedEntryIds[e.id]) return;
+        // Tagged Annual: a lump that happens once in a while (car maintenance,
+        // a yearly fee) — left out of the monthly rate so it doesn't inflate
+        // every month's "Expected". Nothing is projected in its place: only
+        // Programmed (recurring) items are projected.
+        if (annualEntryIds[e.id]) return;
         var pen = toPen_(ownAmount_(e), e.currency, e.date);
         if (pen != null) ytdNonRecurringPen += pen;
       });
@@ -584,7 +592,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
 // informative as a number when eyeballing whether the rate makes sense.
 function computeCategoryYtdBreakdown_(categoryId) {
   var ytd = ytdRangeForProjection_();
-  if (!ytd.ytdStart) return { months: [], totalPen: 0, monthsElapsed: 0, ratePerMonth: 0 };
+  if (!ytd.ytdStart) return { months: [], totalPen: 0, monthsElapsed: 0, ratePerMonth: 0, annualExcludedPen: 0, annualExcludedCount: 0 };
 
   var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
     return String(r.active) !== 'false' && r.category_id === categoryId;
@@ -615,13 +623,19 @@ function computeCategoryYtdBreakdown_(categoryId) {
     });
   });
 
+  var annualEntryIds = annualEntryIdSet_();
   var monthlyTotals = {};
   var totalPen = 0;
+  var annualExcludedPen = 0;
+  var annualExcludedCount = 0;
   entriesYtd.forEach(function (e) {
     if (matchedEntryIds[e.id]) return;
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
     var pen = toPen_(ownAmount, e.currency, e.date);
     if (pen == null) return;
+    // Same exclusion computeAllCategoryProjections_ applies to the rate; the
+    // amount left out is reported so the trace can say so.
+    if (annualEntryIds[e.id]) { annualExcludedPen += pen; annualExcludedCount++; return; }
     var monthKey = String(e.date).substring(0, 7);
     monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + pen;
     totalPen += pen;
@@ -638,7 +652,9 @@ function computeCategoryYtdBreakdown_(categoryId) {
     months: months,
     totalPen: totalPen,
     monthsElapsed: ytd.monthsElapsed,
-    ratePerMonth: totalPen / ytd.monthsElapsed
+    ratePerMonth: totalPen / ytd.monthsElapsed,
+    annualExcludedPen: annualExcludedPen,
+    annualExcludedCount: annualExcludedCount
   };
 }
 

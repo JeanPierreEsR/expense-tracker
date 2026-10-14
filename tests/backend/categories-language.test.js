@@ -17,7 +17,8 @@ test("the starter list: no Savings/Loan/AELU/Annual budget, Sports added, every 
   ["Savings", "Loan", "AELU", "Annual budget"].forEach((n) => assert.ok(!byName(list, n), n + " must not be in the starter list"));
   const sports = byName(list, "Sports", "expense");
   assert.ok(sports && sports.key === "sports");
-  assert.ok(byName(list, "Food & Drink").key === "food_drink", "keys come from the English name");
+  assert.ok(byName(list, "Restaurants").key === "restaurants", "keys come from the English name");
+  assert.ok(!byName(list, "Food & Drink"), "renamed to Restaurants (2026-10-14)");
   assert.equal(byName(list, "Other", "income").key, "other");
 });
 
@@ -80,7 +81,8 @@ test("Telegram edit: a category can be named in English or Spanish", () => {
   const id = (name) => byName(cats(rt), name, "expense").id;
   assert.equal(rt.run("fuzzyFindCategory_('groceries', 'expense').id"), id("Groceries"));
   assert.equal(rt.run("fuzzyFindCategory_('supermercado', 'expense').id"), id("Groceries"));
-  assert.equal(rt.run("fuzzyFindCategory_('comida', 'expense').id"), id("Food & Drink"));
+  assert.equal(rt.run("fuzzyFindCategory_('restaurantes', 'expense').id"), id("Restaurants"));
+  assert.equal(rt.run("fuzzyFindCategory_('restaurants', 'expense').id"), id("Restaurants"));
   assert.equal(rt.run("fuzzyFindCategory_('deporte', 'expense').id"), id("Sports"));
 });
 
@@ -161,4 +163,57 @@ test("cleanup leaves a retired category alone (and says so) when there is no 'Ot
   assert.ok(byName(cats(rt), "Loan", "income"), "income Loan kept because there was nowhere to move its entries");
   assert.ok(r.notes.some((n) => n.includes("income")));
   assert.ok(!byName(cats(rt), "Loan", "expense"), "the expense ones were still retired");
+});
+
+// ---- "Food & Drink" became "Restaurants" (2026-10-14) -------------------------
+function sheetWithFoodAndDrink(rt) {
+  const id = byName(cats(rt), "Restaurants", "expense").id;
+  rt.run(`updateRowFields_('Categories', ${JSON.stringify(id)}, { name: 'Food & Drink', key: '' });
+          deleteRowsWhere_('Category Keywords', function () { return true; });
+          appendRowObject('Category Keywords', { id: 'kw-1', keyword: 'rappi', category_name: 'Food & Drink' });
+          appendRowObject('Category Keywords', { id: 'kw-2', keyword: 'claro', category_name: 'Mobile Phone' });`);
+  return id;
+}
+
+test("rename preview: says what it would rename and writes nothing", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const id = sheetWithFoodAndDrink(rt);
+  const r = rt.run("adminMigrateCategories({ dryRun: true })");
+  assert.deepEqual(Array.from(r.renamed), ["expense: Food & Drink -> Restaurants"]);
+  assert.equal(cats(rt).find((c) => c.id === id).name, "Food & Drink");
+  assert.equal(cell(rt, "Category Keywords", "kw-1", "category_name"), "Food & Drink");
+  assert.ok(!r.tagged.some((t) => t.includes("food_drink")), "no legacy key is handed out meanwhile");
+});
+
+test("rename apply: name, key and keyword rows follow; entries stay on the same category; running again does nothing", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const id = sheetWithFoodAndDrink(rt);
+  const usedBefore = rt.rows("Entries").filter((e) => e.category_id === id).length;
+  rt.run("adminMigrateCategories({ dryRun: false })");
+  const row = cats(rt).find((c) => c.id === id);
+  assert.deepEqual([row.name, row.key], ["Restaurants", "restaurants"]);
+  assert.equal(cell(rt, "Category Keywords", "kw-1", "category_name"), "Restaurants");
+  assert.equal(cell(rt, "Category Keywords", "kw-2", "category_name"), "Mobile Phone", "other keyword rows untouched");
+  assert.equal(rt.rows("Entries").filter((e) => e.category_id === id).length, usedBefore, "entries still point at the same category");
+  assert.equal(meta(rt, "es").categories.find((c) => c.id === id).name, "Restaurantes");
+  assert.equal(meta(rt, "en").categories.find((c) => c.id === id).name, "Restaurants");
+  const again = rt.run("adminMigrateCategories({ dryRun: false })");
+  assert.equal(again.renamed.length, 0);
+});
+
+test("rename: if a 'Restaurants' expense category already exists too, nothing is merged behind the owner's back", () => {
+  const { rt } = freshApp({ entries: 50 });
+  rt.run(`appendRowObject('Categories', { id: 'old-fd', name: 'Food & Drink', type: 'expense', icon: '🍽️', color: '#ccc', parent_id: '' });`);
+  const r = rt.run("adminMigrateCategories({ dryRun: false })");
+  assert.equal(r.renamed.length, 0);
+  assert.ok(r.notes.some((n) => n.includes("Food & Drink") && n.includes("Restaurants")));
+  assert.equal(cats(rt).find((c) => c.id === "old-fd").name, "Food & Drink");
+});
+
+test("a sheet that has not run the cleanup yet still shows the old category translated", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const id = byName(cats(rt), "Restaurants", "expense").id;
+  rt.run(`updateRowFields_('Categories', ${JSON.stringify(id)}, { name: 'Food & Drink', key: 'food_drink' });`);
+  assert.equal(meta(rt, "es").categories.find((c) => c.id === id).name, "Restaurantes");
+  assert.equal(meta(rt, "en").categories.find((c) => c.id === id).name, "Food & Drink");
 });
