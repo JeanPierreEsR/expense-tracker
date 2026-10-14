@@ -24,6 +24,9 @@ var REQUEST_LANG_ = null;   // set by doPost for the duration of one request
 // BEGIN GENERATED (scratch tooling; edit entries by hand from now on if the tool is gone)
 var BACKEND_STRINGS_ = {
   // ---- err ----
+  // ---- optional abilities (Features.gs) ----
+  "feature.gmailOff": { en: "Reading your bank e-mails is not turned on for this app yet.", es: "La lectura de tus correos del banco aún no está activada en esta app." },
+  "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu teléfono y vuelve a intentarlo." },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
   "err.validAmount": { en: "Enter a valid amount.", es: "Ingresa un monto válido." },

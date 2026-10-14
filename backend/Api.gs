@@ -76,6 +76,7 @@ function doPost(e) {
       recordFailedAccessAttempt_('app');
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
+      healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
       response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
     }
   } catch (err) {
@@ -435,10 +436,9 @@ function getMeta() {
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap(),
-    // What this copy of the backend can do beyond the spreadsheet. The Export
-    // screen offers "Send to my email" only when an address was saved (a copy
-    // that never gave Google's "send email" permission has none).
-    capabilities: { emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL') }
+    // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
+    // Export screen offers "Send to my email" only when an address was saved.
+    capabilities: getCapabilities_()
   };
 }
 

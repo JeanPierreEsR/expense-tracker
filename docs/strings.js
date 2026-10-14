@@ -671,7 +671,7 @@
 
     // ---- export ----
     "export.title": { en: "Export data", es: "Exportar datos" },
-    "export.hint": { en: "Pick what you want, then tap Get my files. Each file then gets a Save button that puts it on your phone (for example in Files).", es: "Elige lo que quieras y toca Obtener mis archivos. Cada archivo tendrá un botón Guardar que lo pone en tu teléfono (por ejemplo en Archivos)." },
+    "export.hint": { en: "Pick what you want, then tap Get my files. Each file then gets a Save button. In the menu that opens, pick Files to keep it on your phone, or another app (such as Mail) to send it somewhere.", es: "Elige lo que quieras y toca Obtener mis archivos. Cada archivo tendrá un botón Guardar. En el menú que se abre, elige Archivos para guardarlo en tu teléfono, o otra app (como Mail) para enviarlo a otro lado." },
     "export.entriesCsv": { en: "Entries spreadsheet (CSV)", es: "Hoja de movimientos (CSV)" },
     "export.entriesHint": { en: "One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.", es: "Una fila por movimiento, con categoría, cuenta, amigo y valores en PEN en palabras simples. Se abre en Excel, Numbers o Google Sheets." },
     "export.which": { en: "Which entries", es: "Qué movimientos" },

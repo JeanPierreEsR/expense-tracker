@@ -318,9 +318,11 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         // `lang`: the server answers (errors, category names…) in the app's language.
+        // `apiUrl`: the address this phone uses; the backend keeps its own copy of it
+        // (Features.gs) for the keep-awake ping, so no copy of the app has to have it written in its code.
         body: JSON.stringify(getSessionToken()
-          ? { sessionToken: getSessionToken(), action, payload: payload || {}, lang: I18n.getLang() }
-          : { accessCode: getAccessCode(), action, payload: payload || {}, lang: I18n.getLang() }),
+          ? { sessionToken: getSessionToken(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl: API_URL }
+          : { accessCode: getAccessCode(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl: API_URL }),
         signal: controller.signal
       });
     } finally {

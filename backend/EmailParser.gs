@@ -566,6 +566,7 @@ function getProcessedLabel_() {
 function processEmails(opts) {
   opts = opts || {};
   var results = { created: 0, skipped: 0, duplicates: 0, unparsed: 0, errors: 0, unparsedSubjects: [] };
+  if (!featureOn_('gmail')) return results;   // reading e-mail was not approved for this copy: nothing to do
   var label = getProcessedLabel_();
 
   // Read the entries table once per run rather than once per message —

@@ -15,12 +15,14 @@ function runAutomation() {
   // Script project's Triggers page, to confirm one of the two is active.
   pingWebApp_();
   var failures = [];
-  var emailResults = runAutomationStep_('emails', failures, processEmails);
+  // Each ability that needs an optional Google approval runs only if it was given (Features.gs).
+  var emailResults = featureOn_('gmail') ? runAutomationStep_('emails', failures, processEmails) : null;
   runAutomationStep_('telegram', failures, pollTelegramUpdates);
   runAutomationStep_('budgets', failures, checkBudgets);
   runAutomationStep_('loan reminders', failures, checkOverdueLoans);
   runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
-  runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
+  if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
+  else runAutomationStep_('statement inbox', failures, retryStatementInboxNudges_);
 
   if (emailResults && (emailResults.unparsed || emailResults.errors)) {
     failures.push('emails: ' + emailResults.unparsed + ' could not be read'
@@ -96,8 +98,10 @@ function removeAutomationTriggers_() {
 // real request isn't documented or guaranteed, so this is judged by the
 // performance log's "cold" count over time, not assumed to fully work.
 function pingWebApp_() {
+  var url = getWebAppUrl_();
+  if (!url || !featureOn_('keepawake')) return;   // not known yet / not approved: nothing to ping
   try {
-    UrlFetchApp.fetch(WEB_APP_URL, {
+    UrlFetchApp.fetch(url, {
       method: 'post',
       contentType: 'text/plain',
       payload: JSON.stringify({ ping: true }),
@@ -147,7 +151,7 @@ function removeKeepWarmPingTriggers_() {
 }
 
 function runAutomationNow() {
-  var results = processEmails();
+  var results = featureOn_('gmail') ? processEmails() : { created: 0, skipped: 0, duplicates: 0 };
   pollTelegramUpdates();
   var budgetResults = checkBudgets();
   var loanResults = checkOverdueLoans();

@@ -71,6 +71,7 @@ function stmtSentToSelf_(m) {
 }
 
 function scanStatementInbox_() {
+  if (!featureOn_('gmail')) return;   // e-mail reading not approved for this copy
   ensureStatementInboxSheet_();
   var rows = getAllRows('Statement Inbox');
   var first = rows.length === 0;
@@ -193,6 +194,7 @@ function listStatementInbox() {
 function getStatementAttachment(payload) {
   var row = getAllRows('Statement Inbox').filter(function (r) { return r.id === payload.id; })[0];
   if (!row) throw new Error(tr_('inbox.notThere'));
+  requireFeature_('gmail', 'feature.gmailOff');
   var msg = GmailApp.getMessageById(row.message_id);
   var att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) { return a.getName() === row.attachment_name; })[0];
   if (!att) throw new Error(tr_('inbox.attachmentGone'));

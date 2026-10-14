@@ -52,14 +52,6 @@ function promptSetTelegramToken() {
   }
 }
 
-// Same URL the app itself calls (docs/app.js's API_URL) — hardcoded rather
-// than derived from ScriptApp.getService().getUrl(), which is ambiguous
-// when a project has more than one Web App deployment (this one does: a
-// @HEAD dev deployment alongside the real one). It's already public, baked
-// into the committed frontend, so there's no new exposure in repeating it
-// here.
-var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec';
-
 // Telegram's webhook delivery needs a direct 200 response and will not
 // follow the 302-to-script.googleusercontent.com redirect every Apps
 // Script Web App call answers with (confirmed live 2026-09-15 — see
@@ -74,7 +66,9 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nS
 // string.
 function getTelegramWebhookTargetUrl_() {
   var relayUrl = PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL');
-  return relayUrl || WEB_APP_URL;
+  var target = relayUrl || getWebAppUrl_();   // this copy's own address (Features.gs), never another copy's
+  if (!target) throw new Error(tr_('webAppUrl.missing'));
+  return target;
 }
 
 function promptSetTelegramRelayUrl() {
