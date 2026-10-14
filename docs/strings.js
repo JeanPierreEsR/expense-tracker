@@ -669,7 +669,7 @@
 
     // ---- export ----
     "export.title": { en: "Export data", es: "Exportar datos" },
-    "export.hint": { en: "Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.", es: "Elige lo que quieras y toca Enviar. Los archivos se envían al correo que se configuró para esta app (el tuyo): no se descarga nada en el teléfono." },
+    "export.hint": { en: "Pick what you want, then tap Get my files. Each file then gets a Save button that puts it on your phone (for example in Files).", es: "Elige lo que quieras y toca Obtener mis archivos. Cada archivo tendrá un botón Guardar que lo pone en tu teléfono (por ejemplo en Archivos)." },
     "export.entriesCsv": { en: "Entries spreadsheet (CSV)", es: "Hoja de movimientos (CSV)" },
     "export.entriesHint": { en: "One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.", es: "Una fila por movimiento, con categoría, cuenta, amigo y valores en PEN en palabras simples. Se abre en Excel, Numbers o Google Sheets." },
     "export.which": { en: "Which entries", es: "Qué movimientos" },
@@ -680,7 +680,11 @@
     "export.includePending": { en: "Include entries still waiting for review", es: "Incluir movimientos que aún esperan revisión" },
     "export.backupJson": { en: "Full backup (JSON)", es: "Copia de seguridad completa (JSON)" },
     "export.backupHint": { en: "Every record in the app as stored (entries, loans, repayments, budgets, programmed items, rates…). For safekeeping, not for reading. Receipt photos and sign-in details are not included.", es: "Cada registro de la app tal como está guardado (movimientos, préstamos, repagos, presupuestos, movimientos programados, tipos de cambio…). Es para guardar, no para leer. No incluye fotos de boletas ni datos de inicio de sesión." },
-    "export.send": { en: "Send to my email", es: "Enviar a mi correo" },
+    "export.get": { en: "Get my files", es: "Obtener mis archivos" },
+    "export.send": { en: "Send to my email instead", es: "Mejor enviar a mi correo" },
+    "export.preparing": { en: "Preparing… this can take up to a minute for All time.", es: "Preparando… puede tardar hasta un minuto si eliges Todo." },
+    "export.ready": { en: "Ready. Tap a button to save the file:", es: "Listo. Toca un botón para guardar el archivo:" },
+    "export.save": { en: "Save {file}", es: "Guardar {file}" },
     "export.pickDates": { en: "Pick a From and/or To date for the custom range.", es: "Elige una fecha Desde y/o Hasta para el rango personalizado." },
     "export.sending": { en: "Preparing and sending… this can take up to a minute for All time.", es: "Preparando y enviando… puede tardar hasta un minuto si eliges Todo." },
     "export.fileEntries": { en: { one: "{name} ({n} entry)", other: "{name} ({n} entries)" }, es: { one: "{name} ({n} movimiento)", other: "{name} ({n} movimientos)" } },

@@ -232,3 +232,40 @@ test("in Spanish: date range names and the labels inside the file", () => {
   assert.deepEqual(rows.map((r) => r["Vinculado como"]).sort(), ["Préstamo (me debe)", "Repago (me debe)"]);
   assert.ok(csvRows(attachment(mails(rt)[3], "movimientos_")).some((r) => r["Pagado por"] === "Yo"));
 });
+
+// ---- Download instead of e-mail (the way a copy without the "send email" permission exports) ----
+
+test("download: files come back to the app, no address needed, nothing is emailed", () => {
+  const { rt } = freshApp();   // no EXPORT_EMAIL saved
+  const res = rt.api("exportDownload", { cards: ["entries", "backup"] });
+  assert.equal(res.files.length, 2);
+  const [entries, backup] = res.files;
+  assert.ok(entries.name.startsWith("entries_all-time"));
+  assert.equal(entries.mime, "text/csv");
+  assert.ok(entries.text.startsWith("﻿"), "BOM so Excel/Numbers read accents");
+  assert.ok(backup.name.startsWith("backup_"));
+  assert.ok(JSON.parse(backup.text).tables.Entries.length > 0, "the backup carries the entries");
+  assert.equal(mails(rt).length, 0);
+});
+
+test("download: same content as the e-mailed file", () => {
+  const { rt } = ready();
+  rt.api("exportData", { cards: ["entries"] });
+  const emailed = attachment(mails(rt)[0], "entries_").data;
+  const downloaded = rt.api("exportDownload", { cards: ["entries"] }).files[0].text;
+  assert.equal(downloaded, emailed);
+});
+
+test("download: nothing chosen is refused, and a repeat is harmless (read-only)", () => {
+  const { rt } = freshApp();
+  assert.throws(() => rt.api("exportDownload", { cards: [] }), /at least one/);
+  const a = rt.api("exportDownload", { cards: ["backup"], _requestId: "dl-1" });
+  const b = rt.api("exportDownload", { cards: ["backup"], _requestId: "dl-1" });
+  assert.equal(a.files[0].rows, b.files[0].rows);
+});
+
+test("meta tells the app whether e-mailing is available", () => {
+  const plain = freshApp().rt.api("getMeta", {});
+  assert.equal(plain.capabilities.emailExport, false);
+  assert.equal(ready().rt.api("getMeta", {}).capabilities.emailExport, true);
+});

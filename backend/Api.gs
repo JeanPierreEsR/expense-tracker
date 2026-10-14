@@ -173,6 +173,7 @@ function routeAction(action, payload) {
     case 'submitPhotoJobText': return submitPhotoJobText(payload);
     case 'failPhotoJob': return failPhotoJob(payload);
     case 'exportData': return exportData(payload);
+    case 'exportDownload': return exportDownload(payload);
     case 'admin_setExportEmail': return adminSetExportEmail(payload);
     case 'admin_setTelegramToken':
       var newToken = String(payload.token || '').trim();
@@ -433,7 +434,11 @@ function getMeta() {
     tags: localizeTags_(getAllRowsCached_('Tags')),
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
-    settings: getSettingsMap()
+    settings: getSettingsMap(),
+    // What this copy of the backend can do beyond the spreadsheet. The Export
+    // screen offers "Send to my email" only when an address was saved (a copy
+    // that never gave Google's "send email" permission has none).
+    capabilities: { emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL') }
   };
 }
 

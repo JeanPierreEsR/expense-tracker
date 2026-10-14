@@ -44,25 +44,61 @@ var EXPORT_CSV_HEADERS_ = [
 ];
 
 function exportData(payload) {
+  var to = getExportEmail_();   // refuse early, before building anything big
+  var built = buildExportFiles_(payload);
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error(tr_('export.quota'));
+
+  var blobs = built.files.map(function (f) { return Utilities.newBlob(f.text, f.mime, f.name); });
+  var lines = built.files.map(function (f) { return '- ' + tr_(f.kind === 'entries' ? 'export.line.entries' : 'export.line.backup', { name: f.name, n: f.rows }); });
+  MailApp.sendEmail({
+    to: to,
+    subject: tr_('export.subject', { date: built.stamp }),
+    body: tr_('export.body', { files: lines.join('\n') }),
+    attachments: blobs,
+    name: 'Expense Tracker'
+  });
+  return { sent: true, files: built.files.map(exportFileSummary_) };
+}
+
+/**
+ * Same files, but handed back to the app to save on the phone instead of being
+ * e-mailed. Needs no Google "send email" permission and no saved address — this
+ * is the way a copy of the app that never gave that permission exports. Read-only,
+ * so (unlike exportData) a repeated request is harmless and is not in ONCE_ACTIONS.
+ */
+function exportDownload(payload) {
+  var built = buildExportFiles_(payload);
+  return {
+    files: built.files.map(function (f) {
+      var out = exportFileSummary_(f);
+      out.mime = f.mime;
+      out.text = f.text;
+      return out;
+    })
+  };
+}
+
+function exportFileSummary_(f) {
+  return { kind: f.kind, name: f.name, rows: f.rows };
+}
+
+// Builds the chosen files in the request's language: [{kind, name, mime, text, rows}].
+function buildExportFiles_(payload) {
   payload = payload || {};
   var cards = payload.cards || [];
   var wantEntries = cards.indexOf('entries') !== -1;
   var wantBackup = cards.indexOf('backup') !== -1;
   if (!wantEntries && !wantBackup) throw new Error(tr_('export.chooseOne'));
 
-  var to = getExportEmail_();
   var tz = Session.getScriptTimeZone();
   var now = new Date();
   var stamp = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
 
-  var blobs = [];
   var files = [];
   var bytes = 0;
   function addFile(name, mime, text, kind, rows) {
-    var blob = Utilities.newBlob(text, mime, name);
     bytes += text.length;
-    blobs.push(blob);
-    files.push({ kind: kind, name: name, rows: rows });
+    files.push({ kind: kind, name: name, mime: mime, text: text, rows: rows });
   }
 
   if (wantEntries) {
@@ -74,7 +110,7 @@ function exportData(payload) {
       ? tr_('export.label.range', { start: range.startDate || tr_('export.label.start'), end: range.endDate || tr_('export.label.today') })
       : tr_('export.label.all');
     // The leading BOM makes Excel / Numbers read the accents as UTF-8.
-    addFile(tr_('export.file.entries', { label: label }), 'text/csv', '﻿' + csv.text, 'entries', csv.rows);
+    addFile(tr_('export.file.entries', { label: label }), 'text/csv', '\ufeff' + csv.text, 'entries', csv.rows);
   }
   if (wantBackup) {
     var backup = buildBackupJson_(now);
@@ -84,17 +120,7 @@ function exportData(payload) {
   if (bytes > EXPORT_MAX_BYTES_) {
     throw new Error(tr_('export.tooLarge', { mb: Math.round(bytes / 1048576) }));
   }
-  if (MailApp.getRemainingDailyQuota() < 1) throw new Error(tr_('export.quota'));
-
-  var lines = files.map(function (f) { return '- ' + tr_(f.kind === 'entries' ? 'export.line.entries' : 'export.line.backup', { name: f.name, n: f.rows }); });
-  MailApp.sendEmail({
-    to: to,
-    subject: tr_('export.subject', { date: stamp }),
-    body: tr_('export.body', { files: lines.join('\n') }),
-    attachments: blobs,
-    name: 'Expense Tracker'
-  });
-  return { sent: true, files: files };
+  return { files: files, stamp: stamp };
 }
 
 // ---- Destination ----

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-14T16:09:21Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-14T17:11:41Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -470,7 +470,7 @@
           <button type="button" class="add-inline" id="export-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;" data-i18n="export.title">Export data</h2>
-        <p class="hint" data-i18n="export.hint">Pick what you want, then tap Send. The files are emailed to your own address that was set up for this app — nothing is downloaded to the phone.</p>
+        <p class="hint" data-i18n="export.hint">Pick what you want, then tap Get my files. Each file then gets a Save button that puts it on your phone (for example in Files).</p>
 
         <div class="export-option">
           <label class="checkbox-row">
@@ -511,7 +511,9 @@
           <p class="hint" data-i18n="export.backupHint">Every record in the app as stored (entries, loans, repayments, budgets, programmed items, rates…). For safekeeping, not for reading. Receipt photos and sign-in details are not included.</p>
         </div>
 
-        <button type="button" class="primary" id="export-send-btn" disabled data-i18n="export.send">Send to my email</button>
+        <button type="button" class="primary" id="export-get-btn" disabled data-i18n="export.get">Get my files</button>
+        <div id="export-ready" hidden></div>
+        <button type="button" class="add-inline" id="export-send-btn" disabled hidden data-i18n="export.send">Send to my email instead</button>
         <p class="hint" id="export-status" role="status"></p>
       </div>
     </div>
@@ -1152,12 +1154,12 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="i18n.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="receipt-parse.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="bill-split.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="app.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="statement-parsers.js?v=2026-10-14T16:09:21Z"></script>
-  <script src="statements.js?v=2026-10-14T16:09:21Z"></script>
+  <script src="strings.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="i18n.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="receipt-parse.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="bill-split.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="app.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="statement-parsers.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="statements.js?v=2026-10-14T17:11:41Z"></script>
 </body>
 </html>

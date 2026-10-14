@@ -5000,10 +5000,11 @@ document.getElementById("perf-copy-btn").addEventListener("click", async () => {
 document.getElementById("exchange-rates-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Export data screen (More tab) ----
-// The server builds the chosen files and emails them to the address saved in
-// the backend (Export.gs) — the app only says which files and which dates, so
-// there is nothing to download on the phone and no way to point the data at
-// another address from here.
+// The server builds the chosen files (Export.gs); the app only says which files
+// and which dates. "Get my files" brings them to the phone, one Save button per
+// file (a second tap, because iOS only opens its share sheet straight from a
+// tap — not after a wait for the server). "Send to my email" is offered only
+// when the backend has an address saved; the address can never come from here.
 
 const EXPORT_PREFS_KEY = "exportPrefs";
 
@@ -5035,6 +5036,8 @@ function showExportScreen() {
   exportEl_("export-pending-check").checked = !!prefs.pending;
   if (["month", "year", "all", "custom"].includes(prefs.range)) exportEl_("export-range").value = prefs.range;
   exportEl_("export-status").textContent = "";
+  exportEl_("export-ready").hidden = true;
+  exportEl_("export-ready").textContent = "";
   refreshExportScreen_();
 }
 
@@ -5042,7 +5045,10 @@ function refreshExportScreen_() {
   const entries = exportEl_("export-entries-check").checked;
   exportEl_("export-entries-options").hidden = !entries;
   exportEl_("export-custom-fields").hidden = exportEl_("export-range").value !== "custom";
-  exportEl_("export-send-btn").disabled = !(entries || exportEl_("export-backup-check").checked);
+  const any = entries || exportEl_("export-backup-check").checked;
+  exportEl_("export-get-btn").disabled = !any;
+  exportEl_("export-send-btn").hidden = !(meta && meta.capabilities && meta.capabilities.emailExport);
+  exportEl_("export-send-btn").disabled = !any;
 }
 
 // The dates for the picked range, as YYYY-MM-DD (empty = no limit on that side).
@@ -5059,28 +5065,102 @@ function exportDateRange_() {
   return { startDate: "", endDate: "" };
 }
 
-async function sendExport_() {
+// The files picked on screen, or null (after saying why) when the request is not valid yet.
+function exportRequest_() {
   const status = exportEl_("export-status");
-  const btn = exportEl_("export-send-btn");
   const cards = [];
   if (exportEl_("export-entries-check").checked) cards.push("entries");
   if (exportEl_("export-backup-check").checked) cards.push("backup");
-  if (!cards.length) return;
+  if (!cards.length) return null;
   const range = exportDateRange_();
   if (cards.includes("entries") && exportEl_("export-range").value === "custom" && !range.startDate && !range.endDate) {
     status.style.color = "#d64545";
     status.textContent = tr("export.pickDates");
-    return;
+    return null;
   }
+  return {
+    cards, startDate: range.startDate, endDate: range.endDate,
+    includePending: exportEl_("export-pending-check").checked
+  };
+}
+
+function exportFileLabel_(f) {
+  return tr(f.kind === "entries" ? "export.fileEntries" : "export.fileRecords", { name: f.name, n: f.rows === 1 ? 1 : f.rows.toLocaleString("en-US") });
+}
+
+async function getExportFiles_() {
+  const req = exportRequest_();
+  if (!req) return;
+  const status = exportEl_("export-status");
+  const ready = exportEl_("export-ready");
+  const btn = exportEl_("export-get-btn");
+  btn.disabled = true;
+  ready.hidden = true;
+  ready.textContent = "";
+  status.style.color = "";
+  status.textContent = tr("export.preparing");
+  try {
+    const res = await callApi("exportDownload", req);
+    status.textContent = tr("export.ready");
+    res.files.forEach((f) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "primary";
+      b.style.marginTop = "8px";
+      b.textContent = tr("export.save", { file: exportFileLabel_(f) });
+      b.addEventListener("click", () => saveExportFile_(f));
+      ready.appendChild(b);
+    });
+    ready.hidden = false;
+  } catch (err) {
+    status.style.color = "#d64545";
+    status.textContent = err.message;
+  } finally {
+    refreshExportScreen_();
+  }
+}
+
+// iPhone: the share sheet ("Save to Files") when the browser can share files;
+// otherwise (desktop, older browsers) a normal download link.
+async function saveExportFile_(f) {
+  const status = exportEl_("export-status");
+  status.style.color = "";
+  const file = new File([f.text], f.name, { type: f.mime });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;   // closed the share sheet: not an error
+    // anything else: fall through to the plain download below
+  }
+  try {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    status.style.color = "#d64545";
+    status.textContent = err.message;
+  }
+}
+
+async function sendExport_() {
+  const status = exportEl_("export-status");
+  const btn = exportEl_("export-send-btn");
+  const req = exportRequest_();
+  if (!req) return;
   btn.disabled = true;
   status.style.color = "";
   status.textContent = tr("export.sending");
   try {
-    const res = await callApi("exportData", {
-      cards, startDate: range.startDate, endDate: range.endDate,
-      includePending: exportEl_("export-pending-check").checked
-    });
-    const parts = res.files.map((f) => tr(f.kind === "entries" ? "export.fileEntries" : "export.fileRecords", { name: f.name, n: f.rows === 1 ? 1 : f.rows.toLocaleString("en-US") }));
+    const res = await callApi("exportData", req);
+    const parts = res.files.map(exportFileLabel_);
     status.textContent = tr("export.sent", { files: parts.join(tr("export.and")) });
   } catch (err) {
     status.style.color = "#d64545";
@@ -5095,6 +5175,7 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 ["export-entries-check", "export-backup-check", "export-range", "export-pending-check"].forEach((id) => {
   exportEl_(id).addEventListener("change", () => { refreshExportScreen_(); saveExportPrefs_(); });
 });
+document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
 
 // ---- Performance log screen (More tab) ----
