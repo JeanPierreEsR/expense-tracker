@@ -22,6 +22,7 @@
 var PROTO_RELEASE = '__RELEASE__';   // replaced by the setup page on every push
 var PROTO_NEW_CODE = '__CODE__';     // the access code the setup page made
 var PROTO_MAIN_URL = '__MAINURL__';  // the main web app address (for the keep-awake ping)
+var PROTO_FEATURES = '__FEATURES__'; // the abilities approved so far, e.g. "base,keepawake,gmail" (backend/Features.gs)
 
 var PROTO_RETURN_PREFIXES_ = [
   'https://jeanpierreesr.github.io/expense-tracker/setup-test/',
@@ -131,6 +132,9 @@ function protoApplyCode_() {
   if (!PROTO_NEW_CODE || PROTO_NEW_CODE.indexOf('__') === 0) return;
   if (props.getProperty('PROTO_CODE_SET_FOR') === PROTO_RELEASE) return;
   props.setProperty('ACCESS_CODE', PROTO_NEW_CODE);
+  // Tells the real backend which optional abilities this copy was given; its presence also makes e-mail
+  // reading use the read-only Gmail service (backend/GmailReader.gs).
+  if (PROTO_FEATURES && PROTO_FEATURES.indexOf('__') !== 0) props.setProperty('FEATURES', PROTO_FEATURES);
   props.setProperty('PROTO_CODE_SET_FOR', PROTO_RELEASE);
 }
 

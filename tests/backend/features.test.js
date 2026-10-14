@@ -8,9 +8,12 @@ const { freshApp, bcpEmail } = require("./helpers");
 const URL_A = "https://script.google.com/macros/s/AKfycbMadeUpAddressOne/exec";
 const URL_B = "https://script.google.com/macros/s/AKfycbMadeUpAddressTwo/exec";
 const pings = (rt) => rt.svc.fetchLog.filter((f) => /macros\/s\//.test(f.url));
+// Counts every call that reaches Gmail, whichever way of reading e-mail is in use.
 const countGmail = (rt) => {
-  let n = 0; const orig = rt.svc.gmail.api.search;
-  rt.svc.gmail.api.search = (...a) => { n++; return orig(...a); };
+  let n = 0;
+  const wrap = (obj, key) => { const orig = obj[key]; obj[key] = (...a) => { n++; return orig(...a); }; };
+  wrap(rt.svc.gmail.api, "search");
+  wrap(rt.svc.gmail.advanced.Users.Messages, "list");
   return () => n;
 };
 

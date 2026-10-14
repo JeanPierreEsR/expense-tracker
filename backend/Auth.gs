@@ -36,6 +36,8 @@ function onOpen() {
     .addItem('27. Sign out all devices', 'menuSignOutAllDevices')
     .addItem('28. Categories cleanup: preview (changes nothing)', 'menuCategoriesCleanupPreview')
     .addItem('29. Categories cleanup: apply', 'menuCategoriesCleanupApply')
+    .addItem('30. Compare the two ways of reading e-mail', 'menuCompareGmailReaders')
+    .addItem('31. Read e-mail the new read-only way (on/off)', 'menuToggleGmailReader')
     .addToUi();
 }
 
@@ -362,3 +364,37 @@ function menuSignOutAllDevices() {
   var n = revokeSessionsWhere_(function () { return true; });
   ui.alert('Signed out ' + n + ' device' + (n === 1 ? '' : 's') + '.');
 }
+
+// Stage 2 of the friends & family rollout (GmailReader.gs): reads the same recent bank e-mails both ways and shows
+// whether the bank rules extract exactly the same things. Changes nothing; shows counts only, no e-mail content.
+function menuCompareGmailReaders() {
+  var ui = SpreadsheetApp.getUi();
+  if (typeof Gmail === 'undefined') { ui.alert('The new e-mail service is not enabled in this project yet. Ask Claude for the "enable the new e-mail service" step first.'); return; }
+  var s = compareGmailReaders({ days: 14 });
+  var lines = [
+    'Last ' + s.days + ' days of bank e-mails, read both ways:',
+    '• compared: ' + s.messagesCompared + ' e-mails (only in old way: ' + s.onlyOld + ', only in new way: ' + s.onlyNew + ')',
+    '• text identical: ' + s.bodiesIdentical + ' · differs only in spacing: ' + s.bodiesDifferOnlyInSpacing + ' · differs: ' + s.bodiesDiffer,
+    '• subject differs: ' + s.subjectsDiffer + ' · sender differs: ' + s.sendersDiffer + ' · date differs: ' + s.datesDiffer,
+    '• a bank rule matched both ways: ' + s.ruleMatchedBoth + ' · extracted the same: ' + s.extractionSame + ' · extracted DIFFERENTLY: ' + s.extractionDiffers.length
+  ];
+  if (s.extractionDiffers.length) lines.push('Different: ' + JSON.stringify(s.extractionDiffers.slice(0, 8)));
+  lines.push(s.extractionDiffers.length === 0 && s.messagesCompared > 0 ? 'Safe to switch (menu 31).' : 'Do NOT switch yet — tell Claude these numbers.');
+  ui.alert(lines.join('\n'));
+}
+
+function menuToggleGmailReader() {
+  var ui = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  var on = String(props.getProperty('GMAIL_READER') || '') === 'readonly';
+  if (on) {
+    props.deleteProperty('GMAIL_READER');
+    ui.alert('E-mail is now read the OLD way again (needs the broad Gmail permission).');
+  } else {
+    if (typeof Gmail === 'undefined') { ui.alert('The new e-mail service is not enabled in this project yet. Ask Claude for the "enable the new e-mail service" step first.'); return; }
+    var test = gmailSearchMessagesViaService_('newer_than:1d');   // proves the new permission works before switching
+    props.setProperty('GMAIL_READER', 'readonly');
+    ui.alert('E-mail is now read the NEW read-only way (' + test.length + ' e-mails seen in the last day). Menu 31 again switches back.');
+  }
+}
+

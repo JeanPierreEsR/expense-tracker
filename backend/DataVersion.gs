@@ -27,7 +27,7 @@
 // Sheets whose contents feed entries' search text / PEN amounts.
 var STRUCTURE_SHEETS_ = {
   'Categories': true, 'Payment Methods': true, 'Friends': true, 'Payors': true,
-  'Tags': true, 'Exchange Rates': true
+  'Tags': true, 'Exchange Rates': true, 'Banks': true
 };
 // Per-entry side tables — a change touches the entry they belong to.
 var ENTRY_CHILD_SHEETS_ = { 'Entry Splits': true, 'Entry Tags': true };

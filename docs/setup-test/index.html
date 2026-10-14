@@ -591,7 +591,7 @@ async function backendFiles(release, stages, fresh) {
   if (!fresh) await prefetched;   // the early download is usually done already
   if (fresh || !rawBackend) rawBackend = await fetchRawBackend();
   const files = rawBackend.files.slice();
-  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: rawBackend.firstRun.replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '') });
+  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: rawBackend.firstRun.replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '').replace('__FEATURES__', ['base'].concat((stages || []).filter((x) => x !== 'base')).join(',')) });
   files.push({ name: 'appsscript', type: 'JSON', source: manifestFor(stages) });
   log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + '); permissions: ' + stages.join(' + ') + '.');
   return files;

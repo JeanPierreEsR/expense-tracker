@@ -18,6 +18,9 @@ DEPLOY_ID="$(tr -d '[:space:]' < "$ID_FILE")"
 echo "Running backend tests..."
 node --test tests/backend/ > /tmp/expense-tracker-tests.log 2>&1 || { tail -40 /tmp/expense-tracker-tests.log; echo "Tests FAILED — not deploying."; exit 1; }
 grep -E "^ℹ (tests|pass|fail)" /tmp/expense-tracker-tests.log
+# The same tests again with e-mail read the NEW read-only way (see backend/GmailReader.gs): both must pass.
+GMAIL_READER=readonly node --test tests/backend/ > /tmp/expense-tracker-tests-readonly.log 2>&1 || { tail -40 /tmp/expense-tracker-tests-readonly.log; echo "Tests FAILED with the new e-mail reader — not deploying."; exit 1; }
+grep -E "^ℹ (pass|fail)" /tmp/expense-tracker-tests-readonly.log | sed 's/^/  (new e-mail reader) /'
 
 run() { if [ "$DRY" = "--dry-run" ]; then echo "[dry-run] $*"; else "$@"; fi; }
 

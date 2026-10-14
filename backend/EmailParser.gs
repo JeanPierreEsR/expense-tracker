@@ -551,11 +551,6 @@ function uniqueSenders_() {
   return Object.keys(seen);
 }
 
-function getProcessedLabel_() {
-  var name = 'ExpenseTracker-Processed';
-  return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
-}
-
 /**
  * opts (all optional, used by the one-off back-check route):
  *   days    — how far back to search (default 3, the normal 15-minute scan)
@@ -567,7 +562,6 @@ function processEmails(opts) {
   opts = opts || {};
   var results = { created: 0, skipped: 0, duplicates: 0, unparsed: 0, errors: 0, unparsedSubjects: [] };
   if (!featureOn_('gmail')) return results;   // reading e-mail was not approved for this copy: nothing to do
-  var label = getProcessedLabel_();
 
   // Read the entries table once per run rather than once per message —
   // with thousands of historical rows now imported, re-reading it for
@@ -583,32 +577,25 @@ function processEmails(opts) {
   var guessCtx = buildGuessContext_();
 
   var senders = opts.senders || uniqueSenders_();
-  // Per-email memory (not Gmail's per-conversation label): the one-off
-  // back-check (opts.days) deliberately re-reads everything, so it skips it.
+  // Per-email memory (the "Processed Emails" tab): the one-off back-check
+  // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
-  var handled = tracking ? loadProcessedEmailIds_(senders) : {};
+  var handled = tracking ? loadProcessedEmailIds_() : {};
 
   senders.forEach(function (sender) {
-    var threads = GmailApp.search('from:' + sender + ' newer_than:' + (opts.days || 3) + 'd');
-    threads.forEach(function (thread) {
-      var threadFailed = false;
-      thread.getMessages().forEach(function (message) {
-        var messageId = String(message.getId());
-        if (tracking && handled[messageId]) return;
-        // One bad email must not block the rest of the run, and is NOT marked
-        // handled, so the next run retries it (the duplicate check keeps
-        // already-written entries from doubling).
-        try {
-          processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
-          if (tracking) { recordProcessedEmail_(messageId); handled[messageId] = true; }
-        } catch (err) {
-          results.errors++;
-          threadFailed = true;
-          console.error('processOneMessage_: ' + err);
-        }
-      });
-      // The label is now only a visible hint in Gmail (and the switch-over seed).
-      if (!threadFailed) thread.addLabel(label);
+    gmailSearchMessages_('from:' + sender + ' newer_than:' + (opts.days || 3) + 'd').forEach(function (message) {
+      var messageId = String(message.getId());
+      if (tracking && handled[messageId]) return;
+      // One bad email must not block the rest of the run, and is NOT marked
+      // handled, so the next run retries it (the duplicate check keeps
+      // already-written entries from doubling).
+      try {
+        processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
+        if (tracking) { recordProcessedEmail_(messageId); handled[messageId] = true; }
+      } catch (err) {
+        results.errors++;
+        console.error('processOneMessage_: ' + err);
+      }
     });
   });
 
@@ -636,11 +623,8 @@ function recordProcessedEmail_(messageId) {
   appendRowObject('Processed Emails', { message_id: messageId, processed_at: nowTimestamp_() });
 }
 
-// message id -> true for every email already handled. Also tidies up and, the
-// very first time (nothing remembered yet), seeds the memory from the old
-// per-conversation label so emails handled before the switch-over are not
-// created a second time.
-function loadProcessedEmailIds_(senders) {
+// message id -> true for every email already handled. Also tidies up old rows.
+function loadProcessedEmailIds_() {
   ensureProcessedEmailsSheet_();
   var rows = getAllRows('Processed Emails');
 
@@ -652,22 +636,6 @@ function loadProcessedEmailIds_(senders) {
 
   var handled = {};
   rows.forEach(function (r) { handled[String(r.message_id)] = true; });
-
-  if (!rows.length) {
-    var now = nowTimestamp_();
-    var seed = [];
-    senders.forEach(function (sender) {
-      GmailApp.search('from:' + sender + ' label:ExpenseTracker-Processed newer_than:3d').forEach(function (thread) {
-        thread.getMessages().forEach(function (m) {
-          var id = String(m.getId());
-          if (handled[id]) return;
-          handled[id] = true;
-          seed.push({ message_id: id, processed_at: now });
-        });
-      });
-    });
-    appendRowsBulk_('Processed Emails', seed);
-  }
   return handled;
 }
 
@@ -760,25 +728,13 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 }
 
 /**
- * Temporary debug helper: removes the "processed" label from the newest
- * message matching a search, so it can be re-scanned after a rule fix.
- */
-function debugUnlabel_(query) {
-  var threads = GmailApp.search(query, 0, 1);
-  if (!threads.length) return { found: false };
-  threads[0].removeLabel(getProcessedLabel_());
-  return { found: true, subject: threads[0].getMessages()[0].getSubject() };
-}
-
-/**
  * Temporary debug helper: returns the raw plain-text body of the newest
  * matching message so extraction regexes can be fixed against real data.
  */
 function debugGmailSearch_(query) {
-  var threads = GmailApp.search(query, 0, 1);
-  if (!threads.length) return { found: false };
-  var messages = threads[0].getMessages();
-  var msg = messages[messages.length - 1];
+  var msgs = gmailSearchMessages_(query, { max: 1 });
+  if (!msgs.length) return { found: false };
+  var msg = msgs[0];
   return {
     found: true,
     subject: msg.getSubject(),
@@ -830,19 +786,17 @@ function debugListEmails_(senders, days) {
   var out = [];
   var tz = Session.getScriptTimeZone();
   senders.forEach(function (sender) {
-    GmailApp.search('from:' + sender + ' newer_than:' + (days || 7) + 'd', 0, 50).forEach(function (thread) {
-      thread.getMessages().forEach(function (message) {
-        var subject = message.getSubject();
-        var body = message.getPlainBody();
-        var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
-          .find(function (r) { return r.match(subject, body); });
-        out.push({
-          sender: sender,
-          date: Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd HH:mm'),
-          subject: subject,
-          rule: rule ? rule.label + (rule.skip ? ' (ignored)' : '') : null,
-          preview: body.replace(/\s+/g, ' ').substring(0, 400)
-        });
+    gmailSearchMessages_('from:' + sender + ' newer_than:' + (days || 7) + 'd', { max: 50 }).forEach(function (message) {
+      var subject = message.getSubject();
+      var body = message.getPlainBody();
+      var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+        .find(function (r) { return r.match(subject, body); });
+      out.push({
+        sender: sender,
+        date: Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd HH:mm'),
+        subject: subject,
+        rule: rule ? rule.label + (rule.skip ? ' (ignored)' : '') : null,
+        preview: body.replace(/\s+/g, ' ').substring(0, 400)
       });
     });
   });
@@ -858,9 +812,7 @@ function debugListEmails_(senders, days) {
 function debugSearchEmails_(query, max) {
   var tz = Session.getScriptTimeZone();
   var out = [];
-  GmailApp.search(query, 0, Math.min(max || 20, 40)).forEach(function (thread) {
-    var msgs = thread.getMessages();
-    var m = msgs[msgs.length - 1];
+  gmailSearchMessages_(query, { max: Math.min(max || 20, 40) }).forEach(function (m) {
     out.push({
       date: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
       from: m.getFrom(),
@@ -877,10 +829,9 @@ function debugSearchEmails_(query, max) {
  * without asking the owner to copy the text out by hand.
  */
 function debugEmailBody_(query, chars) {
-  var threads = GmailApp.search(query, 0, 1);
-  if (!threads.length) return null;
-  var msgs = threads[0].getMessages();
-  var m = msgs[msgs.length - 1];
+  var found = gmailSearchMessages_(query, { max: 1 });
+  if (!found.length) return null;
+  var m = found[0];
   return {
     from: m.getFrom(), subject: m.getSubject(), date: String(m.getDate()),
     body: m.getPlainBody().substring(0, chars || 3000)

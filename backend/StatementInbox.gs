@@ -85,36 +85,32 @@ function scanStatementInbox_() {
       bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
       status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
   }
-  GmailApp.search('from:(' + STATEMENT_SENDERS_.map(function (s) { return s.address; }).join(' OR ') + ')' + window, 0, 50).forEach(function (thread) {
-    thread.getMessages().forEach(function (m) {
-      var id = m.getId();
-      if (seenMessage[id]) return;
-      var from = String(m.getFrom()).toLowerCase();
-      var sender = STATEMENT_SENDERS_.filter(function (s) { return from.indexOf(s.address) >= 0; })[0];
-      if (!sender) return;
-      m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
-        if (stmtIsStatementAttachment_(a.getName())) note(m, sender, a, false);
-      });
-      seenMessage[id] = true;
+  gmailSearchMessages_('from:(' + STATEMENT_SENDERS_.map(function (s) { return s.address; }).join(' OR ') + ')' + window, { max: 150 }).forEach(function (m) {
+    var id = m.getId();
+    if (seenMessage[id]) return;
+    var from = String(m.getFrom()).toLowerCase();
+    var sender = STATEMENT_SENDERS_.filter(function (s) { return from.indexOf(s.address) >= 0; })[0];
+    if (!sender) return;
+    m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
+      if (stmtIsStatementAttachment_(a.getName())) note(m, sender, a, false);
     });
+    seenMessage[id] = true;
   });
   // The owner's own mails to himself. Gmail's `from:me to:me` finds the threads; each message is then
   // checked to really be one he sent to himself (its sender is among its recipients), so a stranger's
   // reply inside the same thread is never taken. (No Session email lookup: that needs a permission
   // the app was never granted, and failed silently — see CHANGELOG.)
   {
-    GmailApp.search('from:me to:me' + window, 0, 50).forEach(function (thread) {
-      thread.getMessages().forEach(function (m) {
-        var id = m.getId();
-        if (seenMessage[id]) return;
-        if (!stmtSentToSelf_(m)) return;
-        m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
-          if (!stmtIsStatementAttachment_(a.getName())) return;
-          var bank = stmtSelfSentBank_(a.getName(), m.getSubject(), m.getPlainBody());
-          if (bank) note(m, bank, a, true);
-        });
-        seenMessage[id] = true;
+    gmailSearchMessages_('from:me to:me' + window, { max: 150 }).forEach(function (m) {
+      var id = m.getId();
+      if (seenMessage[id]) return;
+      if (!stmtSentToSelf_(m)) return;
+      m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
+        if (!stmtIsStatementAttachment_(a.getName())) return;
+        var bank = stmtSelfSentBank_(a.getName(), m.getSubject(), m.getPlainBody());
+        if (bank) note(m, bank, a, true);
       });
+      seenMessage[id] = true;
     });
   }
   // Older ones found on the very first scan are listed silently; later ones get one nudge each.
@@ -195,7 +191,7 @@ function getStatementAttachment(payload) {
   var row = getAllRows('Statement Inbox').filter(function (r) { return r.id === payload.id; })[0];
   if (!row) throw new Error(tr_('inbox.notThere'));
   requireFeature_('gmail', 'feature.gmailOff');
-  var msg = GmailApp.getMessageById(row.message_id);
+  var msg = gmailGetMessage_(row.message_id);
   var att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) { return a.getName() === row.attachment_name; })[0];
   if (!att) throw new Error(tr_('inbox.attachmentGone'));
   return { id: row.id, name: att.getName(), base64: Utilities.base64Encode(att.getBytes()) };

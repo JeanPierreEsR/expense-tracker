@@ -158,6 +158,8 @@ function routeAction(action, payload) {
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
+    case 'savePaymentMethod': return savePaymentMethod(payload);
+    case 'addBank': return addBank(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
     case 'admin_ensureUpdatedAtColumn': return { column: ensureEntriesUpdatedAtColumn_() };
@@ -227,7 +229,7 @@ function routeAction(action, payload) {
       pollTelegramUpdates();
       return emailResults;
     case 'admin_debugGmail': return debugGmailSearch_(payload.query);
-    case 'admin_debugUnlabel': return debugUnlabel_(payload.query);
+    case 'admin_compareGmailReaders': return compareGmailReaders(payload);
     case 'admin_backfillEntryMerchants': return backfillEntryMerchants(payload);
     case 'admin_listCategoryKeywords': return getAllRows('Category Keywords');
     case 'admin_processEmailsBack': return processEmails({ days: Number(payload.days) || 7, senders: payload.senders });
@@ -1031,6 +1033,75 @@ function addPaymentMethod(payload) {
   };
   appendRowObject('Payment Methods', pm);
   return pm;
+}
+
+// ---- Accounts & cards screen (More tab): add + edit in one action ----
+
+var PAYMENT_METHOD_TYPES_ = ['credit', 'debit', 'cash', 'transfer', 'wallet', 'investment'];
+
+// last_4 is digits that may start with 0 ("0123"): Sheets turns a typed "0123"
+// into the number 123 unless the cell is text first (CLAUDE.md: text-date trap).
+function setPaymentMethodLast4_(sheet, headers, rowIndex, last4) {
+  var col = headers.indexOf('last_4');
+  if (col === -1) return;
+  sheet.getRange(rowIndex, col + 1).setNumberFormat('@');
+  setCellByRow_(sheet, headers, rowIndex, 'last_4', last4);
+}
+
+// Without `id` it adds an account; with `id` it edits that one. Unlike the
+// inline addPaymentMethod (which quietly reuses a same-name row), a name
+// already taken by ANOTHER account is an error here — the owner is looking
+// at the list and chose to save. Entries point at the account's id, so a
+// rename or a changed bank/last-4 never detaches past entries.
+function savePaymentMethod(payload) {
+  var nickname = String(payload.nickname || '').trim();
+  if (!nickname) throw new Error(tr_('err.enterName'));
+  var type = String(payload.type || '').trim().toLowerCase();
+  if (PAYMENT_METHOD_TYPES_.indexOf(type) === -1) throw new Error(tr_('err.pmType'));
+  var last4 = String(payload.last_4 == null ? '' : payload.last_4).trim();
+  if (last4 && !/^\d{4}$/.test(last4)) throw new Error(tr_('err.pmLast4'));
+  var bankId = String(payload.bank_id || '').trim();
+  if (bankId && !getAllRows('Banks').some(function (b) { return String(b.id) === bankId; })) {
+    throw new Error(tr_('err.pmBank'));
+  }
+  var id = payload.id ? String(payload.id) : '';
+  var taken = getAllRows('Payment Methods').some(function (pm) {
+    return String(pm.id) !== id && String(pm.nickname).trim().toLowerCase() === nickname.toLowerCase();
+  });
+  if (taken) throw new Error(tr_('err.pmNameTaken'));
+
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  if (!id) {
+    var pm = { id: Utilities.getUuid(), nickname: nickname, type: type, bank_id: bankId, last_4: '' };
+    appendRowObject('Payment Methods', pm);
+    if (last4) {
+      setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
+    }
+    pm.last_4 = last4;
+    return pm;
+  }
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  setCellByRow_(sheet, headers, rowIndex, 'nickname', nickname);
+  setCellByRow_(sheet, headers, rowIndex, 'type', type);
+  setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
+  setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
+  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4 };
+}
+
+// A bank name typed in the add/edit window. Same name (any case) = same bank.
+function addBank(payload) {
+  var name = String(payload.name || '').trim();
+  if (!name) throw new Error(tr_('err.enterName'));
+  var existing = getAllRows('Banks').find(function (b) {
+    return String(b.name).trim().toLowerCase() === name.toLowerCase();
+  });
+  if (existing) return existing;
+  var bank = { id: Utilities.getUuid(), name: name };
+  appendRowObject('Banks', bank);
+  bumpStructureVersion_();
+  return bank;
 }
 
 // One-time cleanup for payment methods that got duplicated before

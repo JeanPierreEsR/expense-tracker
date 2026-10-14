@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-14T21:07:10Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-14T21:40:30Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -374,6 +374,10 @@
             <span data-i18n="more.programmed">🔁 Programmed income/expenses</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-accounts-btn">
+            <span data-i18n="more.accounts">💳 Accounts &amp; cards</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
             <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
@@ -437,6 +441,19 @@
           <div id="recurring-onetime-list"></div>
           <p class="hint" id="recurring-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
         </div>
+      </div>
+    </div>
+
+    <div id="screen-accounts" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="accounts-add-btn" data-i18n="accounts.add">+ Add</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts &amp; cards</h2>
+        <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
+        <div id="accounts-list"></div>
+        <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
       </div>
     </div>
 
@@ -1086,6 +1103,32 @@
     </div>
   </div>
 
+  <div id="pm-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="pm-modal-title" data-i18n="accounts.addTitle">Add account or card</span>
+        <button type="button" id="pm-modal-close" class="currency-modal-close">✕</button>
+      </div>
+
+      <label for="pm-nickname" data-i18n="accounts.name">Name</label>
+      <input type="text" id="pm-nickname" maxlength="60" data-i18n-placeholder="accounts.namePlaceholder" placeholder="e.g. BCP Visa">
+
+      <label for="pm-type" data-i18n="accounts.type">Type</label>
+      <select id="pm-type"></select>
+
+      <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
+      <select id="pm-bank"></select>
+
+      <label for="pm-last4" data-i18n="accounts.last4">Last 4 digits</label>
+      <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pm-last4" data-i18n-placeholder="common.optional" placeholder="Optional">
+      <p class="hint" data-i18n="accounts.last4Hint">Only the last 4 digits of the card or account number — never the full number.</p>
+
+      <p class="hint" id="pm-form-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="pm-save-btn" data-i18n="common.save">Save</button>
+      <button type="button" class="cancel-edit-btn" id="pm-cancel-btn" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+
   <div id="rate-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1157,12 +1200,12 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="i18n.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="receipt-parse.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="bill-split.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="app.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="statement-parsers.js?v=2026-10-14T21:07:10Z"></script>
-  <script src="statements.js?v=2026-10-14T21:07:10Z"></script>
+  <script src="strings.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="i18n.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="receipt-parse.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="bill-split.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="app.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="statement-parsers.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="statements.js?v=2026-10-14T21:40:30Z"></script>
 </body>
 </html>

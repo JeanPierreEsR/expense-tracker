@@ -209,13 +209,15 @@ function buildGmail() {
   };
 
   // Test helper: add an email (own thread unless threadWith is given).
-  function addEmail({ from, to, subject, body, daysAgo = 0, threadWith, attachments = [] }) {
+  function addEmail({ from, to, subject, body, html, daysAgo = 0, threadWith, attachments = [] }) {
+    const sentAt = Date.now() - daysAgo * 86400000 + 1000 * nextId;
     const msg = {
       _id: "m" + nextId++,
-      getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => body, getFrom: () => from,
-      getDate: () => new Date(Date.now() - daysAgo * 86400000 + 1000 * nextId),
+      _html: html, _attachments: attachments,
+      getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => (body === undefined ? "" : body), getFrom: () => from,
+      getDate: () => new Date(sentAt),   // fixed at creation: a real e-mail's date does not change between two reads
       getId() { return this._id; },
-      getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => [] }))
+      getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => (a.bytes ? [...a.bytes] : []) }))
     };
     let thread = threadWith;
     if (!thread) {
@@ -231,7 +233,60 @@ function buildGmail() {
     thread.messages.push(msg);
     return thread;
   }
-  return { api, addEmail, threads };
+  // The newer "Gmail" advanced service (read-only): messages instead of threads, bodies as
+  // base64url parts — the shape the real API returns. Understands the same few search words.
+  const b64u = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const allMessages = () => threads.flatMap((t) => t.messages.map((m) => ({ m, t })));
+  function matchesQuery(m, query) {
+    const fromRaw = (/from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
+    const froms = fromRaw ? fromRaw.replace(/[()]/g, "").split(/\s+OR\s+/).map((f) => (f === "me" ? "test@example.com" : f)) : null;
+    const days = (/newer_than:(\d+)d/.exec(query) || [])[1];
+    const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
+    if (froms && !froms.some((f) => m.getFrom().includes(f))) return false;
+    if (/has:attachment/.test(query) && !m.getAttachments().length) return false;
+    return m.getDate().getTime() >= cutoff;
+  }
+  function resource(m, t) {
+    const header = (name, value) => ({ name, value });
+    const parts = [];
+    if (m.getPlainBody() !== "" || m._html === undefined) parts.push({ mimeType: "text/plain", headers: [header("Content-Type", "text/plain; charset=UTF-8")], body: { size: 1, data: b64u(m.getPlainBody()) } });
+    if (m._html !== undefined) parts.push({ mimeType: "text/html", headers: [header("Content-Type", "text/html; charset=UTF-8")], body: { size: 1, data: b64u(m._html) } });
+    const body = parts.length > 1 ? [{ mimeType: "multipart/alternative", parts }] : parts;
+    const atts = m._attachments.map((a, i) => ({ mimeType: "application/pdf", filename: a.name, headers: [header("Content-Disposition", "attachment; filename=\"" + a.name + "\"")], body: { attachmentId: m._id + "-att" + i, size: a.size || 2048 } }));
+    return {
+      id: m._id, threadId: "t" + threads.indexOf(t), internalDate: String(m.getDate().getTime()),
+      payload: { mimeType: "multipart/mixed", headers: [header("From", m.getFrom()), header("To", m.getTo()), header("Subject", m.getSubject())], body: { size: 0 }, parts: body.concat(atts) }
+    };
+  }
+  const advanced = {
+    Users: {
+      getProfile: () => ({ emailAddress: "test@example.com", messagesTotal: allMessages().length, threadsTotal: threads.length }),
+      Messages: {
+        list(userId, p = {}) {
+          const hits = allMessages().filter(({ m }) => matchesQuery(m, p.q || "")).sort((a, b) => b.m.getDate() - a.m.getDate());
+          const start = Number(p.pageToken || 0), size = p.maxResults || 100;
+          const page = hits.slice(start, start + size);
+          const out = { messages: page.map(({ m, t }) => ({ id: m._id, threadId: "t" + threads.indexOf(t) })), resultSizeEstimate: hits.length };
+          if (start + size < hits.length) out.nextPageToken = String(start + size);
+          return out;
+        },
+        get(userId, id) {
+          const hit = allMessages().find(({ m }) => m._id === id);
+          if (!hit) throw new Error("Requested entity was not found.");
+          return resource(hit.m, hit.t);
+        },
+        Attachments: {
+          get(userId, messageId, attachmentId) {
+            const hit = allMessages().find(({ m }) => m._id === messageId);
+            const i = Number(/-att(\d+)$/.exec(attachmentId)[1]);
+            const a = hit.m._attachments[i];
+            return { size: a.size || 2048, data: b64u(a.bytes ? Buffer.from(a.bytes) : Buffer.alloc(0)) };
+          }
+        }
+      }
+    }
+  };
+  return { api, addEmail, threads, advanced };
 }
 
 function buildServices(state) {
@@ -278,7 +333,13 @@ function buildServices(state) {
       computeDigest(alg, input) {
         return [...crypto.createHash(alg).update(String(input)).digest()].map((b) => (b > 127 ? b - 256 : b));
       },
-      newBlob: (data, contentType, name) => ({ data, contentType, name, getName: () => name, getDataAsString: () => String(data) }),
+      newBlob: (data, contentType, name) => ({
+        data, contentType, name, getName: () => name,
+        getDataAsString: (charset) => (typeof data === "string" ? data
+          : Buffer.from(Array.from(data, (b) => b & 255)).toString(/iso-8859-1|latin1|windows-1252/i.test(charset || "") ? "latin1" : "utf8"))
+      }),
+      base64Decode: (s) => [...Buffer.from(String(s), "base64")].map((b) => (b > 127 ? b - 256 : b)),
+      base64DecodeWebSafe: (s) => [...Buffer.from(String(s), "base64url")].map((b) => (b > 127 ? b - 256 : b)),
       base64Encode: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64"),
       base64EncodeWebSafe: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64url"),
       parseCsv: () => unsupported("Utilities.parseCsv")
@@ -334,6 +395,7 @@ function buildServices(state) {
       getRemainingDailyQuota: () => (state.mailQuota === undefined ? 100 : state.mailQuota)
     },
     GmailApp: gmail.api,
+    Gmail: gmail.advanced,
     DriveApp: new Proxy({}, { get: (_, p) => () => unsupported("DriveApp." + String(p)) }),
     Logger: { log: (...a) => { if (state.verbose) console.log("[Logger]", ...a); } }
   };

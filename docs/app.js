@@ -3441,7 +3441,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "exchange-rates", "perf", "export", "statements"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -5281,6 +5281,161 @@ async function refreshExchangeRates() {
     list.appendChild(row);
   });
 }
+
+// ---- Accounts & cards (More tab) ----
+// The list reads meta.paymentMethods (already loaded for the entry form), and a
+// save updates meta in place, so nothing is re-fetched. Cards show only the
+// last 4 digits — the app never asks for a full number.
+
+const PM_TYPES_ = ["credit", "debit", "cash", "transfer", "wallet"];
+let pmModalState = null; // { id } while the window is open; id is null when adding
+
+function showAccountsScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-accounts"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  renderAccountsList_();
+}
+
+function renderAccountsList_() {
+  const list = document.getElementById("accounts-list");
+  const bankName = (id) => { const b = (meta.banks || []).find((x) => x.id === id); return b ? b.name : ""; };
+  const rows = meta.paymentMethods.slice().sort((a, b) => a.nickname.localeCompare(b.nickname));
+  document.getElementById("accounts-empty-note").hidden = rows.length > 0;
+  list.innerHTML = "";
+  rows.forEach((pm) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
+        <div class="recurring-row-sub">${escapeHtml(sub)}</div>
+      </div>
+      <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
+    `;
+    row.addEventListener("click", () => openPmModal_(pm));
+    list.appendChild(row);
+  });
+}
+
+function fillPmBankOptions_(selectedId) {
+  const sel = document.getElementById("pm-bank");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("accounts.noBank");
+  sel.appendChild(none);
+  (meta.banks || []).slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((b) => {
+    const o = document.createElement("option");
+    o.value = b.id;
+    o.textContent = b.name;
+    sel.appendChild(o);
+  });
+  const add = document.createElement("option");
+  add.value = "__add__";
+  add.textContent = tr("accounts.addBank");
+  sel.appendChild(add);
+  sel.value = selectedId || "";
+}
+
+function openPmModal_(pm) {
+  pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "" };
+  document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
+  const typeSel = document.getElementById("pm-type");
+  typeSel.innerHTML = "";
+  // An investment platform keeps its type; it isn't offered for new accounts.
+  const types = pm && pm.type === "investment" ? [...PM_TYPES_, "investment"] : PM_TYPES_;
+  types.forEach((t) => {
+    const o = document.createElement("option");
+    o.value = t;
+    o.textContent = tr(`accounts.type.${t}`);
+    typeSel.appendChild(o);
+  });
+  typeSel.value = pm ? pm.type : "credit";
+  document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
+  document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
+  fillPmBankOptions_(pmModalState.lastBank);
+  document.getElementById("pm-form-error").textContent = "";
+  const backdrop = document.getElementById("pm-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  if (!pm) document.getElementById("pm-nickname").focus();
+}
+
+function closePmModal_() {
+  document.getElementById("pm-modal-backdrop").hidden = true;
+  pmModalState = null;
+}
+
+document.getElementById("pm-bank").addEventListener("change", async (e) => {
+  if (!pmModalState) return;
+  if (e.target.value !== "__add__") { pmModalState.lastBank = e.target.value; return; }
+  const name = prompt(tr("accounts.bankPrompt"));
+  if (!name || !name.trim()) { e.target.value = pmModalState.lastBank; return; }
+  try {
+    const bank = await callApi("addBank", { name: name.trim() });
+    if (!meta.banks.some((b) => b.id === bank.id)) meta.banks.push(bank);
+    pmModalState.lastBank = bank.id;
+    fillPmBankOptions_(bank.id);
+  } catch (err) {
+    document.getElementById("pm-form-error").textContent = err.message;
+    e.target.value = pmModalState.lastBank;
+  }
+});
+
+document.getElementById("pm-last4").addEventListener("input", (e) => {
+  const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+  if (digits !== e.target.value) e.target.value = digits;
+});
+
+document.getElementById("pm-save-btn").addEventListener("click", async () => {
+  if (!pmModalState) return;
+  const errorEl = document.getElementById("pm-form-error");
+  errorEl.textContent = "";
+  const nickname = document.getElementById("pm-nickname").value.trim();
+  const last4 = document.getElementById("pm-last4").value.trim();
+  if (!nickname) { errorEl.textContent = tr("accounts.errName"); return; }
+  if (last4 && !/^\d{4}$/.test(last4)) { errorEl.textContent = tr("accounts.errLast4"); return; }
+  const saveBtn = document.getElementById("pm-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const saved = await callApi("savePaymentMethod", {
+      id: pmModalState.id || undefined,
+      nickname,
+      type: document.getElementById("pm-type").value,
+      bank_id: document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value,
+      last_4: last4
+    });
+    const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
+    if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
+    else meta.paymentMethods.push(saved);
+    // Rebuild the entry form's pickers without losing what's already chosen there.
+    const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
+    populatePaymentMethodOptions();
+    populateToPaymentMethodOptions();
+    ["payment_method", "to_payment_method"].forEach((id, k) => {
+      const sel = document.getElementById(id);
+      if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+    });
+    closePmModal_();
+    renderAccountsList_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("pm-modal-close").addEventListener("click", closePmModal_);
+document.getElementById("pm-cancel-btn").addEventListener("click", closePmModal_);
+document.getElementById("pm-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "pm-modal-backdrop") closePmModal_();
+});
+document.getElementById("more-accounts-btn").addEventListener("click", showAccountsScreen);
+document.getElementById("accounts-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("accounts-add-btn").addEventListener("click", () => openPmModal_(null));
 
 // ---- Recurring income/expenses ----
 

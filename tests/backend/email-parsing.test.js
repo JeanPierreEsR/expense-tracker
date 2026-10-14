@@ -5,10 +5,11 @@ const assert = require("node:assert/strict");
 const { freshApp, linkTelegram, bcpEmail, BCP_SENDER } = require("./helpers");
 
 const pendingFromEmail = (rt) => rt.rows("Entries").filter((e) => e.source === "email" && e.status === "pending");
-const labeled = (t) => t.labelNames.has("ExpenseTracker-Processed");
+// Which e-mails were handled is remembered by message id in the "Processed Emails" tab (no Gmail labels any more).
+const handled = (rt, t) => rt.rows("Processed Emails").some((r) => String(r.message_id) === String(t.messages[0]._id));
 const run = (rt) => JSON.parse(JSON.stringify(rt.run("processEmails()")));
 
-test("a bank email becomes a pending entry and its thread is marked processed", () => {
+test("a bank email becomes a pending entry and is remembered as handled", () => {
   const { rt } = freshApp({ entries: 300 });
   const before = pendingFromEmail(rt).length;
   const t = bcpEmail(rt, { amount: "25.50", merchant: "Corner Cafe", op: "OP-1" });
@@ -20,7 +21,8 @@ test("a bank email becomes a pending entry and its thread is marked processed", 
   assert.equal(created.length, 1);
   assert.equal(Number(created[0].amount), 25.5);
   assert.equal(created[0].currency, "PEN");
-  assert.ok(labeled(t));
+  assert.ok(handled(rt, t));
+  assert.ok(rt.svc.gmail.threads.every((th) => th.labelNames.size === 0), "no Gmail label is written");
   assert.equal(pendingFromEmail(rt).length, before + 1);
 });
 
@@ -77,10 +79,10 @@ test("if Telegram is down, the entry is still saved, the email is marked done, a
   const res = run(rt);
 
   assert.equal(res.created, 2, "both emails saved despite Telegram failing");
-  assert.ok(labeled(t1) && labeled(t2));
+  assert.ok(handled(rt, t1) && handled(rt, t2));
 });
 
-test("one email that throws does not block the others, and is left unlabeled to retry", () => {
+test("one email that throws does not block the others, and is not marked handled, so it is retried", () => {
   const { rt } = freshApp({ entries: 300 });
   const bad = bcpEmail(rt, { op: "OP-BAD", merchant: "Explode Inc" });
   const good = bcpEmail(rt, { op: "OP-GOOD", merchant: "Fine Cafe" });
@@ -90,8 +92,8 @@ test("one email that throws does not block the others, and is left unlabeled to 
 
   assert.equal(res.errors, 1);
   assert.equal(res.created, 1, "the good email was still processed");
-  assert.ok(labeled(good));
-  assert.ok(!labeled(bad), "the failed email will be retried next run");
+  assert.ok(handled(rt, good));
+  assert.ok(!handled(rt, bad), "the failed email will be retried next run");
 });
 
 // ---- Two owner decisions (2026-10-05) ----------------------------------------------
@@ -131,9 +133,9 @@ test("a new email Gmail groups into an already-handled conversation is still pro
   const { rt } = freshApp({ entries: 300 });
   const thread = bcpEmail(rt, { op: "OP-T1", merchant: "Thread Cafe" });
   assert.equal(run(rt).created, 1);
-  assert.ok(labeled(thread));
+  assert.ok(handled(rt, thread));
 
-  bcpEmail(rt, { op: "OP-T2", merchant: "Thread Cafe 2", threadWith: thread });   // joins the labeled conversation
+  bcpEmail(rt, { op: "OP-T2", merchant: "Thread Cafe 2", threadWith: thread });   // joins the already-handled conversation
   const res = run(rt);
 
   assert.equal(res.created, 1, "the second email was read, not skipped with its conversation");
@@ -160,25 +162,12 @@ test("an email that errored is NOT marked handled, so the next run retries it", 
   assert.equal(res.errors, 0);
 });
 
-test("switching over: emails already handled under the old label scheme are not created again", () => {
+test("an old Gmail label on a conversation means nothing any more: only the per-email memory decides", () => {
   const { rt } = freshApp({ entries: 300 });
-  // State the old scheme left behind: a labeled conversation whose email already
-  // became an entry under the OLD fallback id, and no per-email memory yet.
-  const thread = bcpEmail(rt, { op: "", merchant: "Legacy Cafe", amount: "9.00" });
-  const msg = thread.messages[0];
-  const dateStr = rt.run(`Utilities.formatDate(new Date(${msg.getDate().getTime()}), Session.getScriptTimeZone(), 'yyyy-MM-dd')`);
-  const legacyId = rt.run(`fallbackExternalId_(${JSON.stringify(BCP_SENDER)}, ${JSON.stringify(dateStr)}, 9, 'Legacy Cafe')`);
-  rt.run(`appendRowObject('Entries', { id: 'legacy-1', type: 'expense', date: ${JSON.stringify(dateStr)}, amount: 9, currency: 'PEN', category_id: '', description: 'Legacy Cafe', status: 'pending', source: 'email', external_id: ${JSON.stringify(legacyId)}, merchant: 'legacy cafe', created_at: ${JSON.stringify(dateStr + "T10:00:00")} })`);
-  thread.addLabel(rt.svc.gmail.api.getUserLabelByName("ExpenseTracker-Processed") || rt.svc.gmail.api.createLabel("ExpenseTracker-Processed"));
-  const before = rt.rows("Entries").length;
-
-  const res = run(rt);
-
-  assert.equal(res.created, 0, "no duplicate of the already-created entry");
-  assert.equal(rt.rows("Entries").length, before);
-  // ...and the conversation is now handled per email, so a NEW email in it is read
-  bcpEmail(rt, { op: "OP-NEW", merchant: "After Cutover", threadWith: thread });
-  assert.equal(run(rt).created, 1);
+  const thread = bcpEmail(rt, { op: "OP-LBL", merchant: "Labeled Cafe" });
+  thread.addLabel({ getName: () => "ExpenseTracker-Processed" });   // left by the old scheme
+  assert.equal(run(rt).created, 1, "the label does not hide the e-mail; nothing remembered it yet");
+  assert.equal(run(rt).created, 0, "now it is remembered by id and not created twice");
 });
 
 test("old memory rows are pruned", () => {

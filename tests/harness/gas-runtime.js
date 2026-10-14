@@ -23,6 +23,8 @@ function createRuntime(opts = {}) {
   });
 
   svc.props.set("ACCESS_CODE", ACCESS_CODE);
+  // Run the whole suite either way: GMAIL_READER=readonly node --test tests/backend/ (deploy.sh does both).
+  if (process.env.GMAIL_READER) svc.props.set("GMAIL_READER", process.env.GMAIL_READER);
   vm.runInContext("setupSpreadsheet(); seedStarterData();", ctx);
 
   const rt = {

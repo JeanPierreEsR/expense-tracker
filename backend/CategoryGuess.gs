@@ -187,37 +187,31 @@ function backfillEntryMerchants(payload) {
   outer:
   for (var s = 0; s < senders.length; s++) {
     var sender = senders[s];
-    for (var start = 0; ; start += 100) {
-      var threads = GmailApp.search('from:' + sender + ' newer_than:' + days + 'd', start, 100);
-      if (!threads.length) break;
-      for (var t = 0; t < threads.length; t++) {
-        var messages = threads[t].getMessages();
-        for (var m = 0; m < messages.length; m++) {
-          if (Date.now() - startedAt > 270000) { result.partial = true; break outer; }
-          var message = messages[m];
-          result.messagesScanned++;
-          var subject = message.getSubject();
-          var body = message.getPlainBody();
-          var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
-            .find(function (r) { return r.match(subject, body); });
-          if (!rule || rule.skip) continue;
-          var fields = rule.extract(subject, body);
-          if (!fields || !fields.merchant) continue;
-          var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
-          // Entries made before 2026-10-05 carry the message-less key, newer ones the
-          // message-id key — try both.
-          var extKey = computeEmailExternalId_(sender, dateStr, fields, message.getId());
-          var row = rowByExternalId[extKey];
-          if (row === undefined) { extKey = computeEmailExternalId_(sender, dateStr, fields); row = rowByExternalId[extKey]; }
-          if (row === undefined) continue;
-          var merchant = normalizeMerchant_(fields.merchant);
-          if (!merchant) continue;
-          merchants[row][0] = merchant;
-          delete rowByExternalId[extKey];
-          result.matched++;
-          if (result.sample.length < 15) result.sample.push(merchant);
-        }
-      }
+    var messages = gmailSearchMessages_('from:' + sender + ' newer_than:' + days + 'd', { max: 2000 });
+    for (var m = 0; m < messages.length; m++) {
+      if (Date.now() - startedAt > 270000) { result.partial = true; break outer; }
+      var message = messages[m];
+      result.messagesScanned++;
+      var subject = message.getSubject();
+      var body = message.getPlainBody();
+      var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+        .find(function (r) { return r.match(subject, body); });
+      if (!rule || rule.skip) continue;
+      var fields = rule.extract(subject, body);
+      if (!fields || !fields.merchant) continue;
+      var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
+      // Entries made before 2026-10-05 carry the message-less key, newer ones the
+      // message-id key — try both.
+      var extKey = computeEmailExternalId_(sender, dateStr, fields, message.getId());
+      var row = rowByExternalId[extKey];
+      if (row === undefined) { extKey = computeEmailExternalId_(sender, dateStr, fields); row = rowByExternalId[extKey]; }
+      if (row === undefined) continue;
+      var merchant = normalizeMerchant_(fields.merchant);
+      if (!merchant) continue;
+      merchants[row][0] = merchant;
+      delete rowByExternalId[extKey];
+      result.matched++;
+      if (result.sample.length < 15) result.sample.push(merchant);
     }
   }
 

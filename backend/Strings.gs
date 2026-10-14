@@ -44,6 +44,11 @@ var BACKEND_STRINGS_ = {
   "err.monthFormat": { en: "Month must look like 2026-09.", es: "El mes debe verse así: 2026-09." },
   "err.rateGreater": { en: "The exchange rate must be a number greater than 0.", es: "El tipo de cambio debe ser un número mayor que 0." },
   "err.enterName": { en: "Enter a name.", es: "Ingresa un nombre." },
+  "err.pmType": { en: "Pick a valid type.", es: "Elige un tipo válido." },
+  "err.pmLast4": { en: "Last 4 digits must be exactly 4 numbers (or leave it blank).", es: "Los últimos 4 dígitos deben ser exactamente 4 números (o déjalo en blanco)." },
+  "err.pmBank": { en: "That bank doesn't exist.", es: "Ese banco no existe." },
+  "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
+  "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
 
