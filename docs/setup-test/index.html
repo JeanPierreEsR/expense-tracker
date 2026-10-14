@@ -80,6 +80,7 @@
     <div id="tsText"></div>
     <div class="bar"><div id="tsBar"></div></div>
     <div id="tsKeep" class="small" hidden data-t="keepOpen"></div>
+    <button class="secondary" id="btnCancel" data-keep hidden data-t="cancelBtn"></button>
   </div>
 
   <div class="step" id="overview">
@@ -201,6 +202,8 @@ const T = {
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
     relinkBtn: 'Sign in again on this phone',
+    continueBtn: 'Continue setup',
+    cancelBtn: 'Stuck? Stop and try again',
     account: 'Signed in to Google as: {e}',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
@@ -273,6 +276,8 @@ const T = {
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
     relinkBtn: 'Iniciar sesión otra vez en este teléfono',
+    continueBtn: 'Continuar la configuración',
+    cancelBtn: '¿Atascado? Detener e intentar de nuevo',
     account: 'Iniciaste sesión en Google como: {e}',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
@@ -355,6 +360,7 @@ function setTop(kind, step, text, pct) {
   $('tsText').textContent = text || '';
   if (typeof pct === 'number') $('tsBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
   $('tsKeep').hidden = kind !== 'running';
+  if (kind !== 'running') $('btnCancel').hidden = true;
 }
 // One call updates both: the big text at the top and the label of the button that was pressed.
 function progress(text, pct, step, creepTo) {
@@ -368,9 +374,13 @@ function progress(text, pct, step, creepTo) {
 function startClock() {
   clockStart = Date.now(); $('tsTime').textContent = '0 s';
   clearInterval(clockTimer);
-  clockTimer = setInterval(() => { $('tsTime').textContent = Math.round((Date.now() - clockStart) / 1000) + ' s'; }, 1000);
+  clockTimer = setInterval(() => {
+    const e = Math.round((Date.now() - clockStart) / 1000);
+    $('tsTime').textContent = e + ' s';
+    if (e >= 20) $('btnCancel').hidden = false;   // still working after 20 s: offer the way out
+  }, 1000);
 }
-function stopClock() { clearInterval(clockTimer); clockTimer = null; $('tsTime').textContent = ''; }
+function stopClock() { clearInterval(clockTimer); clockTimer = null; $('tsTime').textContent = ''; $('btnCancel').hidden = true; }
 // Best effort: iOS 16.4+ lets a page ask the screen not to lock while it works.
 async function keepScreenOn(on) {
   try {
@@ -394,6 +404,22 @@ try { const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null'); if (t &
 function getToken() {
   if (accessToken && Date.now() < tokenExpires - 60000) return Promise.resolve(accessToken);
   return new Promise((resolve, reject) => {
+    // iPhone Safari does not always tell the page that Google's window was closed. When the person
+    // is back on this page and no answer arrives within 5 s, treat the window as closed.
+    let vt = null;
+    const cleanup = () => { document.removeEventListener('visibilitychange', onVis); clearTimeout(vt); };
+    const origResolve = resolve, origReject = reject;
+    resolve = (v) => { cleanup(); origResolve(v); };
+    reject = (e) => { cleanup(); origReject(e); };
+    const onVis = () => {
+      clearTimeout(vt);
+      if (document.visibilityState === 'visible') vt = setTimeout(() => {
+        log('Back on this page with no sign-in answer — treating Google’s window as closed.', 'bad');
+        tokenClient = null;
+        reject(new Error(T.popupClosed));
+      }, 5000);
+    };
+    document.addEventListener('visibilitychange', onVis);
     if (!window.google || !google.accounts || !google.accounts.oauth2) { reject(new Error('Google sign-in did not load yet — wait a second and tap again.')); return; }
     if (!tokenClient) tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
     tokenClient.callback = (resp) => {
@@ -905,9 +931,16 @@ function render(failed) {
   $('openHelpBody').innerHTML = T.openHelpBody.replace('{account}', state.account || '—');
   if (help) $('openAgain').href = state.pending ? withAccount(state.pending.sideUrl, 'stage=' + encodeURIComponent(state.pending.stage) + '&return=' + encodeURIComponent(backUrl())) : withAccount(state.webAppUrl, 'return=' + encodeURIComponent(backUrl()));
   if (!busy) {
-    doneBtn('btnInstall', !!state.webAppUrl);
-    if (state.webAppUrl && state.permissionDone && !state.accessCode) { $('btnInstall').classList.remove('donebtn'); $('btnInstall').textContent = T.relinkBtn; }
-    $('btnInstall').disabled = !!state.webAppUrl && (!!state.accessCode || !state.permissionDone);
+    // The main button always works: tapping it again resumes wherever setup stopped (closed tab,
+    // closed Google window, lost sign-in). Found 2026-10-14: it used to read "Done" and go dead
+    // once the app existed but was not yet approved, so closing Google's window stranded the person.
+    let mainLabel = T.createBtn, mainDone = false;
+    if (state.webAppUrl && !state.permissionDone) mainLabel = T.continueBtn;
+    else if (state.webAppUrl && !state.accessCode) mainLabel = T.relinkBtn;
+    else if (state.webAppUrl) { mainLabel = T.createdBtn; mainDone = true; }
+    $('btnInstall').textContent = mainLabel;
+    $('btnInstall').classList.toggle('donebtn', mainDone);
+    $('btnInstall').disabled = false;
     doneBtn('btnKeep', (state.stages || []).includes('keepawake'));
     doneBtn('btnGmail', !!state.gmailOk);
   }
@@ -922,7 +955,7 @@ let busy = false;
 async function run(boxId, fn, btnId, step) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('button').forEach((b) => { b.dataset.was = b.disabled; b.disabled = true; });
+  document.querySelectorAll('button:not([data-keep])').forEach((b) => { b.dataset.was = b.disabled; b.disabled = true; });
   activeBtn = btnId ? $(btnId) : null;
   if (activeBtn) { activeBtn.dataset.label = activeBtn.textContent; activeBtn.classList.add('busy'); }
   if (boxId) $(boxId).innerHTML = '';
@@ -946,11 +979,12 @@ async function run(boxId, fn, btnId, step) {
   } finally {
     busy = false; stopClock(); keepScreenOn(false);
     if (activeBtn) { activeBtn.classList.remove('busy'); activeBtn.textContent = activeBtn.dataset.label; activeBtn = null; }
-    document.querySelectorAll('button').forEach((b) => { b.disabled = b.dataset.was === 'true'; });
+    document.querySelectorAll('button:not([data-keep])').forEach((b) => { b.disabled = b.dataset.was === 'true'; });
     render(failed);
   }
 }
 $('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup));
+$('btnCancel').addEventListener('click', () => { log('Stopped by the person — reloading; setup resumes where it was.'); location.reload(); });
 $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));
 $('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
 $('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
