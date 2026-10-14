@@ -5,8 +5,12 @@
  * exactly which Google permissions are asked for at each step):
  *
  *  - Step 1 ("base"): only "this spreadsheet". The first visit to the web app
- *    link asks for that approval, then builds the sheet tabs + starter data and
- *    applies the access code the setup page wrote into PROTO_NEW_CODE.
+ *    link is ONLY the permission approval — it answers at once with a
+ *    "Continue" button (it used to build the sheet while the person stared at a
+ *    blank Google page for ~50 s). The setup page then asks for the build with
+ *    ?check=build and follows it with ?check=progress, so the person sees a
+ *    real progress bar. Applies the access code the setup page wrote into
+ *    PROTO_NEW_CODE.
  *  - "keepawake": adds "run while you're away" + "connect to an external
  *    service"; the approval visit (?stage=keepawake) starts a 5-minute timer
  *    that pings the main web app, like the real keep-warm ping.
@@ -27,6 +31,8 @@ var PROTO_RETURN_PREFIXES_ = [
 function doGet(e) {
   var params = (e && e.parameter) || {};
   if (params.check === 'ping') return protoJson_({ ok: true });
+  if (params.check === 'progress') return protoJson_(protoReadProgress_());
+  if (params.check === 'build') { protoApplyCode_(); return protoJson_(protoBuild_()); }
 
   var props = PropertiesService.getScriptProperties();
   protoApplyCode_();
@@ -50,23 +56,6 @@ function doGet(e) {
     }
   }
 
-  var seconds = null;
-  if (props.getProperty('PROTO_SETUP_DONE') !== 'yes') {
-    var lock = LockService.getScriptLock();
-    lock.waitLock(30000);
-    try {
-      if (props.getProperty('PROTO_SETUP_DONE') !== 'yes') {
-        var started = Date.now();
-        setupSpreadsheet();
-        seedStarterData();
-        props.setProperty('PROTO_SETUP_DONE', 'yes');
-        seconds = Math.round((Date.now() - started) / 1000);
-      }
-    } finally {
-      lock.releaseLock();
-    }
-  }
-
   var stage = String(params.stage || '');
   if (stage === 'keepawake') protoStartKeepAwake_();
   if (stage === 'gmail') {
@@ -82,7 +71,7 @@ function doGet(e) {
           '<p>Google needs your approval to read email. / Google necesita tu aprobación para leer correos.</p>' +
           '<p><a target="_top" style="display:inline-block;padding:14px 20px;background:#1f5fbf;color:#fff;border-radius:10px;text-decoration:none;font-weight:600" href="' +
           protoEsc_(info.getAuthorizationUrl()) + '">Approve in Google / Aprobar en Google</a></p>' +
-          '<p style="font-size:15px;color:#555">Then come back to the setup page and tap “I approved it — continue”. / Luego vuelve a la página de instalación y toca “Ya lo aprobé — continuar”.</p>');
+          '<p style="font-size:15px;color:#555">Then come back to the setup page — it notices by itself and continues. / Luego vuelve a la página de instalación: lo detecta sola y continúa.</p>');
       }
       throw err;
     }
@@ -90,12 +79,50 @@ function doGet(e) {
 
   var back = String(params['return'] || '');
   var allowed = PROTO_RETURN_PREFIXES_.some(function (p) { return back.indexOf(p) === 0; });
-  var hash = stage ? '#approved=' + encodeURIComponent(stage) : '#done' + (seconds !== null ? '&secs=' + seconds : '');
+  var hash = stage ? '#approved=' + encodeURIComponent(stage) : '#done';
   var button = allowed
     ? '<p><a target="_top" style="display:inline-block;padding:14px 20px;background:#1a7f5a;color:#fff;border-radius:10px;text-decoration:none;font-weight:600" href="' +
       protoEsc_(back.split('#')[0] + hash) + '">Continue → / Continuar →</a></p>'
     : '<p>You can close this page. / Puedes cerrar esta página.</p>';
-  return protoPage_('Expense Tracker', '<p>✓</p>' + button);
+  return protoPage_('Expense Tracker',
+    '<p style="font-size:24px;margin:8px 0">✓ ' + 'Allowed. / Permitido.' + '</p>' +
+    '<p>Tap the green button to go back. / Toca el botón verde para volver.</p>' + button);
+}
+
+// Builds the sheet tabs + starter data (what step 2 used to do on Google's blank
+// page). Writes "done/total" into the cache as it goes so the setup page can show
+// a progress bar. Safe to call twice: the second caller waits, then sees it done.
+function protoBuild_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('PROTO_SETUP_DONE') === 'yes') return { ok: true, already: true };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    if (props.getProperty('PROTO_SETUP_DONE') === 'yes') return { ok: true, already: true };
+    var started = Date.now();
+    var cache = CacheService.getScriptCache();
+    var tabs = Object.keys(TABLE_DEFINITIONS).length;
+    var total = tabs + 5;
+    cache.put('PROTO_PROGRESS', '0/' + total, 900);
+    setupSpreadsheet(function (done) { cache.put('PROTO_PROGRESS', done + '/' + total, 900); });
+    seedStarterData(function (done) { cache.put('PROTO_PROGRESS', (tabs + done) + '/' + total, 900); });
+    props.setProperty('PROTO_SETUP_DONE', 'yes');
+    cache.put('PROTO_PROGRESS', total + '/' + total, 900);
+    return { ok: true, seconds: Math.round((Date.now() - started) / 1000) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function protoReadProgress_() {
+  var props = PropertiesService.getScriptProperties();
+  var raw = CacheService.getScriptCache().get('PROTO_PROGRESS') || '';
+  var m = raw.match(/^(\d+)\/(\d+)$/);
+  return {
+    setUp: props.getProperty('PROTO_SETUP_DONE') === 'yes',
+    done: m ? Number(m[1]) : 0,
+    total: m ? Number(m[2]) : 0
+  };
 }
 
 // Applies the access code the setup page wrote into this file, once per release.

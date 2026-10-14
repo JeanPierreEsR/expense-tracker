@@ -7,40 +7,64 @@
 <title>Setup test</title>
 <!--
   PROTOTYPE ONLY — a throwaway test of a "one-tap install" for friends & family.
-  Not linked from the real app. It creates a spreadsheet + a copy of the backend
-  (from this public repo) in the Google account of whoever signs in, asking
-  Google's permissions in separate steps (this spreadsheet only → keep-awake →
-  read-only Gmail). Holds nothing private: the Client ID is a public identifier.
-  Explanations follow the phone's language (Spanish or English); the log stays
-  in English (it is for diagnosis).
+  Not linked from the real app. It creates a spreadsheet + the app's private
+  backend (from this public repo) in the Google account of whoever signs in,
+  asking Google's permissions in separate steps (this spreadsheet only → run
+  while away → read-only Gmail). Holds nothing private: the Client ID is a
+  public identifier. Explanations follow the phone's language (Spanish or
+  English); the log stays in English (it is for diagnosis).
+  Wording rule (owner, 2026-10-14): never say "copy" or "tracker" to the person —
+  it is "your app" (and "your Google Sheet" for the spreadsheet).
 -->
 <style>
-  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#5f5f5f; --card:#fff; --line:#e3e3df; --ok:#1a7f5a; --bad:#b3261e; --accent:#1f5fbf; --note:#eef3fb; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --muted:#aaa; --card:#1f1f1f; --line:#333; --ok:#4cc38a; --bad:#ff8a80; --accent:#7aa7ff; --note:#1d2533; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, Helvetica, sans-serif; }
+  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#3f3f3f; --card:#fff; --line:#d9d9d4; --ok:#14684a; --bad:#b3261e; --accent:#1f5fbf; --note:#eaf1fc; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#f1f1f1; --muted:#c4c4c4; --card:#1f1f1f; --line:#3a3a3a; --ok:#4cc38a; --bad:#ff8a80; --accent:#8db3ff; --note:#1d2533; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:18px/1.5 -apple-system, Helvetica, sans-serif; }
   main { max-width:560px; margin:0 auto; padding:16px; }
-  .banner { background:#fff3cd; color:#5c4400; border-radius:10px; padding:10px 12px; font-size:14px; }
-  .step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin:12px 0; }
-  .step h3 { margin:0 0 6px; font-size:17px; }
-  .step p { margin:6px 0; color:var(--muted); font-size:14px; }
-  .ask { background:var(--note); border-radius:10px; padding:10px 12px; font-size:14px; margin:8px 0; }
-  .ask b { display:block; margin-bottom:4px; }
-  .ask li b, .ask p b { display:inline; }
-  .ask ul { margin:4px 0 0; padding-left:18px; }
-  .ask li { margin:2px 0; }
-  button { font:inherit; font-weight:600; padding:12px 16px; border-radius:10px; border:0; background:var(--accent); color:#fff; width:100%; margin-top:6px; }
-  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
-  button:disabled { opacity:.45; }
-  .done { color:var(--ok); font-weight:600; }
-  .err { color:var(--bad); font-weight:600; }
-  .callout { background:#fff3cd; color:#3d2e00; border-radius:12px; padding:14px; margin:10px 0; }
-  .callout h3 { margin:0 0 6px; font-size:17px; }
-  .callout ol { margin:6px 0 10px; padding-left:20px; }
-  .bigbtn { display:block; text-align:center; font-weight:600; padding:14px 16px; border-radius:10px; background:var(--accent); color:#fff !important; text-decoration:none; }
+  h1 { font-size:24px; line-height:1.25; margin:8px 0 12px; }
+  .banner { background:#fff3cd; color:#5c4400; border-radius:10px; padding:10px 12px; font-size:15px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .step h3 { margin:0 0 8px; font-size:20px; line-height:1.25; }
+  .step p { margin:8px 0; color:var(--muted); font-size:17px; }
+  .step ol, .step ul { padding-left:22px; }
+  .ask { background:var(--note); border-radius:10px; padding:12px 14px; font-size:17px; margin:10px 0; }
+  .ask b { display:inline; }
+  .ask ul { margin:6px 0 0; padding-left:20px; }
+  .ask li { margin:4px 0; }
+  .ask p { margin:8px 0 0; }
+  button { font:inherit; font-weight:700; font-size:19px; padding:16px 18px; border-radius:12px; border:0; background:var(--accent); color:#fff; width:100%; margin-top:8px; min-height:56px; }
+  @media (prefers-color-scheme: dark) { button { color:#0b1530; } }
+  button.secondary { background:transparent; color:var(--accent); border:2px solid var(--line); font-size:17px; }
+  button:disabled { opacity:.5; }
+  button.busy { opacity:1; position:relative; padding-left:48px; text-align:left; }
+  button.busy::before { content:""; position:absolute; left:16px; top:50%; width:20px; height:20px; margin-top:-10px; border:3px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin 0.9s linear infinite; }
+  @media (prefers-color-scheme: dark) { button.busy::before { border-color:rgba(11,21,48,.3); border-top-color:#0b1530; } }
+  button.donebtn { background:var(--ok); opacity:1; }
+  @media (prefers-color-scheme: dark) { button.donebtn { color:#06240f; } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .done { color:var(--ok); font-weight:700; }
+  .err { color:var(--bad); font-weight:700; }
+  .callout { background:#fff3cd; color:#3d2e00; border-radius:14px; padding:16px; margin:12px 0; }
+  .callout h3 { margin:0 0 8px; font-size:20px; }
+  .callout ol { margin:8px 0 12px; padding-left:22px; }
+  .callout p { font-size:17px; }
+  .bigbtn { display:block; text-align:center; font-weight:700; font-size:19px; padding:16px; border-radius:12px; background:var(--accent); color:#fff !important; text-decoration:none; }
+  @media (prefers-color-scheme: dark) { .bigbtn { color:#0b1530 !important; } }
   #log { font:12px/1.4 ui-monospace, Menlo, monospace; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 10px 30px; max-height:320px; overflow:auto; }
   #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
   a { color:var(--accent); }
-  .small { font-size:13px; }
+  .small { font-size:15px; }
+  /* general status, always visible at the top */
+  .topstatus { position:sticky; top:0; z-index:10; background:var(--card); border:2px solid var(--line); border-radius:14px; padding:12px 14px; margin:10px 0; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+  .topstatus .tsHead { display:flex; justify-content:space-between; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  .topstatus #tsText { font-size:19px; font-weight:700; margin:4px 0 8px; }
+  .topstatus .bar { height:12px; background:var(--line); border-radius:6px; overflow:hidden; }
+  .topstatus #tsBar { height:100%; width:0; background:var(--accent); border-radius:6px; transition:width .5s ease; }
+  .topstatus.running { border-color:var(--accent); }
+  .topstatus.ok { border-color:var(--ok); } .topstatus.ok #tsBar { background:var(--ok); width:100% !important; } .topstatus.ok #tsText { color:var(--ok); }
+  .topstatus.err { border-color:var(--bad); } .topstatus.err #tsBar { background:var(--bad); width:100% !important; } .topstatus.err #tsText { color:var(--bad); }
+  .topstatus.idle .bar, .topstatus.wait .bar { display:none; }
+  #tsKeep { margin-top:8px; color:var(--muted); }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -49,6 +73,19 @@
   <p class="small" style="text-align:right;margin:0"><a href="#" data-lang="es">Español</a> · <a href="#" data-lang="en">English</a></p>
   <h1 data-t="title"></h1>
   <p class="banner" data-t="banner"></p>
+  <p class="banner" id="inAppWarn" hidden data-t="inAppWarn"></p>
+
+  <div class="topstatus idle" id="topStatus" role="status" aria-live="polite">
+    <div class="tsHead"><span id="tsStep"></span><span id="tsTime"></span></div>
+    <div id="tsText"></div>
+    <div class="bar"><div id="tsBar"></div></div>
+    <div id="tsKeep" class="small" hidden data-t="keepOpen"></div>
+  </div>
+
+  <div class="step" id="overview">
+    <h3 data-t="whatTitle"></h3>
+    <ol data-t="what"></ol>
+  </div>
 
   <div class="callout" id="switchCard">
     <h3 data-t="switchTitle"></h3>
@@ -61,6 +98,7 @@
   <div class="step">
     <h3 data-t="createTitle"></h3>
     <div class="ask" data-t="createAsk"></div>
+    <p class="small" id="acct"></p>
     <div id="s1"></div>
     <button id="btnInstall" data-t="createBtn"></button>
   </div>
@@ -69,8 +107,13 @@
     <h3 data-t="approveTitle"></h3>
     <div class="ask" data-t="approveAsk"></div>
     <div id="s2"></div>
-    <p class="small" data-t="continueQ"></p>
-    <button class="secondary" id="btnContinue" data-t="continueBtn"></button>
+    <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
+  </div>
+
+  <div class="step" id="readyCard" hidden>
+    <h3 data-t="readyTitle"></h3>
+    <div data-t="readyBody"></div>
+    <a class="bigbtn" href="app-check.html" data-t="readyBtn"></a>
   </div>
 
   <div class="step">
@@ -88,14 +131,10 @@
   </div>
 
   <div class="step">
-    <h3 data-t="updateTitle"></h3>
+    <h3 data-t="testTitle"></h3>
     <p data-t="updateBody"></p>
     <div id="s5"></div>
-    <button id="btnUpdate" data-t="updateBtn" disabled></button>
-  </div>
-
-  <div class="step">
-    <h3>Diagnostics</h3>
+    <button class="secondary" id="btnUpdate" data-t="updateBtn" disabled></button>
     <button class="secondary" id="btnStatus" disabled>Check backend status</button>
     <button class="secondary" id="btnCopy">Copy log</button>
     <button class="secondary" id="btnForget">Forget this test on this phone</button>
@@ -116,10 +155,11 @@ const REPO = 'JeanPierreEsR/expense-tracker';
 const REF = 'main';
 const STORE_KEY = 'setupTestState';
 const TOKEN_KEY = 'setupTestToken';
+const HANDOFF_KEY = 'setupTestHandoff';   // read by app-check.html (same address, same phone storage)
 const SHEET_TITLE = 'Expense Tracker (setup test)';
 const BACKEND_TITLE = 'Expense Tracker Setup';   // the name Google shows on the backend's approval screens
 
-// Google permissions asked by the person's own copy, per step (they add up).
+// Google permissions asked by the person's own backend, per step (they add up).
 const STAGE_SCOPES = {
   base: ['https://www.googleapis.com/auth/spreadsheets.currentonly'],
   keepawake: ['https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request'],
@@ -133,74 +173,136 @@ const LANG = langChoice || (((navigator.languages && navigator.languages[0]) || 
 document.documentElement.lang = LANG;
 const T = {
   en: {
-    title: 'Expense Tracker — setup test',
+    title: 'Set up your Expense Tracker app',
     banner: 'Test page. Use it only with the spare Google account. Your real app is not touched.',
+    inAppWarn: 'It looks like this page was opened inside another app (WhatsApp, Facebook, Instagram…). Google may refuse to sign you in here. Tap the <b>•••</b> or Share button and choose <b>Open in Safari</b>.',
+    ready: 'Ready. Tap “Set up my app” to begin.',
+    allDone: '✓ Your app is ready. The extras below are optional.',
+    keepOpen: 'Please keep this screen open and your phone unlocked until it finishes.',
+    stepSetup: 'Step 1 of 2',
+    stepAllow: 'Step 2 of 2',
+    stepOptional: 'Optional step',
+    whatTitle: 'What will happen (about 3 minutes)',
+    what: '<li>We create a <b>private Google Sheet</b> in your own Google account. Your expenses are saved there, in your account.</li><li>We prepare <b>your app</b> so it can use that sheet.</li><li>Google will show you some screens asking you to allow things. <b>Before each one, this page tells you exactly what to tap.</b></li>',
     switchTitle: 'First: turn on one Google setting',
-    switchIntro: 'Google requires it once so this page can create your private copy of the app in your account.',
-    switchSteps: '<li>Tap the button — a Google page opens in a new tab.</li><li>Tap <b>Google Apps Script API</b> and switch it <b>on</b>.</li><li>Come back to this tab.</li>',
-    switchBtn: "Open Google's setting",
+    switchIntro: 'Google asks for this once, so this page can set up your app in your account.',
+    switchSteps: '<li>Tap the blue button. A Google page opens.</li><li>Find <b>Google Apps Script API</b> in the list and tap its switch so it says <b>On</b>.</li><li>Come back to this page. It continues by itself.</li>',
+    switchBtn: 'Open Google’s setting',
     switchWaiting: 'Waiting for the setting… (checking every 20 seconds)',
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
-    switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Create my tracker” again.',
-    createTitle: '1. Create my tracker',
-    createAsk: '<b>Google will ask you to let “Expense Tracker Setup” (this page):</b><ul><li>see and edit only the files it creates in your Drive — your tracker spreadsheet;</li><li>create, update and publish your private copy of the app, in your own account.</li></ul><p style="margin:6px 0 0">Tick <b>Select all</b>. Google says the app is not verified yet — tap <b>Continue</b>. It takes about a minute, then we take you straight to step 2.</p>',
-    createBtn: 'Create my tracker',
-    created: '✓ Created. Taking you to Google for step 2…',
-    createdDone: '✓ Created.',
-    approveTitle: '2. Let your copy use its spreadsheet',
-    approveAsk: '<b>Google will ask you to let your copy:</b><ul><li>see and edit <b>only its own spreadsheet</b> — nothing else in your Drive, no email.</li></ul><p style="margin:6px 0 0">Google names <b>you</b> as the “developer”: this copy lives in your own account. Then tap <b>Continue →</b> to come back.</p>',
-    approved: '✓ Approved. Your app is ready (sign-in and saving checked).',
-    continueQ: 'Approved it but weren’t sent back here?',
-    continueBtn: 'I approved it — continue',
-    keepTitle: '3. Keep the app awake (optional)',
-    keepAsk: '<b>Google will ask you to let your copy:</b><ul><li>run while you are not using it — a small timer every 5 minutes;</li><li>connect to an outside address — only to wake itself up.</li></ul><p style="margin:6px 0 0">Without it, the first open of the day takes a few extra seconds. Google shows a red warning and emails you a “security alert” afterwards — both are normal.</p>',
-    keepBtn: 'Keep it awake',
-    keepDone: '✓ Keep-awake is on.',
-    gmailTitle: '4. Read my bank emails (optional)',
-    gmailAsk: '<b>Google will ask you to let your copy:</b><ul><li><b>see</b> your emails — read-only: it can never send, change or delete one;</li><li>run while you are not using it — to check every 15 minutes.</li></ul><p style="margin:6px 0 0">Here it only <b>counts</b> your emails from the last 7 days; it opens none. Google shows a red warning because email is sensitive — tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>. Google then emails you a “security alert” — that is normal.</p>',
-    gmailBtn: 'Turn on email reading',
-    gmailDone: '✓ Email reading works: {n} emails in the last 7 days (counted, none opened).',
-    updateTitle: '5. Update test',
-    updateBody: 'Sends a newer copy of the app, then checks it arrived and your data is still there.',
+    switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
+    createTitle: '1. Set up my app',
+    createAsk: '<b>Google will ask you to allow “Expense Tracker Setup” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b>, then tap <b>Continue</b>. If Google says the app is “not verified”, that is normal for a small app: tap <b>Continue</b> anyway.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
+    createBtn: 'Set up my app',
+    createdBtn: '✓ Done',
+    account: 'Signed in to Google as: {e}',
+    created: '✓ Your app is set up.',
+    createdDone: '✓ Your app is set up.',
+    approveTitle: '2. Allow your app to use its sheet',
+    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p>',
+    retryBtn: 'Try again',
+    approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
+    readyTitle: 'Your app is ready — how to open it',
+    readyBody: '<p>To use your app every day, put its icon on your phone’s home screen:</p><ol><li>Tap <b>Open my app</b> below. It opens in Safari.</li><li>Tap the <b>Share</b> button (a square with an arrow pointing up) at the bottom of Safari.</li><li>Scroll down and tap <b>Add to Home Screen</b>, then tap <b>Add</b>.</li><li>From now on, open your app with the new icon, like any other app.</li></ol><p class="small">(In this test, “Open my app” shows a small check page that tells us whether the home-screen icon remembers your setup. The real app will open there.)</p>',
+    readyBtn: 'Open my app',
+    keepTitle: 'Make the app open faster (optional)',
+    keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
+    keepBtn: 'Make it open faster',
+    keepDone: '✓ Done. The app now stays awake.',
+    gmailTitle: 'Add my bank transactions automatically (optional)',
+    gmailAsk: '<p><b>Your bank emails you every time you pay or receive money.</b> With this turned on, your app reads those emails and <b>adds each transaction for you</b> — amount, date and shop — so you never type them. Each one waits for your OK with one tap before it counts.</p><b>Google will ask you to allow your app to:</b><ul><li><b>read</b> your email. It can never send, change or delete one;</li><li>run a timer, so it can check for new bank emails every 15 minutes.</li></ul><p>The app only looks for emails from banks it knows. Google’s permission is wider than that (it covers reading any email), so Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. Google then emails you a “Security alert” — that is normal.</p><p>In this test it only <b>counts</b> your emails from the last 7 days. It opens none.</p>',
+    gmailBtn: 'Add transactions automatically',
+    gmailDone: '✓ Done. Email reading works: {n} emails in the last 7 days (counted, none opened).',
+    testTitle: 'Test tools (not shown to real users)',
+    updateBody: '“Update my app” sends a newer version of the app, then checks it arrived and your data is still there.',
     updateBtn: 'Update my app',
     updated: '✓ Update arrived, data intact.',
     working: 'Working…',
-    notTicked: 'Please tap the button again and tick “Select all” on Google’s screen before Continue.'
+    notTicked: 'Please tap the button again and tick “Select all” on Google’s screen before Continue.',
+    buildFailed: 'Preparing your sheet did not finish. Tap “Try again”.',
+    p_google: 'Opening Google…',
+    p_sheet: 'Creating your Google Sheet…',
+    p_project: 'Setting up your app…',
+    p_code: 'Sending the app to your account…',
+    p_version: 'Saving the first version…',
+    p_publish: 'Publishing your app…',
+    p_going: 'Done. Taking you to Google for step 2…',
+    p_prepare: 'Preparing the permission screen…',
+    p_wait: 'Waiting for you to allow it on Google’s page…',
+    p_check: 'Checking your app…',
+    p_build0: 'Preparing your sheet…',
+    p_build: 'Preparing your sheet: {n} of {total}…',
+    p_code2: 'Linking your app to this page…',
+    p_test: 'Testing sign-in and saving…',
+    p_switch: 'Switching to the approved version…',
+    p_final: 'Final check…',
+    p_switchWait: 'Waiting for the Google setting…'
   },
   es: {
-    title: 'Expense Tracker — prueba de instalación',
+    title: 'Configura tu app Expense Tracker',
     banner: 'Página de prueba. Úsala solo con la cuenta de Google de repuesto. Tu app real no se toca.',
+    inAppWarn: 'Parece que abriste esta página dentro de otra app (WhatsApp, Facebook, Instagram…). Google puede negarse a iniciar sesión aquí. Toca el botón <b>•••</b> o Compartir y elige <b>Abrir en Safari</b>.',
+    ready: 'Lista. Toca “Configurar mi app” para empezar.',
+    allDone: '✓ Tu app está lista. Los extras de abajo son opcionales.',
+    keepOpen: 'Por favor deja esta pantalla abierta y el teléfono desbloqueado hasta que termine.',
+    stepSetup: 'Paso 1 de 2',
+    stepAllow: 'Paso 2 de 2',
+    stepOptional: 'Paso opcional',
+    whatTitle: 'Qué va a pasar (unos 3 minutos)',
+    what: '<li>Creamos una <b>hoja de Google privada</b> en tu propia cuenta de Google. Tus gastos se guardan ahí, en tu cuenta.</li><li>Preparamos <b>tu app</b> para que pueda usar esa hoja.</li><li>Google te mostrará algunas pantallas pidiéndote permitir cosas. <b>Antes de cada una, esta página te dice exactamente qué tocar.</b></li>',
     switchTitle: 'Primero: activa un ajuste de Google',
-    switchIntro: 'Google lo pide una sola vez para que esta página pueda crear tu copia privada de la app en tu cuenta.',
-    switchSteps: '<li>Toca el botón — se abre una página de Google en otra pestaña.</li><li>Toca <b>API de Google Apps Script</b> y <b>actívala</b>.</li><li>Vuelve a esta pestaña.</li>',
+    switchIntro: 'Google lo pide una sola vez, para que esta página pueda preparar tu app en tu cuenta.',
+    switchSteps: '<li>Toca el botón azul. Se abre una página de Google.</li><li>Busca <b>API de Google Apps Script</b> en la lista y toca su interruptor hasta que diga <b>Activado</b>.</li><li>Vuelve a esta página. Continúa sola.</li>',
     switchBtn: 'Abrir el ajuste de Google',
-    switchWaiting: 'Esperando el ajuste… (revisando cada 20 segundos)',
+    switchWaiting: 'Esperando el ajuste… (reviso cada 20 segundos)',
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
-    switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Crear mi tracker” otra vez.',
-    createTitle: '1. Crear mi tracker',
-    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>vea y edite solo los archivos que crea en tu Drive — tu hoja del tracker;</li><li>cree, actualice y publique tu copia privada de la app, en tu propia cuenta.</li></ul><p style="margin:6px 0 0">Marca <b>Seleccionar todo</b>. Google dice que la app aún no está verificada — toca <b>Continuar</b>. Tarda como un minuto y luego te llevamos directo al paso 2.</p>',
-    createBtn: 'Crear mi tracker',
-    created: '✓ Creado. Te llevamos a Google para el paso 2…',
-    createdDone: '✓ Creado.',
-    approveTitle: '2. Deja que tu copia use su hoja',
-    approveAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>vea y edite <b>solo su propia hoja de cálculo</b> — nada más de tu Drive, nada de correo.</li></ul><p style="margin:6px 0 0">Google te nombra <b>a ti</b> como “desarrollador”: esta copia vive en tu propia cuenta. Luego toca <b>Continuar →</b> para volver.</p>',
-    approved: '✓ Aprobado. Tu app está lista (inicio de sesión y guardado comprobados).',
-    continueQ: '¿Lo aprobaste pero no volviste aquí?',
-    continueBtn: 'Ya lo aprobé — continuar',
-    keepTitle: '3. Mantener la app despierta (opcional)',
-    keepAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>funcione cuando no la estás usando — un pequeño temporizador cada 5 minutos;</li><li>se conecte a una dirección externa — solo para despertarse a sí misma.</li></ul><p style="margin:6px 0 0">Sin esto, la primera vez que la abres en el día tarda unos segundos más. Google muestra un aviso rojo y luego te envía un correo de “alerta de seguridad” — ambos son normales.</p>',
-    keepBtn: 'Mantenerla despierta',
-    keepDone: '✓ La app se mantiene despierta.',
-    gmailTitle: '4. Leer mis correos del banco (opcional)',
-    gmailAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li><b>vea</b> tus correos — solo lectura: nunca puede enviar, cambiar ni borrar uno;</li><li>funcione cuando no la estás usando — para revisar cada 15 minutos.</li></ul><p style="margin:6px 0 0">Aquí solo <b>cuenta</b> tus correos de los últimos 7 días; no abre ninguno. Google muestra un aviso rojo porque el correo es sensible — toca <b>Configuración avanzada</b> y luego <b>Ir a Expense Tracker Setup</b>. Luego Google te envía un correo de “alerta de seguridad” — es normal.</p>',
-    gmailBtn: 'Activar lectura de correos',
-    gmailDone: '✓ La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
-    updateTitle: '5. Prueba de actualización',
-    updateBody: 'Envía una copia más nueva de la app y comprueba que llegó y que tus datos siguen ahí.',
+    switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
+    createTitle: '1. Configurar mi app',
+    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> y toca <b>Continuar</b>. Si Google dice que la app “no está verificada”, es normal en una app pequeña: toca <b>Continuar</b> igual.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
+    createBtn: 'Configurar mi app',
+    createdBtn: '✓ Listo',
+    account: 'Iniciaste sesión en Google como: {e}',
+    created: '✓ Tu app está configurada.',
+    createdDone: '✓ Tu app está configurada.',
+    approveTitle: '2. Permite que tu app use su hoja',
+    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p>',
+    retryBtn: 'Intentar de nuevo',
+    approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
+    readyTitle: 'Tu app está lista — cómo abrirla',
+    readyBody: '<p>Para usar tu app todos los días, pon su ícono en la pantalla de inicio de tu teléfono:</p><ol><li>Toca <b>Abrir mi app</b> aquí abajo. Se abre en Safari.</li><li>Toca el botón <b>Compartir</b> (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari.</li><li>Baja y toca <b>Agregar a inicio</b>, y luego <b>Agregar</b>.</li><li>Desde ahora, abre tu app con el nuevo ícono, como cualquier otra app.</li></ol><p class="small">(En esta prueba, “Abrir mi app” muestra una página pequeña que nos dice si el ícono de la pantalla de inicio recuerda tu configuración. La app real se abrirá ahí.)</p>',
+    readyBtn: 'Abrir mi app',
+    keepTitle: 'Haz que la app abra más rápido (opcional)',
+    keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
+    keepBtn: 'Hacer que abra más rápido',
+    keepDone: '✓ Listo. La app ahora se mantiene despierta.',
+    gmailTitle: 'Agregar mis movimientos del banco automáticamente (opcional)',
+    gmailAsk: '<p><b>Tu banco te envía un correo cada vez que pagas o recibes dinero.</b> Con esto activado, tu app lee esos correos y <b>agrega cada movimiento por ti</b> — monto, fecha y comercio — así nunca los escribes. Cada uno espera tu OK con un toque antes de contar.</p><b>Google te pedirá permitir que tu app:</b><ul><li><b>lea</b> tu correo. Nunca puede enviar, cambiar ni borrar uno;</li><li>ejecute un temporizador, para revisar si hay correos nuevos del banco cada 15 minutos.</li></ul><p>La app solo busca correos de bancos que conoce. El permiso de Google es más amplio (cubre leer cualquier correo), por eso Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. Después Google te envía un correo de “Alerta de seguridad” — es normal.</p><p>En esta prueba solo <b>cuenta</b> tus correos de los últimos 7 días. No abre ninguno.</p>',
+    gmailBtn: 'Agregar movimientos automáticamente',
+    gmailDone: '✓ Listo. La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
+    testTitle: 'Herramientas de prueba (no se muestran a usuarios reales)',
+    updateBody: '“Actualizar mi app” envía una versión más nueva de la app y comprueba que llegó y que tus datos siguen ahí.',
     updateBtn: 'Actualizar mi app',
     updated: '✓ La actualización llegó, datos intactos.',
     working: 'Trabajando…',
-    notTicked: 'Toca el botón otra vez y marca “Seleccionar todo” en la pantalla de Google antes de Continuar.'
+    notTicked: 'Toca el botón otra vez y marca “Seleccionar todo” en la pantalla de Google antes de Continuar.',
+    buildFailed: 'No terminó de prepararse tu hoja. Toca “Intentar de nuevo”.',
+    p_google: 'Abriendo Google…',
+    p_sheet: 'Creando tu hoja de Google…',
+    p_project: 'Configurando tu app…',
+    p_code: 'Enviando la app a tu cuenta…',
+    p_version: 'Guardando la primera versión…',
+    p_publish: 'Publicando tu app…',
+    p_going: 'Listo. Te llevamos a Google para el paso 2…',
+    p_prepare: 'Preparando la pantalla de permisos…',
+    p_wait: 'Esperando que lo permitas en la página de Google…',
+    p_check: 'Revisando tu app…',
+    p_build0: 'Preparando tu hoja…',
+    p_build: 'Preparando tu hoja: {n} de {total}…',
+    p_code2: 'Vinculando tu app con esta página…',
+    p_test: 'Probando inicio de sesión y guardado…',
+    p_switch: 'Cambiando a la versión aprobada…',
+    p_final: 'Revisión final…',
+    p_switchWait: 'Esperando el ajuste de Google…'
   }
 }[LANG];
 document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
@@ -209,6 +311,7 @@ document.querySelectorAll('[data-lang]').forEach((a) => a.addEventListener('clic
   try { localStorage.setItem('setupTestLang', a.getAttribute('data-lang')); } catch (e) {}
   location.reload();
 }));
+if (/FBAN|FBAV|Instagram|MicroMessenger|TikTok|Line\//i.test(navigator.userAgent)) document.getElementById('inAppWarn').hidden = false;
 
 // ---------- small helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -226,6 +329,42 @@ function say(boxId, text, kind) { $(boxId).innerHTML = ''; const sp = document.c
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const backUrl = () => location.origin + location.pathname;
 function goTo(url) { location.href = url; }   // the one place the page leaves for Google
+
+// ---------- the general status at the top + the status inside the pressed button ----------
+let clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
+function setTop(kind, step, text, pct) {
+  $('topStatus').className = 'topstatus ' + kind;
+  $('tsStep').textContent = step || '';
+  $('tsText').textContent = text || '';
+  if (typeof pct === 'number') $('tsBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+  $('tsKeep').hidden = kind !== 'running';
+}
+// One call updates both: the big text at the top and the label of the button that was pressed.
+function progress(text, pct, step) {
+  if (step) currentStep = step;
+  setTop('running', currentStep, text, pct);
+  if (activeBtn) activeBtn.textContent = text;
+}
+function startClock() {
+  clockStart = Date.now(); $('tsTime').textContent = '0 s';
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => { $('tsTime').textContent = Math.round((Date.now() - clockStart) / 1000) + ' s'; }, 1000);
+}
+function stopClock() { clearInterval(clockTimer); clockTimer = null; $('tsTime').textContent = ''; }
+// Best effort: iOS 16.4+ lets a page ask the screen not to lock while it works.
+async function keepScreenOn(on) {
+  try {
+    if (on && navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) {}
+}
+// Progress is saved to Drive in the background, one save at a time and in order,
+// so the person never waits for it; it is awaited only just before leaving for Google.
+let progressChain = Promise.resolve();
+function saveProgressBg() {
+  progressChain = progressChain.then(() => saveProgress()).catch((e) => log('Could not save progress to Drive: ' + e.message));
+  return progressChain;
+}
 
 // ---------- Google sign-in for the setup page ----------
 // The token is also kept for this tab only (sessionStorage), so the page can
@@ -254,6 +393,14 @@ function getToken() {
     tokenClient.error_callback = (err) => reject(new Error('Google sign-in window: ' + (err && err.type || 'closed')));
     tokenClient.requestAccessToken();
   });
+}
+
+async function showAccount() {
+  try {
+    const r = await google_('GET', 'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
+    const em = r.user && r.user.emailAddress;
+    if (em) { state.account = em; save(); $('acct').textContent = T.account.replace('{e}', em); log('Signed in to Google as ' + em + '.'); }
+  } catch (e) { log('Could not read the Google account name: ' + e.message); }
 }
 
 async function google_(method, url, body) {
@@ -333,8 +480,8 @@ function manifestFor(stages) {
   if (stages.includes('gmail')) m.dependencies = { enabledAdvancedServices: [{ userSymbol: 'Gmail', serviceId: 'gmail', version: 'v1' }] };
   return JSON.stringify(m, null, 2);
 }
-async function backendFiles(release, stages) {
-  const start = Date.now();
+let rawBackend = null;   // the backend files, fetched while the person reads this page
+async function fetchRawBackend() {
   const listRes = await fetch('https://api.github.com/repos/' + REPO + '/contents/backend?ref=' + REF);
   if (!listRes.ok) throw new Error('GitHub file list: HTTP ' + listRes.status);
   const list = (await listRes.json()).filter((f) => f.type === 'file' && /\.gs$/.test(f.name));
@@ -345,16 +492,26 @@ async function backendFiles(release, stages) {
   }));
   const firstRun = await fetch('FirstRun.gs', { cache: 'no-store' });
   if (!firstRun.ok) throw new Error('FirstRun.gs: HTTP ' + firstRun.status);
-  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '') });
+  return { files, firstRun: await firstRun.text() };
+}
+const prefetched = fetchRawBackend().then((r) => { rawBackend = r; log('Backend files ready before they were needed.'); }).catch((e) => { log('Early download failed (will retry when needed): ' + e.message); });
+async function backendFiles(release, stages, fresh) {
+  const start = Date.now();
+  if (!fresh) await prefetched;   // the early download is usually done already
+  if (fresh || !rawBackend) rawBackend = await fetchRawBackend();
+  const files = rawBackend.files.slice();
+  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: rawBackend.firstRun.replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '') });
   files.push({ name: 'appsscript', type: 'JSON', source: manifestFor(stages) });
   log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + '); permissions: ' + stages.join(' + ') + '.');
   return files;
 }
-async function pushAndVersion(release, stages, label) {
-  const files = await backendFiles(release, stages);
+async function pushAndVersion(release, stages, label, basePct, fresh) {
+  progress(T.p_code, basePct);
+  const files = await backendFiles(release, stages, fresh);
   let start = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
   log('Uploaded the code (' + secs(start) + ').', 'ok');
+  progress(T.p_version, basePct + 20);
   start = Date.now();
   const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions', { description: label + ' ' + release });
   log('Saved version ' + v.versionNumber + ' (' + secs(start) + ').', 'ok');
@@ -368,18 +525,22 @@ function webUrlOf(dep) {
 // ---------- step 1: install ----------
 async function install() {
   const start = Date.now();
+  progress(T.p_google, 3);
   await restoreIfNeeded();
+  showAccount();
   if (!state.spreadsheetId) {
+    progress(T.p_sheet, 15);
     const s = Date.now();
     const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE } });
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
-    await saveProgress();
+    saveProgressBg();
     log('Created the spreadsheet (' + secs(s) + ').', 'ok');
   }
   if (!state.scriptId) {
+    progress(T.p_project, 30);
     const s = Date.now();
     const proj = await google_('POST', 'https://script.googleapis.com/v1/projects', { title: BACKEND_TITLE, parentId: state.spreadsheetId });
-    state.scriptId = proj.scriptId; save(); await saveProgress();
+    state.scriptId = proj.scriptId; save(); saveProgressBg();
     log('Created the backend "' + BACKEND_TITLE + '", attached to the spreadsheet (' + secs(s) + ').', 'ok');
   }
   if (!state.deploymentId) {
@@ -387,11 +548,12 @@ async function install() {
     state.release = new Date().toISOString();
     state.codeRelease = state.release;
     state.stages = ['base'];
-    const versionNumber = await pushAndVersion(state.release, state.stages, 'Install');
+    const versionNumber = await pushAndVersion(state.release, state.stages, 'Install', 45);
+    progress(T.p_publish, 88);
     const s = Date.now();
     const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Main' });
     state.deploymentId = dep.deploymentId; state.webAppUrl = webUrlOf(dep); state.versionNumber = versionNumber;
-    save(); await saveProgress();
+    save(); saveProgressBg();
     log('Published the backend (' + secs(s) + ').', 'ok');
   }
   $('switchCard').hidden = true;
@@ -462,23 +624,83 @@ async function connectionCheck() {
 }
 
 // ---------- step 2: first approval (main web app, "this spreadsheet only") ----------
+// Google's approval page now answers at once. The sheet is built from HERE, with a
+// real progress bar (it used to be built while the person stared at a blank Google page).
+async function buildSheet() {
+  progress(T.p_build0, 10);
+  let polling = true;
+  (async () => {
+    while (polling) {
+      await sleep(1500);
+      if (!polling) break;
+      try {
+        const p = await check('progress');
+        if (p.total && !p.setUp) progress(T.p_build.replace('{n}', p.done).replace('{total}', p.total), 10 + 70 * p.done / p.total);
+      } catch (e) { /* the next tick tries again */ }
+    }
+  })();
+  const s = Date.now();
+  try {
+    const r = await check('build');
+    if (!r.ok) throw new Error('build answered: ' + JSON.stringify(r));
+    log('Sheet tabs + starter data built in ' + secs(s) + '.', 'ok');
+  } catch (e) {
+    // The phone may have lost the connection while Google kept building: ask whether it finished.
+    log('The build call did not come back (' + e.message + ') — checking whether it finished…', 'bad');
+    let ok = false;
+    for (let i = 0; i < 30 && !ok; i++) { await sleep(3000); try { ok = (await check('progress')).setUp; } catch (e2) {} }
+    if (!ok) throw new Error(T.buildFailed);
+  } finally { polling = false; }
+}
 async function afterFirstApproval() {
-  const st = await status();
-  if (!st.setUp) throw new Error('The backend is not set up yet — approve it on Google’s screen first.');
+  progress(T.p_check, 5, T.stepAllow);
+  let st = await status();
+  if (!st.setUp) { await buildSheet(); st = await status(); }
+  if (!st.setUp) throw new Error(T.buildFailed);
   state.permissionDone = true; save();
   if (!state.accessCode || st.codeFor !== state.codeRelease) {
+    progress(T.p_code2, 82);
     log('The backend does not have this page’s access code yet — sending it with an update…');
     await update(true);
   }
+  progress(T.p_test, 92);
   await connectionCheck();
+  handoff();
   say('s2', T.approved);
   try { await saveProgress(); } catch (e) { log('Could not save progress to Drive (will retry later): ' + e.message); }
 }
+// What the home-screen check page (app-check.html) reads: the address and sign-in code of the person's app.
+function handoff() {
+  try { localStorage.setItem(HANDOFF_KEY, JSON.stringify({ url: state.webAppUrl, code: state.accessCode, at: Date.now() })); } catch (e) {}
+}
 async function continueAfterApproval() {
   await restoreIfNeeded();
-  if (!state.webAppUrl) throw new Error('No tracker found for this Google account yet — tap “' + T.createBtn + '” first.');
+  if (!state.webAppUrl) throw new Error('No app found for this Google account yet — tap “' + T.createBtn + '” first.');
   if (state.pending) return finishStage(state.pending.stage);
   await afterFirstApproval();
+}
+
+// The page notices an approval by itself: until it is given, Google answers the app's address
+// with an approval page instead of data; once given, a tiny ping answers with data.
+let watchTimer = null, watchSince = 0, showRetry = false;
+function approvalTarget() { return state.pending ? state.pending.sideUrl : (state.webAppUrl && !state.permissionDone ? state.webAppUrl : null); }
+function watchForApproval() {
+  if (watchTimer || !approvalTarget()) return;
+  watchSince = Date.now();
+  watchTimer = setInterval(async () => {
+    const tgt = approvalTarget();
+    if (!tgt) { clearInterval(watchTimer); watchTimer = null; return; }
+    if (busy || document.hidden) return;
+    if (!showRetry && Date.now() - watchSince > 90000) { showRetry = true; render(); }
+    try {
+      const j = JSON.parse(await (await fetch(tgt + '?check=ping', { cache: 'no-store' })).text());
+      if (!(j && j.ok)) return;
+    } catch (e) { return; }
+    clearInterval(watchTimer); watchTimer = null;
+    log('Noticed the approval by itself — continuing.', 'ok');
+    if (state.pending) { const st = state.pending.stage; run(st === 'gmail' ? 's4' : 's3', () => finishStage(st), st === 'gmail' ? 'btnGmail' : 'btnKeep', T.stepOptional); }
+    else run('s2', continueAfterApproval, null, T.stepAllow);
+  }, 4000);
 }
 
 // ---------- steps 3-4: extra permissions, approved on a side copy first ----------
@@ -489,18 +711,23 @@ async function startStage(stage) {
   ensureCode();
   const stages = [...new Set([...(state.stages || ['base']), stage])];
   const release = new Date().toISOString();
-  const versionNumber = await pushAndVersion(release, stages, 'Stage ' + stage);
+  progress(T.p_prepare, 5);
+  const versionNumber = await pushAndVersion(release, stages, 'Stage ' + stage, 15);
+  progress(T.p_publish, 70);
   const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Approval ' + stage });
   state.pending = { stage, stages, release, versionNumber, sideId: dep.deploymentId, sideUrl: webUrlOf(dep) };
-  save(); await saveProgress();
-  log('Made a side copy for the "' + stage + '" approval.', 'ok');
+  save(); saveProgressBg();
+  log('Made a side deployment for the "' + stage + '" approval.', 'ok');
   try { const st = await check('version'); log('Main app still answers while waiting for approval (release ' + st.release + ').', 'ok'); }
   catch (e) { log('Main app check while waiting: ' + e.message, 'bad'); }
   log('Going to Google for the "' + stage + '" approval.');
-  await sleep(1200);
+  progress(T.p_going, 100);
+  await progressChain;
+  await sleep(500);
   goTo(state.pending.sideUrl + '?stage=' + encodeURIComponent(stage) + '&return=' + encodeURIComponent(backUrl()));
 }
 async function finishStage(stage) {
+  progress(T.p_switch, 20);
   const p = state.pending;
   if (!p || p.stage !== stage) throw new Error('No “' + stage + '” approval is waiting.');
   const s = Date.now();
@@ -510,7 +737,9 @@ async function finishStage(stage) {
   state.stages = p.stages; state.release = p.release; state.versionNumber = p.versionNumber; state.codeRelease = p.release; state.pending = null;
   save(); await saveProgress();
   log('Main app switched to the approved version ' + p.versionNumber + ' (' + secs(s) + ').', 'ok');
+  progress(T.p_final, 60);
   const st = await waitForRelease(p.release);
+  progress(T.p_test, 80);
   await connectionCheck();
   if (stage === 'keepawake') {
     if (!st.keepAwake) throw new Error('Keep-awake timer is not on.');
@@ -530,7 +759,7 @@ async function update(quiet) {
   const start = Date.now();
   ensureCode();
   const release = new Date().toISOString();
-  const versionNumber = await pushAndVersion(release, state.stages || ['base'], 'Update');
+  const versionNumber = await pushAndVersion(release, state.stages || ['base'], 'Update', 10, true);
   const s = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
     { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Main' } });
@@ -538,7 +767,7 @@ async function update(quiet) {
   const st = await waitForRelease(release);
   state.release = release; state.versionNumber = versionNumber;
   if (st.codeFor === release) state.codeRelease = release;
-  save(); await saveProgress();
+  save(); saveProgressBg();
   if (!quiet) { await connectionCheck(); say('s5', T.updated); }
   log('Update finished in ' + secs(start) + '.', 'ok');
 }
@@ -552,6 +781,7 @@ function startApiWait() {
   apiRetryUntil = Date.now() + 5 * 60000;
   if (!apiRetryTimer) apiRetryTimer = setInterval(retryInstall, 20000);
   $('apiWait').textContent = T.switchWaiting;
+  setTop('wait', '', T.p_switchWait);
 }
 async function retryInstall() {
   if (apiRetrying) return;
@@ -573,8 +803,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && ap
 async function goToFirstApproval() {
   if (state.permissionDone || !state.webAppUrl) return;
   say('s1', T.created);
+  progress(T.p_going, 100, T.stepSetup);
   log('Going to the backend approval automatically (no tap).');
-  await sleep(1500);
+  await progressChain;   // make sure the progress note reached Drive, then go
+  await sleep(500);
   goTo(state.webAppUrl + '?return=' + encodeURIComponent(backUrl()));
 }
 
@@ -585,48 +817,82 @@ async function handleReturn() {
   if (!done && !appr) return;
   history.replaceState(null, '', location.pathname + location.search);
   if (done) {
-    log('Back from Google: step 2 approved' + (done[1] ? ', sheet tabs + starter data built in ' + done[1] + ' s' : '') + '.', 'ok');
-    await run('s2', afterFirstApproval);
+    log('Back from Google: step 2 approved.', 'ok');
+    await run('s2', afterFirstApproval, null, T.stepAllow);
   } else {
     log('Back from Google: "' + appr[1] + '" approved.', 'ok');
-    await run(appr[1] === 'gmail' ? 's4' : 's3', () => finishStage(appr[1]));
+    await run(appr[1] === 'gmail' ? 's4' : 's3', () => finishStage(appr[1]), appr[1] === 'gmail' ? 'btnGmail' : 'btnKeep', T.stepOptional);
   }
 }
 
 // ---------- wiring ----------
-function render() {
+function doneBtn(id, done) {
+  const b = $(id);
+  b.classList.toggle('donebtn', !!done);
+  b.textContent = done ? T.createdBtn : T[b.dataset.t];
+}
+function render(failed) {
   if (state.webAppUrl) $('switchCard').hidden = !apiRetryTimer;
   if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
+  if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);
   if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
   if ((state.stages || []).includes('keepawake') && !$('s3').textContent) say('s3', T.keepDone);
+  if (state.gmailOk && !$('s4').textContent) say('s4', T.gmailDone.replace('{n}', '?'));
   $('btnKeep').disabled = !state.permissionDone || (state.stages || []).includes('keepawake');
   $('btnGmail').disabled = !state.permissionDone || !!state.gmailOk;
   $('btnUpdate').disabled = !state.permissionDone;
   $('btnStatus').disabled = !state.webAppUrl;
+  $('readyCard').hidden = !state.permissionDone;
+  $('btnContinue').hidden = !showRetry || !!state.permissionDone;
+  if (!busy) {
+    doneBtn('btnInstall', !!state.webAppUrl);
+    $('btnInstall').disabled = !!state.webAppUrl;
+    doneBtn('btnKeep', (state.stages || []).includes('keepawake'));
+    doneBtn('btnGmail', !!state.gmailOk);
+  }
+  if (!busy && !failed && !apiRetryTimer) {
+    if (state.permissionDone) setTop('ok', '', T.allDone, 100);
+    else if (state.pending || state.webAppUrl) setTop('wait', T.stepAllow, T.p_wait);
+    else setTop('idle', '', T.ready, 0);
+  }
+  if (!busy && approvalTarget()) watchForApproval();
 }
 let busy = false;
-async function run(boxId, fn) {
+async function run(boxId, fn, btnId, step) {
   if (busy) return;
   busy = true;
   document.querySelectorAll('button').forEach((b) => { b.dataset.was = b.disabled; b.disabled = true; });
-  if (boxId) say(boxId, T.working, 'small');
+  activeBtn = btnId ? $(btnId) : null;
+  if (activeBtn) { activeBtn.dataset.label = activeBtn.textContent; activeBtn.classList.add('busy'); }
+  if (boxId) $(boxId).innerHTML = '';
+  showRetry = false;
+  currentStep = step || '';
+  setTop('running', currentStep, T.working, 3);
+  startClock(); keepScreenOn(true);
+  let failed = false;
   try { await fn(); }
   catch (e) {
+    failed = true;
     log(e.message, 'bad');
-    if (e.apiOff) { log('→ Showing the Google setting card.'); startApiWait(); }
-    else if (boxId) say(boxId, '✗ ' + e.message, 'err');
+    if (e.apiOff) { log('→ Showing the Google setting card.'); startApiWait(); failed = false; }
+    else {
+      if (boxId) say(boxId, '✗ ' + e.message, 'err');
+      setTop('err', currentStep, '✗ ' + e.message, 100);
+      if (boxId === 's2' || approvalTarget()) showRetry = true;
+    }
   } finally {
-    busy = false;
+    busy = false; stopClock(); keepScreenOn(false);
+    if (activeBtn) { activeBtn.classList.remove('busy'); activeBtn.textContent = activeBtn.dataset.label; activeBtn = null; }
     document.querySelectorAll('button').forEach((b) => { b.disabled = b.dataset.was === 'true'; });
-    render();
+    render(failed);
   }
 }
-$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); }));
-$('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval));
-$('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake')));
-$('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail')));
-$('btnUpdate').addEventListener('click', () => run('s5', () => update(false)));
-$('btnStatus').addEventListener('click', () => run(null, status));
+$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); }, 'btnInstall', T.stepSetup));
+$('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));
+$('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
+$('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
+$('btnUpdate').addEventListener('click', () => run('s5', () => update(false), 'btnUpdate', ''));
+$('btnStatus').addEventListener('click', () => run(null, status, 'btnStatus', ''));
 $('btnCopy').addEventListener('click', async () => {
   const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nLanguage: ' + LANG + '\nUser agent: ' + navigator.userAgent;
   try { await navigator.clipboard.writeText(text); log('Log copied.'); } catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
@@ -636,6 +902,9 @@ $('btnForget').addEventListener('click', () => {
   try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
   log('This phone forgot the test (the tracker in Drive is untouched).');
   ['s1', 's2', 's3', 's4', 's5'].forEach((id) => { $(id).innerHTML = ''; });
+  $('acct').textContent = '';
+  try { localStorage.removeItem(HANDOFF_KEY); } catch (e) {}
+  showRetry = false;
   render();
 });
 

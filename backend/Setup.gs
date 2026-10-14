@@ -179,21 +179,28 @@ function addNameColumnToBudgets() {
   return { done: true, alreadyExisted: false, column: col };
 }
 
-function setupSpreadsheet() {
+function setupSpreadsheet(onProgress) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // One look at which tabs exist, instead of asking per tab; a tab created just
+  // now is known to be empty, so it skips the "already has headers?" reads.
+  // (Each Google call costs ~0.1-0.3 s and a fresh install makes dozens of tabs.)
+  var existing = {};
+  ss.getSheets().forEach(function (sh) { existing[sh.getName()] = true; });
+  var names = Object.keys(TABLE_DEFINITIONS);
 
-  Object.keys(TABLE_DEFINITIONS).forEach(function (tabName) {
-    var sheet = ss.getSheetByName(tabName);
-    if (!sheet) {
-      sheet = ss.insertSheet(tabName);
-    }
+  names.forEach(function (tabName, i) {
+    var isNew = !existing[tabName];
+    var sheet = isNew ? ss.insertSheet(tabName) : ss.getSheetByName(tabName);
 
     var headers = TABLE_DEFINITIONS[tabName];
-    var headerRange = sheet.getRange(1, 1, 1, headers.length);
-    var firstRowValues = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
-    var alreadyHasHeaders = firstRowValues.join('') !== '';
+    var alreadyHasHeaders = false;
+    if (!isNew) {
+      var firstRowValues = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+      alreadyHasHeaders = firstRowValues.join('') !== '';
+    }
 
     if (!alreadyHasHeaders) {
+      var headerRange = sheet.getRange(1, 1, 1, headers.length);
       headerRange.setValues([headers]);
       headerRange.setFontWeight('bold');
       sheet.setFrozenRows(1);
@@ -208,9 +215,11 @@ function setupSpreadsheet() {
         }
       });
     }
+    // Optional: lets a caller (the setup page's progress bar) follow along.
+    if (onProgress) onProgress(i + 1, names.length);
   });
 
-  Logger.log('Setup complete. Tabs created: ' + Object.keys(TABLE_DEFINITIONS).join(', '));
+  Logger.log('Setup complete. Tabs created: ' + names.join(', '));
 }
 
 /**
@@ -218,12 +227,12 @@ function setupSpreadsheet() {
  * friends, settings). Safe to re-run — skips any tab that already has
  * rows beyond the header.
  */
-function seedStarterData() {
-  seedCategories();
-  seedBanks();
-  seedFriends();
-  seedSettings();
-  seedCategoryKeywords();
+function seedStarterData(onProgress) {
+  var seeds = [seedCategories, seedBanks, seedFriends, seedSettings, seedCategoryKeywords];
+  seeds.forEach(function (seed, i) {
+    seed();
+    if (onProgress) onProgress(i + 1, seeds.length);
+  });
   Logger.log('Starter data seeded.');
 }
 
