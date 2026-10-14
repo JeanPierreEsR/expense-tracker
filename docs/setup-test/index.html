@@ -218,13 +218,45 @@ async function pushAndVersion(release, label) {
   return v.versionNumber;
 }
 
+// ---------- progress kept in the person's own Drive ----------
+// The page's own memory (localStorage) is wiped when a Private tab closes, so the
+// ids of what was created are also saved on the tracker spreadsheet itself, as
+// Drive "app properties" that only this setup page can see. Any tab or device can
+// then find the tracker again after signing in. The access code is NOT stored
+// there; if it is missing, the page sends a fresh one with an update.
+const PROGRESS_KEYS = ['scriptId', 'deploymentId', 'webAppUrl', 'release', 'codeRelease', 'versionNumber', 'permissionDone'];
+async function saveProgress() {
+  if (!state.spreadsheetId) return;
+  const appProperties = { setupTest: '1' };
+  PROGRESS_KEYS.forEach((k) => { if (state[k] !== undefined) appProperties[k] = String(state[k]); });
+  await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + state.spreadsheetId, { appProperties });
+}
+async function findExistingTracker() {
+  const q = encodeURIComponent("appProperties has { key='setupTest' and value='1' } and trashed=false");
+  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime%20desc&fields=files(id,webViewLink,appProperties)');
+  const f = (res.files || [])[0];
+  if (!f) return false;
+  state.spreadsheetId = f.id; state.spreadsheetUrl = f.webViewLink;
+  const ap = f.appProperties || {};
+  PROGRESS_KEYS.forEach((k) => { if (ap[k] !== undefined) state[k] = k === 'permissionDone' ? ap[k] === 'true' : (k === 'versionNumber' ? Number(ap[k]) : ap[k]); });
+  save();
+  log('Found your tracker from earlier in Google Drive — continuing from where it stopped.', 'ok');
+  return true;
+}
+async function restoreIfNeeded() {
+  if (state.spreadsheetId) return;
+  await findExistingTracker();
+}
+
 // ---------- step 1: install ----------
 async function install() {
   const start = Date.now();
+  await restoreIfNeeded();
   if (!state.spreadsheetId) {
     const s = Date.now();
     const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE } });
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
+    await saveProgress();
     log('Created the spreadsheet (' + secs(s) + ').', 'ok');
   } else log('Spreadsheet already created — reusing it.');
 
@@ -232,7 +264,7 @@ async function install() {
     const s = Date.now();
     const proj = await google_('POST', 'https://script.googleapis.com/v1/projects',
       { title: 'Expense Tracker backend (setup test)', parentId: state.spreadsheetId });
-    state.scriptId = proj.scriptId; save();
+    state.scriptId = proj.scriptId; save(); await saveProgress();
     log('Created the backend, attached to the spreadsheet (' + secs(s) + ').', 'ok');
   } else log('Backend already created — reusing it.');
 
@@ -247,7 +279,7 @@ async function install() {
     const web = (dep.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
     state.deploymentId = dep.deploymentId;
     state.webAppUrl = web && web.webApp && web.webApp.url || ('https://script.google.com/macros/s/' + dep.deploymentId + '/exec');
-    state.versionNumber = versionNumber; save();
+    state.versionNumber = versionNumber; save(); await saveProgress();
     log('Published the backend (' + secs(s) + ').', 'ok');
   } else log('Backend already published — reusing it.');
 
@@ -265,9 +297,11 @@ function readReturn() {
 
 // For when Google didn't send the person back: ask the backend directly.
 async function continueAfterApproval() {
+  await restoreIfNeeded();
+  if (!state.webAppUrl) throw new Error('No tracker found for this Google account yet — tap “Create my tracker” first.');
   const st = await status();
   if (!st.setUp) throw new Error('The backend is not set up yet — tap “Open my backend” and approve it first.');
-  state.permissionDone = true; save();
+  state.permissionDone = true; save(); await saveProgress();
   log('Backend confirms it is set up.', 'ok');
   if (!state.accessCode || st.codeFor !== state.codeRelease) {
     log('The backend does not have this page\'s access code yet — sending it with an update…');
@@ -311,6 +345,8 @@ async function api(action, payload) {
 
 // ---------- step 3 ----------
 async function testConnection() {
+  // This tab may have forgotten the code (Private tab closed) — get the backend a fresh one first.
+  if (!state.accessCode) await continueAfterApproval();
   await signIn();
   const today = new Date().toISOString().slice(0, 10);
   const created = await api('createEntry', { type: 'expense', date: today, amount: 1, currency: 'PEN', description: 'Setup test entry' });
@@ -336,7 +372,7 @@ async function update() {
   log('Backend now runs the new release.', 'ok');
   state.release = release; state.versionNumber = versionNumber;
   if (st.codeFor === release) state.codeRelease = release;
-  save();
+  save(); await saveProgress();
   if (state.testEntryId) {
     const back = await api('getEntry', { id: state.testEntryId });
     if (!back.data) throw new Error('The test entry is gone after the update!');
@@ -395,7 +431,7 @@ function render() {
   $('btnAuthorize').disabled = !state.webAppUrl;
   $('btnStatus').disabled = !state.webAppUrl;
   $('btnTest').disabled = !state.permissionDone;
-  $('btnContinue').disabled = !state.webAppUrl;
+  $('btnContinue').disabled = false;
   $('btnUpdate').disabled = !state.webAppUrl;
 }
 function wire(id, fn) {
