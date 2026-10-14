@@ -106,6 +106,11 @@
   <div class="step">
     <h3 data-t="approveTitle"></h3>
     <div class="ask" data-t="approveAsk"></div>
+    <div class="callout" id="openHelp" hidden>
+      <h3 data-t="openHelpTitle"></h3>
+      <p style="color:inherit" id="openHelpBody"></p>
+      <a class="bigbtn" id="openAgain" href="#" data-t="openAgainBtn"></a>
+    </div>
     <div id="s2"></div>
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
   </div>
@@ -192,7 +197,7 @@ const T = {
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
     switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
     createTitle: '1. Set up my app',
-    createAsk: '<b>Google will ask you to allow “Expense Tracker Setup” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b>, then tap <b>Continue</b>. If Google says the app is “not verified”, that is normal for a small app: tap <b>Continue</b> anyway.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
+    createAsk: '<b>Google will ask you to allow “Expense Tracker Setup” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b> (<b>Seleccionar todo</b>), then tap <b>Continue</b> (<b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (<b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” / “Volver a un sitio seguro”): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
     relinkBtn: 'Sign in again on this phone',
@@ -200,7 +205,7 @@ const T = {
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
-    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p>',
+    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (<b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker Setup</b> (<b>Ir a Expense Tracker Setup</b>), then <b>Allow</b> (<b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p>',
     retryBtn: 'Try again',
     approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
     readyTitle: 'Your app is ready — how to open it',
@@ -223,6 +228,9 @@ const T = {
     buildFailed: 'Preparing your sheet did not finish. Tap “Try again”.',
     popupFailed: 'Google’s sign-in window could not open. Tap the button once more (just once). If it still fails, reload this page and try again; Safari must allow pop-ups for this page.',
     popupClosed: 'The Google sign-in window was closed before it finished. Tap the button to try again.',
+    openHelpTitle: 'Google says it can’t open the file?',
+    openHelpBody: 'This usually means your phone is signed in to <b>several Google accounts</b>, and Google tried the wrong one. Tap the button below: it asks Google to use the account you chose ({account}). If it still fails, copy this page’s address into a <b>private tab</b> where only that account is signed in.',
+    openAgainBtn: 'Open Google’s approval page again',
     p_google: 'Opening Google…',
     p_sheet: 'Creating your Google Sheet…',
     p_project: 'Setting up your app…',
@@ -261,7 +269,7 @@ const T = {
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
     switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
     createTitle: '1. Configurar mi app',
-    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> y toca <b>Continuar</b>. Si Google dice que la app “no está verificada”, es normal en una app pequeña: toca <b>Continuar</b> igual.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
+    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (<b>Select all</b>) y toca <b>Continuar</b> (<b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (<b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” / “Back to safety”): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
     relinkBtn: 'Iniciar sesión otra vez en este teléfono',
@@ -269,7 +277,7 @@ const T = {
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su hoja',
-    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p>',
+    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (<b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker Setup</b> (<b>Go to Expense Tracker Setup</b>) y luego <b>Permitir</b> (<b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p>',
     retryBtn: 'Intentar de nuevo',
     approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
     readyTitle: 'Tu app está lista — cómo abrirla',
@@ -292,6 +300,9 @@ const T = {
     buildFailed: 'No terminó de prepararse tu hoja. Toca “Intentar de nuevo”.',
     popupFailed: 'No se pudo abrir la ventana de inicio de sesión de Google. Toca el botón otra vez (solo una vez). Si sigue fallando, recarga esta página e inténtalo de nuevo; Safari debe permitir ventanas emergentes en esta página.',
     popupClosed: 'La ventana de inicio de sesión de Google se cerró antes de terminar. Toca el botón para intentarlo de nuevo.',
+    openHelpTitle: '¿Google dice que no puede abrir el archivo?',
+    openHelpBody: 'Normalmente significa que tu teléfono tiene <b>varias cuentas de Google</b> y Google probó con la equivocada. Toca el botón de abajo: le pide a Google que use la cuenta que elegiste ({account}). Si sigue fallando, copia la dirección de esta página en una <b>pestaña privada</b> donde solo esa cuenta esté con sesión iniciada.',
+    openAgainBtn: 'Abrir otra vez la página de aprobación de Google',
     p_google: 'Abriendo Google…',
     p_sheet: 'Creando tu hoja de Google…',
     p_project: 'Configurando tu app…',
@@ -346,10 +357,13 @@ function setTop(kind, step, text, pct) {
   $('tsKeep').hidden = kind !== 'running';
 }
 // One call updates both: the big text at the top and the label of the button that was pressed.
-function progress(text, pct, step) {
+function progress(text, pct, step, creepTo) {
   if (step) currentStep = step;
+  $('tsBar').style.transition = 'width .5s ease';
   setTop('running', currentStep, text, pct);
   if (activeBtn) activeBtn.textContent = text;
+  // Slow Google steps (10+ s with nothing to report): let the bar keep moving slowly so it never looks frozen.
+  if (creepTo) requestAnimationFrame(() => { $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
 }
 function startClock() {
   clockStart = Date.now(); $('tsTime').textContent = '0 s';
@@ -407,6 +421,7 @@ function getToken() {
   });
 }
 
+let accountReady = Promise.resolve();
 async function showAccount() {
   try {
     const r = await google_('GET', 'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
@@ -435,6 +450,9 @@ async function google_(method, url, body) {
 // page can see them), so a closed tab or another device can resume. Drive allows
 // about 124 characters per property, so only short ids are stored and web
 // addresses are rebuilt from them. The access code is never stored there.
+// Several Google accounts on one phone: Google opens the app's address under the FIRST signed-in
+// account and says "unable to open the file". The account hint tells it which one to use.
+const withAccount = (url, extra) => url + (url.indexOf('?') < 0 ? '?' : '&') + (state.account ? 'authuser=' + encodeURIComponent(state.account) + '&' : '') + extra;
 const execUrl = (deploymentId) => 'https://script.google.com/macros/s/' + deploymentId + '/exec';
 function progressToProps() {
   const p = state.pending;
@@ -518,12 +536,12 @@ async function backendFiles(release, stages, fresh) {
   return files;
 }
 async function pushAndVersion(release, stages, label, basePct, fresh) {
-  progress(T.p_code, basePct);
+  progress(T.p_code, basePct, undefined, basePct + 18);
   const files = await backendFiles(release, stages, fresh);
   let start = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
   log('Uploaded the code (' + secs(start) + ').', 'ok');
-  progress(T.p_version, basePct + 20);
+  progress(T.p_version, basePct + 20, undefined, basePct + 34);
   start = Date.now();
   const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions', { description: label + ' ' + release });
   log('Saved version ' + v.versionNumber + ' (' + secs(start) + ').', 'ok');
@@ -539,7 +557,7 @@ async function install() {
   const start = Date.now();
   progress(T.p_google, 3);
   await restoreIfNeeded();
-  showAccount();
+  accountReady = showAccount();
   if (!state.spreadsheetId) {
     progress(T.p_sheet, 15);
     const s = Date.now();
@@ -549,7 +567,7 @@ async function install() {
     log('Created the spreadsheet (' + secs(s) + ').', 'ok');
   }
   if (!state.scriptId) {
-    progress(T.p_project, 30);
+    progress(T.p_project, 30, undefined, 44);
     const s = Date.now();
     const proj = await google_('POST', 'https://script.googleapis.com/v1/projects', { title: BACKEND_TITLE, parentId: state.spreadsheetId });
     state.scriptId = proj.scriptId; save(); saveProgressBg();
@@ -561,7 +579,7 @@ async function install() {
     state.codeRelease = state.release;
     state.stages = ['base'];
     const versionNumber = await pushAndVersion(state.release, state.stages, 'Install', 45);
-    progress(T.p_publish, 88);
+    progress(T.p_publish, 88, undefined, 97);
     const s = Date.now();
     const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Main' });
     state.deploymentId = dep.deploymentId; state.webAppUrl = webUrlOf(dep); state.versionNumber = versionNumber;
@@ -757,8 +775,9 @@ async function startStage(stage) {
   log('Going to Google for the "' + stage + '" approval.');
   progress(T.p_going, 100);
   await progressChain;
-  await sleep(500);
-  goTo(state.pending.sideUrl + '?stage=' + encodeURIComponent(stage) + '&return=' + encodeURIComponent(backUrl()));
+  await accountReady;
+  await sleep(2500);
+  goTo(withAccount(state.pending.sideUrl, 'stage=' + encodeURIComponent(stage) + '&return=' + encodeURIComponent(backUrl())));
 }
 async function finishStage(stage) {
   progress(T.p_switch, 20);
@@ -842,8 +861,9 @@ async function goToFirstApproval() {
   progress(T.p_going, 100, T.stepSetup);
   log('Going to the backend approval automatically (no tap).');
   await progressChain;   // make sure the progress note reached Drive, then go
-  await sleep(500);
-  goTo(state.webAppUrl + '?return=' + encodeURIComponent(backUrl()));
+  await accountReady;
+  await sleep(2500);     // a brand-new app address needs a moment before Google serves it
+  goTo(withAccount(state.webAppUrl, 'return=' + encodeURIComponent(backUrl())));
 }
 
 // ---------- coming back from Google ----------
@@ -880,6 +900,10 @@ function render(failed) {
   $('btnStatus').disabled = !state.webAppUrl;
   $('readyCard').hidden = !state.permissionDone;
   $('btnContinue').hidden = !showRetry || !!state.permissionDone;
+  const help = !!(state.webAppUrl && !state.permissionDone && !busy);
+  $('openHelp').hidden = !help;
+  $('openHelpBody').innerHTML = T.openHelpBody.replace('{account}', state.account || '—');
+  if (help) $('openAgain').href = state.pending ? withAccount(state.pending.sideUrl, 'stage=' + encodeURIComponent(state.pending.stage) + '&return=' + encodeURIComponent(backUrl())) : withAccount(state.webAppUrl, 'return=' + encodeURIComponent(backUrl()));
   if (!busy) {
     doneBtn('btnInstall', !!state.webAppUrl);
     if (state.webAppUrl && state.permissionDone && !state.accessCode) { $('btnInstall').classList.remove('donebtn'); $('btnInstall').textContent = T.relinkBtn; }
