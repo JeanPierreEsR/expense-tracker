@@ -596,12 +596,42 @@ async function backendFiles(release, stages, fresh) {
   log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + '); permissions: ' + stages.join(' + ') + '.');
   return files;
 }
+// A brand-new project is filled in by Google a moment AFTER it is created (a default code file and manifest).
+// Hypothesis (2026-10-14): since the backend files are now downloaded in advance, our upload follows the project
+// creation within a fraction of a second and can be overwritten by that late fill-in — leaving a project with no
+// web app section, whose address Google then answers with "unable to open the file". The old page had a few
+// seconds of other work in between. So: wait until the project is readable, pause, upload, then CHECK it stuck.
+async function waitForProjectReady() {
+  for (let i = 0; i < 10; i++) {
+    try {
+      const c = await google_('GET', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content');
+      if ((c.files || []).some((f) => f.name === 'appsscript')) { log('The new project is ready (' + c.files.length + ' starting files).', 'ok'); await sleep(2000); return; }
+    } catch (e) { log('The new project is not readable yet: ' + e.message); }
+    await sleep(1000);
+  }
+  log('The new project still was not readable after 10 s — continuing anyway.', 'bad');
+}
+async function verifyUpload(sent) {
+  const c = await google_('GET', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content');
+  const names = (c.files || []).map((f) => f.name);
+  const man = (c.files || []).find((f) => f.name === 'appsscript');
+  const hasWeb = !!man && /"webapp"/.test(man.source);
+  const hasFirstRun = names.includes('FirstRun');
+  log('Check after upload: Google holds ' + names.length + ' files (sent ' + sent + '), FirstRun present: ' + hasFirstRun + ', manifest has the web app section: ' + hasWeb + '.', hasWeb && hasFirstRun ? 'ok' : 'bad');
+  return hasWeb && hasFirstRun && names.length >= sent;
+}
 async function pushAndVersion(release, stages, label, basePct, fresh) {
   progress(T.p_code, basePct, undefined, basePct + 18);
   const files = await backendFiles(release, stages, fresh);
   let start = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
   log('Uploaded the code (' + secs(start) + ').', 'ok');
+  if (!(await verifyUpload(files.length))) {
+    log('The upload did not stick — sending it again.', 'bad');
+    await sleep(3000);
+    await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
+    if (!(await verifyUpload(files.length))) throw new Error('Google did not keep the uploaded code. Tap the button to try again.');
+  }
   progress(T.p_version, basePct + 20, undefined, basePct + 34);
   start = Date.now();
   const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions', { description: label + ' ' + release });
@@ -633,6 +663,7 @@ async function install() {
     const proj = await google_('POST', 'https://script.googleapis.com/v1/projects', { title: BACKEND_TITLE, parentId: state.spreadsheetId });
     state.scriptId = proj.scriptId; save(); saveProgressBg();
     log('Created the backend "' + BACKEND_TITLE + '", attached to the spreadsheet (' + secs(s) + ').', 'ok');
+    await waitForProjectReady();
   }
   if (!state.deploymentId) {
     ensureCode();
@@ -645,6 +676,7 @@ async function install() {
     const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Main' });
     state.deploymentId = dep.deploymentId; state.webAppUrl = webUrlOf(dep); state.versionNumber = versionNumber;
     log('Google created the deployment: ' + JSON.stringify(dep));
+    log('Web app entry reported for the new deployment: ' + ((dep.entryPoints || []).some((p) => p.entryPointType === 'WEB_APP') ? 'yes' : 'NO — this address will not work'), (dep.entryPoints || []).some((p) => p.entryPointType === 'WEB_APP') ? 'ok' : 'bad');
     save(); saveProgressBg();
     log('Published the backend (' + secs(s) + ').', 'ok');
   }
