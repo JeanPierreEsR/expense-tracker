@@ -29,6 +29,10 @@
   #log { font:12px/1.4 ui-monospace, Menlo, monospace; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 10px 30px; max-height:320px; overflow:auto; }
   #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
   a { color:var(--accent); }
+  .callout { background:#fff3cd; color:#3d2e00; border-radius:12px; padding:14px; margin:10px 0; }
+  .callout h3 { margin:0 0 6px; font-size:17px; }
+  .callout ol { margin:6px 0 10px; padding-left:20px; }
+  .bigbtn { display:block; text-align:center; font-weight:600; padding:14px 16px; border-radius:10px; background:var(--accent); color:#fff !important; text-decoration:none; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -39,8 +43,19 @@
 
   <div class="step">
     <h3>1. Create my tracker</h3>
-    <p>Signs in with Google, then creates the spreadsheet and the backend in your account and publishes it. If Google says the Apps Script API is off, turn it on <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">here</a> and tap again.</p>
+    <p>Signs in with Google, then creates the spreadsheet and the backend in your account and publishes it.</p>
     <div id="s1"></div>
+    <div class="callout" id="apiCard" hidden>
+      <h3>One-time Google switch</h3>
+      <p style="color:inherit">Google asks you to turn on one setting before this page may create your tracker.</p>
+      <ol>
+        <li>Tap the button below — a Google page opens in a new tab.</li>
+        <li>Turn on <b>Google Apps Script API</b>.</li>
+        <li>Come back to this tab. It continues by itself (Google can take a few minutes to notice).</li>
+      </ol>
+      <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">Open Google's switch</a>
+      <p id="apiWait" style="color:inherit;margin-top:10px"></p>
+    </div>
     <button id="btnInstall">Create my tracker</button>
   </div>
 
@@ -312,6 +327,39 @@ async function status() {
   return json;
 }
 
+// ---------- the one-time "Apps Script API" switch ----------
+// Google refuses to create a backend until the person turns this on in their
+// own settings. Show a clear card, then keep retrying quietly (the switch can
+// take a few minutes to take effect) and carry on by itself once it works.
+let apiRetryTimer = null, apiRetryUntil = 0, apiRetrying = false;
+function startApiWait() {
+  $('apiCard').hidden = false;
+  $('s1').innerHTML = '';
+  apiRetryUntil = Date.now() + 5 * 60000;
+  if (!apiRetryTimer) apiRetryTimer = setInterval(retryInstall, 20000);
+  $('apiWait').textContent = 'Waiting for the switch…';
+}
+async function retryInstall() {
+  if (apiRetrying) return;
+  if (Date.now() > apiRetryUntil) {
+    clearInterval(apiRetryTimer); apiRetryTimer = null;
+    $('apiWait').textContent = 'Still not on after 5 minutes. Check the switch is on for this same Google account, then tap “Create my tracker” again.';
+    return;
+  }
+  apiRetrying = true;
+  $('apiWait').textContent = 'Checking…';
+  try {
+    await install();
+    clearInterval(apiRetryTimer); apiRetryTimer = null;
+    $('apiCard').hidden = true;
+    log('The Google switch is on — setup continued by itself.', 'ok');
+  } catch (e) {
+    if (e.apiOff) $('apiWait').textContent = 'Not on yet (last checked ' + new Date().toLocaleTimeString() + '). Checking again every 20 seconds…';
+    else { log(e.message, 'bad'); $('apiWait').textContent = 'Something else went wrong: ' + e.message; }
+  } finally { apiRetrying = false; render(); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && apiRetryTimer) retryInstall(); });
+
 // ---------- wiring ----------
 function render() {
   $('s1').innerHTML = state.webAppUrl ? '<span class="done">✓ Created and published.</span> <a href="' + state.spreadsheetUrl + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '';
@@ -330,15 +378,15 @@ function wire(id, fn) {
     catch (e) {
       error = e;
       log(e.message, 'bad');
-      if (e.apiOff) log('→ Turn on "Google Apps Script API" at script.google.com/home/usersettings, then tap again.', 'bad');
+      if (e.apiOff) { log('→ Showing the one-time Google switch card.'); startApiWait(); }
     }
     render();
     if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnSaveCode') b.disabled = false;
     // Show the problem right under the button too — the log is far down the page.
-    const box = error && b.closest('.step') && b.closest('.step').querySelector('[id^="s"]');
+    const box = error && !error.apiOff && b.closest('.step') && b.closest('.step').querySelector('[id^="s"]');
     if (box) {
       box.innerHTML = '<span style="color:var(--bad);font-weight:600"></span>';
-      box.firstChild.textContent = '✗ ' + error.message + (error.apiOff ? ' — turn on the Apps Script API with the link above, then tap again.' : '');
+      box.firstChild.textContent = '✗ ' + error.message;
     }
   });
 }
