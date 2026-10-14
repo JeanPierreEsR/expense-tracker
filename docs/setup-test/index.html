@@ -630,6 +630,7 @@ async function install() {
     const s = Date.now();
     const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Main' });
     state.deploymentId = dep.deploymentId; state.webAppUrl = webUrlOf(dep); state.versionNumber = versionNumber;
+    log('Google created the deployment: ' + JSON.stringify(dep));
     save(); saveProgressBg();
     log('Published the backend (' + secs(s) + ').', 'ok');
   }
@@ -874,42 +875,50 @@ async function update(quiet) {
   log('Update finished in ' + secs(start) + '.', 'ok');
 }
 
-// ---------- diagnosis: what does Google actually hold for each app this test created? ----------
-// Found 2026-10-14: newly created apps answer "Google Drive: unable to open the file" at their address.
-// This lists every setup-test app in the person's Drive, what Google says about its deployments, and what
-// each address answers to an anonymous request (an approval page, data, or the Drive error).
-async function peek(url) {
-  try {
-    const r = await fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'check=ping', { cache: 'no-store' });
-    const t = (await r.text()).replace(/\s+/g, ' ').trim();
-    const kind = /^\s*\{/.test(t) ? 'JSON (works)' : /Authorization|authoriz|Review permissions|Revisar permisos|autoriz/i.test(t) ? 'approval/authorization page' : /unable to open|Impossible d|No se puede abrir|Drive/i.test(t.slice(0, 600)) ? 'GOOGLE DRIVE ERROR PAGE' : 'other page';
-    return 'HTTP ' + r.status + ' → ' + kind + ' — "' + t.slice(0, 110) + '"';
-  } catch (e) { return 'could not read the answer (' + e.message + ')'; }
+// ---------- diagnosis: what does Google actually hold for the apps this test created? ----------
+// Found 2026-10-14: newly created apps answer "Google Drive: unable to open the file" at their address, and
+// Google answers HTTP 404 for one of them. This asks Google directly about THIS phone's app, then lists every
+// test sheet in Drive (trashed or not). Full addresses are logged so they can be tried from outside.
+async function describeApp(scriptId) {
+  const deps = await google_('GET', 'https://script.googleapis.com/v1/projects/' + scriptId + '/deployments');
+  for (const d of (deps.deployments || [])) {
+    const web = (d.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
+    log('    deployment ' + d.deploymentId + ' | version ' + (d.deploymentConfig && d.deploymentConfig.versionNumber) + ' | "' + (d.deploymentConfig && d.deploymentConfig.description) + '" | updated ' + d.updateTime + ' | web app entry: ' + (web ? 'yes' : 'NO') + (web && web.webApp ? ' | config ' + JSON.stringify(web.webApp.entryPointConfig || {}) : ''));
+    if (web && web.webApp && web.webApp.url) log('      address: ' + web.webApp.url);
+    else if (d.deploymentId !== '@HEAD') log('      no address listed; built address: ' + execUrl(d.deploymentId));
+  }
+  const c = await google_('GET', 'https://script.googleapis.com/v1/projects/' + scriptId + '/content');
+  const man = (c.files || []).find((x) => x.name === 'appsscript');
+  log('    files: ' + (c.files || []).length + ' | manifest: ' + (man ? man.source.replace(/\s+/g, ' ') : 'MISSING'));
 }
 async function diagnose() {
   log('--- Diagnosis start ---');
-  const q = encodeURIComponent("appProperties has { key='setupTest' and value='1' } and trashed=false");
-  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime&fields=files(id,createdTime,appProperties)');
-  const apps = res.files || [];
-  log('Apps this test created that are still in Drive: ' + apps.length + '. This phone is working on: script ' + (state.scriptId || 'none') + ', deployment ' + (state.deploymentId || 'none') + '.');
-  for (const f of apps) {
-    const ap = f.appProperties || {};
-    log('· sheet created ' + f.createdTime + ' | script ' + (ap.scriptId || '—') + ' | deployment ' + (ap.deploymentId || '—') + ' | release ' + (ap.release || '—') + ' | approved ' + (ap.permissionDone || 'no') + ' | stages ' + (ap.stages || '—'));
-    if (!ap.scriptId) continue;
+  try { const a = await google_('GET', 'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)'); log('Signed in to Google as ' + (a.user && a.user.emailAddress) + '.'); } catch (e) { log('Could not read the account: ' + e.message, 'bad'); }
+
+  // 1. the app THIS phone is working on
+  log('This phone’s app: script ' + (state.scriptId || 'none') + ' | sheet ' + (state.spreadsheetId || 'none') + ' | deployment ' + (state.deploymentId || 'none') + ' | address ' + (state.webAppUrl || 'none'));
+  if (state.scriptId) {
     try {
-      const deps = await google_('GET', 'https://script.googleapis.com/v1/projects/' + ap.scriptId + '/deployments');
-      for (const d of (deps.deployments || [])) {
-        const web = (d.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
-        const url = web && web.webApp && web.webApp.url;
-        log('    deployment ' + d.deploymentId + ' | version ' + (d.deploymentConfig && d.deploymentConfig.versionNumber) + ' | "' + (d.deploymentConfig && d.deploymentConfig.description) + '" | web app: ' + (web ? 'yes' : 'NO') + (web && web.webApp ? ' | config ' + JSON.stringify(web.webApp.entryPointConfig || {}) : ''));
-        if (url) log('      its address answers: ' + (await peek(url)));
-        else if (d.deploymentId !== '@HEAD') log('      no web address listed; built address answers: ' + (await peek(execUrl(d.deploymentId))));
+      const p = await google_('GET', 'https://script.googleapis.com/v1/projects/' + state.scriptId);
+      log('  script project exists: "' + p.title + '" | parent file ' + (p.parentId || 'none') + ' | created ' + p.createTime + ' | updated ' + p.updateTime);
+      if (p.parentId) {
+        try {
+          const f = await google_('GET', 'https://www.googleapis.com/drive/v3/files/' + p.parentId + '?fields=id,name,trashed,createdTime,appProperties');
+          log('  its sheet: "' + f.name + '" | TRASHED: ' + f.trashed + ' | created ' + f.createdTime + ' | saved-progress keys: ' + Object.keys(f.appProperties || {}).join(',') );
+        } catch (e) { log('  its sheet: ' + e.message, 'bad'); }
       }
-      const c = await google_('GET', 'https://script.googleapis.com/v1/projects/' + ap.scriptId + '/content');
-      const man = (c.files || []).find((x) => x.name === 'appsscript');
-      log('    files: ' + (c.files || []).length + ' | manifest: ' + (man ? man.source.replace(/\s+/g, ' ') : 'MISSING'));
-    } catch (e) { log('    could not read this app: ' + e.message, 'bad'); }
+      await describeApp(state.scriptId);
+    } catch (e) { log('  script project: ' + e.message, 'bad'); }
   }
+
+  // 2. every test sheet in Drive that this page can see, trashed or not
+  try {
+    const q = encodeURIComponent("mimeType='application/vnd.google-apps.spreadsheet' and name contains 'Expense Tracker'");
+    const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime&fields=files(id,name,trashed,createdTime,appProperties)');
+    const sheets = res.files || [];
+    log('Test sheets this page can see in Drive (including trashed): ' + sheets.length + '.');
+    sheets.forEach((f) => { const ap = f.appProperties || {}; log('· "' + f.name + '" | created ' + f.createdTime + ' | trashed ' + f.trashed + ' | script ' + (ap.scriptId || '—') + ' | deployment ' + (ap.deploymentId || '—') + ' | approved ' + (ap.permissionDone || 'no')); });
+  } catch (e) { log('Could not list the test sheets: ' + e.message, 'bad'); }
   log('--- Diagnosis end — tap “Copy log” and send it ---', 'ok');
   say('s5', '✓ Diagnosis written to the log. Tap “Copy log” and send it.');
 }
