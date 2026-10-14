@@ -623,6 +623,8 @@
     "recSplit.summaryCustom": { en: "{cur} {assigned} of {cur} {total} assigned · {cur} {left} left to you", es: "{cur} {assigned} de {cur} {total} asignados · te quedan {cur} {left}" },
 
     // ---- expected ----
+    "income.show": { en: "👁 Show income amounts", es: "👁 Mostrar montos de ingresos" },
+    "income.hide": { en: "🙈 Hide income amounts", es: "🙈 Ocultar montos de ingresos" },
     "expected.needsRate": { en: "Needs an exchange rate", es: "Necesita un tipo de cambio" },
     "expected.day": { en: "Day {day}", es: "Día {day}" },
     "expected.markPaid": { en: "✓ Mark as paid…", es: "✓ Marcar como pagado…" },

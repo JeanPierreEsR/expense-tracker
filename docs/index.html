@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-14T17:11:41Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-14T20:11:30Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -188,6 +188,7 @@
       <div class="card" id="expected-recurring-card" hidden>
         <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
         <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
+        <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
         <div id="expected-recurring-groups"></div>
       </div>
 
@@ -415,6 +416,8 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
         <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
+
+        <button type="button" class="add-inline income-toggle-btn" id="recurring-income-toggle" hidden></button>
 
         <div class="breakdown-section">
           <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
@@ -1154,12 +1157,12 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="i18n.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="receipt-parse.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="bill-split.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="app.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="statement-parsers.js?v=2026-10-14T17:11:41Z"></script>
-  <script src="statements.js?v=2026-10-14T17:11:41Z"></script>
+  <script src="strings.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="i18n.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="receipt-parse.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="bill-split.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="app.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="statement-parsers.js?v=2026-10-14T20:11:30Z"></script>
+  <script src="statements.js?v=2026-10-14T20:11:30Z"></script>
 </body>
 </html>

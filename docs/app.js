@@ -5353,7 +5353,7 @@ function renderRecurringRow_(re) {
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
       <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}</div>
     </div>
-    <div class="recurring-row-amount${isIncome ? " income" : ""}">${renderRecurringAmountHtml_(re)}</div>
+    <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
   row.addEventListener("click", () => openRecurringModal(re));
   return row;
@@ -5403,6 +5403,8 @@ async function refreshRecurringExpenses() {
     .sort((a, b) => (b.end_date || "").localeCompare(a.end_date || ""));
   const onetime = items.filter((re) => re.frequency === "once");
 
+  document.getElementById("recurring-income-toggle").hidden = !items.some((re) => re.category_type === "income");
+  syncIncomeToggles_();
   list.innerHTML = "";
   emptyNote.textContent = allRecurring.length ? tr("recurring.noCurrent") : tr("recurring.empty");
   emptyNote.hidden = recurring.length > 0;
@@ -5927,6 +5929,30 @@ document.getElementById("recurring-delete-btn").addEventListener("click", async 
   refreshRecurringExpenses();
 });
 
+// ---- Programmed income is hidden by default ----
+// Income amounts (a salary, say) can be sensitive, so every programmed-income
+// amount renders as "••••" until the owner taps "Show income amounts". One
+// shared switch (a class on <body>) covers the "Programmed this month" card
+// and the Programmed income/expenses screen, so no list needs re-drawing — and
+// an open group keeps its place. Not remembered: each app launch starts hidden.
+function sensitiveHtml_(realHtml) {
+  return `<span class="sens-real">${realHtml}</span><span class="sens-mask primary-amt" aria-hidden="true">••••</span>`;
+}
+
+function syncIncomeToggles_() {
+  const revealed = document.body.classList.contains("income-revealed");
+  document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
+    btn.textContent = tr(revealed ? "income.hide" : "income.show");
+  });
+}
+
+document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.body.classList.toggle("income-revealed");
+    syncIncomeToggles_();
+  });
+});
+
 // ---- "Programmed this month" (Entries tab) ----
 
 // A group's summary row is purely a toggle for its own detail list — no
@@ -5961,6 +5987,8 @@ async function refreshExpectedRecurring(prefetchedGroups) {
   }
   card.hidden = false;
   container.innerHTML = "";
+  document.getElementById("expected-income-toggle").hidden = !groups.some((g) => g.type === "income");
+  syncIncomeToggles_();
 
   groups.forEach((g) => {
     const group = document.createElement("div");
@@ -5983,16 +6011,22 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const detail = document.createElement("div");
     detail.className = "expected-recurring-detail";
     detail.hidden = true;
-    detail.innerHTML = g.items.map((item) => `
-      <div class="expected-recurring-item${item.overdue ? " overdue" : ""}">
-        <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
-        <span class="expected-recurring-item-amount">${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${moneyFmt(item.amount)}</span>
-      </div>
-      <div class="expected-recurring-actions">
-        <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
-        <button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>
-      </div>
-    `).join("");
+    // Each item and its two buttons sit together in one bordered box, so it's
+    // obvious which item a button belongs to.
+    detail.innerHTML = g.items.map((item) => {
+      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${moneyFmt(item.amount)}`;
+      return `
+      <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
+        <div class="expected-recurring-item">
+          <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
+          <span class="expected-recurring-item-amount">${isIncome ? sensitiveHtml_(itemAmt) : itemAmt}</span>
+        </div>
+        <div class="expected-recurring-actions">
+          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
+          <button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>
+        </div>
+      </div>`;
+    }).join("");
     detail.querySelectorAll(".expected-recurring-actions button").forEach((btn) => {
       const item = g.items.find((i) => i.id === btn.dataset.id);
       btn.addEventListener("click", (e) => {
@@ -6006,7 +6040,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
       <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length })}</span>
-      <span class="expected-recurring-amount${isIncome ? " income" : ""}">${amountHtml}</span>
+      <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
 

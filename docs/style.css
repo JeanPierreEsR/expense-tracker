@@ -1228,14 +1228,33 @@ button.primary:disabled {
   padding-bottom: 10px;
 }
 
+/* One bordered box per programmed item: the item's line and its two buttons
+   together, so a button is clearly that item's. */
+.expected-recurring-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 8px 10px 10px;
+  margin-bottom: 8px;
+}
+
+.expected-recurring-entry.overdue { border-color: #e0932a; }
+
 .expected-recurring-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 0 6px 4px;
-  font-size: 0.82rem;
-  color: var(--muted);
+  padding: 2px 0 8px;
+  font-size: 0.88rem;
+  color: var(--text);
 }
+
+/* Programmed income is masked until "Show income amounts" is tapped. */
+.sens-real { display: none; }
+.sens-mask { letter-spacing: 1px; }
+body.income-revealed .sens-real { display: contents; }
+body.income-revealed .sens-mask { display: none; }
+.income-toggle-btn { margin: 4px 0 8px; }
 
 /* General rule: wherever a row pairs a label with an amount, the amount
    never wraps — it shrinks the label instead, not itself. A long label
@@ -1261,16 +1280,17 @@ button.primary:disabled {
 
 .expected-recurring-actions {
   display: flex;
-  gap: 14px;
-  padding: 0 0 8px 4px;
+  gap: 8px;
 }
 
 .expected-recurring-actions button {
-  background: none;
-  border: none;
-  min-height: 44px;
-  padding: 4px 2px;
-  font-size: 0.78rem;
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 4px 6px;
+  font-size: 0.8rem;
   color: var(--accent, #0a66d6);
   cursor: pointer;
 }
