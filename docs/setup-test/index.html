@@ -46,6 +46,7 @@
 </head>
 <body>
 <main>
+  <p class="small" style="text-align:right;margin:0"><a href="#" data-lang="es">Español</a> · <a href="#" data-lang="en">English</a></p>
   <h1 data-t="title"></h1>
   <p class="banner" data-t="banner"></p>
 
@@ -126,7 +127,9 @@ const STAGE_SCOPES = {
 };
 
 // ---------- language: from the phone, no question asked ----------
-const LANG = ((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+let langChoice = null;
+try { langChoice = localStorage.getItem('setupTestLang'); } catch (e) {}
+const LANG = langChoice || (((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en');
 document.documentElement.lang = LANG;
 const T = {
   en: {
@@ -150,11 +153,11 @@ const T = {
     continueQ: 'Approved it but weren’t sent back here?',
     continueBtn: 'I approved it — continue',
     keepTitle: '3. Keep the app awake (optional)',
-    keepAsk: '<b>Google will ask you to let your copy:</b><ul><li>run while you are not using it — a small timer every 5 minutes;</li><li>connect to an outside address — only to wake itself up.</li></ul><p style="margin:6px 0 0">Without it, the first open of the day takes a few extra seconds.</p>',
+    keepAsk: '<b>Google will ask you to let your copy:</b><ul><li>run while you are not using it — a small timer every 5 minutes;</li><li>connect to an outside address — only to wake itself up.</li></ul><p style="margin:6px 0 0">Without it, the first open of the day takes a few extra seconds. Google shows a red warning and emails you a “security alert” afterwards — both are normal.</p>',
     keepBtn: 'Keep it awake',
     keepDone: '✓ Keep-awake is on.',
     gmailTitle: '4. Read my bank emails (optional)',
-    gmailAsk: '<b>Google will ask you to let your copy:</b><ul><li><b>see</b> your emails — read-only: it can never send, change or delete one;</li><li>run while you are not using it — to check every 15 minutes.</li></ul><p style="margin:6px 0 0">Here it only <b>counts</b> your emails from the last 7 days; it opens none. Google shows a red warning because email is sensitive — tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>.</p>',
+    gmailAsk: '<b>Google will ask you to let your copy:</b><ul><li><b>see</b> your emails — read-only: it can never send, change or delete one;</li><li>run while you are not using it — to check every 15 minutes.</li></ul><p style="margin:6px 0 0">Here it only <b>counts</b> your emails from the last 7 days; it opens none. Google shows a red warning because email is sensitive — tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>. Google then emails you a “security alert” — that is normal.</p>',
     gmailBtn: 'Turn on email reading',
     gmailDone: '✓ Email reading works: {n} emails in the last 7 days (counted, none opened).',
     updateTitle: '5. Update test',
@@ -185,11 +188,11 @@ const T = {
     continueQ: '¿Lo aprobaste pero no volviste aquí?',
     continueBtn: 'Ya lo aprobé — continuar',
     keepTitle: '3. Mantener la app despierta (opcional)',
-    keepAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>funcione cuando no la estás usando — un pequeño temporizador cada 5 minutos;</li><li>se conecte a una dirección externa — solo para despertarse a sí misma.</li></ul><p style="margin:6px 0 0">Sin esto, la primera vez que la abres en el día tarda unos segundos más.</p>',
+    keepAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>funcione cuando no la estás usando — un pequeño temporizador cada 5 minutos;</li><li>se conecte a una dirección externa — solo para despertarse a sí misma.</li></ul><p style="margin:6px 0 0">Sin esto, la primera vez que la abres en el día tarda unos segundos más. Google muestra un aviso rojo y luego te envía un correo de “alerta de seguridad” — ambos son normales.</p>',
     keepBtn: 'Mantenerla despierta',
     keepDone: '✓ La app se mantiene despierta.',
     gmailTitle: '4. Leer mis correos del banco (opcional)',
-    gmailAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li><b>vea</b> tus correos — solo lectura: nunca puede enviar, cambiar ni borrar uno;</li><li>funcione cuando no la estás usando — para revisar cada 15 minutos.</li></ul><p style="margin:6px 0 0">Aquí solo <b>cuenta</b> tus correos de los últimos 7 días; no abre ninguno. Google muestra un aviso rojo porque el correo es sensible — toca <b>Configuración avanzada</b> y luego <b>Ir a Expense Tracker Setup</b>.</p>',
+    gmailAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li><b>vea</b> tus correos — solo lectura: nunca puede enviar, cambiar ni borrar uno;</li><li>funcione cuando no la estás usando — para revisar cada 15 minutos.</li></ul><p style="margin:6px 0 0">Aquí solo <b>cuenta</b> tus correos de los últimos 7 días; no abre ninguno. Google muestra un aviso rojo porque el correo es sensible — toca <b>Configuración avanzada</b> y luego <b>Ir a Expense Tracker Setup</b>. Luego Google te envía un correo de “alerta de seguridad” — es normal.</p>',
     gmailBtn: 'Activar lectura de correos',
     gmailDone: '✓ La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
     updateTitle: '5. Prueba de actualización',
@@ -201,6 +204,11 @@ const T = {
   }
 }[LANG];
 document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
+document.querySelectorAll('[data-lang]').forEach((a) => a.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  try { localStorage.setItem('setupTestLang', a.getAttribute('data-lang')); } catch (e) {}
+  location.reload();
+}));
 
 // ---------- small helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -424,6 +432,16 @@ async function check(kind) {
   const text = await res.text();
   try { return JSON.parse(text); } catch (e) { throw new Error('Backend answered with a page, not data (not approved yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
 }
+async function waitForRelease(release) {
+  let st;
+  for (let i = 0; i < 8; i++) {
+    st = await status();
+    if (st.release === release) return st;
+    log('Google has not switched to the new version yet — checking again in 4 s…');
+    await sleep(4000);
+  }
+  throw new Error('Backend still reports the old release after 30 s (' + st.release + ').');
+}
 async function status() {
   const st = await check('version');
   log('Backend status: release ' + st.release + ', set up: ' + st.setUp + ', access code: ' + (st.codeFor ? (st.codeFor === st.release ? 'set by this release' : 'set by an earlier release') : 'not from this page') + ', keep-awake: ' + st.keepAwake + ', last timer run: ' + (st.heartbeat || 'never') + '.');
@@ -492,8 +510,7 @@ async function finishStage(stage) {
   state.stages = p.stages; state.release = p.release; state.versionNumber = p.versionNumber; state.codeRelease = p.release; state.pending = null;
   save(); await saveProgress();
   log('Main app switched to the approved version ' + p.versionNumber + ' (' + secs(s) + ').', 'ok');
-  const st = await status();
-  if (st.release !== p.release) throw new Error('Main app still reports the old release.');
+  const st = await waitForRelease(p.release);
   await connectionCheck();
   if (stage === 'keepawake') {
     if (!st.keepAwake) throw new Error('Keep-awake timer is not on.');
@@ -503,6 +520,7 @@ async function finishStage(stage) {
     const g = await check('gmail');
     if (!g.ok) throw new Error('Email reading: ' + g.error);
     log('Email reading works: ' + g.count + ' emails in the last 7 days (counted only).', 'ok');
+    state.gmailOk = true; save();
     say('s4', T.gmailDone.replace('{n}', g.count));
   }
 }
@@ -517,8 +535,7 @@ async function update(quiet) {
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
     { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Main' } });
   log('Switched the main app to version ' + versionNumber + ' (' + secs(s) + ').', 'ok');
-  const st = await status();
-  if (st.release !== release) throw new Error('Backend still reports the old release (' + st.release + ').');
+  const st = await waitForRelease(release);
   state.release = release; state.versionNumber = versionNumber;
   if (st.codeFor === release) state.codeRelease = release;
   save(); await saveProgress();
@@ -583,7 +600,7 @@ function render() {
   if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
   if ((state.stages || []).includes('keepawake') && !$('s3').textContent) say('s3', T.keepDone);
   $('btnKeep').disabled = !state.permissionDone || (state.stages || []).includes('keepawake');
-  $('btnGmail').disabled = !state.permissionDone || (state.stages || []).includes('gmail');
+  $('btnGmail').disabled = !state.permissionDone || !!state.gmailOk;
   $('btnUpdate').disabled = !state.permissionDone;
   $('btnStatus').disabled = !state.webAppUrl;
 }

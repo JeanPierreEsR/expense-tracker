@@ -69,6 +69,24 @@ function doGet(e) {
 
   var stage = String(params.stage || '');
   if (stage === 'keepawake') protoStartKeepAwake_();
+  if (stage === 'gmail') {
+    // Google only asks for a new permission when the code actually USES it, so
+    // touch Gmail here (the mailbox profile: address + message total, no email
+    // content). If Google still didn't ask, offer its official approval link.
+    try {
+      Gmail.Users.getProfile('me');
+    } catch (err) {
+      var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+      if (info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+        return protoPage_('Expense Tracker',
+          '<p>Google needs your approval to read email. / Google necesita tu aprobación para leer correos.</p>' +
+          '<p><a target="_top" style="display:inline-block;padding:14px 20px;background:#1f5fbf;color:#fff;border-radius:10px;text-decoration:none;font-weight:600" href="' +
+          protoEsc_(info.getAuthorizationUrl()) + '">Approve in Google / Aprobar en Google</a></p>' +
+          '<p style="font-size:15px;color:#555">Then come back to the setup page and tap “I approved it — continue”. / Luego vuelve a la página de instalación y toca “Ya lo aprobé — continuar”.</p>');
+      }
+      throw err;
+    }
+  }
 
   var back = String(params['return'] || '');
   var allowed = PROTO_RETURN_PREFIXES_.some(function (p) { return back.indexOf(p) === 0; });
