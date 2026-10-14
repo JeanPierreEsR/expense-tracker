@@ -221,6 +221,8 @@ const T = {
     working: 'Working…',
     notTicked: 'Please tap the button again and tick “Select all” on Google’s screen before Continue.',
     buildFailed: 'Preparing your sheet did not finish. Tap “Try again”.',
+    popupFailed: 'Google’s sign-in window could not open. Tap the button once more (just once). If it still fails, reload this page and try again; Safari must allow pop-ups for this page.',
+    popupClosed: 'The Google sign-in window was closed before it finished. Tap the button to try again.',
     p_google: 'Opening Google…',
     p_sheet: 'Creating your Google Sheet…',
     p_project: 'Setting up your app…',
@@ -288,6 +290,8 @@ const T = {
     working: 'Trabajando…',
     notTicked: 'Toca el botón otra vez y marca “Seleccionar todo” en la pantalla de Google antes de Continuar.',
     buildFailed: 'No terminó de prepararse tu hoja. Toca “Intentar de nuevo”.',
+    popupFailed: 'No se pudo abrir la ventana de inicio de sesión de Google. Toca el botón otra vez (solo una vez). Si sigue fallando, recarga esta página e inténtalo de nuevo; Safari debe permitir ventanas emergentes en esta página.',
+    popupClosed: 'La ventana de inicio de sesión de Google se cerró antes de terminar. Toca el botón para intentarlo de nuevo.',
     p_google: 'Abriendo Google…',
     p_sheet: 'Creando tu hoja de Google…',
     p_project: 'Configurando tu app…',
@@ -392,7 +396,13 @@ function getToken() {
       log('Signed in with Google (setup page permission granted).', 'ok');
       resolve(accessToken);
     };
-    tokenClient.error_callback = (err) => reject(new Error('Google sign-in window: ' + (err && err.type || 'closed')));
+    tokenClient.error_callback = (err) => {
+      const type = (err && err.type) || 'closed';
+      log('Google sign-in window: ' + type + ' (page visible: ' + document.visibilityState + '; tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').', 'bad');
+      tokenClient = null;   // use a brand-new sign-in object next time (a stuck one kept failing in the 2026-10-14 13:46 run)
+      reject(new Error(type === 'popup_failed_to_open' ? T.popupFailed : type === 'popup_closed' ? T.popupClosed : 'Google sign-in window: ' + type));
+    };
+    log('Opening the Google sign-in window (tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').');
     tokenClient.requestAccessToken();
   });
 }
@@ -895,9 +905,11 @@ async function run(boxId, fn, btnId, step) {
   showRetry = false;
   currentStep = step || '';
   setTop('running', currentStep, T.working, 3);
-  startClock(); keepScreenOn(true);
+  startClock();
+  const work = fn();   // started first: Google's sign-in window must open straight from the tap
+  keepScreenOn(true);
   let failed = false;
-  try { await fn(); }
+  try { await work; }
   catch (e) {
     failed = true;
     log(e.message, 'bad');
