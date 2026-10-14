@@ -64,9 +64,8 @@
     <p>Opens your new backend. Google asks you to approve it (it will say the app isn't verified — that's expected), then sends you back here.</p>
     <div id="s2"></div>
     <button id="btnAuthorize" disabled>Open my backend</button>
-    <p>Button didn't bring you back? Paste the access code shown there:</p>
-    <input id="codeInput" placeholder="access code" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <button class="secondary" id="btnSaveCode">Use this code</button>
+    <p>Approved it but weren't sent back here?</p>
+    <button class="secondary" id="btnContinue" disabled>I approved it — continue</button>
   </div>
 
   <div class="step">
@@ -176,6 +175,17 @@ async function google_(method, url, body) {
 }
 
 // ---------- the backend code (from this public repo) ----------
+// The setup page makes the access code itself and writes it into the person's
+// own copy of the backend, so it never travels back through a link.
+function ensureCode() {
+  if (state.accessCode) return;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  state.accessCode = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  save();
+  log('Made a new access code on this phone (' + state.accessCode.length + ' characters).');
+}
+
 async function backendFiles(release) {
   const start = Date.now();
   const listRes = await fetch('https://api.github.com/repos/' + REPO + '/contents/backend?ref=' + REF);
@@ -191,7 +201,7 @@ async function backendFiles(release) {
   }));
   const firstRun = await fetch('FirstRun.gs', { cache: 'no-store' });
   if (!firstRun.ok) throw new Error('FirstRun.gs: HTTP ' + firstRun.status);
-  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release) });
+  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '') });
   log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + ').');
   return files;
 }
@@ -227,7 +237,9 @@ async function install() {
   } else log('Backend already created — reusing it.');
 
   if (!state.deploymentId) {
+    ensureCode();
     state.release = new Date().toISOString();
+    state.codeRelease = state.release;
     const versionNumber = await pushAndVersion(state.release, 'Install');
     const s = Date.now();
     const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments',
@@ -243,12 +255,24 @@ async function install() {
 }
 
 // ---------- step 2: back from the backend with the access code ----------
-function readCodeFromHash() {
-  const m = location.hash.match(/code=([A-Za-z0-9]+)(?:&secs=(\d+))?/);
+function readReturn() {
+  const m = location.hash.match(/^#done(?:&secs=(\d+))?/);
   if (!m) return;
-  state.accessCode = m[1]; save();
+  state.permissionDone = true; save();
   history.replaceState(null, '', location.pathname + location.search);
-  log('Back from the backend: permission given, sheet tabs + starter data built' + (m[2] ? ' in ' + m[2] + ' s' : '') + ', access code received (' + m[1].length + ' characters).', 'ok');
+  log('Back from the backend: permission given' + (m[1] ? ', sheet tabs + starter data built in ' + m[1] + ' s' : '') + '.', 'ok');
+}
+
+// For when Google didn't send the person back: ask the backend directly.
+async function continueAfterApproval() {
+  const st = await status();
+  if (!st.setUp) throw new Error('The backend is not set up yet — tap “Open my backend” and approve it first.');
+  state.permissionDone = true; save();
+  log('Backend confirms it is set up.', 'ok');
+  if (!state.accessCode || st.codeFor !== state.codeRelease) {
+    log('The backend does not have this page\'s access code yet — sending it with an update…');
+    await update();
+  }
 }
 
 // ---------- calling the backend exactly like the app does ----------
@@ -300,6 +324,7 @@ async function testConnection() {
 // ---------- step 4 ----------
 async function update() {
   const start = Date.now();
+  ensureCode();
   const release = new Date().toISOString();
   const versionNumber = await pushAndVersion(release, 'Update');
   const s = Date.now();
@@ -309,7 +334,9 @@ async function update() {
   const st = await status();
   if (st.release !== release) throw new Error('Backend still reports the old release (' + st.release + ').');
   log('Backend now runs the new release.', 'ok');
-  state.release = release; state.versionNumber = versionNumber; save();
+  state.release = release; state.versionNumber = versionNumber;
+  if (st.codeFor === release) state.codeRelease = release;
+  save();
   if (state.testEntryId) {
     const back = await api('getEntry', { id: state.testEntryId });
     if (!back.data) throw new Error('The test entry is gone after the update!');
@@ -323,7 +350,7 @@ async function status() {
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch (e) { throw new Error('Status: not a JSON answer (permission not given yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
-  log('Backend status: release ' + json.release + ', set up: ' + json.setUp + ', hourly timer last ran: ' + (json.heartbeat || 'never') + '.');
+  log('Backend status: release ' + json.release + ', set up: ' + json.setUp + ', access code: ' + (json.codeFor ? (json.codeFor === json.release ? 'set by this release' : 'set by an earlier release') : 'not from this page') + ', hourly timer last ran: ' + (json.heartbeat || 'never') + '.');
   return json;
 }
 
@@ -363,11 +390,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && ap
 // ---------- wiring ----------
 function render() {
   $('s1').innerHTML = state.webAppUrl ? '<span class="done">✓ Created and published.</span> <a href="' + state.spreadsheetUrl + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '';
-  $('s2').innerHTML = state.accessCode ? '<span class="done">✓ Permission given, access code received.</span>' : '';
+  $('s2').innerHTML = state.permissionDone ? '<span class="done">✓ Permission given, backend set up.</span>' : '';
   $('s3').innerHTML = state.testEntryId ? '<span class="done">✓ Sign-in and saving work.</span>' : '';
   $('btnAuthorize').disabled = !state.webAppUrl;
   $('btnStatus').disabled = !state.webAppUrl;
-  $('btnTest').disabled = !state.accessCode;
+  $('btnTest').disabled = !state.permissionDone;
+  $('btnContinue').disabled = !state.webAppUrl;
   $('btnUpdate').disabled = !state.webAppUrl;
 }
 function wire(id, fn) {
@@ -381,7 +409,7 @@ function wire(id, fn) {
       if (e.apiOff) { log('→ Showing the one-time Google switch card.'); startApiWait(); }
     }
     render();
-    if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnSaveCode') b.disabled = false;
+    if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnContinue') b.disabled = false;
     // Show the problem right under the button too — the log is far down the page.
     const box = error && !error.apiOff && b.closest('.step') && b.closest('.step').querySelector('[id^="s"]');
     if (box) {
@@ -396,12 +424,7 @@ wire('btnAuthorize', async () => {
   log('Opening the backend for permission…');
   location.href = state.webAppUrl + '?return=' + encodeURIComponent(back);
 });
-wire('btnSaveCode', async () => {
-  const code = $('codeInput').value.trim();
-  if (!/^[A-Za-z0-9]{16,}$/.test(code)) throw new Error('That does not look like an access code.');
-  state.accessCode = code; save(); $('codeInput').value = '';
-  log('Access code entered by hand.', 'ok');
-});
+wire('btnContinue', continueAfterApproval);
 wire('btnTest', testConnection);
 wire('btnUpdate', update);
 wire('btnStatus', status);
@@ -415,7 +438,7 @@ wire('btnForget', async () => {
   log('This page forgot the test. (Delete the spreadsheet in Drive to remove it from the account.)');
 });
 
-readCodeFromHash();
+readReturn();
 render();
 log(state.webAppUrl ? 'Resuming an earlier test.' : 'Ready.');
 </script>
