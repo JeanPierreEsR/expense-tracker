@@ -150,6 +150,7 @@
     <button class="secondary" id="btnDiag">Diagnose the app addresses (then Copy log)</button>
     <button class="secondary" id="btnStatus" disabled>Check backend status</button>
     <button class="secondary" id="btnCopy">Copy log</button>
+    <button class="secondary" id="btnClearLog">Clear log</button>
     <button class="secondary" id="btnForget">Forget this test on this phone</button>
   </div>
 
@@ -347,11 +348,24 @@ const $ = (id) => document.getElementById(id);
 let state = {};
 try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { state = {}; }
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
-function log(msg, kind) {
+// The log is kept on the phone (last 400 lines) so it is still there after the page jumps to Google and back,
+// or after a reload: found 2026-10-14 that the moment of a failure was lost because the page had left.
+const LOG_KEY = 'setupTestLog';
+let savedLog = [];
+try { savedLog = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch (e) { savedLog = []; }
+function addLogLine(text, kind) {
   const li = document.createElement('li');
-  li.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  li.textContent = text;
   if (kind) li.className = kind;
   $('log').appendChild(li);
+}
+savedLog.forEach((l) => addLogLine(l.t, l.k));
+function log(msg, kind) {
+  const text = new Date().toLocaleTimeString() + '  ' + msg;
+  addLogLine(text, kind);
+  savedLog.push({ t: text, k: kind || '' });
+  if (savedLog.length > 400) savedLog = savedLog.slice(-400);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(savedLog)); } catch (e) {}
 }
 function secs(start) { return ((Date.now() - start) / 1000).toFixed(1) + ' s'; }
 function say(boxId, text, kind) { $(boxId).innerHTML = ''; const sp = document.createElement('span'); sp.className = kind || 'done'; sp.textContent = text; $(boxId).appendChild(sp); }
@@ -917,7 +931,11 @@ async function diagnose() {
     const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime&fields=files(id,name,trashed,createdTime,appProperties)');
     const sheets = res.files || [];
     log('Test sheets this page can see in Drive (including trashed): ' + sheets.length + '.');
-    sheets.forEach((f) => { const ap = f.appProperties || {}; log('· "' + f.name + '" | created ' + f.createdTime + ' | trashed ' + f.trashed + ' | script ' + (ap.scriptId || '—') + ' | deployment ' + (ap.deploymentId || '—') + ' | approved ' + (ap.permissionDone || 'no')); });
+    for (const f of sheets) {
+      const ap = f.appProperties || {};
+      log('· "' + f.name + '" | created ' + f.createdTime + ' | trashed ' + f.trashed + ' | script ' + (ap.scriptId || '—') + ' | deployment ' + (ap.deploymentId || '—') + ' | approved ' + (ap.permissionDone || 'no'));
+      if (!f.trashed && ap.scriptId && ap.scriptId !== state.scriptId) { try { await describeApp(ap.scriptId); } catch (e) { log('    could not read this app: ' + e.message, 'bad'); } }
+    }
   } catch (e) { log('Could not list the test sheets: ' + e.message, 'bad'); }
   log('--- Diagnosis end — tap “Copy log” and send it ---', 'ok');
   say('s5', '✓ Diagnosis written to the log. Tap “Copy log” and send it.');
@@ -1089,6 +1107,7 @@ $('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'
 $('btnUpdate').addEventListener('click', () => run('s5', () => update(false), 'btnUpdate', ''));
 $('btnDiag').addEventListener('click', () => run('s5', diagnose, 'btnDiag', ''));
 $('btnStatus').addEventListener('click', () => run(null, status, 'btnStatus', ''));
+$('btnClearLog').addEventListener('click', () => { savedLog = []; try { localStorage.removeItem(LOG_KEY); } catch (e) {} $('log').innerHTML = ''; log('Log cleared.'); });
 $('btnCopy').addEventListener('click', async () => {
   const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nLanguage: ' + LANG + '\nUser agent: ' + navigator.userAgent;
   try { await navigator.clipboard.writeText(text); log('Log copied.'); } catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
