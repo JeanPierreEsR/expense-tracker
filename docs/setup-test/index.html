@@ -112,6 +112,12 @@
       <p style="color:inherit" id="openHelpBody"></p>
       <a class="bigbtn" id="openAgain" href="#" data-t="openAgainBtn"></a>
     </div>
+    <div id="variantsBox" hidden>
+      <h3>Approval-link experiment</h3>
+      <p class="small">Google said it can’t open the file. Tap each link below (each opens in a new tab) and note which ones show the approval / “Review permissions” page instead of the Google Drive error. Then tell me the letters.</p>
+      <ol type="A" id="variants"></ol>
+      <button class="secondary" id="btnCopyAddr">Copy the app’s address (to paste into a private tab)</button>
+    </div>
     <div id="s2"></div>
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
   </div>
@@ -353,7 +359,7 @@ const backUrl = () => location.origin + location.pathname;
 function goTo(url) { location.href = url; }   // the one place the page leaves for Google
 
 // ---------- the general status at the top + the status inside the pressed button ----------
-let clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
+let lastProgressAt = 0, clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
 function setTop(kind, step, text, pct) {
   $('topStatus').className = 'topstatus ' + kind;
   $('tsStep').textContent = step || '';
@@ -364,6 +370,8 @@ function setTop(kind, step, text, pct) {
 }
 // One call updates both: the big text at the top and the label of the button that was pressed.
 function progress(text, pct, step, creepTo) {
+  lastProgressAt = Date.now();
+  $('btnCancel').hidden = true;   // movement again: no need for the way out
   if (step) currentStep = step;
   $('tsBar').style.transition = 'width .5s ease';
   setTop('running', currentStep, text, pct);
@@ -372,12 +380,14 @@ function progress(text, pct, step, creepTo) {
   if (creepTo) requestAnimationFrame(() => { $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
 }
 function startClock() {
-  clockStart = Date.now(); $('tsTime').textContent = '0 s';
+  clockStart = Date.now(); lastProgressAt = Date.now(); $('tsTime').textContent = '0 s';
   clearInterval(clockTimer);
   clockTimer = setInterval(() => {
     const e = Math.round((Date.now() - clockStart) / 1000);
     $('tsTime').textContent = e + ' s';
-    if (e >= 20) $('btnCancel').hidden = false;   // still working after 20 s: offer the way out
+    // Only when nothing has moved for 90 s (the normal stages change every 10-15 s). Time the person spends
+    // on Google's own screens does not count: the clock restarts when they come back to this page.
+    if (Date.now() - lastProgressAt > 90000) $('btnCancel').hidden = false;
   }, 1000);
 }
 function stopClock() { clearInterval(clockTimer); clockTimer = null; $('tsTime').textContent = ''; $('btnCancel').hidden = true; }
@@ -400,6 +410,15 @@ function saveProgressBg() {
 // The token is also kept for this tab only (sessionStorage), so the page can
 // finish a step after coming back from Google without asking again.
 let accessToken = null, tokenExpires = 0, tokenClient = null;
+// Google's guide: create the sign-in object when the page loads, so the tap can open its window at once.
+// (Creating it inside the tap is the likely reason the window sometimes 'failed to open' on the first try.)
+function prepareSignIn() {
+  if (tokenClient) return true;
+  if (!window.google || !google.accounts || !google.accounts.oauth2) return false;
+  tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
+  return true;
+}
+const prepTimer = setInterval(() => { if (prepareSignIn()) clearInterval(prepTimer); }, 300);
 try { const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null'); if (t && t.exp > Date.now()) { accessToken = t.token; tokenExpires = t.exp; } } catch (e) {}
 function getToken() {
   if (accessToken && Date.now() < tokenExpires - 60000) return Promise.resolve(accessToken);
@@ -415,13 +434,13 @@ function getToken() {
       clearTimeout(vt);
       if (document.visibilityState === 'visible') vt = setTimeout(() => {
         log('Back on this page with no sign-in answer — treating Google’s window as closed.', 'bad');
-        tokenClient = null;
+        tokenClient = null; setTimeout(prepareSignIn, 300);
         reject(new Error(T.popupClosed));
       }, 5000);
     };
     document.addEventListener('visibilitychange', onVis);
     if (!window.google || !google.accounts || !google.accounts.oauth2) { reject(new Error('Google sign-in did not load yet — wait a second and tap again.')); return; }
-    if (!tokenClient) tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
+    if (!tokenClient && !prepareSignIn()) { reject(new Error('Google sign-in did not load yet — wait a second and tap again.')); return; }
     tokenClient.callback = (resp) => {
       if (resp.error) { reject(new Error('Google sign-in: ' + resp.error)); return; }
       const scopes = SCOPES.split(' ');
@@ -440,6 +459,7 @@ function getToken() {
       const type = (err && err.type) || 'closed';
       log('Google sign-in window: ' + type + ' (page visible: ' + document.visibilityState + '; tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').', 'bad');
       tokenClient = null;   // use a brand-new sign-in object next time (a stuck one kept failing in the 2026-10-14 13:46 run)
+      setTimeout(prepareSignIn, 300);   // ...made in the background, not inside the next tap
       reject(new Error(type === 'popup_failed_to_open' ? T.popupFailed : type === 'popup_closed' ? T.popupClosed : 'Google sign-in window: ' + type));
     };
     log('Opening the Google sign-in window (tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').');
@@ -879,7 +899,7 @@ async function retryInstall() {
     else { log(e.message, 'bad'); $('apiWait').textContent = e.message; }
   } finally { apiRetrying = false; render(); }
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && apiRetryTimer) retryInstall(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) lastProgressAt = Date.now(); if (!document.hidden && apiRetryTimer) retryInstall(); });
 
 async function goToFirstApproval() {
   if (state.permissionDone || !state.webAppUrl) return;
@@ -889,6 +909,7 @@ async function goToFirstApproval() {
   await progressChain;   // make sure the progress note reached Drive, then go
   await accountReady;
   await sleep(2500);     // a brand-new app address needs a moment before Google serves it
+  log('Going to Google’s approval page: ' + withAccount(state.webAppUrl, 'return=…'));
   goTo(withAccount(state.webAppUrl, 'return=' + encodeURIComponent(backUrl())));
 }
 
@@ -907,6 +928,28 @@ async function handleReturn() {
   }
 }
 
+function fillVariants() {
+  const box = $('variantsBox');
+  if (!state.deploymentId || state.permissionDone) { box.hidden = true; return; }
+  box.hidden = false;
+  const id = state.deploymentId, ret = 'return=' + encodeURIComponent(backUrl());
+  const base = 'https://script.google.com/macros';
+  const list = [
+    ['no account hint (the original address)', base + '/s/' + id + '/exec?' + ret],
+    ['hint: ?authuser=' + (state.account || 'email'), withAccount(state.webAppUrl, ret)],
+    ['account number 0: /macros/u/0/s/…', base + '/u/0/s/' + id + '/exec?' + ret],
+    ['account number 1: /macros/u/1/s/…', base + '/u/1/s/' + id + '/exec?' + ret],
+    ['account number 2: /macros/u/2/s/…', base + '/u/2/s/' + id + '/exec?' + ret],
+    ['account number 3: /macros/u/3/s/…', base + '/u/3/s/' + id + '/exec?' + ret],
+    ['Google account chooser first, then the app', 'https://accounts.google.com/AccountChooser?Email=' + encodeURIComponent(state.account || '') + '&continue=' + encodeURIComponent(base + '/s/' + id + '/exec?' + ret)]
+  ];
+  $('variants').innerHTML = '';
+  list.forEach(([label, href]) => {
+    const li = document.createElement('li');
+    const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label;
+    li.appendChild(a); $('variants').appendChild(li);
+  });
+}
 // ---------- wiring ----------
 function doneBtn(id, done) {
   const b = $(id);
@@ -949,6 +992,7 @@ function render(failed) {
     else if (state.pending || state.webAppUrl) setTop('wait', T.stepAllow, T.p_wait);
     else setTop('idle', '', T.ready, 0);
   }
+  fillVariants();
   if (!busy && approvalTarget()) watchForApproval();
 }
 let busy = false;
@@ -984,6 +1028,10 @@ async function run(boxId, fn, btnId, step) {
   }
 }
 $('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup));
+$('btnCopyAddr').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(state.webAppUrl + '?return=' + encodeURIComponent(backUrl())); log('App address copied.'); $('btnCopyAddr').textContent = '✓ Copied'; }
+  catch (e) { log('Could not copy automatically.', 'bad'); }
+});
 $('btnCancel').addEventListener('click', () => { log('Stopped by the person — reloading; setup resumes where it was.'); location.reload(); });
 $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));
 $('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
