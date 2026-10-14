@@ -8,86 +8,96 @@
 <!--
   PROTOTYPE ONLY — a throwaway test of a "one-tap install" for friends & family.
   Not linked from the real app. It creates a spreadsheet + a copy of the backend
-  (from this public repo) in the Google account of whoever signs in, then checks
-  sign-in, saving, and pushing an update. Holds nothing private: the Client ID
-  below is a public identifier, not a secret.
+  (from this public repo) in the Google account of whoever signs in, asking
+  Google's permissions in separate steps (this spreadsheet only → keep-awake →
+  read-only Gmail). Holds nothing private: the Client ID is a public identifier.
+  Explanations follow the phone's language (Spanish or English); the log stays
+  in English (it is for diagnosis).
 -->
 <style>
-  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#666; --card:#fff; --line:#e3e3df; --ok:#1a7f5a; --bad:#b3261e; --accent:#1f5fbf; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --muted:#aaa; --card:#1f1f1f; --line:#333; --ok:#4cc38a; --bad:#ff8a80; --accent:#7aa7ff; } }
+  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#5f5f5f; --card:#fff; --line:#e3e3df; --ok:#1a7f5a; --bad:#b3261e; --accent:#1f5fbf; --note:#eef3fb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --muted:#aaa; --card:#1f1f1f; --line:#333; --ok:#4cc38a; --bad:#ff8a80; --accent:#7aa7ff; --note:#1d2533; } }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, Helvetica, sans-serif; }
   main { max-width:560px; margin:0 auto; padding:16px; }
   .banner { background:#fff3cd; color:#5c4400; border-radius:10px; padding:10px 12px; font-size:14px; }
   .step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin:12px 0; }
   .step h3 { margin:0 0 6px; font-size:17px; }
   .step p { margin:6px 0; color:var(--muted); font-size:14px; }
+  .ask { background:var(--note); border-radius:10px; padding:10px 12px; font-size:14px; margin:8px 0; }
+  .ask b { display:block; margin-bottom:4px; }
+  .ask li b, .ask p b { display:inline; }
+  .ask ul { margin:4px 0 0; padding-left:18px; }
+  .ask li { margin:2px 0; }
   button { font:inherit; font-weight:600; padding:12px 16px; border-radius:10px; border:0; background:var(--accent); color:#fff; width:100%; margin-top:6px; }
   button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
   button:disabled { opacity:.45; }
   .done { color:var(--ok); font-weight:600; }
-  input { font:inherit; width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
-  #log { font:12px/1.4 ui-monospace, Menlo, monospace; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 10px 30px; max-height:320px; overflow:auto; }
-  #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
-  a { color:var(--accent); }
+  .err { color:var(--bad); font-weight:600; }
   .callout { background:#fff3cd; color:#3d2e00; border-radius:12px; padding:14px; margin:10px 0; }
   .callout h3 { margin:0 0 6px; font-size:17px; }
   .callout ol { margin:6px 0 10px; padding-left:20px; }
   .bigbtn { display:block; text-align:center; font-weight:600; padding:14px 16px; border-radius:10px; background:var(--accent); color:#fff !important; text-decoration:none; }
+  #log { font:12px/1.4 ui-monospace, Menlo, monospace; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 10px 30px; max-height:320px; overflow:auto; }
+  #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
+  a { color:var(--accent); }
+  .small { font-size:13px; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <main>
-  <h1>Expense Tracker — setup test</h1>
-  <p class="banner">Test page. Use it only with the spare Google account. It creates a new spreadsheet and backend in that account; your real app is not touched.</p>
+  <h1 data-t="title"></h1>
+  <p class="banner" data-t="banner"></p>
+
+  <div class="callout" id="switchCard">
+    <h3 data-t="switchTitle"></h3>
+    <p style="color:inherit" data-t="switchIntro"></p>
+    <ol data-t="switchSteps"></ol>
+    <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
+    <p id="apiWait" style="color:inherit;margin-top:10px"></p>
+  </div>
 
   <div class="step">
-    <h3>1. Create my tracker</h3>
-    <p>Signs in with Google, then creates the spreadsheet and the backend in your account and publishes it.</p>
+    <h3 data-t="createTitle"></h3>
+    <div class="ask" data-t="createAsk"></div>
     <div id="s1"></div>
-    <div class="callout" id="apiCard" hidden>
-      <h3>One-time Google switch</h3>
-      <p style="color:inherit">Google asks you to turn on one setting before this page may create your tracker.</p>
-      <ol>
-        <li>Tap the button below — a Google page opens in a new tab.</li>
-        <li>Turn on <b>Google Apps Script API</b>.</li>
-        <li>Come back to this tab. It continues by itself (Google can take a few minutes to notice).</li>
-      </ol>
-      <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">Open Google's switch</a>
-      <p id="apiWait" style="color:inherit;margin-top:10px"></p>
-    </div>
-    <button id="btnInstall">Create my tracker</button>
+    <button id="btnInstall" data-t="createBtn"></button>
   </div>
 
   <div class="step">
-    <h3>2. Give permission</h3>
-    <p>Opens your new backend. Google asks you to approve it (it will say the app isn't verified — that's expected), then sends you back here.</p>
+    <h3 data-t="approveTitle"></h3>
+    <div class="ask" data-t="approveAsk"></div>
     <div id="s2"></div>
-    <button id="btnAuthorize" disabled>Open my backend</button>
-    <p>Approved it but weren't sent back here?</p>
-    <button class="secondary" id="btnContinue" disabled>I approved it — continue</button>
+    <p class="small" data-t="continueQ"></p>
+    <button class="secondary" id="btnContinue" data-t="continueBtn"></button>
   </div>
 
   <div class="step">
-    <h3>3. Test the connection</h3>
-    <p>Signs in to your backend like the app does, saves a test entry (S/ 1.00) and reads it back.</p>
+    <h3 data-t="keepTitle"></h3>
+    <div class="ask" data-t="keepAsk"></div>
     <div id="s3"></div>
-    <button id="btnTest" disabled>Test connection</button>
+    <button id="btnKeep" data-t="keepBtn" disabled></button>
   </div>
 
   <div class="step">
-    <h3>4. Push an update</h3>
-    <p>Sends a newer copy of the backend, then checks it arrived and the test entry is still there.</p>
+    <h3 data-t="gmailTitle"></h3>
+    <div class="ask" data-t="gmailAsk"></div>
     <div id="s4"></div>
-    <button id="btnUpdate" disabled>Update my backend</button>
+    <button id="btnGmail" data-t="gmailBtn" disabled></button>
+  </div>
+
+  <div class="step">
+    <h3 data-t="updateTitle"></h3>
+    <p data-t="updateBody"></p>
+    <div id="s5"></div>
+    <button id="btnUpdate" data-t="updateBtn" disabled></button>
   </div>
 
   <div class="step">
     <h3>Diagnostics</h3>
     <button class="secondary" id="btnStatus" disabled>Check backend status</button>
     <button class="secondary" id="btnCopy">Copy log</button>
-    <button class="secondary" id="btnForget">Forget this test (start over)</button>
-    <p>“Forget” only clears this page's memory. To remove the test from the account, delete the spreadsheet “Expense Tracker (setup test)” in Google Drive — its backend goes with it.</p>
+    <button class="secondary" id="btnForget">Forget this test on this phone</button>
   </div>
 
   <h3>Log</h3>
@@ -104,49 +114,132 @@ const SCOPES = [
 const REPO = 'JeanPierreEsR/expense-tracker';
 const REF = 'main';
 const STORE_KEY = 'setupTestState';
+const TOKEN_KEY = 'setupTestToken';
 const SHEET_TITLE = 'Expense Tracker (setup test)';
+const BACKEND_TITLE = 'Expense Tracker Setup';   // the name Google shows on the backend's approval screens
+
+// Google permissions asked by the person's own copy, per step (they add up).
+const STAGE_SCOPES = {
+  base: ['https://www.googleapis.com/auth/spreadsheets.currentonly'],
+  keepawake: ['https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request'],
+  gmail: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/script.scriptapp']
+};
+
+// ---------- language: from the phone, no question asked ----------
+const LANG = ((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+document.documentElement.lang = LANG;
+const T = {
+  en: {
+    title: 'Expense Tracker — setup test',
+    banner: 'Test page. Use it only with the spare Google account. Your real app is not touched.',
+    switchTitle: 'First: turn on one Google setting',
+    switchIntro: 'Google requires it once so this page can create your private copy of the app in your account.',
+    switchSteps: '<li>Tap the button — a Google page opens in a new tab.</li><li>Tap <b>Google Apps Script API</b> and switch it <b>on</b>.</li><li>Come back to this tab.</li>',
+    switchBtn: "Open Google's setting",
+    switchWaiting: 'Waiting for the setting… (checking every 20 seconds)',
+    switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
+    switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Create my tracker” again.',
+    createTitle: '1. Create my tracker',
+    createAsk: '<b>Google will ask you to let “Expense Tracker Setup” (this page):</b><ul><li>see and edit only the files it creates in your Drive — your tracker spreadsheet;</li><li>create, update and publish your private copy of the app, in your own account.</li></ul><p style="margin:6px 0 0">Tick <b>Select all</b>. Google says the app is not verified yet — tap <b>Continue</b>. It takes about a minute, then we take you straight to step 2.</p>',
+    createBtn: 'Create my tracker',
+    created: '✓ Created. Taking you to Google for step 2…',
+    createdDone: '✓ Created.',
+    approveTitle: '2. Let your copy use its spreadsheet',
+    approveAsk: '<b>Google will ask you to let your copy:</b><ul><li>see and edit <b>only its own spreadsheet</b> — nothing else in your Drive, no email.</li></ul><p style="margin:6px 0 0">Google names <b>you</b> as the “developer”: this copy lives in your own account. Then tap <b>Continue →</b> to come back.</p>',
+    approved: '✓ Approved. Your app is ready (sign-in and saving checked).',
+    continueQ: 'Approved it but weren’t sent back here?',
+    continueBtn: 'I approved it — continue',
+    keepTitle: '3. Keep the app awake (optional)',
+    keepAsk: '<b>Google will ask you to let your copy:</b><ul><li>run while you are not using it — a small timer every 5 minutes;</li><li>connect to an outside address — only to wake itself up.</li></ul><p style="margin:6px 0 0">Without it, the first open of the day takes a few extra seconds.</p>',
+    keepBtn: 'Keep it awake',
+    keepDone: '✓ Keep-awake is on.',
+    gmailTitle: '4. Read my bank emails (optional)',
+    gmailAsk: '<b>Google will ask you to let your copy:</b><ul><li><b>see</b> your emails — read-only: it can never send, change or delete one;</li><li>run while you are not using it — to check every 15 minutes.</li></ul><p style="margin:6px 0 0">Here it only <b>counts</b> your emails from the last 7 days; it opens none. Google shows a red warning because email is sensitive — tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>.</p>',
+    gmailBtn: 'Turn on email reading',
+    gmailDone: '✓ Email reading works: {n} emails in the last 7 days (counted, none opened).',
+    updateTitle: '5. Update test',
+    updateBody: 'Sends a newer copy of the app, then checks it arrived and your data is still there.',
+    updateBtn: 'Update my app',
+    updated: '✓ Update arrived, data intact.',
+    working: 'Working…',
+    notTicked: 'Please tap the button again and tick “Select all” on Google’s screen before Continue.'
+  },
+  es: {
+    title: 'Expense Tracker — prueba de instalación',
+    banner: 'Página de prueba. Úsala solo con la cuenta de Google de repuesto. Tu app real no se toca.',
+    switchTitle: 'Primero: activa un ajuste de Google',
+    switchIntro: 'Google lo pide una sola vez para que esta página pueda crear tu copia privada de la app en tu cuenta.',
+    switchSteps: '<li>Toca el botón — se abre una página de Google en otra pestaña.</li><li>Toca <b>API de Google Apps Script</b> y <b>actívala</b>.</li><li>Vuelve a esta pestaña.</li>',
+    switchBtn: 'Abrir el ajuste de Google',
+    switchWaiting: 'Esperando el ajuste… (revisando cada 20 segundos)',
+    switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
+    switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Crear mi tracker” otra vez.',
+    createTitle: '1. Crear mi tracker',
+    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>vea y edite solo los archivos que crea en tu Drive — tu hoja del tracker;</li><li>cree, actualice y publique tu copia privada de la app, en tu propia cuenta.</li></ul><p style="margin:6px 0 0">Marca <b>Seleccionar todo</b>. Google dice que la app aún no está verificada — toca <b>Continuar</b>. Tarda como un minuto y luego te llevamos directo al paso 2.</p>',
+    createBtn: 'Crear mi tracker',
+    created: '✓ Creado. Te llevamos a Google para el paso 2…',
+    createdDone: '✓ Creado.',
+    approveTitle: '2. Deja que tu copia use su hoja',
+    approveAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>vea y edite <b>solo su propia hoja de cálculo</b> — nada más de tu Drive, nada de correo.</li></ul><p style="margin:6px 0 0">Google te nombra <b>a ti</b> como “desarrollador”: esta copia vive en tu propia cuenta. Luego toca <b>Continuar →</b> para volver.</p>',
+    approved: '✓ Aprobado. Tu app está lista (inicio de sesión y guardado comprobados).',
+    continueQ: '¿Lo aprobaste pero no volviste aquí?',
+    continueBtn: 'Ya lo aprobé — continuar',
+    keepTitle: '3. Mantener la app despierta (opcional)',
+    keepAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li>funcione cuando no la estás usando — un pequeño temporizador cada 5 minutos;</li><li>se conecte a una dirección externa — solo para despertarse a sí misma.</li></ul><p style="margin:6px 0 0">Sin esto, la primera vez que la abres en el día tarda unos segundos más.</p>',
+    keepBtn: 'Mantenerla despierta',
+    keepDone: '✓ La app se mantiene despierta.',
+    gmailTitle: '4. Leer mis correos del banco (opcional)',
+    gmailAsk: '<b>Google te pedirá permitir que tu copia:</b><ul><li><b>vea</b> tus correos — solo lectura: nunca puede enviar, cambiar ni borrar uno;</li><li>funcione cuando no la estás usando — para revisar cada 15 minutos.</li></ul><p style="margin:6px 0 0">Aquí solo <b>cuenta</b> tus correos de los últimos 7 días; no abre ninguno. Google muestra un aviso rojo porque el correo es sensible — toca <b>Configuración avanzada</b> y luego <b>Ir a Expense Tracker Setup</b>.</p>',
+    gmailBtn: 'Activar lectura de correos',
+    gmailDone: '✓ La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
+    updateTitle: '5. Prueba de actualización',
+    updateBody: 'Envía una copia más nueva de la app y comprueba que llegó y que tus datos siguen ahí.',
+    updateBtn: 'Actualizar mi app',
+    updated: '✓ La actualización llegó, datos intactos.',
+    working: 'Trabajando…',
+    notTicked: 'Toca el botón otra vez y marca “Seleccionar todo” en la pantalla de Google antes de Continuar.'
+  }
+}[LANG];
+document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
 
 // ---------- small helpers ----------
 const $ = (id) => document.getElementById(id);
 let state = {};
 try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { state = {}; }
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
-const t0 = Date.now();
 function log(msg, kind) {
   const li = document.createElement('li');
   li.textContent = new Date().toLocaleTimeString() + '  ' + msg;
   if (kind) li.className = kind;
   $('log').appendChild(li);
-  li.scrollIntoView({ block: 'nearest' });
 }
 function secs(start) { return ((Date.now() - start) / 1000).toFixed(1) + ' s'; }
+function say(boxId, text, kind) { $(boxId).innerHTML = ''; const sp = document.createElement('span'); sp.className = kind || 'done'; sp.textContent = text; $(boxId).appendChild(sp); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const backUrl = () => location.origin + location.pathname;
+function goTo(url) { location.href = url; }   // the one place the page leaves for Google
 
-// ---------- Google sign-in (token for the setup page only) ----------
+// ---------- Google sign-in for the setup page ----------
+// The token is also kept for this tab only (sessionStorage), so the page can
+// finish a step after coming back from Google without asking again.
 let accessToken = null, tokenExpires = 0, tokenClient = null;
+try { const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null'); if (t && t.exp > Date.now()) { accessToken = t.token; tokenExpires = t.exp; } } catch (e) {}
 function getToken() {
   if (accessToken && Date.now() < tokenExpires - 60000) return Promise.resolve(accessToken);
   return new Promise((resolve, reject) => {
-    if (!window.google || !google.accounts || !google.accounts.oauth2) {
-      reject(new Error('Google sign-in did not load yet — wait a second and tap again.'));
-      return;
-    }
-    if (!tokenClient) {
-      tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
-    }
+    if (!window.google || !google.accounts || !google.accounts.oauth2) { reject(new Error('Google sign-in did not load yet — wait a second and tap again.')); return; }
+    if (!tokenClient) tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: () => {} });
     tokenClient.callback = (resp) => {
       if (resp.error) { reject(new Error('Google sign-in: ' + resp.error)); return; }
-      // Google lets people untick permissions on its consent screen; without all
-      // three, every step below fails. Say so plainly instead of failing later.
       const scopes = SCOPES.split(' ');
       if (!google.accounts.oauth2.hasGrantedAllScopes(resp, ...scopes)) {
-        const missing = scopes.filter((sc) => !google.accounts.oauth2.hasGrantedAnyScope(resp, sc)).map((sc) => sc.split('/').pop());
-        log('Google sign-in worked, but not every permission box was ticked (missing: ' + missing.join(', ') + ').', 'bad');
+        log('Google sign-in worked, but not every permission box was ticked.', 'bad');
         try { google.accounts.oauth2.revoke(resp.access_token, () => {}); } catch (e) {}
-        reject(new Error('Please tap the button again and tick "Select all" (Seleccionar todo) on Google\'s screen before Continue.'));
-        return;
+        reject(new Error(T.notTicked)); return;
       }
       accessToken = resp.access_token;
       tokenExpires = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+      try { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: accessToken, exp: tokenExpires })); } catch (e) {}
       log('Signed in with Google (setup page permission granted).', 'ok');
       resolve(accessToken);
     };
@@ -157,11 +250,7 @@ function getToken() {
 
 async function google_(method, url, body) {
   const token = await getToken();
-  const res = await fetch(url, {
-    method,
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  const res = await fetch(url, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json = {};
   try { json = text ? JSON.parse(text) : {}; } catch (e) {}
@@ -174,78 +263,98 @@ async function google_(method, url, body) {
   return json;
 }
 
-// ---------- the backend code (from this public repo) ----------
-// The setup page makes the access code itself and writes it into the person's
-// own copy of the backend, so it never travels back through a link.
+// ---------- progress kept in the person's own Drive ----------
+// Saved as Drive "app properties" on the tracker spreadsheet (only this setup
+// page can see them), so a closed tab or another device can resume. Drive allows
+// about 124 characters per property, so only short ids are stored and web
+// addresses are rebuilt from them. The access code is never stored there.
+const execUrl = (deploymentId) => 'https://script.google.com/macros/s/' + deploymentId + '/exec';
+function progressToProps() {
+  const p = state.pending;
+  const v = (x) => (x === undefined || x === null || x === '' ? null : String(x));
+  return {
+    setupTest: '1',
+    scriptId: v(state.scriptId), deploymentId: v(state.deploymentId), release: v(state.release),
+    codeRelease: v(state.codeRelease), versionNumber: v(state.versionNumber),
+    permissionDone: v(state.permissionDone), stages: v((state.stages || []).join(',')),
+    pStage: v(p && p.stage), pStages: v(p && p.stages.join(',')), pRelease: v(p && p.release),
+    pVersion: v(p && p.versionNumber), pSideId: v(p && p.sideId)
+  };
+}
+function propsToProgress(ap) {
+  state.scriptId = ap.scriptId; state.deploymentId = ap.deploymentId; state.release = ap.release;
+  state.codeRelease = ap.codeRelease; state.versionNumber = ap.versionNumber ? Number(ap.versionNumber) : undefined;
+  state.permissionDone = ap.permissionDone === 'true';
+  state.stages = ap.stages ? ap.stages.split(',') : undefined;
+  state.webAppUrl = ap.deploymentId ? execUrl(ap.deploymentId) : undefined;
+  state.pending = ap.pStage ? { stage: ap.pStage, stages: ap.pStages.split(','), release: ap.pRelease, versionNumber: Number(ap.pVersion), sideId: ap.pSideId, sideUrl: execUrl(ap.pSideId) } : null;
+}
+async function saveProgress() {
+  if (!state.spreadsheetId) return;
+  await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + state.spreadsheetId, { appProperties: progressToProps() });
+}
+async function restoreIfNeeded() {
+  if (state.spreadsheetId) return;
+  const q = encodeURIComponent("appProperties has { key='setupTest' and value='1' } and trashed=false");
+  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime%20desc&fields=files(id,webViewLink,appProperties)');
+  const f = (res.files || [])[0];
+  if (!f) return;
+  state.spreadsheetId = f.id; state.spreadsheetUrl = f.webViewLink;
+  propsToProgress(f.appProperties || {});
+  save();
+  log('Found your tracker from earlier in Google Drive — continuing from where it stopped.', 'ok');
+}
+
+// ---------- the person's copy of the backend ----------
 function ensureCode() {
   if (state.accessCode) return;
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   state.accessCode = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
   save();
-  log('Made a new access code on this phone (' + state.accessCode.length + ' characters).');
+  log('Made a new access code on this phone (32 characters).');
 }
-
-async function backendFiles(release) {
+function manifestFor(stages) {
+  const scopes = new Set();
+  stages.forEach((s) => (STAGE_SCOPES[s] || []).forEach((x) => scopes.add(x)));
+  const m = {
+    timeZone: 'America/Lima', exceptionLogging: 'STACKDRIVER', runtimeVersion: 'V8',
+    webapp: { executeAs: 'USER_DEPLOYING', access: 'ANYONE_ANONYMOUS' },
+    oauthScopes: [...scopes]
+  };
+  if (stages.includes('gmail')) m.dependencies = { enabledAdvancedServices: [{ userSymbol: 'Gmail', serviceId: 'gmail', version: 'v1' }] };
+  return JSON.stringify(m, null, 2);
+}
+async function backendFiles(release, stages) {
   const start = Date.now();
   const listRes = await fetch('https://api.github.com/repos/' + REPO + '/contents/backend?ref=' + REF);
   if (!listRes.ok) throw new Error('GitHub file list: HTTP ' + listRes.status);
-  const list = (await listRes.json()).filter((f) => f.type === 'file' && (/\.gs$/.test(f.name) || f.name === 'appsscript.json'));
+  const list = (await listRes.json()).filter((f) => f.type === 'file' && /\.gs$/.test(f.name));
   const files = await Promise.all(list.map(async (f) => {
     const r = await fetch(f.download_url);
     if (!r.ok) throw new Error('GitHub ' + f.name + ': HTTP ' + r.status);
-    const source = await r.text();
-    return f.name === 'appsscript.json'
-      ? { name: 'appsscript', type: 'JSON', source }
-      : { name: f.name.replace(/\.gs$/, ''), type: 'SERVER_JS', source };
+    return { name: f.name.replace(/\.gs$/, ''), type: 'SERVER_JS', source: await r.text() };
   }));
   const firstRun = await fetch('FirstRun.gs', { cache: 'no-store' });
   if (!firstRun.ok) throw new Error('FirstRun.gs: HTTP ' + firstRun.status);
-  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '') });
-  log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + ').');
+  files.push({ name: 'FirstRun', type: 'SERVER_JS', source: (await firstRun.text()).replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '') });
+  files.push({ name: 'appsscript', type: 'JSON', source: manifestFor(stages) });
+  log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + '); permissions: ' + stages.join(' + ') + '.');
   return files;
 }
-
-async function pushAndVersion(release, label) {
-  const files = await backendFiles(release);
+async function pushAndVersion(release, stages, label) {
+  const files = await backendFiles(release, stages);
   let start = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/content', { files });
   log('Uploaded the code (' + secs(start) + ').', 'ok');
   start = Date.now();
-  const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions',
-    { description: label + ' ' + release });
+  const v = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/versions', { description: label + ' ' + release });
   log('Saved version ' + v.versionNumber + ' (' + secs(start) + ').', 'ok');
   return v.versionNumber;
 }
-
-// ---------- progress kept in the person's own Drive ----------
-// The page's own memory (localStorage) is wiped when a Private tab closes, so the
-// ids of what was created are also saved on the tracker spreadsheet itself, as
-// Drive "app properties" that only this setup page can see. Any tab or device can
-// then find the tracker again after signing in. The access code is NOT stored
-// there; if it is missing, the page sends a fresh one with an update.
-const PROGRESS_KEYS = ['scriptId', 'deploymentId', 'webAppUrl', 'release', 'codeRelease', 'versionNumber', 'permissionDone'];
-async function saveProgress() {
-  if (!state.spreadsheetId) return;
-  const appProperties = { setupTest: '1' };
-  PROGRESS_KEYS.forEach((k) => { if (state[k] !== undefined) appProperties[k] = String(state[k]); });
-  await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + state.spreadsheetId, { appProperties });
-}
-async function findExistingTracker() {
-  const q = encodeURIComponent("appProperties has { key='setupTest' and value='1' } and trashed=false");
-  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime%20desc&fields=files(id,webViewLink,appProperties)');
-  const f = (res.files || [])[0];
-  if (!f) return false;
-  state.spreadsheetId = f.id; state.spreadsheetUrl = f.webViewLink;
-  const ap = f.appProperties || {};
-  PROGRESS_KEYS.forEach((k) => { if (ap[k] !== undefined) state[k] = k === 'permissionDone' ? ap[k] === 'true' : (k === 'versionNumber' ? Number(ap[k]) : ap[k]); });
-  save();
-  log('Found your tracker from earlier in Google Drive — continuing from where it stopped.', 'ok');
-  return true;
-}
-async function restoreIfNeeded() {
-  if (state.spreadsheetId) return;
-  await findExistingTracker();
+function webUrlOf(dep) {
+  const web = (dep.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
+  return (web && web.webApp && web.webApp.url) || execUrl(dep.deploymentId);
 }
 
 // ---------- step 1: install ----------
@@ -258,55 +367,27 @@ async function install() {
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
     await saveProgress();
     log('Created the spreadsheet (' + secs(s) + ').', 'ok');
-  } else log('Spreadsheet already created — reusing it.');
-
+  }
   if (!state.scriptId) {
     const s = Date.now();
-    const proj = await google_('POST', 'https://script.googleapis.com/v1/projects',
-      { title: 'Expense Tracker backend (setup test)', parentId: state.spreadsheetId });
+    const proj = await google_('POST', 'https://script.googleapis.com/v1/projects', { title: BACKEND_TITLE, parentId: state.spreadsheetId });
     state.scriptId = proj.scriptId; save(); await saveProgress();
-    log('Created the backend, attached to the spreadsheet (' + secs(s) + ').', 'ok');
-  } else log('Backend already created — reusing it.');
-
+    log('Created the backend "' + BACKEND_TITLE + '", attached to the spreadsheet (' + secs(s) + ').', 'ok');
+  }
   if (!state.deploymentId) {
     ensureCode();
     state.release = new Date().toISOString();
     state.codeRelease = state.release;
-    const versionNumber = await pushAndVersion(state.release, 'Install');
+    state.stages = ['base'];
+    const versionNumber = await pushAndVersion(state.release, state.stages, 'Install');
     const s = Date.now();
-    const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments',
-      { versionNumber, manifestFileName: 'appsscript', description: 'Setup test' });
-    const web = (dep.entryPoints || []).find((p) => p.entryPointType === 'WEB_APP');
-    state.deploymentId = dep.deploymentId;
-    state.webAppUrl = web && web.webApp && web.webApp.url || ('https://script.google.com/macros/s/' + dep.deploymentId + '/exec');
-    state.versionNumber = versionNumber; save(); await saveProgress();
+    const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Main' });
+    state.deploymentId = dep.deploymentId; state.webAppUrl = webUrlOf(dep); state.versionNumber = versionNumber;
+    save(); await saveProgress();
     log('Published the backend (' + secs(s) + ').', 'ok');
-  } else log('Backend already published — reusing it.');
-
-  log('Step 1 finished in ' + secs(start) + '.', 'ok');
-}
-
-// ---------- step 2: back from the backend with the access code ----------
-function readReturn() {
-  const m = location.hash.match(/^#done(?:&secs=(\d+))?/);
-  if (!m) return;
-  state.permissionDone = true; save();
-  history.replaceState(null, '', location.pathname + location.search);
-  log('Back from the backend: permission given' + (m[1] ? ', sheet tabs + starter data built in ' + m[1] + ' s' : '') + '.', 'ok');
-}
-
-// For when Google didn't send the person back: ask the backend directly.
-async function continueAfterApproval() {
-  await restoreIfNeeded();
-  if (!state.webAppUrl) throw new Error('No tracker found for this Google account yet — tap “Create my tracker” first.');
-  const st = await status();
-  if (!st.setUp) throw new Error('The backend is not set up yet — tap “Open my backend” and approve it first.');
-  state.permissionDone = true; save(); await saveProgress();
-  log('Backend confirms it is set up.', 'ok');
-  if (!state.accessCode || st.codeFor !== state.codeRelease) {
-    log('The backend does not have this page\'s access code yet — sending it with an update…');
-    await update();
   }
+  $('switchCard').hidden = true;
+  log('Step 1 finished in ' + secs(start) + '.', 'ok');
 }
 
 // ---------- calling the backend exactly like the app does ----------
@@ -314,18 +395,14 @@ async function callBackend(body) {
   const start = Date.now();
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const res = await fetch(state.webAppUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(body)
-      });
+      const res = await fetch(state.webAppUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
       const json = await res.json();
       json._ms = Date.now() - start;
       return json;
     } catch (e) {
       if (attempt === 4) throw new Error('Backend unreachable: ' + e.message);
       log('Backend slow to wake up, retrying…');
-      await new Promise((r) => setTimeout(r, 500 * attempt));
+      await sleep(500 * attempt);
     }
   }
 }
@@ -333,7 +410,7 @@ async function signIn() {
   const r = await callBackend({ action: 'login', payload: { code: state.accessCode, deviceName: 'Setup test page' } });
   if (!r.ok) throw new Error('Sign-in failed: ' + r.error);
   state.sessionToken = r.data.sessionToken; save();
-  log('Signed in to the backend with the access code (' + (r._ms / 1000).toFixed(1) + ' s' + (r.coldInstance ? ', cold start' : '') + ').', 'ok');
+  log('Signed in to the backend (' + (r._ms / 1000).toFixed(1) + ' s' + (r.coldInstance ? ', cold start' : '') + ').', 'ok');
 }
 async function api(action, payload) {
   if (!state.sessionToken) await signIn();
@@ -342,141 +419,212 @@ async function api(action, payload) {
   if (!r.ok) throw new Error(action + ' failed: ' + r.error);
   return r;
 }
-
-// ---------- step 3 ----------
-async function testConnection() {
-  // This tab may have forgotten the code (Private tab closed) — get the backend a fresh one first.
-  if (!state.accessCode) await continueAfterApproval();
-  await signIn();
-  const today = new Date().toISOString().slice(0, 10);
-  const created = await api('createEntry', { type: 'expense', date: today, amount: 1, currency: 'PEN', description: 'Setup test entry' });
-  state.testEntryId = created.data.id; save();
-  log('Saved a test entry (' + (created._ms / 1000).toFixed(1) + ' s).', 'ok');
-  const back = await api('getEntry', { id: state.testEntryId });
-  if (!back.data || back.data.id !== state.testEntryId) throw new Error('Saved entry could not be read back.');
-  log('Read the test entry back: "' + back.data.description + '", ' + back.data.amount + ' ' + back.data.currency + '.', 'ok');
+async function check(kind) {
+  const res = await fetch(state.webAppUrl + '?check=' + kind, { cache: 'no-store' });
+  const text = await res.text();
+  try { return JSON.parse(text); } catch (e) { throw new Error('Backend answered with a page, not data (not approved yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
+}
+async function status() {
+  const st = await check('version');
+  log('Backend status: release ' + st.release + ', set up: ' + st.setUp + ', access code: ' + (st.codeFor ? (st.codeFor === st.release ? 'set by this release' : 'set by an earlier release') : 'not from this page') + ', keep-awake: ' + st.keepAwake + ', last timer run: ' + (st.heartbeat || 'never') + '.');
+  return st;
 }
 
-// ---------- step 4 ----------
-async function update() {
+// Signs in like the app, saves a test entry (once) and reads it back.
+async function connectionCheck() {
+  await signIn();
+  if (!state.testEntryId) {
+    const created = await api('createEntry', { type: 'expense', date: new Date().toISOString().slice(0, 10), amount: 1, currency: 'PEN', description: 'Setup test entry' });
+    state.testEntryId = created.data.id; save();
+    log('Saved a test entry (' + (created._ms / 1000).toFixed(1) + ' s).', 'ok');
+  }
+  const back = await api('getEntry', { id: state.testEntryId });
+  if (!back.data) throw new Error('The test entry could not be read back.');
+  log('Read the test entry back: "' + back.data.description + '".', 'ok');
+}
+
+// ---------- step 2: first approval (main web app, "this spreadsheet only") ----------
+async function afterFirstApproval() {
+  const st = await status();
+  if (!st.setUp) throw new Error('The backend is not set up yet — approve it on Google’s screen first.');
+  state.permissionDone = true; save();
+  if (!state.accessCode || st.codeFor !== state.codeRelease) {
+    log('The backend does not have this page’s access code yet — sending it with an update…');
+    await update(true);
+  }
+  await connectionCheck();
+  say('s2', T.approved);
+  try { await saveProgress(); } catch (e) { log('Could not save progress to Drive (will retry later): ' + e.message); }
+}
+async function continueAfterApproval() {
+  await restoreIfNeeded();
+  if (!state.webAppUrl) throw new Error('No tracker found for this Google account yet — tap “' + T.createBtn + '” first.');
+  if (state.pending) return finishStage(state.pending.stage);
+  await afterFirstApproval();
+}
+
+// ---------- steps 3-4: extra permissions, approved on a side copy first ----------
+// The new permissions go to a SEPARATE deployment; the main one keeps running
+// the previous version, so the app still works if the person abandons Google's
+// screen. Only after approval is the main one switched over.
+async function startStage(stage) {
+  ensureCode();
+  const stages = [...new Set([...(state.stages || ['base']), stage])];
+  const release = new Date().toISOString();
+  const versionNumber = await pushAndVersion(release, stages, 'Stage ' + stage);
+  const dep = await google_('POST', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments', { versionNumber, manifestFileName: 'appsscript', description: 'Approval ' + stage });
+  state.pending = { stage, stages, release, versionNumber, sideId: dep.deploymentId, sideUrl: webUrlOf(dep) };
+  save(); await saveProgress();
+  log('Made a side copy for the "' + stage + '" approval.', 'ok');
+  try { const st = await check('version'); log('Main app still answers while waiting for approval (release ' + st.release + ').', 'ok'); }
+  catch (e) { log('Main app check while waiting: ' + e.message, 'bad'); }
+  log('Going to Google for the "' + stage + '" approval.');
+  await sleep(1200);
+  goTo(state.pending.sideUrl + '?stage=' + encodeURIComponent(stage) + '&return=' + encodeURIComponent(backUrl()));
+}
+async function finishStage(stage) {
+  const p = state.pending;
+  if (!p || p.stage !== stage) throw new Error('No “' + stage + '” approval is waiting.');
+  const s = Date.now();
+  await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
+    { deploymentConfig: { scriptId: state.scriptId, versionNumber: p.versionNumber, manifestFileName: 'appsscript', description: 'Main' } });
+  try { await google_('DELETE', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + p.sideId); } catch (e) { log('Could not remove the side copy: ' + e.message); }
+  state.stages = p.stages; state.release = p.release; state.versionNumber = p.versionNumber; state.codeRelease = p.release; state.pending = null;
+  save(); await saveProgress();
+  log('Main app switched to the approved version ' + p.versionNumber + ' (' + secs(s) + ').', 'ok');
+  const st = await status();
+  if (st.release !== p.release) throw new Error('Main app still reports the old release.');
+  await connectionCheck();
+  if (stage === 'keepawake') {
+    if (!st.keepAwake) throw new Error('Keep-awake timer is not on.');
+    say('s3', T.keepDone);
+  }
+  if (stage === 'gmail') {
+    const g = await check('gmail');
+    if (!g.ok) throw new Error('Email reading: ' + g.error);
+    log('Email reading works: ' + g.count + ' emails in the last 7 days (counted only).', 'ok');
+    say('s4', T.gmailDone.replace('{n}', g.count));
+  }
+}
+
+// ---------- step 5: update (same permissions as now) ----------
+async function update(quiet) {
   const start = Date.now();
   ensureCode();
   const release = new Date().toISOString();
-  const versionNumber = await pushAndVersion(release, 'Update');
+  const versionNumber = await pushAndVersion(release, state.stages || ['base'], 'Update');
   const s = Date.now();
   await google_('PUT', 'https://script.googleapis.com/v1/projects/' + state.scriptId + '/deployments/' + state.deploymentId,
-    { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Setup test update' } });
-  log('Switched the published backend to version ' + versionNumber + ' (' + secs(s) + ').', 'ok');
+    { deploymentConfig: { scriptId: state.scriptId, versionNumber, manifestFileName: 'appsscript', description: 'Main' } });
+  log('Switched the main app to version ' + versionNumber + ' (' + secs(s) + ').', 'ok');
   const st = await status();
   if (st.release !== release) throw new Error('Backend still reports the old release (' + st.release + ').');
-  log('Backend now runs the new release.', 'ok');
   state.release = release; state.versionNumber = versionNumber;
   if (st.codeFor === release) state.codeRelease = release;
   save(); await saveProgress();
-  if (state.testEntryId) {
-    const back = await api('getEntry', { id: state.testEntryId });
-    if (!back.data) throw new Error('The test entry is gone after the update!');
-    log('Test entry still there after the update.', 'ok');
-  }
+  if (!quiet) { await connectionCheck(); say('s5', T.updated); }
   log('Update finished in ' + secs(start) + '.', 'ok');
 }
 
-async function status() {
-  const res = await fetch(state.webAppUrl + '?check=version', { cache: 'no-store' });
-  const text = await res.text();
-  let json;
-  try { json = JSON.parse(text); } catch (e) { throw new Error('Status: not a JSON answer (permission not given yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
-  log('Backend status: release ' + json.release + ', set up: ' + json.setUp + ', access code: ' + (json.codeFor ? (json.codeFor === json.release ? 'set by this release' : 'set by an earlier release') : 'not from this page') + ', hourly timer last ran: ' + (json.heartbeat || 'never') + '.');
-  return json;
-}
-
-// ---------- the one-time "Apps Script API" switch ----------
-// Google refuses to create a backend until the person turns this on in their
-// own settings. Show a clear card, then keep retrying quietly (the switch can
-// take a few minutes to take effect) and carry on by itself once it works.
+// ---------- the one-time "Apps Script API" setting ----------
 let apiRetryTimer = null, apiRetryUntil = 0, apiRetrying = false;
 function startApiWait() {
-  $('apiCard').hidden = false;
+  $('switchCard').hidden = false;
+  $('switchCard').scrollIntoView({ block: 'start', behavior: 'smooth' });
   $('s1').innerHTML = '';
   apiRetryUntil = Date.now() + 5 * 60000;
   if (!apiRetryTimer) apiRetryTimer = setInterval(retryInstall, 20000);
-  $('apiWait').textContent = 'Waiting for the switch…';
+  $('apiWait').textContent = T.switchWaiting;
 }
 async function retryInstall() {
   if (apiRetrying) return;
-  if (Date.now() > apiRetryUntil) {
-    clearInterval(apiRetryTimer); apiRetryTimer = null;
-    $('apiWait').textContent = 'Still not on after 5 minutes. Check the switch is on for this same Google account, then tap “Create my tracker” again.';
-    return;
-  }
+  if (Date.now() > apiRetryUntil) { clearInterval(apiRetryTimer); apiRetryTimer = null; $('apiWait').textContent = T.switchGaveUp; return; }
   apiRetrying = true;
-  $('apiWait').textContent = 'Checking…';
   try {
     await install();
     clearInterval(apiRetryTimer); apiRetryTimer = null;
-    $('apiCard').hidden = true;
-    log('The Google switch is on — setup continued by itself.', 'ok');
+    $('apiWait').textContent = '';
+    log('The Google setting is on — setup continued by itself.', 'ok');
+    await goToFirstApproval();
   } catch (e) {
-    if (e.apiOff) $('apiWait').textContent = 'Not on yet (last checked ' + new Date().toLocaleTimeString() + '). Checking again every 20 seconds…';
-    else { log(e.message, 'bad'); $('apiWait').textContent = 'Something else went wrong: ' + e.message; }
+    if (e.apiOff) $('apiWait').textContent = T.switchNotYet.replace('{t}', new Date().toLocaleTimeString());
+    else { log(e.message, 'bad'); $('apiWait').textContent = e.message; }
   } finally { apiRetrying = false; render(); }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && apiRetryTimer) retryInstall(); });
 
+async function goToFirstApproval() {
+  if (state.permissionDone || !state.webAppUrl) return;
+  say('s1', T.created);
+  log('Going to the backend approval automatically (no tap).');
+  await sleep(1500);
+  goTo(state.webAppUrl + '?return=' + encodeURIComponent(backUrl()));
+}
+
+// ---------- coming back from Google ----------
+async function handleReturn() {
+  const done = location.hash.match(/^#done(?:&secs=(\d+))?/);
+  const appr = location.hash.match(/^#approved=([a-z]+)/);
+  if (!done && !appr) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (done) {
+    log('Back from Google: step 2 approved' + (done[1] ? ', sheet tabs + starter data built in ' + done[1] + ' s' : '') + '.', 'ok');
+    await run('s2', afterFirstApproval);
+  } else {
+    log('Back from Google: "' + appr[1] + '" approved.', 'ok');
+    await run(appr[1] === 'gmail' ? 's4' : 's3', () => finishStage(appr[1]));
+  }
+}
+
 // ---------- wiring ----------
 function render() {
-  $('s1').innerHTML = state.webAppUrl ? '<span class="done">✓ Created and published.</span> <a href="' + state.spreadsheetUrl + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '';
-  $('s2').innerHTML = state.permissionDone ? '<span class="done">✓ Permission given, backend set up.</span>' : '';
-  $('s3').innerHTML = state.testEntryId ? '<span class="done">✓ Sign-in and saving work.</span>' : '';
-  $('btnAuthorize').disabled = !state.webAppUrl;
+  if (state.webAppUrl) $('switchCard').hidden = !apiRetryTimer;
+  if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
+  if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
+  if ((state.stages || []).includes('keepawake') && !$('s3').textContent) say('s3', T.keepDone);
+  $('btnKeep').disabled = !state.permissionDone || (state.stages || []).includes('keepawake');
+  $('btnGmail').disabled = !state.permissionDone || (state.stages || []).includes('gmail');
+  $('btnUpdate').disabled = !state.permissionDone;
   $('btnStatus').disabled = !state.webAppUrl;
-  $('btnTest').disabled = !state.permissionDone;
-  $('btnContinue').disabled = false;
-  $('btnUpdate').disabled = !state.webAppUrl;
 }
-function wire(id, fn) {
-  $(id).addEventListener('click', async () => {
-    const b = $(id); b.disabled = true;
-    let error = null;
-    try { await fn(); }
-    catch (e) {
-      error = e;
-      log(e.message, 'bad');
-      if (e.apiOff) { log('→ Showing the one-time Google switch card.'); startApiWait(); }
-    }
+let busy = false;
+async function run(boxId, fn) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll('button').forEach((b) => { b.dataset.was = b.disabled; b.disabled = true; });
+  if (boxId) say(boxId, T.working, 'small');
+  try { await fn(); }
+  catch (e) {
+    log(e.message, 'bad');
+    if (e.apiOff) { log('→ Showing the Google setting card.'); startApiWait(); }
+    else if (boxId) say(boxId, '✗ ' + e.message, 'err');
+  } finally {
+    busy = false;
+    document.querySelectorAll('button').forEach((b) => { b.disabled = b.dataset.was === 'true'; });
     render();
-    if (id === 'btnInstall' || id === 'btnCopy' || id === 'btnForget' || id === 'btnContinue') b.disabled = false;
-    // Show the problem right under the button too — the log is far down the page.
-    const box = error && !error.apiOff && b.closest('.step') && b.closest('.step').querySelector('[id^="s"]');
-    if (box) {
-      box.innerHTML = '<span style="color:var(--bad);font-weight:600"></span>';
-      box.firstChild.textContent = '✗ ' + error.message;
-    }
-  });
+  }
 }
-wire('btnInstall', install);
-wire('btnAuthorize', async () => {
-  const back = location.origin + location.pathname;
-  log('Opening the backend for permission…');
-  location.href = state.webAppUrl + '?return=' + encodeURIComponent(back);
+$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); }));
+$('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval));
+$('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake')));
+$('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail')));
+$('btnUpdate').addEventListener('click', () => run('s5', () => update(false)));
+$('btnStatus').addEventListener('click', () => run(null, status));
+$('btnCopy').addEventListener('click', async () => {
+  const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nLanguage: ' + LANG + '\nUser agent: ' + navigator.userAgent;
+  try { await navigator.clipboard.writeText(text); log('Log copied.'); } catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
 });
-wire('btnContinue', continueAfterApproval);
-wire('btnTest', testConnection);
-wire('btnUpdate', update);
-wire('btnStatus', status);
-wire('btnCopy', async () => {
-  const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nUser agent: ' + navigator.userAgent;
-  try { await navigator.clipboard.writeText(text); log('Log copied.'); }
-  catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
-});
-wire('btnForget', async () => {
+$('btnForget').addEventListener('click', () => {
   state = {}; save(); accessToken = null;
-  log('This page forgot the test. (Delete the spreadsheet in Drive to remove it from the account.)');
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  log('This phone forgot the test (the tracker in Drive is untouched).');
+  ['s1', 's2', 's3', 's4', 's5'].forEach((id) => { $(id).innerHTML = ''; });
+  render();
 });
 
-readReturn();
 render();
-log(state.webAppUrl ? 'Resuming an earlier test.' : 'Ready.');
+log('Ready (' + LANG + ').' + (state.webAppUrl ? ' Resuming an earlier test.' : ''));
+handleReturn();
 </script>
 </body>
 </html>
