@@ -1,6 +1,26 @@
 // The Web App URL isn't secret by itself — the ACCESS_CODE is what protects
 // writes. That code lives only in this browser's localStorage, never here.
-const API_URL = "https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec";
+//
+// The address of THIS phone's backend is kept in localStorage ("apiUrl"): a friend's
+// app talks to the friend's own backend, put there by "Paste my sign-in" (see
+// signin-link.js). OWNER_API_URL is only the owner's own address from before addresses
+// were per phone: a phone that is already signed in and has no saved address is the
+// owner's, and is migrated once. A new phone never falls back to it.
+const OWNER_API_URL = "https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec";
+
+function getApiUrl() {
+  return localStorage.getItem("apiUrl") || "";
+}
+
+function setApiUrl(url) {
+  localStorage.setItem("apiUrl", url);
+}
+
+(function migrateOwnerApiUrl_() {
+  if (!getApiUrl() && (localStorage.getItem("sessionToken") || localStorage.getItem("accessCode"))) {
+    setApiUrl(OWNER_API_URL);
+  }
+})();
 
 const TYPE_LABELS = {
   expense: tr("type.expense"),
@@ -302,6 +322,8 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
   if (attempt === 1 && ONCE_ACTIONS.has(action) && !(payload && payload._requestId)) {
     payload = { ...(payload || {}), _requestId: newRequestId_() };
   }
+  const apiUrl = getApiUrl();
+  if (!apiUrl) throw Object.assign(new Error(tr("link.noBackend")), { code: "no_backend" });   // not connected to a backend yet
   let json;
   try {
     // A hard cap per attempt — without one, a request that goes quiet
@@ -314,15 +336,15 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     const timeoutId = setTimeout(() => controller.abort(), 25000);
     let res;
     try {
-      res = await fetch(API_URL, {
+      res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         // `lang`: the server answers (errors, category names…) in the app's language.
         // `apiUrl`: the address this phone uses; the backend keeps its own copy of it
         // (Features.gs) for the keep-awake ping, so no copy of the app has to have it written in its code.
         body: JSON.stringify(getSessionToken()
-          ? { sessionToken: getSessionToken(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl: API_URL }
-          : { accessCode: getAccessCode(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl: API_URL }),
+          ? { sessionToken: getSessionToken(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl }
+          : { accessCode: getAccessCode(), action, payload: payload || {}, lang: I18n.getLang(), apiUrl }),
         signal: controller.signal
       });
     } finally {
@@ -460,12 +482,69 @@ function defaultDueDate_(dateStr) {
 
 // ---- Setup screen (access code) ----
 
+function isStandaloneApp_() {
+  return navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+}
+
 function showSetupScreen(message) {
+  // A brand-new phone whose language is Spanish gets Spanish from the first screen (a choice made later in
+  // More still wins). Only before any address is known, so the owner's phone is never affected.
+  if (!getApiUrl() && !I18n.hasChosenLang() && /^es/i.test(navigator.language || "")) {
+    I18n.saveLang("es");
+    location.reload();
+    return;
+  }
   document.getElementById("app").hidden = true;
   const setup = document.getElementById("setup-screen");
   setup.hidden = false;
+  // Typing an access code only makes sense once this app knows its own backend address.
+  document.getElementById("setup-code-block").hidden = !getApiUrl();
+  document.getElementById("link-intro").textContent = tr(isStandaloneApp_() ? "link.introInstalled" : "link.introBrowser");
   document.getElementById("setup-error").textContent = message || "";
 }
+
+// "Paste my sign-in": the setup page left a sign-in text on the clipboard (signin-link.js). This app has storage
+// of its own on an iPhone (nothing the setup page saved in Safari is visible here), so this is how it learns its
+// backend address and access code on first launch.
+async function useSigninText_(text) {
+  const errorEl = document.getElementById("setup-error");
+  const link = SigninLink.parse(text, { allowLocal: location.hostname === "localhost" });
+  if (!link) {
+    errorEl.textContent = tr(String(text || "").trim() ? "link.notRight" : "link.nothing");
+    return;
+  }
+  errorEl.textContent = tr("signin.signingIn");
+  const previous = getApiUrl();
+  setApiUrl(link.url);
+  try {
+    const res = await callApi("login", { code: link.code, deviceName: deviceName_() });
+    setSessionToken(res.sessionToken);
+    localStorage.removeItem("accessCode");
+    errorEl.textContent = "";
+    // Best effort: the sign-in text should not stay on the clipboard once it has done its job.
+    if (isStandaloneApp_()) { try { await navigator.clipboard.writeText(""); } catch (err) { /* not allowed: harmless */ } }
+    await init();
+  } catch (err) {
+    if (previous) setApiUrl(previous); else localStorage.removeItem("apiUrl");
+    errorEl.textContent = err.message;
+  }
+}
+
+document.getElementById("paste-btn").addEventListener("click", async () => {
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (err) {
+    document.getElementById("setup-error").textContent = tr("link.pasteBlocked");
+    document.getElementById("paste-manual").open = true;
+    return;
+  }
+  useSigninText_(text);
+});
+
+document.getElementById("paste-manual-btn").addEventListener("click", () => {
+  useSigninText_(document.getElementById("paste-input").value);
+});
 
 document.getElementById("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();

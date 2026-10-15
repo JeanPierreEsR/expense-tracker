@@ -1534,6 +1534,12 @@ body.income-revealed .sens-mask { display: none; }
   text-align: center;
 }
 
+.setup-screen h2 { margin: 0 0 10px; }
+#setup-code-block { margin-top: 28px; }
+.paste-manual { margin-top: 18px; text-align: left; }
+.paste-manual summary { cursor: pointer; color: var(--muted); }
+.paste-manual textarea { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
+
 .status-msg {
   text-align: center;
   font-size: 0.85rem;

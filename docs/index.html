@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-14T21:40:30Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-15T14:47:13Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -22,11 +22,24 @@
   </header>
 
   <div id="setup-screen" class="setup-screen" hidden>
-    <p data-i18n="signin.intro">Enter the access code to connect this app to your Google Sheet.</p>
-    <form id="setup-form">
-      <input type="password" id="setup-code-input" data-i18n-placeholder="signin.placeholder" placeholder="Access code" autocomplete="off" required>
-      <button type="submit" class="primary" data-i18n="signin.connect">Connect</button>
-    </form>
+    <div id="link-block">
+      <h2 data-i18n="link.title">Connect your app</h2>
+      <p id="link-intro"></p>
+      <button type="button" class="primary" id="paste-btn" data-i18n="link.pasteBtn">Paste my sign-in</button>
+      <details id="paste-manual" class="paste-manual">
+        <summary data-i18n="link.manualSummary">Paste doesn't work? Do it by hand</summary>
+        <p class="hint" data-i18n="link.manualHint">Press and hold in the box, tap Paste, then tap Use this text.</p>
+        <textarea id="paste-input" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+        <button type="button" id="paste-manual-btn" data-i18n="link.useText">Use this text</button>
+      </details>
+    </div>
+    <div id="setup-code-block" hidden>
+      <p data-i18n="signin.intro">Enter the access code to connect this app to your Google Sheet.</p>
+      <form id="setup-form">
+        <input type="password" id="setup-code-input" data-i18n-placeholder="signin.placeholder" placeholder="Access code" autocomplete="off" required>
+        <button type="submit" class="primary" data-i18n="signin.connect">Connect</button>
+      </form>
+    </div>
     <p class="hint" id="setup-error" style="color:#d64545;"></p>
   </div>
 
@@ -1200,12 +1213,13 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="i18n.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="receipt-parse.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="bill-split.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="app.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="statement-parsers.js?v=2026-10-14T21:40:30Z"></script>
-  <script src="statements.js?v=2026-10-14T21:40:30Z"></script>
+  <script src="strings.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="i18n.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="signin-link.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="receipt-parse.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="bill-split.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="app.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="statement-parsers.js?v=2026-10-15T14:47:13Z"></script>
+  <script src="statements.js?v=2026-10-15T14:47:13Z"></script>
 </body>
 </html>

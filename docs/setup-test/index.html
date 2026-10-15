@@ -67,6 +67,7 @@
   #tsKeep { margin-top:8px; color:var(--muted); }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="../signin-link.js"></script>
 </head>
 <body>
 <main>
@@ -119,7 +120,9 @@
   <div class="step" id="readyCard" hidden>
     <h3 data-t="readyTitle"></h3>
     <div data-t="readyBody"></div>
-    <a class="bigbtn" href="app-check.html" data-t="readyBtn"></a>
+    <button id="btnCopySignin" data-t="copySigninBtn"></button>
+    <p class="small" id="signinMsg"></p>
+    <a class="bigbtn" id="openApp" href="../" data-t="readyBtn"></a>
   </div>
 
   <div class="step">
@@ -214,7 +217,10 @@ const T = {
     retryBtn: 'Try again',
     approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
     readyTitle: 'Your app is ready — how to open it',
-    readyBody: '<p>To use your app every day, put its icon on your phone’s home screen:</p><ol><li>Tap <b>Open my app</b> below. It opens in Safari.</li><li>Tap the <b>Share</b> button (a square with an arrow pointing up) at the bottom of Safari.</li><li>Scroll down and tap <b>Add to Home Screen</b>, then tap <b>Add</b>.</li><li>From now on, open your app with the new icon, like any other app.</li></ol><p class="small">(In this test, “Open my app” shows a small check page that tells us whether the home-screen icon remembers your setup. The real app will open there.)</p>',
+    readyBody: '<p>Your app is ready. To use it every day, put it on your Home Screen and sign it in:</p><ol><li>Tap <b>Copy my sign-in</b>.</li><li>Tap <b>Open my app</b>. It opens in Safari.</li><li>Tap the <b>Share</b> button (a square with an arrow pointing up) at the bottom of Safari, then <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Open the new icon on your Home Screen and tap <b>Paste my sign-in</b>. If your phone asks, tap <b>Allow Paste</b>.</li></ol><p class="small">Don’t copy anything else in between. If you did, come back here and tap Copy my sign-in again.</p>',
+    copySigninBtn: 'Copy my sign-in',
+    signinCopied: '✓ Copied. Now tap “Open my app”.',
+    noSigninYet: 'This phone doesn’t have your sign-in yet. Tap “Sign in again on this phone” at the top first.',
     readyBtn: 'Open my app',
     keepTitle: 'Make the app open faster (optional)',
     keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
@@ -289,7 +295,10 @@ const T = {
     retryBtn: 'Intentar de nuevo',
     approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
     readyTitle: 'Tu app está lista — cómo abrirla',
-    readyBody: '<p>Para usar tu app todos los días, pon su ícono en la pantalla de inicio de tu teléfono:</p><ol><li>Toca <b>Abrir mi app</b> aquí abajo. Se abre en Safari.</li><li>Toca el botón <b>Compartir</b> (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari.</li><li>Baja y toca <b>Agregar a inicio</b>, y luego <b>Agregar</b>.</li><li>Desde ahora, abre tu app con el nuevo ícono, como cualquier otra app.</li></ol><p class="small">(En esta prueba, “Abrir mi app” muestra una página pequeña que nos dice si el ícono de la pantalla de inicio recuerda tu configuración. La app real se abrirá ahí.)</p>',
+    readyBody: '<p>Tu app está lista. Para usarla todos los días, ponla en tu pantalla de inicio y conéctala:</p><ol><li>Toca <b>Copiar mi acceso</b>.</li><li>Toca <b>Abrir mi app</b>. Se abre en Safari.</li><li>Toca el botón <b>Compartir</b> (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari, luego <b>Agregar a inicio</b> y luego <b>Agregar</b>.</li><li>Abre el nuevo ícono de tu pantalla de inicio y toca <b>Pegar mi acceso</b>. Si tu teléfono lo pide, toca <b>Permitir pegar</b>.</li></ol><p class="small">No copies nada más en el medio. Si lo hiciste, vuelve aquí y toca Copiar mi acceso otra vez.</p>',
+    copySigninBtn: 'Copiar mi acceso',
+    signinCopied: '✓ Copiado. Ahora toca “Abrir mi app”.',
+    noSigninYet: 'Este teléfono aún no tiene tu acceso. Toca primero “Iniciar sesión otra vez en este teléfono”, arriba.',
     readyBtn: 'Abrir mi app',
     keepTitle: 'Haz que la app abra más rápido (opcional)',
     keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
@@ -1112,6 +1121,18 @@ $('btnInstall').addEventListener('click', () => run('s1', async () => { await in
 $('btnCopyPage').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(location.origin + location.pathname); log('Page address copied.'); $('btnCopyPage').textContent = T.copiedBtn; }
   catch (e) { log('Could not copy automatically.', 'bad'); }
+});
+$('btnCopySignin').addEventListener('click', async () => {
+  const msg = $('signinMsg');
+  try {
+    if (!state.webAppUrl || !state.accessCode) throw new Error(T.noSigninYet);
+    await navigator.clipboard.writeText(SigninLink.make(state.webAppUrl, state.accessCode));
+    log('Sign-in copied to the clipboard (' + SigninLink.PREFIX + '…).', 'ok');
+    msg.className = 'small done'; msg.textContent = T.signinCopied;
+  } catch (e) {
+    log('Could not copy the sign-in: ' + e.message, 'bad');
+    msg.className = 'small err'; msg.textContent = '✗ ' + e.message;
+  }
 });
 $('btnCancel').addEventListener('click', () => { log('Stopped by the person — reloading; setup resumes where it was.'); location.reload(); });
 $('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));

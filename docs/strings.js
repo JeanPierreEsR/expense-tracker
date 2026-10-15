@@ -670,6 +670,17 @@
     "accounts.errName": { en: "Enter a name.", es: "Ingresa un nombre." },
 
     // ---- signin ----
+    "link.title": { en: "Connect your app", es: "Conecta tu app" },
+    "link.introBrowser": { en: "First add this app to your Home Screen: tap Share, then Add to Home Screen. Then open it from the new icon and tap the button below.", es: "Primero agrega esta app a tu pantalla de inicio: toca Compartir y luego Agregar a inicio. Luego ábrela desde el nuevo ícono y toca el botón de abajo." },
+    "link.introInstalled": { en: "Your sign-in is waiting on the clipboard, copied by the setup page. Tap the button below. (If it is not there, go back to the setup page and tap “Copy my sign-in” again.)", es: "Tu acceso está esperando en el portapapeles, copiado por la página de configuración. Toca el botón de abajo. (Si no está, vuelve a la página de configuración y toca “Copiar mi acceso” otra vez.)" },
+    "link.pasteBtn": { en: "Paste my sign-in", es: "Pegar mi acceso" },
+    "link.manualSummary": { en: "Paste doesn't work? Do it by hand", es: "¿No funciona pegar? Hazlo a mano" },
+    "link.manualHint": { en: "Press and hold in the box, tap Paste, then tap Use this text.", es: "Mantén presionado en el cuadro, toca Pegar y luego toca Usar este texto." },
+    "link.useText": { en: "Use this text", es: "Usar este texto" },
+    "link.nothing": { en: "Nothing to paste yet. Go back to the setup page, tap “Copy my sign-in”, then try again.", es: "Aún no hay nada que pegar. Vuelve a la página de configuración, toca “Copiar mi acceso” e inténtalo de nuevo." },
+    "link.notRight": { en: "That is not a sign-in from the setup page. Go back to it and tap “Copy my sign-in”.", es: "Eso no es un acceso de la página de configuración. Vuelve a ella y toca “Copiar mi acceso”." },
+    "link.pasteBlocked": { en: "Your phone did not allow pasting. Use the box below instead.", es: "Tu teléfono no permitió pegar. Usa el cuadro de abajo." },
+    "link.noBackend": { en: "This app is not connected yet.", es: "Esta app aún no está conectada." },
     "signin.intro": { en: "Enter the access code to connect this app to your Google Sheet.", es: "Ingresa el código de acceso para conectar esta app con tu Google Sheet." },
     "signin.placeholder": { en: "Access code", es: "Código de acceso" },
     "signin.connect": { en: "Connect", es: "Conectar" },

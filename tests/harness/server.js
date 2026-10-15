@@ -50,7 +50,7 @@ http.createServer((req, res) => {
   let buf = fs.readFileSync(file);
   if (path.basename(file) === "app.js") {
     // Point the app at the fake backend instead of the real Apps Script URL.
-    buf = Buffer.from(buf.toString().replace(/const API_URL = "[^"]*";/, 'const API_URL = "/api";'));
+    buf = Buffer.from(buf.toString().replace(/const OWNER_API_URL = "[^"]*";/, 'const OWNER_API_URL = "/api";'));
   }
   res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
   res.end(buf);
