@@ -217,8 +217,8 @@ const T = {
     retryBtn: 'Try again',
     approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
     readyTitle: 'Your app is ready — how to open it',
-    readyBody: '<p>Your app is ready. To use it every day, put it on your Home Screen and sign it in:</p><ol><li>Tap <b>Copy my sign-in</b>.</li><li>Tap <b>Open my app</b>. It opens in Safari.</li><li>Tap the <b>Share</b> button (a square with an arrow pointing up) at the bottom of Safari, then <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Open the new icon on your Home Screen and tap <b>Paste my sign-in</b>. If your phone asks, tap <b>Allow Paste</b>.</li></ol><p class="small">Don’t copy anything else in between. If you did, come back here and tap Copy my sign-in again.</p>',
-    copySigninBtn: 'Copy my sign-in',
+    readyBody: '<p>Your app is ready. Tap <b>Open my app</b>: it opens in Safari and shows you the last two steps (add it to your Home Screen, then paste your sign-in once).</p>',
+    copySigninBtn: 'Copy my sign-in again (only if the app asks)',
     signinCopied: '✓ Copied. Now tap “Open my app”.',
     noSigninYet: 'This phone doesn’t have your sign-in yet. Tap “Sign in again on this phone” at the top first.',
     readyBtn: 'Open my app',
@@ -295,8 +295,8 @@ const T = {
     retryBtn: 'Intentar de nuevo',
     approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
     readyTitle: 'Tu app está lista — cómo abrirla',
-    readyBody: '<p>Tu app está lista. Para usarla todos los días, ponla en tu pantalla de inicio y conéctala:</p><ol><li>Toca <b>Copiar mi acceso</b>.</li><li>Toca <b>Abrir mi app</b>. Se abre en Safari.</li><li>Toca el botón <b>Compartir</b> (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari, luego <b>Agregar a inicio</b> y luego <b>Agregar</b>.</li><li>Abre el nuevo ícono de tu pantalla de inicio y toca <b>Pegar mi acceso</b>. Si tu teléfono lo pide, toca <b>Permitir pegar</b>.</li></ol><p class="small">No copies nada más en el medio. Si lo hiciste, vuelve aquí y toca Copiar mi acceso otra vez.</p>',
-    copySigninBtn: 'Copiar mi acceso',
+    readyBody: '<p>Tu app está lista. Toca <b>Abrir mi app</b>: se abre en Safari y te muestra los dos últimos pasos (agregarla a tu pantalla de inicio y pegar tu acceso una sola vez).</p>',
+    copySigninBtn: 'Copiar mi acceso otra vez (solo si la app lo pide)',
     signinCopied: '✓ Copiado. Ahora toca “Abrir mi app”.',
     noSigninYet: 'Este teléfono aún no tiene tu acceso. Toca primero “Iniciar sesión otra vez en este teléfono”, arriba.',
     readyBtn: 'Abrir mi app',
@@ -828,6 +828,9 @@ async function repairSignIn() {
 // What the home-screen check page (app-check.html) reads: the address and sign-in code of the person's app.
 function handoff() {
   try { localStorage.setItem(HANDOFF_KEY, JSON.stringify({ url: state.webAppUrl, code: state.accessCode, at: Date.now() })); } catch (e) {}
+  // The real app, opened in Safari from the next screen, finds this and offers "Copy my sign-in" itself, so the
+  // person pastes only once (in the Home Screen icon). Same Safari storage, same address as this page.
+  try { if (state.webAppUrl && state.accessCode) localStorage.setItem('etSigninHandoff', SigninLink.make(state.webAppUrl, state.accessCode)); } catch (e) {}
 }
 async function continueAfterApproval() {
   await restoreIfNeeded();
@@ -1152,7 +1155,7 @@ $('btnForget').addEventListener('click', () => {
   log('This phone forgot the test (the tracker in Drive is untouched).');
   ['s1', 's2', 's3', 's4', 's5'].forEach((id) => { $(id).innerHTML = ''; });
   $('acct').textContent = '';
-  try { localStorage.removeItem(HANDOFF_KEY); } catch (e) {}
+  try { localStorage.removeItem(HANDOFF_KEY); localStorage.removeItem('etSigninHandoff'); } catch (e) {}
   showRetry = false;
   render();
 });

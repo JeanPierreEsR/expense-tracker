@@ -1536,6 +1536,9 @@ body.income-revealed .sens-mask { display: none; }
 
 .setup-screen h2 { margin: 0 0 10px; }
 #setup-code-block { margin-top: 28px; }
+.install-steps { text-align: left; padding-left: 22px; line-height: 1.5; }
+.install-steps li { margin: 8px 0; }
+#install-block a { color: var(--muted); }
 .paste-manual { margin-top: 18px; text-align: left; }
 .paste-manual summary { cursor: pointer; color: var(--muted); }
 .paste-manual textarea { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }

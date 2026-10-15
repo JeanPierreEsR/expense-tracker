@@ -486,6 +486,14 @@ function isStandaloneApp_() {
   return navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
 }
 
+// On an iPhone, Safari and the Home Screen icon do not share storage: pasting the sign-in in Safari would be
+// thrown away when the icon is opened. So in Safari the first screen shows the install steps (and a Copy button for
+// the sign-in the setup page left in Safari), and pasting happens once, in the icon. "Only in Safari" skips this.
+let installScreenSkipped_ = false;
+function isIosSafariBrowser_() {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent || "") && !isStandaloneApp_();
+}
+
 function showSetupScreen(message) {
   // A brand-new phone whose language is Spanish gets Spanish from the first screen (a choice made later in
   // More still wins). Only before any address is known, so the owner's phone is never affected.
@@ -499,9 +507,36 @@ function showSetupScreen(message) {
   setup.hidden = false;
   // Typing an access code only makes sense once this app knows its own backend address.
   document.getElementById("setup-code-block").hidden = !getApiUrl();
+  const showInstall = !getApiUrl() && isIosSafariBrowser_() && !installScreenSkipped_;
+  document.getElementById("install-block").hidden = !showInstall;
+  document.getElementById("link-block").hidden = showInstall;
+  if (showInstall) {
+    const waiting = SigninLink.parse(localStorage.getItem("etSigninHandoff") || "", { allowLocal: location.hostname === "localhost" });
+    document.getElementById("install-step-copy").hidden = !waiting;
+    document.getElementById("install-copy-btn").hidden = !waiting;
+    document.getElementById("install-note").textContent = waiting ? "" : tr("link.noHandoff");
+  }
   document.getElementById("link-intro").textContent = tr(isStandaloneApp_() ? "link.introInstalled" : "link.introBrowser");
   document.getElementById("setup-error").textContent = message || "";
 }
+
+document.getElementById("install-copy-btn").addEventListener("click", async () => {
+  const note = document.getElementById("install-note");
+  try {
+    await navigator.clipboard.writeText(localStorage.getItem("etSigninHandoff") || "");
+    note.style.color = "";
+    note.textContent = tr("link.copied");
+  } catch (err) {
+    note.style.color = "#d64545";
+    note.textContent = tr("link.copyBlocked");
+  }
+});
+
+document.getElementById("use-safari-link").addEventListener("click", (e) => {
+  e.preventDefault();
+  installScreenSkipped_ = true;
+  showSetupScreen();
+});
 
 // "Paste my sign-in": the setup page left a sign-in text on the clipboard (signin-link.js). This app has storage
 // of its own on an iPhone (nothing the setup page saved in Safari is visible here), so this is how it learns its

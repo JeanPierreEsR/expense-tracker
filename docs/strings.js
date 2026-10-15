@@ -671,7 +671,16 @@
 
     // ---- signin ----
     "link.title": { en: "Connect your app", es: "Conecta tu app" },
-    "link.introBrowser": { en: "First add this app to your Home Screen: tap Share, then Add to Home Screen. Then open it from the new icon and tap the button below.", es: "Primero agrega esta app a tu pantalla de inicio: toca Compartir y luego Agregar a inicio. Luego ábrela desde el nuevo ícono y toca el botón de abajo." },
+    "link.introBrowser": { en: "Go back to the setup page and tap “Copy my sign-in”. Then come back here and tap the button below.", es: "Vuelve a la página de configuración y toca “Copiar mi acceso”. Luego regresa aquí y toca el botón de abajo." },
+    "link.installTitle": { en: "Add this app to your Home Screen", es: "Agrega esta app a tu pantalla de inicio" },
+    "link.stepCopy": { en: "Tap “Copy my sign-in” below.", es: "Toca “Copiar mi acceso” aquí abajo." },
+    "link.stepShare": { en: "Tap the Share button (a square with an arrow pointing up) at the bottom of Safari, then Add to Home Screen, then Add.", es: "Toca el botón Compartir (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari, luego Agregar a inicio y luego Agregar." },
+    "link.stepOpen": { en: "Open the new icon on your Home Screen and tap “Paste my sign-in”. If your phone asks, tap Allow Paste.", es: "Abre el nuevo ícono de tu pantalla de inicio y toca “Pegar mi acceso”. Si tu teléfono lo pide, toca Permitir pegar." },
+    "link.copyBtn": { en: "Copy my sign-in", es: "Copiar mi acceso" },
+    "link.copied": { en: "✓ Copied. Now add the app to your Home Screen (step 2).", es: "✓ Copiado. Ahora agrega la app a tu pantalla de inicio (paso 2)." },
+    "link.copyBlocked": { en: "Your phone did not allow copying. Go back to the setup page and tap “Copy my sign-in” there.", es: "Tu teléfono no permitió copiar. Vuelve a la página de configuración y toca “Copiar mi acceso” ahí." },
+    "link.noHandoff": { en: "No sign-in found in Safari. Open the setup page and tap “Copy my sign-in” first, then add the app to your Home Screen.", es: "No se encontró un acceso en Safari. Abre la página de configuración y toca “Copiar mi acceso” primero; luego agrega la app a tu pantalla de inicio." },
+    "link.useSafari": { en: "I only want to use it in Safari", es: "Solo quiero usarla en Safari" },
     "link.introInstalled": { en: "Your sign-in is waiting on the clipboard, copied by the setup page. Tap the button below. (If it is not there, go back to the setup page and tap “Copy my sign-in” again.)", es: "Tu acceso está esperando en el portapapeles, copiado por la página de configuración. Toca el botón de abajo. (Si no está, vuelve a la página de configuración y toca “Copiar mi acceso” otra vez.)" },
     "link.pasteBtn": { en: "Paste my sign-in", es: "Pegar mi acceso" },
     "link.manualSummary": { en: "Paste doesn't work? Do it by hand", es: "¿No funciona pegar? Hazlo a mano" },
