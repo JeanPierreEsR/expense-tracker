@@ -198,7 +198,7 @@ function computeAllCategoryProjections_(bounds) {
   });
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
@@ -280,7 +280,7 @@ function computeAllCategoryProjections_(bounds) {
     var recurringAmountPen = 0;
     recurringForPeriod.forEach(function (r) {
       recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
-        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || 'PEN', occDate);
+        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || homeCurrency_(), occDate);
         if (pen != null) recurringAmountPen += pen;
       });
     });
@@ -360,7 +360,7 @@ function computeAllCategoryProjections_(bounds) {
           return entryMatchesRecurringOccurrence_(e, r, [occDate], splitSumByEntry, recurringSplitSums);
         });
         if (handled) return;
-        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || 'PEN', occDate);
+        var pen = toPen_(recurringOwnAmount_(r, recurringSplitSums), r.currency || homeCurrency_(), occDate);
         if (pen != null) programmedRemainingPen += pen;
       });
     });
@@ -461,7 +461,7 @@ function getCategoryProjectionDetail(payload) {
   });
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
@@ -528,7 +528,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
 
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
@@ -554,7 +554,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amountPen = 0;
     occDates.forEach(function (occDate) {
-      var pen = toPen_(ownAmount, r.currency || 'PEN', occDate);
+      var pen = toPen_(ownAmount, r.currency || homeCurrency_(), occDate);
       if (pen != null) {
         amountPen += pen;
         dailyPen[occDate] = (dailyPen[occDate] || 0) + pen;
@@ -564,7 +564,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
       id: r.id,
       description: r.description || '',
       amount: ownAmount,
-      currency: r.currency || 'PEN',
+      currency: r.currency || homeCurrency_(),
       occurrences: occDates.length,
       amountPen: amountPen
     };
@@ -609,7 +609,7 @@ function computeCategoryYtdBreakdown_(categoryId) {
   var recurringSplitSums = getRecurringExpenseSplitSums_();
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }

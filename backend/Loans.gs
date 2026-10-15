@@ -344,7 +344,7 @@ function addLoan(payload) {
     direction: payload.direction,
     origin: 'cash',
     amount: Number(payload.amount),
-    currency: payload.currency || 'PEN',
+    currency: payload.currency || homeCurrency_(),
     date: payload.date,
     due_date: payload.due_date || defaultLoanDueDate_(payload.date),
     payment_method_id: payload.payment_method_id || '',
@@ -379,7 +379,7 @@ function updateLoan(payload) {
     // currency, which direction, or an amount below what's repaid would
     // silently break its balance. Description/date/due date stay editable.
     if (payload.friend_id !== existing.friend_id || payload.direction !== existing.direction ||
-        (payload.currency || 'PEN') !== existing.currency) {
+        (payload.currency || homeCurrency_()) !== existing.currency) {
       throw new Error(tr_('loan.repaymentLocked'));
     }
     if (Number(payload.amount) < settledSoFar - 0.004) {
@@ -543,7 +543,7 @@ function recordRepayment(payload) {
   }
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
-  var currency = payload.currency || 'PEN';
+  var currency = payload.currency || homeCurrency_();
 
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -697,7 +697,7 @@ function createOverpaymentEntry_(type, payload) {
     ? tr_('desc.overpaymentFrom', { name: friend.name })
     : tr_('desc.overpaymentTo', { name: friend.name }));
   var amount = Number(payload.amount);
-  var currency = payload.currency || 'PEN';
+  var currency = payload.currency || homeCurrency_();
 
   if (!payload.pending) {
     var waiting = getAllRows('Entries').find(function (e) {
@@ -1267,12 +1267,12 @@ function listLoanBalances() {
     // directions) isn't a balance worth listing.
     var balances = Object.keys(byCur)
       .filter(function (cur) { return Math.abs(byCur[cur]) > 0.004; })
-      .sort(function (a, b) { return a === 'PEN' ? -1 : (b === 'PEN' ? 1 : (a < b ? -1 : 1)); })
+      .sort(function (a, b) { return a === homeCurrency_() ? -1 : (b === homeCurrency_() ? 1 : (a < b ? -1 : 1)); })
       .map(function (cur) {
         // net_pen is only ever used to ORDER rows (largest first) — never
         // shown, and null when no rate is on file, since balances stay in
         // their own currency and nothing here needs a conversion to display.
-        var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
+        var rate = cur === homeCurrency_() ? 1 : getLatestRateOnOrBefore_(cur, month);
         return { currency: cur, net: byCur[cur], net_pen: rate == null ? null : byCur[cur] * rate };
       });
     if (!balances.length) return;

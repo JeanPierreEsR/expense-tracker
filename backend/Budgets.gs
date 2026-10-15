@@ -121,7 +121,7 @@ function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate, excl
 // different currency still goes through PEN, same as everywhere else.
 function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDate, targetCurrency, cutoffMonth, excludeAnnual) {
   var rate = null;
-  if (targetCurrency !== 'PEN') {
+  if (targetCurrency !== homeCurrency_()) {
     rate = latestRateAtOrBefore_(ctx, targetCurrency, cutoffMonth);
     if (rate == null) return null; // no rate for the budget's own currency at all — can't produce a figure
   }
@@ -135,7 +135,7 @@ function categorySpendInCurrencyFromContext_(ctx, categoryIds, startDate, endDat
     if (e.currency === targetCurrency) {
       total += e.ownAmount;
     } else if (e.ownAmountPen != null) {
-      total += targetCurrency === 'PEN' ? e.ownAmountPen : e.ownAmountPen / rate;
+      total += targetCurrency === homeCurrency_() ? e.ownAmountPen : e.ownAmountPen / rate;
     }
     // else: no rate on file for THIS entry's own month — silently
     // excluded, same as the plain-PEN sum above has always done.
@@ -185,7 +185,7 @@ function resolveBudgetDisplayName_(budget, categoryDisplayName) {
 // when viewing custom periods" — using today's rate to judge a past period
 // would be inconsistent with how every other rate lookup in the app works.
 function latestRateAtOrBefore_(ctx, currency, cutoffMonth) {
-  if (currency === 'PEN') return 1;
+  if (currency === homeCurrency_()) return 1;
   return latestRateFromList_(ctx.ratesByCurrency[currency], cutoffMonth);
 }
 
@@ -227,7 +227,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   var annualized = effectivePeriodType === 'yearly' && budget.period_type === 'monthly';
   var effectiveAmount = Number(budget.amount) * (annualized ? 12 : 1);
 
-  var currency = budget.currency || 'PEN';
+  var currency = budget.currency || homeCurrency_();
   var cutoffMonth = bounds.endDate.substring(0, 7);
   var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
@@ -273,7 +273,7 @@ function listBudgets(payload) {
   var budgets = rawBudgets.map(function (b) {
     var categoryIds = parseBudgetCategoryIds_(b.category_id);
     var display = resolveBudgetCategoryDisplay_(categoryIds, categoryById);
-    var currency = b.currency || 'PEN';
+    var currency = b.currency || homeCurrency_();
     var rate = latestRateAtOrBefore_(ctx, currency, currentMonth);
     return {
       id: b.id,
@@ -416,7 +416,7 @@ function getBudgetChartSeries(payload) {
   if (!rawBudget) throw new Error(tr_('err.budgetNotFound'));
 
   var categoryIds = parseBudgetCategoryIds_(rawBudget.category_id);
-  var currency = rawBudget.currency || 'PEN';
+  var currency = rawBudget.currency || homeCurrency_();
   var ctx = buildBudgetContext_();
   var cutoffMonth = endDate.substring(0, 7);
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
@@ -431,7 +431,7 @@ function getBudgetChartSeries(payload) {
     if (e.currency === currency) {
       amt = e.ownAmount;
     } else if (e.ownAmountPen != null) {
-      amt = currency === 'PEN' ? e.ownAmountPen : (rate != null ? e.ownAmountPen / rate : null);
+      amt = currency === homeCurrency_() ? e.ownAmountPen : (rate != null ? e.ownAmountPen / rate : null);
     }
     if (amt == null) return;
     dailySpend[e.date] = (dailySpend[e.date] || 0) + amt;
@@ -460,20 +460,20 @@ function getBudgetChartSeries(payload) {
   var recurringOccurrences = [];
   getRecurringExpenseRows_().forEach(function (r) {
     if (String(r.active) === 'false' || !categoryIdMatches_(categoryIds, r.category_id)) return;
-    var reCurrency = r.currency || 'PEN';
+    var reCurrency = r.currency || homeCurrency_();
     var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amt = null;
     if (reCurrency === currency) {
       amt = ownAmount;
     } else {
       var rePen = null;
-      if (reCurrency === 'PEN') {
+      if (reCurrency === homeCurrency_()) {
         rePen = ownAmount;
       } else {
         var reRate = latestRateAtOrBefore_(ctx, reCurrency, cutoffMonth);
         rePen = reRate != null ? ownAmount * reRate : null;
       }
-      if (rePen != null) amt = currency === 'PEN' ? rePen : (rate != null ? rePen / rate : null);
+      if (rePen != null) amt = currency === homeCurrency_() ? rePen : (rate != null ? rePen / rate : null);
     }
     if (amt == null) return;
     recurringExpenseOccurrencesInRange_(r, startDate, endDate)
@@ -507,7 +507,7 @@ function getBudgetChartSeries(payload) {
     var ytd = computeCategoryYtdBreakdown_(cat.id);
     expectedRemainingPen += ytd.ratePerMonth * (daysLeft / 30);
   });
-  var expectedRemaining = currency === 'PEN' ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
+  var expectedRemaining = currency === homeCurrency_() ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
 
   return {
     currency: currency,
@@ -574,7 +574,7 @@ function addBudget(payload) {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
     amount: Number(payload.amount),
-    currency: payload.currency || 'PEN',
+    currency: payload.currency || homeCurrency_(),
     period_type: payload.period_type === 'yearly' ? 'yearly' : 'monthly',
     thresholds: normalizeBudgetThresholds_(payload.thresholds),
     name: payload.name ? String(payload.name).trim() : ''
@@ -807,7 +807,7 @@ function generateTopCategoryBudgets(payload) {
     var budget = addBudget({
       category_id: r.category_id,
       amount: Math.round(r.avg * 100) / 100,
-      currency: 'PEN',
+      currency: homeCurrency_(),
       period_type: 'monthly',
       thresholds: DEFAULT_BUDGET_THRESHOLDS
     });

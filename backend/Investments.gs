@@ -69,7 +69,7 @@ function listInvestmentPlatforms() {
   var totalsByPm = {};
   confirmedEntries_().forEach(function (e) {
     if (e.type !== 'investment' || !e.to_payment_method_id) return;
-    var cur = e.currency || 'PEN';
+    var cur = e.currency || homeCurrency_();
     var t = totalsByPm[e.to_payment_method_id] || (totalsByPm[e.to_payment_method_id] = {});
     t[cur] = (t[cur] || 0) + Number(e.amount);
   });
@@ -78,7 +78,7 @@ function listInvestmentPlatforms() {
     var totalPen = 0;
     var lines = Object.keys(totals).map(function (cur) {
       var amount = Math.round(totals[cur] * 100) / 100;
-      var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
+      var rate = cur === homeCurrency_() ? 1 : getLatestRateOnOrBefore_(cur, month);
       if (rate == null || totalPen == null) totalPen = null;
       else totalPen += amount * rate;
       return { currency: cur, amount: amount };

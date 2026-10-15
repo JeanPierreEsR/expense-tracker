@@ -6,7 +6,7 @@
  */
 
 function getRateForEntryCurrency_(currency, dateStr) {
-  if (currency === 'PEN') return 1;
+  if (currency === homeCurrency_()) return 1;
   var month = String(dateStr).substring(0, 7);
   return getLatestRateOnOrBefore_(currency, month);
 }

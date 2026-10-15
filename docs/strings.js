@@ -423,7 +423,7 @@
 
     // ---- rates ----
     "rates.title": { en: "Exchange rates", es: "Tipos de cambio" },
-    "rates.hint": { en: "Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.", es: "Cada moneda y mes para los que has fijado un tipo de cambio. Toca uno para cambiarlo: todos los movimientos que lo usaron se actualizan solos, porque los montos en PEN siempre se calculan al momento, nunca se guardan." },
+    "rates.hint": { en: "Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since amounts in your main currency are always calculated fresh, never stored.", es: "Cada moneda y mes para los que has fijado un tipo de cambio. Toca uno para cambiarlo: todos los movimientos que lo usaron se actualizan solos, porque los montos en tu moneda principal siempre se calculan al momento, nunca se guardan." },
     "rates.empty": { en: "No exchange rates on file yet.", es: "Aún no hay tipos de cambio registrados." },
 
     // ---- drill ----
@@ -656,9 +656,11 @@
     "welcome.dateLabel": { en: "How do you write dates?", es: "¿Cómo escribes las fechas?" },
     "welcome.dateDmy": { en: "Day first: 3/4/2026 is 3 April", es: "Día primero: 3/4/2026 es 3 de abril" },
     "welcome.dateMdy": { en: "Month first: 3/4/2026 is 4 March", es: "Mes primero: 3/4/2026 es 4 de marzo" },
+    "welcome.dateYmd": { en: "Year first: 2026/4/3 is 3 April", es: "Año primero: 2026/4/3 es 3 de abril" },
     "welcome.dateHint": { en: "This is for dates you type. Dates on screen always show the month as a word (3 Apr 2026).", es: "Esto es para las fechas que escribes. En pantalla, las fechas siempre muestran el mes con letras (3 abr 2026)." },
-    "welcome.curLabel": { en: "Which other currencies do you use?", es: "¿Qué otras monedas usas?" },
-    "welcome.curHint": { en: "Soles (PEN) are always included. Pick up to 4. They show up as quick buttons when you add an expense.", es: "Los soles (PEN) siempre están incluidos. Elige hasta 4. Aparecen como botones rápidos al agregar un gasto." },
+    "welcome.curLabel": { en: "Your currencies", es: "Tus monedas" },
+    "welcome.curHint": { en: "Tap the currencies you use. Double-tap one to make it your main currency (★). Totals, budgets and reports are shown in your main currency, and you can't change it later.", es: "Toca las monedas que usas. Toca dos veces una para hacerla tu moneda principal (★). Los totales, presupuestos y reportes se muestran en tu moneda principal, y no podrás cambiarla después." },
+    "welcome.mainLabel": { en: "Main currency: ★ {code}", es: "Moneda principal: ★ {code}" },
     "welcome.continue": { en: "Continue", es: "Continuar" },
     "welcome.saving": { en: "Saving…", es: "Guardando…" },
     "welcome.error": { en: "Could not save. Check your connection and try again.", es: "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo." },
@@ -761,7 +763,7 @@
     "export.title": { en: "Export data", es: "Exportar datos" },
     "export.hint": { en: "Pick what you want, then tap Get my files. Each file then gets a Save button. In the menu that opens, pick Files to keep it on your phone, or another app (such as Mail) to send it somewhere.", es: "Elige lo que quieras y toca Obtener mis archivos. Cada archivo tendrá un botón Guardar. En el menú que se abre, elige Archivos para guardarlo en tu teléfono, o otra app (como Mail) para enviarlo a otro lado." },
     "export.entriesCsv": { en: "Entries spreadsheet (CSV)", es: "Hoja de movimientos (CSV)" },
-    "export.entriesHint": { en: "One row per entry, with category, account, friend and PEN values in plain words. Opens in Excel, Numbers or Google Sheets.", es: "Una fila por movimiento, con categoría, cuenta, amigo y valores en PEN en palabras simples. Se abre en Excel, Numbers o Google Sheets." },
+    "export.entriesHint": { en: "One row per entry, with category, account, friend and main-currency values in plain words. Opens in Excel, Numbers or Google Sheets.", es: "Una fila por movimiento, con categoría, cuenta, amigo y valores en tu moneda principal en palabras simples. Se abre en Excel, Numbers o Google Sheets." },
     "export.which": { en: "Which entries", es: "Qué movimientos" },
     "export.thisMonth": { en: "This month", es: "Este mes" },
     "export.thisYear": { en: "This year", es: "Este año" },

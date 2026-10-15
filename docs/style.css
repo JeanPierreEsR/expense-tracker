@@ -2133,3 +2133,5 @@ body.income-revealed .sens-mask { display: none; }
 .welcome-tour-buttons { display: flex; gap: 10px; }
 .welcome-tour-buttons button { flex: 1; }
 #welcome-continue-btn { width: 100%; margin-top: 12px; }
+.welcome-choice, .currency-chip { touch-action: manipulation; }
+.welcome-currencies .welcome-choice.main { border-color: #d89b00; background: rgba(216, 155, 0, 0.14); font-weight: 700; }

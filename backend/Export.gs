@@ -176,7 +176,7 @@ function buildEntriesCsv_(opts) {
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push(s);
   });
 
-  var lines = [EXPORT_CSV_HEADERS_.map(function (h) { return csvCell_(tr_('export.h.' + h)); }).join(',')];
+  var lines = [EXPORT_CSV_HEADERS_.map(function (h) { return csvCell_(tr_('export.h.' + h, { home: homeCurrency_() })); }).join(',')];
   entries.forEach(function (e) {
     var amount = Number(e.amount);
     var splits = splitsByEntry[e.id] || [];

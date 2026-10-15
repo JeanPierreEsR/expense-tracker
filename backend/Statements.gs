@@ -484,7 +484,7 @@ function stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat) {
   var lo = covAddDays_(l.date, -45);
   var words = significantWords_(String(l.description || '').replace(/^\s*REV\.?\s*/i, ''));
   var cands = allEntries.filter(function (e) {
-    return e.type === 'expense' && e.payment_method_id === pm.id && (e.currency || 'PEN') === l.currency &&
+    return e.type === 'expense' && e.payment_method_id === pm.id && (e.currency || homeCurrency_()) === l.currency &&
       Math.abs(Number(e.amount) - l.amount) < 0.005 && e.date >= lo && e.date <= l.date && !reversedIds[e.id];
   }).map(function (e) {
     var ew = significantWords_(String(e.description || '') + ' ' + String(e.merchant || ''));

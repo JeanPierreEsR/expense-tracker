@@ -31,6 +31,16 @@ test("the chosen date order is what typed dates are read with", () => {
   assert.equal(rt.run('parseTypedDate_("03/04/2026")'), "2026-04-03");
 });
 
+test("year-first is a choice too, and typed year-first dates are read as year, month, day", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base");
+  const r = rt.api("saveOnboarding", { language: "en", dateOrder: "ymd", currencies: [] });
+  assert.equal(r.dateOrder, "ymd");
+  assert.equal(rt.api("getMeta").settings.date_format, "ymd");
+  assert.equal(rt.run('parseTypedDate_("2026/4/3")'), "2026-04-03");
+  assert.equal(rt.run('parseTypedDate_("03/04/2026")'), "", "no guessing for a day/month-first date when year-first was chosen");
+});
+
 test("bad answers are ignored: soles first, no duplicates, only 3-letter codes, at most 5 chips", () => {
   const { rt } = freshApp({ small: true });
   rt.svc.props.set("FEATURES", "base");

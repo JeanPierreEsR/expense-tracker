@@ -128,6 +128,13 @@ const CURRENCIES = [
 
 const DEFAULT_RECENT_CURRENCIES = ["PEN", "USD", "EUR", "ARS", "MXN"];
 
+// The main ("home") currency: every total, budget and exchange rate is in it. It is the Settings row default_currency
+// (soles, unless the person chose another in the welcome questions, once; see backend/HomeCurrency.gs).
+function homeCur() {
+  const c = meta && meta.settings && meta.settings.default_currency;
+  return /^[A-Za-z]{3}$/.test(String(c || "")) ? String(c).toUpperCase() : "PEN";
+}
+
 function findCurrency(code) {
   return CURRENCIES.find((c) => c.code === code) || { code, flag: "💱", name: code };
 }
@@ -139,7 +146,7 @@ function getRecentCurrencies() {
   } catch (err) {
     // fall through to defaults
   }
-  return [...DEFAULT_RECENT_CURRENCIES];
+  return [homeCur(), ...DEFAULT_RECENT_CURRENCIES.filter((c) => c !== homeCur())].slice(0, 5);
 }
 
 function bumpRecentCurrency(code) {
@@ -630,6 +637,7 @@ function syncLanguageSetting_() {
   if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).catch(() => {});
 }
 
+let homeCurFormDone_ = false;
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
@@ -638,6 +646,11 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
     const fav = meta.settings && meta.settings.favorite_currencies;
     if (fav && !localStorage.getItem("recentCurrencies")) localStorage.setItem("recentCurrencies", JSON.stringify(String(fav).split(",").slice(0, 5)));
   } catch (e) { /* storage blocked */ }
+  // Once per page load: the entry form starts in the main currency (its static default is soles).
+  if (!homeCurFormDone_ && meta.settings && meta.settings.default_currency !== undefined) {
+    homeCurFormDone_ = true;
+    if (homeCur() !== "PEN") { document.getElementById("currency").value = homeCur(); renderCurrencyChips("entry"); }
+  }
   if (typeof maybeShowWelcome_ === "function") maybeShowWelcome_();
   syncLanguageSetting_();
   if (skipFormPopulate) return;
@@ -1288,7 +1301,7 @@ function renderSplitSummary() {
   errorEl.textContent = "";
 
   const amount = parseFloat(document.getElementById("amount").value) || 0;
-  const currency = (document.getElementById("currency").value || "PEN").toUpperCase();
+  const currency = (document.getElementById("currency").value || homeCur()).toUpperCase();
   const friendIds = Array.from(splitFriendIds);
 
   if (friendIds.length === 0) {
@@ -1550,7 +1563,7 @@ document.getElementById("amount").addEventListener("input", (e) => {
 // ---- Currency & exchange rate ----
 
 async function ensureExchangeRate(currency, dateStr) {
-  if (currency === "PEN") return;
+  if (currency === homeCur()) return;
   const month = dateStr.slice(0, 7);
   const existing = await callApi("getExchangeRate", { currency, month });
   if (existing) return;
@@ -1574,8 +1587,8 @@ let rateModalState = null; // { currency, month, inverted, resolve, existingRate
 
 function renderRateModalLabels_() {
   const { currency, inverted, existingRate } = rateModalState;
-  document.getElementById("rate-left-label").textContent = inverted ? "1 PEN" : `1 ${currency}`;
-  document.getElementById("rate-right-label").textContent = inverted ? currency : "PEN";
+  document.getElementById("rate-left-label").textContent = inverted ? `1 ${homeCur()}` : `1 ${currency}`;
+  document.getElementById("rate-right-label").textContent = inverted ? currency : homeCur();
   // existingRate is always in the canonical "1 currency = rate PEN"
   // orientation (see the comment above) — flip it for display whenever
   // the owner has toggled to the "1 PEN = __ currency" view, same as the
@@ -1998,7 +2011,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // exception worth calling out), so a flag on it next to nearly every
 // entry was just noise repeated over and over rather than information.
 function formatAmount(amount, currency) {
-  const flag = currency === "PEN" ? "" : findCurrency(currency).flag + " ";
+  const flag = currency === homeCur() ? "" : findCurrency(currency).flag + " ";
   return `${flag}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -2031,12 +2044,12 @@ function renderEntryAmountHtml(entry) {
   const hasSplit = entry.own_share != null &&
     Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
-  if (entry.currency === "PEN") {
+  if (entry.currency === homeCur()) {
     if (!hasSplit) {
-      return `<span class="primary-amt">PEN ${moneyFmt(entry.amount)}</span>`;
+      return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount)}</span>`;
     }
-    const totalLine = `<span class="original-amt">${tr("common.total")} PEN ${moneyFmt(entry.amount)}</span>`;
-    return `<span class="primary-amt">PEN ${moneyFmt(entry.own_share)}</span>${totalLine}`;
+    const totalLine = `<span class="original-amt">${tr("common.total")} ${homeCur()} ${moneyFmt(entry.amount)}</span>`;
+    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.own_share)}</span>${totalLine}`;
   }
 
   if (entry.amount_pen == null) {
@@ -2050,13 +2063,13 @@ function renderEntryAmountHtml(entry) {
 
   if (!hasSplit) {
     const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
-    return `<span class="primary-amt">PEN ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
   }
 
   const primaryPen = entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen;
   const ownShareLine = `<span class="original-amt">${formatAmount(entry.own_share, entry.currency)}</span>`;
   const totalLine = `<span class="original-amt">${tr("common.total")} ${formatAmount(entry.amount, entry.currency)}</span>`;
-  return `<span class="primary-amt">PEN ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
+  return `<span class="primary-amt">${homeCur()} ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
 }
 
 function findCategory(id) {
@@ -2550,7 +2563,7 @@ function restoreEntryDraft_() {
   }
   document.getElementById("amount").value = d.amount;
   document.getElementById("description").value = d.description;
-  selectCurrency(d.currency || "PEN", "entry");
+  selectCurrency(d.currency || homeCur(), "entry");
   if (d.date) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
@@ -2734,7 +2747,7 @@ function resetEntryFormFields_() {
   document.getElementById("description").value = "";
   lastAutoDescription = "";
   document.getElementById("date").value = todayLocalISO();
-  selectCurrency("PEN", "entry");
+  selectCurrency(homeCur(), "entry");
   document.getElementById("to_payment_method").value = "";
   // payment_method (the "From"/"Paid from" account) has no blank option
   // to reset to — whatever the browser falls back to (its first real
@@ -3066,7 +3079,7 @@ function blockedWhileSavingEdit_(id) {
 function applyDerivedOverlayFields_(merged, splits) {
   const splitTotal = splits ? splits.reduce((sum, s) => sum + Number(s.amount || 0), 0) : 0;
   merged.own_share = Number(merged.amount) - splitTotal;
-  if (merged.currency === "PEN") {
+  if (merged.currency === homeCur()) {
     merged.amount_pen = Number(merged.amount);
     merged.own_share_pen = merged.own_share;
   }
@@ -3711,7 +3724,7 @@ function moneyFmt(n) {
 }
 
 function formatPen(n) {
-  return `PEN ${moneyFmt(n)}`;
+  return `${homeCur()} ${moneyFmt(n)}`;
 }
 
 async function refreshOverview() {
@@ -4434,7 +4447,7 @@ document.getElementById("budget-all-categories-checkbox").addEventListener("chan
 async function refreshBudgetRateWarning_(budget) {
   const warning = document.getElementById("budget-rate-warning");
   const currency = document.getElementById("budget-currency").value;
-  if (currency === "PEN") {
+  if (currency === homeCur()) {
     warning.hidden = true;
     return;
   }
@@ -4495,7 +4508,7 @@ function openBudgetModal(budget) {
   populateBudgetCategoryChips();
 
   document.getElementById("budget-amount").value = budget ? budget.amount : "";
-  document.getElementById("budget-currency").value = budget ? budget.currency : "PEN";
+  document.getElementById("budget-currency").value = budget ? budget.currency : homeCur();
   renderCurrencyChips("budget");
   refreshBudgetRateWarning_(budget);
 
@@ -4652,8 +4665,8 @@ async function refreshBudgets() {
     const periodLabel = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth") +
       (p.annualized ? tr("budget.annualized") : "");
 
-    if (b.currency !== "PEN" && p.rate != null) {
-      fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} PEN — ${b.category_name}`);
+    if (b.currency !== homeCur() && p.rate != null) {
+      fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} ${homeCur()} — ${b.category_name}`);
     }
 
     const row = document.createElement("div");
@@ -5106,7 +5119,7 @@ document.getElementById("extras-copy-btn").addEventListener("click", async () =>
 // The backend says `capabilities.onboarding` until the answers are saved (Onboarding.gs); the owner's own copy never asks.
 // Soles stay the home currency: the currency question only chooses the quick buttons.
 const WELCOME_FLAG_KEY = "etOnboarded";
-const WELCOME_CURRENCIES = ["USD", "EUR", "ARS", "MXN", "CLP", "COP", "BRL", "GBP"];
+const WELCOME_CURRENCIES = ["PEN", "USD", "EUR", "ARS", "MXN", "CLP", "COP", "BRL", "GBP"];
 let welcome_ = null;
 function welcomeEl_(id) { return document.getElementById(id); }
 function maybeShowWelcome_() {
@@ -5115,7 +5128,7 @@ function maybeShowWelcome_() {
   try { done = localStorage.getItem(WELCOME_FLAG_KEY) === "1"; } catch (e) { /* storage blocked: ask again next time */ }
   if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
   const lang = I18n.getLang();
-  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", currencies: ["USD", "EUR"] };
+  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-tour").hidden = true;
@@ -5126,21 +5139,38 @@ function renderWelcomeQuestions_() {
   I18n.applyStatic(root);
   root.querySelectorAll("[data-welcome-lang]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeLang === welcome_.lang));
   root.querySelectorAll("[data-welcome-order]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeOrder === welcome_.order));
+  welcomeEl_("welcome-main-label").textContent = tr("welcome.mainLabel", { code: welcome_.home });
   const box = welcomeEl_("welcome-currencies");
+    const isMain = code === welcome_.home;
   box.innerHTML = "";
   WELCOME_CURRENCIES.forEach((code) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (welcome_.currencies.includes(code) ? " active" : "");
-    b.textContent = `${findCurrency(code).flag} ${code}`;
-    b.addEventListener("click", () => {
-      const has = welcome_.currencies.includes(code);
-      if (has) welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
-      else if (welcome_.currencies.length < 4) welcome_.currencies.push(code);
-      renderWelcomeQuestions_();
-    });
+    b.className = "welcome-choice" + (isMain ? " active main" : welcome_.currencies.includes(code) ? " active" : "");
+    b.textContent = `${isMain ? "★ " : ""}${findCurrency(code).flag} ${code}`;
+    b.addEventListener("click", () => welcomeTapCurrency_(code));
     box.appendChild(b);
   });
+// One tap picks or drops a currency; a second tap on the same one within 0.4 s makes it the MAIN currency (★).
+// The main currency is always selected, and the old main one stays in the list as an ordinary currency.
+function welcomeTapCurrency_(code) {
+  const now = Date.now();
+  const double = welcome_.lastTap && welcome_.lastTap.code === code && now - welcome_.lastTap.at < 400;
+  welcome_.lastTap = double ? null : { code, at: now };
+  if (double) {
+    if (code !== welcome_.home) {
+      const old = welcome_.home;
+      welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
+      if (!welcome_.currencies.includes(old)) welcome_.currencies.unshift(old);
+      welcome_.home = code;
+      welcome_.currencies = welcome_.currencies.slice(0, 4);
+    }
+  } else if (code !== welcome_.home) {
+    if (welcome_.currencies.includes(code)) welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
+    else if (welcome_.currencies.length < 4) welcome_.currencies.push(code);
+  }
+  renderWelcomeQuestions_();
+}
   welcomeEl_("welcome-error").textContent = "";
 }
 document.querySelectorAll("[data-welcome-lang]").forEach((b) => b.addEventListener("click", () => {
@@ -5153,7 +5183,7 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
   const btn = welcomeEl_("welcome-continue-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
   try {
-    await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, currencies: welcome_.currencies });
+    await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     welcomeEl_("welcome-error").textContent = tr("welcome.error");
     btn.disabled = false; btn.textContent = tr("welcome.continue");
@@ -5161,8 +5191,11 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
   }
   btn.disabled = false; btn.textContent = tr("welcome.continue");
   try {
-    localStorage.setItem("recentCurrencies", JSON.stringify(["PEN"].concat(welcome_.currencies)));
+    localStorage.setItem("recentCurrencies", JSON.stringify([welcome_.home].concat(welcome_.currencies)));
     localStorage.setItem(WELCOME_FLAG_KEY, "1");
+  if (meta && meta.settings) meta.settings.default_currency = welcome_.home;   // locked now: totals and forms use it from here on
+  document.getElementById("currency").value = welcome_.home;
+  renderCurrencyChips("entry");
   } catch (e) { /* the server remembers it anyway */ }
   if (meta && meta.capabilities) meta.capabilities.onboarding = false;
   I18n.saveLang(welcome_.lang);
@@ -5525,7 +5558,7 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">1 ${r.currency} = PEN ${moneyFmt(r.rate)}</div>
+      <div class="recurring-row-amount">1 ${r.currency} = ${homeCur()} ${moneyFmt(r.rate)}</div>
     `;
     row.addEventListener("click", async () => {
       const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
@@ -5938,7 +5971,7 @@ function renderRecurringSplitSummary() {
   errorEl.textContent = "";
 
   const amount = parseFloat(document.getElementById("recurring-amount").value) || 0;
-  const currency = (document.getElementById("recurring-currency").value || "PEN").toUpperCase();
+  const currency = (document.getElementById("recurring-currency").value || homeCur()).toUpperCase();
   const friendIds = Array.from(recurringSplitFriendIds);
 
   if (friendIds.length === 0) {
@@ -6070,7 +6103,7 @@ async function openRecurringModal(re) {
   populateRecurringCategoryChips();
 
   document.getElementById("recurring-amount").value = re ? re.amount : "";
-  document.getElementById("recurring-currency").value = re ? re.currency : "PEN";
+  document.getElementById("recurring-currency").value = re ? re.currency : homeCur();
   renderCurrencyChips("recurring");
 
   const frequency = re ? re.frequency : "monthly";
@@ -6404,14 +6437,14 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const group = document.createElement("div");
     group.className = "expected-recurring-group";
 
-    const isPen = g.currency === "PEN";
+    const isPen = g.currency === homeCur();
     const isIncome = g.type === "income";
     const sign = isIncome ? "+" : "";
     let amountHtml;
     if (isPen) {
-      amountHtml = `<span class="primary-amt">${sign}PEN ${moneyFmt(g.total)}</span>`;
+      amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
     } else if (g.totalPen != null) {
-      amountHtml = `<span class="primary-amt">${sign}PEN ${moneyFmt(g.totalPen)}</span>` +
+      amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.totalPen)}</span>` +
         `<span class="original-amt">${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>`;
     } else {
       amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>` +
@@ -7226,7 +7259,7 @@ function formatLoanAmount_(currency, amount, kind) {
 // One line per currency, PEN first (the backend already orders each
 // friend's lines that way; totals get the same order here).
 function sortCurrencies_(list) {
-  return list.sort((a, b) => (a === "PEN" ? -1 : b === "PEN" ? 1 : a < b ? -1 : 1));
+  return list.sort((a, b) => (a === homeCur() ? -1 : b === homeCur() ? 1 : a < b ? -1 : 1));
 }
 
 // Total per currency, summed from the exact per-friend lines shown
@@ -7522,7 +7555,7 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-friend").value = loan ? loan.friend_id : (meta.friends.length ? meta.friends[0].id : "");
   setLoanDirection_(loan ? loan.direction : "they_owe_me");
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
-  document.getElementById("loan-currency").value = loan ? loan.currency : "PEN";
+  document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
   renderCurrencyChips("loan");
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
@@ -8240,7 +8273,7 @@ async function refreshBalances() {
   // conversion — each currency stands on its own.
   const totals = {};
   rows.forEach((r) => r.balances.forEach((b) => { totals[b.currency] = (totals[b.currency] || 0) + b.amount; }));
-  const codes = Object.keys(totals).sort((a, b) => (a === "PEN" ? -1 : b === "PEN" ? 1 : a < b ? -1 : 1));
+  const codes = Object.keys(totals).sort((a, b) => (a === homeCur() ? -1 : b === homeCur() ? 1 : a < b ? -1 : 1));
   const totalsWrap = document.getElementById("balances-totals");
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
@@ -8249,7 +8282,7 @@ async function refreshBalances() {
     const amount = Math.round(totals[code] * 100) / 100;
     const line = document.createElement("div");
     line.className = "balances-totals-line" + (amount < 0 ? " negative" : "");
-    line.innerHTML = `<span>${code === "PEN" ? "" : findCurrency(code).flag + " "}${code}</span><span>${formatSignedBalance_(amount, code)}</span>`;
+    line.innerHTML = `<span>${code === homeCur() ? "" : findCurrency(code).flag + " "}${code}</span><span>${formatSignedBalance_(amount, code)}</span>`;
     totalsLines.appendChild(line);
   });
 }
@@ -8421,7 +8454,7 @@ function loadBalanceRowsFor_(pmId) {
         currency: o.currency,
         date: o.date || todayLocalISO()
       }))
-    : [{ amount: "", negative: false, currency: "PEN", date: todayLocalISO() }];
+    : [{ amount: "", negative: false, currency: homeCur(), date: todayLocalISO() }];
 }
 
 function renderBalanceRows_() {
@@ -8453,7 +8486,7 @@ function renderBalanceRows_() {
 
 document.getElementById("balance-add-row-btn").addEventListener("click", () => {
   const used = new Set(balanceFormRows.map((r) => r.currency));
-  const next = ["USD", "PEN", "EUR"].find((c) => !used.has(c)) || "USD";
+  const next = ["USD", homeCur(), "EUR"].find((c) => !used.has(c)) || "USD";
   balanceFormRows.push({ amount: "", negative: false, currency: next, date: todayLocalISO() });
   renderBalanceRows_();
 });
@@ -8655,7 +8688,7 @@ async function openBillModal() {
     document.getElementById("bill-photo-status").hidden = true;
     document.getElementById("bill-photo-raw").hidden = true;
   }
-  document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || "PEN").toUpperCase();
+  document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || homeCur()).toUpperCase();
   document.getElementById("bill-total").value = billState.total;
   syncBillTabs_();
   renderBillPeople_();
@@ -8675,7 +8708,7 @@ function syncBillTabs_() {
   document.querySelectorAll("#bill-tip-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.type));
   document.querySelectorAll("#bill-tip-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.v === billState.tip.mode));
   const isPercent = billState.tip.type === "percent";
-  const cur = (document.getElementById("currency").value || "PEN").toUpperCase();
+  const cur = (document.getElementById("currency").value || homeCur()).toUpperCase();
   document.getElementById("bill-tip-label").textContent = isPercent ? tr("bill.tipPercentLabel") : tr("bill.tipAmountLabel", { cur });
   const box = document.getElementById("bill-tip-value");
   box.placeholder = isPercent ? "e.g. 10" : "0.00";
@@ -8895,7 +8928,7 @@ function renderBillAdjs_() {
 
 function recomputeBill_() {
   const res = BillSplit.compute(billInput_());
-  const cur = (document.getElementById("currency").value || "PEN").toUpperCase();
+  const cur = (document.getElementById("currency").value || homeCur()).toUpperCase();
   const fmt = (cents) => `${cur} ${moneyFmt(cents / 100)}`;
 
   const check = document.getElementById("bill-check");

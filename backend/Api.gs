@@ -23,6 +23,7 @@ function doPost(e) {
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
   RATES_MEMO_ = null;   // never carry rates over from a previous request
+  HOME_CURRENCY_MEMO_ = null;   // nor the main currency (HomeCurrency.gs)
   STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
   REQUEST_LANG_ = null;         // nor the previous request's language (see Strings.gs)
   var response;
@@ -543,7 +544,7 @@ function createEntry(payload) {
     type: payload.type,
     date: payload.date,
     amount: payload.amount,
-    currency: payload.currency || 'PEN',
+    currency: payload.currency || homeCurrency_(),
     category_id: payload.category_id,
     description: payload.description || '',
     // Income always keeps its "Received at" account — its paid_by is a
@@ -804,7 +805,7 @@ function buildSearchIndexRows_(entries) {
     splitSumByEntry[sp.entry_id] = (splitSumByEntry[sp.entry_id] || 0) + Number(sp.amount);
   });
   var pen = function (amount, currency, date) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(date).substring(0, 7));
     return rate != null ? amount * rate : null;
   };
@@ -881,7 +882,7 @@ function updateEntryFields(entryId, fields) {
 }
 
 function computeAmountPen(amount, currency, dateStr) {
-  if (currency === 'PEN') return amount;
+  if (currency === homeCurrency_()) return amount;
   var month = String(dateStr).substring(0, 7);
   var rate = getLatestRateOnOrBefore_(currency, month);
   return rate != null ? amount * rate : null;
@@ -958,7 +959,7 @@ function latestRateFromList_(list, cutoffMonth) {
 // explicitly rated (common for older imported entries) still resolves
 // to a sensible figure instead of silently dropping the amount.
 function getLatestRateOnOrBefore_(currency, month) {
-  if (currency === 'PEN') return 1;
+  if (currency === homeCurrency_()) return 1;
   return latestRateFromList_(buildRatesByCurrency_()[currency], month);
 }
 

@@ -259,7 +259,7 @@ function applyStatementDecisions(payload) {
       var oi = rowById[String(a.entryId)];
       if (oi === undefined) throw new Error(tr_('sa.chargeNotFound'));
       if (values[oi][col.type] !== 'expense') throw new Error(tr_('sa.onlyExpenseCancel'));
-      if (String(values[oi][col.currency] || 'PEN') !== rv.l.currency || Math.abs(Number(values[oi][col.amount]) - rv.l.amount) >= 0.005) {
+      if (String(values[oi][col.currency] || homeCurrency_()) !== rv.l.currency || Math.abs(Number(values[oi][col.amount]) - rv.l.amount) >= 0.005) {
         throw new Error(tr_('sa.reversalMismatch'));
       }
       var madeRv = newEntry({ type: 'expense', date: rv.l.date, amount: -rv.l.amount, currency: rv.l.currency,

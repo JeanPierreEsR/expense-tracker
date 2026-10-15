@@ -113,7 +113,7 @@ function guessFromProgrammed_(fields, dateStr, ctx) {
   var hits = ctx.recurring.filter(function (r) {
     if (!ctx.expenseCatIds[r.category_id]) return false;
     var amt = recurringOwnAmount_(r, ctx.recurringSplitSums);
-    if (!(amt > 0) || !amountsCloseAcrossCurrencies_(Number(fields.amount), fields.currency, amt, r.currency || 'PEN', dateStr)) return false;
+    if (!(amt > 0) || !amountsCloseAcrossCurrencies_(Number(fields.amount), fields.currency, amt, r.currency || homeCurrency_(), dateStr)) return false;
     return recurringExpenseOccurrencesInRange_(r, start, end).length > 0;
   });
   if (!hits.length) return null;

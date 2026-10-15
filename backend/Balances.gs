@@ -74,7 +74,7 @@ function buildOpeningsByPm_(pms) {
   getAllRows('Account Opening Balances').forEach(function (r) {
     if (!byPm[r.payment_method_id]) byPm[r.payment_method_id] = [];
     byPm[r.payment_method_id].push({
-      currency: String(r.currency || 'PEN').toUpperCase(),
+      currency: String(r.currency || homeCurrency_()).toUpperCase(),
       amount: Number(r.amount) || 0,
       date: r.date || '',
       as_of: r.as_of || ''
@@ -84,7 +84,7 @@ function buildOpeningsByPm_(pms) {
     if (byPm[pm.id]) return;
     if (pm.opening_balance !== undefined && pm.opening_balance !== '' && pm.opening_balance !== null) {
       byPm[pm.id] = [{
-        currency: String(pm.opening_balance_currency || 'PEN').toUpperCase(),
+        currency: String(pm.opening_balance_currency || homeCurrency_()).toUpperCase(),
         amount: Number(pm.opening_balance) || 0,
         date: pm.opening_balance_date || ''
       }];
@@ -203,7 +203,7 @@ function signedEffectOnPaymentMethod_(entry, pmId, inboundIds) {
 function movementsForPaymentMethod_(pm, openings, entries, inboundIds) {
   var out = [];
   entries.forEach(function (e) {
-    if (!entryCountsAfterOpening_(e, openingForCurrency_(openings, e.currency || 'PEN'))) return;
+    if (!entryCountsAfterOpening_(e, openingForCurrency_(openings, e.currency || homeCurrency_()))) return;
     var signed = signedEffectOnPaymentMethod_(e, pm.id, inboundIds);
     if (signed === 0) return;
     out.push({ entry: e, signed: signed });
@@ -240,14 +240,14 @@ function listPaymentMethodBalances() {
     var totals = {};
     openings.forEach(function (o) { totals[o.currency] = (totals[o.currency] || 0) + o.amount; });
     movementsForPaymentMethod_(pm, openings, entries, inboundIds).forEach(function (m) {
-      var cur = m.entry.currency || 'PEN';
+      var cur = m.entry.currency || homeCurrency_();
       totals[cur] = (totals[cur] || 0) + m.signed;
     });
 
     var balancePen = 0;
     var balances = Object.keys(totals).map(function (cur) {
       var amount = Math.round(totals[cur] * 100) / 100;
-      var rate = cur === 'PEN' ? 1 : getLatestRateOnOrBefore_(cur, month);
+      var rate = cur === homeCurrency_() ? 1 : getLatestRateOnOrBefore_(cur, month);
       var amountPen = rate != null ? amount * rate : null;
       if (amountPen == null || balancePen == null) balancePen = null;
       else balancePen += amountPen;
@@ -321,7 +321,7 @@ function setPaymentMethodOpeningBalance(payload) {
   var list = payload.balances || [];
   var seen = {};
   var clean = list.map(function (b) {
-    var currency = String(b.currency || 'PEN').toUpperCase();
+    var currency = String(b.currency || homeCurrency_()).toUpperCase();
     if (seen[currency]) throw new Error(tr_('bal.listedOnce', { cur: currency }));
     seen[currency] = true;
     if (b.amount === '' || b.amount === null || b.amount === undefined || isNaN(Number(b.amount))) {

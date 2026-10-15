@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-15T21:48:03Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-15T22:11:03Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -253,19 +253,19 @@
         <div class="summary-grid">
           <div class="summary-item">
             <span class="summary-label" data-i18n="summary.income">Income</span>
-            <span class="summary-value income" id="summary-income">PEN 0.00</span>
+            <span class="summary-value income" id="summary-income">0.00</span>
           </div>
           <div class="summary-item">
             <span class="summary-label" data-i18n="summary.expenses">Expenses</span>
-            <span class="summary-value expense" id="summary-expense">PEN 0.00</span>
+            <span class="summary-value expense" id="summary-expense">0.00</span>
           </div>
           <div class="summary-item">
             <span class="summary-label" data-i18n="summary.investments">Investments</span>
-            <span class="summary-value investment" id="summary-investment">PEN 0.00</span>
+            <span class="summary-value investment" id="summary-investment">0.00</span>
           </div>
           <div class="summary-item">
             <span class="summary-label" data-i18n="summary.net">Net</span>
-            <span class="summary-value" id="summary-net">PEN 0.00</span>
+            <span class="summary-value" id="summary-net">0.00</span>
           </div>
         </div>
         <p class="hint" id="overview-excluded-note" hidden></p>
@@ -339,11 +339,11 @@
       <div class="card" id="budgets-summary-card" hidden>
         <div class="budgets-summary-row">
           <span class="budgets-summary-label" data-i18n="budgets.totalMonth">Total per month</span>
-          <span class="budgets-summary-value" id="budgets-summary-monthly">PEN 0.00</span>
+          <span class="budgets-summary-value" id="budgets-summary-monthly">0.00</span>
         </div>
         <div class="budgets-summary-row">
           <span class="budgets-summary-label" data-i18n="budgets.totalYear">Total per year</span>
-          <span class="budgets-summary-value" id="budgets-summary-yearly">PEN 0.00</span>
+          <span class="budgets-summary-value" id="budgets-summary-yearly">0.00</span>
         </div>
         <p class="hint" id="budgets-summary-note" hidden></p>
         <div class="budgets-summary-fx" id="budgets-summary-fx" hidden></div>
@@ -678,14 +678,14 @@
         <div id="drilldown-projection-split" hidden>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-programmed-row">
             <span><span data-i18n="drill.programmed">🔁 Programmed</span> <span class="hint" data-i18n="drill.tapToTrace">(tap to trace)</span></span>
-            <span id="drilldown-projection-programmed-amount">PEN 0.00</span>
+            <span id="drilldown-projection-programmed-amount">0.00</span>
           </div>
           <div id="drilldown-projection-programmed-detail" class="drilldown-projection-expandable-detail" hidden>
             <div id="drilldown-projection-programmed-items"></div>
           </div>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-expected-row">
             <span><span data-i18n="drill.expected">📈 Expected</span> <span class="hint" data-i18n="drill.tapToTrace">(tap to trace)</span></span>
-            <span id="drilldown-projection-expected-amount">PEN 0.00</span>
+            <span id="drilldown-projection-expected-amount">0.00</span>
           </div>
           <div id="drilldown-projection-expected-detail" class="drilldown-projection-expandable-detail" hidden>
             <p class="hint" id="drilldown-projection-expected-formula"></p>
@@ -697,7 +697,7 @@
             <div data-i18n="drill.projectedRemaining">🔮 Projected remaining</div>
             <div class="hint" id="drilldown-projection-override-note" hidden data-i18n="drill.manuallySet">Manually set</div>
           </div>
-          <div class="drilldown-projection-amount" id="drilldown-projection-amount">PEN 0.00</div>
+          <div class="drilldown-projection-amount" id="drilldown-projection-amount">0.00</div>
         </div>
         <div class="currency-option-list" id="drilldown-list"></div>
       </div>
@@ -921,9 +921,11 @@
         </div>
         <p class="hint" data-i18n="welcome.dateHint">This is for dates you type. Dates on screen always show the month as a word (3 Apr 2026).</p>
 
-        <h3 data-i18n="welcome.curLabel">Which other currencies do you use?</h3>
-        <p class="hint" data-i18n="welcome.curHint">Soles (PEN) are always included. Pick up to 4. They show up as quick buttons when you add an expense.</p>
+        <h3 data-i18n="welcome.curLabel">Your currencies</h3>
+        <p class="hint" data-i18n="welcome.curHint">Tap the currencies you use. Double-tap one to make it your main currency (★). Totals, budgets and reports are shown in your main currency, and you can't change it later.</p>
+        <p class="hint" id="welcome-main-label" style="font-weight:600;"></p>
         <div id="welcome-currencies" class="welcome-currencies"></div>
+          <button type="button" class="welcome-choice" data-welcome-order="ymd" data-i18n="welcome.dateYmd">Year first: 2026/4/3 is 3 April</button>
 
         <p class="hint" id="welcome-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.continue">Continue</button>
@@ -1289,13 +1291,13 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="i18n.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="signin-link.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="receipt-parse.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="bill-split.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="app.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="statement-parsers.js?v=2026-10-15T21:48:03Z"></script>
-  <script src="statements.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="strings.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="i18n.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="signin-link.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="receipt-parse.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="bill-split.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="app.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="statement-parsers.js?v=2026-10-15T22:11:03Z"></script>
+  <script src="statements.js?v=2026-10-15T22:11:03Z"></script>
 </body>
 </html>

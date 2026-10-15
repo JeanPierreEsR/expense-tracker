@@ -135,9 +135,9 @@ var BACKEND_STRINGS_ = {
   "export.h.category": { en: "Category", es: "Categoría" },
   "export.h.amount": { en: "Amount", es: "Monto" },
   "export.h.currency": { en: "Currency", es: "Moneda" },
-  "export.h.amountPen": { en: "Amount (PEN)", es: "Monto (PEN)" },
+  "export.h.amountPen": { en: "Amount ({home})", es: "Monto ({home})" },
   "export.h.share": { en: "Your share", es: "Tu parte" },
-  "export.h.sharePen": { en: "Your share (PEN)", es: "Tu parte (PEN)" },
+  "export.h.sharePen": { en: "Your share ({home})", es: "Tu parte ({home})" },
   "export.h.splitWith": { en: "Shared with", es: "Compartido con" },
   "export.h.method": { en: "Payment method", es: "Medio de pago" },
   "export.h.toAccount": { en: "To account", es: "Hacia la cuenta" },
@@ -505,6 +505,7 @@ function localizeCategories_(rows, langOverride) {
 // structure version, so it is bumped to make the change visible at once.
 function setSetting_(key, value) {
   var sheet = getSheet('Settings');
+  if (key === 'default_currency') HOME_CURRENCY_MEMO_ = null;   // the main currency (HomeCurrency.gs)
   var headers = getHeaders(sheet);
   var keyCol = headers.indexOf('key') + 1;
   var valueCol = headers.indexOf('value') + 1;

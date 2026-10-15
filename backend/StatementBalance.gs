@@ -29,7 +29,7 @@ function stmtBalanceAt_(pmId, currency, endDate, opening, confirmed, inboundIds)
   var total = (opening.currency === currency) ? Number(opening.amount) : 0;
   var forward = !opening.date || endDate >= opening.date;
   confirmed.forEach(function (e) {
-    if ((e.currency || 'PEN') !== currency) return;
+    if ((e.currency || homeCurrency_()) !== currency) return;
     var eff = signedEffectOnPaymentMethod_(e, pmId, inboundIds);
     if (!eff) return;
     var counts = entryCountsAfterOpening_(e, opening);

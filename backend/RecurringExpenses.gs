@@ -215,7 +215,7 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     category_type: cat ? cat.type : 'expense',
     description: r.description || '',
     amount: Number(r.amount),
-    currency: r.currency || 'PEN',
+    currency: r.currency || homeCurrency_(),
     frequency: frequency,
     day: r.day ? Number(r.day) : 1,
     month: r.month ? Number(r.month) : 1,
@@ -237,7 +237,7 @@ function addRecurringExpense(payload) {
     category_id: payload.category_id,
     description: payload.description ? String(payload.description).trim() : '',
     amount: payload.amount,
-    currency: payload.currency || 'PEN',
+    currency: payload.currency || homeCurrency_(),
     frequency: frequency,
     day: frequency === 'once' ? '' : (payload.day || 1),
     month: frequency === 'once' ? '' : (payload.month || 1),
@@ -351,13 +351,13 @@ function findRecurringLinkCandidates(payload) {
 
   var ratesByCurrency = buildRatesByCurrency_();
   function toPenAmount_(amount, currency, dateStr) {
-    if (currency === 'PEN') return amount;
+    if (currency === homeCurrency_()) return amount;
     var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 
   var todayStr = formatCalendarDate_(new Date());
-  var reAmountPen = toPenAmount_(Number(re.amount), re.currency || 'PEN', todayStr);
+  var reAmountPen = toPenAmount_(Number(re.amount), re.currency || homeCurrency_(), todayStr);
   var reWords = significantWords_(re.description);
 
   var candidates = [];
@@ -515,7 +515,7 @@ function listEntriesForRecurringMonth(payload) {
       };
     });
   return orderMatchCandidates_(candidates, {
-    amount: Number(re.amount), currency: re.currency || 'PEN', date: occ, description: re.description
+    amount: Number(re.amount), currency: re.currency || homeCurrency_(), date: occ, description: re.description
   });
 }
 
@@ -575,7 +575,7 @@ function recurringExpenseOccurrencesRaw_(re, startDate, endDate) {
 // An amount in PEN using the latest rate on file at or before the date's
 // month (the app-wide rule); null when that currency has no rate at all.
 function amountInPen_(amount, currency, dateStr) {
-  var rate = getLatestRateOnOrBefore_(currency || 'PEN', String(dateStr).substring(0, 7));
+  var rate = getLatestRateOnOrBefore_(currency || homeCurrency_(), String(dateStr).substring(0, 7));
   return rate == null ? null : Number(amount) * rate;
 }
 
@@ -687,7 +687,7 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
   if (entry.category_id !== recurring.category_id) return false;
-  var recCurrency = recurring.currency || 'PEN';
+  var recCurrency = recurring.currency || homeCurrency_();
   var amt = recurringOwnAmount_(recurring, recurringSplitSums);
   var entryAmt = Number(entry.amount) - ((entrySplitSums && entrySplitSums[entry.id]) || 0);
   if (entry.currency !== recCurrency) {
@@ -770,7 +770,7 @@ function listExpectedRecurringItems() {
 
   stillExpected.forEach(function (entry) {
     var r = entry.row;
-    var currency = r.currency || 'PEN';
+    var currency = r.currency || homeCurrency_();
     var cat = categoryById[r.category_id];
     var type = cat ? cat.type : 'expense';
     var key = type + '|' + currency;
@@ -795,7 +795,7 @@ function listExpectedRecurringItems() {
 
   var groups = Object.keys(groupsByKey).map(function (key) {
     var group = groupsByKey[key];
-    if (group.currency !== 'PEN') {
+    if (group.currency !== homeCurrency_()) {
       var rate = latestRateAtOrBefore_(ctx, group.currency, cutoffMonth);
       group.totalPen = rate != null ? group.total * rate : null;
     }
@@ -809,8 +809,8 @@ function listExpectedRecurringItems() {
   // predictable rather than whatever order object keys land in.
   groups.sort(function (a, b) {
     if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
-    if (a.currency === 'PEN') return -1;
-    if (b.currency === 'PEN') return 1;
+    if (a.currency === homeCurrency_()) return -1;
+    if (b.currency === homeCurrency_()) return 1;
     return a.currency < b.currency ? -1 : 1;
   });
 

@@ -7,13 +7,14 @@
  *   date_format         'dmy' | 'mdy' | 'ymd' (read by Telegram.gs userDateOrder_ for typed dates)
  *   favorite_currencies 'PEN,USD,EUR'        (the app's quick currency chips, in order; soles always first)
  *   onboarded           'yes'                (stops the app from asking again; see getCapabilities_)
- *
- * Soles (PEN) stay the home currency for every copy: all conversions and reports are built on it.
+ * default_currency    'PEN' | 'USD' | …    the MAIN (home) currency, chosen once here and then locked (HomeCurrency.gs)
  */
 
 function saveOnboarding(payload) {
   payload = payload || {};
   var result = {};
+  // The main currency is chosen ONCE (the first answer) and then locked: every stored rate and total is expressed in it.
+  var firstAnswer = String(getSettingsMap().onboarded || '') !== 'yes';
 
   var lang = normalizeLang_(payload.language);
   if (lang) { setSetting_('language', lang); result.language = lang; }
@@ -21,7 +22,13 @@ function saveOnboarding(payload) {
   var order = String(payload.dateOrder || '').toLowerCase();
   if (order === 'dmy' || order === 'mdy' || order === 'ymd') { setSetting_('date_format', order); result.dateOrder = order; }
 
-  var list = ['PEN'];
+  var home = homeCurrency_();
+  var wantedHome = String(payload.homeCurrency || '').toUpperCase();
+  if (firstAnswer && /^[A-Z]{3}$/.test(wantedHome)) { setSetting_('default_currency', wantedHome); home = wantedHome; }
+  result.homeCurrency = home;
+
+  // Quick currency buttons: the main currency first, then the others they use (max 5 in all).
+  var list = [home];
   (Array.isArray(payload.currencies) ? payload.currencies : []).forEach(function (c) {
     var code = String(c || '').toUpperCase();
     if (/^[A-Z]{3}$/.test(code) && list.indexOf(code) === -1 && list.length < 5) list.push(code);
