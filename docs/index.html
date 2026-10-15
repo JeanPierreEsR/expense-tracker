@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-15T17:59:28Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-15T21:15:26Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -417,6 +417,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-export-btn">
             <span data-i18n="more.export">📤 Export data</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-extras-btn" hidden>
+            <span data-i18n="more.extras">⚡ Extra features</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
@@ -894,6 +898,21 @@
     </div>
   </div>
 
+  <div id="extras-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="extras.title">Extra features</span>
+        <button type="button" id="extras-modal-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="extras-off-list" style="font-weight:600;"></p>
+        <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Open the setup page in Safari (not from this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
+        <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
+        <p class="hint" id="extras-copy-msg"></p>
+      </div>
+    </div>
+  </div>
+
   <div id="devices-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1225,13 +1244,13 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="i18n.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="signin-link.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="receipt-parse.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="bill-split.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="app.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="statement-parsers.js?v=2026-10-15T17:59:28Z"></script>
-  <script src="statements.js?v=2026-10-15T17:59:28Z"></script>
+  <script src="strings.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="i18n.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="signin-link.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="receipt-parse.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="bill-split.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="app.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="statement-parsers.js?v=2026-10-15T21:15:26Z"></script>
+  <script src="statements.js?v=2026-10-15T21:15:26Z"></script>
 </body>
 </html>

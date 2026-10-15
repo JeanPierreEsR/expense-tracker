@@ -632,6 +632,7 @@ function syncLanguageSetting_() {
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   syncLanguageSetting_();
   if (skipFormPopulate) return;
   populateCategoryOptions();
@@ -5071,6 +5072,29 @@ async function openDevicesModal_() {
 }
 
 document.getElementById("more-devices-btn").addEventListener("click", openDevicesModal_);
+
+// "Extra features": only on a copy that was given fewer abilities at setup (friends' copies; the owner's has all of them).
+// The setup page cannot run inside the Home Screen icon (Google's sign-in window), so the person copies its address into Safari.
+function extrasOff_() {
+  const c = (meta && meta.capabilities) || {};
+  const off = [];
+  if (c.keepAwake === false) off.push(tr("extras.awake"));
+  if (c.bankEmails === false) off.push(tr("extras.bank"));
+  return off;
+}
+function refreshExtrasRow_() { document.getElementById("more-extras-btn").hidden = !extrasOff_().length; }
+document.getElementById("more-extras-btn").addEventListener("click", () => {
+  document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
+  document.getElementById("extras-copy-msg").textContent = "";
+  document.getElementById("extras-modal-backdrop").hidden = false;
+});
+document.getElementById("extras-modal-close").addEventListener("click", () => { document.getElementById("extras-modal-backdrop").hidden = true; });
+document.getElementById("extras-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "extras-modal-backdrop") e.target.hidden = true; });
+document.getElementById("extras-copy-btn").addEventListener("click", async () => {
+  const msg = document.getElementById("extras-copy-msg");
+  try { await navigator.clipboard.writeText(new URL("setup/", location.href).href); msg.textContent = tr("extras.copied"); }
+  catch (e) { msg.textContent = tr("extras.copyFailed"); }
+});
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.
