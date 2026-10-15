@@ -186,7 +186,7 @@ function resolveBudgetDisplayName_(budget, categoryDisplayName) {
 // would be inconsistent with how every other rate lookup in the app works.
 function latestRateAtOrBefore_(ctx, currency, cutoffMonth) {
   if (currency === homeCurrency_()) return 1;
-  return latestRateFromList_(ctx.ratesByCurrency[currency], cutoffMonth);
+  return rateToMain_(ctx.ratesByCurrency, currency, cutoffMonth);
 }
 
 // The viewing period (Overview-style Month/Year/All-time/Custom) can widen

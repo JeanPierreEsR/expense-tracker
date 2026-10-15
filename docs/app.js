@@ -174,6 +174,7 @@ function currencyFieldIds(target) {
 
 function selectCurrency(code, target) {
   const resolvedTarget = target || currencyPickerTarget;
+  if (resolvedTarget === "main-change") { closeCurrencyModal(); startMainCurrencyChange_(code); return; }
   const ids = currencyFieldIds(resolvedTarget);
   document.getElementById(ids.input).value = code;
   bumpRecentCurrency(code);
@@ -5119,7 +5120,18 @@ document.getElementById("extras-copy-btn").addEventListener("click", async () =>
 // The backend says `capabilities.onboarding` until the answers are saved (Onboarding.gs); the owner's own copy never asks.
 // Soles stay the home currency: the currency question only chooses the quick buttons.
 const WELCOME_FLAG_KEY = "etOnboarded";
-const WELCOME_CURRENCIES = ["PEN", "USD", "EUR", "ARS", "MXN", "CLP", "COP", "BRL", "GBP"];
+// Soles first (the default main currency), then the world's 10 most-traded currencies; "More…" shows every other
+// currency, alphabetically by name.
+const WELCOME_TOP_CURRENCIES = ["PEN", "USD", "EUR", "JPY", "GBP", "CNY", "AUD", "CAD", "CHF", "HKD", "SGD"];
+function welcomeCurrencyCodes_() {
+  const shown = WELCOME_TOP_CURRENCIES.slice();
+  // anything already picked stays visible even if it lives in the long list
+  const picked = [welcome_.home].concat(welcome_.currencies).filter((c) => !shown.includes(c));
+  if (!welcome_.more) return shown.concat(picked);
+  const rest = CURRENCIES.map((c) => c.code).filter((c) => !shown.includes(c))
+    .sort((a, b) => findCurrency(a).name.localeCompare(findCurrency(b).name, I18n.getLang()));
+  return shown.concat(rest);
+}
 let welcome_ = null;
 function welcomeEl_(id) { return document.getElementById(id); }
 function maybeShowWelcome_() {
@@ -5128,7 +5140,7 @@ function maybeShowWelcome_() {
   try { done = localStorage.getItem(WELCOME_FLAG_KEY) === "1"; } catch (e) { /* storage blocked: ask again next time */ }
   if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
   const lang = I18n.getLang();
-  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null };
+  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-tour").hidden = true;
@@ -5139,11 +5151,11 @@ function renderWelcomeQuestions_() {
   I18n.applyStatic(root);
   root.querySelectorAll("[data-welcome-lang]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeLang === welcome_.lang));
   root.querySelectorAll("[data-welcome-order]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeOrder === welcome_.order));
-  welcomeEl_("welcome-main-label").textContent = tr("welcome.mainLabel", { code: welcome_.home });
   const box = welcomeEl_("welcome-currencies");
-    const isMain = code === welcome_.home;
   box.innerHTML = "";
-  WELCOME_CURRENCIES.forEach((code) => {
+  welcomeEl_("welcome-main-label").textContent = tr("welcome.mainLabel", { code: welcome_.home });
+  welcomeCurrencyCodes_().forEach((code) => {
+    const isMain = code === welcome_.home;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "welcome-choice" + (isMain ? " active main" : welcome_.currencies.includes(code) ? " active" : "");
@@ -5151,6 +5163,16 @@ function renderWelcomeQuestions_() {
     b.addEventListener("click", () => welcomeTapCurrency_(code));
     box.appendChild(b);
   });
+  if (!welcome_.more) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "welcome-choice";
+    more.textContent = tr("common.more");
+    more.addEventListener("click", () => { welcome_.more = true; renderWelcomeQuestions_(); });
+    box.appendChild(more);
+  }
+  welcomeEl_("welcome-error").textContent = "";
+}
 // One tap picks or drops a currency; a second tap on the same one within 0.4 s makes it the MAIN currency (★).
 // The main currency is always selected, and the old main one stays in the list as an ordinary currency.
 function welcomeTapCurrency_(code) {
@@ -5170,8 +5192,6 @@ function welcomeTapCurrency_(code) {
     else if (welcome_.currencies.length < 4) welcome_.currencies.push(code);
   }
   renderWelcomeQuestions_();
-}
-  welcomeEl_("welcome-error").textContent = "";
 }
 document.querySelectorAll("[data-welcome-lang]").forEach((b) => b.addEventListener("click", () => {
   welcome_.lang = b.dataset.welcomeLang;
@@ -5193,11 +5213,11 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
   try {
     localStorage.setItem("recentCurrencies", JSON.stringify([welcome_.home].concat(welcome_.currencies)));
     localStorage.setItem(WELCOME_FLAG_KEY, "1");
+  } catch (e) { /* the server remembers it anyway */ }
+  if (meta && meta.capabilities) meta.capabilities.onboarding = false;
   if (meta && meta.settings) meta.settings.default_currency = welcome_.home;   // locked now: totals and forms use it from here on
   document.getElementById("currency").value = welcome_.home;
   renderCurrencyChips("entry");
-  } catch (e) { /* the server remembers it anyway */ }
-  if (meta && meta.capabilities) meta.capabilities.onboarding = false;
   I18n.saveLang(welcome_.lang);
   welcomeEl_("welcome-questions").hidden = true;
   openTour_(welcome_.lang !== welcome_.appLang);
@@ -5243,6 +5263,66 @@ welcomeEl_("tour-next-btn").addEventListener("click", () => { if (tour_.i >= tou
 welcomeEl_("tour-back-btn").addEventListener("click", () => { if (tour_.i > 0) { tour_.i--; renderTour_(); } });
 welcomeEl_("tour-skip-btn").addEventListener("click", closeTour_);
 document.getElementById("more-tour-btn").addEventListener("click", () => openTour_(false));
+
+// ---- Main currency (More → Main currency) ----
+// Switching is reversible and rewrites no data: exchange rates are stored against a fixed base currency and the main
+// currency is only the lens (backend/HomeCurrency.gs). If the new main currency has no rate on file yet, one question is asked.
+let mainChange_ = null;
+function mainCurrencyEl_(id) { return document.getElementById(id); }
+function openMainCurrencyModal_() {
+  mainCurrencyEl_("main-currency-current").textContent = tr("mainCur.current", { code: homeCur() });
+  mainCurrencyEl_("main-currency-view").hidden = false;
+  mainCurrencyEl_("main-currency-confirm").hidden = true;
+  mainCurrencyEl_("main-currency-error").textContent = "";
+  bringModalToFront_(mainCurrencyEl_("main-currency-backdrop"));
+  mainCurrencyEl_("main-currency-backdrop").hidden = false;
+}
+async function startMainCurrencyChange_(code) {
+  openMainCurrencyModal_();
+  const err = mainCurrencyEl_("main-currency-error");
+  if (code === homeCur()) { err.textContent = tr("mainCur.same"); return; }
+  let pre;
+  try { pre = await callApi("previewMainCurrencyChange", { currency: code }); }
+  catch (e) { err.textContent = tr("mainCur.failed", { error: e.message }); return; }
+  mainChange_ = { code, pre };
+  mainCurrencyEl_("main-currency-confirm-text").textContent = tr("mainCur.confirm", { from: homeCur(), to: code });
+  mainCurrencyEl_("main-currency-rate-row").hidden = !pre.needsRate;
+  mainCurrencyEl_("main-currency-rate-label").textContent = tr("mainCur.rateQuestion", { from: homeCur(), to: code });
+  mainCurrencyEl_("main-currency-rate").value = "";
+  mainCurrencyEl_("main-currency-estimate").textContent = pre.estimatedBefore ? tr("mainCur.estimate", { month: pre.estimatedBefore, to: code }) : "";
+  mainCurrencyEl_("main-currency-view").hidden = true;
+  mainCurrencyEl_("main-currency-confirm").hidden = false;
+}
+document.getElementById("more-main-currency-btn").addEventListener("click", openMainCurrencyModal_);
+mainCurrencyEl_("main-currency-close").addEventListener("click", () => { mainCurrencyEl_("main-currency-backdrop").hidden = true; });
+mainCurrencyEl_("main-currency-backdrop").addEventListener("click", (e) => { if (e.target.id === "main-currency-backdrop") e.target.hidden = true; });
+mainCurrencyEl_("main-currency-change-btn").addEventListener("click", () => { mainCurrencyEl_("main-currency-backdrop").hidden = true; openCurrencyModal("main-change"); });
+mainCurrencyEl_("main-currency-cancel-btn").addEventListener("click", () => { mainChange_ = null; openMainCurrencyModal_(); });
+mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () => {
+  if (!mainChange_) return;
+  const err = mainCurrencyEl_("main-currency-error");
+  const btn = mainCurrencyEl_("main-currency-apply-btn");
+  const payload = { currency: mainChange_.code };
+  if (mainChange_.pre.needsRate) {
+    const rate = Number(mainCurrencyEl_("main-currency-rate").value);
+    if (!(rate > 0)) { err.textContent = tr("mainCur.rateNeeded"); return; }
+    payload.rate = rate;
+  }
+  btn.disabled = true; btn.textContent = tr("mainCur.switching"); err.textContent = "";
+  try {
+    await callApi("changeMainCurrency", payload);
+  } catch (e) {
+    err.textContent = tr("mainCur.failed", { error: e.message });
+    btn.disabled = false; btn.textContent = tr("mainCur.apply");
+    return;
+  }
+  try {
+    const recents = [mainChange_.code].concat(getRecentCurrencies().filter((c) => c !== mainChange_.code)).slice(0, 5);
+    localStorage.setItem("recentCurrencies", JSON.stringify(recents));
+    localStorage.removeItem(STARTUP_CACHE_KEY);   // the saved first screen is in the old main currency
+  } catch (e2) { /* storage blocked: the app reloads from the server anyway */ }
+  window.location.reload();
+});
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.

@@ -132,6 +132,9 @@ var BACKEND_STRINGS_ = {
   "export.h.type": { en: "Type", es: "Tipo" },
   "export.h.description": { en: "Description", es: "Descripción" },
   "export.h.merchant": { en: "Merchant", es: "Comercio" },
+  "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },
+  "err.rateMainFirst": { en: "Set the main currency's exchange rate first (More → Exchange rates).", es: "Primero fija el tipo de cambio de la moneda principal (Más → Tipos de cambio)." },
+  "err.rateNeeded": { en: "To switch the main currency to {next}, enter how many {next} one {old} is worth today.", es: "Para cambiar la moneda principal a {next}, indica cuántos {next} vale hoy un {old}." },
   "export.h.category": { en: "Category", es: "Categoría" },
   "export.h.amount": { en: "Amount", es: "Monto" },
   "export.h.currency": { en: "Currency", es: "Moneda" },
@@ -504,8 +507,9 @@ function localizeCategories_(rows, langOverride) {
 // Sets (or adds) one Settings row. The Settings table is cached by the
 // structure version, so it is bumped to make the change visible at once.
 function setSetting_(key, value) {
-  var sheet = getSheet('Settings');
   if (key === 'default_currency') HOME_CURRENCY_MEMO_ = null;   // the main currency (HomeCurrency.gs)
+  if (key === 'rate_base') RATE_BASE_MEMO_ = null;
+  var sheet = getSheet('Settings');
   var headers = getHeaders(sheet);
   var keyCol = headers.indexOf('key') + 1;
   var valueCol = headers.indexOf('value') + 1;

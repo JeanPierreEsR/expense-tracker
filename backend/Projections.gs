@@ -199,7 +199,7 @@ function computeAllCategoryProjections_(bounds) {
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === homeCurrency_()) return amount;
-    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
   function ownAmount_(e) { return Number(e.amount) - (splitSumByEntry[e.id] || 0); }
@@ -462,7 +462,7 @@ function getCategoryProjectionDetail(payload) {
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === homeCurrency_()) return amount;
-    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 
@@ -529,7 +529,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === homeCurrency_()) return amount;
-    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
   var recurringSplitSums = getRecurringExpenseSplitSums_();
@@ -610,7 +610,7 @@ function computeCategoryYtdBreakdown_(categoryId) {
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
     if (currency === homeCurrency_()) return amount;
-    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 

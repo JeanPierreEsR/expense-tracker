@@ -352,7 +352,7 @@ function findRecurringLinkCandidates(payload) {
   var ratesByCurrency = buildRatesByCurrency_();
   function toPenAmount_(amount, currency, dateStr) {
     if (currency === homeCurrency_()) return amount;
-    var rate = latestRateFromList_(ratesByCurrency[currency], String(dateStr).substring(0, 7));
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
 
