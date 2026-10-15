@@ -445,8 +445,17 @@
           return;
         }
         if (l.waiting) {
-          items.push({ ...base, kind: "waiting", choices: [["wait", tr("stmt.choice.leaveWaiting")], ["ignore", tr("stmt.choice.ignore")]],
-            build: (choice) => ({ type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li }) });
+          // It may really be an ordinary purchase (or income) the app mistook for a transfer: let the owner add it as one.
+          const asIncome = l.amount > 0;
+          items.push({ ...base, kind: "waiting",
+            choices: [["wait", tr("stmt.choice.leaveWaiting")], ["add", tr(asIncome ? "stmt.choice.addIncome" : "stmt.choice.addExpense")], ["ignore", tr("stmt.choice.ignore")]],
+            build: (choice, r) => {
+              if (choice === "add") {
+                const category = r.cat.get(id) !== undefined ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "");
+                return { type: asIncome ? "add_income" : "add_purchase", stmt: si, line: li, category };
+              }
+              return { type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li };
+            } });
           return;
         }
         if (l.reversal) {
@@ -540,6 +549,7 @@
       sub = tr("stmt.itemPossible", { where, why, entry: entryText(l.possible.entry) });
     } else if (it.kind === "waiting") {
       sub = tr("stmt.itemWaiting", { where });
+      if (l.suggestion) sub += " — " + tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) });
     } else if (it.kind === "reversal") {
       const rv = l.reversal;
       sub = tr("stmt.itemReversal", { where });
@@ -572,9 +582,9 @@
     if (it.choices) {
       controls = `<div class="stmt-choices">${it.choices.map(([k, label]) =>
         `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}`;
-      if ((it.kind === "purchase" || it.kind === "income") && chosen === "add") {
+      if ((it.kind === "purchase" || it.kind === "income" || it.kind === "waiting") && chosen === "add") {
         const cur = review.cat.has(it.id) ? review.cat.get(it.id) : ((l.suggestion && l.suggestion.categoryId) || "");
-        const cats = it.kind === "income" ? (review.analysis.income_categories || []) : review.analysis.categories;
+        const cats = l.amount > 0 ? (review.analysis.income_categories || []) : review.analysis.categories;
         controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">${escapeHtml(tr("stmt.noCategory"))}</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
       }
       if (it.kind === "reversal" && chosen === "cancel" && l.reversal.candidates.length > 1) {

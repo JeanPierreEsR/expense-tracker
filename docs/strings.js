@@ -826,6 +826,7 @@
     "stmt.choice.ignore": { en: "Ignore", es: "Ignorar" },
     "stmt.choice.cancelCharge": { en: "Cancel the charge", es: "Cancelar el cargo" },
     "stmt.choice.refundIncome": { en: "Refund income", es: "Ingreso por reembolso" },
+    "stmt.choice.addExpense": { en: "Add as expense", es: "Agregar como gasto" },
     "stmt.choice.addIncome": { en: "Add as income", es: "Agregar como ingreso" },
     "stmt.choice.match": { en: "Match…", es: "Emparejar…" },
     "stmt.choice.add": { en: "Add", es: "Agregar" },

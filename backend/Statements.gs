@@ -419,6 +419,11 @@ function analyzeStatements(payload) {
         if (!r.pairedWith && !o.possible && r.guess !== 'fee' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
           o.waiting = true;
           counts.waiting++;
+          // It may really be an ordinary purchase: offer a category in case the owner adds it as an expense.
+          if (l.amount < 0) {
+            var gw = guessFromMerchantHistory_(stmtMerchantKey_(l.description), ctx);
+            if (gw) o.suggestion = { categoryId: gw.categoryId, categoryName: ctx.categoriesById[gw.categoryId] ? categoryLabel_(ctx.categoriesById[gw.categoryId]) : '', reason: gw.reason };
+          }
         }
         // A suggested category for a purchase (history first, then Programmed items).
         if (r.guess === 'expense' && l.amount < 0 && !r.pairedWith) {
