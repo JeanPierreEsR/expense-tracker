@@ -407,6 +407,16 @@ function goTo(url) { location.href = url; }   // the one place the page leaves f
 
 // ---------- the general status at the top + the status inside the pressed button ----------
 let barFloor = 0, lastProgressAt = 0, clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
+// A new run starts the bar over: it must DROP at once and then grow gradually. The previous run may have left a slow
+// "creep" animation on the bar (14 s, see progress()), which would make the drop itself look like a slow shrink
+// (owner saw this on 2026-10-15, second tap of the button).
+function resetBar(pct) {
+  const bar = $('tsBar');
+  bar.style.transition = 'none';
+  bar.style.width = pct + '%';
+  void bar.offsetWidth;   // let the browser apply the instant drop before animations come back
+  bar.style.transition = 'width .5s ease';
+}
 function setTop(kind, step, text, pct) {
   $('topStatus').className = 'topstatus ' + kind;
   $('tsStep').textContent = step || '';
@@ -1169,6 +1179,7 @@ async function run(boxId, fn, btnId, step) {
   showRetry = false;
   currentStep = step || '';
   barFloor = 3;
+  resetBar(3);
   setTop('running', currentStep, T.working, 3);
   startClock();
   const work = fn();   // started first: Google's sign-in window must open straight from the tap
