@@ -405,6 +405,9 @@ function linkPaymentMethodsToBanks() {
 }
 
 function seedFriends() {
+  // The three sample friends are only for the owner's own copy and for tests. A copy made by the installer
+  // (FEATURES present) starts with no friends: a real person must not see made-up ones.
+  if (isFriendCopy_()) return;
   var names = ['Ana', 'Ben Ray', 'Eva Ray'];
   seedIfEmpty('Friends', names.map(function (name) {
     return { id: Utilities.getUuid(), name: name, notes: '' };

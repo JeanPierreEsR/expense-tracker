@@ -633,6 +633,12 @@ function syncLanguageSetting_() {
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
+  // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
+  try {
+    const fav = meta.settings && meta.settings.favorite_currencies;
+    if (fav && !localStorage.getItem("recentCurrencies")) localStorage.setItem("recentCurrencies", JSON.stringify(String(fav).split(",").slice(0, 5)));
+  } catch (e) { /* storage blocked */ }
+  if (typeof maybeShowWelcome_ === "function") maybeShowWelcome_();
   syncLanguageSetting_();
   if (skipFormPopulate) return;
   populateCategoryOptions();
@@ -5095,6 +5101,115 @@ document.getElementById("extras-copy-btn").addEventListener("click", async () =>
   try { await navigator.clipboard.writeText(new URL("setup/", location.href).href); msg.textContent = tr("extras.copied"); }
   catch (e) { msg.textContent = tr("extras.copyFailed"); }
 });
+
+// ---- Welcome questions (first open of an app made by the installer) + the tour ----
+// The backend says `capabilities.onboarding` until the answers are saved (Onboarding.gs); the owner's own copy never asks.
+// Soles stay the home currency: the currency question only chooses the quick buttons.
+const WELCOME_FLAG_KEY = "etOnboarded";
+const WELCOME_CURRENCIES = ["USD", "EUR", "ARS", "MXN", "CLP", "COP", "BRL", "GBP"];
+let welcome_ = null;
+function welcomeEl_(id) { return document.getElementById(id); }
+function maybeShowWelcome_() {
+  const caps = (meta && meta.capabilities) || {};
+  let done = false;
+  try { done = localStorage.getItem(WELCOME_FLAG_KEY) === "1"; } catch (e) { /* storage blocked: ask again next time */ }
+  if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
+  const lang = I18n.getLang();
+  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", currencies: ["USD", "EUR"] };
+  welcomeEl_("welcome-overlay").hidden = false;
+  welcomeEl_("welcome-questions").hidden = false;
+  welcomeEl_("welcome-tour").hidden = true;
+  renderWelcomeQuestions_();
+}
+function renderWelcomeQuestions_() {
+  const root = welcomeEl_("welcome-questions");
+  I18n.applyStatic(root);
+  root.querySelectorAll("[data-welcome-lang]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeLang === welcome_.lang));
+  root.querySelectorAll("[data-welcome-order]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeOrder === welcome_.order));
+  const box = welcomeEl_("welcome-currencies");
+  box.innerHTML = "";
+  WELCOME_CURRENCIES.forEach((code) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (welcome_.currencies.includes(code) ? " active" : "");
+    b.textContent = `${findCurrency(code).flag} ${code}`;
+    b.addEventListener("click", () => {
+      const has = welcome_.currencies.includes(code);
+      if (has) welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
+      else if (welcome_.currencies.length < 4) welcome_.currencies.push(code);
+      renderWelcomeQuestions_();
+    });
+    box.appendChild(b);
+  });
+  welcomeEl_("welcome-error").textContent = "";
+}
+document.querySelectorAll("[data-welcome-lang]").forEach((b) => b.addEventListener("click", () => {
+  welcome_.lang = b.dataset.welcomeLang;
+  I18n.setLang(welcome_.lang);   // only the welcome text changes now; the rest of the app follows on the reload at the end
+  renderWelcomeQuestions_();
+}));
+document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListener("click", () => { welcome_.order = b.dataset.welcomeOrder; renderWelcomeQuestions_(); }));
+welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
+  const btn = welcomeEl_("welcome-continue-btn");
+  btn.disabled = true; btn.textContent = tr("welcome.saving");
+  try {
+    await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, currencies: welcome_.currencies });
+  } catch (err) {
+    welcomeEl_("welcome-error").textContent = tr("welcome.error");
+    btn.disabled = false; btn.textContent = tr("welcome.continue");
+    return;
+  }
+  btn.disabled = false; btn.textContent = tr("welcome.continue");
+  try {
+    localStorage.setItem("recentCurrencies", JSON.stringify(["PEN"].concat(welcome_.currencies)));
+    localStorage.setItem(WELCOME_FLAG_KEY, "1");
+  } catch (e) { /* the server remembers it anyway */ }
+  if (meta && meta.capabilities) meta.capabilities.onboarding = false;
+  I18n.saveLang(welcome_.lang);
+  welcomeEl_("welcome-questions").hidden = true;
+  openTour_(welcome_.lang !== welcome_.appLang);
+});
+
+let tour_ = null;
+function tourCards_() {
+  const caps = (meta && meta.capabilities) || {};
+  const cards = ["add", "overview", "budgets"];
+  if (caps.bankEmails) cards.push("bank");
+  cards.push("loans", "more");
+  return cards;
+}
+function openTour_(reloadAfter) {
+  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter };
+  welcomeEl_("welcome-overlay").hidden = false;
+  welcomeEl_("welcome-questions").hidden = true;
+  welcomeEl_("welcome-tour").hidden = false;
+  renderTour_();
+}
+function renderTour_() {
+  const root = welcomeEl_("welcome-tour");
+  const key = tour_.cards[tour_.i];
+  const last = tour_.i === tour_.cards.length - 1;
+  I18n.applyStatic(root);
+  welcomeEl_("tour-step").textContent = tr("tour.step", { n: tour_.i + 1, total: tour_.cards.length });
+  welcomeEl_("tour-title").textContent = tr(`tour.${key}.title`);
+  let body = tr(`tour.${key}.body`);
+  if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
+  welcomeEl_("tour-body").textContent = body;
+  welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<span class="welcome-dot${n === tour_.i ? " active" : ""}"></span>`).join("");
+  welcomeEl_("tour-back-btn").hidden = tour_.i === 0;
+  welcomeEl_("tour-next-btn").textContent = tr(last ? "tour.done" : "tour.next");
+  welcomeEl_("tour-skip-btn").hidden = last;
+}
+function closeTour_() {
+  welcomeEl_("welcome-overlay").hidden = true;
+  const reload = tour_ && tour_.reloadAfter;
+  tour_ = null;
+  if (reload) window.location.reload();
+}
+welcomeEl_("tour-next-btn").addEventListener("click", () => { if (tour_.i >= tour_.cards.length - 1) closeTour_(); else { tour_.i++; renderTour_(); } });
+welcomeEl_("tour-back-btn").addEventListener("click", () => { if (tour_.i > 0) { tour_.i--; renderTour_(); } });
+welcomeEl_("tour-skip-btn").addEventListener("click", closeTour_);
+document.getElementById("more-tour-btn").addEventListener("click", () => openTour_(false));
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.

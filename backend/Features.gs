@@ -32,6 +32,13 @@ function requireFeature_(name, stringKey) {
   throw err;
 }
 
+// True for a copy made by the installer (FEATURES present). The owner's own copy and every old install have no
+// FEATURES, so they are never treated as a new person's app (no welcome questions, no sample friends removed).
+function isFriendCopy_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('FEATURES');
+  return !(raw === null || raw === undefined || String(raw).trim() === '');
+}
+
 function getWebAppUrl_() {
   return String(PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '');
 }
@@ -50,6 +57,8 @@ function getCapabilities_() {
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
-    telegram: !!getTelegramToken_()
+    telegram: !!getTelegramToken_(),
+    // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
+    onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };
 }

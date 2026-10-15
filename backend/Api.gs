@@ -135,6 +135,7 @@ function routeAction(action, payload) {
     case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': return getMeta();
     case 'setLanguage': return setLanguage(payload);
+    case 'saveOnboarding': return saveOnboarding(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
     case 'listEntries': return listEntries(payload);

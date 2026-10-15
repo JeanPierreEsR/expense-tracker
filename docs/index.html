@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-15T21:15:55Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-15T21:48:03Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -417,6 +417,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-export-btn">
             <span data-i18n="more.export">📤 Export data</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-tour-btn">
+            <span data-i18n="more.tour">📖 How to use the app</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-extras-btn" hidden>
@@ -898,6 +902,47 @@
     </div>
   </div>
 
+  <div id="welcome-overlay" class="welcome-overlay" hidden>
+    <div class="welcome-card">
+      <div id="welcome-questions" hidden>
+        <h2 data-i18n="welcome.title">Welcome to your Expense Tracker</h2>
+        <p class="hint" data-i18n="welcome.intro">Three quick questions so the app feels right. It takes about 20 seconds.</p>
+
+        <h3 data-i18n="welcome.langLabel">Language</h3>
+        <div class="welcome-choices">
+          <button type="button" class="welcome-choice" data-welcome-lang="en">English</button>
+          <button type="button" class="welcome-choice" data-welcome-lang="es">Español</button>
+        </div>
+
+        <h3 data-i18n="welcome.dateLabel">How do you write dates?</h3>
+        <div class="welcome-choices">
+          <button type="button" class="welcome-choice" data-welcome-order="dmy" data-i18n="welcome.dateDmy">Day first: 3/4/2026 is 3 April</button>
+          <button type="button" class="welcome-choice" data-welcome-order="mdy" data-i18n="welcome.dateMdy">Month first: 3/4/2026 is 4 March</button>
+        </div>
+        <p class="hint" data-i18n="welcome.dateHint">This is for dates you type. Dates on screen always show the month as a word (3 Apr 2026).</p>
+
+        <h3 data-i18n="welcome.curLabel">Which other currencies do you use?</h3>
+        <p class="hint" data-i18n="welcome.curHint">Soles (PEN) are always included. Pick up to 4. They show up as quick buttons when you add an expense.</p>
+        <div id="welcome-currencies" class="welcome-currencies"></div>
+
+        <p class="hint" id="welcome-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.continue">Continue</button>
+      </div>
+
+      <div id="welcome-tour" hidden>
+        <p class="hint" id="tour-step"></p>
+        <h2 id="tour-title"></h2>
+        <p id="tour-body" class="welcome-body"></p>
+        <div id="tour-dots" class="welcome-dots"></div>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="tour-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="tour-next-btn" data-i18n="tour.next">Next</button>
+        </div>
+        <button type="button" class="add-inline" id="tour-skip-btn" data-i18n="tour.skip">Skip</button>
+      </div>
+    </div>
+  </div>
+
   <div id="extras-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1244,13 +1289,13 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="i18n.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="signin-link.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="receipt-parse.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="bill-split.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="app.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="statement-parsers.js?v=2026-10-15T21:15:55Z"></script>
-  <script src="statements.js?v=2026-10-15T21:15:55Z"></script>
+  <script src="strings.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="i18n.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="signin-link.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="receipt-parse.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="bill-split.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="app.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="statement-parsers.js?v=2026-10-15T21:48:03Z"></script>
+  <script src="statements.js?v=2026-10-15T21:48:03Z"></script>
 </body>
 </html>

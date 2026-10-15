@@ -2115,3 +2115,21 @@ body.income-revealed .sens-mask { display: none; }
 .bill-photo-text { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; line-height: 1.35; white-space: pre; overflow: auto; min-height: 140px; }
 .bill-insert-chip { border-style: dashed; color: var(--accent); }
 .install-last { text-align: left; font-weight: 600; margin: 12px 0; }
+
+/* Welcome questions + tour (first open of an app made by the installer; More → How to use the app) */
+.welcome-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg, #fafaf8); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
+.welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
+.welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
+.welcome-choices { display: flex; flex-direction: column; gap: 8px; }
+.welcome-choice { text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
+.welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
+.welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
+.welcome-currencies .welcome-choice { padding: 10px 14px; }
+.welcome-body { font-size: 1.1em; line-height: 1.5; min-height: 6em; }
+.welcome-dots { display: flex; gap: 8px; justify-content: center; margin: 18px 0; }
+.welcome-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border, #d9d9d4); }
+.welcome-dot.active { background: var(--accent, #1f5fbf); }
+.welcome-tour-buttons { display: flex; gap: 10px; }
+.welcome-tour-buttons button { flex: 1; }
+#welcome-continue-btn { width: 100%; margin-top: 12px; }
