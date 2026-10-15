@@ -201,12 +201,12 @@ const T = {
     switchWaiting: 'Waiting for the setting… (checking every 20 seconds)',
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
     switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
-    choicesTitle: 'Choose what your app can do',
-    choicesIntro: 'The basics are always included. Each extra needs more permissions from Google. <b>Choose now and Google asks only once, on one screen,</b> instead of once per extra.',
-    optAwakeLabel: '<b>Open faster</b> — keeps the app awake, so the first open of the day is quicker.',
-    optGmailLabel: '<b>Add bank transactions automatically</b> — reads your bank e-mails (read-only) and adds each transaction for you to confirm.',
-    choicesSummaryOne: 'Only the basics: Google will list 1 permission.',
-    choicesSummaryMany: 'Google will list {n} permissions on one screen.',
+    choicesTitle: 'Optional extras',
+    choicesIntro: 'Your app already does the essentials: you record your expenses and see where your money goes. These two extras make it better. <b>We recommend both</b>, but they are optional — tick the ones you want.',
+    optAwakeLabel: '<b>Open faster (optional - recommended)</b> — your app opens quickly every time, instead of making you wait a few seconds the first time each day.',
+    optGmailLabel: '<b>Add bank transactions automatically (optional - recommended)</b> — your app reads the e-mails your bank sends you and adds each payment for you, so you don’t type them. Nothing counts until you confirm it. It can only read e-mails, never send or delete them.',
+    choicesSummaryOne: 'No extras chosen. You can continue without them.',
+    choicesSummaryMany: 'Later, Google will ask you to confirm these extras. It only takes a moment.',
     choicesLocked: 'Your choices: {list}.',
     choiceBasics: 'the basics',
     choiceAwake: 'open faster',
@@ -247,6 +247,7 @@ const T = {
     updateBtn: 'Update my app',
     updated: '✓ Update arrived, data intact.',
     working: 'Working…',
+    netFail: 'Could not reach your app for a moment (Google was busy or the connection dropped). Nothing is lost: tap the button again.',
     notTicked: 'Please tap the button again and tick “Select all” on Google’s screen before Continue.',
     buildFailed: 'Preparing your sheet did not finish. Tap “Try again”.',
     popupFailed: 'Google’s sign-in window could not open. Tap the button once more (just once). If it still fails, reload this page and try again; Safari must allow pop-ups for this page.',
@@ -292,12 +293,12 @@ const T = {
     switchWaiting: 'Esperando el ajuste… (reviso cada 20 segundos)',
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
     switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
-    choicesTitle: 'Elige qué puede hacer tu app',
-    choicesIntro: 'Lo básico siempre está incluido. Cada extra necesita más permisos de Google. <b>Elige ahora y Google pregunta una sola vez, en una sola pantalla,</b> en vez de una vez por extra.',
-    optAwakeLabel: '<b>Abrir más rápido</b> — mantiene la app despierta, para que la primera apertura del día sea más rápida.',
-    optGmailLabel: '<b>Agregar mis movimientos del banco automáticamente</b> — lee tus correos del banco (solo lectura) y agrega cada movimiento para que lo confirmes.',
-    choicesSummaryOne: 'Solo lo básico: Google mostrará 1 permiso.',
-    choicesSummaryMany: 'Google mostrará {n} permisos en una sola pantalla.',
+    choicesTitle: 'Extras opcionales',
+    choicesIntro: 'Tu app ya hace lo esencial: registras tus gastos y ves a dónde va tu dinero. Estos dos extras la mejoran. <b>Te recomendamos ambos</b>, pero son opcionales — marca los que quieras.',
+    optAwakeLabel: '<b>Abrir más rápido (opcional - recomendado)</b> — tu app abre rápido siempre, en vez de hacerte esperar unos segundos la primera vez cada día.',
+    optGmailLabel: '<b>Agregar mis movimientos del banco automáticamente (opcional - recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
+    choicesSummaryOne: 'Sin extras. Puedes continuar sin ellos.',
+    choicesSummaryMany: 'Más adelante, Google te pedirá confirmar estos extras. Solo toma un momento.',
     choicesLocked: 'Tus elecciones: {list}.',
     choiceBasics: 'lo básico',
     choiceAwake: 'abrir más rápido',
@@ -338,6 +339,7 @@ const T = {
     updateBtn: 'Actualizar mi app',
     updated: '✓ La actualización llegó, datos intactos.',
     working: 'Trabajando…',
+    netFail: 'No se pudo conectar con tu app por un momento (Google estaba ocupado o se cortó la conexión). No se perdió nada: toca el botón otra vez.',
     notTicked: 'Toca el botón otra vez y marca “Seleccionar todo” en la pantalla de Google antes de Continuar.',
     buildFailed: 'No terminó de prepararse tu hoja. Toca “Intentar de nuevo”.',
     popupFailed: 'No se pudo abrir la ventana de inicio de sesión de Google. Toca el botón otra vez (solo una vez). Si sigue fallando, recarga esta página e inténtalo de nuevo; Safari debe permitir ventanas emergentes en esta página.',
@@ -527,8 +529,11 @@ async function showAccount() {
 
 async function google_(method, url, body) {
   const token = await getToken();
-  const res = await fetch(url, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-  const text = await res.text();
+  let res, text;
+  try {
+    res = await fetch(url, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    text = await res.text();
+  } catch (e) { const err = new Error(T.netFail); err.network = true; log('Could not reach Google (' + method + ' ' + url.split('?')[0].replace('https://', '') + '): ' + e.message, 'bad'); throw err; }
   let json = {};
   try { json = text ? JSON.parse(text) : {}; } catch (e) {}
   if (!res.ok) {
@@ -750,18 +755,20 @@ async function api(action, payload) {
   return r;
 }
 async function check(kind) {
-  const res = await fetch(state.webAppUrl + '?check=' + kind, { cache: 'no-store' });
-  const text = await res.text();
+  let text;
+  try { text = await (await fetch(state.webAppUrl + '?check=' + kind, { cache: 'no-store' })).text(); }
+  catch (e) { const err = new Error(T.netFail); err.network = true; log('Could not reach the app for "' + kind + '": ' + e.message + ' (address ends …' + String(state.webAppUrl).slice(-14) + ').', 'bad'); throw err; }
   try { return JSON.parse(text); } catch (e) { throw new Error('Backend answered with a page, not data (not approved yet?) — ' + text.slice(0, 120).replace(/\s+/g, ' ')); }
 }
 async function waitForRelease(release) {
   let st;
   for (let i = 0; i < 8; i++) {
-    st = await status();
-    if (st.release === release) return st;
+    try { st = await status(); } catch (e) { if (!e.network) throw e; await sleep(4000); continue; }   // Google is often unreachable for a few seconds while it switches versions
+    if (st && st.release === release) return st;
     log('Google has not switched to the new version yet — checking again in 4 s…');
     await sleep(4000);
   }
+  if (!st) throw new Error(T.netFail);
   throw new Error('Backend still reports the old release after 30 s (' + st.release + ').');
 }
 async function status() {
