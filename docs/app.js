@@ -5248,12 +5248,15 @@ function renderTour_() {
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   welcomeEl_("tour-body").textContent = body;
+  // The animated mini scene for this card (tour-scenes.js); cards without one just hide the stage.
+  if (typeof TourScenes !== "undefined") TourScenes.play(key, welcomeEl_("tour-scene"), { tr, home: homeCur(), money: moneyFmt });
   welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<span class="welcome-dot${n === tour_.i ? " active" : ""}"></span>`).join("");
   welcomeEl_("tour-back-btn").hidden = tour_.i === 0;
   welcomeEl_("tour-next-btn").textContent = tr(last ? "tour.done" : "tour.next");
   welcomeEl_("tour-skip-btn").hidden = last;
 }
 function closeTour_() {
+  if (typeof TourScenes !== "undefined") TourScenes.stop();
   welcomeEl_("welcome-overlay").hidden = true;
   const reload = tour_ && tour_.reloadAfter;
   tour_ = null;

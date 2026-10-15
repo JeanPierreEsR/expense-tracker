@@ -2130,8 +2130,52 @@ body.income-revealed .sens-mask { display: none; }
 .welcome-dots { display: flex; gap: 8px; justify-content: center; margin: 18px 0; }
 .welcome-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border, #d9d9d4); }
 .welcome-dot.active { background: var(--accent, #1f5fbf); }
-.welcome-tour-buttons { display: flex; gap: 10px; }
-.welcome-tour-buttons button { flex: 1; }
+.welcome-tour-buttons { display: flex; gap: 10px; margin-top: 18px; }
+/* Back and Next are exactly the same size (Back is the outlined twin of Next). */
+.welcome-tour-buttons button { flex: 1; width: auto; margin: 0; box-sizing: border-box; min-height: 52px; padding: 14px; border-radius: 12px; border: 2px solid transparent; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.welcome-tour-buttons button:not(.primary) { background: transparent; color: var(--accent); border-color: var(--accent); }
 #welcome-continue-btn { width: 100%; margin-top: 12px; }
 .welcome-choice, .currency-chip { touch-action: manipulation; }
 .welcome-currencies .welcome-choice.main { border-color: #d89b00; background: rgba(216, 155, 0, 0.14); font-weight: 700; }
+
+/* Animated mini-app scenes in the welcome tour (tour-scenes.js). They use the app's own colours, so dark mode just works. */
+.ts-stage { position: relative; margin: 16px auto 0; max-width: 320px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ts-phone { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 8px 12px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); font-size: 12px; overflow: hidden; min-height: 300px; }
+.ts-bar { text-align: center; font-weight: 700; font-size: 13px; padding: 4px 0 8px; }
+.ts-types { display: flex; gap: 6px; margin-bottom: 8px; }
+.ts-pill { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
+.ts-pill.on { background: var(--expense); color: #fff; }
+.ts-field { display: flex; align-items: baseline; gap: 6px; padding: 9px 10px; border: 2px solid var(--border); border-radius: 10px; margin-bottom: 8px; transition: border-color .25s, box-shadow .25s; }
+.ts-field.focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15); }
+.ts-field-label { color: var(--muted); font-size: 11px; }
+.ts-field-value { flex: 1; text-align: right; font-size: 18px; font-weight: 700; min-height: 22px; }
+.ts-field-cur { color: var(--muted); font-weight: 600; font-size: 11px; }
+.ts-chips { display: flex; gap: 6px; margin-bottom: 8px; }
+.ts-chip { flex: 1; text-align: center; padding: 7px 2px; border-radius: 999px; border: 2px solid var(--border); font-size: 10.5px; font-weight: 600; transition: background .25s, border-color .25s, color .25s; white-space: nowrap; }
+.ts-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ts-btn { text-align: center; padding: 10px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; transition: transform .15s, opacity .15s; }
+.ts-btn.pressed { transform: scale(0.95); opacity: 0.85; }
+.ts-list { margin-top: 10px; }
+.ts-list-title { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.ts-row { display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid var(--border); }
+.ts-row-amt { font-weight: 700; }
+.ts-row.enter { animation: ts-enter .5s ease both; background: rgba(46, 158, 91, 0.12); }
+@keyframes ts-enter { from { opacity: 0; transform: translateY(-10px); max-height: 0; } to { opacity: 1; transform: none; max-height: 40px; } }
+.ts-budget { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; position: relative; }
+.ts-budget.small { opacity: 0.75; }
+.ts-budget-head { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 8px; }
+.ts-muted { color: var(--muted); font-weight: 500; }
+.ts-track { height: 12px; border-radius: 6px; background: var(--border); overflow: hidden; }
+.ts-fill { height: 100%; width: 0; border-radius: 6px; background: var(--accent); transition: width .7s ease, background .3s; }
+.ts-fill.warn { background: #e0932a; }
+.ts-fill.over { background: var(--expense); }
+.ts-budget-nums { display: flex; justify-content: space-between; margin-top: 7px; }
+.ts-badge { margin-top: 8px; padding: 5px 8px; border-radius: 8px; font-weight: 700; font-size: 11px; opacity: 0; transform: scale(0.9); transition: opacity .3s, transform .3s; min-height: 24px; }
+.ts-badge.show { opacity: 1; transform: none; }
+.ts-badge.warn { background: #fff1db; color: #8a5300; }
+.ts-badge.over { background: #fde7e7; color: #a02727; }
+.ts-finger { position: absolute; top: 0; left: 0; width: 24px; height: 24px; pointer-events: none; opacity: 0; transition: transform .6s ease, opacity .3s; z-index: 2; }
+.ts-finger-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(40, 40, 40, 0.35); border: 2px solid rgba(255, 255, 255, 0.9); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); position: relative; }
+.ts-finger.ts-tap .ts-finger-dot::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--accent); animation: ts-ring .45s ease-out; }
+@keyframes ts-ring { from { transform: scale(0.8); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ts-stage * { transition: none !important; animation: none !important; } }
