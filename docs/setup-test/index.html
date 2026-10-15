@@ -54,6 +54,8 @@
   #log li.bad { color:var(--bad); } #log li.ok { color:var(--ok); }
   a { color:var(--accent); }
   .small { font-size:15px; }
+  .opt { display:flex; gap:12px; align-items:flex-start; margin:12px 0; font-size:17px; color:var(--muted); }
+  .opt input { width:26px; height:26px; flex:none; margin-top:2px; }
   /* general status, always visible at the top */
   .topstatus { position:sticky; top:0; z-index:10; background:var(--card); border:2px solid var(--line); border-radius:14px; padding:12px 14px; margin:10px 0; box-shadow:0 2px 8px rgba(0,0,0,.12); }
   .topstatus .tsHead { display:flex; justify-content:space-between; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
@@ -89,6 +91,14 @@
     <ol data-t="what"></ol>
   </div>
 
+  <div class="step" id="choices">
+    <h3 data-t="choicesTitle"></h3>
+    <p data-t="choicesIntro"></p>
+    <label class="opt"><input type="checkbox" id="optAwake"><span data-t="optAwakeLabel"></span></label>
+    <label class="opt"><input type="checkbox" id="optGmail"><span data-t="optGmailLabel"></span></label>
+    <p class="small" id="choicesSummary"></p>
+  </div>
+
   <div class="callout" id="switchCard">
     <h3 data-t="switchTitle"></h3>
     <p style="color:inherit" data-t="switchIntro"></p>
@@ -113,6 +123,7 @@
       <div data-t="openHelpBody"></div>
       <button id="btnCopyPage" data-t="copyPageBtn"></button>
     </div>
+    <div id="approveExtras" class="ask" hidden></div>
     <div id="s2"></div>
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
   </div>
@@ -168,7 +179,9 @@ const STORE_KEY = 'setupTestState';
 const TOKEN_KEY = 'setupTestToken';
 const HANDOFF_KEY = 'setupTestHandoff';   // read by app-check.html (same address, same phone storage)
 const SHEET_TITLE = 'Expense Tracker (setup test)';
-const BACKEND_TITLE = 'Expense Tracker Setup';   // the name Google shows on the backend's approval screens
+// The name Google shows for the person's OWN app (approval pages: "Go to …"; Google Account → third-party apps).
+// Deliberately different from the setup page's name ("Expense Tracker Setup") so the two entries there are not identical.
+const BACKEND_TITLE = 'My Expense Tracker';
 
 // Google permissions asked by the person's own backend, per step (they add up).
 const STAGE_SCOPES = {
@@ -202,6 +215,19 @@ const T = {
     switchWaiting: 'Waiting for the setting… (checking every 20 seconds)',
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
     switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
+    choicesTitle: 'Choose what your app can do',
+    choicesIntro: 'The basics are always included. Each extra needs more permissions from Google. <b>Choose now and Google asks only once, on one screen,</b> instead of once per extra. You can also add them later.',
+    optAwakeLabel: '<b>Open faster</b> — keeps the app awake, so the first open of the day is quicker.',
+    optGmailLabel: '<b>Add bank transactions automatically</b> — reads your bank e-mails (read-only) and adds each transaction for you to confirm.',
+    choicesSummaryOne: 'Only the basics: Google will list 1 permission.',
+    choicesSummaryMany: 'Google will list {n} permissions on one screen.',
+    choicesLocked: 'Your choices: {list}. To add more later, use the buttons further down.',
+    choiceBasics: 'the basics',
+    choiceAwake: 'open faster',
+    choiceGmail: 'bank transactions',
+    approveExtrasTitle: 'Because of the extras you chose, Google will also ask to:',
+    approveExtraAwake: 'run a small timer every 5 minutes, even when you are away; connect to the internet — only to wake itself up',
+    approveExtraGmail: '<b>read</b> your e-mail — it can never send, change or delete one; run a timer to check for new bank e-mails',
     createTitle: '1. Set up my app',
     createAsk: '<b>Google will ask you to allow “Expense Tracker Setup” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b> (<b>Seleccionar todo</b>), then tap <b>Continue</b> (<b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (<b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” / “Volver a un sitio seguro”): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
@@ -213,7 +239,7 @@ const T = {
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
-    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (<b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker Setup</b> (<b>Ir a Expense Tracker Setup</b>), then <b>Allow</b> (<b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
+    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (<b>Configuración avanzada</b>), then the small link <b>Go to My Expense Tracker</b> (<b>Ir a My Expense Tracker</b>), then <b>Allow</b> (<b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
     readyTitle: 'Your app is ready — how to open it',
@@ -223,11 +249,11 @@ const T = {
     noSigninYet: 'This phone doesn’t have your sign-in yet. Tap “Sign in again on this phone” at the top first.',
     readyBtn: 'Open my app',
     keepTitle: 'Make the app open faster (optional)',
-    keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
+    keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to My Expense Tracker</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
     keepBtn: 'Make it open faster',
     keepDone: '✓ Done. The app now stays awake.',
     gmailTitle: 'Add my bank transactions automatically (optional)',
-    gmailAsk: '<p><b>Your bank emails you every time you pay or receive money.</b> With this turned on, your app reads those emails and <b>adds each transaction for you</b> — amount, date and shop — so you never type them. Each one waits for your OK with one tap before it counts.</p><b>Google will ask you to allow your app to:</b><ul><li><b>read</b> your email. It can never send, change or delete one;</li><li>run a timer, so it can check for new bank emails every 15 minutes.</li></ul><p>The app only looks for emails from banks it knows. Google’s permission is wider than that (it covers reading any email), so Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker Setup</b>, then <b>Allow</b>. Google then emails you a “Security alert” — that is normal.</p><p>In this test it only <b>counts</b> your emails from the last 7 days. It opens none.</p>',
+    gmailAsk: '<p><b>Your bank emails you every time you pay or receive money.</b> With this turned on, your app reads those emails and <b>adds each transaction for you</b> — amount, date and shop — so you never type them. Each one waits for your OK with one tap before it counts.</p><b>Google will ask you to allow your app to:</b><ul><li><b>read</b> your email. It can never send, change or delete one;</li><li>run a timer, so it can check for new bank emails every 15 minutes.</li></ul><p>The app only looks for emails from banks it knows. Google’s permission is wider than that (it covers reading any email), so Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to My Expense Tracker</b>, then <b>Allow</b>. Google then emails you a “Security alert” — that is normal.</p><p>In this test it only <b>counts</b> your emails from the last 7 days. It opens none.</p>',
     gmailBtn: 'Add transactions automatically',
     gmailDone: '✓ Done. Email reading works: {n} emails in the last 7 days (counted, none opened).',
     testTitle: 'Test tools (not shown to real users)',
@@ -280,6 +306,19 @@ const T = {
     switchWaiting: 'Esperando el ajuste… (reviso cada 20 segundos)',
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
     switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
+    choicesTitle: 'Elige qué puede hacer tu app',
+    choicesIntro: 'Lo básico siempre está incluido. Cada extra necesita más permisos de Google. <b>Elige ahora y Google pregunta una sola vez, en una sola pantalla,</b> en vez de una vez por extra. También puedes agregarlos después.',
+    optAwakeLabel: '<b>Abrir más rápido</b> — mantiene la app despierta, para que la primera apertura del día sea más rápida.',
+    optGmailLabel: '<b>Agregar mis movimientos del banco automáticamente</b> — lee tus correos del banco (solo lectura) y agrega cada movimiento para que lo confirmes.',
+    choicesSummaryOne: 'Solo lo básico: Google mostrará 1 permiso.',
+    choicesSummaryMany: 'Google mostrará {n} permisos en una sola pantalla.',
+    choicesLocked: 'Tus elecciones: {list}. Para agregar más después, usa los botones de más abajo.',
+    choiceBasics: 'lo básico',
+    choiceAwake: 'abrir más rápido',
+    choiceGmail: 'movimientos del banco',
+    approveExtrasTitle: 'Por los extras que elegiste, Google también pedirá permiso para:',
+    approveExtraAwake: 'ejecutar un pequeño temporizador cada 5 minutos, aunque no la estés usando; conectarse a internet — solo para despertarse a sí misma',
+    approveExtraGmail: '<b>leer</b> tu correo — nunca puede enviar, cambiar ni borrar uno; ejecutar un temporizador para revisar si hay correos nuevos del banco',
     createTitle: '1. Configurar mi app',
     createAsk: '<b>Google te pedirá permitir que “Expense Tracker Setup” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (<b>Select all</b>) y toca <b>Continuar</b> (<b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (<b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” / “Back to safety”): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
@@ -291,7 +330,7 @@ const T = {
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su hoja',
-    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (<b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker Setup</b> (<b>Go to Expense Tracker Setup</b>) y luego <b>Permitir</b> (<b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
+    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (<b>Advanced</b>), luego el enlace pequeño <b>Ir a My Expense Tracker</b> (<b>Go to My Expense Tracker</b>) y luego <b>Permitir</b> (<b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
     readyTitle: 'Tu app está lista — cómo abrirla',
@@ -301,11 +340,11 @@ const T = {
     noSigninYet: 'Este teléfono aún no tiene tu acceso. Toca primero “Iniciar sesión otra vez en este teléfono”, arriba.',
     readyBtn: 'Abrir mi app',
     keepTitle: 'Haz que la app abra más rápido (opcional)',
-    keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
+    keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a My Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
     keepBtn: 'Hacer que abra más rápido',
     keepDone: '✓ Listo. La app ahora se mantiene despierta.',
     gmailTitle: 'Agregar mis movimientos del banco automáticamente (opcional)',
-    gmailAsk: '<p><b>Tu banco te envía un correo cada vez que pagas o recibes dinero.</b> Con esto activado, tu app lee esos correos y <b>agrega cada movimiento por ti</b> — monto, fecha y comercio — así nunca los escribes. Cada uno espera tu OK con un toque antes de contar.</p><b>Google te pedirá permitir que tu app:</b><ul><li><b>lea</b> tu correo. Nunca puede enviar, cambiar ni borrar uno;</li><li>ejecute un temporizador, para revisar si hay correos nuevos del banco cada 15 minutos.</li></ul><p>La app solo busca correos de bancos que conoce. El permiso de Google es más amplio (cubre leer cualquier correo), por eso Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker Setup</b> y luego <b>Permitir</b>. Después Google te envía un correo de “Alerta de seguridad” — es normal.</p><p>En esta prueba solo <b>cuenta</b> tus correos de los últimos 7 días. No abre ninguno.</p>',
+    gmailAsk: '<p><b>Tu banco te envía un correo cada vez que pagas o recibes dinero.</b> Con esto activado, tu app lee esos correos y <b>agrega cada movimiento por ti</b> — monto, fecha y comercio — así nunca los escribes. Cada uno espera tu OK con un toque antes de contar.</p><b>Google te pedirá permitir que tu app:</b><ul><li><b>lea</b> tu correo. Nunca puede enviar, cambiar ni borrar uno;</li><li>ejecute un temporizador, para revisar si hay correos nuevos del banco cada 15 minutos.</li></ul><p>La app solo busca correos de bancos que conoce. El permiso de Google es más amplio (cubre leer cualquier correo), por eso Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a My Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo de “Alerta de seguridad” — es normal.</p><p>En esta prueba solo <b>cuenta</b> tus correos de los últimos 7 días. No abre ninguno.</p>',
     gmailBtn: 'Agregar movimientos automáticamente',
     gmailDone: '✓ Listo. La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
     testTitle: 'Herramientas de prueba (no se muestran a usuarios reales)',
@@ -679,7 +718,8 @@ async function install() {
     ensureCode();
     state.release = new Date().toISOString();
     state.codeRelease = state.release;
-    state.stages = ['base'];
+    state.stages = ['base'].concat(wantedExtras());   // everything chosen is approved on ONE screen
+    log('Setting up with: ' + state.stages.join(' + ') + '.');
     const versionNumber = await pushAndVersion(state.release, state.stages, 'Install', 45);
     progress(T.p_publish, 88, undefined, 97);
     const s = Date.now();
@@ -799,6 +839,11 @@ async function afterFirstApproval() {
   }
   progress(T.p_test, 92);
   await connectionCheck();
+  if ((state.stages || []).includes('keepawake')) { const k = await status(); log('Keep-awake chosen at setup: ' + (k.keepAwake ? 'on' : 'NOT started'), k.keepAwake ? 'ok' : 'bad'); }
+  if ((state.stages || []).includes('gmail')) {
+    try { const g = await check('gmail'); state.gmailOk = !!g.ok; save(); log(g.ok ? 'Email reading chosen at setup works: ' + g.count + ' emails in the last 7 days (counted only).' : 'Email reading chosen at setup: ' + g.error, g.ok ? 'ok' : 'bad'); }
+    catch (e) { log('Email reading chosen at setup could not be checked: ' + e.message, 'bad'); }
+  }
   handoff();
   say('s2', T.approved);
   try { await saveProgress(); } catch (e) { log('Could not save progress to Drive (will retry later): ' + e.message); }
@@ -1043,6 +1088,35 @@ async function handleReturn() {
   }
 }
 
+// ---------- the extras chosen BEFORE setup: one approval screen covers them all ----------
+const EXTRA_NAMES = ['keepawake', 'gmail'];
+function wantedExtras() { return (state.wanted || []).filter((x) => EXTRA_NAMES.includes(x)); }
+function scopeCountFor(stages) { const u = new Set(); stages.forEach((x) => (STAGE_SCOPES[x] || []).forEach((y) => u.add(y))); return u.size; }
+function renderChoices() {
+  const locked = !!state.webAppUrl;
+  const chosen = locked ? (state.stages || ['base']).filter((x) => EXTRA_NAMES.includes(x)) : wantedExtras();
+  $('optAwake').checked = chosen.includes('keepawake');
+  $('optGmail').checked = chosen.includes('gmail');
+  $('optAwake').disabled = locked; $('optGmail').disabled = locked;
+  if (locked) {
+    const names = [T.choiceBasics].concat(chosen.includes('keepawake') ? [T.choiceAwake] : [], chosen.includes('gmail') ? [T.choiceGmail] : []);
+    $('choicesSummary').textContent = T.choicesLocked.replace('{list}', names.join(', '));
+  } else {
+    const n = scopeCountFor(['base'].concat(chosen));
+    $('choicesSummary').textContent = n === 1 ? T.choicesSummaryOne : T.choicesSummaryMany.replace('{n}', n);
+  }
+  // what Google's approval page will list because of the extras (shown before the person gets there)
+  const lines = [];
+  if (chosen.includes('keepawake')) lines.push(T.approveExtraAwake);
+  if (chosen.includes('gmail')) lines.push(T.approveExtraGmail);
+  $('approveExtras').hidden = !lines.length;
+  $('approveExtras').innerHTML = lines.length ? '<b>' + T.approveExtrasTitle + '</b><ul>' + lines.map((l) => '<li>' + l + '</li>').join('') + '</ul>' : '';
+}
+['optAwake', 'optGmail'].forEach((id) => $(id).addEventListener('change', () => {
+  state.wanted = [$('optAwake').checked ? 'keepawake' : null, $('optGmail').checked ? 'gmail' : null].filter(Boolean);
+  save(); renderChoices();
+}));
+
 // ---------- wiring ----------
 function doneBtn(id, done) {
   const b = $(id);
@@ -1050,6 +1124,7 @@ function doneBtn(id, done) {
   b.textContent = done ? T.createdBtn : T[b.dataset.t];
 }
 function render(failed) {
+  renderChoices();
   if (state.webAppUrl) $('switchCard').hidden = !apiRetryTimer;
   if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
   if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);

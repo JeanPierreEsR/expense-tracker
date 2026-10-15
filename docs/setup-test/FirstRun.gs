@@ -59,23 +59,15 @@ function doGet(e) {
 
   var stage = String(params.stage || '');
   if (stage === 'keepawake') protoStartKeepAwake_();
-  if (stage === 'gmail') {
-    // Google only asks for a new permission when the code actually USES it, so
-    // touch Gmail here (the mailbox profile: address + message total, no email
-    // content). If Google still didn't ask, offer its official approval link.
-    try {
-      Gmail.Users.getProfile('me');
-    } catch (err) {
-      var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
-      if (info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
-        return protoPage_('Expense Tracker',
-          '<p>Google needs your approval to read email. / Google necesita tu aprobación para leer correos.</p>' +
-          '<p><a target="_top" style="display:inline-block;padding:14px 20px;background:#1f5fbf;color:#fff;border-radius:10px;text-decoration:none;font-weight:600" href="' +
-          protoEsc_(info.getAuthorizationUrl()) + '">Approve in Google / Aprobar en Google</a></p>' +
-          '<p style="font-size:15px;color:#555">Then come back to the setup page — it notices by itself and continues. / Luego vuelve a la página de instalación: lo detecta sola y continúa.</p>');
-      }
-      throw err;
-    }
+  if (stage === 'gmail') { var needGmail = protoTouchGmail_(); if (needGmail) return needGmail; }
+
+  // Extras chosen BEFORE setup (PROTO_FEATURES): they are approved on this same first visit, so the person
+  // sees ONE Google approval screen for the basics and the extras together. (Google only asks for a
+  // permission when the code actually USES the service, so each chosen extra is touched here.)
+  if (!stage) {
+    var feats = String(PROTO_FEATURES || '').split(',');
+    if (feats.indexOf('keepawake') !== -1) protoStartKeepAwake_();
+    if (feats.indexOf('gmail') !== -1) { var needG = protoTouchGmail_(); if (needG) return needG; }
   }
 
   var back = String(params['return'] || '');
@@ -88,6 +80,25 @@ function doGet(e) {
   return protoPage_('Expense Tracker',
     '<p style="font-size:24px;margin:8px 0">✓ ' + 'Allowed. / Permitido.' + '</p>' +
     '<p>Tap the green button to go back. / Toca el botón verde para volver.</p>' + button);
+}
+
+// Touches Gmail (the mailbox profile: address + message total, no e-mail content) so Google asks for the
+// read-only permission now. If Google still did not ask, returns a page with its official approval link.
+function protoTouchGmail_() {
+  try {
+    Gmail.Users.getProfile('me');
+    return null;
+  } catch (err) {
+    var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    if (info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+      return protoPage_('Expense Tracker',
+        '<p>Google needs your approval to read email. / Google necesita tu aprobación para leer correos.</p>' +
+        '<p><a target="_top" style="display:inline-block;padding:14px 20px;background:#1f5fbf;color:#fff;border-radius:10px;text-decoration:none;font-weight:600" href="' +
+        protoEsc_(info.getAuthorizationUrl()) + '">Approve in Google / Aprobar en Google</a></p>' +
+        '<p style="font-size:15px;color:#555">Then come back to the setup page — it notices by itself and continues. / Luego vuelve a la página de instalación: lo detecta sola y continúa.</p>');
+    }
+    throw err;
+  }
 }
 
 // Builds the sheet tabs + starter data (what step 2 used to do on Google's blank
@@ -152,6 +163,9 @@ function protoStartKeepAwake_() {
 function protoPing() {
   if (PROTO_MAIN_URL && PROTO_MAIN_URL.indexOf('__') !== 0) {
     try { UrlFetchApp.fetch(PROTO_MAIN_URL + '?check=ping', { muteHttpExceptions: true }); } catch (e) {}
+  } else {
+    // Address not known yet (extras chosen at setup): still use the outside-connection service once, harmlessly.
+    try { UrlFetchApp.fetch('https://www.google.com/generate_204', { muteHttpExceptions: true }); } catch (e) {}
   }
   PropertiesService.getScriptProperties().setProperty('PROTO_HEARTBEAT', new Date().toISOString());
 }
