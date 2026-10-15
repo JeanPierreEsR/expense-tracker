@@ -159,3 +159,33 @@ test("telegram photo: queued for the Mac Mini at once, no Google text-reader mes
   assert.match(sent, /queued for your Mac Mini/);
   assert.doesNotMatch(sent, /Google/);
 });
+
+// Tesseract sometimes reads the printed decimal point as a comma ("S/12,95").
+// A comma followed by one or two digits is a decimal mark, never thousands.
+const PLIN_COMMA = [
+  "Interbank", "¡Plineaste!", "Ana Lo* C", "334 - Plin", "s/12,95 e",
+  "Código de operación: 01234567", "Solo con Interbank paga a Plin"
+].join("\n");
+
+test("plin photo: 'S/12,95' (comma decimal) is 12.95, not 1295", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(parse(rt, PLIN_COMMA).amount, 12.95);
+});
+
+test("plin photo: thousands comma still works ('S/1,295.50' and 'S/1,295')", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(parse(rt, PLIN_COMMA.replace("s/12,95 e", "S/ 1,295.50")).amount, 1295.5);
+  assert.equal(parse(rt, PLIN_COMMA.replace("s/12,95 e", "S/ 1,295")).amount, 1295);
+});
+
+test("plin photo: a misread like '512.950' is refused, not guessed as 2.95", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(parse(rt, PLIN_COMMA.replace("s/12,95 e", "512.950")).error, "amount");
+});
+
+test("plin photo: all reader passes joined (comma pass first) give 12.95", () => {
+  const { rt } = freshApp({ small: true });
+  const joined = ["Interbank\n¡Plineaste!\nAna Lo* C\n334 - Plin\ns/12,95 e\nCódigo de operación: 01234567",
+                  "Interbank\n¡Plineaste!\nAna Lo* C\n334 - Plin\n512.950\nCódigo de operación: 01234567"].join("\n\n");
+  assert.equal(parse(rt, joined).amount, 12.95);
+});

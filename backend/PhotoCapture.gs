@@ -30,22 +30,31 @@ var SPANISH_MONTHS_ = {
 
 // ---- Pure readers (no Apps Script services) ----
 
+// "12.95" / "12,95" / "1,295.50" / "1,295" -> number. Tesseract sometimes reads
+// the printed decimal point as a comma, so a comma followed by exactly one or
+// two digits at the end (and no dot) is a decimal mark; any other comma is a
+// thousands separator. (A wrong "1,295" for "12,95" was once saved as S/ 1,295.)
+function photoNumber_(raw) {
+  if (/^\d+,\d{1,2}$/.test(raw)) return parseFloat(raw.replace(',', '.'));
+  return parseFloat(raw.replace(/,/g, ''));
+}
+
 function photoAmount_(text, allowBareDollar) {
   // "S/ 70", "S/5.00", "S/.12.50" — OCR sometimes reads the stylised "S/"
   // as "s/" or "5/", so be lenient about the prefix. Soles are tried first.
-  var m = text.match(/([Ss5])\s*\/\s*\.?\s*(\d[\d,]*(?:\.\d{1,2})?)/);
+  var m = text.match(/([Ss5])\s*\/\s*\.?\s*(\d[\d,]*(?:[.,]\d{1,2})?)/);
   var currency = 'PEN';
   if (!m) {
     // Dollars only when explicit ("US$"), or a bare "$" on screens that
     // carry no ads (a Yape screen has "*$150 y gana" further down, which
     // must never be mistaken for the payment if the soles amount is lost).
     m = text.match(allowBareDollar
-      ? /(US\s*\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)/
-      : /(US\s*\$)\s*(\d[\d,]*(?:\.\d{1,2})?)/);
+      ? /(US\s*\$|\$)\s*(\d[\d,]*(?:[.,]\d{1,2})?)/
+      : /(US\s*\$)\s*(\d[\d,]*(?:[.,]\d{1,2})?)/);
     currency = 'USD';
   }
   if (!m) return null;
-  var amount = parseFloat(m[2].replace(/,/g, ''));
+  var amount = photoNumber_(m[2]);
   if (!(amount > 0)) return null;
   return { amount: amount, currency: currency };
 }
@@ -59,9 +68,9 @@ function photoLooseAmount_(lines, titleRe) {
   for (var i = 0; i < lines.length; i++) {
     if (!titleRe.test(lines[i])) continue;
     for (var j = i + 1; j < lines.length && j <= i + 6; j++) {
-      var m = lines[j].match(/^[Ss5$]\s*[\/1lI|i]?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*\S{0,2}$/);
+      var m = lines[j].match(/^[Ss5$]\s*[\/1lI|i]?\s*(\d[\d,]*(?:[.,]\d{1,2})?)\s*[^\d\s]{0,2}$/);
       if (!m) continue;
-      var amount = parseFloat(m[1].replace(/,/g, ''));
+      var amount = photoNumber_(m[1]);
       // "5170" -> the "51" was "S/"; a bare 4+ digit token with no slash-like
       // prefix is not trusted.
       if (amount > 0 && /^[Ss5$]\s*[\/1lI|i]/.test(lines[j])) return { amount: amount, currency: 'PEN' };
@@ -71,9 +80,9 @@ function photoLooseAmount_(lines, titleRe) {
     // two-decimal figure is trusted: the masked card line, the date and the
     // operation code never look like that.
     for (var k = i + 1; k < lines.length && k <= i + 6; k++) {
-      var d = lines[k].match(/^(\d[\d,]*\.\d{2})\s*\S{0,2}$/);
+      var d = lines[k].match(/^(\d[\d,]*[.,]\d{2})\s*[^\d\s]{0,2}$/);
       if (!d) continue;
-      var bare = parseFloat(d[1].replace(/,/g, ''));
+      var bare = photoNumber_(d[1]);
       if (bare > 0) return { amount: bare, currency: 'PEN' };
     }
   }
