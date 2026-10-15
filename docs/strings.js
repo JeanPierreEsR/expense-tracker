@@ -676,6 +676,7 @@
     "link.stepCopy": { en: "Tap “Copy my sign-in” below.", es: "Toca “Copiar mi acceso” aquí abajo." },
     "link.stepShare": { en: "Tap the Share button (a square with an arrow pointing up) at the bottom of Safari, then Add to Home Screen, then Add.", es: "Toca el botón Compartir (un cuadrado con una flecha hacia arriba) en la parte de abajo de Safari, luego Agregar a inicio y luego Agregar." },
     "link.stepOpen": { en: "Open the new icon on your Home Screen and tap “Paste my sign-in”. If your phone asks, tap Allow Paste.", es: "Abre el nuevo ícono de tu pantalla de inicio y toca “Pegar mi acceso”. Si tu teléfono lo pide, toca Permitir pegar." },
+    "link.lastStep": { en: "This is the last step. Once you paste your sign-in in the new icon, you are ready to start using the app.", es: "Este es el último paso. Cuando pegues tu acceso en el nuevo ícono, ya podrás empezar a usar la app." },
     "link.copyBtn": { en: "Copy my sign-in", es: "Copiar mi acceso" },
     "link.copied": { en: "✓ Copied. Now add the app to your Home Screen (step 2).", es: "✓ Copiado. Ahora agrega la app a tu pantalla de inicio (paso 2)." },
     "link.copyBlocked": { en: "Your phone did not allow copying. Go back to the setup page and tap “Copy my sign-in” there.", es: "Tu teléfono no permitió copiar. Vuelve a la página de configuración y toca “Copiar mi acceso” ahí." },

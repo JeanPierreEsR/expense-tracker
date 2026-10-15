@@ -137,20 +137,6 @@
   </div>
 
   <div class="step">
-    <h3 data-t="keepTitle"></h3>
-    <div class="ask" data-t="keepAsk"></div>
-    <div id="s3"></div>
-    <button id="btnKeep" data-t="keepBtn" disabled></button>
-  </div>
-
-  <div class="step">
-    <h3 data-t="gmailTitle"></h3>
-    <div class="ask" data-t="gmailAsk"></div>
-    <div id="s4"></div>
-    <button id="btnGmail" data-t="gmailBtn" disabled></button>
-  </div>
-
-  <div class="step">
     <h3 data-t="testTitle"></h3>
     <p data-t="updateBody"></p>
     <div id="s5"></div>
@@ -181,7 +167,7 @@ const HANDOFF_KEY = 'setupTestHandoff';   // read by app-check.html (same addres
 const SHEET_TITLE = 'Expense Tracker (setup test)';
 // The name Google shows for the person's OWN app (approval pages: "Go to …"; Google Account → third-party apps).
 // Deliberately different from the setup page's name ("Expense Tracker Setup") so the two entries there are not identical.
-const BACKEND_TITLE = 'My Expense Tracker';
+const BACKEND_TITLE = 'Expense Tracker';
 
 // Google permissions asked by the person's own backend, per step (they add up).
 const STAGE_SCOPES = {
@@ -216,12 +202,12 @@ const T = {
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
     switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
     choicesTitle: 'Choose what your app can do',
-    choicesIntro: 'The basics are always included. Each extra needs more permissions from Google. <b>Choose now and Google asks only once, on one screen,</b> instead of once per extra. You can also add them later.',
+    choicesIntro: 'The basics are always included. Each extra needs more permissions from Google. <b>Choose now and Google asks only once, on one screen,</b> instead of once per extra.',
     optAwakeLabel: '<b>Open faster</b> — keeps the app awake, so the first open of the day is quicker.',
     optGmailLabel: '<b>Add bank transactions automatically</b> — reads your bank e-mails (read-only) and adds each transaction for you to confirm.',
     choicesSummaryOne: 'Only the basics: Google will list 1 permission.',
     choicesSummaryMany: 'Google will list {n} permissions on one screen.',
-    choicesLocked: 'Your choices: {list}. To add more later, use the buttons further down.',
+    choicesLocked: 'Your choices: {list}.',
     choiceBasics: 'the basics',
     choiceAwake: 'open faster',
     choiceGmail: 'bank transactions',
@@ -239,7 +225,7 @@ const T = {
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
-    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (<b>Configuración avanzada</b>), then the small link <b>Go to My Expense Tracker</b> (<b>Ir a My Expense Tracker</b>), then <b>Allow</b> (<b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
+    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (<b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker</b> (<b>Ir a Expense Tracker</b>), then <b>Allow</b> (<b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page notices by itself and carries on.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     approved: '✓ Allowed. Your app is ready (sign-in and saving checked).',
     readyTitle: 'Your app is ready — how to open it',
@@ -249,11 +235,11 @@ const T = {
     noSigninYet: 'This phone doesn’t have your sign-in yet. Tap “Sign in again on this phone” at the top first.',
     readyBtn: 'Open my app',
     keepTitle: 'Make the app open faster (optional)',
-    keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to My Expense Tracker</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
+    keepAsk: '<p>Phones put apps to sleep. Without this, the first time you open the app each day it takes a few extra seconds. This keeps it awake.</p><b>Google will ask you to allow your app to:</b><ul><li>run a small timer every 5 minutes, even when you are away;</li><li>connect to the internet — only to wake itself up.</li></ul><p>Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker</b>, then <b>Allow</b>. Later Google sends you an email called “Security alert”. That is normal: it is just Google confirming what you allowed.</p>',
     keepBtn: 'Make it open faster',
     keepDone: '✓ Done. The app now stays awake.',
     gmailTitle: 'Add my bank transactions automatically (optional)',
-    gmailAsk: '<p><b>Your bank emails you every time you pay or receive money.</b> With this turned on, your app reads those emails and <b>adds each transaction for you</b> — amount, date and shop — so you never type them. Each one waits for your OK with one tap before it counts.</p><b>Google will ask you to allow your app to:</b><ul><li><b>read</b> your email. It can never send, change or delete one;</li><li>run a timer, so it can check for new bank emails every 15 minutes.</li></ul><p>The app only looks for emails from banks it knows. Google’s permission is wider than that (it covers reading any email), so Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to My Expense Tracker</b>, then <b>Allow</b>. Google then emails you a “Security alert” — that is normal.</p><p>In this test it only <b>counts</b> your emails from the last 7 days. It opens none.</p>',
+    gmailAsk: '<p><b>Your bank emails you every time you pay or receive money.</b> With this turned on, your app reads those emails and <b>adds each transaction for you</b> — amount, date and shop — so you never type them. Each one waits for your OK with one tap before it counts.</p><b>Google will ask you to allow your app to:</b><ul><li><b>read</b> your email. It can never send, change or delete one;</li><li>run a timer, so it can check for new bank emails every 15 minutes.</li></ul><p>The app only looks for emails from banks it knows. Google’s permission is wider than that (it covers reading any email), so Google shows a red warning page: tap <b>Advanced</b>, then <b>Go to Expense Tracker</b>, then <b>Allow</b>. Google then emails you a “Security alert” — that is normal.</p><p>In this test it only <b>counts</b> your emails from the last 7 days. It opens none.</p>',
     gmailBtn: 'Add transactions automatically',
     gmailDone: '✓ Done. Email reading works: {n} emails in the last 7 days (counted, none opened).',
     testTitle: 'Test tools (not shown to real users)',
@@ -307,12 +293,12 @@ const T = {
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
     switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
     choicesTitle: 'Elige qué puede hacer tu app',
-    choicesIntro: 'Lo básico siempre está incluido. Cada extra necesita más permisos de Google. <b>Elige ahora y Google pregunta una sola vez, en una sola pantalla,</b> en vez de una vez por extra. También puedes agregarlos después.',
+    choicesIntro: 'Lo básico siempre está incluido. Cada extra necesita más permisos de Google. <b>Elige ahora y Google pregunta una sola vez, en una sola pantalla,</b> en vez de una vez por extra.',
     optAwakeLabel: '<b>Abrir más rápido</b> — mantiene la app despierta, para que la primera apertura del día sea más rápida.',
     optGmailLabel: '<b>Agregar mis movimientos del banco automáticamente</b> — lee tus correos del banco (solo lectura) y agrega cada movimiento para que lo confirmes.',
     choicesSummaryOne: 'Solo lo básico: Google mostrará 1 permiso.',
     choicesSummaryMany: 'Google mostrará {n} permisos en una sola pantalla.',
-    choicesLocked: 'Tus elecciones: {list}. Para agregar más después, usa los botones de más abajo.',
+    choicesLocked: 'Tus elecciones: {list}.',
     choiceBasics: 'lo básico',
     choiceAwake: 'abrir más rápido',
     choiceGmail: 'movimientos del banco',
@@ -330,7 +316,7 @@ const T = {
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su hoja',
-    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (<b>Advanced</b>), luego el enlace pequeño <b>Ir a My Expense Tracker</b> (<b>Go to My Expense Tracker</b>) y luego <b>Permitir</b> (<b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
+    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propia hoja de Google</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (<b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker</b> (<b>Go to Expense Tracker</b>) y luego <b>Permitir</b> (<b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página lo nota sola y sigue.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     approved: '✓ Permitido. Tu app está lista (inicio de sesión y guardado comprobados).',
     readyTitle: 'Tu app está lista — cómo abrirla',
@@ -340,11 +326,11 @@ const T = {
     noSigninYet: 'Este teléfono aún no tiene tu acceso. Toca primero “Iniciar sesión otra vez en este teléfono”, arriba.',
     readyBtn: 'Abrir mi app',
     keepTitle: 'Haz que la app abra más rápido (opcional)',
-    keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a My Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
+    keepAsk: '<p>Los teléfonos duermen las apps. Sin esto, la primera vez que abres la app cada día tarda unos segundos más. Esto la mantiene despierta.</p><b>Google te pedirá permitir que tu app:</b><ul><li>ejecute un pequeño temporizador cada 5 minutos, aunque no la estés usando;</li><li>se conecte a internet — solo para despertarse a sí misma.</li></ul><p>Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo llamado “Alerta de seguridad”. Es normal: es solo Google confirmando lo que permitiste.</p>',
     keepBtn: 'Hacer que abra más rápido',
     keepDone: '✓ Listo. La app ahora se mantiene despierta.',
     gmailTitle: 'Agregar mis movimientos del banco automáticamente (opcional)',
-    gmailAsk: '<p><b>Tu banco te envía un correo cada vez que pagas o recibes dinero.</b> Con esto activado, tu app lee esos correos y <b>agrega cada movimiento por ti</b> — monto, fecha y comercio — así nunca los escribes. Cada uno espera tu OK con un toque antes de contar.</p><b>Google te pedirá permitir que tu app:</b><ul><li><b>lea</b> tu correo. Nunca puede enviar, cambiar ni borrar uno;</li><li>ejecute un temporizador, para revisar si hay correos nuevos del banco cada 15 minutos.</li></ul><p>La app solo busca correos de bancos que conoce. El permiso de Google es más amplio (cubre leer cualquier correo), por eso Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a My Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo de “Alerta de seguridad” — es normal.</p><p>En esta prueba solo <b>cuenta</b> tus correos de los últimos 7 días. No abre ninguno.</p>',
+    gmailAsk: '<p><b>Tu banco te envía un correo cada vez que pagas o recibes dinero.</b> Con esto activado, tu app lee esos correos y <b>agrega cada movimiento por ti</b> — monto, fecha y comercio — así nunca los escribes. Cada uno espera tu OK con un toque antes de contar.</p><b>Google te pedirá permitir que tu app:</b><ul><li><b>lea</b> tu correo. Nunca puede enviar, cambiar ni borrar uno;</li><li>ejecute un temporizador, para revisar si hay correos nuevos del banco cada 15 minutos.</li></ul><p>La app solo busca correos de bancos que conoce. El permiso de Google es más amplio (cubre leer cualquier correo), por eso Google muestra una página roja de advertencia: toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker</b> y luego <b>Permitir</b>. Después Google te envía un correo de “Alerta de seguridad” — es normal.</p><p>En esta prueba solo <b>cuenta</b> tus correos de los últimos 7 días. No abre ninguno.</p>',
     gmailBtn: 'Agregar movimientos automáticamente',
     gmailDone: '✓ Listo. La lectura de correos funciona: {n} correos en los últimos 7 días (contados, ninguno abierto).',
     testTitle: 'Herramientas de prueba (no se muestran a usuarios reales)',
@@ -902,8 +888,7 @@ function watchForApproval() {
     } catch (e) { return; }
     clearInterval(watchTimer); watchTimer = null;
     log('Noticed the approval by itself — continuing.', 'ok');
-    if (state.pending) { const st = state.pending.stage; run(st === 'gmail' ? 's4' : 's3', () => finishStage(st), st === 'gmail' ? 'btnGmail' : 'btnKeep', T.stepOptional); }
-    else run('s2', continueAfterApproval, null, T.stepAllow);
+    run('s2', continueAfterApproval, null, T.stepAllow);
   }, 4000);
 }
 
@@ -949,16 +934,12 @@ async function finishStage(stage) {
   progress(T.p_test, 80);
   await connectionCheck();
   handoff();
-  if (stage === 'keepawake') {
-    if (!st.keepAwake) throw new Error('Keep-awake timer is not on.');
-    say('s3', T.keepDone);
-  }
+  if (stage === 'keepawake' && !st.keepAwake) throw new Error('Keep-awake timer is not on.');
   if (stage === 'gmail') {
     const g = await check('gmail');
     if (!g.ok) throw new Error('Email reading: ' + g.error);
     log('Email reading works: ' + g.count + ' emails in the last 7 days (counted only).', 'ok');
     state.gmailOk = true; save();
-    say('s4', T.gmailDone.replace('{n}', g.count));
   }
 }
 
@@ -1084,7 +1065,7 @@ async function handleReturn() {
     await run('s2', afterFirstApproval, null, T.stepAllow);
   } else {
     log('Back from Google: "' + appr[1] + '" approved.', 'ok');
-    await run(appr[1] === 'gmail' ? 's4' : 's3', () => finishStage(appr[1]), appr[1] === 'gmail' ? 'btnGmail' : 'btnKeep', T.stepOptional);
+    await run('s2', () => finishStage(appr[1]), null, T.stepOptional);
   }
 }
 
@@ -1129,10 +1110,6 @@ function render(failed) {
   if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
   if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);
   if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
-  if ((state.stages || []).includes('keepawake') && !$('s3').textContent) say('s3', T.keepDone);
-  if (state.gmailOk && !$('s4').textContent) say('s4', T.gmailDone.replace('{n}', '?'));
-  $('btnKeep').disabled = !state.permissionDone || (state.stages || []).includes('keepawake');
-  $('btnGmail').disabled = !state.permissionDone || !!state.gmailOk;
   $('btnUpdate').disabled = !state.permissionDone;
   $('btnStatus').disabled = !state.webAppUrl;
   $('readyCard').hidden = !state.permissionDone;
@@ -1152,8 +1129,6 @@ function render(failed) {
     $('btnInstall').textContent = mainLabel;
     $('btnInstall').classList.toggle('donebtn', mainDone);
     $('btnInstall').disabled = false;
-    doneBtn('btnKeep', (state.stages || []).includes('keepawake'));
-    doneBtn('btnGmail', !!state.gmailOk);
   }
   if (!busy && !failed && !apiRetryTimer) {
     if (state.permissionDone) setTop('ok', '', T.allDone, 100);
@@ -1213,9 +1188,7 @@ $('btnCopySignin').addEventListener('click', async () => {
   }
 });
 $('btnCancel').addEventListener('click', () => { log('Stopped by the person — reloading; setup resumes where it was.'); location.reload(); });
-$('btnContinue').addEventListener('click', () => run(state.pending ? (state.pending.stage === 'gmail' ? 's4' : 's3') : 's2', continueAfterApproval, null, state.pending ? T.stepOptional : T.stepAllow));
-$('btnKeep').addEventListener('click', () => run('s3', () => startStage('keepawake'), 'btnKeep', T.stepOptional));
-$('btnGmail').addEventListener('click', () => run('s4', () => startStage('gmail'), 'btnGmail', T.stepOptional));
+$('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval, null, T.stepAllow));
 $('btnUpdate').addEventListener('click', () => run('s5', () => update(false), 'btnUpdate', ''));
 $('btnDiag').addEventListener('click', () => run('s5', diagnose, 'btnDiag', ''));
 $('btnStatus').addEventListener('click', () => run(null, status, 'btnStatus', ''));
@@ -1228,7 +1201,7 @@ $('btnForget').addEventListener('click', () => {
   state = {}; save(); accessToken = null;
   try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
   log('This phone forgot the test (the tracker in Drive is untouched).');
-  ['s1', 's2', 's3', 's4', 's5'].forEach((id) => { $(id).innerHTML = ''; });
+  ['s1', 's2', 's5'].forEach((id) => { $(id).innerHTML = ''; });
   $('acct').textContent = '';
   try { localStorage.removeItem(HANDOFF_KEY); localStorage.removeItem('etSigninHandoff'); } catch (e) {}
   showRetry = false;
