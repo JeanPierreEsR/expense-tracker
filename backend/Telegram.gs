@@ -191,8 +191,35 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
       entry_id: entry.id,
       created_at: new Date().toISOString()
     });
+    noteLastTelegramNotification_(res.result.message_id, entry.id);
   }
   return res;
+}
+
+// The newest notification the bot sent (an entry card, a budget alert, a loan
+// alert, a statement notice). A message typed WITHOUT replying to anything is
+// assumed to be about this one — but only if it is an entry card whose entry
+// is still pending (see lastPendingCardMessageId_). Alerts store no entry id,
+// so a typed message after an alert gets the "reply directly" note.
+function noteLastTelegramNotification_(messageId, entryId) {
+  PropertiesService.getScriptProperties().setProperty('TELEGRAM_LAST_NOTIFICATION',
+    JSON.stringify({ message_id: String(messageId), entry_id: entryId || '' }));
+}
+
+function noteTelegramAlertSent_(res) {
+  if (res && res.ok && res.result && res.result.message_id) noteLastTelegramNotification_(res.result.message_id, '');
+}
+
+// Message id of the last notification when it is an entry card still waiting
+// for approval; otherwise null.
+function lastPendingCardMessageId_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('TELEGRAM_LAST_NOTIFICATION');
+  if (!raw) return null;
+  var last;
+  try { last = JSON.parse(raw); } catch (err) { return null; }
+  if (!last || !last.entry_id) return null;
+  var entry = getEntryById_(last.entry_id);
+  return entry && entry.status === 'pending' ? last.message_id : null;
 }
 
 // Apps Script's V8 runtime supports toLocaleString same as the browser —
@@ -248,16 +275,12 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     // Income holds a payor (who paid the owner), never a friend.
     var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
     lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
-    if (entry.payment_method_id) {
-      var inPm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
-      if (inPm) lines.push('💳 ' + inPm.nickname + (inPm.last_4 ? ' (' + inPm.last_4 + ')' : ''));
-    }
+    // No payment method shows "❓ not set — reply ..." (same as a transfer's
+    // missing end) instead of leaving the line out.
+    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
   } else {
     lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
-    if (entry.payment_method_id) {
-      var pm = getAllRows('Payment Methods').find(function (p) { return p.id === entry.payment_method_id; });
-      if (pm) lines.push('💳 ' + pm.nickname + (pm.last_4 ? ' (' + pm.last_4 + ')' : ''));
-    }
+    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
   }
 
   if (entry.type === 'expense') {
@@ -358,6 +381,7 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   // chat id, etc. — only a real ok counts as sent, so the caller doesn't
   // log the alert as delivered and never retry it.
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  noteTelegramAlertSent_(res);
   return !!(res && res.ok);
 }
 
@@ -376,6 +400,7 @@ function sendTelegramLoanOverdueAlert_(loan, friendName) {
   // chat id, etc. — only a real ok counts as sent, so the caller doesn't
   // log the alert as delivered and never retry it.
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  noteTelegramAlertSent_(res);
   return !!(res && res.ok);
 }
 
@@ -546,7 +571,11 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
-  if (!msg.reply_to_message) {
+  // Not a reply to anything: assume it is about the last notification, if
+  // that was an entry card still pending approval. Otherwise (an alert, a
+  // confirmed/removed entry, nothing yet) ask for a direct reply.
+  var targetMessageId = msg.reply_to_message ? msg.reply_to_message.message_id : lastPendingCardMessageId_();
+  if (!targetMessageId) {
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id, text: tr_('bot.replyToACard'),
       reply_to_message_id: msg.message_id, allow_sending_without_reply: true
@@ -555,7 +584,7 @@ function handleTelegramMessage_(msg) {
   }
 
   var mapping = getAllRows('Telegram Messages')
-    .find(function (m) { return String(m.message_id) === String(msg.reply_to_message.message_id); });
+    .find(function (m) { return String(m.message_id) === String(targetMessageId); });
 
   if (!mapping) {
     telegramApi_('sendMessage', {
@@ -611,7 +640,7 @@ function handleTelegramMessage_(msg) {
   // confirmed/discarded by mistake. A command that wasn't understood leaves
   // it untouched, since that card is still the live one.
   if ((result.entry && !result.removed) || result.removed) {
-    removeCardButtons_(msg.chat.id, msg.reply_to_message.message_id);
+    removeCardButtons_(msg.chat.id, targetMessageId);
   }
 }
 
