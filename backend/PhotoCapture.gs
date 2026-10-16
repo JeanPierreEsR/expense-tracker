@@ -352,7 +352,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     var guess = guessCategoryForEmail_(
       { type: 'expense', amount: parsed.amount, currency: parsed.currency, merchant: '' },
       dateStr, buildGuessContext_());
-    categoryId = guess.categoryId; autoReason = guess.reason;
+    categoryId = guess.categoryId; autoReason = telegramAutoReason_(guess);
   }
 
   var entry = {
