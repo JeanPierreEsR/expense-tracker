@@ -1971,6 +1971,8 @@ body.income-revealed .sens-mask { display: none; }
 }
 .stmt-chip.ok { background: #e3f4e6; color: #1e6b32; }
 .stmt-chip.due { background: #fde8e6; color: #a3261c; }
+.stmt-chip.warn { background: #fff1db; color: #8a5300; }
+.stmt-chip.resolved { background: #e3f4e6; color: #1e6b32; }
 
 .stmt-upload-btn {
   display: block;

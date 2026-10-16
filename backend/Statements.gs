@@ -215,6 +215,14 @@ function listStatementCoverage() {
   });
   var waiting = stmtInboxWaitingByAccount_(getAllRows('Payment Methods'), banksById, uploads);
   rows.forEach(function (r) { r.inbox_waiting = waiting[r.key] || 0; });
+  ensureStatementGapsSheet_();
+  var openGaps = {};
+  getAllRows('Statement Gaps').forEach(function (g) {
+    if (g.status === 'resolved') return;
+    var gk = covKey_(g.account_key);
+    openGaps[gk] = (openGaps[gk] || 0) + 1;
+  });
+  rows.forEach(function (r) { r.open_gaps = openGaps[r.key] || 0; });
   var rank = { due: 0, never: 1, ok: 2 };
   rows.sort(function (x, y) { return (rank[x.status] - rank[y.status]) || (x.label < y.label ? -1 : 1); });
   return { today: today, accounts: rows };

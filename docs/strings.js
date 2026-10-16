@@ -831,6 +831,24 @@
     "export.sent": { en: "✓ Sent to your email: {files}.", es: "✓ Enviado a tu correo: {files}." },
 
     // ---- stmt ----
+    // ---- gaps (More → Statements) ----
+    "gaps.title": { en: "Gaps", es: "Diferencias" },
+    "gaps.hint": { en: "Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.", es: "Cada vez que fijas un saldo desde un estado de cuenta, la diferencia que la app no pudo explicar queda aquí como una nota. Son solo notas: nunca cuentan en tus totales, presupuestos ni saldos. Márcala como resuelta cuando encuentres la causa." },
+    "gaps.empty": { en: "No gaps so far.", es: "Aún no hay diferencias." },
+    "gaps.rowTitle": { en: "{account} · {date}", es: "{account} · {date}" },
+    "gaps.less": { en: "{amount} less than the app expected — money left this account that the app doesn't know about.", es: "{amount} menos de lo que esperaba la app: salió dinero de esta cuenta que la app no conoce." },
+    "gaps.more": { en: "{amount} more than the app expected — money came into this account that the app doesn't know about.", es: "{amount} más de lo que esperaba la app: entró dinero a esta cuenta que la app no conoce." },
+    "gaps.compare": { en: "Statement {closing} · app {app}", es: "Estado de cuenta {closing} · app {app}" },
+    "gaps.resolve": { en: "Mark resolved", es: "Marcar como resuelta" },
+    "gaps.reopen": { en: "Reopen", es: "Reabrir" },
+    "gaps.notePrompt": { en: "What was it? (optional)", es: "¿Qué fue? (opcional)" },
+    "gaps.resolvedOn": { en: "Resolved on {date}", es: "Resuelta el {date}" },
+    "gaps.chipOpen": { en: "⚠ {n} open", es: "⚠ {n} abiertas" },
+    "gaps.chipResolved": { en: "Resolved", es: "Resuelta" },
+    "gaps.coverageOpen": { en: "⚠ {n} open gap(s) — see Gaps below", es: "⚠ {n} diferencia(s) abierta(s): mira Diferencias abajo" },
+    "gaps.willNote": { en: "If you set the balance, the {amount} difference is saved as a gap note (it doesn't change your totals).", es: "Si fijas el saldo, la diferencia de {amount} se guarda como una nota de diferencia (no cambia tus totales)." },
+    "gaps.failed": { en: "Couldn't save: {error}", es: "No se pudo guardar: {error}" },
+
     "stmt.title": { en: "Statements", es: "Estados de cuenta" },
     "stmt.hint": { en: "Which bank statement you last processed for each account, and when the next one should be available.", es: "Qué estado de cuenta procesaste por última vez en cada cuenta y cuándo debería estar disponible el siguiente." },
     "stmt.inbox": { en: "Inbox", es: "Bandeja de entrada" },
