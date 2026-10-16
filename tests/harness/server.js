@@ -19,6 +19,8 @@ function boot() {
   data = seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000) });
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
+  // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
+  if (process.env.FRIEND_COPY) rt.svc.props.set("FEATURES", "gmail,keepawake");
 }
 boot();
 
@@ -29,7 +31,8 @@ http.createServer((req, res) => {
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       const reply = rt.rawPost(body);
-      res.writeHead(200, { "Content-Type": "application/json" });
+      // Open to other localhost pages, like the real web app is: a second harness (a friend's copy) reports app speed to this one.
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify(reply));
     });
     return;
@@ -38,6 +41,13 @@ http.createServer((req, res) => {
   if (url === "/__mail") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(rt.svc.mailLog.map((m) => ({ to: m.to, subject: m.subject, body: m.body, attachments: m.attachments.map((a) => ({ name: a.name, chars: a.data.length, head: a.data.slice(0, 300) })) }))));
+    return;
+  }
+  if (url === "/__perf") {   // the rows the owner's Sheet would hold in its "Perf Reports" tab
+    res.writeHead(200, { "Content-Type": "application/json" });
+    let rows = [];
+    try { rows = rt.rows("Perf Reports"); } catch (e) { /* no report has arrived yet */ }
+    res.end(JSON.stringify(rows));
     return;
   }
   if (url === "/__info") {
