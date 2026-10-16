@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-16T15:35:05Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-16T17:12:14Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -492,6 +492,12 @@
         <div id="accounts-list"></div>
         <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
       </div>
+      <div class="card" id="rails-card">
+        <h2 style="margin-top:0;" data-i18n="wa.railsTitle">Yape and Plin</h2>
+        <p class="hint" data-i18n="wa.railsScreenHint">Yape and Plin work on top of a bank account. Choose which account each one uses, in soles and in dollars.</p>
+        <div id="rails-card-selects"></div>
+        <p class="hint" id="rails-card-status"></p>
+      </div>
     </div>
 
     <div id="screen-exchange-rates" class="screen" hidden>
@@ -583,6 +589,12 @@
         <h2 style="margin-top:0;" data-i18n="stmt.title">Statements</h2>
         <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
         <div id="statement-coverage-list"></div>
+      </div>
+
+      <div class="card" id="statement-gaps-card">
+        <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
+        <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>
+        <div id="statement-gaps-list"></div>
       </div>
 
       <div class="card" id="statement-inbox-card">
@@ -936,6 +948,7 @@
   <div id="welcome-overlay" class="welcome-overlay" hidden>
     <div class="welcome-card">
       <div id="welcome-questions" hidden>
+        <p class="hint" id="wq-step"></p>
         <h2 data-i18n="welcome.title">Welcome to your Expense Tracker</h2>
         <p class="hint" data-i18n="welcome.intro">Three quick questions so the app feels right. It takes about 20 seconds.</p>
 
@@ -959,7 +972,51 @@
         <div id="welcome-currencies" class="welcome-currencies"></div>
 
         <p class="hint" id="welcome-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.continue">Continue</button>
+        <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
+      </div>
+
+      <div id="welcome-accounts" hidden>
+        <div id="wa-root">
+          <p class="hint" id="wa-step"></p>
+          <h2 data-i18n="wa.title">Your accounts</h2>
+          <p class="hint" data-i18n="wa.intro">Add the accounts you use, bank by bank. This step is optional, and you can add or change your accounts any time in More → Accounts &amp; cards.</p>
+          <h3 data-i18n="wa.mainBanks">Main banks</h3>
+          <div id="wa-main-banks" class="wa-banks"></div>
+          <h3 data-i18n="wa.otherBanks">Other banks</h3>
+          <div id="wa-other-banks" class="wa-banks"></div>
+          <button type="button" class="add-inline" id="wa-add-bank-btn" data-i18n="wa.addBank">+ Add another bank</button>
+          <h3 data-i18n="wa.railsTitle">Yape and Plin</h3>
+          <p class="hint" data-i18n="wa.railsHint">Yape and Plin don't hold money of their own: they work on top of a bank account. Link each one to the account it uses. You can change this later in More → Accounts &amp; cards.</p>
+          <div id="wa-rails"></div>
+          <p class="hint" data-i18n="wa.wallets">Later you can also add wallets, like Starbucks or other loyalty programs, in More → Accounts &amp; cards.</p>
+          <p class="hint" id="wa-error" style="color:#d64545;"></p>
+          <div class="welcome-tour-buttons">
+            <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
+            <button type="button" class="primary" id="wa-next-btn" data-i18n="welcome.next">Next</button>
+          </div>
+          <button type="button" class="add-inline" id="wa-skip-btn" data-i18n="wa.skip">Skip this step</button>
+        </div>
+        <div id="wa-bank" hidden>
+          <button type="button" class="add-inline" id="wa-bank-back" data-i18n="wa.banksBack">‹ Banks</button>
+          <h2 id="wa-bank-name"></h2>
+          <div id="wa-bank-accounts"></div>
+          <button type="button" class="add-inline" id="wa-add-account-btn" data-i18n="wa.addAccount">+ Add account</button>
+          <div id="wa-form" hidden>
+            <h3 data-i18n="wa.kind">Type of account</h3>
+            <div class="welcome-choices" id="wa-kinds"></div>
+            <h3 data-i18n="wa.alias">Alias (optional)</h3>
+            <input type="text" id="wa-alias" maxlength="40" autocomplete="off">
+            <p class="hint" data-i18n="wa.aliasHint">If you leave it empty, the app names the account for you.</p>
+            <h3 data-i18n="wa.last4">Last 4 digits (optional)</h3>
+            <input type="text" id="wa-last4" inputmode="numeric" maxlength="4" autocomplete="off">
+            <p class="hint" data-i18n="wa.last4Hint">They help the app recognise your bank e-mails. Never the full number.</p>
+            <label class="checkbox-row"><input type="checkbox" id="wa-show4"><span data-i18n="wa.showLast4">Show the last 4 digits in the name</span></label>
+            <p class="hint" id="wa-preview" style="font-weight:600;"></p>
+            <p class="hint" id="wa-form-error" style="color:#d64545;"></p>
+            <button type="button" class="primary" id="wa-save-account-btn" data-i18n="wa.saveAccount">Save account</button>
+            <button type="button" class="add-inline" id="wa-cancel-account-btn" data-i18n="common.cancel">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <div id="welcome-tour" hidden>
@@ -1324,14 +1381,14 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="i18n.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="tour-scenes.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="signin-link.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="receipt-parse.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="bill-split.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="app.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="statement-parsers.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="statements.js?v=2026-10-16T15:35:05Z"></script>
+  <script src="strings.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="i18n.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="tour-scenes.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="signin-link.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="receipt-parse.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="bill-split.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="app.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="statement-parsers.js?v=2026-10-16T17:12:14Z"></script>
+  <script src="statements.js?v=2026-10-16T17:12:14Z"></script>
 </body>
 </html>

@@ -59,6 +59,7 @@
       btn.classList.toggle("active", btn.dataset.screen === "more");
     });
     refreshStatementCoverage();
+    refreshStatementGaps();
     refreshStatementBatches();
     refreshStatementInbox();
   }
@@ -132,6 +133,45 @@
     if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
+  // ---- gaps (notes saved when a balance is set from a statement) ----
+
+  async function refreshStatementGaps() {
+    const list = $("statement-gaps-list");
+    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+    let res;
+    try { res = await callApi("listStatementGaps", {}); }
+    catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
+    if (!res.gaps.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("gaps.empty"))}</p>`; return; }
+    list.innerHTML = res.gaps.map((g) => {
+      const open = g.status === "open";
+      const what = tr(g.gap < 0 ? "gaps.less" : "gaps.more", { amount: fmtMoney(g.currency, Math.abs(g.gap)) });
+      const compare = g.app_balance === null ? "" : tr("gaps.compare", { closing: fmtMoney(g.currency, g.closing), app: fmtMoney(g.currency, g.app_balance) });
+      const resolvedLine = open ? "" : [tr("gaps.resolvedOn", { date: fmtDate(g.resolved_at, true) }), g.note].filter(Boolean).join(" · ");
+      return `<div class="stmt-row"><div class="stmt-row-main">
+        <div class="stmt-row-title">${escapeHtml(tr("gaps.rowTitle", { account: g.account_label, date: fmtDate(g.period_end, true) }))}</div>
+        <div class="stmt-row-sub">${escapeHtml(what)}</div>
+        ${compare ? `<div class="stmt-row-sub">${escapeHtml(compare)}</div>` : ""}
+        ${resolvedLine ? `<div class="stmt-row-sub">${escapeHtml(resolvedLine)}</div>` : ""}
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-gap-toggle" data-id="${escapeHtml(g.id)}" data-open="${open ? "1" : ""}">${escapeHtml(tr(open ? "gaps.resolve" : "gaps.reopen"))}</button></div>
+      </div><span class="stmt-chip ${open ? "warn" : "resolved"}">${escapeHtml(signed(g.currency, g.gap))}</span></div>`;
+    }).join("");
+  }
+
+  async function toggleGap(id, isOpen, btn) {
+    const payload = { id, resolved: isOpen };
+    if (isOpen) {
+      const note = prompt(tr("gaps.notePrompt"), "");
+      if (note === null) return;           // cancelled
+      payload.note = note;
+    }
+    btn.disabled = true;
+    try { await callApi("resolveStatementGap", payload); }
+    catch (err) { alert(tr("gaps.failed", { error: err.message })); }
+    coverage = null;
+    refreshStatementGaps();
+    refreshStatementCoverage();
+  }
+
   // ---- coverage list ----
 
   const STATUS_LABEL = {
@@ -170,6 +210,7 @@
           <div class="stmt-row-title">${escapeHtml(a.label)}</div>
           <div class="stmt-row-sub">${escapeHtml(last)}</div>
           ${next ? `<div class="stmt-row-sub">${escapeHtml(next)}</div>` : ""}
+          ${a.open_gaps ? `<div class="stmt-row-sub" style="color:#8a5300">${escapeHtml(tr("gaps.coverageOpen", { n: a.open_gaps }))}</div>` : ""}
         </div>
         <span class="stmt-chip ${a.status}">${a.inbox_waiting ? escapeHtml(tr("stmt.inInbox", { n: a.inbox_waiting })) : `${icon} ${escapeHtml(text)}`}</span>
       </div>`;
@@ -493,7 +534,7 @@
     (analysis.balance_checks || []).forEach((c) => {
       items.push({ id: `bal:${c.stmt}:${c.currency}`, kind: "balance", check: c, where: acct(c.stmt),
         choices: c.canSet ? [["set", c.direction === "untracked" ? tr("stmt.choice.startTracking") : tr("stmt.choice.setBalance")]] : null,
-        build: () => ({ type: "set_balance", stmt: c.stmt, currency: c.currency }) });
+        build: () => (c.direction === "forward" && typeof c.unexplained === "number" ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd } : { type: "set_balance", stmt: c.stmt, currency: c.currency }) });
     });
     return items;
   }
@@ -526,6 +567,7 @@
         verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
       }
       if (c.canSet) verdict += `<p class="hint">${escapeHtml(tr("stmt.balCanSet", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
+      if (c.canSet && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
     }
     const btn = it.choices ? `<div class="stmt-choices" style="padding-left:0">${it.choices.map(([k, label]) =>
       `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}</div>` : "";
@@ -771,6 +813,7 @@
       review = null;
       coverage = null;
       refreshStatementCoverage();
+      refreshStatementGaps();
       refreshStatementBatches();
       refreshStatementInbox();
       refreshOtherScreens();
@@ -799,6 +842,7 @@
       $("statement-review").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
+      refreshStatementGaps();
       refreshStatementBatches();
       refreshOtherScreens();
     } catch (err) {
@@ -841,6 +885,10 @@
       try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert(tr("stmt.dismissFailed", { error: err.message })); }
       refreshStatementInbox(); refreshStatementCoverage();
     }
+  });
+  $("statement-gaps-list").addEventListener("click", (e) => {
+    const b = e.target.closest(".stmt-gap-toggle");
+    if (b) toggleGap(b.dataset.id, !!b.dataset.open, b);
   });
   $("statement-review").addEventListener("click", (e) => {
     if (!review) return;
