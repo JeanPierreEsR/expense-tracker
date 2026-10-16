@@ -3329,8 +3329,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const item = document.createElement("div");
     item.className = "review-item";
 
-    const categoryOptions = meta.categories
-      .filter((c) => c.type === entry.type)
+    const categoryOptions = sortedCategories_(meta.categories.filter((c) => c.type === entry.type))
       .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
       .join("");
 
@@ -4013,10 +4012,10 @@ async function openBudgetDrilldown(budget) {
   const categoriesEl = document.getElementById("drilldown-categories");
   if (budget.category_ids && budget.category_ids.length > 1) {
     categoriesEl.hidden = false;
-    categoriesEl.textContent = budget.category_ids.map((id) => {
-      const cat = meta.categories.find((c) => c.id === id);
-      return cat ? `${cat.icon ? cat.icon + " " : ""}${cat.name}` : "";
-    }).filter(Boolean).join(", ");
+    const budgetCats = budget.category_ids
+      .map((id) => meta.categories.find((c) => c.id === id)).filter(Boolean);
+    categoriesEl.textContent = sortedCategories_(budgetCats)
+      .map((cat) => `${cat.icon ? cat.icon + " " : ""}${cat.name}`).join(", ");
   } else {
     categoriesEl.hidden = true;
   }
@@ -4436,8 +4435,7 @@ function updateBudgetAllCategoriesCheckbox_() {
 function populateBudgetCategoryChips() {
   const container = document.getElementById("budget-category-chips");
   container.innerHTML = "";
-  meta.categories
-    .filter((c) => c.type === "expense")
+  sortedCategories_(meta.categories.filter((c) => c.type === "expense"))
     .forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedBudgetCategoryIds.has(c.id) ? " selected" : "");
@@ -5984,8 +5982,7 @@ const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i
 function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
   container.innerHTML = "";
-  meta.categories
-    .filter((c) => c.type === "expense" || c.type === "income")
+  sortedCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"))
     .forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
