@@ -326,7 +326,14 @@ function newRequestId_() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// How many calls are waiting on the server right now; sending app-speed reports (below) never starts while any are.
+let perfInflight_ = 0;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
+  perfInflight_++;
+  try { return await callApiOnce_(action, payload, attempt, startedAt); } finally { perfInflight_--; }
+}
+
+async function callApiOnce_(action, payload, attempt, startedAt) {
   if (attempt === 1 && ONCE_ACTIONS.has(action) && !(payload && payload._requestId)) {
     payload = { ...(payload || {}), _requestId: newRequestId_() };
   }
@@ -445,9 +452,14 @@ async function renderCachedStartupBundle_(bundle) {
 
 function perfAppend_(entry) {
   try {
-    const log = JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]");
-    log.push(entry);
-    localStorage.setItem(PERF_LOG_KEY, JSON.stringify(log.slice(-PERF_LOG_MAX)));
+    const share = perfShareState_();
+    // The on-phone log screen only exists on the owner's copy; a friend who answered keeps no local log at all.
+    if (!(share.asked && !share.owner)) {
+      const log = JSON.parse(localStorage.getItem(PERF_LOG_KEY) || "[]");
+      log.push(entry);
+      localStorage.setItem(PERF_LOG_KEY, JSON.stringify(log.slice(-PERF_LOG_MAX)));
+    }
+    if (share.on) perfOutbox_.append(entry);   // waits in the outbox until it is sent (see "Sharing app speed" below)
   } catch (err) {
     // Logging must never break the app.
   }
@@ -464,6 +476,106 @@ function perfRecordCall_(action, totalMs, attempts, serverMs, cold, ok) {
 function perfRecordStartup_(name, ms) {
   perfAppend_({ t: Date.now(), kind: "startup", name, totalMs: Math.round(ms) });
 }
+
+// ---- Sharing app speed with the owner (beta) ----
+// With the person's OK (welcome question / More → Share app speed) the timings above are also queued in a small
+// outbox (docs/perf-share.js) and sent to the owner's backend, which appends them to his Sheet (backend/PerfReports.gs).
+// Only timings and action names are ever sent — no amounts, text or names. Sending is quiet and never in the way:
+// it waits until no call is running and the app is on screen, runs when the browser is idle, sends at most every 2 h
+// (30 min after a failure), only when 30+ entries are waiting (or the oldest is a day old), and ignores every error.
+// An entry leaves the outbox only after the backend confirms it is stored. The owner's own copy shares automatically
+// with the label "Owner" (to his own backend); the log screen in More exists only there.
+const PERF_SHARE_KEY = "perfShare";   // { on, label, asked, owner } — chosen per phone
+const perfOutbox_ = PerfShare.create(localStorage);
+
+function perfShareState_() {
+  try { return JSON.parse(localStorage.getItem(PERF_SHARE_KEY)) || {}; } catch (e) { return {}; }
+}
+function perfShareSave_(state) {
+  try { localStorage.setItem(PERF_SHARE_KEY, JSON.stringify(state)); } catch (e) { /* storage blocked: nothing is shared */ }
+}
+function perfInstallId_() {
+  let id = "";
+  try { id = localStorage.getItem("perfInstall") || ""; } catch (e) { /* see below */ }
+  if (!/^[0-9a-f-]{16,36}$/.test(id)) {
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    try { localStorage.setItem("perfInstall", id); } catch (e) { /* a new id next time */ }
+  }
+  return id;
+}
+// The owner's own copy: his backend says so, or the phone is connected to his address (an older cached answer lacks the flag).
+function perfIsOwnerCopy_() {
+  return !!(meta && meta.capabilities && meta.capabilities.perfLog === true) || getApiUrl() === OWNER_API_URL;
+}
+function perfShareOwnerInit_() {
+  if (!perfIsOwnerCopy_()) return;
+  const s = perfShareState_();
+  if (!(s.owner && s.on)) perfShareSave_({ on: true, owner: true, asked: true, label: "Owner" });
+}
+// Where reports go: the owner's backend (his own copy: itself). Only a test page on this Mac may override it.
+function perfReportUrl_() {
+  try {
+    const o = localStorage.getItem("perfReportUrl");
+    if (o && /^http:\/\/localhost(:\d+)?\//.test(o)) return o;
+  } catch (e) { /* no override */ }
+  return perfShareState_().owner ? getApiUrl() : OWNER_API_URL;
+}
+
+async function perfSendOnce_() {
+  const entries = perfOutbox_.peek(200);
+  if (!entries.length) return false;
+  const share = perfShareState_();
+  const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  const link = document.querySelector("link[rel=stylesheet]");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    // A plain fetch, not callApi: reporting must not be timed, retried or counted like the app's own calls.
+    const res = await fetch(perfReportUrl_(), {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "reportPerf", payload: {
+        install: perfInstallId_(), label: share.label || "", app: link ? (link.href.split("?v=")[1] || "") : "",
+        device: PerfShare.deviceKind(navigator.userAgent, standalone), entries
+      } }),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json && json.ok && json.data && Number.isFinite(json.data.ack)) { perfOutbox_.ack(json.data.ack); return true; }
+    return false;
+  } catch (e) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let perfSending_ = false;
+async function perfSendMaybe_() {
+  try {
+    if (perfSending_ || perfInflight_ > 0 || document.hidden || !perfShareState_().on) return;
+    const failed = localStorage.getItem("perfSendFailed") === "1";
+    if (!PerfShare.shouldSend(perfOutbox_.status(), Date.now(), Number(localStorage.getItem("perfLastTry")) || 0, failed)) return;
+    perfSending_ = true;
+    localStorage.setItem("perfLastTry", String(Date.now()));
+    for (let i = 0; i < 5; i++) {   // a backlog goes out in a few batches of 200, a pause between each
+      const ok = await perfSendOnce_();
+      localStorage.setItem("perfSendFailed", ok ? "0" : "1");
+      if (!ok || !perfOutbox_.status().count || perfInflight_ > 0 || document.hidden) break;
+      await sleep(2000);
+    }
+  } catch (e) {
+    /* sharing must never break the app */
+  } finally {
+    perfSending_ = false;
+  }
+}
+function perfSchedule_(delayMs) {
+  setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(() => perfSendMaybe_(), { timeout: 10000 }); else perfSendMaybe_(); }, delayMs);
+}
+perfSchedule_(20000);                               // shortly after the app has opened and settled
+setInterval(() => perfSchedule_(0), 15 * 60000);    // while it stays open
+document.addEventListener("visibilitychange", () => { if (!document.hidden) perfSchedule_(15000); });
 
 function todayLocalISO() {
   const d = new Date();
@@ -5119,9 +5231,52 @@ function extrasOff_() {
 }
 function refreshExtrasRow_() {
   document.getElementById("more-extras-btn").hidden = !extrasOff_().length;
-  // The Performance log is for the owner's own copy only (capabilities.perfLog is false on installer-made copies).
-  document.getElementById("more-perf-btn").hidden = !!(meta && meta.capabilities && meta.capabilities.perfLog === false);
+  // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
+  perfShareOwnerInit_();
+  const owner = perfIsOwnerCopy_();
+  document.getElementById("more-perf-btn").hidden = !owner;
+  document.getElementById("more-perf-share-btn").hidden = owner;
+  maybeAskPerfShare_();
 }
+
+// ---- "Help me improve the app" pop-up (a friend's copy only) ----
+// Asked once per phone: at the end of the welcome questions for a new app, or at the next open for an app that was
+// already set up. "Share" starts ticked; More → Share app speed changes the choice or the name at any time.
+let perfShareDone_ = null;
+function openPerfShareModal_(onDone) {
+  const s = perfShareState_();
+  const backdrop = document.getElementById("perf-share-modal-backdrop");
+  perfShareDone_ = onDone || null;
+  I18n.applyStatic(backdrop);
+  document.getElementById("perf-share-on").checked = s.asked ? !!s.on : true;
+  document.getElementById("perf-share-name").value = s.label || "";
+  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is the Save button
+  bringModalToFront_(backdrop);
+  backdrop.style.zIndex = 400;   // above the welcome card (300), which is still open behind it at the end of the welcome questions
+  backdrop.hidden = false;
+}
+function closePerfShareModal_() {
+  document.getElementById("perf-share-modal-backdrop").hidden = true;
+  const next = perfShareDone_;
+  perfShareDone_ = null;
+  if (next) next();
+}
+function maybeAskPerfShare_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!meta || perfIsOwnerCopy_() || caps.onboarding || perfShareState_().asked) return;
+  if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
+  openPerfShareModal_(null);
+}
+document.getElementById("perf-share-save").addEventListener("click", () => {
+  const on = document.getElementById("perf-share-on").checked;
+  perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false });
+  if (!on) perfOutbox_.clear();
+  try { localStorage.removeItem(PERF_LOG_KEY); } catch (e) { /* nothing to remove */ }   // a friend keeps no on-phone log
+  closePerfShareModal_();
+  perfSchedule_(5000);
+});
+document.getElementById("perf-share-close").addEventListener("click", closePerfShareModal_);
+document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
 document.getElementById("more-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
   document.getElementById("extras-copy-msg").textContent = "";
@@ -5239,7 +5394,9 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
   renderCurrencyChips("entry");
   I18n.saveLang(welcome_.lang);
   welcomeEl_("welcome-questions").hidden = true;
-  openTour_(welcome_.lang !== welcome_.appLang);
+  const reloadAfter = welcome_.lang !== welcome_.appLang;
+  if (perfShareState_().asked) openTour_(reloadAfter);
+  else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
 });
 
 let tour_ = null;
