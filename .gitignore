@@ -7,3 +7,10 @@ UI references/
 
 # Apps Script project ids (script + spreadsheet) — local only.
 backend/.clasp.json
+
+# Real receipt photos used to test the photo reader — private, never commit.
+# (They live OUTSIDE this repo, in the private folder one level up; this line
+# is only a guard in case they are ever moved in by mistake.)
+Receipt testing/
+receipt-testing/
+receipts-private/
