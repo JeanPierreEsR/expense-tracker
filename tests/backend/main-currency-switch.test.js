@@ -5,9 +5,9 @@
 // Made-up data only (the harness' ~seeded entries, with rates for USD/EUR/CLP against soles).
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp } = require("./helpers");
+const { freshApp, today } = require("./helpers");
 
-const thisMonth = () => new Date().toISOString().slice(0, 7);
+const thisMonth = () => today().slice(0, 7);
 const monthEnd = (m) => { const [y, mo] = m.split("-").map(Number); return m + "-" + String(new Date(y, mo, 0).getDate()).padStart(2, "0"); };
 
 function setup() {
@@ -119,7 +119,7 @@ test("new entries start in the new main currency and the quick buttons lead with
   const { rt } = setup();
   rt.api("changeMainCurrency", { currency: "USD" });
   const cat = rt.api("getMeta").categories.find((c) => c.type === "expense");
-  const e = rt.api("createEntry", { type: "expense", date: new Date().toISOString().slice(0, 10), amount: 3, category_id: cat.id, status: "confirmed", paid_by: "me" });
+  const e = rt.api("createEntry", { type: "expense", date: today(), amount: 3, category_id: cat.id, status: "confirmed", paid_by: "me" });
   assert.equal(e.currency, "USD");
   assert.ok(rt.api("getMeta").settings.favorite_currencies.startsWith("USD"));
 });

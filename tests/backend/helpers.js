@@ -9,7 +9,10 @@ function freshApp(opts) {
   return { rt, data };
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Today as the BACKEND sees it: in the fake Google layer's time zone (America/Lima), not UTC. Using UTC made tests fail every
+// evening after 19:00 in Lima, when the UTC date is already tomorrow (found 2026-10-15, annual-tag test).
+const { TZ } = require("../harness/fake-google");
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 // Telegram: link a chat so the backend treats taps from it as the owner's.
 function linkTelegram(rt, chatId = 555) {
