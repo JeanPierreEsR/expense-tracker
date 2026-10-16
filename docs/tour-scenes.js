@@ -71,8 +71,8 @@
   // ------------------------------------------------------------------
   const TILES = {
     expense: [["🛒", "scene.cat.groceries"], ["🚌", "scene.cat.transport"], ["🍽️", "scene.cat.restaurants"], ["🏠", "scene.cat.home"], ["🛍️", "scene.cat.shopping"], ["🏥", "scene.cat.healthcare"], ["🎁", "scene.cat.gifts"], ["🎓", "scene.cat.education"]],
-    income: [["💰", "scene.cat.salary"], ["🎁", "scene.cat.gifts"], ["👔", "scene.cat.business"], ["💵", "scene.cat.extraIncome"], ["🏷️", "scene.cat.sales"], ["🪙", "scene.cat.savingsReturn"], ["🛡️", "scene.cat.insurance"], ["📦", "scene.cat.other"]],
-    investment: [["•", "scene.cat.contribution"], ["•", "scene.cat.withdrawal"]]
+    income: [["💰", "scene.cat.salary"], ["🎁", "scene.cat.gifts"], ["👔", "scene.cat.business"], ["💵", "scene.cat.extraIncome"], ["🏷️", "scene.cat.sales"], ["🪙", "scene.cat.savingsReturn"], ["🛡️", "scene.cat.insurance"], ["📦", "scene.cat.other"]]
+    // Investments (and transfers) have NO category in the app: the Investment tab opens the form directly.
   };
 
   // A labelled box: small label above its value. Returns the value element.
@@ -103,9 +103,12 @@
     const recent = h("div", "ts-list", null, gridView);
     h("div", "ts-list-title", tr("entries.recent"), recent);
     const rows = h("div", "ts-rows", null, recent);
-    const addRow = (name, amt, enter) => {
+    const addRow = (name, amt, enter, dot) => {
       const r = h("div", "ts-row" + (enter ? " enter" : ""), null, null);
-      h("span", "ts-row-name", name, r); h("span", "ts-row-amt", amt, r);
+      const nm = h("span", "ts-row-name", null, r);
+      if (dot) { const d = h("span", "ts-dot", null, nm); d.style.background = dot; }
+      nm.appendChild(document.createTextNode(name));
+      h("span", "ts-row-amt", amt, r);
       rows.insertBefore(r, rows.firstChild);
       while (rows.children.length > 3) rows.removeChild(rows.lastChild);
     };
@@ -169,22 +172,25 @@
     }
   };
 
-  // ---- an investment: Investment tab -> Contribution -> Deposit, amount, From, Platform -> Save entry ----
+  // ---- an investment: the Investment tab opens the form directly (no category). Deposit/Withdrawal buttons come first ----
   SCENES.invest = {
     hold: 1800,
     build(stage, ctx) {
       const tr = ctx.tr;
       const p = entriesPhone(stage, ctx, "expense");
       const f = p.formView;
-      const banner = h("div", "ts-banner", null, f);
-      h("span", null, "•", banner); h("b", null, tr("scene.cat.contribution"), banner); h("span", "ts-change", tr("common.change"), banner);
       const seg = h("div", "ts-seg", null, f);
-      p.deposit = h("span", "on", tr("investment.deposit"), seg); h("span", null, tr("investment.withdrawal"), seg);
-      h("div", "ts-hint", tr("investment.depositHint"), f);
+      p.deposit = h("span", "on", tr("investment.deposit"), seg);
+      p.withdrawal = h("span", null, tr("investment.withdrawal"), seg);
+      p.hint = h("div", "ts-hint", tr("investment.depositHint"), f);
       const r1 = h("div", "ts-two", null, f);
       p.amountBox = box(r1, tr("field.amount"), "", "grow");
       p.dateBox = box(r1, tr("field.date"), tr("scene.today"));
-      p.fromBox = box(f, tr("field.from"), tr("scene.savings"));
+      const cur = h("div", "ts-chips", null, f);
+      [ctx.home, "USD", "EUR"].forEach((c, i) => h("span", "ts-chip small" + (i === 0 ? " on" : ""), c, cur));
+      const r2 = h("div", "ts-two", null, f);
+      p.paidBox = box(r2, tr("field.paidBy"), tr("scene.me"));
+      p.fromBox = box(r2, tr("field.from"), tr("scene.savings"), "grow");
       p.platBox = box(f, tr("field.platform"), tr("scene.platform"));
       p.save = h("div", "ts-btn", tr("entry.save"), f);
       return p;
@@ -192,26 +198,29 @@
     timeline(p, ctx) {
       const tr = ctx.tr, fg = p.finger;
       const amt = typing(p.amountBox.value, ["5", "50", "500"]);
+      const dir = (w) => () => {
+        p.deposit.className = w ? "" : "on"; p.withdrawal.className = w ? "on" : "";
+        p.hint.textContent = tr(w ? "investment.withdrawalHint" : "investment.depositHint");
+      };
       return [
         [0, () => fg.to(p.tabs.investment, true)],
         [500, (i) => fg.to(p.tabs.investment, i)],
-        [1100, (i) => { fg.tap(i); typeOn(p, "investment"); p.tiles = p.fillGrid("investment"); }],
-        [1900, (i) => fg.to(p.tiles[0], i)],
-        [2500, (i) => { fg.tap(i); p.tiles[0].classList.add("on"); }],
-        [2800, () => showForm(p, true)],
-        [3100, (i) => fg.to(p.deposit, i)],
-        [3600, (i) => { fg.tap(i); }],
-        [4000, (i) => fg.to(p.amountBox.box, i)],
-        [4500, (i) => { fg.tap(i); p.amountBox.box.classList.add("focus"); }],
-        [4600, amt[0]], [4800, amt[1]], [5000, amt[2]],
-        [5500, (i) => { p.amountBox.box.classList.remove("focus"); fg.to(p.fromBox.box, i); }],
-        [6000, (i) => { fg.tap(i); p.fromBox.box.classList.add("focus"); }],
-        [6500, (i) => { p.fromBox.box.classList.remove("focus"); fg.to(p.platBox.box, i); }],
-        [7000, (i) => { fg.tap(i); p.platBox.box.classList.add("focus"); }],
-        [7500, (i) => { p.platBox.box.classList.remove("focus"); fg.to(p.save, i); }],
-        [8000, (i) => { fg.tap(i); p.save.classList.add("pressed"); }],
-        [8300, (i) => { p.save.classList.remove("pressed"); showForm(p, false); p.addRow("• " + tr("scene.cat.contribution"), ctx.home + " " + ctx.money(500), true); }],
-        [8900, () => fg.hide()]
+        [1100, (i) => { fg.tap(i); typeOn(p, "investment"); showForm(p, true); }],
+        [1800, (i) => fg.to(p.withdrawal, i)],
+        [2300, (i) => { fg.tap(i); dir(true)(); }],
+        [3000, (i) => fg.to(p.deposit, i)],
+        [3500, (i) => { fg.tap(i); dir(false)(); }],
+        [4100, (i) => fg.to(p.amountBox.box, i)],
+        [4600, (i) => { fg.tap(i); p.amountBox.box.classList.add("focus"); }],
+        [4700, amt[0]], [4900, amt[1]], [5100, amt[2]],
+        [5600, (i) => { p.amountBox.box.classList.remove("focus"); fg.to(p.fromBox.box, i); }],
+        [6100, (i) => { fg.tap(i); p.fromBox.box.classList.add("focus"); }],
+        [6600, (i) => { p.fromBox.box.classList.remove("focus"); fg.to(p.platBox.box, i); }],
+        [7100, (i) => { fg.tap(i); p.platBox.box.classList.add("focus"); }],
+        [7600, (i) => { p.platBox.box.classList.remove("focus"); fg.to(p.save, i); }],
+        [8100, (i) => { fg.tap(i); p.save.classList.add("pressed"); }],
+        [8400, (i) => { p.save.classList.remove("pressed"); showForm(p, false); typeOn(p, "expense"); p.addRow(tr("entry.investmentIn", { platform: tr("scene.platform") }), ctx.home + " " + ctx.money(500), true, "var(--investment)"); }],
+        [9000, () => fg.hide()]
       ];
     }
   };

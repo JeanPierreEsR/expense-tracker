@@ -2223,3 +2223,4 @@ body.income-revealed .sens-mask { display: none; }
 .welcome-body { min-height: 0; }
 /* Back / Next stay in reach while a long card scrolls */
 .welcome-tour-buttons { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); margin-top: 8px; z-index: 3; }
+.ts-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
