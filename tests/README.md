@@ -6,7 +6,7 @@ Runs the REAL backend (`backend/*.gs`) against an in-memory imitation of Google
 
 | Command | What it does |
 |---|---|
-| `node --test tests/backend/` | All regression tests (also run by `deploy.sh`; a failure blocks the deploy) |
+| `node --test tests/backend/` | All regression tests (also run by `ship.sh`; a failure blocks the ship) |
 | `node tests/perf-report.js` | Sheet reads per request — the number that predicts real slowness |
 | `node tests/harness/server.js` | The real app on http://localhost:4180 against the fake backend (access code `test-access-code`) |
 | `BACKEND_DIR=/path/to/old/backend node --test tests/backend/` | Run the tests against an older copy, to prove a new test fails on the old bug |

@@ -1,57 +1,7 @@
 #!/bin/bash
-# One-command deploy. Usage: ./deploy.sh "commit message" [--dry-run]
-# Steps: bump docs/version.json (+ index.html ?v=) if docs/ changed,
-# clasp push, clasp deploy to the LIVE versioned deployment, commit, git push.
-# The live deployment id is kept OUT of this public repo, in ../deploy-id.txt.
-set -euo pipefail
-cd "$(dirname "$0")"
-
-MSG="${1:-}"; DRY="${2:-}"
-[ -n "$MSG" ] || { echo "Usage: ./deploy.sh \"commit message\" [--dry-run]"; exit 1; }
-ID_FILE="../deploy-id.txt"
-[ -f "$ID_FILE" ] || { echo "Missing $ID_FILE (live deployment id)"; exit 1; }
-DEPLOY_ID="$(tr -d '[:space:]' < "$ID_FILE")"
-
-# 0. Safety net: the backend tests run the real backend code against a fake
-# Google layer with made-up data (see tests/README.md). A failing test stops
-# the deploy before anything is uploaded or pushed.
-echo "Running backend tests..."
-node --test tests/backend/ > /tmp/expense-tracker-tests.log 2>&1 || { tail -40 /tmp/expense-tracker-tests.log; echo "Tests FAILED — not deploying."; exit 1; }
-grep -E "^ℹ (tests|pass|fail)" /tmp/expense-tracker-tests.log
-# The same tests again with e-mail read the NEW read-only way (see backend/GmailReader.gs): both must pass.
-GMAIL_READER=readonly node --test tests/backend/ > /tmp/expense-tracker-tests-readonly.log 2>&1 || { tail -40 /tmp/expense-tracker-tests-readonly.log; echo "Tests FAILED with the new e-mail reader — not deploying."; exit 1; }
-grep -E "^ℹ (pass|fail)" /tmp/expense-tracker-tests-readonly.log | sed 's/^/  (new e-mail reader) /'
-
-run() { if [ "$DRY" = "--dry-run" ]; then echo "[dry-run] $*"; else "$@"; fi; }
-
-# 1. Version bump — only when frontend files changed (uncommitted changes).
-if [ -n "$(git status --porcelain docs | grep -E '\.(html|js|css)$' | grep -v 'version.json' || true)" ]; then
-  OLD="$(python3 -c "import json;print(json.load(open('docs/version.json'))['version'])")"
-  NEW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "Bumping version $OLD -> $NEW"
-  if [ "$DRY" != "--dry-run" ]; then
-    sed -i '' "s/$OLD/$NEW/g" docs/index.html
-    echo "{ \"version\": \"$NEW\" }" > docs/version.json
-  fi
-else
-  echo "No frontend changes — version not bumped."
-fi
-
-# 2. Backend: upload, then point the live deployment at it.
-if [ -n "$(git status --porcelain backend)" ]; then
-  (cd backend && run clasp push -f && run clasp deploy -i "$DEPLOY_ID" -d "$MSG")
-else
-  echo "No backend changes — skipping clasp."
-fi
-
-# 3. Commit + push (GitHub Pages serves docs/).
-git add -A backend docs cloudflare-worker tests deploy.sh
-if git diff --cached --quiet; then
-  echo "Nothing new to commit."
-else
-  run git commit -m "$MSG
-
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
-fi
-run git push
-echo "Done."
+# RETIRED. deploy.sh used to publish everything in the folder it was run from,
+# which also published other chats' unfinished work. Use ship.sh instead:
+#   ./ship.sh <branch> "commit message"            (from the main folder)
+#   ./ship.sh --dry-run                            (safe preview, from anywhere)
+echo "deploy.sh is retired — use ./ship.sh (see CLAUDE.md §4 'Parallel chats')." >&2
+exit 1
