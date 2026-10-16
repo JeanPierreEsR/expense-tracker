@@ -655,10 +655,20 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   if (typeof maybeShowWelcome_ === "function") maybeShowWelcome_();
   syncLanguageSetting_();
   if (skipFormPopulate) return;
+  // Rebuilding the pickers resets them to their first option. A refresh
+  // (pull-down, or any reload of the lists) while an edit screen is open must
+  // not change what is already chosen there — it once flipped a pending card
+  // entry's payment method to the first account in the list.
+  const keptPicks = ["paid_by", "payment_method"].map((id) => document.getElementById(id).value);
   populateCategoryOptions();
   populateCategoryPicker();
   populatePaidByOptions();
   populatePaymentMethodOptions();
+  ["paid_by", "payment_method"].forEach((id, k) => {
+    const sel = document.getElementById(id);
+    if (keptPicks[k] && Array.from(sel.options).some((o) => o.value === keptPicks[k])) sel.value = keptPicks[k];
+  });
+  togglePaymentMethodVisibility();   // paid by may have been restored: show/hide the payment method to match
   populateToPaymentMethodOptions();
   populateTags();
   renderSplitFriendChips();
