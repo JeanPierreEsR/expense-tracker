@@ -30,11 +30,27 @@
  *   set_balance      { stmt, currency }      the statement's closing balance becomes the
  *                                            account's registered balance — only when the
  *                                            statement is NEWER than the current one
+ *                                            Optional { gap, app_balance }: the leftover difference the review screen
+ *                                            showed ("unexplained"). Any non-zero gap is saved
+ *                                            as a note in `Statement Gaps` — never an entry
+ *                                            (see below).
  */
 
 var STATEMENT_LINES_COLUMNS_ = ['id', 'line_key', 'account_key', 'period_end', 'date', 'description',
   'amount', 'currency', 'outcome', 'entry_id', 'batch_id', 'created_at'];
 var STATEMENT_CHANGES_COLUMNS_ = ['id', 'batch_id', 'sheet', 'row_id', 'field', 'old_value', 'new_value', 'created_at'];
+// Statement Gaps: when a balance is set from a statement, whatever difference the
+// review could not explain would otherwise vanish into the reset. Each non-zero
+// one is saved here as a NOTE (open until the owner marks it resolved). It is its
+// own sheet on purpose — never an Entry — so it can't touch totals, budgets,
+// balances or loans. Informational only: `gap` and `app_balance` are the figures
+// the phone showed, stored as-is. Undo removes the notes its upload created.
+var STATEMENT_GAPS_COLUMNS_ = ['id', 'payment_method_id', 'account_key', 'account_label', 'currency', 'period_end',
+  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at'];
+function ensureStatementGapsSheet_() {
+  ensureStatementSheet_('Statement Gaps', STATEMENT_GAPS_COLUMNS_, ['account_key', 'period_end', 'created_at', 'resolved_at']);
+}
+
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true };
 
 function ensureStatementSheet_(name, columns, textColumns) {
@@ -124,6 +140,7 @@ function applyStatementDecisions(payload) {
   var pmsById = rowsById_(pms);
   var openingsByPm = buildOpeningsByPm_(pms);
   var balanceOps = [];
+  var gapOps = [];
   var catByName = {};
   var cats = getAllRows('Categories');
   var catsById = rowsById_(cats);
@@ -300,6 +317,12 @@ function applyStatementDecisions(payload) {
       var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
       if (ownRow && !(sb.period.end > ownRow.date)) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));
       balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
+      var gapAmt = Math.round(Number(a.gap) * 100) / 100;
+      if (a.gap !== undefined && a.gap !== null && a.gap !== '' && isFinite(gapAmt) && gapAmt !== 0) {
+        var appBal = Number(a.app_balance);
+        gapOps.push({ pm: pmB, accountKey: covKey_(sb.key), currency: a.currency, period_end: sb.period.end,
+          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt });
+      }
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
       remember(g, a.type === 'ignore' ? 'ignored' : 'waiting', '');
@@ -320,6 +343,7 @@ function applyStatementDecisions(payload) {
   });
   report.statementsRecorded = uploadOps.length;
   report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
+  report.gapsRecorded = gapOps.map(function (g) { return { account: g.pm.nickname, currency: g.currency, gap: g.gap, date: g.period_end }; });
   report.linesRemembered = outcomes.length;
   report.batchEntries = creations.map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
 
@@ -379,6 +403,19 @@ function applyStatementDecisions(payload) {
     changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Account Opening Balances', row_id: newRowId, field: '__created__',
       old_value: '', new_value: '', created_at: now });
   });
+
+  // Gap notes (see Statement Gaps, above).
+  if (gapOps.length) {
+    ensureStatementGapsSheet_();
+    gapOps.forEach(function (g) {
+      var gid = Utilities.getUuid();
+      appendRowObject('Statement Gaps', { id: gid, payment_method_id: g.pm.id, account_key: g.accountKey, account_label: g.pm.nickname,
+        currency: g.currency, period_end: g.period_end, closing: g.closing, app_balance: g.app_balance, gap: g.gap,
+        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '' });
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Gaps', row_id: gid, field: '__created__',
+        old_value: '', new_value: '', created_at: now });
+    });
+  }
 
   // Remember the lines. A line decided before is replaced, not duplicated.
   var newKeys = {};
@@ -456,6 +493,12 @@ function undoStatementBatch(payload) {
     } catch (e) { /* unreadable — leave */ }
   });
 
+  // Statement Gaps: remove the notes this batch created.
+  changes.filter(function (c) { return c.sheet === 'Statement Gaps' && c.field === '__created__'; }).forEach(function (c) {
+    deleteRowsWhere_('Statement Gaps', function (row) { return row.id === c.row_id; });
+    res.gapsRemoved = (res.gapsRemoved || 0) + 1;
+  });
+
   // Statement Lines: forget this batch's, restore what it replaced.
   var forgotten = getAllRows('Statement Lines').filter(function (r) { return r.batch_id === batchId; }).length;
   deleteRowsWhere_('Statement Lines', function (row) { return row.batch_id === batchId; });
@@ -471,6 +514,40 @@ function undoStatementBatch(payload) {
   deleteRowsWhere_('Import Batches', function (row) { return row.id === batchId; });
   deleteRowsWhere_('Statement Changes', function (row) { return row.batch_id === batchId; });
   return res;
+}
+
+/**
+ * The gap notes, open ones first, then newest statement first. Amounts are numbers.
+ * `gap` > 0: the statement shows MORE money than the app; < 0: LESS.
+ */
+function listStatementGaps() {
+  ensureStatementGapsSheet_();
+  var rows = getAllRows('Statement Gaps').map(function (r) {
+    return { id: r.id, payment_method_id: r.payment_method_id, account_key: r.account_key, account_label: r.account_label,
+      currency: r.currency, period_end: String(r.period_end), closing: Number(r.closing),
+      app_balance: r.app_balance === '' ? null : Number(r.app_balance), gap: Number(r.gap),
+      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''),
+      created_at: String(r.created_at), resolved_at: String(r.resolved_at || '') };
+  });
+  rows.sort(function (x, y) {
+    if (x.status !== y.status) return x.status === 'open' ? -1 : 1;
+    return x.period_end < y.period_end ? 1 : (x.period_end > y.period_end ? -1 : 0);
+  });
+  return { gaps: rows, open: rows.filter(function (r) { return r.status === 'open'; }).length };
+}
+
+/** payload: { id, resolved (default true), note? } — marks a gap note resolved, or reopens it. */
+function resolveStatementGap(payload) {
+  ensureStatementGapsSheet_();
+  var sheet = getSheet('Statement Gaps');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, payload.id);
+  if (rowIndex === -1) throw new Error(tr_('err.gapNotFound'));
+  var resolved = payload.resolved !== false;
+  setCellByRow_(sheet, headers, rowIndex, 'status', resolved ? 'resolved' : 'open');
+  setCellByRow_(sheet, headers, rowIndex, 'resolved_at', resolved ? nowTimestamp_().substring(0, 10) : '');
+  if (payload.note !== undefined) setCellByRow_(sheet, headers, rowIndex, 'note', String(payload.note || '').trim().slice(0, 300));
+  return { done: true };
 }
 
 /** The most recent uploads that can still be undone. */

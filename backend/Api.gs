@@ -256,6 +256,8 @@ function routeAction(action, payload) {
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();
+    case 'listStatementGaps': return listStatementGaps();
+    case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
     case 'admin_reopenStatementLines': return adminReopenStatementLines(payload);
     case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
