@@ -25,7 +25,8 @@ var TABLE_DEFINITIONS = {
   // "not tracked". Self-heals via ensurePaymentMethodBalanceColumns_
   // (Balances.gs). Entries.to_payment_method_id (transfers only) likewise.
   'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4',
-    'opening_balance', 'opening_balance_date', 'opening_balance_currency'],
+    'opening_balance', 'opening_balance_date', 'opening_balance_currency',
+    'alias_kind', 'alias_auto', 'alias_show_last4'],
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   Friends: ['id', 'name', 'notes'],
@@ -354,7 +355,9 @@ function resetIncomeCategories() {
 var BANK_NAMES = ['BCP', 'Interbank', 'Diners', 'SIP', 'Yape', 'Plin'];
 
 function seedBanks() {
-  seedIfEmpty('Banks', BANK_NAMES.map(function (name) {
+  // An installer copy starts with the Peruvian banks a new person is most likely to use (Accounts.gs), not the owner's own list.
+  var names = isFriendCopy_() ? bankCatalogNames_() : BANK_NAMES;
+  seedIfEmpty('Banks', names.map(function (name) {
     return { id: Utilities.getUuid(), name: name };
   }));
 }

@@ -133,6 +133,7 @@ var BACKEND_STRINGS_ = {
   "export.h.type": { en: "Type", es: "Tipo" },
   "export.h.description": { en: "Description", es: "Descripción" },
   "export.h.merchant": { en: "Merchant", es: "Comercio" },
+  "err.tooManyAccounts": { en: "Too many accounts at once.", es: "Demasiadas cuentas a la vez." },
   "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },
   "err.rateMainFirst": { en: "Set the main currency's exchange rate first (More → Exchange rates).", es: "Primero fija el tipo de cambio de la moneda principal (Más → Tipos de cambio)." },
   "err.rateNeeded": { en: "To switch the main currency to {next}, enter how many {next} one {old} is worth today.", es: "Para cambiar la moneda principal a {next}, indica cuántos {next} vale hoy un {old}." },
@@ -536,5 +537,7 @@ function setLanguage(payload) {
   var lang = normalizeLang_(payload && payload.lang);
   if (!lang) throw new Error('Unsupported language');
   setSetting_('language', lang);
+  // Account names that were all made automatically follow the language (Accounts.gs).
+  relocalizeAutoAliases_(lang);
   return { language: lang };
 }

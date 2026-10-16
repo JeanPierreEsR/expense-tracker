@@ -2226,3 +2226,18 @@ body.income-revealed .sens-mask { display: none; }
 /* Back / Next stay in reach while a long card scrolls */
 .welcome-tour-buttons { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); margin-top: 8px; z-index: 3; }
 .ts-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+/* Welcome step 2: bank accounts (and the Yape / Plin card in Accounts & cards) */
+.wa-banks { display: flex; flex-direction: column; gap: 8px; }
+.wa-bank { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; width: 100%; }
+.wa-bank.has { border-color: var(--income); background: rgba(46, 158, 91, 0.08); }
+.wa-bank-count { color: var(--muted); font-size: 0.9em; font-weight: 600; }
+.wa-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border, #d9d9d4); }
+.wa-account-name { font-weight: 700; }
+.wa-account-sub { color: var(--muted); font-size: 0.9em; }
+.wa-link { background: none; border: none; color: var(--accent); font: inherit; font-weight: 600; padding: 6px; cursor: pointer; }
+#welcome-accounts input[type="text"] { width: 100%; padding: 12px; border: 2px solid var(--border, #d9d9d4); border-radius: 10px; font: inherit; background: var(--card); color: var(--text); }
+.wa-rail { margin: 10px 0; }
+.wa-rail label { display: block; font-weight: 600; margin-bottom: 4px; }
+.wa-rail select { width: 100%; padding: 12px; border: 2px solid var(--border, #d9d9d4); border-radius: 10px; font: inherit; background: var(--card); color: var(--text); }
+#welcome-accounts .welcome-choice { width: 100%; }

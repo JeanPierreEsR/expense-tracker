@@ -223,7 +223,7 @@ var EMAIL_RULES = [
   },
   // ---- Yape ----
   {
-    bank: 'Yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
+    bank: 'Yape', rail: 'yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
     label: 'Yapeo enviado',
     match: function (subject, body) { return /acabas de yapear/i.test(body); },
     extract: function (subject, body) {
@@ -249,7 +249,7 @@ var EMAIL_RULES = [
   // the currency from the $ sign itself (see the file header comment),
   // so this doesn't need to hardcode USD.
   {
-    bank: 'Yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
+    bank: 'Yape', rail: 'yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@yape.pe',
     label: 'Yapeo enviado (dólares)',
     match: function (subject, body) { return /yape\s*d[oó]lares/i.test(body); },
     extract: function (subject, body) {
@@ -680,8 +680,11 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
   // No account named in the email: the rule may say which account of that
   // currency the money always leaves (BCP, Yape).
+  if (!paymentMethod && rule.rail) {
+    paymentMethod = railAccount_(rule.rail, fields.currency, paymentMethods);   // Yape: the account the person linked (Accounts.gs)
+  }
   if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
-    paymentMethod = paymentMethods.find(function (pm) { return pm.nickname === rule.accountByCurrency[fields.currency]; }) || null;
+    paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
   }
 
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
