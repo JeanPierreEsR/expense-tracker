@@ -5224,13 +5224,20 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
 });
 
 let tour_ = null;
+// The cards, in order. "bank" only exists when e-mail reading is on for this copy (capabilities.bankEmails is the backend's
+// featureOn_('gmail'): false on a friend's app until they turned on bank transactions, always true on the owner's copy).
 function tourCards_() {
   const caps = (meta && meta.capabilities) || {};
-  const cards = ["add", "overview", "budgets"];
+  const cards = ["add", "invest", "loan", "repay", "overview", "budgets"];
   if (caps.bankEmails) cards.push("bank");
-  cards.push("loans", "more");
+  cards.push("more");
   return cards;
 }
+// The entry form's fields, explained under the first card: [the app's own field label, what it is for].
+const TOUR_ITEMS = {
+  add: [["field.amount", "tour.f.amount"], ["field.date", "tour.f.date"], ["field.currency", "tour.f.currency"], ["field.description", "tour.f.description"],
+    ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
+};
 function openTour_(reloadAfter) {
   tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter };
   welcomeEl_("welcome-overlay").hidden = false;
@@ -5248,6 +5255,15 @@ function renderTour_() {
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   welcomeEl_("tour-body").textContent = body;
+  const itemsEl = welcomeEl_("tour-items");
+  itemsEl.innerHTML = "";
+  (TOUR_ITEMS[key] || []).forEach(([label, what]) => {
+    const li = document.createElement("li");
+    const b = document.createElement("b"); b.textContent = tr(label);
+    li.appendChild(b); li.appendChild(document.createTextNode(": " + tr(what)));
+    itemsEl.appendChild(li);
+  });
+  itemsEl.hidden = !itemsEl.children.length;
   // The animated mini scene for this card (tour-scenes.js); cards without one just hide the stage.
   if (typeof TourScenes !== "undefined") TourScenes.play(key, welcomeEl_("tour-scene"), { tr, home: homeCur(), money: moneyFmt });
   welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<span class="welcome-dot${n === tour_.i ? " active" : ""}"></span>`).join("");
