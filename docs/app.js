@@ -5314,9 +5314,11 @@ function maybeShowWelcome_() {
   try { done = localStorage.getItem(WELCOME_FLAG_KEY) === "1"; } catch (e) { /* storage blocked: ask again next time */ }
   if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
   const lang = I18n.getLang();
-  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false };
+  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
+    accounts: [], customBanks: [], links: {}, linksTouched: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
+  welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-tour").hidden = true;
   renderWelcomeQuestions_();
 }
@@ -5346,6 +5348,7 @@ function renderWelcomeQuestions_() {
     box.appendChild(more);
   }
   welcomeEl_("welcome-error").textContent = "";
+  welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1 });
 }
 // One tap picks or drops a currency; a second tap on the same one within 0.4 s makes it the MAIN currency (★).
 // The main currency is always selected, and the old main one stays in the list as an ordinary currency.
@@ -5373,31 +5376,226 @@ document.querySelectorAll("[data-welcome-lang]").forEach((b) => b.addEventListen
   renderWelcomeQuestions_();
 }));
 document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListener("click", () => { welcome_.order = b.dataset.welcomeOrder; renderWelcomeQuestions_(); }));
-welcomeEl_("welcome-continue-btn").addEventListener("click", async () => {
-  const btn = welcomeEl_("welcome-continue-btn");
+// ---- Welcome step 2: bank accounts (optional), bank by bank ----
+// Nothing is saved until the last button of step 2: Back keeps everything typed in both steps. The server builds the
+// final names (backend/Accounts.gs); the previews here follow the same rule.
+const WA_KINDS = ["debit_pen", "debit_usd", "credit", "sueldo"];
+const WA_RAILS = ["yape_pen", "yape_usd", "plin_pen", "plin_usd"];
+const waEl_ = (id) => document.getElementById(id);
+function waCatalog_() { return (meta && meta.bankCatalog) || { main: [], other: [], words: { en: {}, es: {} } }; }
+function waShort_(bankName) {
+  const c = waCatalog_();
+  const b = c.main.concat(c.other).find((x) => x.name.toLowerCase() === String(bankName).toLowerCase());
+  return b ? b.short : bankName;
+}
+function waWords_() { const c = waCatalog_(); return c.words[welcome_.lang] || c.words.en || {}; }
+function waNameFor_(bankName, f) {
+  const last4 = /^\d{4}$/.test(f.last4 || "") ? f.last4 : "";
+  const show = !!f.showLast4 && !!last4;
+  const base = (f.alias || "").trim() ? f.alias.trim() : `${waShort_(bankName)} ${waWords_()[f.kind] || ""}`.trim();
+  return base + (show ? ` (${last4})` : "");
+}
+// Display names for every account typed so far, unique the same way the server makes them.
+function waDisplayNames_() {
+  const taken = {}, out = {};
+  welcome_.accounts.forEach((a) => {
+    let name = waNameFor_(a.bank, a);
+    if (taken[name.toLowerCase()] && /^\d{4}$/.test(a.last4 || "") && !name.includes(`(${a.last4})`)) name += ` (${a.last4})`;
+    let n = 2; const base = name;
+    while (taken[name.toLowerCase()]) { name = `${base} ${n}`; n++; }
+    taken[name.toLowerCase()] = true;
+    out[a.cid] = name;
+  });
+  return out;
+}
+const waBanksOfList_ = (list) => list.slice().sort((x, y) => x.name.localeCompare(y.name, I18n.getLang()));
+
+function showWelcomeStep_(step) {
+  welcomeEl_("welcome-questions").hidden = step !== 1;
+  welcomeEl_("welcome-accounts").hidden = step !== 2;
+  welcomeEl_("welcome-overlay").scrollTop = 0;
+  if (step === 2) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
+  else renderWelcomeQuestions_();
+}
+
+function renderWelcomeAccounts_() {
+  const root = waEl_("welcome-accounts");
+  I18n.applyStatic(root);
+  const inBank = !!welcome_.bankOpen;
+  waEl_("wa-root").hidden = inBank;
+  waEl_("wa-bank").hidden = !inBank;
+  if (inBank) { renderWaBank_(); return; }
+  waEl_("wa-step").textContent = tr("welcome.step", { n: 2 });
+  const cat = waCatalog_();
+  const count = (name) => welcome_.accounts.filter((a) => a.bank.toLowerCase() === name.toLowerCase()).length;
+  const fill = (boxId, banks) => {
+    const box = waEl_(boxId);
+    box.innerHTML = "";
+    banks.forEach((b) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const n = count(b.name);
+      btn.className = "wa-bank" + (n ? " has" : "");
+      const nm = document.createElement("span"); nm.textContent = b.name;
+      const ct = document.createElement("span"); ct.className = "wa-bank-count"; ct.textContent = n ? tr("wa.count", { n }) : "›";
+      btn.appendChild(nm); btn.appendChild(ct);
+      btn.addEventListener("click", () => { welcome_.bankOpen = b.name; welcome_.form = null; renderWelcomeAccounts_(); });
+      box.appendChild(btn);
+    });
+  };
+  const known = new Set(cat.main.concat(cat.other).map((b) => b.name.toLowerCase()));
+  const custom = welcome_.customBanks.filter((n) => !known.has(n.toLowerCase())).map((n) => ({ name: n, short: n }));
+  fill("wa-main-banks", waBanksOfList_(cat.main));
+  fill("wa-other-banks", waBanksOfList_(cat.other.concat(custom)));
+  renderWaRails_();
+  waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
+  waEl_("wa-error").textContent = "";
+}
+
+function waCandidates_(key) {
+  const soles = key.endsWith("_pen");
+  return welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd"));
+}
+function renderWaRails_() {
+  const box = waEl_("wa-rails");
+  box.innerHTML = "";
+  const names = waDisplayNames_();
+  WA_RAILS.forEach((key) => {
+    const cands = waCandidates_(key);
+    // Pushed to link: when exactly one account fits and the person has not decided, it is pre-selected.
+    if (!(key in welcome_.linksTouched) && cands.length === 1) welcome_.links[key] = cands[0].cid;
+    if (welcome_.links[key] && !cands.some((a) => a.cid === welcome_.links[key])) welcome_.links[key] = "";
+    const wrap = document.createElement("div");
+    wrap.className = "wa-rail";
+    const label = document.createElement("label");
+    label.textContent = tr(`wa.rail.${key}`);
+    const sel = document.createElement("select");
+    const none = document.createElement("option"); none.value = ""; none.textContent = tr("wa.unlinked"); sel.appendChild(none);
+    cands.forEach((a) => { const o = document.createElement("option"); o.value = a.cid; o.textContent = names[a.cid]; sel.appendChild(o); });
+    sel.value = welcome_.links[key] || "";
+    sel.disabled = !cands.length;
+    sel.addEventListener("change", () => { welcome_.links[key] = sel.value; welcome_.linksTouched[key] = true; });
+    wrap.appendChild(label); wrap.appendChild(sel);
+    if (!cands.length) {
+      const hint = document.createElement("p"); hint.className = "hint";
+      hint.textContent = tr("wa.railNeeds", { currency: tr(key.endsWith("_pen") ? "wa.soles" : "wa.dollars") });
+      wrap.appendChild(hint);
+    }
+    box.appendChild(wrap);
+  });
+}
+
+function renderWaBank_() {
+  const bank = welcome_.bankOpen;
+  waEl_("wa-bank-name").textContent = bank;
+  const list = waEl_("wa-bank-accounts");
+  list.innerHTML = "";
+  const names = waDisplayNames_();
+  const mine = welcome_.accounts.filter((a) => a.bank.toLowerCase() === bank.toLowerCase());
+  if (!mine.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = tr("wa.noAccounts"); list.appendChild(p); }
+  mine.forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "wa-account";
+    const left = document.createElement("div");
+    const nm = document.createElement("div"); nm.className = "wa-account-name"; nm.textContent = names[a.cid];
+    const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = tr(`wa.kind.${a.kind}`);
+    left.appendChild(nm); left.appendChild(sub);
+    left.style.cursor = "pointer";
+    left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 }; renderWaBank_(); });
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "wa-link"; rm.textContent = tr("wa.remove");
+    rm.addEventListener("click", () => { welcome_.accounts = welcome_.accounts.filter((x) => x.cid !== a.cid); welcome_.form = null; renderWaBank_(); });
+    row.appendChild(left); row.appendChild(rm);
+    list.appendChild(row);
+  });
+  const f = welcome_.form;
+  waEl_("wa-form").hidden = !f;
+  waEl_("wa-add-account-btn").hidden = !!f;
+  if (!f) return;
+  const kinds = waEl_("wa-kinds");
+  kinds.innerHTML = "";
+  WA_KINDS.forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "welcome-choice" + (f.kind === k ? " active" : ""); b.textContent = tr(`wa.kind.${k}`);
+    b.addEventListener("click", () => { f.kind = k; renderWaBank_(); });
+    kinds.appendChild(b);
+  });
+  waEl_("wa-alias").value = f.alias;
+  waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
+  waEl_("wa-last4").value = f.last4;
+  waEl_("wa-show4").checked = !!f.showLast4;
+  waEl_("wa-form-error").textContent = "";
+  waUpdatePreview_();
+}
+function waUpdatePreview_() {
+  const f = welcome_.form; if (!f) return;
+  waEl_("wa-preview").textContent = tr("wa.preview", { name: waNameFor_(welcome_.bankOpen, f) });
+  waEl_("wa-alias").placeholder = waNameFor_(welcome_.bankOpen, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
+}
+waEl_("wa-alias").addEventListener("input", (e) => { welcome_.form.alias = e.target.value; waUpdatePreview_(); });
+waEl_("wa-last4").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); welcome_.form.last4 = e.target.value; waUpdatePreview_(); });
+waEl_("wa-show4").addEventListener("change", (e) => { welcome_.form.showLast4 = e.target.checked; waUpdatePreview_(); });
+waEl_("wa-add-account-btn").addEventListener("click", () => { welcome_.form = { cid: null, kind: "debit_pen", alias: "", last4: "", showLast4: false }; renderWaBank_(); });
+waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form = null; renderWaBank_(); });
+waEl_("wa-save-account-btn").addEventListener("click", () => {
+  const f = welcome_.form;
+  if (f.last4 && !/^\d{4}$/.test(f.last4)) { waEl_("wa-form-error").textContent = tr("wa.errLast4"); return; }
+  const data = { bank: welcome_.bankOpen, kind: f.kind, alias: (f.alias || "").trim(), last4: f.last4 || "", showLast4: !!f.showLast4 && !!f.last4 };
+  if (f.cid) Object.assign(welcome_.accounts.find((a) => a.cid === f.cid), data);
+  else welcome_.accounts.push({ cid: "a" + Date.now() + Math.floor(Math.random() * 1000), ...data });
+  welcome_.form = null;
+  renderWaBank_();
+});
+waEl_("wa-bank-back").addEventListener("click", () => { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); });
+waEl_("wa-add-bank-btn").addEventListener("click", () => {
+  const name = (prompt(tr("accounts.bankPrompt")) || "").trim().slice(0, 60);
+  if (!name) return;
+  const cat = waCatalog_();
+  const existing = cat.main.concat(cat.other).map((b) => b.name).concat(welcome_.customBanks).find((n) => n.toLowerCase() === name.toLowerCase());
+  const use = existing || name;
+  if (!existing) welcome_.customBanks.push(name);
+  welcome_.bankOpen = use; welcome_.form = null;
+  renderWelcomeAccounts_();
+});
+waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(1));
+welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeStep_(2));
+
+// The end of step 2: save the accounts, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+async function finishWelcome_() {
+  const missing = WA_RAILS.filter((k) => waCandidates_(k).length && !welcome_.links[k]);
+  if (welcome_.accounts.length && missing.length && !confirm(tr("wa.railsConfirm"))) return;
+  const btn = waEl_("wa-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
+  const errEl = waEl_("wa-error");
+  errEl.textContent = "";
   try {
+    if (welcome_.accounts.length) {
+      await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
+        accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
+    }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
-    welcomeEl_("welcome-error").textContent = tr("welcome.error");
-    btn.disabled = false; btn.textContent = tr("welcome.continue");
+    errEl.textContent = tr("wa.error");
+    btn.disabled = false; btn.textContent = tr("welcome.next");
     return;
   }
-  btn.disabled = false; btn.textContent = tr("welcome.continue");
+  btn.disabled = false; btn.textContent = tr("welcome.next");
   try {
     localStorage.setItem("recentCurrencies", JSON.stringify([welcome_.home].concat(welcome_.currencies)));
     localStorage.setItem(WELCOME_FLAG_KEY, "1");
   } catch (e) { /* the server remembers it anyway */ }
   if (meta && meta.capabilities) meta.capabilities.onboarding = false;
-  if (meta && meta.settings) meta.settings.default_currency = welcome_.home;   // locked now: totals and forms use it from here on
+  if (meta && meta.settings) meta.settings.default_currency = welcome_.home;   // totals and forms use it from here on
   document.getElementById("currency").value = welcome_.home;
   renderCurrencyChips("entry");
   I18n.saveLang(welcome_.lang);
-  welcomeEl_("welcome-questions").hidden = true;
-  const reloadAfter = welcome_.lang !== welcome_.appLang;
+  welcomeEl_("welcome-accounts").hidden = true;
+  // The new accounts must show up in the app right away (entry form, Accounts & cards): reload on the way out.
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0;
   if (perfShareState_().asked) openTour_(reloadAfter);
   else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
-});
+}
+waEl_("wa-next-btn").addEventListener("click", finishWelcome_);
+waEl_("wa-skip-btn").addEventListener("click", finishWelcome_);
 
 let tour_ = null;
 // The cards, in order. "bank" only exists when e-mail reading is on for this copy (capabilities.bankEmails is the backend's
@@ -5857,6 +6055,40 @@ function showAccountsScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderAccountsList_();
+  renderRailsCard_();
+}
+
+// Yape and Plin ride on a bank account, one per currency (Settings yape_pen, yape_usd, plin_pen, plin_usd). Changing a
+// choice is saved at once.
+function renderRailsCard_() {
+  const box = document.getElementById("rails-card-selects");
+  box.innerHTML = "";
+  document.getElementById("rails-card-status").textContent = "";
+  const settings = (meta && meta.settings) || {};
+  ["yape_pen", "yape_usd", "plin_pen", "plin_usd"].forEach((key) => {
+    const soles = key.endsWith("_pen");
+    const wrap = document.createElement("div");
+    wrap.className = "wa-rail";
+    const label = document.createElement("label");
+    label.textContent = tr(`wa.rail.${key}`);
+    const sel = document.createElement("select");
+    const none = document.createElement("option"); none.value = ""; none.textContent = tr("wa.unlinked"); sel.appendChild(none);
+    meta.paymentMethods
+      .filter((pm) => pm.type === "debit" && (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd")))
+      .sort((a, b) => a.nickname.localeCompare(b.nickname))
+      .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
+    sel.value = settings[key] || "";
+    sel.addEventListener("change", async () => {
+      const status = document.getElementById("rails-card-status");
+      try {
+        await callApi("saveRailLinks", { [key]: sel.value });
+        meta.settings[key] = sel.value;
+        status.textContent = tr("wa.saved");
+      } catch (err) { status.textContent = err.message; }
+    });
+    wrap.appendChild(label); wrap.appendChild(sel);
+    box.appendChild(wrap);
+  });
 }
 
 function renderAccountsList_() {

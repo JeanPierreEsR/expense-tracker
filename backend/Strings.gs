@@ -48,6 +48,7 @@ var BACKEND_STRINGS_ = {
   "err.pmLast4": { en: "Last 4 digits must be exactly 4 numbers (or leave it blank).", es: "Los últimos 4 dígitos deben ser exactamente 4 números (o déjalo en blanco)." },
   "err.pmBank": { en: "That bank doesn't exist.", es: "Ese banco no existe." },
   "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
+  "err.gapNotFound": { en: "Gap note not found.", es: "No se encontró la nota de diferencia." },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
@@ -132,6 +133,7 @@ var BACKEND_STRINGS_ = {
   "export.h.type": { en: "Type", es: "Tipo" },
   "export.h.description": { en: "Description", es: "Descripción" },
   "export.h.merchant": { en: "Merchant", es: "Comercio" },
+  "err.tooManyAccounts": { en: "Too many accounts at once.", es: "Demasiadas cuentas a la vez." },
   "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },
   "err.rateMainFirst": { en: "Set the main currency's exchange rate first (More → Exchange rates).", es: "Primero fija el tipo de cambio de la moneda principal (Más → Tipos de cambio)." },
   "err.rateNeeded": { en: "To switch the main currency to {next}, enter how many {next} one {old} is worth today.", es: "Para cambiar la moneda principal a {next}, indica cuántos {next} vale hoy un {old}." },
@@ -261,6 +263,7 @@ var BACKEND_STRINGS_ = {
   "bot.confirmedTag": { en: " ✅ Confirmed", es: " ✅ Confirmado" },
   "bot.needsCategory": { en: "needs category", es: "falta categoría" },
   "bot.autoTag": { en: " 🤖 auto ({reason})", es: " 🤖 auto ({reason})" },
+  "bot.autoTagShort": { en: " 🤖 auto", es: " 🤖 auto" },
   "bot.fromLabel": { en: "⬆️ From: ", es: "⬆️ Desde: " },
   "bot.toLabel": { en: "⬇️ To: ", es: "⬇️ Hacia: " },
   "bot.notSetFrom": { en: "not set — reply \"from Plin\"", es: "sin definir: responde \"desde Plin\"" },
@@ -536,5 +539,7 @@ function setLanguage(payload) {
   var lang = normalizeLang_(payload && payload.lang);
   if (!lang) throw new Error('Unsupported language');
   setSetting_('language', lang);
+  // Account names that were all made automatically follow the language (Accounts.gs).
+  relocalizeAutoAliases_(lang);
   return { language: lang };
 }

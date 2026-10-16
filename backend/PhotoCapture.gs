@@ -209,7 +209,7 @@ function parsePhotoReceipt_(text) {
       description: recipient ? 'Plin a ' + recipient : 'Plin',
       counterparty: recipient,
       date: when && when.date, time: when && when.time,
-      externalId: opCode, accountByCurrency: PLIN_ACCOUNTS
+      externalId: opCode, rail: 'plin', accountByCurrency: PLIN_ACCOUNTS
     };
   }
 
@@ -227,7 +227,7 @@ function parsePhotoReceipt_(text) {
       description: sender ? 'Yape de ' + sender : 'Yape recibido',
       counterparty: sender,
       date: when && when.date, time: when && when.time,
-      externalId: opCode, accountByCurrency: BCP_ACCOUNTS
+      externalId: opCode, rail: 'yape', accountByCurrency: BCP_ACCOUNTS
     };
   }
 
@@ -245,7 +245,7 @@ function parsePhotoReceipt_(text) {
       description: (recipientY ? 'Yape a ' + recipientY : 'Yape') + (note ? ' — ' + note : ''),
       counterparty: recipientY, note: note,
       date: when && when.date, time: when && when.time,
-      externalId: opCode, accountByCurrency: BCP_ACCOUNTS
+      externalId: opCode, rail: 'yape', accountByCurrency: BCP_ACCOUNTS
     };
   }
 
@@ -340,8 +340,9 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   });
   if (duplicate) { photoReply_(chatId, replyToMessageId, tr_('photo.duplicate')); return; }
 
-  var pm = getAllRows('Payment Methods').find(function (p) {
-    return p.nickname === parsed.accountByCurrency[parsed.currency];
+  var allPaymentMethods = getAllRows('Payment Methods');
+  var pm = (parsed.rail ? railAccount_(parsed.rail, parsed.currency, allPaymentMethods) : null) || allPaymentMethods.find(function (p) {
+    return plainNickname_(p.nickname) === plainNickname_(parsed.accountByCurrency[parsed.currency]);
   });
 
   ensureEntriesMerchantColumn_();
@@ -351,7 +352,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     var guess = guessCategoryForEmail_(
       { type: 'expense', amount: parsed.amount, currency: parsed.currency, merchant: '' },
       dateStr, buildGuessContext_());
-    categoryId = guess.categoryId; autoReason = guess.reason;
+    categoryId = guess.categoryId; autoReason = telegramAutoReason_(guess);
   }
 
   var entry = {

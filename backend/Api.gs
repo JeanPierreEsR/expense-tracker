@@ -141,6 +141,8 @@ function routeAction(action, payload) {
     case 'getMeta': return getMeta();
     case 'setLanguage': return setLanguage(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
+    case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
+    case 'saveRailLinks': return saveRailLinks(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
     case 'listEntries': return listEntries(payload);
@@ -259,6 +261,8 @@ function routeAction(action, payload) {
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();
+    case 'listStatementGaps': return listStatementGaps();
+    case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
     case 'admin_reopenStatementLines': return adminReopenStatementLines(payload);
     case 'admin_seedStatementUploads': return adminSeedStatementUploads(payload);
@@ -437,6 +441,7 @@ function findRowIndexById(sheet, headers, id) {
 
 function getMeta() {
   ensureInvestmentPlatforms_();
+  ensureRailDefaults_();
   ensureAnnualTag_();
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
@@ -448,7 +453,9 @@ function getMeta() {
     settings: getSettingsMap(),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
-    capabilities: getCapabilities_()
+    capabilities: getCapabilities_(),
+    // Banks for the welcome questions (two alphabetical groups) and the words account names are built from.
+    bankCatalog: getBankCatalog_()
   };
 }
 
@@ -1135,6 +1142,20 @@ function savePaymentMethod(payload) {
   }
   var rowIndex = findRowIndexById(sheet, headers, id);
   if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  // A name made automatically stays automatic only while the person leaves its name, type and bank alone
+  // (Accounts.gs); a change to the last 4 of an automatic name that shows them refreshes the name.
+  var before = getAllRows('Payment Methods').find(function (p) { return String(p.id) === id; }) || {};
+  if (String(before.alias_auto) === 'yes' && headers.indexOf('alias_auto') !== -1) {
+    var sameName = String(before.nickname) === nickname, sameType = String(before.type) === type, sameBank = String(before.bank_id || '') === bankId;
+    if (!(sameName && sameType && sameBank)) {
+      setCellByRow_(sheet, headers, rowIndex, 'alias_auto', 'no');
+    } else if (String(before.last_4 || '') !== last4 && String(before.alias_show_last4) === 'yes') {
+      var bank = getAllRows('Banks').find(function (b) { return String(b.id) === bankId; });
+      var taken = {};
+      getAllRows('Payment Methods').forEach(function (p) { if (String(p.id) !== id) taken[String(p.nickname).trim().toLowerCase()] = true; });
+      nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bank ? bank.name : ''), String(before.alias_kind), last4, !!last4, currentLang_()), last4, taken);
+    }
+  }
   setCellByRow_(sheet, headers, rowIndex, 'nickname', nickname);
   setCellByRow_(sheet, headers, rowIndex, 'type', type);
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);

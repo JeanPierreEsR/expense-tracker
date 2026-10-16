@@ -24,6 +24,12 @@
 
 var MERCHANT_MIN_ENTRIES = 2;
 var MERCHANT_MIN_SHARE = 0.8;
+// Telegram spells out the evidence ("4 of 4 past entries") only for the first
+// few times a merchant is guessed — a regular merchant would repeat it on every
+// card. The first guess comes at MERCHANT_MIN_ENTRIES past entries, so the next
+// AUTO_REASON_FIRST_TIMES_ guesses (2, 3 and 4 past entries) show it; after that
+// the card carries just "🤖 auto". (Counted from the past entries, not stored.)
+var AUTO_REASON_FIRST_TIMES_ = 3;
 
 // Entries pre-date this column, so it's appended in place the first time
 // it's needed — same self-heal as recurring_expense_id.
@@ -101,8 +107,16 @@ function guessFromMerchantHistory_(merchant, ctx) {
   if (h.counts[best] / h.total < MERCHANT_MIN_SHARE) return null;
   return {
     categoryId: best,
-    reason: tr_('guess.history', { n: h.counts[best], total: h.total, merchant: merchant })
+    reason: tr_('guess.history', { n: h.counts[best], total: h.total, merchant: merchant }),
+    quiet: h.total >= MERCHANT_MIN_ENTRIES + AUTO_REASON_FIRST_TIMES_
   };
+}
+
+// What Telegram's card gets as its "auto" note: the full reason, or `true` for
+// a bare "🤖 auto" once the merchant is familiar (see AUTO_REASON_FIRST_TIMES_).
+// The app's own screens keep using guess.reason in full.
+function telegramAutoReason_(guess) {
+  return guess && guess.quiet ? true : (guess ? guess.reason : '');
 }
 
 function guessFromProgrammed_(fields, dateStr, ctx) {
