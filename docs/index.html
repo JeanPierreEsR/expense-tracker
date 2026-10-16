@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-16T15:35:05Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-16T17:08:24Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -589,6 +589,12 @@
         <h2 style="margin-top:0;" data-i18n="stmt.title">Statements</h2>
         <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
         <div id="statement-coverage-list"></div>
+      </div>
+
+      <div class="card" id="statement-gaps-card">
+        <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
+        <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>
+        <div id="statement-gaps-list"></div>
       </div>
 
       <div class="card" id="statement-inbox-card">
@@ -1375,14 +1381,14 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="i18n.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="tour-scenes.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="signin-link.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="receipt-parse.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="bill-split.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="app.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="statement-parsers.js?v=2026-10-16T15:35:05Z"></script>
-  <script src="statements.js?v=2026-10-16T15:35:05Z"></script>
+  <script src="strings.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="i18n.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="tour-scenes.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="signin-link.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="receipt-parse.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="bill-split.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="app.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="statement-parsers.js?v=2026-10-16T17:08:24Z"></script>
+  <script src="statements.js?v=2026-10-16T17:08:24Z"></script>
 </body>
 </html>

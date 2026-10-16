@@ -48,6 +48,7 @@ var BACKEND_STRINGS_ = {
   "err.pmLast4": { en: "Last 4 digits must be exactly 4 numbers (or leave it blank).", es: "Los últimos 4 dígitos deben ser exactamente 4 números (o déjalo en blanco)." },
   "err.pmBank": { en: "That bank doesn't exist.", es: "Ese banco no existe." },
   "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
+  "err.gapNotFound": { en: "Gap note not found.", es: "No se encontró la nota de diferencia." },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
