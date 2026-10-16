@@ -19,6 +19,8 @@ function boot() {
   data = seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000) });
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
+  // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
+  if (process.env.FRIEND_COPY) rt.svc.props.set("FEATURES", "gmail,keepawake");
 }
 boot();
 

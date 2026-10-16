@@ -58,6 +58,8 @@ function getCapabilities_() {
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
     telegram: !!getTelegramToken_(),
+    // More → Performance log is a diagnostic for the owner only; a copy made by the installer never shows it.
+    perfLog: !isFriendCopy_(),
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };

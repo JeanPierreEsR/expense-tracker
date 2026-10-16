@@ -109,3 +109,10 @@ test("meta tells the app what this copy can do", () => {
   caps = rt.api("getMeta", {}).capabilities;
   assert.equal(caps.bankEmails, false); assert.equal(caps.keepAwake, true); assert.equal(caps.telegram, false);
 });
+
+test("the performance log is offered on the owner's copy only", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(rt.api("getMeta", {}).capabilities.perfLog, true);
+  rt.svc.props.set("FEATURES", "gmail,keepawake");
+  assert.equal(rt.api("getMeta", {}).capabilities.perfLog, false);
+});

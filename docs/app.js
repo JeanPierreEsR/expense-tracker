@@ -5117,7 +5117,11 @@ function extrasOff_() {
   if (c.bankEmails === false) off.push(tr("extras.bank"));
   return off;
 }
-function refreshExtrasRow_() { document.getElementById("more-extras-btn").hidden = !extrasOff_().length; }
+function refreshExtrasRow_() {
+  document.getElementById("more-extras-btn").hidden = !extrasOff_().length;
+  // The Performance log is for the owner's own copy only (capabilities.perfLog is false on installer-made copies).
+  document.getElementById("more-perf-btn").hidden = !!(meta && meta.capabilities && meta.capabilities.perfLog === false);
+}
 document.getElementById("more-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
   document.getElementById("extras-copy-msg").textContent = "";
