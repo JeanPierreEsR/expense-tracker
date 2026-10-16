@@ -786,14 +786,16 @@ function withScriptLockOnce_(fn) {
 function convertEntryInto_(payload, kind) {
   var entry = getEntryById_(payload.entry_id);
   if (!entry) throw new Error(tr_('convert.gone'));
-  if (entry.type !== 'expense' && entry.type !== 'transfer') {
+  if (entry.type !== 'expense' && entry.type !== 'income' && entry.type !== 'transfer') {
     throw new Error(tr_(kind === 'loan' ? 'convert.onlyLoan' : 'convert.onlyRepayment'));
   }
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
   if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
-  if (kind === 'repayment' && !payload.overpay_category_id) throw new Error(tr_('convert.pickExtraCategory'));
+  // The app asks for the extra's category up front; Telegram can't, so it sets
+  // overpay_pending_ok and any extra waits in the review queue (recordRepayment).
+  if (kind === 'repayment' && !payload.overpay_category_id && !payload.overpay_pending_ok) throw new Error(tr_('convert.pickExtraCategory'));
 
   ensureLoansTransferEntryColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -854,7 +856,8 @@ function convertEntryInto_(payload, kind) {
       date: payload.date,
       payment_method_id: payload.payment_method_id,
       description: payload.description,
-      overpay_category_id: payload.overpay_category_id   // recordRepayment books the extra itself
+      overpay_category_id: payload.overpay_category_id,   // recordRepayment books the extra itself
+      require_owed: payload.require_owed                  // Telegram: income with nothing owed stays income
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {

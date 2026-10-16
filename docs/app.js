@@ -1007,7 +1007,7 @@ let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" 
 // back if anything fails.
 function repaymentAvailable_() {
   return selectedType === "transfer" && !confirmingPendingId &&
-    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "transfer");
+    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer");
 }
 
 // "between" | "repayment" | "loan"
@@ -2643,6 +2643,13 @@ async function startEditEntry(entry) {
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
+  // If this turns out to be a repayment / loan, start from the way the money
+  // moved: an income came in (they paid me); an expense went out (I paid them);
+  // a transfer is read from its ends (only "to" = came in, only "from" = went out).
+  if (entry.type === "income") repaymentDirectionChoice = "they_owe_me";
+  else if (entry.type === "expense") repaymentDirectionChoice = "i_owe_them";
+  else if (entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id) repaymentDirectionChoice = "they_owe_me";
+  else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));

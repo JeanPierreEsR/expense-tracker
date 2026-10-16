@@ -335,7 +335,7 @@ function telegramEditHelpText_(entry) {
   };
   var tail = ['', 'bothLanguages'];
   if (entry.type === 'transfer') {
-    return help(['intro', 't.from', 't.to', 't.amount', 'descTaxi', 'currency', 'date', 't.category', 'label', 't.type', '', 't.combine'].concat(tail));
+    return help(['intro', 't.from', 't.to', 't.amount', 'descTaxi', 'currency', 'date', 't.category', 'label', 't.type', '', 't.combine', '', 'transfer.intro', 'transfer.repayment', 'transfer.loan'].concat(tail));
   }
   if (entry.type === 'investment') {
     return help(['intro', 'i.platform', 'i.direction', 'i.paymentMethod', 'i.receivedAt', 'i.amount', 'descDeposit', 'currency', 'date', 'label', 'i.type', '', 'i.combine'].concat(tail));
@@ -665,15 +665,25 @@ function removeCardButtons_(chatId, messageId) {
 function applyTerminalReviewAction_(entryId, fullText, friendText) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: tr_('bot.entryNotFound') };
-  if (entry.status !== 'pending') {
-    return { message: tr_('bot.alreadyConfirmedNoLoan') };
+
+  // Which way the money moved, and through which of the owner's accounts.
+  // An expense went out, an income came in. A transfer is read from its ends:
+  // only a "to" account = money came in (e.g. a Yape from a friend); only a
+  // "from" account = money went out. Both ends set = really between the
+  // owner's own accounts.
+  var incoming, accountId;
+  if (entry.type === 'expense' || entry.type === 'income') {
+    incoming = entry.type === 'income';
+    accountId = entry.payment_method_id || '';
+  } else if (entry.type === 'transfer') {
+    var hasFrom = !!entry.payment_method_id, hasTo = !!entry.to_payment_method_id;
+    if (hasFrom && hasTo) return { message: tr_('bot.internalTransfer') };
+    if (!hasFrom && !hasTo) return { message: tr_('bot.transferNoEnds') };
+    incoming = hasTo;
+    accountId = incoming ? entry.to_payment_method_id : entry.payment_method_id;
+  } else {
+    return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
-  if (entry.type !== 'expense' && entry.type !== 'income') {
-    return { message: entry.type === 'transfer'
-      ? tr_('bot.internalTransfer')
-      : tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
-  }
-  var incoming = entry.type === 'income';
 
   var friend = fuzzyFindFriend_(String(friendText).trim());
   if (!friend) {
@@ -682,42 +692,37 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
 
   var isRepayment = /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(fullText.trim());
 
-  if (isRepayment) {
-    var repayResult;
-    try {
-      repayResult = recordRepayment({
+  // The same swap the app makes (convertEntryInto_, Loans.gs): it works on a
+  // pending OR a confirmed entry, checks everything first, and puts the
+  // original back if anything fails. An extra beyond what was owed waits in the
+  // review queue; money coming in with nothing owed is refused and left as it is.
+  var result;
+  try {
+    result = withScriptLockOnce_(function () {
+      return convertEntryInto_({
+        entry_id: entry.id,
         friend_id: friend.id,
-        direction: incoming ? 'they_owe_me' : 'i_owe_them',
+        direction: isRepayment ? (incoming ? 'they_owe_me' : 'i_owe_them') : (incoming ? 'i_owe_them' : 'they_owe_me'),
         amount: Number(entry.amount),
         currency: entry.currency,
         date: entry.date,
-        payment_method_id: entry.payment_method_id || '',
-        // Income only: nothing owed = nothing to repay, so refuse and leave
-        // the pending entry alone (see recordRepayment).
-        require_owed: incoming
-      });
-    } catch (err) {
-      if (incoming) return { message: tr_('bot.entryUnchanged', { error: err.message }) };
-      throw err;
-    }
-    deleteEntry_(entryId);
+        payment_method_id: accountId,
+        description: isRepayment ? undefined : (entry.description || ''),
+        overpay_pending_ok: true,
+        require_owed: isRepayment && incoming
+      }, isRepayment ? 'repayment' : 'loan');
+    });
+  } catch (err) {
+    return { message: err.message };   // already says nothing was changed (convertEntryInto_)
+  }
+
+  if (isRepayment) {
     var msg = tr_(incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: friend.name });
-    if (repayResult.overpaid > 0.004) {
-      msg += tr_(incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(repayResult.overpaid) });
+    if (result.overpaid > 0.004) {
+      msg += tr_(incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(result.overpaid) });
     }
     return { message: msg, removed: true };
   }
-
-  addLoan({
-    friend_id: friend.id,
-    direction: incoming ? 'i_owe_them' : 'they_owe_me',
-    amount: Number(entry.amount),
-    currency: entry.currency,
-    date: entry.date,
-    payment_method_id: entry.payment_method_id || '',
-    description: entry.description || ''
-  });
-  deleteEntry_(entryId);
   return {
     message: incoming
       ? tr_('bot.loanIOwe', { friend: friend.name, cur: entry.currency, amount: moneyFmt_(entry.amount) })

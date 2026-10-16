@@ -180,7 +180,7 @@ test("Telegram repayment on a pending INCOME with nothing owed: refused, entry l
   const settlementsBefore = rt.rows("Settlements").length;
   const out = telegramAction(rt, inc.id, "repayment " + f.name, f.name);
   assert.match(out.message, /nothing for this to repay/i);
-  assert.match(out.message, /unchanged/i);
+  assert.match(out.message, /nothing was changed/i);
   assert.notEqual(out.removed, true);
   assert.equal(entryExists(rt, inc.id), true);
   assert.equal(rt.rows("Entries").length, before, "no overpayment entry or anything else was created");
@@ -224,12 +224,108 @@ test("pending expense repayment/loan directions are unchanged", () => {
   assert.ok(rt.rows("Loans").some((l) => l.friend_id === f.id && l.direction === "they_owe_me"));
 });
 
-test("a transfer or investment still can't be turned into a repayment/loan from Telegram", () => {
+test("a transfer between two of my own accounts, or an investment, can't be turned into a repayment/loan from Telegram", () => {
   const { rt, data, f } = setup();
-  const e = rt.api("createEntry", { type: "transfer", date: today(), amount: 10, currency: "PEN", category_id: "", payment_method_id: data.pms[3].id, paid_by: "me" });
+  const e = rt.api("createEntry", { type: "transfer", date: today(), amount: 10, currency: "PEN", category_id: "", payment_method_id: data.pms[3].id, to_payment_method_id: data.pms[4].id, paid_by: "me" });
   rt.run(`updateEntryFields(${JSON.stringify(e.id)}, { status: 'pending' })`);
-  assert.match(telegramAction(rt, e.id, "repayment " + f.name, f.name).message, /internal transfer/i);
+  assert.match(telegramAction(rt, e.id, "repayment " + f.name, f.name).message, /both ends/i);
   assert.equal(entryExists(rt, e.id), true);
+  const none = rt.api("createEntry", { type: "transfer", date: today(), amount: 10, currency: "PEN", category_id: "", payment_method_id: "", to_payment_method_id: "", paid_by: "me" });
+  assert.match(telegramAction(rt, none.id, "loan " + f.name, f.name).message, /no account on either end/i);
+  assert.equal(entryExists(rt, none.id), true);
+});
+
+// ---- One message: a transfer with only one of my accounts (e.g. a Yape from a friend), pending OR confirmed ----
+
+const settledFor = (rt, loanId) => rt.rows("Settlements").filter((s) => s.loan_id === loanId).reduce((a, s) => a + Number(s.amount), 0);
+function incomingTransfer(rt, data, amount, status = "pending") {
+  const e = rt.api("createEntry", { type: "transfer", date: today(), amount, currency: "PEN", category_id: "", description: "Yape Ana Lo*", payment_method_id: "", to_payment_method_id: data.pms[3].id, paid_by: "me" });
+  rt.run(`updateEntryFields(${JSON.stringify(e.id)}, { status: '${status}' })`);
+  return e;
+}
+
+test("Telegram 'repayment <friend>' on a transfer that only has a 'to' account: one message, they paid me back", () => {
+  const { rt, data, f, loan } = setup();
+  const l = loan("they_owe_me", 100);
+  const t = incomingTransfer(rt, data, 60);
+  const out = telegramAction(rt, t.id, "repayment " + f.name, f.name);
+  assert.match(out.message, /repayment from/i);
+  assert.equal(entryExists(rt, t.id), false, "the transfer was replaced");
+  assert.equal(settledFor(rt, l.id), 60);
+  const movement = rt.rows("Entries").find((e) => e.type === "transfer" && Number(e.amount) === 60 && e.payment_method_id === data.pms[3].id);
+  assert.ok(movement, "the repayment's own money movement keeps the account");
+});
+
+test("a transfer that only has a 'from' account is me paying the friend", () => {
+  const { rt, data, f, loan } = setup();
+  const l = loan("i_owe_them", 100);
+  const t = rt.api("createEntry", { type: "transfer", date: today(), amount: 40, currency: "PEN", category_id: "", payment_method_id: data.pms[3].id, to_payment_method_id: "", paid_by: "me" });
+  const out = telegramAction(rt, t.id, "repayment " + f.name, f.name);
+  assert.match(out.message, /repayment to/i);
+  assert.equal(settledFor(rt, l.id), 40);
+});
+
+test("Telegram 'loan <friend>' on an incoming transfer: the friend lent me this", () => {
+  const { rt, data, f } = setup();
+  const t = incomingTransfer(rt, data, 80);
+  const out = telegramAction(rt, t.id, "loan " + f.name, f.name);
+  assert.match(out.message, /you now owe/i);
+  assert.ok(rt.rows("Loans").some((l) => l.friend_id === f.id && l.direction === "i_owe_them" && Number(l.amount) === 80));
+});
+
+test("money coming in with nothing owed is refused and the transfer is left as it was", () => {
+  const { rt, data, f } = setup();
+  const t = incomingTransfer(rt, data, 60);
+  const settlementsBefore = rt.rows("Settlements").length, entriesBefore = rt.rows("Entries").length;
+  const out = telegramAction(rt, t.id, "repayment " + f.name, f.name);
+  assert.match(out.message, /nothing was changed/i);
+  assert.equal(entryExists(rt, t.id), true);
+  assert.equal(rt.rows("Settlements").length, settlementsBefore);
+  assert.equal(rt.rows("Entries").length, entriesBefore, "nothing added or removed");
+});
+
+// ---- Confirmed entries can be turned into repayments / loans too ----
+
+test("Telegram 'repayment <friend>' on a CONFIRMED income (the Yape-saved-as-income case)", () => {
+  const { rt, data, f, loan } = setup();
+  const l = loan("they_owe_me", 100);
+  const inc = pendingIncome(rt, data, 75);
+  rt.api("updateEntry", { id: inc.id, fields: { category_id: data.cats.find((c) => c.type === "income").id } });
+  rt.api("confirmEntry", { id: inc.id });
+  assert.equal(rt.rows("Entries").find((e) => e.id === inc.id).status, "confirmed");
+  const out = telegramAction(rt, inc.id, "repayment " + f.name, f.name);
+  assert.match(out.message, /repayment from/i);
+  assert.equal(entryExists(rt, inc.id), false, "the confirmed income no longer counts as income");
+  assert.equal(settledFor(rt, l.id), 75);
+});
+
+test("Telegram 'loan <friend>' on a CONFIRMED expense", () => {
+  const { rt, data, f } = setup();
+  const e = rt.api("createEntry", { type: "expense", date: today(), amount: 50, currency: "PEN", category_id: data.cats.find((c) => c.type === "expense").id, description: "Taxi", payment_method_id: data.pms[3].id, paid_by: "me" });
+  assert.equal(e.status, "confirmed");
+  const out = telegramAction(rt, e.id, "loan " + f.name, f.name);
+  assert.match(out.message, /owes you/i);
+  assert.equal(entryExists(rt, e.id), false);
+  assert.ok(rt.rows("Loans").some((l) => l.friend_id === f.id && l.direction === "they_owe_me" && Number(l.amount) === 50));
+});
+
+// ---- The app: an income can be switched to a repayment / loan too ----
+
+test("convertEntryToRepayment accepts a confirmed INCOME (the app's edit screen)", () => {
+  const { rt, data, f, loan, cat } = setup();
+  const l = loan("they_owe_me", 100);
+  const inc = rt.api("createEntry", { type: "income", date: today(), amount: 70, currency: "PEN", category_id: cat("income").id, description: "Yape", payment_method_id: data.pms[3].id, paid_by: data.payors[0].id });
+  rt.api("convertEntryToRepayment", { entry_id: inc.id, friend_id: f.id, direction: "they_owe_me", amount: 70, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, overpay_category_id: cat("income").id });
+  assert.equal(entryExists(rt, inc.id), false);
+  assert.equal(settledFor(rt, l.id), 70);
+});
+
+test("convertEntryToLoan accepts a confirmed INCOME (they lent me this)", () => {
+  const { rt, data, f, cat } = setup();
+  const inc = rt.api("createEntry", { type: "income", date: today(), amount: 90, currency: "PEN", category_id: cat("income").id, description: "From Ana", payment_method_id: data.pms[3].id, paid_by: data.payors[0].id });
+  rt.api("convertEntryToLoan", { entry_id: inc.id, friend_id: f.id, direction: "i_owe_them", amount: 90, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "From Ana" });
+  assert.equal(entryExists(rt, inc.id), false);
+  assert.ok(rt.rows("Loans").some((l) => l.friend_id === f.id && l.direction === "i_owe_them" && Number(l.amount) === 90));
 });
 
 test("recordRepayment with require_owed and no debt writes nothing (the app's income path)", () => {
