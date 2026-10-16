@@ -260,6 +260,7 @@ var BACKEND_STRINGS_ = {
   "bot.confirmedTag": { en: " ✅ Confirmed", es: " ✅ Confirmado" },
   "bot.needsCategory": { en: "needs category", es: "falta categoría" },
   "bot.autoTag": { en: " 🤖 auto ({reason})", es: " 🤖 auto ({reason})" },
+  "bot.autoTagShort": { en: " 🤖 auto", es: " 🤖 auto" },
   "bot.fromLabel": { en: "⬆️ From: ", es: "⬆️ Desde: " },
   "bot.toLabel": { en: "⬇️ To: ", es: "⬇️ Hacia: " },
   "bot.notSetFrom": { en: "not set — reply \"from Plin\"", es: "sin definir: responde \"desde Plin\"" },

@@ -238,6 +238,7 @@ function moneyFmt_(n) {
 // autoReason (optional) marks the category as a guess made by the app, with
 // the evidence, so it's clear it wasn't picked by hand — a reply like
 // "category groceries" changes it and the refreshed card drops the tag.
+// autoReason === true means a familiar merchant: just the bare "🤖 auto" tag.
 function formatEntryForTelegram_(entry, categoryName, autoReason) {
   if (!categoryName && entry.category_id) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
@@ -251,7 +252,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
   } else {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
-      (autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
+      (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   }
   lines.push(entry.date + ' · ' + tr_('bot.type.' + entry.type));
   if (entry.type === 'transfer') {
