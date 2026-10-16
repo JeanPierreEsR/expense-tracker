@@ -112,20 +112,39 @@ test("Yape and Plin links: saved per currency, changeable, and the app finds the
   const pms = rt.rows("Payment Methods");
   assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods')).id`), id.s);
   assert.equal(rt.run(`railAccount_('plin', 'PEN', getAllRows('Payment Methods')).id`), id.i);
-  // change the link later
-  rt.api("saveRailLinks", { yape_pen: id.i, plin_usd: id.d });
-  assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods')).id`), id.i);
-  assert.equal(rt.run(`railAccount_('plin', 'USD', getAllRows('Payment Methods')).id`), id.d);
+  // change the link later (Yape: BCP only; Plin: any bank but BCP)
+  const second = save(rt, [acct("s2", "BCP", "debit_pen"), acct("sc", "Scotiabank", "debit_usd")], {}, "es").accounts;
+  const sid = Object.fromEntries(second.map((a) => [a.cid, a.id]));
+  rt.api("saveRailLinks", { yape_pen: sid.s2, plin_usd: sid.sc });
+  assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods')).id`), sid.s2);
+  assert.equal(rt.run(`railAccount_('plin', 'USD', getAllRows('Payment Methods')).id`), sid.sc);
   rt.api("saveRailLinks", { yape_pen: "" });
   assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods'))`), null, "unlinked and no legacy-named account: none");
   assert.throws(() => rt.api("saveRailLinks", { yape_pen: "not-an-account" }), /not found|No se encontr/i);
   assert.ok(pms.length >= 3);
 });
 
+test("Yape works only with BCP accounts and Plin only with other banks (never BCP)", () => {
+  const rt = friendCopy();
+  const r = save(rt, [acct("b", "BCP", "debit_pen"), acct("i", "Interbank", "debit_pen"), acct("v", "BBVA", "sueldo")], {}, "es");
+  const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
+  assert.throws(() => rt.api("saveRailLinks", { yape_pen: id.i }), /solo funciona con cuentas BCP|only works with BCP/);
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/);
+  rt.api("saveRailLinks", { yape_pen: id.b, plin_pen: id.v });
+  const s = rt.api("getMeta").settings;
+  assert.equal(s.yape_pen, id.b); assert.equal(s.plin_pen, id.v);
+  // the welcome step cannot sneak a wrong link in either
+  const rt2 = friendCopy();
+  const r2 = save(rt2, [acct("b", "BCP", "debit_pen"), acct("i", "Interbank", "debit_pen")], { yape_pen: "i", plin_pen: "b" }, "es");
+  const s2 = rt2.api("getMeta").settings;
+  assert.ok(!s2.yape_pen && !s2.plin_pen, "links the rails cannot work with are not saved");
+  assert.equal(r2.accounts.length, 2);
+});
+
 test("a Yape e-mail goes to the account the person linked", () => {
   const rt = friendCopy();
-  const r = save(rt, [acct("s", "BCP", "debit_pen"), acct("o", "Interbank", "debit_pen")], { yape_pen: "o" }, "es");
-  const interbank = r.accounts.find((a) => a.cid === "o").id;
+  const r = save(rt, [acct("s", "BCP", "debit_pen"), acct("o", "BCP", "debit_pen")], { yape_pen: "o" }, "es");
+  const interbank = r.accounts.find((a) => a.cid === "o").id;   // the second BCP account: the one linked
   rt.svc.gmail.addEmail({ from: "notificaciones@yape.pe", subject: "Constancia de yapeo", body: "Hola, acabas de yapear\nMonto de yapeo\nS/ 12.00\nNombre del Beneficiario\nAna Lo*\nCódigo de operación 0098765" });
   rt.run("processEmails()");
   const e = rt.rows("Entries").find((x) => x.source === "email" && String(x.description || "").startsWith("Yape a"));
@@ -135,15 +154,16 @@ test("a Yape e-mail goes to the account the person linked", () => {
 
 test("the owner's copy: Yape -> BCP soles/dolares and Plin -> IBK soles/dolares are linked once, by themselves", () => {
   const { rt } = freshApp({ small: true });
-  const mk = (nickname) => rt.api("savePaymentMethod", { nickname, type: "debit" }).id;
-  const ids = { bs: mk("BCP soles"), bd: mk("BCP dolares"), is: mk("IBK soles"), id: mk("IBK dolares") };
+  const bank = (name) => rt.api("addBank", { name }).id;
+  const mk = (nickname, bankName) => rt.api("savePaymentMethod", { nickname, type: "debit", bank_id: bank(bankName) }).id;
+  const ids = { bs: mk("BCP soles", "BCP"), bd: mk("BCP dolares", "BCP"), is: mk("IBK soles", "Interbank"), id: mk("IBK dolares", "Interbank") };
   rt.run("setSetting_('rail_defaults', ''); ");
   const s = rt.api("getMeta").settings;
   assert.equal(s.yape_pen, ids.bs); assert.equal(s.yape_usd, ids.bd); assert.equal(s.plin_pen, ids.is); assert.equal(s.plin_usd, ids.id);
   // a link the owner changes is not overwritten
-  rt.api("saveRailLinks", { yape_pen: ids.is });
+  rt.api("saveRailLinks", { yape_pen: ids.bd });
   rt.api("getMeta");
-  assert.equal(rt.api("getMeta").settings.yape_pen, ids.is);
+  assert.equal(rt.api("getMeta").settings.yape_pen, ids.bd);
 });
 
 test("an installer copy is NOT auto-linked", () => {

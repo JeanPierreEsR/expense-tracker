@@ -5452,9 +5452,11 @@ function renderWelcomeAccounts_() {
   waEl_("wa-error").textContent = "";
 }
 
+// Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
+const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
 function waCandidates_(key) {
-  const soles = key.endsWith("_pen");
-  return welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd"));
+  const soles = key.endsWith("_pen"), yape = key.startsWith("yape");
+  return welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
 }
 function renderWaRails_() {
   const box = waEl_("wa-rails");
@@ -5462,8 +5464,8 @@ function renderWaRails_() {
   const names = waDisplayNames_();
   WA_RAILS.forEach((key) => {
     const cands = waCandidates_(key);
-    // Pushed to link: when exactly one account fits and the person has not decided, it is pre-selected.
-    if (!(key in welcome_.linksTouched) && cands.length === 1) welcome_.links[key] = cands[0].cid;
+    // Linked by default: until the person decides, the first account that fits (Yape: a BCP account; Plin: another bank's) is selected.
+    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = welcome_.links[key] || cands[0].cid;
     if (welcome_.links[key] && !cands.some((a) => a.cid === welcome_.links[key])) welcome_.links[key] = "";
     const wrap = document.createElement("div");
     wrap.className = "wa-rail";
@@ -5478,7 +5480,7 @@ function renderWaRails_() {
     wrap.appendChild(label); wrap.appendChild(sel);
     if (!cands.length) {
       const hint = document.createElement("p"); hint.className = "hint";
-      hint.textContent = tr("wa.railNeeds", { currency: tr(key.endsWith("_pen") ? "wa.soles" : "wa.dollars") });
+      hint.textContent = tr(key.startsWith("yape") ? "wa.railNeeds.yape" : "wa.railNeeds.plin", { currency: tr(key.endsWith("_pen") ? "wa.soles" : "wa.dollars") });
       wrap.appendChild(hint);
     }
     box.appendChild(wrap);
@@ -6073,8 +6075,12 @@ function renderRailsCard_() {
     label.textContent = tr(`wa.rail.${key}`);
     const sel = document.createElement("select");
     const none = document.createElement("option"); none.value = ""; none.textContent = tr("wa.unlinked"); sel.appendChild(none);
+    const yape = key.startsWith("yape");
+    const bankOf = (pm) => { const b = (meta.banks || []).find((x) => x.id === pm.bank_id); return b ? b.name : ""; };
+    // Yape: BCP accounts only. Plin: any bank but BCP. A link already saved stays listed even if it breaks that rule.
     meta.paymentMethods
-      .filter((pm) => pm.type === "debit" && (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd")))
+      .filter((pm) => String(settings[key] || "") === String(pm.id) || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
+        (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd"))))
       .sort((a, b) => a.nickname.localeCompare(b.nickname))
       .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
     sel.value = settings[key] || "";

@@ -11,7 +11,8 @@
  * so that when EVERY bank account still has an automatic name, changing the app's language renames them all in the new
  * language. As soon as one name was typed or edited by hand, nothing is renamed automatically.
  *
- * Yape and Plin are not accounts: they ride on a bank account. Settings `yape_pen`, `yape_usd`, `plin_pen`, `plin_usd`
+ * Yape and Plin are not accounts: they ride on a bank account. Yape works ONLY with BCP accounts; Plin works with other banks and NOT
+ * with BCP. (Wallets of other banks behave the same way: no money of their own, so linking them is never needed.) Settings `yape_pen`, `yape_usd`, `plin_pen`, `plin_usd`
  * hold the id of the account each one is linked to, per currency (changeable any time). An account that is not linked
  * falls back to the owner's original names (BCP_ACCOUNTS / PLIN_ACCOUNTS), which `ensureRailDefaults_` also writes into
  * the settings once, for the owner's own copy.
@@ -160,13 +161,24 @@ function saveOnboardingAccounts(payload) {
   });
 
   var links = payload.links || {};
+  var createdRows = getAllRows('Payment Methods');
   RAIL_LINK_KEYS_.forEach(function (key) {
     var id = idByCid[String(links[key])];
-    if (id) setSetting_(key, id);
+    var pm = id && createdRows.find(function (p) { return String(p.id) === id; });
+    // A link the rail cannot work with (Yape only on BCP, Plin never on BCP) is simply not saved.
+    if (pm && railAllowsAccount_(key.split('_')[0], pm)) setSetting_(key, id);
   });
   if (batch) setSetting_('accounts_batch', batch);
   bumpStructureVersion_();
   return { already: false, accounts: created };
+}
+
+// Yape works ONLY with BCP; Plin works with other banks and NOT with BCP (so a Plin link is any account that is not BCP).
+function railAllowsAccount_(rail, pm) {
+  var banks = getAllRows('Banks');
+  var bank = banks.find(function (b) { return String(b.id) === String(pm.bank_id); });
+  var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
+  return rail === 'yape' ? isBcp : !isBcp;
 }
 
 // Yape and Plin ride on an account (a different one per currency); more → Accounts & cards changes it any time.
@@ -176,7 +188,12 @@ function saveRailLinks(payload) {
   RAIL_LINK_KEYS_.forEach(function (key) {
     if (payload[key] === undefined) return;
     var id = String(payload[key] || '').trim();
-    if (id && !pms.some(function (pm) { return String(pm.id) === id && pm.type !== 'investment'; })) throw new Error(tr_('err.pmNotFound'));
+    if (id) {
+      var pm = pms.find(function (p) { return String(p.id) === id && p.type !== 'investment'; });
+      if (!pm) throw new Error(tr_('err.pmNotFound'));
+      var rail = key.split('_')[0];
+      if (!railAllowsAccount_(rail, pm)) throw new Error(tr_(rail === 'yape' ? 'err.railYape' : 'err.railPlin'));
+    }
     setSetting_(key, id);
   });
   var out = {};
