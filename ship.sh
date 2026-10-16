@@ -41,8 +41,12 @@ COMMON="$(git rev-parse --path-format=absolute --git-common-dir)"
 CUR="$(git branch --show-current)"
 IN_WORKTREE=""; [ "$GIT_DIR_ABS" != "$COMMON" ] && IN_WORKTREE=1
 
-# A dry run from inside a chat's own worktree may leave the branch out.
-if [ -z "$BRANCH" ] && [ -n "$DRY" ] && [ -n "$CUR" ] && [ "$CUR" != "main" ]; then BRANCH="$CUR"; fi
+# A dry run from inside a chat's own worktree may leave the branch (and the message) out.
+if [ -n "$DRY" ] && [ -n "$CUR" ] && [ "$CUR" != "main" ]; then
+  if [ -z "$BRANCH" ]; then BRANCH="$CUR"
+  elif ! git rev-parse --verify -q "refs/heads/$BRANCH" >/dev/null && [ -z "$MSG" ]; then MSG="$BRANCH"; BRANCH="$CUR"; fi
+fi
+[ -z "$DRY" ] || MSG="${MSG:-dry run}"
 
 TMP=""; LOCK=""; W="$HERE"
 cleanup() {
