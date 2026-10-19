@@ -717,6 +717,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
 
   appendRowObject('Entries', entry);
+  autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;
 
   var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
