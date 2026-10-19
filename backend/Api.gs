@@ -289,6 +289,7 @@ function routeAction(action, payload) {
     case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
     case 'saveRecurringExpenseSplits': return saveRecurringExpenseSplits(payload);
     case 'listExpectedRecurringItems': return listExpectedRecurringItems();
+    case 'suggestVariableRecurring': return suggestVariableRecurring();
     case 'getProjections': return getProjections(payload);
     case 'listCategoryProjections': return listCategoryProjections(payload);
     case 'getCategoryProjectionDetail': return getCategoryProjectionDetail(payload);

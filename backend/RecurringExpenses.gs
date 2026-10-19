@@ -40,7 +40,7 @@ function ensureRecurringExpensesSheet_() {
   }
   // Columns added after the sheet already held real data are appended in
   // place, one at a time (the header row is re-read after each append).
-  ['date', 'start_date', 'end_date'].forEach(function (col) {
+  ['date', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (col) {
     var headers = getHeaders(sheet);
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
@@ -73,13 +73,296 @@ function getRecurringExpenseRows_() {
   getAllRows('Recurring Skips').forEach(function (s) {
     (skipsById[s.recurring_expense_id] = skipsById[s.recurring_expense_id] || []).push(String(s.month));
   });
-  return getAllRows('Recurring Expenses').map(function (r) {
+  var rows = getAllRows('Recurring Expenses').map(function (r) {
     r.skip_months = (skipsById[r.id] || []).sort();
     return r;
   });
+  // Variable-amount items get their estimate (and the amount range that
+  // recognises their payments) filled in here, once, so every consumer —
+  // Projections, Budgets, "Programmed this month", the category guess — just
+  // reads r.amount and needs no special case.
+  if (rows.some(isVariableRecurring_)) applyVariableRecurringEstimates_(rows);
+  return rows;
 }
 
-var RECURRING_DATE_RE_ = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+// ---- Variable-amount items: electricity, gas, building fees (2026-10-19) ----
+//
+// A monthly bill that surely arrives but never costs the same. The item keeps a
+// starting estimate in `amount` and a few `match_words` ("luz", "enel") that
+// recognise its payments among the real entries of its category. From then on:
+//  - its estimated amount is the AVERAGE of its last 3 recognised payments
+//    (set on r.amount by applyVariableRecurringEstimates_, so every consumer
+//    sees it without a special case);
+//  - a real entry pays an occurrence when it has the same category and
+//    currency, shares a keyword, lands inside the plausible amount range
+//    (0.4x to 2.5x the median of the recent payments) and falls in the same
+//    calendar month or within
+//    10 days — the fixed ±10% / 5-day rule can't work for an amount that moves;
+//  - because it matches like any programmed item, Projections already pulls the
+//    matched payments out of the category's year-to-date average, so the same
+//    bill is never counted both as Programmed and as Expected.
+// Deliberately plain and explainable (no AI), per the owner's request.
+var RECURRING_VARIABLE_DAY_WINDOW = 10;
+// The plausible range of one payment, around the MEDIAN of the recent ones (a
+// median, so one odd purchase that happens to contain the keyword — a lamp
+// bought as "luz LED" — can't stretch the range until it accepts itself).
+var RECURRING_VARIABLE_RANGE_LOW = 0.4;   // x the median payment
+var RECURRING_VARIABLE_RANGE_HIGH = 2.5;
+
+// Words too generic to identify a bill (on top of the connector words above).
+var RECURRING_VARIABLE_STOPWORDS_ = {
+  pago: 1, pagos: 1, compra: 1, compras: 1, recibo: 1, boleta: 1, factura: 1,
+  yape: 1, plin: 1, transferencia: 1, payment: 1, bill: 1
+};
+
+function isVariableRecurring_(r) {
+  return String(r.variable) === 'true' && normalizeRecurringFrequency_(r.frequency) === 'monthly';
+}
+
+// Like significantWords_ but from 3 letters, because the bills that matter are
+// called "luz" and "gas". Unique, in order of appearance.
+function keywordTokens_(text) {
+  var seen = {}, out = [];
+  String(text || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .forEach(function (w) {
+      if (w.length < 3 || /^\d+$/.test(w) || RECURRING_MATCH_STOPWORDS_[w] || RECURRING_VARIABLE_STOPWORDS_[w] || seen[w]) return;
+      seen[w] = true;
+      out.push(w);
+    });
+  return out;
+}
+
+function tokensOverlap_(a, b) {
+  return a.some(function (t) { return b.indexOf(t) !== -1; });
+}
+
+// One entry per calendar month — the one closest to the item's day — newest
+// month first, at most 6.
+function variablePickPerMonth_(entries, day) {
+  var bestByMonth = {};
+  entries.forEach(function (e) {
+    var m = String(e.date).substring(0, 7);
+    var dist = Math.abs(Number(String(e.date).substring(8, 10)) - day);
+    if (!bestByMonth[m] || dist < bestByMonth[m].dist) bestByMonth[m] = { date: e.date, amount: Number(e.amount), dist: dist, linked: !!e._linkedHere };
+  });
+  return Object.keys(bestByMonth).sort().reverse().slice(0, 6).map(function (m) { return bestByMonth[m]; });
+}
+
+function medianOf_(numbers) {
+  var sorted = numbers.slice().sort(function (a, b) { return a - b; });
+  var mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// The item's recognised payments, newest month first (at most 6), plus the
+// plausible amount range {low, high}. Entries already linked to ANOTHER
+// programmed item never count; entries linked to this one always do (even
+// outside the range). Two passes: the first finds the typical payment (the
+// median — with the typed estimate counted as one more data point while fewer
+// than 3 payments exist); the second drops entries far from it.
+function variablePaymentHistory_(r, categoryEntries, todayStr) {
+  var currency = r.currency || homeCurrency_();
+  var day = r.day ? Number(r.day) : 1;
+  var candidates = [];
+  categoryEntries.forEach(function (e) {
+    if (e.currency !== currency || !(Number(e.amount) > 0) || e.date > todayStr) return;
+    // No start/end-date filter on purpose: payments from before the item's
+    // start date are still the best evidence of what the bill costs (which
+    // OCCURRENCES count is decided elsewhere, from the start/end dates).
+    var linkedHere = e.recurring_expense_id === r.id;
+    if (e.recurring_expense_id && !linkedHere) return;
+    if (!linkedHere && !tokensOverlap_(r.match_tokens, keywordTokens_((e.description || '') + ' ' + (e.merchant || '')))) return;
+    candidates.push({ date: e.date, amount: Number(e.amount), _linkedHere: linkedHere });
+  });
+  var firstPass = variablePickPerMonth_(candidates, day).map(function (h) { return h.amount; });
+  if (firstPass.length < 3) firstPass.push(r.base_amount);
+  var anchor = medianOf_(firstPass);
+  var low = anchor * RECURRING_VARIABLE_RANGE_LOW, high = anchor * RECURRING_VARIABLE_RANGE_HIGH;
+  var history = variablePickPerMonth_(candidates.filter(function (c) {
+    return c._linkedHere || (c.amount >= low && c.amount <= high);
+  }), day);
+  return { history: history, low: low, high: high };
+}
+
+// Fills, on every variable row: base_amount (what was typed), amount (the
+// average of the last 3 payments, or the typed estimate while there are none),
+// payments_used, and the plausible range amount_low..amount_high.
+function applyVariableRecurringEstimates_(rows) {
+  var todayStr = formatCalendarDate_(new Date());
+  var entriesByCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed') return;
+    (entriesByCategory[e.category_id] = entriesByCategory[e.category_id] || []).push(e);
+  });
+  rows.forEach(function (r) {
+    if (!isVariableRecurring_(r)) return;
+    r.base_amount = Number(r.amount);
+    r.match_tokens = keywordTokens_(r.match_words);
+    var found = variablePaymentHistory_(r, entriesByCategory[r.category_id] || [], todayStr);
+    r.payments_used = Math.min(3, found.history.length);
+    r.amount_low = found.low;
+    r.amount_high = found.high;
+    if (!found.history.length) return;   // no payment on record yet: keep the typed estimate
+    var recent = found.history.slice(0, 3);
+    var avg = recent.reduce(function (sum, h) { return sum + h.amount; }, 0) / recent.length;
+    r.amount = Math.round(avg * 100) / 100;
+  });
+}
+
+// Does this real entry pay this variable item's occurrence? (Explicit links are
+// handled by the caller before this.)
+function variableEntryMatchesOccurrence_(entry, r, occurrenceDates) {
+  if (entry.recurring_expense_id && entry.recurring_expense_id !== r.id) return false;
+  if (entry.currency !== (r.currency || homeCurrency_())) return false;
+  var amt = Number(entry.amount);
+  if (!(amt > 0)) return false;
+  if (r.amount_low !== undefined && (amt < r.amount_low || amt > r.amount_high)) return false;
+  var tokens = r.match_tokens || keywordTokens_(r.match_words);
+  if (!tokensOverlap_(tokens, keywordTokens_((entry.description || '') + ' ' + (entry.merchant || '')))) return false;
+  var entryMonth = String(entry.date).substring(0, 7);
+  return occurrenceDates.some(function (occDate) {
+    return String(occDate).substring(0, 7) === entryMonth ||
+      Math.abs(daysBetweenDates_(entry.date, occDate)) <= RECURRING_VARIABLE_DAY_WINDOW;
+  });
+}
+
+// "Look for variable bills": scans the last 6 complete months of confirmed
+// expenses for a description word that shows up roughly once a month with an
+// amount that moves — the fingerprint of a utility bill — and proposes it as a
+// variable programmed item. Plain counting, no AI. Entries already explained by
+// a programmed item (matched or linked) are ignored, so what comes back is only
+// what isn't yet accounted for. Nothing is created here: the app opens the
+// normal add form pre-filled and the owner decides.
+var VARIABLE_SCAN_MONTHS = 6;
+var VARIABLE_SCAN_MIN_MONTHS = 4;     // present in at least this many of them
+var VARIABLE_SCAN_MAX_PER_MONTH = 2;  // a bill, not a shopping habit
+var VARIABLE_SCAN_MIN_SPREAD = 0.08;  // (max-min)/average below this = a fixed amount, not variable
+
+// A variable item must be monthly and have at least one usable keyword;
+// returns the cleaned pair. Not variable = the words are dropped.
+function validateVariableRecurring_(variable, matchWords, frequency) {
+  if (!variable) return { variable: false, match_words: '' };
+  if (frequency !== 'monthly') throw new Error(tr_('rec.variableMonthlyOnly'));
+  var words = String(matchWords || '').trim();
+  if (!keywordTokens_(words).length) throw new Error(tr_('rec.variableNeedsWords'));
+  return { variable: true, match_words: words };
+}
+
+function suggestVariableRecurring() {
+  var now = new Date();
+  var months = [];
+  for (var i = 1; i <= VARIABLE_SCAN_MONTHS; i++) {
+    months.push(formatCalendarDate_(new Date(now.getFullYear(), now.getMonth() - i, 1)).substring(0, 7));
+  }
+  var firstMonth = months[months.length - 1], lastMonth = months[0];
+  var rangeStart = firstMonth + '-01';
+  var rangeEnd = lastMonth + '-' + pad2_(new Date(Number(lastMonth.substring(0, 4)), Number(lastMonth.substring(5, 7)), 0).getDate());
+
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var existing = getRecurringExpenseRows_().filter(function (r) {
+    return String(r.active) !== 'false' && normalizeRecurringFrequency_(r.frequency) !== 'once';
+  });
+  var existingOcc = existing.map(function (r) { return recurringExpenseOccurrencesInRange_(r, rangeStart, rangeEnd); });
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSums[s.entry_id] = (entrySplitSums[s.entry_id] || 0) + Number(s.amount);
+  });
+  function explained(e) {
+    if (e.recurring_expense_id) return true;
+    return existing.some(function (r, idx) {
+      return r.category_id === e.category_id && existingOcc[idx].length > 0 &&
+        entryMatchesRecurringOccurrence_(e, r, existingOcc[idx], entrySplitSums, recurringSplitSums);
+    });
+  }
+
+  // category|currency|word -> { category_id, currency, word, byMonth: { month -> [entries] } }
+  var groups = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || e.type !== 'expense' || !(Number(e.amount) > 0)) return;
+    var m = String(e.date).substring(0, 7);
+    if (m < firstMonth || m > lastMonth) return;
+    if (!categoryById[e.category_id] || explained(e)) return;
+    keywordTokens_((e.description || '') + ' ' + (e.merchant || '')).forEach(function (w) {
+      var key = e.category_id + '|' + e.currency + '|' + w;
+      var g = groups[key] || (groups[key] = { category_id: e.category_id, currency: e.currency, word: w, byMonth: {} });
+      (g.byMonth[m] = g.byMonth[m] || []).push(e);
+    });
+  });
+
+  // Words that point at exactly the same entries are one bill ("luz", "enel").
+  var bySignature = {};
+  Object.keys(groups).forEach(function (key) {
+    var g = groups[key];
+    var monthKeys = Object.keys(g.byMonth);
+    if (monthKeys.length < VARIABLE_SCAN_MIN_MONTHS) return;
+    if (monthKeys.some(function (m) { return g.byMonth[m].length > VARIABLE_SCAN_MAX_PER_MONTH; })) return;
+    var picks = monthKeys.sort().reverse().map(function (m) {
+      return g.byMonth[m].slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    });
+    var amounts = picks.map(function (e) { return Number(e.amount); });
+    var avgAll = amounts.reduce(function (a, b) { return a + b; }, 0) / amounts.length;
+    if ((Math.max.apply(null, amounts) - Math.min.apply(null, amounts)) / avgAll < VARIABLE_SCAN_MIN_SPREAD) return;
+    var ids = [];
+    monthKeys.forEach(function (m) { g.byMonth[m].forEach(function (e) { ids.push(e.id); }); });
+    var sig = g.category_id + '|' + g.currency + '|' + ids.sort().join(',');
+    var bucket = bySignature[sig] || (bySignature[sig] = { g: g, words: [], picks: picks });
+    bucket.words.push(g.word);
+  });
+
+  // Skip what an existing variable item in the same category already covers.
+  var variableTokensByCategory = {};
+  existing.filter(isVariableRecurring_).forEach(function (r) {
+    variableTokensByCategory[r.category_id] = (variableTokensByCategory[r.category_id] || []).concat(keywordTokens_(r.match_words));
+  });
+
+  var suggestions = [];
+  Object.keys(bySignature).forEach(function (sig) {
+    var b = bySignature[sig];
+    var cat = categoryById[b.g.category_id];
+    if (tokensOverlap_(b.words, variableTokensByCategory[b.g.category_id] || [])) return;
+    function dayOf(e) { return Number(String(e.date).substring(8, 10)); }
+    var days = b.picks.map(dayOf).sort(function (x, y) { return x - y; });
+    var typicalDay = days[Math.floor(days.length / 2)];
+    // Per month, the entry closest to the typical day — the same choice the
+    // item makes once it exists (variablePickPerMonth_), so the proposed
+    // estimate is the one the item will actually show.
+    var picks = Object.keys(b.g.byMonth).sort().reverse().map(function (m) {
+      return b.g.byMonth[m].slice().sort(function (x, y) { return Math.abs(dayOf(x) - typicalDay) - Math.abs(dayOf(y) - typicalDay); })[0];
+    });
+    var latest = picks[0];
+    // Words in the order they appear in the latest description, at most 3.
+    var ordered = keywordTokens_((latest.description || '') + ' ' + (latest.merchant || ''))
+      .filter(function (w) { return b.words.indexOf(w) !== -1; }).slice(0, 3);
+    var recent = picks.slice(0, 3);
+    var avg = recent.reduce(function (sum, e) { return sum + Number(e.amount); }, 0) / recent.length;
+    var amounts = picks.map(function (e) { return Number(e.amount); });
+    suggestions.push({
+      key: b.g.category_id + '|' + ordered.join(' '),
+      category_id: b.g.category_id,
+      category_name: categoryLabel_(cat),
+      category_icon: cat.icon || '',
+      match_words: ordered.join(' '),
+      description: latest.description || ordered.join(' '),
+      currency: b.g.currency,
+      months_seen: picks.length,
+      avg_amount: Math.round(avg * 100) / 100,
+      min_amount: Math.min.apply(null, amounts),
+      max_amount: Math.max.apply(null, amounts),
+      typical_day: typicalDay,
+      recent: recent.map(function (e) { return { date: e.date, amount: Number(e.amount) }; })
+    });
+  });
+  suggestions.sort(function (a, b) {
+    return b.months_seen - a.months_seen || b.avg_amount - a.avg_amount;
+  });
+  return { suggestions: suggestions.slice(0, 20) };
+}
+
+var RECURRING_DATE_RE_ =/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 // Optional start/end dates: blank is fine; otherwise real dates, end not
 // before start. Returns the cleaned pair.
@@ -224,7 +507,15 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     start_date: r.start_date || '',
     end_date: r.end_date || '',
     skipped_months: (r.skip_months || []).slice(),
-    split_total: splitTotal
+    split_total: splitTotal,
+    // Variable-amount item (see the block near the top): `amount` above is then
+    // the current estimate; `base_amount` is what the owner typed.
+    variable: isVariableRecurring_(r),
+    match_words: r.match_words ? String(r.match_words) : '',
+    base_amount: r.base_amount !== undefined ? r.base_amount : Number(r.amount),
+    payments_used: r.payments_used || 0,
+    amount_low: r.amount_low !== undefined ? Math.round(r.amount_low * 100) / 100 : null,
+    amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null
   };
 }
 
@@ -232,6 +523,7 @@ function addRecurringExpense(payload) {
   ensureRecurringExpensesSheet_();
   var frequency = normalizeRecurringFrequency_(payload.frequency);
   var windowDates = frequency === 'once' ? { start_date: '', end_date: '' } : validateRecurringWindow_(payload.start_date, payload.end_date);
+  var variable = validateVariableRecurring_(!!payload.variable, payload.match_words, frequency);
   var re = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
@@ -244,7 +536,9 @@ function addRecurringExpense(payload) {
     date: frequency === 'once' ? (payload.date || '') : '',
     active: payload.active === false ? 'false' : 'true',
     start_date: windowDates.start_date,
-    end_date: windowDates.end_date
+    end_date: windowDates.end_date,
+    variable: variable.variable ? 'true' : 'false',
+    match_words: variable.match_words
   };
   appendRowObject('Recurring Expenses', re);
   var categoryById = rowsById_(getAllRows('Categories'));
@@ -269,9 +563,24 @@ function updateRecurringExpense(payload) {
     if (payload.end_date !== undefined) payload.end_date = cleaned.end_date;
   }
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active', 'start_date', 'end_date'].forEach(function (field) {
+  // Variable-amount settings are checked against the item as it will be AFTER
+  // this update (a yearly item can't be variable; a variable one needs words).
+  if (payload.variable !== undefined || payload.match_words !== undefined || payload.frequency !== undefined) {
+    var cur = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.id; });
+    var checked = validateVariableRecurring_(
+      payload.variable !== undefined ? !!payload.variable : String(cur.variable) === 'true',
+      payload.match_words !== undefined ? payload.match_words : cur.match_words,
+      normalizeRecurringFrequency_(payload.frequency !== undefined ? payload.frequency : cur.frequency)
+    );
+    payload.variable = checked.variable;
+    payload.match_words = checked.match_words;
+  }
+
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
+    if (field === 'variable') value = value ? 'true' : 'false';
+    if (field === 'match_words') value = String(value || '').trim();
     if (field === 'description') value = String(value || '').trim();
     if (field === 'active') value = (value === false || value === 'false') ? 'false' : 'true';
     if (field === 'frequency') value = normalizeRecurringFrequency_(value);
@@ -687,6 +996,7 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
   if (entry.category_id !== recurring.category_id) return false;
+  if (isVariableRecurring_(recurring)) return variableEntryMatchesOccurrence_(entry, recurring, occurrenceDates);
   var recCurrency = recurring.currency || homeCurrency_();
   var amt = recurringOwnAmount_(recurring, recurringSplitSums);
   var entryAmt = Number(entry.amount) - ((entrySplitSums && entrySplitSums[entry.id]) || 0);
@@ -784,6 +1094,7 @@ function listExpectedRecurringItems() {
       category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
       category_icon: cat ? cat.icon : '',
       amount: ownAmount,
+      estimated: isVariableRecurring_(r),   // variable bill: the amount is an average, shown with "≈"
       // The occurrence's own actual (clamped) day, not the raw configured
       // one — matters for a 'once' item (which has no day/month at all)
       // and also fixes a latent mismatch for a monthly item whose day
