@@ -155,10 +155,198 @@ function adminSetCategoryPeriodType(categoryId, periodType) {
   return { done: true };
 }
 
+// ---- Seasonality (2026-10-19) ----------------------------------------------
+//
+// The year-to-date rate treats every month alike. A category can have a real
+// yearly shape (December gifts, January school costs), so "Expected" is now
+//   level  x  the time-of-year index of the days still to come
+// where
+//   index[m]  = how much this category usually spends in calendar month m,
+//               relative to its own average month (1.0 = average), learned
+//               from up to the last 3 COMPLETE past years;
+//   level     = this year's spend so far ÷ the sum of the indexes of the months
+//               that produced it (the average month with the seasonality taken
+//               out); in January, with no month elapsed yet, last year's
+//               monthly average.
+// Everything explainable, nothing fitted: per year, a month's ratio = that
+// month's spend ÷ the year's monthly average; across years the MEDIAN ratio
+// (3 years; the mean of 2; the one value of 1 year), pulled toward 1 the less
+// history there is (weight n/(n+1)), clamped to 0.3-3, then rescaled so the 12
+// indexes average exactly 1 — the yearly total never changes, only its shape.
+// The same pool as the rate: own share, PEN at each entry's month rate, entries
+// explained by a programmed item and entries tagged Annual left out. A year only
+// counts if the category already existed on its January 1st (a habit that began
+// in September says nothing about March). With no usable year every index is 1,
+// which makes "Expected" exactly what it was before this existed.
+var SEASON_MAX_YEARS = 3;
+var SEASON_MIN_INDEX = 0.3;
+var SEASON_MAX_INDEX = 3;
+
+function flatSeasonProfile_() {
+  var index = [];
+  for (var i = 0; i < 12; i++) index.push(1);
+  return { index: index, yearsUsed: 0, priorLevelPen: 0, years: [] };
+}
+
+function medianOfNumbers_(numbers) {
+  var sorted = numbers.slice().sort(function (a, b) { return a - b; });
+  var mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// categoryIds: array of ids, or null for every expense/investment category.
+// Returns { categoryId: profile } — a profile for every requested category (flat
+// when there is nothing to learn from).
+function computeSeasonalProfiles_(categoryIds) {
+  var thisYear = new Date().getFullYear();
+  var firstYear = thisYear - SEASON_MAX_YEARS;
+  var rangeStart = firstYear + '-01-01', rangeEnd = (thisYear - 1) + '-12-31';
+
+  var wanted = {};
+  getAllRows('Categories').forEach(function (c) {
+    if (c.type !== 'expense' && c.type !== 'investment') return;
+    if (categoryIds && categoryIds.indexOf(c.id) === -1) return;
+    wanted[c.id] = c;
+  });
+  var profiles = {};
+  Object.keys(wanted).forEach(function (id) { profiles[id] = flatSeasonProfile_(); });
+
+  var firstEntryYear = {};
+  var pool = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || !wanted[e.category_id]) return;
+    var y = Number(String(e.date).substring(0, 4));
+    if (!firstEntryYear[e.category_id] || y < firstEntryYear[e.category_id]) firstEntryYear[e.category_id] = y;
+    if (e.date >= rangeStart && e.date <= rangeEnd && e.type === wanted[e.category_id].type) {
+      (pool[e.category_id] = pool[e.category_id] || []).push(e);
+    }
+  });
+  if (!Object.keys(pool).length) return profiles;
+
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var recurringByCategory = {};
+  getRecurringExpenseRows_().forEach(function (r) {
+    if (String(r.active) === 'false' || !wanted[r.category_id]) return;
+    (recurringByCategory[r.category_id] = recurringByCategory[r.category_id] || []).push(r);
+  });
+  var ratesByCurrency = buildRatesByCurrency_();
+  function toPen_(amount, currency, dateStr) {
+    if (currency === homeCurrency_()) return amount;
+    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
+    return rate != null ? amount * rate : null;
+  }
+  var annualEntryIds = annualEntryIdSet_();
+
+  Object.keys(pool).forEach(function (categoryId) {
+    var entries = pool[categoryId];
+    var matched = {};
+    (recurringByCategory[categoryId] || []).forEach(function (r) {
+      var occ = recurringExpenseOccurrencesInRange_(r, rangeStart, rangeEnd);
+      if (!occ.length) return;
+      entries.forEach(function (e) {
+        if (matched[e.id]) return;
+        if (entryMatchesRecurringOccurrence_(e, r, occ, splitSumByEntry, recurringSplitSums)) matched[e.id] = true;
+      });
+    });
+    var byYear = {};   // year -> [12 monthly PEN sums]
+    entries.forEach(function (e) {
+      if (matched[e.id] || annualEntryIds[e.id]) return;
+      var pen = toPen_(Number(e.amount) - (splitSumByEntry[e.id] || 0), e.currency, e.date);
+      if (pen == null) return;
+      var y = Number(String(e.date).substring(0, 4));
+      var m = Number(String(e.date).substring(5, 7)) - 1;
+      (byYear[y] = byYear[y] || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])[m] += pen;
+    });
+
+    // Usable years, newest first: the category existed on that January 1st and
+    // spent something that year.
+    var ratiosByMonth = [[], [], [], [], [], [], [], [], [], [], [], []];
+    var years = [];
+    var latestMean = 0;
+    for (var y = thisYear - 1; y >= firstYear && years.length < SEASON_MAX_YEARS; y--) {
+      var months = byYear[y];
+      if (!months || !(firstEntryYear[categoryId] < y)) continue;
+      var total = months.reduce(function (a, b) { return a + b; }, 0);
+      if (!(total > 0)) continue;
+      var mean = total / 12;
+      if (!years.length) latestMean = mean;
+      years.push(y);
+      months.forEach(function (v, i) { ratiosByMonth[i].push(v / mean); });
+    }
+    if (!years.length) return;
+
+    var n = years.length;
+    var weight = n / (n + 1);
+    var index = ratiosByMonth.map(function (ratios) {
+      var typical = n >= 3 ? medianOfNumbers_(ratios) : ratios.reduce(function (a, b) { return a + b; }, 0) / ratios.length;
+      var s = 1 + weight * (typical - 1);
+      return Math.min(SEASON_MAX_INDEX, Math.max(SEASON_MIN_INDEX, s));
+    });
+    var sum = index.reduce(function (a, b) { return a + b; }, 0);
+    index = index.map(function (s) { return s * 12 / sum; });
+    profiles[categoryId] = { index: index, yearsUsed: n, priorLevelPen: latestMean, years: years };
+  });
+  return profiles;
+}
+
+// Sum of the indexes of every calendar month the period touches (a Month view
+// is one month, a Year view all twelve = 12).
+function seasonalIndexSum_(profile, startDate, endDate) {
+  var sum = 0;
+  var y = Number(startDate.substring(0, 4)), m = Number(startDate.substring(5, 7));
+  var endKey = endDate.substring(0, 7);
+  for (var guard = 0; guard < 600; guard++) {
+    var key = y + '-' + pad2_(m);
+    if (key > endKey) break;
+    sum += profile.index[m - 1];
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return sum;
+}
+
+// The index of the days still to come, day-weighted: 1 weight per remaining day
+// in each calendar month. A Month view = that month's index; a Year view in
+// October = (Oct x its remaining days + Nov x 30 + Dec x 31) / their total.
+// With every index at 1 it is exactly 1, so the old "rate x days left / 30"
+// is unchanged for a non-seasonal category.
+function seasonalRemainingFactor_(profile, startDate, endDate) {
+  var todayStr = formatCalendarDate_(new Date());
+  if (todayStr > endDate) return 1;
+  var from;
+  if (todayStr < startDate) {
+    from = startDate;
+  } else {
+    var t = new Date(todayStr + 'T00:00:00');
+    from = formatCalendarDate_(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1));
+  }
+  if (from > endDate) return 1;
+  var weighted = 0, days = 0;
+  var y = Number(from.substring(0, 4)), m = Number(from.substring(5, 7));
+  for (var guard = 0; guard < 600; guard++) {
+    var monthStart = y + '-' + pad2_(m) + '-01';
+    var lastDay = new Date(y, m, 0).getDate();
+    var monthEnd = y + '-' + pad2_(m) + '-' + pad2_(lastDay);
+    if (monthStart > endDate) break;
+    var lo = from > monthStart ? from : monthStart;
+    var hi = endDate < monthEnd ? endDate : monthEnd;
+    var count = daysBetweenDates_(hi, lo) + 1;
+    if (count > 0) { weighted += count * profile.index[m - 1]; days += count; }
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return days > 0 ? weighted / days : 1;
+}
+
 function computeAllCategoryProjections_(bounds) {
   ensureCategoryPeriodTypeColumn_();
   var periodMonths = bounds.periodType === 'yearly' ? 12 : 1;
   var ytd = ytdRangeForProjection_();
+  var seasonal = computeSeasonalProfiles_(null);
 
   // "Remaining" figures (added 2026-09-16) — Actual/Programmed/Expected as
   // three things that sum to what's left in the period, rather than
@@ -254,6 +442,10 @@ function computeAllCategoryProjections_(bounds) {
         remainingTotalPen: 0,
         totalPen: 0,
         ratePerMonth: 0,
+        levelPerMonth: 0,
+        seasonalFactor: 1,
+        seasonalYears: 0,
+        seasonalYearList: [],
         daysLeft: 0
       };
     }
@@ -296,6 +488,8 @@ function computeAllCategoryProjections_(bounds) {
 
     var baseAmountPen = 0;
     var ratePerMonth = 0;
+    var levelPerMonth = 0;
+    var profile = seasonal[category.id] || flatSeasonProfile_();
 
     if (category.type === 'income') {
       entriesInPeriod.forEach(function (e) {
@@ -308,7 +502,7 @@ function computeAllCategoryProjections_(bounds) {
         var pen = toPen_(ownAmount_(e), e.currency, e.date);
         if (pen != null) baseAmountPen += pen;
       });
-    } else if (ytd.ytdStart) {
+    } else {
       // Matched against EVERY active recurring item (categoryRecurring),
       // not just recurringForPeriod — a yearly item excluded from the
       // period's own "programmed" line above must still have its matching
@@ -318,7 +512,7 @@ function computeAllCategoryProjections_(bounds) {
       // spend is that single yearly payment then correctly nets to 0 in a
       // monthly view instead of showing a misleading fraction of it.
       var matchedEntryIds = {};
-      categoryRecurring.forEach(function (r) {
+      if (ytd.ytdStart) categoryRecurring.forEach(function (r) {
         var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
         entriesYtd.forEach(function (e) {
           if (e.category_id !== category.id || matchedEntryIds[e.id]) return;
@@ -336,8 +530,18 @@ function computeAllCategoryProjections_(bounds) {
         var pen = toPen_(ownAmount_(e), e.currency, e.date);
         if (pen != null) ytdNonRecurringPen += pen;
       });
+      // ratePerMonth stays the plain year-to-date average (what the trace shows);
+      // the level is the same spend with the time of year taken out — see the
+      // Seasonality block above. With a flat profile level == ratePerMonth.
       ratePerMonth = ytd.monthsElapsed > 0 ? ytdNonRecurringPen / ytd.monthsElapsed : 0;
-      baseAmountPen = ratePerMonth * periodMonths;
+      if (ytd.monthsElapsed > 0) {
+        var elapsedIndexSum = 0;
+        for (var em = 1; em <= ytd.monthsElapsed; em++) elapsedIndexSum += profile.index[em - 1];
+        levelPerMonth = elapsedIndexSum > 0 ? ytdNonRecurringPen / elapsedIndexSum : 0;
+      } else {
+        levelPerMonth = profile.priorLevelPen;   // January: last year's monthly average
+      }
+      baseAmountPen = levelPerMonth * seasonalIndexSum_(profile, bounds.startDate, bounds.endDate);
     }
 
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
@@ -379,7 +583,8 @@ function computeAllCategoryProjections_(bounds) {
     // the period's full month-equivalent count. Expense/investment only —
     // income has no YTD-rate concept to pro-rate (see the per-category
     // rule, above); its "Expected" line has never existed.
-    var expectedRemainingPen = ratePerMonth * (daysLeft / 30);
+    var seasonalFactor = seasonalRemainingFactor_(profile, bounds.startDate, bounds.endDate);
+    var expectedRemainingPen = levelPerMonth * (daysLeft / 30) * seasonalFactor;
 
     var remainingTotalPen = hasOverride
       ? Math.max(0, overridesByKey[overrideKey] - actualPen)
@@ -416,6 +621,13 @@ function computeAllCategoryProjections_(bounds) {
       remainingTotalPen: remainingTotalPen,
       totalPen: totalPen,
       ratePerMonth: ratePerMonth,
+      // Seasonality (see the block above): the year-to-date spend with the time
+      // of year taken out, the index of the days still to come, and how many
+      // past years it was learned from (0 = flat, nothing changes).
+      levelPerMonth: levelPerMonth,
+      seasonalFactor: seasonalFactor,
+      seasonalYears: profile.yearsUsed,
+      seasonalYearList: profile.years,
       daysLeft: daysLeft
     };
   }).filter(function (c) {
@@ -460,7 +672,7 @@ function getCategoryProjectionDetail(payload) {
       recurringAmountPen: 0, baseAmountPen: 0, calculatedAmountPen: 0,
       hasOverride: false, overrideAmountPen: null, amountPen: 0,
       actualPen: 0, programmedRemainingPen: 0, expectedRemainingPen: 0,
-      remainingTotalPen: 0, totalPen: 0, ratePerMonth: 0, daysLeft: 0
+      remainingTotalPen: 0, totalPen: 0, ratePerMonth: 0, levelPerMonth: 0, seasonalFactor: 1, seasonalYears: 0, seasonalYearList: [], daysLeft: 0
     };
   }
 
@@ -600,9 +812,13 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
 // particular month is visible rather than hidden inside a single blended
 // average. Every elapsed month gets a row even at 0 — a silent gap is as
 // informative as a number when eyeballing whether the rate makes sense.
-function computeCategoryYtdBreakdown_(categoryId) {
+// profile: the category's seasonal profile (computeSeasonalProfiles_), passed by
+// a caller that already has it (Budgets does, for every category at once);
+// omitted = computed here for this one category.
+function computeCategoryYtdBreakdown_(categoryId, profile) {
   var ytd = ytdRangeForProjection_();
-  if (!ytd.ytdStart) return { months: [], totalPen: 0, monthsElapsed: 0, ratePerMonth: 0, annualExcludedPen: 0, annualExcludedCount: 0 };
+  if (!profile) profile = computeSeasonalProfiles_([categoryId])[categoryId] || flatSeasonProfile_();
+  if (!ytd.ytdStart) return { months: [], totalPen: 0, monthsElapsed: 0, ratePerMonth: 0, levelPerMonth: profile.priorLevelPen, annualExcludedPen: 0, annualExcludedCount: 0, seasonalYears: profile.yearsUsed, seasonalYearList: profile.years };
 
   var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
     return String(r.active) !== 'false' && r.category_id === categoryId;
@@ -658,11 +874,18 @@ function computeCategoryYtdBreakdown_(categoryId) {
     months.push({ monthKey: monthKey, amountPen: monthlyTotals[monthKey] || 0 });
   }
 
+  var elapsedIndexSum = 0;
+  for (var em = 1; em <= ytd.monthsElapsed; em++) elapsedIndexSum += profile.index[em - 1];
   return {
     months: months,
     totalPen: totalPen,
     monthsElapsed: ytd.monthsElapsed,
     ratePerMonth: totalPen / ytd.monthsElapsed,
+    // The same spend with the time of year taken out (== ratePerMonth when the
+    // profile is flat): what "Expected" is built from.
+    levelPerMonth: elapsedIndexSum > 0 ? totalPen / elapsedIndexSum : 0,
+    seasonalYears: profile.yearsUsed,
+    seasonalYearList: profile.years,
     annualExcludedPen: annualExcludedPen,
     annualExcludedCount: annualExcludedCount
   };
