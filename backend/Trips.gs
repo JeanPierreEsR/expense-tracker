@@ -482,3 +482,23 @@ function checkTripBudgetsLocked_() {
   }
   return { checked: trips.length, alertsSent: alertsSent };
 }
+
+// ---- Telegram's Confirm links the suggested trip by default ----
+// In Telegram a pending entry is confirmed by the Confirm button OR by its first successful reply, so both
+// go through linkSuggestedTripOnTelegramConfirm_ just before confirming. The card says beforehand which
+// trip it will be linked to ("trip none" skips it). "trip none" on a pending entry stores TRIP_DECLINED_ in
+// trip_id (no real trip has that id) so the skip survives until the confirmation; confirmEntryWithLearning_
+// clears it, so it never stays on a confirmed entry. The app's own Confirm is NOT affected: its card sends
+// the picker's value (including None) explicitly.
+var TRIP_DECLINED_ = '-none-';
+
+function linkSuggestedTripOnTelegramConfirm_(entryId) {
+  var entry = getEntryById_(entryId);
+  if (!entry || entry.type !== 'expense' || entry.status !== 'pending') return;
+  if (entry.trip_id === TRIP_DECLINED_) { setEntryField_(entryId, 'trip_id', ''); return; }
+  if (entry.trip_id) return;                       // already chosen (by reply or in the app)
+  var suggested = suggestedTripIdForDate_(entry.date);
+  if (!suggested) return;                          // no trip, or two cover the date: no guess
+  ensureEntriesTripColumn_();
+  setEntryField_(entryId, 'trip_id', suggested);
+}

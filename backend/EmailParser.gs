@@ -542,6 +542,7 @@ function confirmEntryWithLearning_(entryId) {
   if (entry && entry.type === 'expense' && !getEntrySplits(entryId).length) {
     saveEntrySplits(entryId, []);
   }
+  if (entry && entry.trip_id === TRIP_DECLINED_) setEntryField_(entryId, 'trip_id', '');   // see Trips.gs
   setEntryField_(entryId, 'status', 'confirmed');
 }
 
