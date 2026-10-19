@@ -196,6 +196,7 @@
 
     // ---- entries ----
     "entries.recent": { en: "Recent entries", es: "Movimientos recientes" },
+    "entries.updating": { en: "Updating…", es: "Actualizando…" },
     "entries.empty": { en: "No entries yet — add your first one above.", es: "Aún no hay movimientos: agrega el primero arriba." },
 
     // ---- period ----

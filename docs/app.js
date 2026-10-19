@@ -2435,6 +2435,27 @@ async function refreshEntryList(prefetchedEntries) {
   renderEntryListFromCache_();
 }
 
+// A change made somewhere else (a repayment or loan in the Loans tab) can
+// add or alter rows here. Re-fetches the list in the background and, while
+// that runs, shows a small "Updating…" line above it — so switching to
+// Entries right away shows either the new row or that it's on its way.
+let entriesUpdating_ = 0;
+function refreshEntriesInBackground_() {
+  let note = document.getElementById("entries-updating");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "entries-updating";
+    note.className = "status-msg";
+    document.getElementById("entry-list").before(note);
+  }
+  entriesUpdating_++;
+  note.textContent = tr("entries.updating");
+  note.hidden = false;
+  refreshEntryList().catch(() => {}).finally(() => {
+    if (--entriesUpdating_ === 0) note.hidden = true;
+  });
+}
+
 // Re-renders the already-fetched entry list with the current queued-edit
 // overlay applied — no network call. Used whenever a background edit's
 // status changes (see flushEntryEdit_), so the "Saving…"/"Couldn't save"
@@ -8757,6 +8778,7 @@ function closeLoanModal() {
 // underneath it), that gets refreshed too rather than left showing
 // stale data.
 async function refreshAfterLoanModalChange_() {
+  refreshEntriesInBackground_();
   await refreshLoans();
   if (loanModalReturnFriend) {
     await openLoanDetail(loanModalReturnFriend.id, loanModalReturnFriend.name);
@@ -9013,6 +9035,7 @@ function closeSettlementModal() {
 }
 
 async function refreshAfterSettlementChange_() {
+  refreshEntriesInBackground_();
   await refreshLoans();
   await openLoanDetail(repaymentFriendId, repaymentFriendName);
 }
@@ -9064,6 +9087,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       payment_method_id: paymentMethodId
     });
 
+    refreshEntriesInBackground_();
     await refreshLoans();
     await openLoanDetail(friendId, friendName);
 
@@ -9413,6 +9437,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     }
 
     closeReviewTransferModal();
+    refreshEntriesInBackground_();
     await refreshReviewQueue();
     refreshLoans().catch(() => {});
   } catch (err) {
