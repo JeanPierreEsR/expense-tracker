@@ -233,7 +233,7 @@
       <div class="card" id="period-selector-card">
         <div class="period-selector">
           <button type="button" class="period-nav-btn" id="period-prev" data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
-          <div id="period-label">Month</div>
+          <div id="period-label" role="button" tabindex="0">Month</div>
           <button type="button" class="period-nav-btn" id="period-next" data-i18n-aria-label="period.next" aria-label="Next period">›</button>
         </div>
         <div class="period-type-chips" id="period-type-chips">
@@ -1323,6 +1323,23 @@
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="period-picker-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="period-picker-title">Choose month</span>
+        <button type="button" id="period-picker-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div class="period-picker-year" id="period-picker-year-row">
+          <button type="button" class="period-nav-btn" id="period-picker-prev" data-i18n-aria-label="period.prevYear" aria-label="Previous year">‹</button>
+          <span id="period-picker-year"></span>
+          <button type="button" class="period-nav-btn" id="period-picker-next" data-i18n-aria-label="period.nextYear" aria-label="Next year">›</button>
+        </div>
+        <div class="period-picker-grid" id="period-picker-grid"></div>
       </div>
     </div>
   </div>
