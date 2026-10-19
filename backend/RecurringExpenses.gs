@@ -880,6 +880,10 @@ function findRecurringLinkCandidates(payload) {
 
   var todayStr = formatCalendarDate_(new Date());
   var reAmountPen = toPenAmount_(Number(re.amount), re.currency || homeCurrency_(), todayStr);
+  // The item's OWN share (a rent split three ways: the full USD 800 and the
+  // owner's USD 266). An old entry may hold only his share and a new one the
+  // full payment with splits, so each pair is compared like with like.
+  var reOwnPen = toPenAmount_(recurringOwnAmount_(re, recurringSplitSums), re.currency || homeCurrency_(), todayStr);
   var reWords = significantWords_(re.description);
 
   var candidates = [];
@@ -897,8 +901,13 @@ function findRecurringLinkCandidates(payload) {
     if (alreadyMatched) return;
 
     var entryAmountPen = toPenAmount_(Number(e.amount), e.currency, e.date);
+    var entryOwnPen = toPenAmount_(Number(e.amount) - (entrySplitSumByEntry[e.id] || 0), e.currency, e.date);
     if (entryAmountPen == null || reAmountPen == null) return;
+    // Closest of: full amount vs full amount, own share vs own share.
     var amountScore = 1 - Math.abs(entryAmountPen - reAmountPen) / Math.max(entryAmountPen, reAmountPen, 1);
+    if (entryOwnPen != null && reOwnPen != null) {
+      amountScore = Math.max(amountScore, 1 - Math.abs(entryOwnPen - reOwnPen) / Math.max(entryOwnPen, reOwnPen, 1));
+    }
     if (amountScore < 0.6) return; // more than ~40% off — not worth surfacing
 
     var wordScore = significantWords_(e.description).some(function (w) { return reWords.indexOf(w) !== -1; }) ? 0.5 : 0;
@@ -1036,6 +1045,10 @@ function listEntriesForRecurringMonth(payload) {
   var occ = recurringExpenseOccurrencesInRange_(re, monthStart, monthEnd)[0] ||
     formatCalendarDate_(clampedCalendarDate_(y, m, re.day ? Number(re.day) : 1));
   var win = matchPickerWindow_(occ);
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSums[s.entry_id] = (entrySplitSums[s.entry_id] || 0) + Number(s.amount);
+  });
   var candidates = getAllRows('Entries')
     .filter(function (e) {
       return e.status === 'confirmed' && e.type === type && e.date >= win.lo && e.date <= win.hi;
@@ -1043,13 +1056,17 @@ function listEntriesForRecurringMonth(payload) {
     .map(function (e) {
       return {
         id: e.id, date: e.date, amount: Number(e.amount), currency: e.currency,
+        own_amount: Number(e.amount) - (entrySplitSums[e.id] || 0),
         description: e.description || '', category_name: categoryById[e.category_id] ? categoryLabel_(categoryById[e.category_id]) : '',
         linked_here: e.recurring_expense_id === re.id
       };
     });
-  return orderMatchCandidates_(candidates, {
-    amount: Number(re.amount), currency: re.currency || homeCurrency_(), date: occ, description: re.description
+  var ordered = orderMatchCandidates_(candidates, {
+    amount: Number(re.amount), own_amount: recurringOwnAmount_(re, getRecurringExpenseSplitSums_()),
+    currency: re.currency || homeCurrency_(), date: occ, description: re.description
   });
+  ordered.forEach(function (c) { delete c.own_amount; });   // only used for ranking
+  return ordered;
 }
 
 // The calendar dates (YYYY-MM-DD) on which a recurring expense actually
@@ -1150,6 +1167,12 @@ function orderMatchCandidates_(candidates, target) {
     var cAmt = amountInPen_(Math.abs(Number(c.amount)), c.currency, c.date);
     var tAmt = amountInPen_(targetAbs, target.currency, c.date);
     var amountScore = cAmt == null || tAmt == null ? 0 : Math.max(0, 1 - Math.abs(cAmt - tAmt) / Math.max(cAmt, tAmt, 1));
+    // Also own share vs own share (a shared item vs an entry that holds only the owner's part).
+    if (c.own_amount !== undefined && target.own_amount !== undefined) {
+      var cOwn = amountInPen_(Math.abs(Number(c.own_amount)), c.currency, c.date);
+      var tOwn = amountInPen_(Math.abs(Number(target.own_amount)), target.currency, c.date);
+      if (cOwn != null && tOwn != null) amountScore = Math.max(amountScore, Math.max(0, 1 - Math.abs(cOwn - tOwn) / Math.max(cOwn, tOwn, 1)));
+    }
     var wordScore = significantWords_(c.description).some(function (w) { return targetWords.indexOf(w) !== -1; }) ? 0.5 : 0;
     var days = Math.abs(daysBetweenDates_(c.date, target.date));
     c._days = days;

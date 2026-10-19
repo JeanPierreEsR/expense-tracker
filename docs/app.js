@@ -4191,6 +4191,7 @@ async function openBreakdownDrilldown(kind, item) {
   document.getElementById("drilldown-categories").hidden = true;
   document.getElementById("drilldown-chart").hidden = true;
   document.getElementById("drilldown-projection-row").hidden = true;
+  ["drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
 
   const bounds = getPeriodBounds();
 
@@ -4221,6 +4222,7 @@ async function openBudgetDrilldown(budget) {
   document.getElementById("drilldown-menu-btn").hidden = false;
   document.getElementById("drilldown-menu").hidden = true;
   document.getElementById("drilldown-projection-row").hidden = true;
+  ["drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
   // "Projected" (not "Pace to stay in budget") since the dashed line
   // stopped being an even pace toward the flat budget cap and became the
   // same expected+programmed forecast Projections draws (2026-09-22) —
@@ -8163,6 +8165,7 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
   document.getElementById("drilldown-chart-legend-2").textContent = tr("drill.projectedLegend");
   document.getElementById("drilldown-projection-row").hidden = false;
   document.getElementById("drilldown-projection-amount").textContent = "…";
+  ["drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
   document.getElementById("drilldown-projection-override-note").hidden = true;
   document.getElementById("drilldown-projection-split").hidden = true;
   document.getElementById("drilldown-projection-programmed-detail").hidden = true;
@@ -8224,6 +8227,15 @@ function renderProjectionDrilldownAmount_(detail) {
   const p = detail.projection;
   document.getElementById("drilldown-projection-amount").textContent = formatPen(p.remainingTotalPen);
   document.getElementById("drilldown-projection-override-note").hidden = !p.hasOverride;
+
+  // Actual, what is left, and their sum: so the numbers add up where they can be seen.
+  document.getElementById("drilldown-projection-actual-row").hidden = false;
+  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen(p.actualPen);
+  const annualNote = document.getElementById("drilldown-projection-annual-note");
+  annualNote.hidden = !(p.annualInPeriodPen > 0.005);
+  annualNote.textContent = p.annualInPeriodPen > 0.005 ? tr("drill.annualAside", { amount: formatPen(p.annualInPeriodPen) }) : "";
+  document.getElementById("drilldown-projection-total-row").hidden = false;
+  document.getElementById("drilldown-projection-total-amount").textContent = formatPen(p.totalPen);
 
   renderProjectionSplit_(detail);
 }

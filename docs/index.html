@@ -746,6 +746,11 @@
           </div>
           <p class="hint" id="drilldown-chart-pace-note"></p>
         </div>
+        <div class="drilldown-projection-split-row" id="drilldown-projection-actual-row" hidden>
+          <span data-i18n="drill.actual">✅ Actual</span>
+          <span id="drilldown-projection-actual-amount">0.00</span>
+        </div>
+        <p class="hint" id="drilldown-projection-annual-note" hidden></p>
         <div id="drilldown-projection-split" hidden>
           <div class="drilldown-projection-split-row expandable" id="drilldown-projection-programmed-row">
             <span><span data-i18n="drill.programmed">🔁 Programmed</span> <span class="hint" data-i18n="drill.tapToTrace">(tap to trace)</span></span>
@@ -773,6 +778,10 @@
             <div class="hint" id="drilldown-projection-override-note" hidden data-i18n="drill.manuallySet">Manually set</div>
           </div>
           <div class="drilldown-projection-amount" id="drilldown-projection-amount">0.00</div>
+        </div>
+        <div class="drilldown-projection-split-row" id="drilldown-projection-total-row" hidden>
+          <span><span data-i18n="drill.periodTotal">🧮 Total for the period</span> <span class="hint" data-i18n="drill.periodTotalHint">(actual + what's left)</span></span>
+          <span id="drilldown-projection-total-amount">0.00</span>
         </div>
         <div class="currency-option-list" id="drilldown-list"></div>
       </div>

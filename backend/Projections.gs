@@ -269,6 +269,7 @@ function computeAllCategoryProjections_(bounds) {
         overrideAmountPen: null,
         amountPen: 0,
         actualPen: 0,
+        annualInPeriodPen: 0,
         programmedRemainingPen: 0,
         expectedRemainingPen: 0,
         remainingTotalPen: 0,
@@ -359,11 +360,20 @@ function computeAllCategoryProjections_(bounds) {
     // through today only (a period that hasn't fully elapsed can't have
     // "all" its actual figure yet — matches the drill-down chart's own
     // today-truncated solid line).
+    // A MONTH view leaves Annual-tagged expenses out of Actual (the owner's rule,
+    // like a monthly budget): they are one-off lumps that would make the month look
+    // far heavier than its running costs. They are reported aside
+    // (`annualInPeriodPen`) and still show in Overview, the entry lists and a
+    // Year view, where they count.
+    var leaveAnnualOut = bounds.periodType === 'monthly' && category.type !== 'income';
     var actualPen = 0;
+    var annualInPeriodPen = 0;
     categoryEntriesInPeriod.forEach(function (e) {
       if (e.date > todayStr) return;
       var pen = toPen_(ownAmount_(e), e.currency, e.date);
-      if (pen != null) actualPen += pen;
+      if (pen == null) return;
+      if (leaveAnnualOut && annualEntryIds[e.id]) { annualInPeriodPen += pen; return; }
+      actualPen += pen;
     });
 
     // "Programmed remaining" — this period's recurring occurrences that
@@ -425,6 +435,7 @@ function computeAllCategoryProjections_(bounds) {
       overrideAmountPen: hasOverride ? overridesByKey[overrideKey] : null,
       amountPen: amountPen,
       actualPen: actualPen,
+      annualInPeriodPen: annualInPeriodPen,
       programmedRemainingPen: programmedRemainingPen,
       expectedRemainingPen: expectedRemainingPen,
       remainingTotalPen: remainingTotalPen,
@@ -489,7 +500,7 @@ function getCategoryProjectionDetail(payload) {
       category_type: category ? category.type : 'expense',
       recurringAmountPen: 0, baseAmountPen: 0, calculatedAmountPen: 0,
       hasOverride: false, overrideAmountPen: null, amountPen: 0,
-      actualPen: 0, programmedRemainingPen: 0, expectedRemainingPen: 0,
+      actualPen: 0, annualInPeriodPen: 0, programmedRemainingPen: 0, expectedRemainingPen: 0,
       remainingTotalPen: 0, totalPen: 0, ratePerMonth: 0, levelPerMonth: 0, seasonalFactor: 1, seasonalYears: 0, seasonalYearList: [], daysLeft: 0
     };
   }
@@ -506,12 +517,16 @@ function getCategoryProjectionDetail(payload) {
   }
 
   var dailyActualPen = {};
+  var annualLeftOut = bounds.periodType === 'monthly' && category && category.type !== 'income';
+  var annualIdsInDetail = annualLeftOut ? annualEntryIdSet_() : {};
   getAllRows('Entries')
     .filter(function (e) {
       return e.status === 'confirmed' && e.category_id === payload.categoryId &&
         e.date >= bounds.startDate && e.date <= bounds.endDate;
     })
     .forEach(function (e) {
+      // Same rule as Actual: a Month view leaves Annual-tagged expenses out.
+      if (annualLeftOut && annualIdsInDetail[e.id]) return;
       var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
       var pen = toPen_(ownAmount, e.currency, e.date);
       if (pen == null) return;
