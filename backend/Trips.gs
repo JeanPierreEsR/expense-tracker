@@ -15,9 +15,17 @@ var TRIP_KINDS_ = { trip: true, event: true };
 // The tab is newer than setupSpreadsheet() — it creates itself on first use,
 // same pattern as ensurePayorsSheet_. The date columns are plain text so Sheets
 // never turns "2026-12-01" into a Date (see DATE_LIKE_COLUMNS in Setup.gs).
+var tripsColumnsChecked_ = false;   // per execution: the column check reads the header row once
+
 function ensureTripsSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (ss.getSheetByName('Trips')) return;
+  if (ss.getSheetByName('Trips')) {
+    if (!tripsColumnsChecked_) {
+      tripsColumnsChecked_ = true;
+      ensureColumn_('Trips', 'alert_thresholds');   // a tab made before the alerts existed
+    }
+    return;
+  }
   var sheet = ss.insertSheet('Trips');
   var headers = TABLE_DEFINITIONS['Trips'];
   var headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -84,9 +92,13 @@ function cleanTripInput_(p) {
     currency = String(p.budget_currency || homeCurrency_()).trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error(tr_('err.currencyCode'));
   }
+  // Alert percentages (only meaningful with a budget). Blank = the usual budget ones; anything else is checked.
+  var thresholdsRaw = String(p.alert_thresholds === undefined || p.alert_thresholds === null ? '' : p.alert_thresholds).trim();
+  var thresholds = amount !== '' && thresholdsRaw !== '' ? normalizeBudgetThresholds_(thresholdsRaw) : '';
   return {
     name: name, kind: kind, start_date: start, end_date: end,
-    emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: currency
+    emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: currency,
+    alert_thresholds: thresholds
   };
 }
 
@@ -139,6 +151,7 @@ function deleteTrip(payload) {
       });
     }
     deleteRowsWhere_('Trips', function (row) { return row.id === id; });
+    deleteRowsWhere_('Budget Alert Log', function (r) { return r.budget_id === id && r.period === TRIP_ALERT_PERIOD_; });
   });
   return { done: true };
 }
@@ -393,4 +406,79 @@ function linkEntriesToTrip(payload) {
     });
   });
   return { linked: linked };
+}
+
+// ---- Budget alerts through Telegram (same idea and cycle as category budgets) ----
+// A trip with a budget warns when what it counts (paid + estimates, the same figure as its budget bar)
+// first crosses each alert percentage. Dedup is by the shared Budget Alert Log with the trip's id as
+// `budget_id` and period 'trip'; falling back below a percentage forgets it, so crossing again warns
+// again — exactly the category-budget rules. One message per trip per run, quoting the live percentage.
+// Only trips that have not ended more than 30 days ago are looked at.
+var TRIP_ALERT_PERIOD_ = 'trip';
+var TRIP_ALERT_GRACE_DAYS_ = 30;
+
+function tripDisplayName_(t) {
+  return (t.emoji || (t.kind === 'event' ? '🎉' : '✈️')) + ' ' + t.name;
+}
+
+function checkTripBudgets() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return checkTripBudgetsLocked_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function checkTripBudgetsLocked_() {
+  var cutoff = formatCalendarDate_(new Date(Date.now() - TRIP_ALERT_GRACE_DAYS_ * 24 * 3600 * 1000));
+  var trips = listTrips().filter(function (t) {
+    return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff;
+  });
+  if (!trips.length) return { checked: 0, alertsSent: 0 };
+
+  var alertedSet = {};
+  getAllRows('Budget Alert Log').forEach(function (a) {
+    if (a.period === TRIP_ALERT_PERIOD_) alertedSet[a.budget_id + '|' + a.threshold] = true;
+  });
+
+  var alertsSent = 0;
+  var staleKeys = {};
+  trips.forEach(function (t) {
+    var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
+    var thresholds = String(t.alert_thresholds || DEFAULT_BUDGET_THRESHOLDS)
+      .split(',')
+      .map(function (x) { return Number(String(x).trim()); })
+      .filter(function (x) { return !isNaN(x); })
+      .sort(function (a, b) { return a - b; });
+
+    thresholds.forEach(function (threshold) {
+      if (percent < threshold) {
+        var staleKey = t.id + '|' + threshold;
+        if (alertedSet[staleKey]) { staleKeys[staleKey] = true; delete alertedSet[staleKey]; }
+      }
+    });
+    var newlyCrossed = thresholds.filter(function (threshold) {
+      return percent >= threshold && !alertedSet[t.id + '|' + threshold];
+    });
+    if (!newlyCrossed.length) return;
+
+    if (!sendTelegramTripBudgetAlert_(t, percent)) return;   // Telegram not configured: try again next cycle
+    newlyCrossed.forEach(function (threshold) {
+      appendRowObject('Budget Alert Log', {
+        id: Utilities.getUuid(), budget_id: t.id, threshold: threshold, period: TRIP_ALERT_PERIOD_,
+        sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      });
+      alertedSet[t.id + '|' + threshold] = true;
+    });
+    alertsSent++;
+  });
+
+  if (Object.keys(staleKeys).length) {
+    deleteRowsWhere_('Budget Alert Log', function (r) {
+      return r.period === TRIP_ALERT_PERIOD_ && staleKeys[r.budget_id + '|' + r.threshold] === true;
+    });
+  }
+  return { checked: trips.length, alertsSent: alertsSent };
 }

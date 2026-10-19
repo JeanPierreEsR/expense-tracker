@@ -19,8 +19,9 @@ var TABLE_DEFINITIONS = {
   // Trips & events (2026-10-19, see Trips.gs and specs/trips-events.md): a named
   // period (a trip, a birthday) that entries can be linked to through
   // Entries.trip_id. `kind` is 'trip' or 'event'. The budget is optional.
-  // Self-heals via ensureTripsSheet_.
-  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency'],
+  // `alert_thresholds`: comma-separated percentages of the budget at which Telegram warns (blank = the usual
+  // budget ones); the column is added to an existing tab by ensureTripsSheet_. Self-heals via ensureTripsSheet_.
+  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency', 'alert_thresholds'],
   'Entry Tags': ['entry_id', 'tag_id'],
   // Not part of the original spec — the bill behind a split expense (see
   // EntryBills.gs). Self-heals via ensureEntryBillsSheet_ on first save.
