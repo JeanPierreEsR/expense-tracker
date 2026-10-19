@@ -8076,31 +8076,29 @@ function renderProjectionSplit_(detail) {
   // or below an average month, the "× days left" line says so and shows the
   // adjusted sum instead of the plain one (see "Seasonality" in Projections.gs).
   const seasonal = p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
+  // "months left": every remaining day counts 1 / (the days of ITS month), so a
+  // whole month is always 1 — whether it has 28 days or 31.
+  const monthsLeftText = (p.monthsLeft || 0).toFixed(2);
   const prorationLine = () => {
-    if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
+    if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), months: monthsLeftText, n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
     return tr(p.seasonalFactor > 1 ? "projections.seasonHigh" : "projections.seasonLow", {
       pct: Math.round(Math.abs(p.seasonalFactor - 1) * 100),
       years: (p.seasonalYearList || []).join(", "),
       level: formatPen(p.levelPerMonth),
       factor: p.seasonalFactor.toFixed(2),
+      months: monthsLeftText,
       n: p.daysLeft,
       amount: formatPen(p.expectedRemainingPen)
     });
   };
   if (!breakdown || !breakdown.monthsElapsed) {
-    // January (no complete month yet): last year's monthly average stands in.
-    if (breakdown && breakdown.levelPerMonth > 0) {
-      formulaEl.innerHTML = `
-        <div>${escapeHtml(tr("projections.formulaPriorYear", { level: formatPen(breakdown.levelPerMonth) }))}</div>
-        <div style="margin-top:4px;">${escapeHtml(prorationLine())}</div>`;
-    } else {
-      formulaEl.textContent = tr("projections.notEnoughHistory");
-    }
+    formulaEl.textContent = tr("projections.notEnoughHistory");
     monthsEl.innerHTML = "";
     return;
   }
 
-  const monthLabel = (monthKey) => MONTH_NAMES_SHORT[parseInt(monthKey.slice(5, 7), 10) - 1];
+  // The window is the last 12 complete months, so it can cross a year: "Nov 2025".
+  const monthLabel = (monthKey) => `${MONTH_NAMES_SHORT[parseInt(monthKey.slice(5, 7), 10) - 1]} ${monthKey.slice(0, 4)}`;
   const firstMonth = monthLabel(breakdown.months[0].monthKey);
   const lastMonth = monthLabel(breakdown.months[breakdown.months.length - 1].monthKey);
   const span = breakdown.months.length === 1 ? firstMonth : `${firstMonth}–${lastMonth}`;

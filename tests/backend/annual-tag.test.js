@@ -23,6 +23,14 @@ function addEntry(rt, id, date, amount, annual) {
   rt.run(`appendRowObject('Entries', { id: ${JSON.stringify(id)}, type: 'expense', date: ${JSON.stringify(date)}, amount: ${amount}, currency: 'PEN', category_id: 'cat-annual-test', description: ${JSON.stringify(id)}, paid_by: 'me', status: 'confirmed', source: 'manual' });`);
   if (annual) rt.run(`appendRowObject('Entry Tags', { entry_id: ${JSON.stringify(id)}, tag_id: ANNUAL_TAG_ID });`);
 }
+// A date `k` months before the backend's current month (inside the 12-month window the
+// projection's level is learned from; a category's first-ever entry is placed years back
+// so the whole window counts).
+const ago = (k, day) => {
+  const [y, m] = today().split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 - k, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
 const projection = (rt, displayPeriodType = "month") =>
   rt.api("listCategoryProjections", { displayPeriodType }).categories.find((c) => c.category_id === "cat-annual-test");
 
@@ -50,36 +58,40 @@ test("searching finds an Annual-tagged entry by either name", () => {
   assert.deepEqual(found("annual"), ["e-annual"]);
 });
 
-test("projections: an Annual-tagged expense is left out of the monthly rate, and nothing replaces it", { skip: needsHistory }, () => {
+test("projections: an Annual-tagged expense is left out of the monthly rate, and nothing replaces it", () => {
   const rt = setup();
-  addEntry(rt, "e-gas", `${year}-01-10`, 100, false);
-  addEntry(rt, "e-service", `${year}-01-20`, 1200, true);   // car maintenance, tagged Annual
+  addEntry(rt, "e-first", ago(36, 1), 1, false);               // the category already existed long before the window
+  addEntry(rt, "e-gas", ago(2, 10), 100, false);
+  addEntry(rt, "e-service", ago(2, 20), 1200, true);           // car maintenance, tagged Annual
   const m = projection(rt);
-  assert.ok(Math.abs(m.ratePerMonth - 100 / monthsElapsed) < 0.001, "rate = only the untagged 100 over the months elapsed");
+  assert.ok(Math.abs(m.ratePerMonth - 100 / 12) < 0.001, "rate = only the untagged 100 over the 12-month window");
   const y = projection(rt, "year");
-  assert.ok(Math.abs(y.baseAmountPen - (100 / monthsElapsed) * 12) < 0.001, "the year view uses the same rate x 12 — no extra for the tagged one");
+  assert.ok(Math.abs(y.baseAmountPen - 100) < 0.001, "the year view uses the same rate x 12 — no extra for the tagged one");
   // Without the tag the same expense would have inflated the rate.
   rt.run(`deleteRowsWhere_('Entry Tags', function (r) { return r.entry_id === 'e-service'; });`);
-  assert.ok(Math.abs(projection(rt).ratePerMonth - 1300 / monthsElapsed) < 0.001);
+  assert.ok(Math.abs(projection(rt).ratePerMonth - 1300 / 12) < 0.001);
 });
 
-test("projections: an Annual-tagged expense still counts as actual spend in its own month, and the trace reports it", { skip: needsHistory }, () => {
+test("projections: an Annual-tagged expense still counts as actual spend in its own month, and the trace reports it", () => {
   const rt = setup();
-  addEntry(rt, "e-gas", `${year}-01-10`, 100, false);
-  addEntry(rt, "e-service", `${year}-01-20`, 1200, true);
+  addEntry(rt, "e-first", ago(36, 1), 1, false);
+  addEntry(rt, "e-gas", ago(2, 10), 100, false);
+  addEntry(rt, "e-service", ago(2, 20), 1200, true);
   addEntry(rt, "e-today", today(), 900, true);
   const m = projection(rt);
   assert.equal(m.actualPen, 900, "this month's actual includes the tagged expense");
   const detail = rt.api("getCategoryProjectionDetail", { categoryId: "cat-annual-test", displayPeriodType: "month" });
-  assert.equal(detail.ytdBreakdown.annualExcludedPen, 1200, "year-to-date, the tagged 1200 is reported as left out");
+  assert.equal(detail.ytdBreakdown.annualExcludedPen, 1200, "over the window, the tagged 1200 is reported as left out");
   assert.equal(detail.ytdBreakdown.annualExcludedCount, 1);
   assert.ok(Math.abs(detail.ytdBreakdown.totalPen - 100) < 0.001);
+  assert.equal(detail.ytdBreakdown.months.length, 12, "one row per month of the window");
   assert.ok(detail.ytdBreakdown.months.every((x) => x.amountPen === 0 || x.amountPen === 100));
 });
 
-test("a programmed (recurring) item is still projected, tag or no tag", { skip: needsHistory }, () => {
+test("a programmed (recurring) item is still projected, tag or no tag", () => {
   const rt = setup();
-  addEntry(rt, "e-service", `${year}-01-20`, 1200, true);
+  addEntry(rt, "e-first", ago(36, 1), 1, false);
+  addEntry(rt, "e-service", ago(2, 20), 1200, true);
   rt.api("addRecurringExpense", { category_id: "cat-annual-test", description: "Car insurance", amount: 260, currency: "PEN", frequency: "monthly", day: 28 });
   const m = projection(rt);
   assert.equal(m.recurringAmountPen, 260);
