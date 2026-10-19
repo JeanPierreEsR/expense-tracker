@@ -205,11 +205,10 @@ test("projections: the service is Programmed in its month; paying it a few weeks
   assert.equal(expectedFor(rt, r.id).length, 0, "and the card no longer lists it");
 });
 
-test("projections: the paid service is taken out of the category's year-to-date average (no double count)", { skip: new Date().getMonth() < 1 ? "no complete month yet this year" : false }, () => {
+test("projections: the paid service is taken out of the category's 12-month average (no double count)", () => {
   const { rt } = setup();
-  const year = new Date().getFullYear();
-  // One service early this year, 5 months before the next one.
-  const serviceDate = `${year}-01-10`;
+  addEntry(rt, monthsAgo(36, 1), 1, "first ever");              // the category already existed long before the window
+  const serviceDate = monthsAgo(3, 10);
   addEntry(rt, serviceDate, 600, "Car service");
   const proj = () => rt.api("listCategoryProjections", { displayPeriodType: "month" }).categories.find((c) => c.category_id === CAT);
   assert.ok(proj().ratePerMonth > 0, "without the item the service feeds the average");

@@ -510,7 +510,7 @@ function getBudgetChartSeries(payload) {
     if (String(cat.period_type || '').toLowerCase() === 'yearly' && payload.periodType !== 'yearly') return;
     var profile = seasonalProfiles[cat.id] || flatSeasonProfile_();
     var ytd = computeCategoryYtdBreakdown_(cat.id, profile);
-    expectedRemainingPen += ytd.levelPerMonth * (daysLeft / 30) * seasonalRemainingFactor_(profile, startDate, endDate);
+    expectedRemainingPen += ytd.levelPerMonth * seasonalMonthsLeft_(profile, startDate, endDate).weighted;
   });
   var expectedRemaining = currency === homeCurrency_() ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
 

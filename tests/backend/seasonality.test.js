@@ -27,6 +27,15 @@ function history(rt, monthlyAmount, years = [thisYear - 3, thisYear - 2, thisYea
   addEntry(rt, ymd(thisYear - 4, 1), 1, "first ever");
   years.forEach((y) => { for (let m = 1; m <= 12; m++) addEntry(rt, ymd(y, m), monthlyAmount(m)); });
 }
+// This year's complete months so far, following the same monthly pattern as `history`. The
+// level is learned from the last 12 complete months = those + the matching months of last year
+// (already in `history`), so each calendar month appears exactly once in the window.
+function thisYearSoFar(rt, monthlyAmount) {
+  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), monthlyAmount(m));
+}
+const DEC_HEAVY = (m) => (m === 12 ? 400 : 100);   // the 12 months add up to 1,500 = 125 a month
+const FLAT = () => 100;
+const daysInThisMonth = () => { const [y, m] = today().split("-").map(Number); return new Date(y, m, 0).getDate(); };
 const profile = (rt) => JSON.parse(rt.run(`JSON.stringify(computeSeasonalProfiles_([${JSON.stringify(CAT)}])[${JSON.stringify(CAT)}])`));
 const projection = (rt, displayPeriodType = "month") =>
   rt.api("listCategoryProjections", { displayPeriodType }).categories.find((c) => c.category_id === CAT);
@@ -42,7 +51,6 @@ test("a December that is 4x the other months becomes an index of ~2.65, the othe
   assert.ok(Math.abs(p.index[11] - 2.65) < 1e-9);
   assert.ok(p.index.slice(0, 11).every((s) => Math.abs(s - 0.85) < 1e-9));
   assert.ok(Math.abs(sum(p.index) - 12) < 1e-9, "the yearly total never changes, only its shape");
-  assert.ok(Math.abs(p.priorLevelPen - 125) < 1e-9, "last year's monthly average: (11 x 100 + 400) / 12");
 });
 
 test("a flat category stays flat, and so does one with no usable history", () => {
@@ -93,56 +101,72 @@ test("Annual-tagged entries are left out of the shape", () => {
   assert.ok(profile(rt).index.every((s) => Math.abs(s - 1) < 1e-9));
 });
 
-test("projections: the level removes the season from this year's spend; the Year view weights the months still ahead", { skip: needsHistory }, () => {
+test("projections: 12 full months make the level the plain 12-month average; the Year view weights the months still ahead", () => {
   const { rt } = setup();
   history(rt, (m) => (m === 12 ? 400 : 100));
-  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), 100);   // this year so far: 100 a month
+  thisYearSoFar(rt, DEC_HEAVY);
   const month = projection(rt, "month");
   const year = projection(rt, "year");
-  assert.equal(month.ratePerMonth, 100, "the plain year-to-date average is still reported");
-  assert.ok(Math.abs(month.levelPerMonth - 100 / 0.85) < 1e-6, "Jan..last month are all 0.85 months: level = 100 / 0.85");
+  assert.equal(month.ratePerMonth, 125, "the plain 12-month average is still reported: (11 x 100 + 400) / 12");
+  assert.ok(Math.abs(month.levelPerMonth - 125) < 1e-6, "12 full months: the indexes sum to 12 and cancel, level = average");
   assert.equal(month.seasonalYears, 3);
-  // The Year view still has December ahead: its remaining days are weighted by the index.
-  assert.ok(year.seasonalFactor > month.seasonalFactor, "December (2.65) pulls the year's remaining weight up");
-  const legacy = 100 * (year.daysLeft / 30);
-  assert.ok(year.expectedRemainingPen > legacy, "more than the flat 'rate x days left / 30'");
+  assert.ok(Math.abs(month.monthsLeft - month.daysLeft / daysInThisMonth()) < 1e-9, "Month view: days left / days in THIS month");
+  assert.ok(Math.abs(month.expectedRemainingPen - month.levelPerMonth * month.monthsLeft * month.seasonalFactor) < 1e-6);
+  assert.ok(Math.abs(year.expectedRemainingPen - year.levelPerMonth * year.monthsLeft * year.seasonalFactor) < 1e-6);
   // The yearly shape is preserved: base (whole period) = level x the 12 indexes = 12 x level.
   assert.ok(Math.abs(year.baseAmountPen - 12 * year.levelPerMonth) < 1e-6);
 });
 
-test("projections: a flat category gives exactly the old figure (rate x days left / 30)", { skip: needsHistory }, () => {
+test("projections: a flat category gives rate x the months still to come (days left / days in that month)", () => {
   const { rt } = setup();
   history(rt, () => 100);
-  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), 100);
-  [projection(rt, "month"), projection(rt, "year")].forEach((p) => {
-    assert.equal(p.seasonalFactor, 1);
-    assert.ok(Math.abs(p.expectedRemainingPen - 100 * (p.daysLeft / 30)) < 1e-6);
-  });
+  thisYearSoFar(rt, FLAT);
+  const month = projection(rt, "month");
+  assert.equal(month.seasonalFactor, 1);
+  assert.ok(Math.abs(month.expectedRemainingPen - 100 * month.daysLeft / daysInThisMonth()) < 1e-6, "a 28-day month weighs exactly as much as a 31-day one");
+  const year = projection(rt, "year");
+  assert.ok(Math.abs(year.expectedRemainingPen - 100 * year.monthsLeft) < 1e-6);
 });
 
-test("projections: a category with no past years behaves exactly as before", { skip: needsHistory }, () => {
+test("every remaining day weighs 1 / the days of ITS month: February is a whole month, like July", () => {
   const { rt } = setup();
-  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), 100);
-  const p = projection(rt, "month");
-  assert.equal(p.seasonalYears, 0);
-  assert.equal(p.levelPerMonth, 100);
-  assert.ok(Math.abs(p.expectedRemainingPen - 100 * (p.daysLeft / 30)) < 1e-6);
+  const monthsLeft = (start, end) => JSON.parse(rt.run(`JSON.stringify(seasonalMonthsLeft_(flatSeasonProfile_(), '${start}', '${end}'))`));
+  // A period in the future counts whole: Feb 2099 (28 days) = 1 month, July 2099 (31 days) = 1 month, the year = 12.
+  assert.ok(Math.abs(monthsLeft("2099-02-01", "2099-02-28").months - 1) < 1e-12);
+  assert.ok(Math.abs(monthsLeft("2099-07-01", "2099-07-31").months - 1) < 1e-12);
+  assert.ok(Math.abs(monthsLeft("2099-01-01", "2099-12-31").months - 12) < 1e-12);
+  assert.ok(Math.abs(monthsLeft("2096-02-01", "2096-02-29").months - 1) < 1e-12, "a leap February too");
+  assert.equal(monthsLeft("2000-02-01", "2000-02-29").months, 0, "an ended period has nothing left");
 });
 
-test("the Expected trace carries the seasonal facts", { skip: needsHistory }, () => {
+test("a category younger than the window uses only its complete months since its first entry", () => {
+  const { rt } = setup();
+  const [y, m] = today().split("-").map(Number);
+  const at = (k, day = 10) => { const d = new Date(Date.UTC(y, m - 1 - k, 1)); return ymd(d.getUTCFullYear(), d.getUTCMonth() + 1, day); };
+  addEntry(rt, at(4, 20), 1, "first");                         // started 4 months ago (that month is partial: left out)
+  for (let k = 1; k <= 3; k++) addEntry(rt, at(k), 300);
+  const p = projection(rt, "month");
+  const detail = rt.api("getCategoryProjectionDetail", { categoryId: CAT, displayPeriodType: "month" });
+  assert.equal(detail.ytdBreakdown.months.length, 3);
+  assert.equal(p.ratePerMonth, 300, "three complete months of 300");
+});
+
+test("the Expected trace carries the window and the seasonal facts", () => {
   const { rt } = setup();
   history(rt, (m) => (m === 12 ? 400 : 100));
-  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), 100);
+  thisYearSoFar(rt, DEC_HEAVY);
   const detail = rt.api("getCategoryProjectionDetail", { categoryId: CAT, displayPeriodType: "year" });
   assert.equal(detail.ytdBreakdown.seasonalYears, 3);
-  assert.ok(Math.abs(detail.ytdBreakdown.levelPerMonth - 100 / 0.85) < 1e-6);
+  assert.equal(detail.ytdBreakdown.months.length, 12);
+  assert.ok(Math.abs(detail.ytdBreakdown.levelPerMonth - 125) < 1e-6);
   assert.equal(detail.projection.seasonalYears, 3);
+  assert.ok(detail.projection.monthsLeft > 0);
 });
 
-test("budgets use the same seasonal 'Expected' as projections", { skip: needsHistory }, () => {
+test("budgets use the same seasonal 'Expected' as projections", () => {
   const { rt } = setup();
   history(rt, (m) => (m === 12 ? 400 : 100));
-  for (let m = 1; m <= monthsElapsed; m++) addEntry(rt, ymd(thisYear, m), 100);
+  thisYearSoFar(rt, DEC_HEAVY);
   const budget = rt.api("addBudget", { category_id: CAT, amount: 5000, currency: "PEN", period_type: "yearly", thresholds: "100" });
   const series = rt.api("getBudgetChartSeries", { budgetId: budget.id, startDate: `${thisYear}-01-01`, endDate: `${thisYear}-12-31`, periodType: "yearly" });
   const year = projection(rt, "year");
