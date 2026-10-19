@@ -269,6 +269,19 @@ test("a shared variable item counts only the owner's share, following the real p
   assert.equal(group.amount, 22, "Programmed this month counts the owner's third: 66 / 3");
 });
 
+test("a split saved on the item survives when the real payments were logged unsplit, and scales with the bill", () => {
+  const { rt } = setup();
+  [60, 66, 72].forEach((a, i) => addEntry(rt, monthsAgo(1 + i, 8), a, "Gas del depa"));   // never split on the entry
+  rt.run(`appendRowObject('Friends', { id: 'f-flat-a', name: 'Flatmate A', notes: '' });`);
+  const r = variableItem(rt, { match_words: "gas", day: 8, amount: 90 });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: "f-flat-a", amount: 60 }] });   // 2/3 of the typed 90
+  const item = listed(rt, r.id);
+  assert.equal(item.amount, 66, "total: average of the real payments");
+  assert.equal(item.split_total, 44, "the friend's two thirds, applied to the real average (not a fixed 60)");
+  const group = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
+  assert.equal(group.amount, 22, "the owner's third");
+});
+
 test("a fixed split saved on the item does not follow a bill that changes every month", () => {
   const { rt } = setup();
   sharedGasHistory(rt, 3);
