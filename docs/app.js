@@ -6271,7 +6271,8 @@ function renderRecurringAmountHtml_(re) {
   const isIncome = re.category_type === "income";
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
-  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  // "≈": a variable-amount item shows its current estimate, not a fixed price.
+  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
@@ -6311,7 +6312,7 @@ function renderRecurringRow_(re) {
   row.innerHTML = `
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
@@ -6590,6 +6591,10 @@ function setRecurringFrequency_(freq) {
   const todayIso = todayLocalISO();
   // Start/end dates only make sense for an item that repeats.
   document.getElementById("recurring-window-fields").hidden = freq === "once";
+  // A variable amount only makes sense for a monthly item.
+  document.getElementById("recurring-variable-field").hidden = freq !== "monthly";
+  if (freq !== "monthly") document.getElementById("recurring-variable-toggle").checked = false;
+  syncRecurringVariableUi_();
   if (freq === "once") {
     document.getElementById("recurring-occurrence-date-label").textContent = tr("field.date");
     document.getElementById("recurring-occurrence-date-hint").textContent =
@@ -6609,20 +6614,49 @@ document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) =
   tab.addEventListener("click", () => setRecurringFrequency_(tab.dataset.frequency));
 });
 
-async function openRecurringModal(re) {
+// The variable-amount part of the modal (see specs/recurring.md): a tick box,
+// the words that identify the payments, and a hint saying what the app
+// currently expects. For a variable item the Amount field is only the starting
+// estimate, used until the first payment is recognised.
+let editingRecurringItem = null;
+
+function syncRecurringVariableUi_() {
+  const fieldHidden = document.getElementById("recurring-variable-field").hidden;
+  const on = !fieldHidden && document.getElementById("recurring-variable-toggle").checked;
+  document.getElementById("recurring-variable-detail").hidden = !on;
+  document.getElementById("recurring-amount-label").textContent = on ? tr("recModal.startingEstimate") : tr("field.amount");
+  const re = editingRecurringItem;
+  const hint = document.getElementById("recurring-variable-hint");
+  if (!on) { hint.textContent = ""; return; }
+  hint.textContent = re && re.variable && re.payments_used > 0
+    ? tr("recModal.variableHintLive", { n: re.payments_used, cur: re.currency, amount: moneyFmt(re.amount), low: moneyFmt(re.amount_low), high: moneyFmt(re.amount_high) })
+    : tr("recModal.variableHintNew");
+}
+
+document.getElementById("recurring-variable-toggle").addEventListener("change", syncRecurringVariableUi_);
+
+// re: an existing item to edit. prefill: a suggestion from "Look for variable
+// payments" (a NEW item whose fields start filled in; nothing is saved until Save).
+async function openRecurringModal(re, prefill) {
   editingRecurringId = re ? re.id : null;
+  editingRecurringItem = re || null;
+  if (!prefill) pendingSuggestionBox_ = null;
+  const src = re || prefill || null;
   document.getElementById("recurring-modal-title").textContent = re ? tr("recModal.editItem") : tr("recModal.addItem");
   document.getElementById("recurring-form-error").textContent = "";
-  document.getElementById("recurring-description").value = re ? re.description : "";
+  document.getElementById("recurring-description").value = src ? src.description : "";
 
-  selectedRecurringCategoryId = re ? re.category_id : null;
+  selectedRecurringCategoryId = src ? src.category_id : null;
   populateRecurringCategoryChips();
 
-  document.getElementById("recurring-amount").value = re ? re.amount : "";
-  document.getElementById("recurring-currency").value = re ? re.currency : homeCur();
+  // A variable item shows what was typed (its estimate is shown in the hint).
+  document.getElementById("recurring-amount").value = src ? (src.variable && src.base_amount != null ? src.base_amount : src.amount) : "";
+  document.getElementById("recurring-currency").value = src ? src.currency : homeCur();
   renderCurrencyChips("recurring");
 
   const frequency = re ? re.frequency : "monthly";
+  document.getElementById("recurring-variable-toggle").checked = !!(prefill || (re && re.variable));
+  document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
   setRecurringFrequency_(frequency);
   if (frequency === "once") {
     // Real year matters here — a one-time item only ever happens once,
@@ -6630,7 +6664,7 @@ async function openRecurringModal(re) {
     document.getElementById("recurring-occurrence-date").value = re && re.date ? re.date : todayLocalISO();
   } else {
     const neutralYear = new Date().getFullYear();
-    const day = String(re ? re.day : 1).padStart(2, "0");
+    const day = String(src ? src.day : 1).padStart(2, "0");
     const month = String(re ? re.month : 1).padStart(2, "0");
     document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
   }
@@ -6714,6 +6748,7 @@ function renderRecurringSkips_(re) {
 function closeRecurringModal() {
   document.getElementById("recurring-modal-backdrop").hidden = true;
   editingRecurringId = null;
+  editingRecurringItem = null;
 }
 
 document.getElementById("add-recurring-btn").addEventListener("click", () => openRecurringModal(null));
@@ -6803,6 +6838,74 @@ document.getElementById("recurring-link-selected-btn").addEventListener("click",
   }
 });
 
+// "Look for variable payments" (see suggestVariableRecurring in
+// RecurringExpenses.gs): proposals only. "Add…" opens the normal add form with
+// the fields filled in; nothing exists until the owner taps Save. "Not now"
+// hides a proposal on this phone (remembered, but only here).
+const DISMISSED_VARIABLE_KEY = "dismissedVariableSuggestions";
+let pendingSuggestionBox_ = null;
+
+function dismissedVariableSuggestions_() {
+  try { return JSON.parse(localStorage.getItem(DISMISSED_VARIABLE_KEY) || "[]"); } catch (e) { return []; }
+}
+
+function dismissVariableSuggestion_(key) {
+  try { localStorage.setItem(DISMISSED_VARIABLE_KEY, JSON.stringify(dismissedVariableSuggestions_().concat(key))); } catch (e) { /* private mode: it just comes back next time */ }
+}
+
+function renderVariableSuggestions_(suggestions) {
+  const list = document.getElementById("recurring-suggest-list");
+  const dismissed = dismissedVariableSuggestions_();
+  const shown = suggestions.filter((s) => !dismissed.includes(s.key));
+  list.innerHTML = "";
+  document.getElementById("recurring-suggest-empty").hidden = shown.length > 0;
+  shown.forEach((s) => {
+    const box = document.createElement("div");
+    box.className = "expected-recurring-entry";
+    box.innerHTML = `
+      <div class="expected-recurring-item">
+        <span class="expected-recurring-item-label">${s.category_icon ? s.category_icon + " " : ""}${escapeHtml(s.description)}
+          <span class="hint" style="display:block;">${escapeHtml(tr("recurring.suggestSub", { category: s.category_name, day: s.typical_day, n: s.months_seen, cur: s.currency, min: moneyFmt(s.min_amount), max: moneyFmt(s.max_amount) }))}</span>
+        </span>
+        <span class="expected-recurring-item-amount">≈ ${s.currency} ${moneyFmt(s.avg_amount)}</span>
+      </div>
+      <div class="expected-recurring-actions">
+        <button type="button" data-act="add">${tr("recurring.suggestAdd")}</button>
+        <button type="button" data-act="dismiss">${tr("recurring.suggestDismiss")}</button>
+      </div>`;
+    box.querySelector('[data-act="add"]').addEventListener("click", () => {
+      pendingSuggestionBox_ = box;   // removed from the list once the item is actually saved
+      openRecurringModal(null, {
+        category_id: s.category_id, description: s.description, amount: s.avg_amount,
+        currency: s.currency, day: s.typical_day, match_words: s.match_words
+      });
+    });
+    box.querySelector('[data-act="dismiss"]').addEventListener("click", () => {
+      dismissVariableSuggestion_(s.key);
+      box.remove();
+      document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
+    });
+    list.appendChild(box);
+  });
+}
+
+document.getElementById("recurring-suggest-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("recurring-suggest-btn");
+  const list = document.getElementById("recurring-suggest-list");
+  btn.disabled = true;
+  btn.textContent = tr("recModal.searching");
+  try {
+    const { suggestions } = await callApi("suggestVariableRecurring");
+    renderVariableSuggestions_(suggestions);
+  } catch (err) {
+    document.getElementById("recurring-suggest-empty").hidden = true;
+    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("recModal.searchFailed", { error: err.message }))}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = tr("recurring.suggestBtn");
+  }
+});
+
 document.getElementById("recurring-amount").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
@@ -6842,7 +6945,10 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       active,
       // Blank clears; the server checks they are real dates and in order.
       start_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-start-date").value,
-      end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value
+      end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value,
+      // Variable amount: only a monthly item; the server checks the words.
+      variable: recurringFrequency === "monthly" && document.getElementById("recurring-variable-toggle").checked,
+      match_words: document.getElementById("recurring-match-words").value.trim()
     };
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence
@@ -6868,6 +6974,12 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       await callApi("saveRecurringExpenseSplits", { recurringExpenseId, splits });
     }
     closeRecurringModal();
+    if (pendingSuggestionBox_) {
+      const list = document.getElementById("recurring-suggest-list");
+      pendingSuggestionBox_.remove();
+      pendingSuggestionBox_ = null;
+      document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
+    }
     refreshRecurringExpenses();
   } catch (err) {
     errorEl.textContent = err.message;
@@ -6973,7 +7085,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
-      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${moneyFmt(item.amount)}`;
+      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
         <div class="expected-recurring-item">

@@ -101,6 +101,8 @@ var BACKEND_STRINGS_ = {
   // ---- rec ----
   "rec.startDate": { en: "The start date must be a real date (YYYY-MM-DD).", es: "La fecha de inicio debe ser una fecha real (AAAA-MM-DD)." },
   "rec.endDate": { en: "The end date must be a real date (YYYY-MM-DD).", es: "La fecha de fin debe ser una fecha real (AAAA-MM-DD)." },
+  "rec.variableMonthlyOnly": { en: "Only a monthly item can have a variable amount.", es: "Solo un movimiento mensual puede tener monto variable." },
+  "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognise its payments, e.g. \"luz\".", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, e.g. \"luz\"." },
   "rec.endBeforeStart": { en: "The end date is before the start date.", es: "La fecha de fin es anterior a la de inicio." },
 
   // ---- bill ----

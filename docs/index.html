@@ -477,6 +477,14 @@
         </div>
 
         <div class="breakdown-section">
+          <h3 data-i18n="recurring.suggestTitle">💡 Variable-amount payments</h3>
+          <p class="hint" data-i18n="recurring.suggestHint">Payments that happen every month but never cost the same — electricity, gas, building fees. This looks through your last 6 months for ones that aren't programmed yet.</p>
+          <button type="button" class="add-inline" id="recurring-suggest-btn" data-i18n="recurring.suggestBtn">🔎 Look for variable payments</button>
+          <div id="recurring-suggest-list"></div>
+          <p class="hint" id="recurring-suggest-empty" hidden data-i18n="recurring.suggestNone">Nothing new found. A payment shows up here when it appears in at least 4 of the last 6 months, at most twice a month, with an amount that changes.</p>
+        </div>
+
+        <div class="breakdown-section">
           <h3 data-i18n="recurring.oneTime">📌 Programmed, one-time</h3>
           <p class="hint" data-i18n="recurring.oneTimeHint">A single known future payment — stays out of "Recent entries" until it actually happens and gets confirmed for real.</p>
           <div id="recurring-onetime-list"></div>
@@ -1232,12 +1240,24 @@
         <label data-i18n="field.category">Category</label>
         <div class="tags-list" id="recurring-category-chips"></div>
 
-        <label for="recurring-amount" data-i18n="field.amount">Amount</label>
+        <label for="recurring-amount" id="recurring-amount-label" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="recurring-amount" placeholder="0.00">
 
         <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="recurring-currency" value="PEN">
         <div class="currency-chips" id="recurring-currency-chips"></div>
+
+        <div id="recurring-variable-field">
+          <label class="checkbox-row">
+            <input type="checkbox" id="recurring-variable-toggle">
+            <span data-i18n="recModal.variable">The amount changes every month (e.g. electricity, gas)</span>
+          </label>
+          <div id="recurring-variable-detail" hidden>
+            <label for="recurring-match-words" data-i18n="recModal.matchWords">Words that identify its payments</label>
+            <input type="text" id="recurring-match-words" autocapitalize="none" autocomplete="off" data-i18n-placeholder="recModal.matchWordsPlaceholder" placeholder="e.g. electricity enel">
+            <p class="hint" id="recurring-variable-hint"></p>
+          </div>
+        </div>
 
         <div id="recurring-split-field" hidden>
           <label class="checkbox-row">
