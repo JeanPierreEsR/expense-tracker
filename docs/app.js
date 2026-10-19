@@ -6153,6 +6153,10 @@ function openPmModal_(pm) {
     typeSel.appendChild(o);
   });
   typeSel.value = pm ? pm.type : "credit";
+  // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
+  const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
+  typeSel.onchange = walletWarn;
+  walletWarn();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
   fillPmBankOptions_(pmModalState.lastBank);

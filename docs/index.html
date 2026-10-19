@@ -498,7 +498,7 @@
       </div>
       <div class="card" id="rails-card">
         <h2 style="margin-top:0;" data-i18n="wa.railsTitle">Yape and Plin</h2>
-        <p class="hint" data-i18n="wa.railsScreenHint">Yape works only with BCP accounts; Plin works with other banks, not with BCP. Choose which account each one uses, in soles and in dollars. Wallets from other banks work the same way and don't need a link: your accounts are enough.</p>
+        <p class="hint" data-i18n="wa.railsScreenHint">Yape works only with BCP accounts; Plin works with other banks, not with BCP. Choose which account each one uses, in soles and in dollars.</p>
         <div id="rails-card-selects"></div>
         <p class="hint" id="rails-card-status"></p>
       </div>
@@ -992,8 +992,7 @@
           <h3 data-i18n="wa.railsTitle">Yape and Plin</h3>
           <p class="hint" data-i18n="wa.railsHint">Yape and Plin don't hold money of their own: they work on top of a bank account. Link each one to the account it uses. You can change this later in More → Accounts &amp; cards.</p>
           <div id="wa-rails"></div>
-          <p class="hint" data-i18n="wa.otherWallets">Wallets from other banks work the same way: they hold no money of their own, they use your accounts. Don't worry if you don't link them: having your accounts here is enough.</p>
-          <p class="hint" data-i18n="wa.wallets">Later you can also add wallets, like Starbucks or other loyalty programs, in More → Accounts &amp; cards.</p>
+          <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts &amp; cards.</p>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
@@ -1320,6 +1319,7 @@
 
       <label for="pm-type" data-i18n="accounts.type">Type</label>
       <select id="pm-type"></select>
+      <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
       <select id="pm-bank"></select>
