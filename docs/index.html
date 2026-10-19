@@ -192,6 +192,11 @@
             <div class="add-inline" id="add-tag-btn" data-i18n="common.addTag">+ Add tag…</div>
           </div>
 
+          <div id="trip-field" hidden>
+            <label for="entry-trip" data-i18n="field.trip">Trip / event</label>
+            <select id="entry-trip"></select>
+          </div>
+
           <p class="hint" id="form-error" style="color:#d64545;"></p>
           <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
           <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
@@ -403,6 +408,10 @@
             <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-trips-btn">
+            <span data-i18n="more.trips">🧳 Trips &amp; events</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
             <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
@@ -509,6 +518,37 @@
         <p class="hint" data-i18n="wa.railsScreenHint">Yape works only with BCP accounts; Plin works with other banks (and credit cards), not with BCP accounts. Choose which account each one uses, in soles and in dollars.</p>
         <div id="rails-card-selects"></div>
         <p class="hint" id="rails-card-status"></p>
+      </div>
+    </div>
+
+    <div id="screen-trips" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="trips-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="trips-add-btn" data-i18n="common.add">+ Add</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="trips.title">Trips &amp; events</h2>
+        <p class="hint" data-i18n="trips.hint">Group the expenses of a trip or an event.</p>
+        <div id="trips-list"></div>
+        <p class="hint" id="trips-empty-note" hidden data-i18n="trips.empty">No trips or events yet.</p>
+        <p class="hint" id="trips-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-trip-detail" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="trip-detail-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="trip-detail-edit-btn" data-i18n="trips.edit">Edit</button>
+        </div>
+        <h2 style="margin-top:0;" id="trip-detail-title"></h2>
+        <p class="hint" id="trip-detail-sub"></p>
+        <div id="trip-detail-body"></div>
+        <p class="hint" id="trip-detail-error" style="color:#d64545;"></p>
+      </div>
+      <div class="card" id="trip-detail-entries-card" hidden>
+        <h3 style="margin-top:0;" data-i18n="trips.expenses">Expenses</h3>
+        <div id="trip-detail-entries"></div>
       </div>
     </div>
 
@@ -1223,6 +1263,43 @@
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden data-i18n="budgetModal.delete">Delete this budget</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="trip-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="trip-modal-title" data-i18n="trips.addTitle">Add trip or event</span>
+        <button type="button" id="trip-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div class="type-tabs budget-period-tabs" id="trip-kind-tabs">
+          <div class="type-tab active" data-kind="trip" data-i18n="trips.kind.trip">Trip</div>
+          <div class="type-tab" data-kind="event" data-i18n="trips.kind.event">Event</div>
+        </div>
+
+        <label for="trip-name" data-i18n="trips.name">Name</label>
+        <input type="text" id="trip-name" maxlength="60" data-i18n-placeholder="trips.namePlaceholder" placeholder="e.g. Cusco trip">
+
+        <label for="trip-emoji" data-i18n="trips.emoji">Icon (optional)</label>
+        <input type="text" id="trip-emoji" maxlength="4" placeholder="✈️">
+
+        <label for="trip-start" data-i18n="trips.start">Starts</label>
+        <input type="date" id="trip-start">
+        <label for="trip-end" data-i18n="trips.end">Ends</label>
+        <input type="date" id="trip-end">
+        <p class="hint" data-i18n="trips.endHint">For a single day, use the same date for both.</p>
+
+        <label for="trip-budget" data-i18n="trips.budget">Budget (optional)</label>
+        <input type="text" inputmode="decimal" id="trip-budget" placeholder="0.00">
+        <input type="hidden" id="trip-currency" value="PEN">
+        <div class="currency-chips" id="trip-currency-chips"></div>
+        <p class="hint" data-i18n="trips.budgetHint">Only a guide for this trip or event.</p>
+
+        <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
       </div>
     </div>
   </div>

@@ -26,7 +26,7 @@
 // use) is simply skipped.
 var EXPORT_BACKUP_TABS_ = [
   'Entries', 'Entry Splits', 'Entry Tags', 'Entry Bills',
-  'Categories', 'Tags', 'Payment Methods', 'Banks', 'Account Opening Balances',
+  'Categories', 'Tags', 'Trips', 'Payment Methods', 'Banks', 'Account Opening Balances',
   'Exchange Rates', 'Friends', 'Payors', 'Loans', 'Settlements', 'Budgets',
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
   'Projection Overrides', 'Period Templates', 'Import Batches'
@@ -40,7 +40,7 @@ var EXPORT_CSV_HEADERS_ = [
   'id', 'date', 'type', 'description', 'merchant', 'category',
   'amount', 'currency', 'amountPen', 'share', 'sharePen', 'splitWith',
   'method', 'toAccount', 'paidBy', 'friend', 'linkedAs',
-  'tags', 'status', 'source', 'created'
+  'tags', 'trip', 'status', 'source', 'created'
 ];
 
 function exportData(payload) {
@@ -217,7 +217,8 @@ function buildEntriesCsv_(opts) {
       csvCell_(splitWith),
       csvCell_(method ? method.nickname : ''), csvCell_(toMethod ? toMethod.nickname : ''), csvCell_(paidBy),
       csvCell_(link ? link.friend : ''), csvCell_(linkedAs),
-      csvCell_((lk.tagNamesByEntry[e.id] || []).join('; ')), csvCell_(e.status), csvCell_(e.source), csvCell_(e.created_at)
+      csvCell_((lk.tagNamesByEntry[e.id] || []).join('; ')),
+      csvCell_(e.trip_id && lk.tripsById[e.trip_id] ? lk.tripsById[e.trip_id].name : ''), csvCell_(e.status), csvCell_(e.source), csvCell_(e.created_at)
     ].join(','));
   });
   return { text: lines.join('\r\n') + '\r\n', rows: entries.length };

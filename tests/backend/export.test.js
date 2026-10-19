@@ -213,7 +213,7 @@ test("in Spanish: e-mail, file names (no accents) and column headings are Spanis
   assert.ok(names.every((n) => /^[a-z0-9_.-]+$/.test(n)), "file names without accents or spaces");
   const csv = attachment(mail, "movimientos_");
   const head = csv.data.replace(/^﻿/, "").split("\r\n")[0];
-  assert.equal(head, "ID,Fecha,Tipo,Descripción,Comercio,Categoría,Monto,Moneda,Monto (PEN),Tu parte,Tu parte (PEN),Compartido con,Medio de pago,Hacia la cuenta,Pagado por,Amigo vinculado,Vinculado como,Etiquetas,Estado,Origen,Creado el");
+  assert.equal(head, "ID,Fecha,Tipo,Descripción,Comercio,Categoría,Monto,Moneda,Monto (PEN),Tu parte,Tu parte (PEN),Compartido con,Medio de pago,Hacia la cuenta,Pagado por,Amigo vinculado,Vinculado como,Etiquetas,Viaje / evento,Estado,Origen,Creado el");
   assert.match(JSON.parse(attachment(mail, "respaldo_").data).note, /^Filas originales/);
 });
 

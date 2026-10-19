@@ -167,6 +167,11 @@ function routeAction(action, payload) {
     case 'findRecurringLinkCandidates': return findRecurringLinkCandidates(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
+    case 'listTrips': return listTrips();
+    case 'getTripDetail': return getTripDetail(payload);
+    case 'addTrip': return addTrip(payload);
+    case 'updateTrip': return updateTrip(payload);
+    case 'deleteTrip': return deleteTrip(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
@@ -451,6 +456,7 @@ function getMeta() {
     banks: getAllRowsCached_('Banks'),
     paymentMethods: getAllRowsCached_('Payment Methods'),
     tags: localizeTags_(getAllRowsCached_('Tags')),
+    trips: getTripRows_(),
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap(),
@@ -583,6 +589,12 @@ function createEntry(payload) {
   if (entry.type === 'investment' && needsInvestmentCategory_(entry.category_id)) {
     entry.category_id = defaultInvestmentCategoryId_();
   }
+  // Only an expense can belong to a trip / event (Trips.gs); an unknown id means none.
+  var tripId = entry.type === 'expense' ? validTripIdOrBlank_(payload.trip_id) : '';
+  if (tripId) {
+    ensureEntriesTripColumn_();
+    entry.trip_id = tripId;
+  }
   appendRowObject('Entries', entry);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -683,6 +695,9 @@ function listEntries(payload) {
     var annualIds = annualEntryIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
   }
+  if (payload && payload.tripId) {
+    entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
+  }
   if (payload && payload.tagId) {
     var entryIdsWithTag = {};
     getAllRows('Entry Tags').forEach(function (et) {
@@ -703,7 +718,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.paymentMethodId);
+    payload.tagId || payload.tripId || payload.paymentMethodId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
@@ -766,6 +781,7 @@ function buildSearchLookups_() {
     (tagSearchNamesByEntry[et.entry_id] = tagSearchNamesByEntry[et.entry_id] || []).push(tagSearchNames_(tag));
   });
   return {
+    tripsById: rowsById_(getTripRows_()),
     categoriesById: rowsById_(getAllRows('Categories')),
     methodsById: rowsById_(getAllRows('Payment Methods')),
     friendsById: rowsById_(getAllRows('Friends')),
@@ -796,6 +812,7 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
     (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
+    e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
@@ -855,6 +872,7 @@ function buildSearchIndexRows_(entries) {
       own_share_pen: pen(ownShare, e.currency, e.date),
       link: lk.transferLinks[e.id] || undefined,
       tagIds: tagIdsByEntry[e.id] || [],
+      trip_id: e.trip_id || '',
       _s: entrySearchText_(e, lk)
     };
   });
@@ -896,6 +914,10 @@ function listPendingEntries() {
 
 function updateEntryFields(entryId, fields) {
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
+  if (fields && fields.trip_id !== undefined) {
+    fields = Object.assign({}, fields, { trip_id: validTripIdOrBlank_(fields.trip_id) });
+    if (fields.trip_id) ensureEntriesTripColumn_();
+  }
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);

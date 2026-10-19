@@ -55,6 +55,12 @@ var BACKEND_STRINGS_ = {
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
 
+  // ---- trips & events (Trips.gs) ----
+  "trip.notFound": { en: "Trip or event not found", es: "No se encontró el viaje o evento" },
+  "trip.errDates": { en: "Enter a start date and an end date (the end date can be the same day).", es: "Ingresa una fecha de inicio y una de fin (la de fin puede ser el mismo día)." },
+  "trip.errEndBeforeStart": { en: "The end date can't be before the start date.", es: "La fecha de fin no puede ser anterior a la de inicio." },
+  "trip.errBudget": { en: "The budget must be a number greater than 0 (or leave it blank).", es: "El presupuesto debe ser un número mayor que 0 (o déjalo en blanco)." },
+
   // ---- loan ----
   "loan.missingFriend": { en: "Missing friend.", es: "Falta el amigo." },
   "loan.fromSharedEdit": { en: "This loan came from a shared expense — edit that entry instead.", es: "Este préstamo viene de un gasto compartido: edita ese movimiento." },
@@ -159,6 +165,7 @@ var BACKEND_STRINGS_ = {
   "export.h.friend": { en: "Linked friend", es: "Amigo vinculado" },
   "export.h.linkedAs": { en: "Linked as", es: "Vinculado como" },
   "export.h.tags": { en: "Tags", es: "Etiquetas" },
+  "export.h.trip": { en: "Trip / event", es: "Viaje / evento" },
   "export.h.status": { en: "Status", es: "Estado" },
   "export.h.source": { en: "Source", es: "Origen" },
   "export.h.created": { en: "Created at", es: "Creado el" },

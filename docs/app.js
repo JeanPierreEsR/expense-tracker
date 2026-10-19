@@ -169,6 +169,7 @@ function currencyFieldIds(target) {
   if (target === "recurring") return { input: "recurring-currency", chips: "recurring-currency-chips" };
   if (target === "loan") return { input: "loan-currency", chips: "loan-currency-chips" };
   if (target === "balance") return { input: "balance-currency", chips: "balance-currency-chips" };
+  if (target === "trip") return { input: "trip-currency", chips: "trip-currency-chips" };
   return { input: "currency", chips: "currency-chips" };
 }
 
@@ -783,6 +784,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   togglePaymentMethodVisibility();   // paid by may have been restored: show/hide the payment method to match
   populateToPaymentMethodOptions();
   populateTags();
+  populateTripOptions_();
   renderSplitFriendChips();
 }
 
@@ -1275,6 +1277,9 @@ function toggleSplitFieldVisibility() {
   const show = selectedType === "expense";
   document.getElementById("split-field").hidden = !show;
   if (!show) resetSplitState();
+  // Only an expense can belong to a trip or event, so the picker follows the same rule.
+  document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
+  if (!show) document.getElementById("entry-trip").value = "";
 }
 
 function resetSplitState() {
@@ -1916,6 +1921,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId)) throw new Error(tr("error.pickPaymentMethod"));
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
+    const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -1996,7 +2002,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           description,
           paid_by: paidBy,
           payment_method_id: usesPaymentMethod ? paymentMethodId : "",
-          to_payment_method_id: toPaymentMethodId
+          to_payment_method_id: toPaymentMethodId,
+          trip_id: tripId
         }
       });
       await callApi("confirmEntry", { id: confirmingPendingId });
@@ -2028,7 +2035,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
-        to_payment_method_id: toPaymentMethodId
+        to_payment_method_id: toPaymentMethodId,
+        trip_id: tripId
       };
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -2086,7 +2094,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
-        tag_ids: tagIds
+        tag_ids: tagIds,
+        trip_id: tripId
       });
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
@@ -2128,6 +2137,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     setInvestmentDirection("deposit");
     selectedTagIds.clear();
     populateTags();
+    document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
     resetSplitState();
 
     await refreshEntryList();
@@ -2143,7 +2153,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // category picker like a normal save does — that jump would hide
       // #form-error, along with it the only sign this became a Programmed
       // item instead of a real entry, before the owner ever saw it.
-      showFormNotice_(tr("entry.programmedNotice", { date }));
+      // A Programmed item is not a real entry yet, so it can't belong to a trip
+      // or event: say so instead of silently dropping the pick.
+      showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date }));
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
       // returns the screen to exactly what a fresh app open looks like,
@@ -2300,7 +2312,8 @@ function paidByLabel(entryOrPaidBy) {
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
-  const pills = (Array.isArray(entry.tagIds) ? entry.tagIds : [])
+  const tripPill = tripPillHtml_(entry);
+  const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
     .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`)
@@ -2433,7 +2446,7 @@ function renderEntryListFromCache_() {
 // While searching, the tab shows only the search box and its results.
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_PAGE_SIZE = 50;
-const SEARCH_CACHE_VERSION = 3;          // bump to drop every phone's saved copy
+const SEARCH_CACHE_VERSION = 4;          // bump to drop every phone's saved copy
 const SEARCH_FULL_RELOAD_MS = 24 * 3600 * 1000; // hand edits in the Sheet aren't tracked
 let searchIndex = null;          // array once loaded (from the phone's copy or the server)
 let searchSync = null;           // {structureVersion, entriesVersion, since, fullAt}
@@ -2693,7 +2706,8 @@ function captureEntryDraft_() {
     paymentMethodId: document.getElementById("payment_method").value,
     toPaymentMethodId: document.getElementById("to_payment_method").value,
     date: entryDateTouched_ ? document.getElementById("date").value : "",
-    tagIds: [...selectedTagIds]
+    tagIds: [...selectedTagIds],
+    tripId: document.getElementById("entry-trip").value
   };
 }
 
@@ -2748,6 +2762,7 @@ function restoreEntryDraft_() {
   selectedTagIds.clear();
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
+  setTripPick_(d.tripId);
   showFormNotice_(tr("entry.draftRestored"));
   return true;
 }
@@ -2889,6 +2904,7 @@ async function startEditEntry(entry) {
   const entryTagIds = await tagsPromise;
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
+  setTripPick_(entry.trip_id);
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -2910,6 +2926,7 @@ function exitEditMode() {
   document.getElementById("delete-entry-btn").hidden = true;
   selectedTagIds.clear();
   populateTags();
+  document.getElementById("entry-trip").value = "";
   resetSplitState();
 }
 
@@ -3067,6 +3084,8 @@ async function refreshAfterPopupEdit() {
   if (currentDrilldown) {
     await currentDrilldown.refetch();
   }
+  // The trip screen is a screen of its own, not a drill-down: refresh it too.
+  if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
 }
 
 document.getElementById("edit-entry-modal-close").addEventListener("click", cancelEdit);
@@ -3758,7 +3777,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -4433,11 +4452,16 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
 }
 
 function renderDrilldownEntries(entries) {
-  const list = document.getElementById("drilldown-list");
+  renderEntriesInto_(document.getElementById("drilldown-list"), entries);
+}
+
+// A plain list of entry rows (tap one to edit it in a pop-up), shared by the
+// drill-downs and the trip screen.
+function renderEntriesInto_(list, entries, emptyKey) {
   list.innerHTML = "";
 
   if (entries.length === 0) {
-    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.noEntries"))}</div>`;
+    list.innerHTML = `<div class="status-msg">${escapeHtml(tr(emptyKey || "drill.noEntries"))}</div>`;
     return;
   }
 
@@ -6369,6 +6393,315 @@ document.getElementById("pm-modal-backdrop").addEventListener("click", (e) => {
 document.getElementById("more-accounts-btn").addEventListener("click", showAccountsScreen);
 document.getElementById("accounts-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("accounts-add-btn").addEventListener("click", () => openPmModal_(null));
+
+// ---- Trips & events (More → Trips & events; see specs/trips-events.md) ----
+// A trip or event is a named period that expenses can be linked to (one per
+// expense), so its whole cost — including tickets paid months before — shows in
+// one place. Only a lens: the expense keeps its own date, category and budgets.
+
+function tripEmoji_(trip) {
+  return trip.emoji || (trip.kind === "event" ? "🎉" : "✈️");
+}
+
+function tripLabel_(trip) {
+  return `${tripEmoji_(trip)} ${trip.name}`;
+}
+
+// The small label on an entry row. A trip that no longer exists is skipped.
+function tripPillHtml_(entry) {
+  if (!entry.trip_id) return "";
+  const trip = (meta.trips || []).find((t) => t.id === entry.trip_id);
+  return trip ? `<span class="entry-tag entry-trip">${escapeHtml(tripLabel_(trip))}</span>` : "";
+}
+
+// The entry form's picker. Keeps whatever is chosen when it is rebuilt (a
+// refresh while an edit is open must not change the pick).
+function populateTripOptions_() {
+  const sel = document.getElementById("entry-trip");
+  const keep = sel.value;
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("trips.none");
+  sel.appendChild(none);
+  const today = todayLocalISO();
+  // Current and upcoming first (soonest first), then past ones (latest first).
+  const trips = (meta.trips || []).slice();
+  const open = trips.filter((t) => t.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const past = trips.filter((t) => t.end_date < today).sort((a, b) => b.end_date.localeCompare(a.end_date));
+  open.concat(past).forEach((t) => {
+    const o = document.createElement("option");
+    o.value = t.id;
+    o.textContent = tripLabel_(t);
+    sel.appendChild(o);
+  });
+  sel.value = keep;
+  if (sel.value !== keep) sel.value = "";
+  document.getElementById("trip-field").hidden = selectedType !== "expense" || !trips.length;
+}
+
+function setTripPick_(tripId) {
+  const sel = document.getElementById("entry-trip");
+  sel.value = tripId || "";
+  if (sel.value !== (tripId || "")) sel.value = "";
+}
+
+let tripDetailId_ = null;
+let editingTripId_ = null;
+let tripKind_ = "trip";
+
+// "Happening now", "Upcoming" and "Past" are decided by today's date.
+function tripGroupOf_(trip, today) {
+  if (trip.end_date < today) return "past";
+  if (trip.start_date > today) return "upcoming";
+  return "active";
+}
+
+function tripDatesText_(trip) {
+  return trip.start_date === trip.end_date
+    ? trip.start_date
+    : tr("trips.dateRange", { start: trip.start_date, end: trip.end_date });
+}
+
+async function showTripsScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-trips"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  await refreshTripsList_();
+}
+
+// Reloads the list (with running totals) and keeps the form's picker in step.
+async function refreshTripsList_() {
+  const errorEl = document.getElementById("trips-error");
+  errorEl.textContent = "";
+  try {
+    const trips = await callApi("listTrips", {});
+    meta.trips = trips;
+    populateTripOptions_();
+    renderTripsList_(trips);
+  } catch (err) {
+    errorEl.textContent = tr("trips.loadFailed", { error: err.message });
+  }
+}
+
+function renderTripsList_(trips) {
+  const list = document.getElementById("trips-list");
+  list.innerHTML = "";
+  document.getElementById("trips-empty-note").hidden = trips.length > 0;
+  const today = todayLocalISO();
+  const groups = { active: [], upcoming: [], past: [] };
+  trips.forEach((t) => groups[tripGroupOf_(t, today)].push(t));
+  groups.active.sort((a, b) => a.end_date.localeCompare(b.end_date));
+  groups.upcoming.sort((a, b) => a.start_date.localeCompare(b.start_date));
+  groups.past.sort((a, b) => b.end_date.localeCompare(a.end_date));
+  ["active", "upcoming", "past"].forEach((g) => groups[g].forEach((t, i) => {
+    if (i === 0) {
+      const head = document.createElement("h3");
+      head.className = "accounts-group-title";
+      head.textContent = tr(`trips.group.${g}`);
+      list.appendChild(head);
+    }
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 })].join(" · ");
+    const budget = Number(t.budget_amount) > 0
+      ? `<span class="original-amt">${escapeHtml(tr("trips.ofBudget", { cur: t.budget_currency || homeCur(), amount: moneyFmt(t.budget_amount) }))}</span>`
+      : "";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tripLabel_(t))}</div>
+        <div class="recurring-row-sub">${escapeHtml(sub)}</div>
+      </div>
+      <div class="recurring-row-amount"><span class="primary-amt">${homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
+    `;
+    row.addEventListener("click", () => showTripDetail_(t.id));
+    list.appendChild(row);
+  }));
+}
+
+async function showTripDetail_(id) {
+  tripDetailId_ = id;
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-trip-detail"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  window.scrollTo(0, 0);
+  const known = (meta.trips || []).find((t) => t.id === id);
+  document.getElementById("trip-detail-title").textContent = known ? tripLabel_(known) : "";
+  document.getElementById("trip-detail-sub").textContent = known ? `${tr(`trips.kind.${known.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(known)}` : "";
+  document.getElementById("trip-detail-body").innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  document.getElementById("trip-detail-entries-card").hidden = true;
+  await refreshTripDetail_();
+}
+
+// Waits (a few seconds at most) for an edit that is still saving in the
+// background, so the totals fetched next include it.
+async function waitForEntryEditsToSave_() {
+  for (let i = 0; i < 40 && entryEditFlushing_.size > 0; i++) await sleep(300);
+}
+
+async function refreshTripDetail_() {
+  const id = tripDetailId_;
+  if (!id) return;
+  const errorEl = document.getElementById("trip-detail-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const [detail, entries] = await Promise.all([
+      callApi("getTripDetail", { id }),
+      callApi("listEntries", { tripId: id })
+    ]);
+    if (tripDetailId_ !== id) return;   // moved on while loading
+    renderTripDetail_(detail);
+    // Overlay edits still waiting to be saved, and drop any entry just moved to another trip.
+    const shown = applyQueuedEditOverlay_(entries).filter((e) => e.trip_id === id);
+    document.getElementById("trip-detail-entries-card").hidden = false;
+    renderEntriesInto_(document.getElementById("trip-detail-entries"), shown, "trips.noEntries");
+  } catch (err) {
+    document.getElementById("trip-detail-body").innerHTML = "";
+    errorEl.textContent = tr("trips.loadFailed", { error: err.message });
+  }
+}
+
+function renderTripDetail_(d) {
+  const t = d.trip;
+  document.getElementById("trip-detail-title").textContent = tripLabel_(t);
+  document.getElementById("trip-detail-sub").textContent = `${tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(t)}`;
+
+  let budgetHtml = "";
+  if (Number(t.budget_amount) > 0) {
+    const cur = t.budget_currency || homeCur();
+    if (d.budgetSpent == null) {
+      budgetHtml = `<p class="hint">${escapeHtml(tr("trips.budgetNoRate", { cur }))}</p>`;
+    } else {
+      const budget = Number(t.budget_amount);
+      const pct = Math.min(100, (d.budgetSpent / budget) * 100);
+      const over = d.budgetSpent > budget;
+      const cls = over ? " over" : (d.budgetSpent / budget >= 0.8 ? " warn" : "");
+      const text = over
+        ? tr("trips.budgetOver", { cur, amount: moneyFmt(d.budgetSpent - budget) })
+        : tr("trips.budgetLeft", { cur, amount: moneyFmt(budget - d.budgetSpent) });
+      budgetHtml = `
+        <div class="budget-progress-track"><div class="budget-progress-fill${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="budget-row-sub"><span>${escapeHtml(text)}</span><span>${escapeHtml(tr("trips.ofBudget", { cur, amount: moneyFmt(budget) }))}</span></div>`;
+    }
+  }
+
+  const phase = (key, value) => `
+    <div class="trip-phase"><div class="trip-phase-label">${escapeHtml(tr(key))}</div><div class="trip-phase-value">${homeCur()} ${moneyFmt(value)}</div></div>`;
+  const cats = d.byCategory.map((c) => `
+    <div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
+      <div class="recurring-row-amount">${homeCur()} ${moneyFmt(c.amount_pen)} <span class="original-amt">${Math.round(c.percent)}%</span></div>
+    </div>`).join("");
+  const days = d.byDay.map((x) => `
+    <div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${escapeHtml(x.date)}</div>
+      <div class="recurring-row-amount">${homeCur()} ${moneyFmt(x.amount_main)}</div>
+    </div>`).join("");
+
+  document.getElementById("trip-detail-body").innerHTML = `
+    <div class="trip-total">${homeCur()} ${moneyFmt(d.totalMain)}</div>
+    <p class="hint" style="margin-top:2px;">${escapeHtml(tr("trips.total"))} · ${escapeHtml(tr("trips.entryCount", { n: d.entryCount }))}</p>
+    ${budgetHtml}
+    <div class="trip-phases">${phase("trips.before", d.before)}${phase("trips.during", d.during)}${phase("trips.after", d.after)}</div>
+    <p class="hint">${escapeHtml(tr("trips.phaseHint"))}</p>
+    ${d.missingRate > 0 ? `<p class="hint">${escapeHtml(tr("trips.missingRate", { n: d.missingRate }))}</p>` : ""}
+    ${cats ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byCategory"))}</h3>${cats}` : ""}
+    ${days ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byDay"))}</h3>${days}` : ""}
+  `;
+}
+
+function openTripModal_(trip) {
+  editingTripId_ = trip ? trip.id : null;
+  tripKind_ = trip && trip.kind === "event" ? "event" : "trip";
+  document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.kind === tripKind_));
+  document.getElementById("trip-modal-title").textContent = tr(trip ? "trips.editTitle" : "trips.addTitle");
+  document.getElementById("trip-form-error").textContent = "";
+  document.getElementById("trip-name").value = trip ? trip.name : "";
+  document.getElementById("trip-emoji").value = trip ? (trip.emoji || "") : "";
+  document.getElementById("trip-start").value = trip ? trip.start_date : todayLocalISO();
+  document.getElementById("trip-end").value = trip ? trip.end_date : todayLocalISO();
+  document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
+  document.getElementById("trip-currency").value = trip && trip.budget_currency ? trip.budget_currency : homeCur();
+  renderCurrencyChips("trip");
+  document.getElementById("trip-delete-btn").hidden = !trip;
+  const backdrop = document.getElementById("trip-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeTripModal_() {
+  document.getElementById("trip-modal-backdrop").hidden = true;
+  editingTripId_ = null;
+}
+
+document.getElementById("more-trips-btn").addEventListener("click", showTripsScreen);
+document.getElementById("trips-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("trips-add-btn").addEventListener("click", () => openTripModal_(null));
+document.getElementById("trip-detail-back-btn").addEventListener("click", () => { tripDetailId_ = null; showTripsScreen(); });
+document.getElementById("trip-detail-edit-btn").addEventListener("click", () => {
+  const trip = (meta.trips || []).find((t) => t.id === tripDetailId_);
+  if (trip) openTripModal_(trip);
+});
+document.getElementById("trip-modal-close").addEventListener("click", closeTripModal_);
+document.getElementById("trip-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "trip-modal-backdrop") closeTripModal_();
+});
+document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => {
+  tripKind_ = tab.dataset.kind;
+  document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+}));
+document.getElementById("trip-budget").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+// A trip that ends before it starts is never wanted: moving the start past the end drags the end along.
+document.getElementById("trip-start").addEventListener("change", (e) => {
+  const end = document.getElementById("trip-end");
+  if (!end.value || end.value < e.target.value) end.value = e.target.value;
+});
+
+document.getElementById("trip-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("trip-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("trip-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const budget = document.getElementById("trip-budget").value.trim();
+    const fields = {
+      name: document.getElementById("trip-name").value.trim(),
+      kind: tripKind_,
+      emoji: document.getElementById("trip-emoji").value.trim(),
+      start_date: document.getElementById("trip-start").value,
+      end_date: document.getElementById("trip-end").value,
+      budget_amount: budget,
+      budget_currency: budget ? document.getElementById("trip-currency").value : ""
+    };
+    // The server checks everything and answers in the person's language.
+    if (editingTripId_) await callApi("updateTrip", Object.assign({ id: editingTripId_ }, fields));
+    else await callApi("addTrip", fields);
+    closeTripModal_();
+    await refreshTripsList_();
+    if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+document.getElementById("trip-delete-btn").addEventListener("click", async () => {
+  if (!editingTripId_) return;
+  const trip = (meta.trips || []).find((t) => t.id === editingTripId_);
+  if (!trip || !confirm(tr("trips.confirmDelete", { name: trip.name }))) return;
+  const errorEl = document.getElementById("trip-form-error");
+  try {
+    await callApi("deleteTrip", { id: trip.id });
+    closeTripModal_();
+    tripDetailId_ = null;
+    await showTripsScreen();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
 
 // ---- Recurring income/expenses ----
 

@@ -2279,3 +2279,13 @@ body.income-revealed .sens-mask { display: none; }
 .wa-rail label { display: block; font-weight: 600; margin-bottom: 4px; }
 .wa-rail select { width: 100%; padding: 12px; border: 2px solid var(--border, #d9d9d4); border-radius: 10px; font: inherit; background: var(--card); color: var(--text); }
 #welcome-accounts .welcome-choice { width: 100%; }
+
+/* ---- Trips & events ---- */
+.entry-trip { border-color: var(--accent); color: var(--accent); }
+.trip-total { font-size: 1.6rem; font-weight: 700; margin-top: 4px; }
+.trip-phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.trip-phase { background: var(--bg); border-radius: 10px; padding: 8px 6px; text-align: center; }
+.trip-phase-label { font-size: 0.72rem; color: var(--muted); }
+.trip-phase-value { font-weight: 600; font-size: 0.85rem; margin-top: 2px; }
+.trip-static-row { cursor: default; }
+#entry-trip { width: 100%; }
