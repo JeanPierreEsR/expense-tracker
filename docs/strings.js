@@ -646,6 +646,8 @@
     "trips.start": { en: "Starts", es: "Empieza" },
     "trips.end": { en: "Ends", es: "Termina" },
     "trips.endHint": { en: "For a single day (a birthday), use the same date for both.", es: "Para un solo día (un cumpleaños), usa la misma fecha en las dos." },
+    "trips.currency": { en: "Currency of this trip", es: "Moneda de este viaje" },
+    "trips.currencyHint": { en: "Every total on this trip is shown in this currency, and the budget is in it too. Expenses already in it count exactly as paid; the rest are converted at the exchange rates on file.", es: "Todos los totales de este viaje se muestran en esta moneda, y el presupuesto también. Los gastos que ya están en ella cuentan tal como se pagaron; el resto se convierte con los tipos de cambio registrados." },
     "trips.budget": { en: "Budget (optional)", es: "Presupuesto (opcional)" },
     "trips.budgetHint": { en: "A guide for this trip or event — it does not change your category budgets. What it counts is what you have paid plus your estimates.", es: "Una guía para este viaje o evento: no cambia tus presupuestos por categoría. Cuenta lo que ya pagaste más tus estimaciones." },
     "trips.alertHint": { en: "Comma-separated percentages of the trip budget. You'll get a Telegram message the first time it crosses each one. Leave blank for the usual ones.", es: "Porcentajes del presupuesto del viaje separados por comas. Recibirás un mensaje de Telegram la primera vez que cruce cada uno. Déjalo en blanco para usar los habituales." },

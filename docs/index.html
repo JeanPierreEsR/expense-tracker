@@ -1307,10 +1307,13 @@
         <input type="date" id="trip-end">
         <p class="hint" data-i18n="trips.endHint">For a single day, use the same date for both.</p>
 
-        <label for="trip-budget" data-i18n="trips.budget">Budget (optional)</label>
-        <input type="text" inputmode="decimal" id="trip-budget" placeholder="0.00">
+        <label data-i18n="trips.currency">Currency of this trip</label>
         <input type="hidden" id="trip-currency" value="PEN">
         <div class="currency-chips" id="trip-currency-chips"></div>
+        <p class="hint" data-i18n="trips.currencyHint">Totals are shown in this currency.</p>
+
+        <label for="trip-budget" data-i18n="trips.budget">Budget (optional)</label>
+        <input type="text" inputmode="decimal" id="trip-budget" placeholder="0.00">
         <p class="hint" data-i18n="trips.budgetHint">Only a guide for this trip or event.</p>
 
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>

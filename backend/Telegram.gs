@@ -410,7 +410,7 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
 function sendTelegramTripBudgetAlert_(trip, percent) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
-  var cur = trip.budget_currency || homeCurrency_();
+  var cur = tripCurrency_(trip);
   var text = tr_('bot.tripBudgetAlert', {
     emoji: percent >= 100 ? '🚨' : '⚠️', name: tripDisplayName_(trip), percent: Math.round(percent),
     cur: cur, amount: moneyFmt_(trip.budget_amount), spent: moneyFmt_(trip.budgetSpent)
