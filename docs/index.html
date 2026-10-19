@@ -362,6 +362,7 @@
         <p class="hint" id="projections-month-label"></p>
         <div id="projections-body"></div>
         <p class="hint" id="projections-method-note"></p>
+        <button type="button" class="add-inline" id="projections-method-btn"></button>
       </div>
 
       <div class="card">
@@ -760,6 +761,10 @@
           <div id="drilldown-projection-expected-detail" class="drilldown-projection-expandable-detail" hidden>
             <p class="hint" id="drilldown-projection-expected-formula"></p>
             <div id="drilldown-projection-expected-months"></div>
+          </div>
+          <div class="drilldown-projection-split-row" id="drilldown-projection-method-row" hidden>
+            <span class="hint" id="drilldown-projection-method-label"></span>
+            <button type="button" class="add-inline" id="drilldown-projection-method-btn" data-i18n="pmm.change">Change</button>
           </div>
         </div>
         <div class="drilldown-projection-row" id="drilldown-projection-row" hidden>
@@ -1302,6 +1307,39 @@
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pm-modal-backdrop-method" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="pmm-title" data-i18n="pmm.title">Projection method</span>
+        <button type="button" id="pmm-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="pmm-hint"></p>
+        <div id="pmm-options"></div>
+        <div id="pmm-custom" hidden>
+          <label for="pmm-window" data-i18n="pmm.lookBack">Look back</label>
+          <select id="pmm-window"></select>
+          <label for="pmm-years" data-i18n="pmm.seasonFrom">Time-of-year pattern from</label>
+          <select id="pmm-years"></select>
+        </div>
+        <p class="hint" id="pmm-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="pmm-save" data-i18n="common.save">Save</button>
+        <button type="button" class="add-inline" id="pmm-apply-all" hidden data-i18n="pmm.applyAll">Use this for every category</button>
+
+        <div class="pmm-compare">
+          <button type="button" class="add-inline" id="pmm-compare-btn" data-i18n="pmm.compare">Which would have worked best for me?</button>
+          <div id="pmm-compare-results" hidden>
+            <p class="hint" id="pmm-compare-hint"></p>
+            <div id="pmm-compare-table"></div>
+            <div id="pmm-compare-cats"></div>
+            <button type="button" class="add-inline" id="pmm-apply-best" hidden data-i18n="pmm.useBestEach">Use the best for each category</button>
+            <p class="hint" id="pmm-apply-best-result"></p>
+          </div>
+        </div>
       </div>
     </div>
   </div>

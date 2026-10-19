@@ -38,6 +38,8 @@ var BACKEND_STRINGS_ = {
   "err.friendNotFound": { en: "Friend not found", es: "No se encontró al amigo" },
   "err.paymentMethodNotFound": { en: "Payment method not found", es: "No se encontró el medio de pago" },
   "err.budgetNotFound": { en: "Budget not found", es: "No se encontró el presupuesto" },
+  "err.projectionMethod": { en: "That projection method isn't available.", es: "Ese método de proyección no está disponible." },
+  "err.categoryNotFound": { en: "Category not found", es: "No se encontró la categoría" },
   "err.recurringNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
   "err.recurringItemNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
   "err.currencyCode": { en: "Currency must be a 3-letter code.", es: "La moneda debe ser un código de 3 letras." },

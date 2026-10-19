@@ -8044,6 +8044,8 @@ async function refreshProjections() {
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
   methodNote.textContent = tr("projections.method");
+  projectionDefaultMethod = p.defaultMethod || "balanced";
+  document.getElementById("projections-method-btn").textContent = tr("projections.methodBtn", { name: projectionMethodLabel_(projectionDefaultMethod) });
 }
 
 // {displayPeriodType, anchorDate} matching whatever the shared period
@@ -8257,6 +8259,12 @@ function renderProjectionSplit_(detail) {
   document.getElementById("drilldown-projection-programmed-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-detail").hidden = true;
   document.getElementById("drilldown-projection-expected-row").hidden = isIncome;
+  // Which predictor this category uses (its own choice or the default) — with a way to change it.
+  document.getElementById("drilldown-projection-method-row").hidden = isIncome;
+  if (!isIncome) {
+    document.getElementById("drilldown-projection-method-label").textContent =
+      tr("projections.methodRow", { name: projectionMethodLabel_(p.method) + (p.methodIsOwn ? "" : tr("pmm.defaultTag")) });
+  }
   if (!show) return;
 
   document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
@@ -8282,11 +8290,13 @@ function renderProjectionSplit_(detail) {
   // Seasonality: when past years show this time of year runs noticeably above
   // or below an average month, the "× days left" line says so and shows the
   // adjusted sum instead of the plain one (see "Seasonality" in Projections.gs).
-  const seasonal = p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
+  const lastYearMethod = p.methodUsed === "last_year";
+  const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
   // "months left": every remaining day counts 1 / (the days of ITS month), so a
   // whole month is always 1 — whether it has 28 days or 31.
   const monthsLeftText = (p.monthsLeft || 0).toFixed(2);
   const prorationLine = () => {
+    if (lastYearMethod) return tr("projections.formulaLastYear", { year: p.lastYearYear, base: formatPen(p.baseAmountPen), amount: formatPen(p.expectedRemainingPen) });
     if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), months: monthsLeftText, n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
     return tr(p.seasonalFactor > 1 ? "projections.seasonHigh" : "projections.seasonLow", {
       pct: Math.round(Math.abs(p.seasonalFactor - 1) * 100),
@@ -8317,7 +8327,8 @@ function renderProjectionSplit_(detail) {
   // uses) instead of a full month's worth on top of whatever's already
   // happened.
   formulaEl.innerHTML = `
-    <div>${escapeHtml(tr("projections.formulaBased", { total: formatPen(breakdown.totalPen), n: breakdown.monthsElapsed, span, rate: formatPen(breakdown.ratePerMonth) }))}</div>
+    ${p.methodFallback ? `<div style="margin-bottom:4px;">${escapeHtml(tr("projections.methodFallback", { method: projectionMethodLabel_(p.method), used: projectionMethodLabel_(p.methodUsed) }))}</div>` : ""}
+    <div>${escapeHtml(lastYearMethod ? tr("projections.formulaBasedLastYear", { year: p.lastYearYear }) : tr("projections.formulaBased", { total: formatPen(breakdown.totalPen), n: breakdown.monthsElapsed, span, rate: formatPen(breakdown.ratePerMonth) }))}</div>
     <div style="margin-top:4px;">${escapeHtml(prorationLine())}</div>
     ${breakdown.annualExcludedCount > 0 ? `<div style="margin-top:4px;">${escapeHtml(tr("projections.annualLeftOut", { amount: formatPen(breakdown.annualExcludedPen), n: breakdown.annualExcludedCount }))}</div>` : ""}
   `;
@@ -8343,6 +8354,227 @@ document.getElementById("drilldown-projection-expected-row").addEventListener("c
 document.getElementById("drilldown-projection-row").addEventListener("click", () => {
   if (!drilldownProjection || !drilldownProjectionDetail) return;
   openProjectionOverrideModal_(drilldownProjection, drilldownProjectionDetail);
+});
+
+// ---- Projection method picker (2026-10-19) ----
+// The owner chooses what predicts his expenses best: six presets + custom, a
+// default for every category, a choice per category, "use this for every
+// category", and a replay of the last 12 months showing which would have been
+// closest (see ProjectionMethods.gs). Nothing here computes a forecast; it only
+// chooses and explains.
+const PROJECTION_PRESET_IDS = ["balanced", "steady", "recent", "seasonal", "last_year", "ytd"];
+let projectionDefaultMethod = "balanced";
+let pmmState = null;   // { categoryId, categoryName, defaultMethod, selected }
+
+function projectionMethodLabel_(id) {
+  if (PROJECTION_PRESET_IDS.includes(id)) return tr("projMethod." + id + ".name");
+  const m = /^custom:(\d+):(\d+)$/.exec(id || "");
+  if (m) return Number(m[2]) === 0 ? tr("projMethod.customLabelNoSeason", { months: m[1] }) : tr("projMethod.customLabel", { months: m[1], n: Number(m[2]) });
+  return tr("projMethod.balanced.name");
+}
+
+function pmmIsCustom_(id) { return /^custom:/.test(id || ""); }
+
+function pmmCustomId_() {
+  return `custom:${document.getElementById("pmm-window").value}:${document.getElementById("pmm-years").value}`;
+}
+
+function renderPmmOptions_() {
+  const box = document.getElementById("pmm-options");
+  box.innerHTML = "";
+  const rows = [];
+  if (pmmState.categoryId) rows.push({ id: "", name: tr("pmm.useDefault", { name: projectionMethodLabel_(pmmState.defaultMethod) }), desc: "" });
+  PROJECTION_PRESET_IDS.forEach((id) => rows.push({ id, name: tr("projMethod." + id + ".name"), desc: tr("projMethod." + id + ".desc") }));
+  rows.push({ id: "custom", name: tr("projMethod.custom.name"), desc: tr("projMethod.custom.desc") });
+  rows.forEach((row) => {
+    const selected = row.id === "custom" ? pmmIsCustom_(pmmState.selected) : row.id === pmmState.selected;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pmm-option" + (selected ? " selected" : "");
+    btn.innerHTML = `<div class="pmm-option-name">${escapeHtml(row.name)}</div>${row.desc ? `<div class="pmm-option-desc">${escapeHtml(row.desc)}</div>` : ""}`;
+    btn.addEventListener("click", () => {
+      pmmState.selected = row.id === "custom" ? pmmCustomId_() : row.id;
+      renderPmmOptions_();
+    });
+    box.appendChild(btn);
+  });
+  document.getElementById("pmm-custom").hidden = !pmmIsCustom_(pmmState.selected);
+  document.getElementById("pmm-apply-all").hidden = !!pmmState.categoryId;
+}
+
+function fillPmmSelects_(customId) {
+  const m = /^custom:(\d+):(\d+)$/.exec(customId || "");
+  const win = document.getElementById("pmm-window");
+  const years = document.getElementById("pmm-years");
+  win.innerHTML = [3, 6, 12, 24].map((n) => `<option value="${n}">${escapeHtml(tr("pmm.windowOption", { n }))}</option>`).join("");
+  years.innerHTML = [0, 1, 2, 3, 5].map((n) => `<option value="${n}">${escapeHtml(n === 0 ? tr("pmm.seasonNone") : tr("pmm.seasonYears", { n }))}</option>`).join("");
+  win.value = m ? m[1] : "12";
+  years.value = m ? m[2] : "3";
+}
+
+// opts: { categoryId?, categoryName?, ownMethod? ("" = uses the default) }
+async function openProjectionMethodModal_(opts) {
+  let settings;
+  try {
+    settings = await callApi("getProjectionMethodSettings");
+  } catch (err) {
+    alert(tr("drill.loadFailed", { error: err.message }));
+    return;
+  }
+  projectionDefaultMethod = settings.defaultMethod;
+  const categoryId = opts && opts.categoryId ? opts.categoryId : "";
+  pmmState = {
+    categoryId,
+    categoryName: categoryId ? opts.categoryName : "",
+    defaultMethod: settings.defaultMethod,
+    selected: categoryId ? (settings.overrides[categoryId] || "") : settings.defaultMethod
+  };
+  document.getElementById("pmm-title").textContent = categoryId ? tr("pmm.titleCategory", { name: pmmState.categoryName }) : tr("pmm.title");
+  document.getElementById("pmm-hint").textContent = categoryId ? tr("pmm.hintCategory") : tr("pmm.hintGlobal");
+  document.getElementById("pmm-error").textContent = "";
+  document.getElementById("pmm-compare-results").hidden = true;
+  document.getElementById("pmm-apply-best").hidden = true;
+  document.getElementById("pmm-apply-best-result").textContent = "";
+  fillPmmSelects_(pmmState.selected);
+  renderPmmOptions_();
+  const backdrop = document.getElementById("pm-modal-backdrop-method");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeProjectionMethodModal_() {
+  document.getElementById("pm-modal-backdrop-method").hidden = true;
+  pmmState = null;
+}
+
+// After a method changed: redraw Projections and, if a category's detail is open, reload it.
+async function afterProjectionMethodChange_() {
+  const reopen = drilldownProjection && currentDrilldown && currentDrilldown.refetch ? currentDrilldown.refetch : null;
+  refreshProjectionsScreen();
+  if (reopen) reopen();
+}
+
+document.getElementById("projections-method-btn").addEventListener("click", () => openProjectionMethodModal_({}));
+document.getElementById("drilldown-projection-method-btn").addEventListener("click", () => {
+  if (!drilldownProjection) return;
+  openProjectionMethodModal_({ categoryId: drilldownProjection.category_id, categoryName: drilldownProjection.category_name });
+});
+document.getElementById("pmm-close").addEventListener("click", closeProjectionMethodModal_);
+document.getElementById("pm-modal-backdrop-method").addEventListener("click", (e) => {
+  if (e.target.id === "pm-modal-backdrop-method") closeProjectionMethodModal_();
+});
+["pmm-window", "pmm-years"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  if (pmmState && pmmIsCustom_(pmmState.selected)) pmmState.selected = pmmCustomId_();
+}));
+
+document.getElementById("pmm-save").addEventListener("click", async () => {
+  if (!pmmState) return;
+  const errorEl = document.getElementById("pmm-error");
+  errorEl.textContent = "";
+  try {
+    const payload = pmmState.categoryId ? { categoryId: pmmState.categoryId, method: pmmState.selected } : { method: pmmState.selected };
+    await callApi("setProjectionMethod", payload);
+    closeProjectionMethodModal_();
+    afterProjectionMethodChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
+document.getElementById("pmm-apply-all").addEventListener("click", async () => {
+  if (!pmmState || pmmState.categoryId) return;
+  if (!confirm(tr("pmm.applyAllConfirm", { name: projectionMethodLabel_(pmmState.selected) }))) return;
+  try {
+    await callApi("applyProjectionMethodToAll", { method: pmmState.selected });
+    closeProjectionMethodModal_();
+    afterProjectionMethodChange_();
+  } catch (err) {
+    document.getElementById("pmm-error").textContent = err.message;
+  }
+});
+
+function pmmPct_(x) { return Math.round(x * 100); }
+
+// "Which would have worked best for me?" — one category (from its own screen)
+// or every category (from the main one).
+document.getElementById("pmm-compare-btn").addEventListener("click", async () => {
+  if (!pmmState) return;
+  const btn = document.getElementById("pmm-compare-btn");
+  const results = document.getElementById("pmm-compare-results");
+  const table = document.getElementById("pmm-compare-table");
+  const cats = document.getElementById("pmm-compare-cats");
+  const applyBest = document.getElementById("pmm-apply-best");
+  const categoryId = pmmState.categoryId;
+  btn.disabled = true;
+  results.hidden = false;
+  table.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  cats.innerHTML = "";
+  applyBest.hidden = true;
+  document.getElementById("pmm-apply-best-result").textContent = "";
+  try {
+    const res = await callApi("compareProjectionMethods", categoryId ? { categoryId } : {});
+    document.getElementById("pmm-compare-hint").textContent = tr("pmm.compareHint", { n: res.monthsBack });
+    const nameOf = projectionMethodLabel_;
+    const row = (m, bestId, inUseId) => `
+      <div class="pmm-table-row${m.id === bestId ? " best" : ""}">
+        <span>${escapeHtml(nameOf(m.id))}${m.id === bestId ? `<span class="pmm-badge">${escapeHtml(tr("pmm.bestBadge"))}</span>` : ""}${m.id === inUseId ? `<span class="pmm-badge">${escapeHtml(tr("pmm.currentBadge"))}</span>` : ""}</span>
+        <span>${m.errorPct == null || (m.months != null && m.months < res.minMonths) ? escapeHtml(tr("pmm.noData")) : escapeHtml(tr("pmm.errorValue", { pct: pmmPct_(m.errorPct) }))}</span>
+      </div>`;
+    if (categoryId) {
+      const c = res.categories[0];
+      if (!c || !c.enough) {
+        table.innerHTML = `<p class="hint">${escapeHtml(tr("pmm.notEnough", { n: res.minMonths }))}</p>`;
+        return;
+      }
+      table.innerHTML = c.methods.map((m) => row(m, c.best, c.current)).join("");
+      if (c.best !== c.current) {
+        const use = document.createElement("button");
+        use.type = "button";
+        use.className = "add-inline";
+        use.textContent = tr("pmm.useThis", { name: nameOf(c.best) });
+        use.addEventListener("click", async () => {
+          try {
+            await callApi("setProjectionMethod", { categoryId, method: c.best === res.defaultMethod ? "" : c.best });
+            closeProjectionMethodModal_();
+            afterProjectionMethodChange_();
+          } catch (err) {
+            document.getElementById("pmm-error").textContent = err.message;
+          }
+        });
+        cats.appendChild(use);
+      }
+      return;
+    }
+    // Every category: the overall picture, then who would gain by switching.
+    if (!res.overall.length) {
+      table.innerHTML = `<p class="hint">${escapeHtml(tr("pmm.notEnough", { n: res.minMonths }))}</p>`;
+      return;
+    }
+    const sorted = res.overall.slice().sort((a, b) => a.errorPct - b.errorPct);
+    table.innerHTML = `<p class="hint">${escapeHtml(tr("pmm.bestOverall", { name: nameOf(res.overallBest), pct: pmmPct_(sorted[0].errorPct) }))}</p>` +
+      sorted.map((m) => row(m, res.overallBest, res.defaultMethod)).join("");
+    const gainers = res.categories.filter((c) => c.enough && c.best && c.best !== c.current && c.gain >= 0.05);
+    cats.innerHTML = gainers.map((c) => `<div class="pmm-cat-row">${escapeHtml(tr("pmm.catSuggestion", { name: c.category_name, best: nameOf(c.best), current: nameOf(c.current), pct: pmmPct_(c.gain) }))}</div>`).join("");
+    applyBest.hidden = gainers.length === 0;
+  } catch (err) {
+    table.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("pmm-apply-best").addEventListener("click", async () => {
+  if (!pmmState) return;
+  if (!confirm(tr("pmm.useBestEachConfirm"))) return;
+  const resultEl = document.getElementById("pmm-apply-best-result");
+  try {
+    const res = await callApi("applyBestProjectionMethods");
+    document.getElementById("pmm-apply-best").hidden = true;
+    resultEl.textContent = res.changed.length ? tr("pmm.applied", { n: res.changed.length }) : tr("pmm.appliedNone");
+    afterProjectionMethodChange_();
+  } catch (err) {
+    resultEl.textContent = err.message;
+  }
 });
 
 // Draws actual cumulative spend for the category (solid, through today —
