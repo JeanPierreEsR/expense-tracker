@@ -5481,9 +5481,12 @@ function renderWelcomeAccounts_() {
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
+// Credit cards are two-currency, so a card fits both Plin slots, whatever its bank (Plin can pay with a card). Debit accounts come first.
 function waCandidates_(key) {
   const soles = key.endsWith("_pen"), yape = key.startsWith("yape");
-  return welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
+  const debit = welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
+  const cards = yape ? [] : welcome_.accounts.filter((a) => a.kind === "credit");
+  return debit.concat(cards);
 }
 function renderWaRails_() {
   const box = waEl_("wa-rails");
@@ -5492,7 +5495,8 @@ function renderWaRails_() {
   WA_RAILS.forEach((key) => {
     const cands = waCandidates_(key);
     // Linked by default: until the person decides, the first account that fits (Yape: a BCP account; Plin: another bank's) is selected.
-    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = welcome_.links[key] || cands[0].cid;
+    // (A debit account wins over a credit card; this is re-decided on every render until the person chooses.)
+    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = (cands.find((a) => a.kind !== "credit") || cands[0]).cid;
     if (welcome_.links[key] && !cands.some((a) => a.cid === welcome_.links[key])) welcome_.links[key] = "";
     const wrap = document.createElement("div");
     wrap.className = "wa-rail";
@@ -5631,7 +5635,7 @@ let tour_ = null;
 // featureOn_('gmail'): false on a friend's app until they turned on bank transactions, always true on the owner's copy).
 function tourCards_() {
   const caps = (meta && meta.capabilities) || {};
-  const cards = ["add", "invest", "loan", "repay", "overview", "budgets"];
+  const cards = ["add", "invest", "transfer", "loan", "repay", "overview", "budgets"];
   if (caps.bankEmails) cards.push("bank");
   cards.push("more");
   return cards;
@@ -6122,8 +6126,9 @@ function renderRailsCard_() {
     const yape = key.startsWith("yape");
     const bankOf = (pm) => { const b = (meta.banks || []).find((x) => x.id === pm.bank_id); return b ? b.name : ""; };
     // Yape: BCP accounts only. Plin: any bank but BCP. A link already saved stays listed even if it breaks that rule.
+    // Plin may also use any credit card (two-currency), so cards are listed in both of its slots.
     meta.paymentMethods
-      .filter((pm) => String(settings[key] || "") === String(pm.id) || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
+      .filter((pm) => String(settings[key] || "") === String(pm.id) || (!yape && pm.type === "credit") || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
         (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd"))))
       .sort((a, b) => a.nickname.localeCompare(b.nickname))
       .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
