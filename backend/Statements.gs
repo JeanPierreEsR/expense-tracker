@@ -87,7 +87,7 @@ function adminApplyStatementActions(payload) {
   if (!dryRun) {
     if (toCreate.length) {
       ensureImportBatchRow_(batchId, payload.filename || 'statement-reconciliation', toCreate.length);
-      toCreate.forEach(function (e) { appendRowObject('Entries', e); });
+      toCreate.forEach(function (e) { appendRowObject('Entries', e); autoTagTravelEntry_(e); });   // Travel is Annual by default
       report.batchId = batchId;
     }
     if (toAssign) sheet.getRange(2, pmCol + 1, pmColumn.length, 1).setValues(pmColumn);

@@ -587,6 +587,10 @@ function createEntry(payload) {
       appendRowObject('Entry Tags', { entry_id: id, tag_id: tagId });   // by column NAME, not position
     });
   }
+  // The form pre-selects Annual for Travel and always sends its tags, so what
+  // it sends wins (the owner may have un-ticked it); a caller that sends no
+  // tag list at all gets the default here.
+  if (!payload.tag_ids) autoTagTravelEntry_(entry);
 
   return entry;
 }
@@ -879,6 +883,8 @@ function updateEntryFields(entryId, fields) {
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) throw new Error(tr_('err.entryNotFound'));
 
+  var categoryChanges = !!fields && fields.category_id !== undefined;
+  var categoryBefore = categoryChanges ? (getEntryById_(entryId) || {}).category_id : null;
   withWriteBatch_(function () {
     Object.keys(fields || {}).forEach(function (key) {
       setCellByRow_(sheet, headers, rowIndex, key, fields[key]);
@@ -889,6 +895,10 @@ function updateEntryFields(entryId, fields) {
     if (after && after.type === 'investment' && needsInvestmentCategory_(after.category_id)) {
       setCellByRow_(sheet, headers, rowIndex, 'category_id', defaultInvestmentCategoryId_());
     }
+    // Moved INTO Travel (Telegram edit, review queue): it becomes Annual too.
+    // Only on a real change, so re-saving an old Travel entry never re-adds a
+    // tag the owner removed.
+    if (after && categoryChanges && after.category_id !== categoryBefore) autoTagTravelEntry_(after);
   });
 
   return getEntryById_(entryId);
