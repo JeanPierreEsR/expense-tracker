@@ -188,8 +188,12 @@ main {
 
 .nav-btn { min-width: 0; }
 .nav-btn .nav-icon { font-size: 1.2rem; }
-/* Spanish labels are longer ("Movimientos", "Presupuestos", "Proyecciones"). */
-html[lang="es"] .nav-btn { font-size: 0.58rem; margin: 6px 1px; }
+/* Spanish labels are longer ("Movimientos", "Presupuestos", "Proyecciones").
+   The label size follows the screen width (2.3vw) so the longest word always
+   fits its sixth of the bar without touching its neighbour, down to a 320px
+   phone; the fixed rem value only caps it on wider screens. */
+html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.3vw); margin: 6px 0; }
+html[lang="es"] .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
   color: var(--accent);
