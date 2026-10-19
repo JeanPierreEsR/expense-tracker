@@ -78,7 +78,7 @@ var TABLE_DEFINITIONS = {
   // a monthly item whose amount changes every time (electricity, gas). `amount`
   // is then only the starting estimate; the app uses the average of the last 3
   // payments it can recognise by `match_words` (see RecurringExpenses.gs).
-  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date', 'start_date', 'end_date', 'variable', 'match_words'],
+  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit'],
   // One row per skipped occurrence ("rent waived this month"). `month` is the
   // occurrence's YYYY-MM, so a skip survives the item's day being edited.
   'Recurring Skips': ['id', 'recurring_expense_id', 'month'],

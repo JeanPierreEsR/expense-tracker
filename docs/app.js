@@ -6390,6 +6390,11 @@ function recurringFreqLabel_(re) {
     return I18n.fmtDateMedium(d);
   }
   if (re.frequency === "yearly") return tr("recurring.freqYearly", { month: I18n.monthShort(re.month - 1), day: re.day });
+  if (re.frequency === "custom") {
+    // "Every 2 weeks, from 5 Oct 2026"
+    const every = tr("recurring.every." + re.interval_unit, { n: re.interval });
+    return every + tr("recurring.fromDate", { date: I18n.fmtDateMedium(new Date(re.start_date + "T00:00:00")) });
+  }
   return tr("recurring.freqMonthly", { day: re.day });
 }
 
@@ -6722,16 +6727,18 @@ function setRecurringFrequency_(freq) {
   const isOnce = freq === "once";
   document.getElementById("recurring-once-fields").hidden = !isOnce;
   document.getElementById("recurring-window-fields").hidden = isOnce;
-  // A variable amount only makes sense for a monthly item.
-  document.getElementById("recurring-variable-field").hidden = freq !== "monthly";
-  if (freq !== "monthly") document.getElementById("recurring-variable-toggle").checked = false;
+  document.getElementById("recurring-custom-fields").hidden = freq !== "custom";
+  // A variable amount makes sense for a monthly item or one with its own interval.
+  const canBeVariable = freq === "monthly" || freq === "custom";
+  document.getElementById("recurring-variable-field").hidden = !canBeVariable;
+  if (!canBeVariable) document.getElementById("recurring-variable-toggle").checked = false;
   syncRecurringVariableUi_();
   if (isOnce) {
     document.getElementById("recurring-occurrence-date").min = todayLocalISO();
     return;
   }
   document.getElementById("recurring-start-hint").textContent =
-    freq === "yearly" ? tr("recModal.yearlyHint") : tr("recModal.monthlyHint");
+    freq === "yearly" ? tr("recModal.yearlyHint") : freq === "custom" ? tr("recModal.customStartHint") : tr("recModal.monthlyHint");
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
@@ -6782,6 +6789,8 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-variable-toggle").checked = !!(prefill || (re && re.variable));
   document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
   setRecurringFrequency_(frequency);
+  document.getElementById("recurring-interval").value = re && re.frequency === "custom" ? re.interval : 1;
+  document.getElementById("recurring-interval-unit").value = re && re.frequency === "custom" ? re.interval_unit : "weeks";
   document.getElementById("recurring-occurrence-date").value =
     frequency === "once" && re && re.date ? re.date : todayLocalISO();
   // Monthly/yearly: "Starts on" is the one date. An older item saved before
@@ -7110,9 +7119,12 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       // An untouched stand-in (older item with no start) stays "no start".
       start_date: recurringFrequency === "once" || startDate === recurringStartStandIn ? "" : startDate,
       end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value,
-      // Variable amount: only a monthly item; the server checks the words.
-      variable: recurringFrequency === "monthly" && document.getElementById("recurring-variable-toggle").checked,
-      match_words: document.getElementById("recurring-match-words").value.trim()
+      // Variable amount: a monthly item or one with its own interval; the server checks the words.
+      variable: (recurringFrequency === "monthly" || recurringFrequency === "custom") && document.getElementById("recurring-variable-toggle").checked,
+      match_words: document.getElementById("recurring-match-words").value.trim(),
+      // "Other": every N days/weeks/months/years from the start date (the server checks them).
+      interval: recurringFrequency === "custom" ? document.getElementById("recurring-interval").value.trim() : "",
+      interval_unit: recurringFrequency === "custom" ? document.getElementById("recurring-interval-unit").value : ""
     };
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence

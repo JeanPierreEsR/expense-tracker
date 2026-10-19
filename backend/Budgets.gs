@@ -446,9 +446,10 @@ function getBudgetChartSeries(payload) {
   // spendEntries strip fields (id, full amount, recurring_expense_id) that
   // entryMatchesRecurringOccurrence_ needs, so this reads them separately
   // rather than reshaping that shared context.
+  // Any date, not just the period: an occurrence counts as paid when an entry
+  // near ITS date exists, and a custom item's window can reach outside the period.
   var entriesInRange = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.date >= startDate && e.date <= endDate &&
-      categoryIdMatches_(categoryIds, e.category_id);
+    return e.status === 'confirmed' && categoryIdMatches_(categoryIds, e.category_id);
   });
 
   // Only occurrences WITHOUT a matching confirmed entry become a bump —

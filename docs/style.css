@@ -1542,7 +1542,12 @@ body.income-revealed .sens-mask { display: none; }
 /* Programmed items' Frequency tabs: Monthly/Yearly/One-time — three short
    labels fit one row fine, unlike Budgets' own two-tab Monthly/Yearly
    period selector that .budget-period-tabs above is really styled for. */
-#recurring-frequency-tabs { grid-template-columns: repeat(3, 1fr); }
+#recurring-frequency-tabs { grid-template-columns: repeat(2, 1fr); }   /* four options (with "Other"): two rows, "One-time" is long in Spanish */
+
+/* "Repeats every [number] [days|weeks|months|years]" */
+.interval-row { display: flex; gap: 8px; align-items: center; }
+.interval-row input { width: 88px; flex: 0 0 auto; }
+.interval-row select { flex: 1 1 auto; min-width: 0; }
 
 /* This never had a scroll rule at all — unlike the other bottom-sheet
    forms, the budget form's content (now a full category chip grid on top

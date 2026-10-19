@@ -103,7 +103,10 @@ var BACKEND_STRINGS_ = {
   // ---- rec ----
   "rec.startDate": { en: "The start date must be a real date (YYYY-MM-DD).", es: "La fecha de inicio debe ser una fecha real (AAAA-MM-DD)." },
   "rec.endDate": { en: "The end date must be a real date (YYYY-MM-DD).", es: "La fecha de fin debe ser una fecha real (AAAA-MM-DD)." },
-  "rec.variableMonthlyOnly": { en: "Only a monthly item can have a variable amount.", es: "Solo un movimiento mensual puede tener monto variable." },
+  "rec.variableMonthlyOnly": { en: "Only a monthly item, or one with its own repeat interval (Other), can have a variable amount.", es: "Solo un movimiento mensual, o uno con su propio intervalo (Otra), puede tener monto variable." },
+  "rec.customInterval": { en: "\"Repeats every\" must be a whole number from 1 to 999.", es: "\"Repite cada\" debe ser un número entero de 1 a 999." },
+  "rec.customUnit": { en: "Pick days, weeks, months or years.", es: "Elige días, semanas, meses o años." },
+  "rec.customNeedsStart": { en: "An item with its own repeat interval needs a start date: every following date is counted from it.", es: "Un movimiento con su propio intervalo necesita una fecha de inicio: desde ella se cuentan las siguientes." },
   "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognise its payments, e.g. \"luz\".", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, e.g. \"luz\"." },
   "rec.endBeforeStart": { en: "The end date is before the start date.", es: "La fecha de fin es anterior a la de inicio." },
 
