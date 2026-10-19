@@ -312,9 +312,14 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     if (linkedTrip) {
       lines.push(tr_('bot.tripLabel') + tripDisplayName_(linkedTrip));
     } else if (entry.status === 'pending') {
-      var suggestedId = suggestedTripIdForDate_(entry.date, tripRows);
-      var suggestedTrip = suggestedId ? tripRows.filter(function (t) { return t.id === suggestedId; })[0] : null;
-      if (suggestedTrip) lines.push(tr_('bot.tripSuggest', { name: tripDisplayName_(suggestedTrip), short: suggestedTrip.name }));
+      if (entry.trip_id === TRIP_DECLINED_) {
+        lines.push(tr_('bot.tripNotLinked'));
+      } else {
+        // Confirming (the button, or a reply) links the trip whose dates cover this one — said here first.
+        var suggestedId = suggestedTripIdForDate_(entry.date, tripRows);
+        var suggestedTrip = suggestedId ? tripRows.filter(function (t) { return t.id === suggestedId; })[0] : null;
+        if (suggestedTrip) lines.push(tr_('bot.tripWillLink', { name: tripDisplayName_(suggestedTrip) }));
+      }
     }
   }
 
@@ -519,6 +524,7 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.needPlatformFirst');
       keepButtons = true;
     } else {
+      linkSuggestedTripOnTelegramConfirm_(entryId);   // the card said so (trip/event matching its date)
       confirmEntryWithLearning_(entryId);
       reply = tr_('bot.confirmed');
     }
@@ -888,6 +894,7 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
     var blocker = telegramConfirmBlocker_(entry);
     if (!allApplied) return tr_('bot.notConfirmedPartial');
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
+    linkSuggestedTripOnTelegramConfirm_(entryId);
     confirmEntryWithLearning_(entryId);
     return ''; // the refreshed card says "✅ Confirmed" itself
   }
@@ -1108,8 +1115,9 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (entry.type !== 'expense') return null;
     var tripId = parseTripCommand_(value);
     if (tripId === null) return null;
-    if (tripId) ensureEntriesTripColumn_();
-    setEntryField_(entryId, 'trip_id', tripId);
+    ensureEntriesTripColumn_();
+    // "trip none" on a pending entry must stick until the confirmation that this same reply triggers.
+    setEntryField_(entryId, 'trip_id', tripId === '' && entry.status === 'pending' ? TRIP_DECLINED_ : tripId);
   } else if (field === 'type') {
     var newType = entryTypeFromWord_(value);
     if (newType === entry.type) return field; // no-op, nothing to clean up
