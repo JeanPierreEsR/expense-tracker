@@ -1290,6 +1290,14 @@ body.income-revealed .sens-mask { display: none; }
 .expected-recurring-item-amount {
   flex-shrink: 0;
   white-space: nowrap;
+  text-align: right;
+}
+
+/* A shared item: "Total ..." goes small and grey under the owner's own share. */
+.expected-recurring-item-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 /* Its usual day has already passed this month with nothing confirmed yet

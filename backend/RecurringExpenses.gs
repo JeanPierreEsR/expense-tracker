@@ -146,7 +146,7 @@ function variablePickPerMonth_(entries, day) {
   entries.forEach(function (e) {
     var m = String(e.date).substring(0, 7);
     var dist = Math.abs(Number(String(e.date).substring(8, 10)) - day);
-    if (!bestByMonth[m] || dist < bestByMonth[m].dist) bestByMonth[m] = { date: e.date, amount: Number(e.amount), dist: dist, linked: !!e._linkedHere };
+    if (!bestByMonth[m] || dist < bestByMonth[m].dist) bestByMonth[m] = { date: e.date, amount: Number(e.amount), own: e._own, dist: dist, linked: !!e._linkedHere };
   });
   return Object.keys(bestByMonth).sort().reverse().slice(0, 6).map(function (m) { return bestByMonth[m]; });
 }
@@ -163,7 +163,7 @@ function medianOf_(numbers) {
 // outside the range). Two passes: the first finds the typical payment (the
 // median — with the typed estimate counted as one more data point while fewer
 // than 3 payments exist); the second drops entries far from it.
-function variablePaymentHistory_(r, categoryEntries, todayStr) {
+function variablePaymentHistory_(r, categoryEntries, todayStr, splitSumByEntry) {
   var currency = r.currency || homeCurrency_();
   var day = r.day ? Number(r.day) : 1;
   var candidates = [];
@@ -175,7 +175,9 @@ function variablePaymentHistory_(r, categoryEntries, todayStr) {
     var linkedHere = e.recurring_expense_id === r.id;
     if (e.recurring_expense_id && !linkedHere) return;
     if (!linkedHere && !tokensOverlap_(r.match_tokens, keywordTokens_((e.description || '') + ' ' + (e.merchant || '')))) return;
-    candidates.push({ date: e.date, amount: Number(e.amount), _linkedHere: linkedHere });
+    // _own: the owner's own share of that payment (a bill paid for the whole
+    // flat has most of it split off to friends).
+    candidates.push({ date: e.date, amount: Number(e.amount), _own: Number(e.amount) - ((splitSumByEntry && splitSumByEntry[e.id]) || 0), _linkedHere: linkedHere });
   });
   var firstPass = variablePickPerMonth_(candidates, day).map(function (h) { return h.amount; });
   if (firstPass.length < 3) firstPass.push(r.base_amount);
@@ -197,11 +199,15 @@ function applyVariableRecurringEstimates_(rows) {
     if (e.status !== 'confirmed') return;
     (entriesByCategory[e.category_id] = entriesByCategory[e.category_id] || []).push(e);
   });
+  var splitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
   rows.forEach(function (r) {
     if (!isVariableRecurring_(r)) return;
     r.base_amount = Number(r.amount);
     r.match_tokens = keywordTokens_(r.match_words);
-    var found = variablePaymentHistory_(r, entriesByCategory[r.category_id] || [], todayStr);
+    var found = variablePaymentHistory_(r, entriesByCategory[r.category_id] || [], todayStr, splitSumByEntry);
     r.payments_used = Math.min(3, found.history.length);
     r.amount_low = found.low;
     r.amount_high = found.high;
@@ -209,6 +215,11 @@ function applyVariableRecurringEstimates_(rows) {
     var recent = found.history.slice(0, 3);
     var avg = recent.reduce(function (sum, h) { return sum + h.amount; }, 0) / recent.length;
     r.amount = Math.round(avg * 100) / 100;
+    // The owner's own share = the average of what the owner's share of those
+    // payments really was. A fixed split on a bill that changes every month
+    // would be wrong (a PEN 12 share taken off a PEN 40 bill, then off a 60
+    // one), so recurringOwnAmount_ prefers this once there is history.
+    r.own_amount = Math.round(recent.reduce(function (sum, h) { return sum + h.own; }, 0) / recent.length * 100) / 100;
   });
 }
 
@@ -268,9 +279,12 @@ function suggestVariableRecurring() {
   var existingOcc = existing.map(function (r) { return recurringExpenseOccurrencesInRange_(r, rangeStart, rangeEnd); });
   var recurringSplitSums = getRecurringExpenseSplitSums_();
   var entrySplitSums = {};
+  var splitsByEntry = {};   // entry id -> [{friend_id, amount}]: who the payment was shared with
   getAllRows('Entry Splits').forEach(function (s) {
     entrySplitSums[s.entry_id] = (entrySplitSums[s.entry_id] || 0) + Number(s.amount);
+    (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
+  var friendById = rowsById_(getAllRows('Friends'));
   function explained(e) {
     if (e.recurring_expense_id) return true;
     return existing.some(function (r, idx) {
@@ -340,7 +354,22 @@ function suggestVariableRecurring() {
     var recent = picks.slice(0, 3);
     var avg = recent.reduce(function (sum, e) { return sum + Number(e.amount); }, 0) / recent.length;
     var amounts = picks.map(function (e) { return Number(e.amount); });
+    // Shared? A bill the owner pays for the whole flat has most of it split off
+    // to friends on the real entries. "Shared" = most of the recent payments
+    // were; who with, and how much, come from the newest shared one. The
+    // owner's own share is what the programmed item will count (the full bill
+    // stays visible as the total).
+    function ownOf(e) { return Number(e.amount) - (entrySplitSums[e.id] || 0); }
+    var sharedRecent = recent.filter(function (e) { return (entrySplitSums[e.id] || 0) > 0.005; });
+    var isShared = sharedRecent.length * 2 > recent.length;
+    var ownAvg = recent.reduce(function (sum, e) { return sum + ownOf(e); }, 0) / recent.length;
     suggestions.push({
+      shared: isShared,
+      own_avg_amount: Math.round(ownAvg * 100) / 100,
+      split: isShared ? (splitsByEntry[sharedRecent[0].id] || []).map(function (s) {
+        var f = friendById[s.friend_id];
+        return { friend_id: s.friend_id, name: f ? f.name : '', amount: s.amount };
+      }) : [],
       key: b.g.category_id + '|' + ordered.join(' '),
       category_id: b.g.category_id,
       category_name: categoryLabel_(cat),
@@ -458,6 +487,10 @@ function getRecurringExpenseSplitSums_() {
 // raw `amount` field stays the true full cost, same reasoning as an
 // Entry's own `amount` staying the full disbursement.
 function recurringOwnAmount_(r, splitSums) {
+  // A variable item with payment history knows the owner's real share
+  // (applyVariableRecurringEstimates_); a fixed split would not follow a bill
+  // that changes every month.
+  if (r.own_amount !== undefined) return Number(r.own_amount);
   return Number(r.amount) - ((splitSums && splitSums[r.id]) || 0);
 }
 
@@ -489,6 +522,9 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
   // own "big number" in the list, same "big = my share, small = total"
   // treatment a split real expense already gets (see CLAUDE.md).
   var splitTotal = (splitSums && splitSums[r.id]) || 0;
+  // A variable item with history: what is split off is whatever the owner's
+  // real share of its recent payments says (see recurringOwnAmount_).
+  if (r.own_amount !== undefined) splitTotal = Math.max(0, Number(r.amount) - Number(r.own_amount));
   return {
     id: r.id,
     category_id: r.category_id,

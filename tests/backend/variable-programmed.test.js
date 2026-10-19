@@ -223,6 +223,61 @@ test("payments already explained by a fixed programmed item aren't suggested", (
   assert.equal(rt.api("suggestVariableRecurring").suggestions.filter((s) => s.category_id === CAT).length, 0);
 });
 
+// ---- bills the owner pays for several people (flatmates) ---------------------------
+// Entry `id` shared with the (made-up) friend "Flatmate A": `friendShare` is theirs.
+function shareEntry(rt, entryId, friendShare, friendId = "f-flat-a") {
+  if (!rt.rows("Friends").some((f) => f.id === friendId)) rt.run(`appendRowObject('Friends', { id: ${JSON.stringify(friendId)}, name: 'Flatmate A', notes: '' });`);
+  rt.run(`appendRowObject('Entry Splits', { id: ${JSON.stringify("s-" + entryId + friendId)}, entry_id: ${JSON.stringify(entryId)}, friend_id: ${JSON.stringify(friendId)}, amount: ${friendShare} });`);
+}
+function sharedGasHistory(rt, months = 6) {
+  const bills = [60, 66, 72, 54, 63, 69];
+  for (let i = 0; i < months; i++) {
+    const id = addEntry(rt, monthsAgo(1 + i, 8), bills[i], "Gas del depa");
+    shareEntry(rt, id, bills[i] * 2 / 3);   // two thirds paid back by flatmates
+  }
+}
+
+test("the scan says when a bill is usually shared, with whom, and the owner's own share", () => {
+  const { rt } = setup();
+  sharedGasHistory(rt);
+  const s = rt.api("suggestVariableRecurring").suggestions.find((x) => x.category_id === CAT);
+  assert.ok(s);
+  assert.equal(s.shared, true);
+  assert.deepEqual(s.split.map((f) => f.name), ["Flatmate A"]);
+  assert.equal(s.split[0].amount, 40, "the newest payment (60) was shared out as 40 for the flatmate");
+  assert.equal(s.avg_amount, 66, "total bill: average of the newest 3 (60, 66, 72)");
+  assert.equal(s.own_avg_amount, 22, "the owner's third of that");
+});
+
+test("a bill nobody shares is not marked shared", () => {
+  const { rt } = setup();
+  monthlyHistory(rt, "Recibo luz", [180, 150, 210, 170, 160, 190]);
+  const s = rt.api("suggestVariableRecurring").suggestions.find((x) => x.category_id === CAT);
+  assert.equal(s.shared, false);
+  assert.deepEqual(s.split, []);
+  assert.equal(s.own_avg_amount, s.avg_amount);
+});
+
+test("a shared variable item counts only the owner's share, following the real payments", () => {
+  const { rt } = setup();
+  sharedGasHistory(rt, 3);   // 60, 66, 72: the owner paid a third of each
+  const r = variableItem(rt, { match_words: "gas", day: 8 });
+  const item = listed(rt, r.id);
+  assert.equal(item.amount, 66, "total bill estimate");
+  assert.equal(item.split_total, 44, "two thirds of it is shared out");
+  const group = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
+  assert.equal(group.amount, 22, "Programmed this month counts the owner's third: 66 / 3");
+});
+
+test("a fixed split saved on the item does not follow a bill that changes every month", () => {
+  const { rt } = setup();
+  sharedGasHistory(rt, 3);
+  const r = variableItem(rt, { match_words: "gas", day: 8 });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: "f-flat-a", amount: 10 }] });   // a stale fixed amount
+  const group = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
+  assert.equal(group.amount, 22, "the real shares of recent payments win over the fixed 10");
+});
+
 // ---- existing sheets ---------------------------------------------------------------
 test("a sheet from before these columns existed upgrades itself", () => {
   const { rt } = setup();
