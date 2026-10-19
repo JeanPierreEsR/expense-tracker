@@ -6768,20 +6768,26 @@ async function openRecurringModal(re, prefill) {
   // originally entered as Equal or Custom.
   if (re && re.split_total > 0.005) {
     const splits = await callApi("getRecurringExpenseSplits", { recurringExpenseId: re.id });
-    if (splits.length) {
-      recurringSplitMode = "custom";
-      document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
-      splits.forEach((s) => {
-        recurringSplitFriendIds.add(s.friend_id);
-        recurringCustomSplitAmounts[s.friend_id] = String(s.amount);
-      });
-      document.getElementById("recurring-split-toggle").checked = true;
-      document.getElementById("recurring-split-detail").hidden = false;
-      renderRecurringSplitFriendChips();
-      renderRecurringSplitRows();
-      renderRecurringSplitSummary();
-    }
+    if (splits.length) applyRecurringSplitRows_(splits);
   }
+  // A proposal for a bill the owner usually shares (e.g. the gas paid for the
+  // whole flat) starts with the same friends and the latest amounts.
+  if (!re && prefill && prefill.split && prefill.split.length) applyRecurringSplitRows_(prefill.split);
+}
+
+// Shows these splits [{friend_id, amount}] in the modal, in Custom mode.
+function applyRecurringSplitRows_(splits) {
+  recurringSplitMode = "custom";
+  document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+  splits.forEach((s) => {
+    recurringSplitFriendIds.add(s.friend_id);
+    recurringCustomSplitAmounts[s.friend_id] = String(s.amount);
+  });
+  document.getElementById("recurring-split-toggle").checked = true;
+  document.getElementById("recurring-split-detail").hidden = false;
+  renderRecurringSplitFriendChips();
+  renderRecurringSplitRows();
+  renderRecurringSplitSummary();
 }
 
 // Skipped months of the item being edited, each with an Undo.
@@ -6931,12 +6937,23 @@ function renderVariableSuggestions_(suggestions) {
   shown.forEach((s) => {
     const box = document.createElement("div");
     box.className = "expected-recurring-entry";
+    // A bill the owner usually pays for others too (e.g. the gas for the whole
+    // flat): same "big = my share, small grey = total" treatment a split real
+    // expense gets, plus who it is shared with.
+    const names = (s.split || []).map((f) => f.name).filter(Boolean).join(", ");
+    const sharedLine = s.shared
+      ? `<span class="hint" style="display:block;">${escapeHtml(tr("recurring.suggestShared", { names: names || "—" }))}</span>`
+      : "";
+    const amountHtml = s.shared
+      ? `≈ ${s.currency} ${moneyFmt(s.own_avg_amount)}<span class="original-amt">${tr("common.total")} ${s.currency} ${moneyFmt(s.avg_amount)}</span>`
+      : `≈ ${s.currency} ${moneyFmt(s.avg_amount)}`;
     box.innerHTML = `
       <div class="expected-recurring-item">
         <span class="expected-recurring-item-label">${s.category_icon ? s.category_icon + " " : ""}${escapeHtml(s.description)}
           <span class="hint" style="display:block;">${escapeHtml(tr("recurring.suggestSub", { category: s.category_name, day: s.typical_day, n: s.months_seen, cur: s.currency, min: moneyFmt(s.min_amount), max: moneyFmt(s.max_amount) }))}</span>
+          ${sharedLine}
         </span>
-        <span class="expected-recurring-item-amount">≈ ${s.currency} ${moneyFmt(s.avg_amount)}</span>
+        <span class="expected-recurring-item-amount">${amountHtml}</span>
       </div>
       <div class="expected-recurring-actions">
         <button type="button" data-act="add">${tr("recurring.suggestAdd")}</button>
@@ -6946,7 +6963,7 @@ function renderVariableSuggestions_(suggestions) {
       pendingSuggestionBox_ = box;   // removed from the list once the item is actually saved
       openRecurringModal(null, {
         category_id: s.category_id, description: s.description, amount: s.avg_amount,
-        currency: s.currency, day: s.typical_day, match_words: s.match_words
+        currency: s.currency, day: s.typical_day, match_words: s.match_words, split: s.shared ? s.split : []
       });
     });
     box.querySelector('[data-act="dismiss"]').addEventListener("click", () => {

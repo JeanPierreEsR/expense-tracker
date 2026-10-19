@@ -426,6 +426,7 @@
     "recurring.suggestBtn": { en: "🔎 Look for variable payments", es: "🔎 Buscar pagos variables" },
     "recurring.suggestNone": { en: "Nothing new found. A payment shows up here when it appears in at least 4 of the last 6 months, at most twice a month, with an amount that changes.", es: "No se encontró nada nuevo. Un pago aparece aquí cuando está en al menos 4 de los últimos 6 meses, como máximo dos veces al mes, con un monto que cambia." },
     "recurring.suggestSub": { en: "{category} · around day {day} · seen in {n} of 6 months · {cur} {min}–{max}", es: "{category} · cerca del día {day} · visto en {n} de 6 meses · {cur} {min}–{max}" },
+    "recurring.suggestShared": { en: "👥 Usually shared with {names} — the big amount is your share", es: "👥 Suele compartirse con {names}: el monto grande es tu parte" },
     "recurring.suggestAdd": { en: "Add…", es: "Agregar…" },
     "recurring.suggestDismiss": { en: "Not now", es: "Ahora no" },
 
