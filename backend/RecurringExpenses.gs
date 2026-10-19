@@ -203,6 +203,7 @@ function applyVariableRecurringEstimates_(rows) {
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
+  var savedSplitSums = getRecurringExpenseSplitSums_();
   rows.forEach(function (r) {
     if (!isVariableRecurring_(r)) return;
     r.base_amount = Number(r.amount);
@@ -219,7 +220,18 @@ function applyVariableRecurringEstimates_(rows) {
     // payments really was. A fixed split on a bill that changes every month
     // would be wrong (a PEN 12 share taken off a PEN 40 bill, then off a 60
     // one), so recurringOwnAmount_ prefers this once there is history.
-    r.own_amount = Math.round(recent.reduce(function (sum, h) { return sum + h.own; }, 0) / recent.length * 100) / 100;
+    var anyPaymentSplit = recent.some(function (h) { return h.own < h.amount - 0.005; });
+    if (anyPaymentSplit) {
+      r.own_amount = Math.round(recent.reduce(function (sum, h) { return sum + h.own; }, 0) / recent.length * 100) / 100;
+    } else if (savedSplitSums[r.id] > 0.005 && r.base_amount > 0) {
+      // The real payments were logged unsplit, but the item itself carries a
+      // split (set by hand, like the rent): keep it, as the share of the bill
+      // it represented when typed, so it follows a bill that changes every month
+      // instead of being dropped (reported 2026-10-19: the shared gas lost its
+      // "Total" line).
+      var friendsShare = Math.min(1, savedSplitSums[r.id] / r.base_amount);
+      r.own_amount = Math.round(r.amount * (1 - friendsShare) * 100) / 100;
+    }
   });
 }
 
