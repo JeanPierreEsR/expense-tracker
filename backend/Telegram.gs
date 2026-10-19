@@ -304,6 +304,20 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push(tr_('bot.labelsLabel') + tagNames.join(', '));
   }
 
+  // Trip / event (expenses only): the current one, or — for a pending entry with none — the one whose
+  // dates match, as a suggestion the owner confirms by replying "trip <name>".
+  if (entry.type === 'expense') {
+    var tripRows = getTripRows_();
+    var linkedTrip = entry.trip_id ? tripRows.filter(function (t) { return t.id === entry.trip_id; })[0] : null;
+    if (linkedTrip) {
+      lines.push(tr_('bot.tripLabel') + tripDisplayName_(linkedTrip));
+    } else if (entry.status === 'pending') {
+      var suggestedId = suggestedTripIdForDate_(entry.date, tripRows);
+      var suggestedTrip = suggestedId ? tripRows.filter(function (t) { return t.id === suggestedId; })[0] : null;
+      if (suggestedTrip) lines.push(tr_('bot.tripSuggest', { name: tripDisplayName_(suggestedTrip), short: suggestedTrip.name }));
+    }
+  }
+
   var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
   if (twins.length) {
     lines.push('');
@@ -342,6 +356,7 @@ function telegramEditHelpText_(entry) {
     return help(['intro', 'i.platform', 'i.direction', 'i.paymentMethod', 'i.receivedAt', 'i.amount', 'descDeposit', 'currency', 'date', 'label', 'i.type', '', 'i.combine'].concat(tail));
   }
   var keys = ['intro', 'o.category', 'o.amount', 'descUber', 'o.paidBy', 'o.paymentMethod', 'currency', 'date', 'label', 'o.split', 'o.type', '', 'o.combine', 'o.names'];
+  if (entry.type === 'expense' && getTripRows_().length) keys.splice(keys.indexOf('o.split'), 0, 'trip');
   if (entry.type === 'expense') keys = keys.concat(['', 'expense.intro', 'expense.repayment', 'expense.loan']);
   if (entry.type === 'income') keys = keys.concat(['', 'income.intro', 'income.repayment', 'income.loan']);
   return help(keys.concat(tail));
@@ -381,6 +396,20 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
   // chat id, etc. — only a real ok counts as sent, so the caller doesn't
   // log the alert as delivered and never retry it.
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  noteTelegramAlertSent_(res);
+  return !!(res && res.ok);
+}
+
+// A trip/event budget alert — same contract as sendTelegramBudgetAlert_ (false = not configured, retry later).
+function sendTelegramTripBudgetAlert_(trip, percent) {
+  var chatId = getOwnerTelegramChatId_();
+  if (!chatId || !getTelegramToken_()) return false;
+  var cur = trip.budget_currency || homeCurrency_();
+  var text = tr_('bot.tripBudgetAlert', {
+    emoji: percent >= 100 ? '🚨' : '⚠️', name: tripDisplayName_(trip), percent: Math.round(percent),
+    cur: cur, amount: moneyFmt_(trip.budget_amount), spent: moneyFmt_(trip.budgetSpent)
+  });
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -792,6 +821,8 @@ var EDIT_COMMAND_PATTERNS = [
   // Withdrawals only: same as "to", worded the way it reads for money coming back.
   { field: 'received at', re: /^(?:received\s*at|recibido\s*en)\s+(.+)/i },
   { field: 'label', re: /^(?:labels?|tags?|etiquetas?)\s+(.+)/i },
+  // Trips & events (expenses only): "trip Cusco" links the expense, "trip none" unlinks it.
+  { field: 'trip', re: /^(?:trip|event|viaje|evento)\s+(.+)/i },
   // Reclassifies the whole entry — e.g. a self-transfer between the
   // owner's own accounts that the email parser couldn't confirm as one
   // (isOwnAccount_ in EmailParser.gs only recognizes the owner's own full
@@ -817,7 +848,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|categor[ií]a|amount|monto|description|descripci[oó]n|paid\\s*by|pagado\\s*por|currency|moneda|date|fecha|split|repartir|dividir|payment\\s*method|medio\\s*de\\s*pago|labels?|tags?|etiquetas?|from|desde|to|hasta|hacia|received\\s*at|recibido\\s*en|platform|plataforma|type|tipo)\\s+|(?:withdrawal|deposit|retiro|dep[oó]sito)(?![\\wáéíóúñ]))';
+var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|categor[ií]a|amount|monto|description|descripci[oó]n|paid\\s*by|pagado\\s*por|currency|moneda|date|fecha|split|repartir|dividir|payment\\s*method|medio\\s*de\\s*pago|labels?|tags?|etiquetas?|trip|event|viaje|evento|from|desde|to|hasta|hacia|received\\s*at|recibido\\s*en|platform|plataforma|type|tipo)\\s+|(?:withdrawal|deposit|retiro|dep[oó]sito)(?![\\wáéíóúñ]))';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
@@ -1073,6 +1104,12 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var tagIds = parseLabelCommand_(value);
     if (tagIds === null) return null;
     saveEntryTags({ entryId: entryId, tagIds: tagIds });
+  } else if (field === 'trip') {
+    if (entry.type !== 'expense') return null;
+    var tripId = parseTripCommand_(value);
+    if (tripId === null) return null;
+    if (tripId) ensureEntriesTripColumn_();
+    setEntryField_(entryId, 'trip_id', tripId);
   } else if (field === 'type') {
     var newType = entryTypeFromWord_(value);
     if (newType === entry.type) return field; // no-op, nothing to clean up
@@ -1336,6 +1373,19 @@ function fuzzyFindCategory_(text, type) {
 
 function fuzzyFindFriend_(text) {
   return pickByName_(getAllRows('Friends'), text, function (f) { return f.name; });
+}
+
+// "trip none" (or clear/off/ninguno) unlinks; otherwise the name must match exactly one trip or event
+// (same whole-word matcher as every other reply name); an unknown or ambiguous name fails the segment.
+function parseTripCommand_(text) {
+  var trimmed = String(text).trim();
+  if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return '';
+  var trip = fuzzyFindTrip_(trimmed);
+  return trip ? trip.id : null;
+}
+
+function fuzzyFindTrip_(text) {
+  return pickByName_(getTripRows_(), text, function (t) { return t.name; });
 }
 
 function fuzzyFindTag_(text) {

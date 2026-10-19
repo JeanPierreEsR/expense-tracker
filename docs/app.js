@@ -6778,6 +6778,7 @@ function openTripModal_(trip) {
   document.getElementById("trip-end").value = trip ? trip.end_date : todayLocalISO();
   document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
   document.getElementById("trip-currency").value = trip && trip.budget_currency ? trip.budget_currency : homeCur();
+  document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
@@ -6894,7 +6895,8 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       start_date: document.getElementById("trip-start").value,
       end_date: document.getElementById("trip-end").value,
       budget_amount: budget,
-      budget_currency: budget ? document.getElementById("trip-currency").value : ""
+      budget_currency: budget ? document.getElementById("trip-currency").value : "",
+      alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
     // The server checks everything and answers in the person's language.
     if (editingTripId_) await callApi("updateTrip", Object.assign({ id: editingTripId_ }, fields));
