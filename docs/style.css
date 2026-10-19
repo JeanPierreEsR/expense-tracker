@@ -2290,3 +2290,17 @@ body.income-revealed .sens-mask { display: none; }
 .trip-static-row { cursor: default; }
 #entry-trip { width: 100%; }
 .trip-covered-btn { display: block; margin: 4px 0 0 auto; }
+.trip-find-row { cursor: pointer; gap: 10px; }
+.trip-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.trip-find-text { flex: 1 1 auto; min-width: 0; }
+#trip-find-btn { margin-bottom: 8px; }
+#trip-find-box { margin-bottom: 12px; }

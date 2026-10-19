@@ -172,6 +172,8 @@ function routeAction(action, payload) {
     case 'addTrip': return addTrip(payload);
     case 'updateTrip': return updateTrip(payload);
     case 'deleteTrip': return deleteTrip(payload);
+    case 'findTripCandidates': return findTripCandidates(payload);
+    case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
@@ -904,9 +906,12 @@ function findSameDayTwins_(entry, allEntries) {
 function listPendingEntries() {
   var all = getAllRows('Entries');
   var entries = all.filter(function (e) { return e.status === 'pending'; });
+  var trips = getTripRows_();
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     entry.twins = findSameDayTwins_(entry, all);
+    // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
+    if (entry.type === 'expense' && !entry.trip_id) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
   });
   entries.sort(compareEntriesRecency_);
   return entries;
