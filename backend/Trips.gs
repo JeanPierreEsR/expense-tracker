@@ -23,6 +23,7 @@ function ensureTripsSheet_() {
     if (!tripsColumnsChecked_) {
       tripsColumnsChecked_ = true;
       ensureColumn_('Trips', 'alert_thresholds');   // a tab made before the alerts existed
+      ensureColumn_('Trips', 'currency');           // ... and before each trip had its own currency
     }
     return;
   }
@@ -82,23 +83,25 @@ function cleanTripInput_(p) {
   var end = String(p.end_date || '').trim() || start;
   if (!isIsoDate_(start) || !isIsoDate_(end)) throw new Error(tr_('trip.errDates'));
   if (end < start) throw new Error(tr_('trip.errEndBeforeStart'));
+  // The trip's own currency (3 letters). Blank = follow budget_currency (older callers) or the main currency.
+  var currencyRaw = String(p.currency || p.budget_currency || '').trim().toUpperCase();
+  if (currencyRaw && !/^[A-Z]{3}$/.test(currencyRaw)) throw new Error(tr_('err.currencyCode'));
   var amountRaw = p.budget_amount;
   var amount = '';
-  var currency = '';
   if (amountRaw !== undefined && amountRaw !== null && String(amountRaw).trim() !== '') {
     var n = Number(amountRaw);
     if (!isFinite(n) || n <= 0) throw new Error(tr_('trip.errBudget'));
     amount = n;
-    currency = String(p.budget_currency || homeCurrency_()).trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(currency)) throw new Error(tr_('err.currencyCode'));
   }
+  // A budget is always in the trip's currency.
+  var currency = currencyRaw || (amount !== '' ? homeCurrency_() : '');
   // Alert percentages (only meaningful with a budget). Blank = the usual budget ones; anything else is checked.
   var thresholdsRaw = String(p.alert_thresholds === undefined || p.alert_thresholds === null ? '' : p.alert_thresholds).trim();
   var thresholds = amount !== '' && thresholdsRaw !== '' ? normalizeBudgetThresholds_(thresholdsRaw) : '';
   return {
     name: name, kind: kind, start_date: start, end_date: end,
-    emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: currency,
-    alert_thresholds: thresholds
+    emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: amount !== '' ? currency : '',
+    alert_thresholds: thresholds, currency: currency
   };
 }
 
@@ -221,23 +224,22 @@ function tripEstimateRows_(onlyTripId) {
   });
 }
 
-// What the trip's budget is measured in: an entry already in the budget's own
-// currency counts exactly what was paid; any other goes through the main
-// currency at the budget currency's latest rate (same rule as category budgets).
-function tripBudgetSpent_(trip, rows) {
-  if (!(Number(trip.budget_amount) > 0)) return null;
-  var cur = trip.budget_currency || homeCurrency_();
-  var rate = null;
-  if (cur !== homeCurrency_()) {
-    rate = rateToMain_(buildRatesByCurrency_(), cur, String(trip.end_date).substring(0, 7));
-    if (rate == null) return null;
-  }
-  var total = 0;
-  rows.forEach(function (r) {
-    if (r.currency === cur) total += r.own;
-    else if (r.ownMain != null) total += rate == null ? r.ownMain : r.ownMain / rate;
-  });
-  return total;
+// The currency a trip is shown in: its own, else the one its budget was set in (older trips), else the main one.
+// All the "...Main" fields below (spentMain, totalMain, amount_main…) are in THIS currency, kept under their
+// old names so nothing that reads them had to change.
+function tripCurrency_(t) {
+  return String(t.currency || t.budget_currency || '').toUpperCase() || homeCurrency_();
+}
+
+// A row's owner's-share in `cur`: exactly what was paid when it is already in `cur` (no rate needed),
+// otherwise through the main currency at the rates on file around that row's own month. Null when a
+// needed rate is missing (the row is then counted in `missingRate`, never silently dropped).
+function tripAmountIn_(cur, r) {
+  if (r.currency === cur) return r.own;
+  if (r.ownMain == null) return null;
+  if (cur === homeCurrency_()) return r.ownMain;
+  var rate = rateToMain_(buildRatesByCurrency_(), cur, String(tripRowDate_(r)).substring(0, 7));
+  return rate == null || !(rate > 0) ? null : r.ownMain / rate;
 }
 
 // Rows of both kinds share what the totals need: when (date), which category, and the
@@ -253,7 +255,7 @@ function tripAllRows_(onlyTripId) {
   return real.concat(estimates.map(function (e) { e.isEstimate = true; return e; }));
 }
 
-// For the Trips & events list: every trip with its running total (real + estimated).
+// For the Trips & events list: every trip with its running total (real + estimated), in its own currency.
 function listTrips() {
   var trips = getTripRows_().map(function (t) { return Object.assign({}, t); });
   var byTrip = {};
@@ -262,22 +264,32 @@ function listTrips() {
     (byTrip[id] = byTrip[id] || []).push(r);
   });
   trips.forEach(function (t) {
+    var cur = tripCurrency_(t);
     var rows = byTrip[t.id] || [];
+    var total = 0, estimated = 0;
+    rows.forEach(function (r) {
+      var amount = tripAmountIn_(cur, r);
+      if (amount == null) return;
+      total += amount;
+      if (r.isEstimate) estimated += amount;
+    });
+    t.cur = cur;
     t.entryCount = rows.filter(function (r) { return !r.isEstimate; }).length;
     t.estimateCount = rows.filter(function (r) { return r.isEstimate; }).length;
-    t.spentMain = rows.reduce(function (sum, r) { return sum + (r.ownMain || 0); }, 0);
-    t.estimatedMain = rows.reduce(function (sum, r) { return sum + (r.isEstimate ? (r.ownMain || 0) : 0); }, 0);
-    t.budgetSpent = tripBudgetSpent_(t, rows);
+    t.spentMain = total;
+    t.estimatedMain = estimated;
+    t.budgetSpent = Number(t.budget_amount) > 0 ? total : null;
   });
   return trips;
 }
 
-// One trip's full picture: totals before / during / after, by category, by day, the
-// estimates still waiting, and payments that settled an estimate but are not in the trip.
+// One trip's full picture, in the trip's own currency: totals before / during / after, by category, by day,
+// the estimates still waiting, and payments that settled an estimate but are not in the trip.
 function getTripDetail(payload) {
   ensureTripsSheet_();
   var trip = tripById_(String(payload.id || ''));
   if (!trip) throw new Error(tr_('trip.notFound'));
+  var cur = tripCurrency_(trip);
   var rows = tripAllRows_(trip.id);
   var categoryById = rowsById_(getAllRows('Categories'));
 
@@ -289,22 +301,23 @@ function getTripDetail(payload) {
   var today = formatCalendarDate_(new Date());
   rows.forEach(function (r) {
     if (!r.isEstimate) realCount++;
+    var amount = tripAmountIn_(cur, r);
     if (r.isEstimate) {
       var cat = r.category;
       estimates.push({
         id: r.item.id, description: r.item.description || '', date: r.date,
         category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'), category_icon: cat ? cat.icon : '',
-        amount: r.own, currency: r.currency, own_main: r.ownMain, overdue: r.date < today
+        amount: r.own, currency: r.currency, own_main: amount, overdue: r.date < today
       });
     }
-    if (r.ownMain == null) { missingRate++; return; }
+    if (amount == null) { missingRate++; return; }
     var d = tripRowDate_(r);
     var phase = d < trip.start_date ? 'before' : (d > trip.end_date ? 'after' : 'during');
-    phases[phase] += r.ownMain;
-    total += r.ownMain;
-    if (r.isEstimate) estimated += r.ownMain;
-    addToBucket_(byCategory, tripRowCategory_(r), r.ownMain, categoryById);
-    byDay[d] = (byDay[d] || 0) + r.ownMain;
+    phases[phase] += amount;
+    total += amount;
+    if (r.isEstimate) estimated += amount;
+    addToBucket_(byCategory, tripRowCategory_(r), amount, categoryById);
+    byDay[d] = (byDay[d] || 0) + amount;
   });
   estimates.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
@@ -323,12 +336,13 @@ function getTripDetail(payload) {
 
   return {
     trip: trip,
+    currency: cur,
     totalMain: total,
     estimatedMain: estimated,
     before: phases.before, during: phases.during, after: phases.after,
     entryCount: realCount,
     missingRate: missingRate,
-    budgetSpent: tripBudgetSpent_(trip, rows),
+    budgetSpent: Number(trip.budget_amount) > 0 ? total : null,
     byCategory: bucketToList_(byCategory, total, tr_('report.uncategorized')),
     byDay: Object.keys(byDay).sort().map(function (d) { return { date: d, amount_main: byDay[d] }; }),
     estimates: estimates,

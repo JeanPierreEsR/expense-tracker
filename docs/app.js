@@ -6589,14 +6589,14 @@ function renderTripsList_(trips) {
     const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 }),
       t.estimateCount ? tr("trips.estimateCount", { n: t.estimateCount }) : ""].filter(Boolean).join(" · ");
     const budget = Number(t.budget_amount) > 0
-      ? `<span class="original-amt">${escapeHtml(tr("trips.ofBudget", { cur: t.budget_currency || homeCur(), amount: moneyFmt(t.budget_amount) }))}</span>`
+      ? `<span class="original-amt">${escapeHtml(tr("trips.ofBudget", { cur: t.cur || homeCur(), amount: moneyFmt(t.budget_amount) }))}</span>`
       : "";
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(tripLabel_(t))}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
       </div>
-      <div class="recurring-row-amount"><span class="primary-amt">${t.estimatedMain > 0.004 ? "≈ " : ""}${homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
+      <div class="recurring-row-amount"><span class="primary-amt">${t.estimatedMain > 0.004 ? "≈ " : ""}${t.cur || homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
     `;
     row.addEventListener("click", () => showTripDetail_(t.id));
     list.appendChild(row);
@@ -6651,9 +6651,10 @@ function renderTripDetail_(d) {
   document.getElementById("trip-detail-title").textContent = tripLabel_(t);
   document.getElementById("trip-detail-sub").textContent = `${tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(t)}`;
 
+  // Every figure on this screen is in the TRIP's own currency (chosen per trip), not necessarily the app's main one.
+  const cur = d.currency || homeCur();
   let budgetHtml = "";
   if (Number(t.budget_amount) > 0) {
-    const cur = t.budget_currency || homeCur();
     if (d.budgetSpent == null) {
       budgetHtml = `<p class="hint">${escapeHtml(tr("trips.budgetNoRate", { cur }))}</p>`;
     } else {
@@ -6671,22 +6672,22 @@ function renderTripDetail_(d) {
   }
 
   const phase = (key, value) => `
-    <div class="trip-phase"><div class="trip-phase-label">${escapeHtml(tr(key))}</div><div class="trip-phase-value">${homeCur()} ${moneyFmt(value)}</div></div>`;
+    <div class="trip-phase"><div class="trip-phase-label">${escapeHtml(tr(key))}</div><div class="trip-phase-value">${cur} ${moneyFmt(value)}</div></div>`;
   const cats = d.byCategory.map((c) => `
     <div class="recurring-row trip-static-row">
       <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
-      <div class="recurring-row-amount">${homeCur()} ${moneyFmt(c.amount_pen)} <span class="original-amt">${Math.round(c.percent)}%</span></div>
+      <div class="recurring-row-amount">${cur} ${moneyFmt(c.amount_pen)} <span class="original-amt">${Math.round(c.percent)}%</span></div>
     </div>`).join("");
   const days = d.byDay.map((x) => `
     <div class="recurring-row trip-static-row">
       <div class="recurring-row-name">${escapeHtml(x.date)}</div>
-      <div class="recurring-row-amount">${homeCur()} ${moneyFmt(x.amount_main)}</div>
+      <div class="recurring-row-amount">${cur} ${moneyFmt(x.amount_main)}</div>
     </div>`).join("");
 
   document.getElementById("trip-detail-body").innerHTML = `
-    <div class="trip-total">${homeCur()} ${moneyFmt(d.totalMain)}</div>
+    <div class="trip-total">${cur} ${moneyFmt(d.totalMain)}</div>
     <p class="hint" style="margin-top:2px;">${escapeHtml(tr("trips.total"))} · ${escapeHtml(tr("trips.entryCount", { n: d.entryCount }))}</p>
-    ${d.estimatedMain > 0.004 ? `<p class="hint" style="margin-top:0;">${escapeHtml(tr("trips.paidEstimated", { cur: homeCur(), paid: moneyFmt(d.totalMain - d.estimatedMain), est: moneyFmt(d.estimatedMain) }))}</p>` : ""}
+    ${d.estimatedMain > 0.004 ? `<p class="hint" style="margin-top:0;">${escapeHtml(tr("trips.paidEstimated", { cur, paid: moneyFmt(d.totalMain - d.estimatedMain), est: moneyFmt(d.estimatedMain) }))}</p>` : ""}
     ${budgetHtml}
     <div class="trip-phases">${phase("trips.before", d.before)}${phase("trips.during", d.during)}${phase("trips.after", d.after)}</div>
     <p class="hint">${escapeHtml(tr("trips.phaseHint"))}</p>
@@ -6779,7 +6780,7 @@ function openTripModal_(trip) {
   document.getElementById("trip-start").value = trip ? trip.start_date : todayLocalISO();
   document.getElementById("trip-end").value = trip ? trip.end_date : todayLocalISO();
   document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
-  document.getElementById("trip-currency").value = trip && trip.budget_currency ? trip.budget_currency : homeCur();
+  document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
   document.getElementById("trip-delete-btn").hidden = !trip;
@@ -6897,6 +6898,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       start_date: document.getElementById("trip-start").value,
       end_date: document.getElementById("trip-end").value,
       budget_amount: budget,
+      currency: document.getElementById("trip-currency").value,
       budget_currency: budget ? document.getElementById("trip-currency").value : "",
       alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
