@@ -69,6 +69,29 @@ test("the old rent is counted twice until it is linked: Expected carries it, the
   assert.ok(Math.abs(after.expectedRemainingPen) < 0.01);
 });
 
+test("a PAUSED item keeps its past payments out of the averages; deleting it brings them back", () => {
+  const { rt, rent } = setup();
+  const ids = rt.api("findRecurringLinkCandidates", { recurringExpenseId: rent.id }).candidates.map((c) => c.id);
+  rt.api("linkEntriesToRecurring", { recurringExpenseId: rent.id, entryIds: ids });
+  assert.ok(Math.abs(projection(rt).ratePerMonth) < 0.01, "linked: out of the average");
+
+  rt.api("updateRecurringExpense", { id: rent.id, active: false });
+  const paused = projection(rt);
+  assert.ok(Math.abs(paused.ratePerMonth) < 0.01, "paused: its history is still excluded");
+  assert.ok(paused.programmedRemainingPen < 400, "and the paused rent no longer projects (only internet + the fee are left)");
+
+  rt.api("deleteRecurringExpense", { id: rent.id });
+  assert.ok(projection(rt).ratePerMonth > 900, "deleted: the old rent entries count as ordinary spending again");
+});
+
+test("an automatically matched paused item (no hand links) keeps its history excluded too", () => {
+  const { rt } = setup();
+  const internet = rt.rows("Recurring Expenses").find((r) => r.description === "Internet");
+  const before = projection(rt).ratePerMonth;
+  rt.api("updateRecurringExpense", { id: internet.id, active: false });
+  assert.ok(Math.abs(projection(rt).ratePerMonth - before) < 0.01, "pausing the item doesn't push its 12 matched payments back into the average");
+});
+
 test("a Month view's total = what is programmed (+ real Actual): Annual-tagged lumps are not in it", () => {
   const { rt, add } = setup();
   rt.run("ensureAnnualTag_()");

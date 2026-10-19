@@ -122,8 +122,13 @@ function buildMonthlySeries_(categoryIds) {
   var recurringSplitSums = getRecurringExpenseSplitSums_();
   var recurringByCategory = {};
   getRecurringExpenseRows_().forEach(function (r) {
-    if (String(r.active) === 'false' || !wanted[r.category_id]) return;
-    (recurringByCategory[r.category_id] = recurringByCategory[r.category_id] || []).push(r);
+    if (!wanted[r.category_id]) return;
+    // A PAUSED item (Active off) projects nothing, but its past payments are still
+    // its own history: they stay out of the averages until the item is DELETED
+    // (owner's rule, 2026-10-19). An ended item (end date) already keeps matching
+    // up to its end date; this treats a paused one the same way.
+    var asHistory = String(r.active) === 'false' ? Object.assign({}, r, { active: 'true' }) : r;
+    (recurringByCategory[r.category_id] = recurringByCategory[r.category_id] || []).push(asHistory);
   });
   var ratesByCurrency = buildRatesByCurrency_();
   function toPen_(amount, currency, dateStr) {
