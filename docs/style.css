@@ -2327,3 +2327,15 @@ body.income-revealed .sens-mask { display: none; }
 .pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
 .pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
 .pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+
+/* tour scenes: More sub-screens (Programmed items, Trips & events) */
+.ts-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 0 6px; }
+.ts-h2 { font-weight: 700; font-size: 14px; margin: 2px 0 6px; }
+.ts-subbody { min-height: 40px; }
+.ts-subbody[hidden] { display: none; }
+.ts-grouptitle { font-weight: 700; font-size: 12px; margin: 6px 0 2px; }
+.ts-right { text-align: right; }
+.ts-detail-title { font-weight: 700; font-size: 15px; }
+.ts-total { font-size: 24px; font-weight: 700; margin: 6px 0 0; }
+.ts-phases { display: flex; gap: 6px; margin: 10px 0 4px; }
+.ts-phase { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }

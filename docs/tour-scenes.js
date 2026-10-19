@@ -279,6 +279,146 @@
     }
   };
 
+  // ---- a More sub-screen: "‹ Back" and "+ Add", a title and its list; a sheet slides up for the form ----
+  const isoDay = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  function subPhone(stage, ctx, title) {
+    const tr = ctx.tr;
+    const phone = h("div", "ts-phone", null, stage);
+    const head = h("div", "ts-head", null, phone);
+    h("span", "ts-link", tr("common.back"), head);
+    const addBtn = h("span", "ts-link", tr("common.add"), head);
+    h("div", "ts-h2", title, phone);
+    const list = h("div", "ts-subbody", null, phone);
+    const sheet = h("div", "ts-sheet", null, phone);
+    return { phone, addBtn, list, sheet, finger: makeFinger(stage), ctx };
+  }
+  const chipRow = (parent, labels, on) => { const row = h("div", "ts-chips", null, parent); return labels.map((l, i) => h("span", "ts-chip small" + (i === on ? " on" : ""), l, row)); };
+
+  // ---- More → Programmed income/expenses: + Add → description, category, amount, frequency, start → Save → it is listed ----
+  SCENES.programmed = {
+    hold: 1800,
+    build(stage, ctx) {
+      const p = subPhone(stage, ctx, ctx.tr("recurring.title"));
+      h("div", "ts-grouptitle", ctx.tr("recurring.recurring"), p.list);
+      p.empty = h("div", "ts-hint", ctx.tr("recurring.empty"), p.list);
+      p.rows = h("div", "ts-rows", null, p.list);
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fg = p.finger;
+      let desc, chips, amount, seg, save;
+      const t = (el, parts) => parts.map((x) => () => { el.textContent = x; });
+      let d, a;
+      return [
+        [0, () => fg.to(p.addBtn, true)],
+        [500, (i) => fg.to(p.addBtn, i)],
+        [1100, (i) => fg.tap(i)],
+        [1300, () => {
+          const s = sheetOpen(p, tr("recModal.add"));
+          desc = box(s, tr("field.description"), "");
+          chips = chipRow(s, ["🏠 " + tr("scene.cat.home"), "🛒 " + tr("scene.cat.groceries"), "💰 " + tr("scene.cat.salary")], -1);
+          amount = box(s, tr("field.amount"), "");
+          seg = h("div", "ts-seg", null, s);
+          [["period.monthly", true], ["period.yearly"], ["recModal.once"], ["recModal.other"]].forEach(([k, on]) => h("span", on ? "on" : "", tr(k), seg));
+          box(s, tr("recModal.startsOn"), isoDay(0));
+          save = h("div", "ts-btn", tr("common.save"), s);
+          d = t(desc.value, ["Re", tr("scene.rent").slice(0, 3), tr("scene.rent")]); a = t(amount.value, ["1", "1,2", "1,200"]);
+        }],
+        [1900, (i) => fg.to(desc.box, i)],
+        [2400, (i) => { fg.tap(i); desc.box.classList.add("focus"); }],
+        [2500, () => d[0]()], [2700, () => d[1]()], [2900, () => d[2]()],
+        [3400, (i) => { desc.box.classList.remove("focus"); fg.to(chips[0], i); }],
+        [3900, (i) => { fg.tap(i); chips[0].classList.add("on"); }],
+        [4400, (i) => fg.to(amount.box, i)],
+        [4900, (i) => { fg.tap(i); amount.box.classList.add("focus"); }],
+        [5000, () => a[0]()], [5200, () => a[1]()], [5400, () => a[2]()],
+        [5900, (i) => { amount.box.classList.remove("focus"); fg.to(seg.firstChild, i); }],
+        [6400, (i) => fg.tap(i)],
+        [6900, (i) => fg.to(save, i)],
+        [7400, (i) => { fg.tap(i); save.classList.add("pressed"); }],
+        [7700, () => {
+          sheetClose(p); p.empty.hidden = true;
+          const r = h("div", "ts-loanrow enter", null, p.rows);
+          const left = h("div", null, null, r); h("b", null, tr("scene.rent"), left); h("div", "ts-hint", tr("recurring.freqMonthly", { day: new Date().getDate() }), left);
+          h("b", null, ctx.home + " " + ctx.money(1200), r);
+        }],
+        [8400, () => fg.hide()]
+      ];
+    }
+  };
+
+  // ---- More → Trips & events: + Add → kind, name, dates, currency, budget → Save → listed; open it → your share, budget bar, Before/During/After ----
+  SCENES.trips = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const p = subPhone(stage, ctx, tr("trips.title"));
+      p.empty = h("div", "ts-hint", tr("trips.empty"), p.list);
+      p.listBox = h("div", null, null, p.list);
+      p.detail = h("div", "ts-subbody", null, p.phone); p.detail.hidden = true;
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fg = p.finger, cur = ctx.home;
+      const start = isoDay(14), end = isoDay(19), name = tr("scene.tripName");
+      let nameBox, startBox, endBox, budgetBox, save, row;
+      const part = (el, parts) => parts.map((x) => () => { el.textContent = x; });
+      let n, b;
+      return [
+        [0, () => fg.to(p.addBtn, true)],
+        [500, (i) => fg.to(p.addBtn, i)],
+        [1100, (i) => fg.tap(i)],
+        [1300, () => {
+          const s = sheetOpen(p, tr("trips.addTitle"));
+          const seg = h("div", "ts-seg", null, s); h("span", "on", tr("trips.kind.trip"), seg); h("span", null, tr("trips.kind.event"), seg);
+          nameBox = box(s, tr("trips.name"), "");
+          const r = h("div", "ts-two", null, s);
+          startBox = box(r, tr("trips.start"), start, "grow"); endBox = box(r, tr("trips.end"), end, "grow");
+          box(s, tr("trips.currency"), cur);
+          budgetBox = box(s, tr("trips.budget"), "");
+          save = h("div", "ts-btn", tr("trips.save"), s);
+          n = part(nameBox.value, [name.slice(0, 4), name.slice(0, 8), name]); b = part(budgetBox.value, ["2", "2,0", "2,000"]);
+        }],
+        [1900, (i) => fg.to(nameBox.box, i)],
+        [2400, (i) => { fg.tap(i); nameBox.box.classList.add("focus"); }],
+        [2500, () => n[0]()], [2700, () => n[1]()], [2900, () => n[2]()],
+        [3400, (i) => { nameBox.box.classList.remove("focus"); fg.to(startBox.box, i); }],
+        [3900, (i) => { fg.tap(i); startBox.box.classList.add("focus"); }],
+        [4300, (i) => { startBox.box.classList.remove("focus"); fg.to(endBox.box, i); }],
+        [4800, (i) => { fg.tap(i); endBox.box.classList.add("focus"); }],
+        [5200, (i) => { endBox.box.classList.remove("focus"); fg.to(budgetBox.box, i); }],
+        [5700, (i) => { fg.tap(i); budgetBox.box.classList.add("focus"); }],
+        [5800, () => b[0]()], [6000, () => b[1]()], [6200, () => b[2]()],
+        [6700, (i) => { budgetBox.box.classList.remove("focus"); fg.to(save, i); }],
+        [7200, (i) => { fg.tap(i); save.classList.add("pressed"); }],
+        [7500, () => {
+          sheetClose(p); p.empty.hidden = true;
+          h("div", "ts-grouptitle", tr("trips.group.upcoming"), p.listBox);
+          row = h("div", "ts-loanrow enter", null, p.listBox);
+          const left = h("div", null, null, row); h("b", null, "✈️ " + name, left);
+          h("div", "ts-hint", [tr("trips.kind.trip"), tr("trips.dateRange", { start, end }), tr("trips.entryCount", { n: 0 })].join(" · "), left);
+          const right = h("div", "ts-right", null, row); h("b", null, cur + " " + ctx.money(0), right); h("div", "ts-hint", tr("trips.ofBudget", { cur, amount: ctx.money(2000) }), right);
+        }],
+        [8300, (i) => fg.to(row, i)],
+        [8800, (i) => fg.tap(i)],
+        [9000, () => {
+          p.list.hidden = true; p.detail.hidden = false;
+          const d = p.detail;
+          h("div", "ts-detail-title", "✈️ " + name, d);
+          h("div", "ts-hint", tr("trips.kind.trip") + " · " + tr("trips.dateRange", { start, end }), d);
+          h("div", "ts-total", cur + " " + ctx.money(1250), d);
+          h("div", "ts-hint", tr("trips.total") + " · " + tr("trips.entryCount", { n: 6 }), d);
+          const track = h("div", "ts-track", null, d); const fill = h("div", "ts-fill", null, track); fill.style.width = "62.5%";
+          const sub = h("div", "ts-budget-nums", null, d); h("span", "ts-hint", tr("trips.budgetLeft", { cur, amount: ctx.money(750) }), sub); h("span", "ts-hint", tr("trips.ofBudget", { cur, amount: ctx.money(2000) }), sub);
+          const ph = h("div", "ts-phases", null, d);
+          [["trips.before", 400], ["trips.during", 850], ["trips.after", 0]].forEach(([k, v]) => { const c = h("div", "ts-phase", null, ph); h("span", "ts-box-label", tr(k), c); h("b", null, cur + " " + ctx.money(v), c); });
+          h("div", "ts-hint", tr("trips.phaseHint"), d);
+        }],
+        [9600, () => fg.hide()]
+      ];
+    }
+  };
+
   // ---- the Loans tab: a phone with a list, and a sheet that slides up (add loan / repayment) ----
   function loansPhone(stage, ctx, owed) {
     const tr = ctx.tr;
