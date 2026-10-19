@@ -6561,38 +6561,28 @@ document.getElementById("recurring-split-add-friend-btn").addEventListener("clic
   renderRecurringSplitSummary();
 });
 
-// The day/month picker is a native <input type="date"> — the same
-// control (and, on a phone, the same tap-to-open calendar) the main
-// entry form's own date field uses — rather than plain number inputs.
-// For monthly/yearly, only the day (or day+month) actually gets stored;
-// the year is a throwaway placeholder (today's) purely so the input
-// holds a valid date to pick from. A monthly item whose day is 29-31
-// still needs a month with enough days to expose that date in the
-// calendar UI, hence the hint text below the field. A one-time item is
-// different — its real year matters (it only ever happens once), so the
-// picker's actual value is used as-is, with no day/month extraction.
+// A monthly/yearly item has ONE date field, "Starts on" (a native
+// <input type="date">, the same control the main entry form uses). Its
+// day (and, for yearly, month) are read from that date on save — there is
+// no separate "day of month" picker (two dates side by side was
+// confusing). A one-time item is different: its real date is its own
+// field (#recurring-occurrence-date), used as-is, and it has no start/end.
+let recurringStartStandIn = "";
+let recurringStandInItem = null;
 function setRecurringFrequency_(freq) {
   recurringFrequency = freq;
   document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.frequency === freq);
   });
-  const dateInput = document.getElementById("recurring-occurrence-date");
-  const todayIso = todayLocalISO();
-  // Start/end dates only make sense for an item that repeats.
-  document.getElementById("recurring-window-fields").hidden = freq === "once";
-  if (freq === "once") {
-    document.getElementById("recurring-occurrence-date-label").textContent = tr("field.date");
-    document.getElementById("recurring-occurrence-date-hint").textContent =
-      tr("recModal.onceHint");
-    dateInput.min = todayIso;
+  const isOnce = freq === "once";
+  document.getElementById("recurring-once-fields").hidden = !isOnce;
+  document.getElementById("recurring-window-fields").hidden = isOnce;
+  if (isOnce) {
+    document.getElementById("recurring-occurrence-date").min = todayLocalISO();
     return;
   }
-  dateInput.removeAttribute("min");
-  const isYearly = freq === "yearly";
-  document.getElementById("recurring-occurrence-date-label").textContent = isYearly ? tr("recModal.dayAndMonth") : tr("recModal.dayOfMonth");
-  document.getElementById("recurring-occurrence-date-hint").textContent = isYearly
-    ? tr("recModal.yearlyHint")
-    : tr("recModal.monthlyHint");
+  document.getElementById("recurring-start-hint").textContent =
+    freq === "yearly" ? tr("recModal.yearlyHint") : tr("recModal.monthlyHint");
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
@@ -6614,19 +6604,27 @@ async function openRecurringModal(re) {
 
   const frequency = re ? re.frequency : "monthly";
   setRecurringFrequency_(frequency);
-  if (frequency === "once") {
-    // Real year matters here — a one-time item only ever happens once,
-    // unlike monthly/yearly's throwaway neutral-year placeholder below.
-    document.getElementById("recurring-occurrence-date").value = re && re.date ? re.date : todayLocalISO();
-  } else {
-    const neutralYear = new Date().getFullYear();
-    const day = String(re ? re.day : 1).padStart(2, "0");
-    const month = String(re ? re.month : 1).padStart(2, "0");
-    document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
+  document.getElementById("recurring-occurrence-date").value =
+    frequency === "once" && re && re.date ? re.date : todayLocalISO();
+  // Monthly/yearly: "Starts on" is the one date. An older item saved before
+  // start dates existed has none; show its day/month in this year purely so
+  // the field isn't empty, and remember it was only a stand-in so saving
+  // without touching it keeps the item with no start (no history dropped).
+  let startValue = re ? (re.start_date || "") : todayLocalISO();
+  recurringStartStandIn = "";
+  recurringStandInItem = re;
+  if (re && frequency !== "once" && !re.start_date) {
+    const now = new Date();
+    const monthNum = frequency === "yearly" ? (re.month || 1) : now.getMonth() + 1;
+    // A day like the 31st is clamped to the month's real length for display
+    // only; the saved day stays the item's own (see the save handler).
+    const day = Math.min(re.day || 1, new Date(now.getFullYear(), monthNum, 0).getDate());
+    startValue = `${now.getFullYear()}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    recurringStartStandIn = startValue;
   }
+  document.getElementById("recurring-start-date").value = startValue;
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
-  document.getElementById("recurring-start-date").value = re ? (re.start_date || "") : "";
   document.getElementById("recurring-end-date").value = re ? (re.end_date || "") : "";
   renderRecurringSkips_(re);
 
@@ -6809,7 +6807,11 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     const description = document.getElementById("recurring-description").value.trim();
     const amount = parseFloat(document.getElementById("recurring-amount").value);
     const currency = document.getElementById("recurring-currency").value.toUpperCase();
-    const occurrenceDate = document.getElementById("recurring-occurrence-date").value;
+    // One-time: its own date field. Monthly/yearly: the "Starts on" date.
+    const startDate = document.getElementById("recurring-start-date").value;
+    const occurrenceDate = recurringFrequency === "once"
+      ? document.getElementById("recurring-occurrence-date").value
+      : startDate;
     const active = document.getElementById("recurring-active-checkbox").checked;
 
     if (!selectedRecurringCategoryId) throw new Error(tr("error.pickCategory"));
@@ -6831,7 +6833,8 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       frequency: recurringFrequency,
       active,
       // Blank clears; the server checks they are real dates and in order.
-      start_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-start-date").value,
+      // An untouched stand-in (older item with no start) stays "no start".
+      start_date: recurringFrequency === "once" || startDate === recurringStartStandIn ? "" : startDate,
       end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value
     };
     if (recurringFrequency === "once") {
@@ -6842,6 +6845,11 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       fields.day = parseInt(occurrenceDate.slice(8, 10), 10);
       fields.month = parseInt(occurrenceDate.slice(5, 7), 10);
       fields.date = "";
+      if (startDate === recurringStartStandIn && recurringStandInItem && recurringStandInItem.frequency === recurringFrequency) {
+        // Untouched stand-in: keep the item's own day/month exactly as stored.
+        fields.day = recurringStandInItem.day;
+        fields.month = recurringStandInItem.month;
+      }
     }
 
     let recurringExpenseId = editingRecurringId;
