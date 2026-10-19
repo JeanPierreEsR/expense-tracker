@@ -2093,7 +2093,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         currency,
         frequency: "once",
         date,
-        active: true
+        active: true,
+        trip_id: tripId   // a picked trip/event makes it an estimate there
       });
       programmedInstead = true;
     } else {
@@ -6454,7 +6455,12 @@ function tripPillHtml_(entry) {
 // refresh while an edit is open must not change the pick).
 function populateTripOptions_() {
   const sel = document.getElementById("entry-trip");
-  const keep = sel.value;
+  fillTripOptions_(sel, sel.value);
+  document.getElementById("trip-field").hidden = selectedType !== "expense" || !(meta.trips || []).length;
+}
+
+// Fills any trip/event <select> (the entry form's, the Programmed pop-up's) and keeps `keep` chosen.
+function fillTripOptions_(sel, keep) {
   sel.innerHTML = "";
   const none = document.createElement("option");
   none.value = "";
@@ -6471,9 +6477,8 @@ function populateTripOptions_() {
     o.textContent = tripLabel_(t);
     sel.appendChild(o);
   });
-  sel.value = keep;
-  if (sel.value !== keep) sel.value = "";
-  document.getElementById("trip-field").hidden = selectedType !== "expense" || !trips.length;
+  sel.value = keep || "";
+  if (sel.value !== (keep || "")) sel.value = "";
 }
 
 function setTripPick_(tripId) {
@@ -6538,7 +6543,8 @@ function renderTripsList_(trips) {
     }
     const row = document.createElement("div");
     row.className = "recurring-row";
-    const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 })].join(" · ");
+    const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 }),
+      t.estimateCount ? tr("trips.estimateCount", { n: t.estimateCount }) : ""].filter(Boolean).join(" · ");
     const budget = Number(t.budget_amount) > 0
       ? `<span class="original-amt">${escapeHtml(tr("trips.ofBudget", { cur: t.budget_currency || homeCur(), amount: moneyFmt(t.budget_amount) }))}</span>`
       : "";
@@ -6547,7 +6553,7 @@ function renderTripsList_(trips) {
         <div class="recurring-row-name">${escapeHtml(tripLabel_(t))}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
       </div>
-      <div class="recurring-row-amount"><span class="primary-amt">${homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
+      <div class="recurring-row-amount"><span class="primary-amt">${t.estimatedMain > 0.004 ? "≈ " : ""}${homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
     `;
     row.addEventListener("click", () => showTripDetail_(t.id));
     list.appendChild(row);
@@ -6636,13 +6642,73 @@ function renderTripDetail_(d) {
   document.getElementById("trip-detail-body").innerHTML = `
     <div class="trip-total">${homeCur()} ${moneyFmt(d.totalMain)}</div>
     <p class="hint" style="margin-top:2px;">${escapeHtml(tr("trips.total"))} · ${escapeHtml(tr("trips.entryCount", { n: d.entryCount }))}</p>
+    ${d.estimatedMain > 0.004 ? `<p class="hint" style="margin-top:0;">${escapeHtml(tr("trips.paidEstimated", { cur: homeCur(), paid: moneyFmt(d.totalMain - d.estimatedMain), est: moneyFmt(d.estimatedMain) }))}</p>` : ""}
     ${budgetHtml}
     <div class="trip-phases">${phase("trips.before", d.before)}${phase("trips.during", d.during)}${phase("trips.after", d.after)}</div>
     <p class="hint">${escapeHtml(tr("trips.phaseHint"))}</p>
     ${d.missingRate > 0 ? `<p class="hint">${escapeHtml(tr("trips.missingRate", { n: d.missingRate }))}</p>` : ""}
     ${cats ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byCategory"))}</h3>${cats}` : ""}
     ${days ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byDay"))}</h3>${days}` : ""}
+    <div id="trip-detail-unlinked"></div>
+    <div id="trip-detail-estimates"></div>
   `;
+  renderTripUnlinked_(d);
+  renderTripEstimates_(d);
+}
+
+// Payments that settled an estimate but are not part of the trip: one tap adds each (never automatic).
+function renderTripUnlinked_(d) {
+  const box = document.getElementById("trip-detail-unlinked");
+  if (!d.unlinkedPayments || !d.unlinkedPayments.length) return;
+  box.innerHTML = `<h3 class="accounts-group-title">${escapeHtml(tr("trips.unlinkedTitle"))}</h3><p class="hint">${escapeHtml(tr("trips.unlinkedHint"))}</p>`;
+  d.unlinkedPayments.forEach((u) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row trip-static-row";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(u.entry.description || u.item_description || "")}</div>
+        <div class="recurring-row-sub">${escapeHtml(u.entry.date)} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
+      </div>
+      <button type="button" class="add-inline">${escapeHtml(tr("trips.addToTrip"))}</button>`;
+    row.querySelector("button").addEventListener("click", async (ev) => {
+      ev.target.disabled = true;
+      try {
+        await callApi("updateEntry", { id: u.entry.id, fields: { trip_id: d.trip.id } });
+        await refreshTripDetail_();
+      } catch (err) {
+        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
+        ev.target.disabled = false;
+      }
+    });
+    box.appendChild(row);
+  });
+}
+
+// The estimates still waiting (unpaid one-time Programmed items in this trip). Tap one to change or delete it.
+function renderTripEstimates_(d) {
+  const box = document.getElementById("trip-detail-estimates");
+  if (!d.estimates || !d.estimates.length) return;
+  box.innerHTML = `<h3 class="accounts-group-title">${escapeHtml(tr("trips.estimates"))}</h3><p class="hint">${escapeHtml(tr("trips.estimatesHint"))}</p>`;
+  d.estimates.forEach((e) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
+        <div class="recurring-row-sub">${escapeHtml(e.date)}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
+      </div>
+      <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}</div>`;
+    row.addEventListener("click", async () => {
+      try {
+        const items = await callApi("listRecurringExpenses");
+        const item = items.find((x) => x.id === e.id);
+        if (item) openRecurringModal(item);
+      } catch (err) {
+        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
+      }
+    });
+    box.appendChild(row);
+  });
 }
 
 function openTripModal_(trip) {
@@ -6808,6 +6874,11 @@ function recurringStatusLabel_(re, todayISO) {
   return re.end_date < todayISO ? tr("recurring.ended", { date: recurringDateLabel_(re.end_date) }) : tr("recurring.ends", { date: recurringDateLabel_(re.end_date) });
 }
 
+function recurringTripTag_(re) {
+  const trip = re.trip_id ? (meta.trips || []).find((t) => t.id === re.trip_id) : null;
+  return trip ? escapeHtml(tr("recurring.tripTag", { trip: tripLabel_(trip) })) : "";
+}
+
 function renderRecurringRow_(re) {
   const isIncome = re.category_type === "income";
   const todayISO = localTodayISO_();
@@ -6816,7 +6887,7 @@ function renderRecurringRow_(re) {
   row.innerHTML = `
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
@@ -6917,6 +6988,15 @@ function toggleRecurringSplitFieldVisibility() {
   const show = !cat || cat.type === "expense";
   document.getElementById("recurring-split-field").hidden = !show;
   if (!show) resetRecurringSplitState();
+  syncRecurringTripField_();
+}
+
+// The trip/event picker shows only for a one-time item in an expense category, and only when a trip exists.
+function syncRecurringTripField_() {
+  const cat = meta.categories.find((c) => c.id === selectedRecurringCategoryId);
+  const show = recurringFrequency === "once" && (!cat || cat.type === "expense") && (meta.trips || []).length > 0;
+  document.getElementById("recurring-trip-field").hidden = !show;
+  if (!show) document.getElementById("recurring-trip").value = "";
 }
 
 function resetRecurringSplitState() {
@@ -7102,8 +7182,11 @@ function setRecurringFrequency_(freq) {
   document.getElementById("recurring-variable-field").hidden = !canBeVariable;
   if (!canBeVariable) document.getElementById("recurring-variable-toggle").checked = false;
   syncRecurringVariableUi_();
+  syncRecurringTripField_();
   if (isOnce) {
-    document.getElementById("recurring-occurrence-date").min = todayLocalISO();
+    // Any date is allowed, past or future (owner, 2026-10-19): a one-time item may stand for something
+    // already paid by a friend, so it is no longer limited to today onwards.
+    document.getElementById("recurring-occurrence-date").removeAttribute("min");
     return;
   }
   document.getElementById("recurring-start-hint").textContent =
@@ -7157,6 +7240,7 @@ async function openRecurringModal(re, prefill) {
   const frequency = re ? re.frequency : "monthly";
   document.getElementById("recurring-variable-toggle").checked = !!(prefill || (re && re.variable));
   document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
+  fillTripOptions_(document.getElementById("recurring-trip"), re && re.trip_id ? re.trip_id : "");
   setRecurringFrequency_(frequency);
   document.getElementById("recurring-interval").value = re && re.frequency === "custom" ? re.interval : 1;
   document.getElementById("recurring-interval-unit").value = re && re.frequency === "custom" ? re.interval_unit : "weeks";
@@ -7493,7 +7577,9 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       match_words: document.getElementById("recurring-match-words").value.trim(),
       // "Other": every N days/weeks/months/years from the start date (the server checks them).
       interval: recurringFrequency === "custom" ? document.getElementById("recurring-interval").value.trim() : "",
-      interval_unit: recurringFrequency === "custom" ? document.getElementById("recurring-interval-unit").value : ""
+      interval_unit: recurringFrequency === "custom" ? document.getElementById("recurring-interval-unit").value : "",
+      // Always sent so clearing it works; the server keeps it only for a one-time expense item.
+      trip_id: recurringFrequency === "once" ? document.getElementById("recurring-trip").value : ""
     };
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence
@@ -7531,6 +7617,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
     }
     refreshRecurringExpenses();
+    if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -7548,6 +7635,7 @@ document.getElementById("recurring-delete-btn").addEventListener("click", async 
   closeRecurringModal();
   await callApi("deleteRecurringExpense", { id });
   refreshRecurringExpenses();
+  if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
 });
 
 // ---- Programmed income is hidden by default ----
