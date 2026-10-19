@@ -225,6 +225,60 @@
     }
   };
 
+  // ---- a transfer: the Transfer tab opens the form directly (no category). "Type of transfer" has three scenarios ----
+  //      Between Accounts (From / To), Repayments (I paid them / They paid me + friend), New loan (same + due date).
+  SCENES.transfer = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const p = entriesPhone(stage, ctx, "expense");
+      const f = p.formView;
+      p.kindBox = box(f, tr("transfer.kind"), tr("transfer.kind.between"));
+      p.dyn = h("div", "ts-form", null, f);
+      p.save = h("div", "ts-btn", tr("entry.save"), f);
+      p.renderKind = (kind, theyPaid) => {
+        p.dyn.innerHTML = "";
+        p.kindBox.value.textContent = tr("transfer.kind." + kind);
+        if (kind !== "between") {
+          const seg = h("div", "ts-seg", null, p.dyn);
+          p.iPaid = h("span", theyPaid ? "" : "on", tr("transfer.iPaid"), seg);
+          p.theyPaid = h("span", theyPaid ? "on" : "", tr("transfer.theyPaid"), seg);
+          p.friendBox = box(p.dyn, tr("common.friend"), "Ana");
+          const hintKey = kind === "loan" ? (theyPaid ? "transfer.hintLoanTheyPaid" : "transfer.hintLoanIPaid") : (theyPaid ? "transfer.hintRepayTheyPaid" : "transfer.hintRepayIPaid");
+          p.hint = h("div", "ts-hint", tr(hintKey), p.dyn);
+        }
+        const r1 = h("div", "ts-two", null, p.dyn);
+        box(r1, tr("field.amount"), kind === "between" ? "200.00" : "40.00", "grow");
+        box(r1, tr("field.date"), tr("scene.today"));
+        if (kind === "between") {
+          const r2 = h("div", "ts-two", null, p.dyn);
+          box(r2, tr("field.from"), tr("scene.debit"), "grow");
+          box(r2, tr("field.toAccount"), tr("scene.savings"), "grow");
+        }
+        if (kind === "loan") box(p.dyn, tr("loan.dueDateOptional"), "");
+      };
+      p.renderKind("between");
+      return p;
+    },
+    timeline(p, ctx) {
+      const fg = p.finger, tr = ctx.tr;
+      return [
+        [0, () => fg.to(p.tabs.transfer, true)],
+        [500, (i) => fg.to(p.tabs.transfer, i)],
+        [1100, (i) => { fg.tap(i); typeOn(p, "transfer"); showForm(p, true); }],
+        [3200, (i) => fg.to(p.kindBox.box, i)],
+        [3700, (i) => { fg.tap(i); p.kindBox.box.classList.add("focus"); }],
+        [3900, () => p.renderKind("repayment", false)],
+        [5200, (i) => { p.kindBox.box.classList.remove("focus"); fg.to(p.theyPaid, i); }],
+        [5700, (i) => { fg.tap(i); p.renderKind("repayment", true); }],
+        [7000, (i) => fg.to(p.kindBox.box, i)],
+        [7500, (i) => { fg.tap(i); p.kindBox.box.classList.add("focus"); }],
+        [7700, () => p.renderKind("loan", false)],
+        [9600, (i) => { p.kindBox.box.classList.remove("focus"); fg.hide(); }]
+      ];
+    }
+  };
+
   // ---- the Loans tab: a phone with a list, and a sheet that slides up (add loan / repayment) ----
   function loansPhone(stage, ctx, owed) {
     const tr = ctx.tr;

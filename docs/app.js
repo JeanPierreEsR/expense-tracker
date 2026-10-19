@@ -5604,7 +5604,7 @@ let tour_ = null;
 // featureOn_('gmail'): false on a friend's app until they turned on bank transactions, always true on the owner's copy).
 function tourCards_() {
   const caps = (meta && meta.capabilities) || {};
-  const cards = ["add", "invest", "loan", "repay", "overview", "budgets"];
+  const cards = ["add", "invest", "transfer", "loan", "repay", "overview", "budgets"];
   if (caps.bankEmails) cards.push("bank");
   cards.push("more");
   return cards;
