@@ -2289,3 +2289,4 @@ body.income-revealed .sens-mask { display: none; }
 .trip-phase-value { font-weight: 600; font-size: 0.85rem; margin-top: 2px; }
 .trip-static-row { cursor: default; }
 #entry-trip { width: 100%; }
+.trip-covered-btn { display: block; margin: 4px 0 0 auto; }
