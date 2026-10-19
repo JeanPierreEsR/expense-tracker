@@ -169,8 +169,9 @@ function variablePaymentHistory_(r, categoryEntries, todayStr) {
   var candidates = [];
   categoryEntries.forEach(function (e) {
     if (e.currency !== currency || !(Number(e.amount) > 0) || e.date > todayStr) return;
-    if (r.start_date && e.date < r.start_date) return;
-    if (r.end_date && e.date > r.end_date) return;
+    // No start/end-date filter on purpose: payments from before the item's
+    // start date are still the best evidence of what the bill costs (which
+    // OCCURRENCES count is decided elsewhere, from the start/end dates).
     var linkedHere = e.recurring_expense_id === r.id;
     if (e.recurring_expense_id && !linkedHere) return;
     if (!linkedHere && !tokensOverlap_(r.match_tokens, keywordTokens_((e.description || '') + ' ' + (e.merchant || '')))) return;

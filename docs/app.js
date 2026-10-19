@@ -828,10 +828,36 @@ function populateCategoryPicker() {
         <span class="category-tile-icon" style="background:${c.color || "#eee"}">${c.icon || "•"}</span>
         <span class="category-tile-name">${escapeHtml(c.name)}</span>
       `;
-      tile.addEventListener("click", () => showDetailForm(c));
+      tile.addEventListener("click", () => { showDetailForm(c); preselectAnnualForTravel_(c.id); });
       grid.appendChild(tile);
     });
 }
+
+// Travel is Annual by default: picking a Travel category ticks the Annual chip
+// (still removable by hand). Only for a pick the person just made — opening an
+// existing entry for editing never goes through here, so an old Travel entry
+// whose tag was removed stays as it is. The server applies the same rule to
+// entries that arrive without the form (email, photo, statements).
+// If the person then changes their mind to a non-Travel category, a tick that
+// WE added is taken back (one they ticked themselves is left alone).
+let annualAutoTicked = false;
+function preselectAnnualForTravel_(categoryId) {
+  if (selectedType !== "expense") return;
+  const byId = new Map(meta.categories.map((c) => [c.id, c]));
+  const isTravel = (c) => !!c && (c.key === "travel" || (!c.key && c.name === "Travel"));
+  const cat = byId.get(categoryId);
+  if (!isTravel(cat) && !(cat && isTravel(byId.get(cat.parent_id)))) {
+    if (annualAutoTicked && selectedTagIds.delete("system-annual")) populateTags();
+    annualAutoTicked = false;
+    return;
+  }
+  if (!meta.tags.some((t) => t.id === "system-annual") || selectedTagIds.has("system-annual")) return;
+  selectedTagIds.add("system-annual");
+  annualAutoTicked = true;
+  populateTags();
+}
+
+document.getElementById("category").addEventListener("change", (ev) => preselectAnnualForTravel_(ev.target.value));
 
 function showCategoryPicker() {
   selectedCategoryId = null;
@@ -1002,6 +1028,7 @@ function populateTags() {
     chip.className = "tag-chip" + (selectedTagIds.has(tag.id) ? " selected" : "");
     chip.textContent = tag.name;
     chip.addEventListener("click", () => {
+      if (tag.id === "system-annual") annualAutoTicked = false;   // the person's own choice from here on
       if (selectedTagIds.has(tag.id)) selectedTagIds.delete(tag.id);
       else selectedTagIds.add(tag.id);
       populateTags();
@@ -5454,9 +5481,12 @@ function renderWelcomeAccounts_() {
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
+// Credit cards are two-currency, so a card fits both Plin slots, whatever its bank (Plin can pay with a card). Debit accounts come first.
 function waCandidates_(key) {
   const soles = key.endsWith("_pen"), yape = key.startsWith("yape");
-  return welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
+  const debit = welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
+  const cards = yape ? [] : welcome_.accounts.filter((a) => a.kind === "credit");
+  return debit.concat(cards);
 }
 function renderWaRails_() {
   const box = waEl_("wa-rails");
@@ -5465,7 +5495,8 @@ function renderWaRails_() {
   WA_RAILS.forEach((key) => {
     const cands = waCandidates_(key);
     // Linked by default: until the person decides, the first account that fits (Yape: a BCP account; Plin: another bank's) is selected.
-    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = welcome_.links[key] || cands[0].cid;
+    // (A debit account wins over a credit card; this is re-decided on every render until the person chooses.)
+    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = (cands.find((a) => a.kind !== "credit") || cands[0]).cid;
     if (welcome_.links[key] && !cands.some((a) => a.cid === welcome_.links[key])) welcome_.links[key] = "";
     const wrap = document.createElement("div");
     wrap.className = "wa-rail";
@@ -5604,7 +5635,7 @@ let tour_ = null;
 // featureOn_('gmail'): false on a friend's app until they turned on bank transactions, always true on the owner's copy).
 function tourCards_() {
   const caps = (meta && meta.capabilities) || {};
-  const cards = ["add", "invest", "loan", "repay", "overview", "budgets"];
+  const cards = ["add", "invest", "transfer", "loan", "repay", "overview", "budgets"];
   if (caps.bankEmails) cards.push("bank");
   cards.push("more");
   return cards;
@@ -5718,6 +5749,23 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   } catch (e2) { /* storage blocked: the app reloads from the server anyway */ }
   window.location.reload();
 });
+
+// More tab order: every card A→Z by its label in the current language (the
+// leading emoji is ignored), then the fixed tail — How to use the app, Signed-in
+// devices, Sign out — and the language picker (already below the list). A
+// language change reloads the app, so sorting once at startup is enough.
+(function sortMoreList() {
+  const list = document.querySelector("#screen-more .more-list");
+  const tailIds = ["more-tour-btn", "more-devices-btn", "more-signout-btn"];
+  const labelOf = (btn) => tr(btn.querySelector("[data-i18n]").dataset.i18n).replace(/^[^\p{L}\p{N}]+/u, "");
+  const lang = I18n.getLang();
+  const tail = tailIds.map((id) => document.getElementById(id));
+  Array.from(list.children)
+    .filter((btn) => !tail.includes(btn))
+    .sort((a, b) => labelOf(a).localeCompare(labelOf(b), lang))
+    .concat(tail)
+    .forEach((btn) => list.appendChild(btn));
+})();
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.
@@ -6078,8 +6126,9 @@ function renderRailsCard_() {
     const yape = key.startsWith("yape");
     const bankOf = (pm) => { const b = (meta.banks || []).find((x) => x.id === pm.bank_id); return b ? b.name : ""; };
     // Yape: BCP accounts only. Plin: any bank but BCP. A link already saved stays listed even if it breaks that rule.
+    // Plin may also use any credit card (two-currency), so cards are listed in both of its slots.
     meta.paymentMethods
-      .filter((pm) => String(settings[key] || "") === String(pm.id) || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
+      .filter((pm) => String(settings[key] || "") === String(pm.id) || (!yape && pm.type === "credit") || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
         (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd"))))
       .sort((a, b) => a.nickname.localeCompare(b.nickname))
       .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
@@ -6572,42 +6621,32 @@ document.getElementById("recurring-split-add-friend-btn").addEventListener("clic
   renderRecurringSplitSummary();
 });
 
-// The day/month picker is a native <input type="date"> — the same
-// control (and, on a phone, the same tap-to-open calendar) the main
-// entry form's own date field uses — rather than plain number inputs.
-// For monthly/yearly, only the day (or day+month) actually gets stored;
-// the year is a throwaway placeholder (today's) purely so the input
-// holds a valid date to pick from. A monthly item whose day is 29-31
-// still needs a month with enough days to expose that date in the
-// calendar UI, hence the hint text below the field. A one-time item is
-// different — its real year matters (it only ever happens once), so the
-// picker's actual value is used as-is, with no day/month extraction.
+// A monthly/yearly item has ONE date field, "Starts on" (a native
+// <input type="date">, the same control the main entry form uses). Its
+// day (and, for yearly, month) are read from that date on save — there is
+// no separate "day of month" picker (two dates side by side was
+// confusing). A one-time item is different: its real date is its own
+// field (#recurring-occurrence-date), used as-is, and it has no start/end.
+let recurringStartStandIn = "";
+let recurringStandInItem = null;
 function setRecurringFrequency_(freq) {
   recurringFrequency = freq;
   document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.frequency === freq);
   });
-  const dateInput = document.getElementById("recurring-occurrence-date");
-  const todayIso = todayLocalISO();
-  // Start/end dates only make sense for an item that repeats.
-  document.getElementById("recurring-window-fields").hidden = freq === "once";
+  const isOnce = freq === "once";
+  document.getElementById("recurring-once-fields").hidden = !isOnce;
+  document.getElementById("recurring-window-fields").hidden = isOnce;
   // A variable amount only makes sense for a monthly item.
   document.getElementById("recurring-variable-field").hidden = freq !== "monthly";
   if (freq !== "monthly") document.getElementById("recurring-variable-toggle").checked = false;
   syncRecurringVariableUi_();
-  if (freq === "once") {
-    document.getElementById("recurring-occurrence-date-label").textContent = tr("field.date");
-    document.getElementById("recurring-occurrence-date-hint").textContent =
-      tr("recModal.onceHint");
-    dateInput.min = todayIso;
+  if (isOnce) {
+    document.getElementById("recurring-occurrence-date").min = todayLocalISO();
     return;
   }
-  dateInput.removeAttribute("min");
-  const isYearly = freq === "yearly";
-  document.getElementById("recurring-occurrence-date-label").textContent = isYearly ? tr("recModal.dayAndMonth") : tr("recModal.dayOfMonth");
-  document.getElementById("recurring-occurrence-date-hint").textContent = isYearly
-    ? tr("recModal.yearlyHint")
-    : tr("recModal.monthlyHint");
+  document.getElementById("recurring-start-hint").textContent =
+    freq === "yearly" ? tr("recModal.yearlyHint") : tr("recModal.monthlyHint");
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
@@ -6658,19 +6697,37 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-variable-toggle").checked = !!(prefill || (re && re.variable));
   document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
   setRecurringFrequency_(frequency);
-  if (frequency === "once") {
-    // Real year matters here — a one-time item only ever happens once,
-    // unlike monthly/yearly's throwaway neutral-year placeholder below.
-    document.getElementById("recurring-occurrence-date").value = re && re.date ? re.date : todayLocalISO();
-  } else {
-    const neutralYear = new Date().getFullYear();
-    const day = String(src ? src.day : 1).padStart(2, "0");
-    const month = String(re ? re.month : 1).padStart(2, "0");
-    document.getElementById("recurring-occurrence-date").value = `${neutralYear}-${month}-${day}`;
+  document.getElementById("recurring-occurrence-date").value =
+    frequency === "once" && re && re.date ? re.date : todayLocalISO();
+  // Monthly/yearly: "Starts on" is the one date. An older item saved before
+  // start dates existed has none; show its day/month in this year purely so
+  // the field isn't empty, and remember it was only a stand-in so saving
+  // without touching it keeps the item with no start (no history dropped).
+  let startValue = re ? (re.start_date || "") : todayLocalISO();
+  recurringStartStandIn = "";
+  recurringStandInItem = re;
+  if (re && frequency !== "once" && !re.start_date) {
+    const now = new Date();
+    const monthNum = frequency === "yearly" ? (re.month || 1) : now.getMonth() + 1;
+    // A day like the 31st is clamped to the month's real length for display
+    // only; the saved day stays the item's own (see the save handler).
+    const day = Math.min(re.day || 1, new Date(now.getFullYear(), monthNum, 0).getDate());
+    startValue = `${now.getFullYear()}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    recurringStartStandIn = startValue;
+  } else if (!re && prefill) {
+    // A proposal from "Look for variable payments": the bill already existed
+    // before today, so treat it like an older item with no start date — show
+    // this month's occurrence on its usual day as a stand-in; untouched, it
+    // saves with no start date and that exact day (past payments keep counting).
+    const now = new Date();
+    const day = Math.min(prefill.day || 1, new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
+    startValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    recurringStartStandIn = startValue;
+    recurringStandInItem = { frequency: "monthly", day: prefill.day || 1, month: 1 };
   }
+  document.getElementById("recurring-start-date").value = startValue;
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   document.getElementById("recurring-delete-btn").hidden = !re;
-  document.getElementById("recurring-start-date").value = re ? (re.start_date || "") : "";
   document.getElementById("recurring-end-date").value = re ? (re.end_date || "") : "";
   renderRecurringSkips_(re);
 
@@ -6922,7 +6979,11 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     const description = document.getElementById("recurring-description").value.trim();
     const amount = parseFloat(document.getElementById("recurring-amount").value);
     const currency = document.getElementById("recurring-currency").value.toUpperCase();
-    const occurrenceDate = document.getElementById("recurring-occurrence-date").value;
+    // One-time: its own date field. Monthly/yearly: the "Starts on" date.
+    const startDate = document.getElementById("recurring-start-date").value;
+    const occurrenceDate = recurringFrequency === "once"
+      ? document.getElementById("recurring-occurrence-date").value
+      : startDate;
     const active = document.getElementById("recurring-active-checkbox").checked;
 
     if (!selectedRecurringCategoryId) throw new Error(tr("error.pickCategory"));
@@ -6944,7 +7005,8 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       frequency: recurringFrequency,
       active,
       // Blank clears; the server checks they are real dates and in order.
-      start_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-start-date").value,
+      // An untouched stand-in (older item with no start) stays "no start".
+      start_date: recurringFrequency === "once" || startDate === recurringStartStandIn ? "" : startDate,
       end_date: recurringFrequency === "once" ? "" : document.getElementById("recurring-end-date").value,
       // Variable amount: only a monthly item; the server checks the words.
       variable: recurringFrequency === "monthly" && document.getElementById("recurring-variable-toggle").checked,
@@ -6958,6 +7020,11 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       fields.day = parseInt(occurrenceDate.slice(8, 10), 10);
       fields.month = parseInt(occurrenceDate.slice(5, 7), 10);
       fields.date = "";
+      if (startDate === recurringStartStandIn && recurringStandInItem && recurringStandInItem.frequency === recurringFrequency) {
+        // Untouched stand-in: keep the item's own day/month exactly as stored.
+        fields.day = recurringStandInItem.day;
+        fields.month = recurringStandInItem.month;
+      }
     }
 
     let recurringExpenseId = editingRecurringId;
