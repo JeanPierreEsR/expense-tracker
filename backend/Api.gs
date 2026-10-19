@@ -169,6 +169,8 @@ function routeAction(action, payload) {
     case 'addTag': return addTag(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
+    case 'deletePaymentMethod': return deletePaymentMethod(payload);
+    case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
     case 'addBank': return addBank(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
@@ -1171,6 +1173,61 @@ function savePaymentMethod(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
   setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
   return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4 };
+}
+
+// How many records point at an account. Entries (either end), loans, settlements and the
+// statement bookkeeping sheets all hold its id; a sheet that doesn't exist yet counts as 0.
+function paymentMethodUsage_(id) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var n = 0;
+  [['Entries', ['payment_method_id', 'to_payment_method_id']], ['Loans', ['payment_method_id']],
+   ['Settlements', ['payment_method_id']], ['Statement Uploads', ['payment_method_id']],
+   ['Statement Gaps', ['payment_method_id']]].forEach(function (spec) {
+    if (!ss.getSheetByName(spec[0])) return;
+    getAllRows(spec[0]).forEach(function (r) {
+      if (spec[1].some(function (f) { return String(r[f] || '') === id; })) n++;
+    });
+  });
+  return n;
+}
+
+// Delete an account, only when nothing uses it (an unused one holds no history, so nothing
+// breaks). Its starting-balance rows go with it. One in use is refused with a count: the
+// owner hides it instead (setPaymentMethodHidden). Principle: past entries never lose their account.
+function deletePaymentMethod(payload) {
+  var id = String((payload && payload.id) || '');
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
+  if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  var used = paymentMethodUsage_(id);
+  if (used > 0) throw new Error(tr_('err.pmInUse', { n: used }));
+  var settings = getSettingsMap();
+  if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
+  deleteRowsWhere_('Account Opening Balances', function (row) { return String(row.payment_method_id) === id; });
+  sheet.deleteRow(rowIndex);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+  return { id: id, deleted: true };
+}
+
+// Hide / show an account. A hidden account keeps its row (past records still show its name
+// and balances stay correct) but the phone leaves it out of every "pick an account" list.
+function setPaymentMethodHidden(payload) {
+  var id = String((payload && payload.id) || '');
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('hidden') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('hidden');
+    headers.push('hidden');
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  }
+  var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
+  if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  var hidden = payload.hidden === true || payload.hidden === 'yes' ? 'yes' : '';
+  setCellByRow_(sheet, headers, rowIndex, 'hidden', hidden);
+  bumpStructureVersion_();
+  return { id: id, hidden: hidden };
 }
 
 // A bank name typed in the add/edit window. Same name (any case) = same bank.

@@ -400,7 +400,7 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-accounts-btn">
-            <span data-i18n="more.accounts">💳 Accounts &amp; cards</span>
+            <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
@@ -491,7 +491,7 @@
           <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
           <button type="button" class="add-inline" id="accounts-add-btn" data-i18n="accounts.add">+ Add</button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts &amp; cards</h2>
+        <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
         <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
         <div id="accounts-list"></div>
         <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
@@ -983,16 +983,16 @@
         <div id="wa-root">
           <p class="hint" id="wa-step"></p>
           <h2 data-i18n="wa.title">Your accounts</h2>
-          <p class="hint" data-i18n="wa.intro">Add the accounts you use, bank by bank. This step is optional, and you can add or change your accounts any time in More → Accounts &amp; cards.</p>
+          <p class="hint" data-i18n="wa.intro">Add the accounts you use, bank by bank. This step is optional, and you can add or change your accounts any time in More → Accounts, cards &amp; platforms.</p>
           <h3 data-i18n="wa.mainBanks">Main banks</h3>
           <div id="wa-main-banks" class="wa-banks"></div>
           <h3 data-i18n="wa.otherBanks">Other banks</h3>
           <div id="wa-other-banks" class="wa-banks"></div>
           <button type="button" class="add-inline" id="wa-add-bank-btn" data-i18n="wa.addBank">+ Add another bank</button>
           <h3 data-i18n="wa.railsTitle">Yape and Plin</h3>
-          <p class="hint" data-i18n="wa.railsHint">Yape and Plin don't hold money of their own: they work on top of a bank account. Link each one to the account it uses. You can change this later in More → Accounts &amp; cards.</p>
+          <p class="hint" data-i18n="wa.railsHint">Yape and Plin don't hold money of their own: they work on top of a bank account. Link each one to the account it uses. You can change this later in More → Accounts, cards &amp; platforms.</p>
           <div id="wa-rails"></div>
-          <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts &amp; cards.</p>
+          <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts, cards &amp; platforms.</p>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
@@ -1334,6 +1334,11 @@
       <p class="hint" id="pm-form-error" style="color:#d64545;"></p>
       <button type="button" class="primary" id="pm-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="pm-cancel-btn" data-i18n="common.cancel">Cancel</button>
+      <div id="pm-manage" hidden>
+        <p class="hint" data-i18n="accounts.hideHint">Delete only works for an account nothing uses. Hide keeps past records intact but removes the account from every list you pick from.</p>
+        <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
+        <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
+      </div>
     </div>
   </div>
 

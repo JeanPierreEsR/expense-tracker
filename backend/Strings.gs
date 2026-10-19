@@ -50,6 +50,8 @@ var BACKEND_STRINGS_ = {
   "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
   "err.gapNotFound": { en: "Gap note not found.", es: "No se encontró la nota de diferencia." },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
+  "err.pmInUse": { en: { one: "This account can't be deleted: {n} record uses it. Hide it instead — it disappears from the pickers but past records keep its name.", other: "This account can't be deleted: {n} records use it. Hide it instead — it disappears from the pickers but past records keep its name." }, es: { one: "No se puede eliminar esta cuenta: {n} registro la usa. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre.", other: "No se puede eliminar esta cuenta: {n} registros la usan. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre." } },
+  "err.pmRailLinked": { en: "This account is linked to Yape or Plin. Change that link first (below), then delete it.", es: "Esta cuenta está vinculada a Yape o Plin. Cambia ese vínculo primero (abajo) y luego elimínala." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
 

@@ -26,7 +26,7 @@ var TABLE_DEFINITIONS = {
   // (Balances.gs). Entries.to_payment_method_id (transfers only) likewise.
   'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4',
     'opening_balance', 'opening_balance_date', 'opening_balance_currency',
-    'alias_kind', 'alias_auto', 'alias_show_last4'],
+    'alias_kind', 'alias_auto', 'alias_show_last4', 'hidden'],
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   Friends: ['id', 'name', 'notes'],
