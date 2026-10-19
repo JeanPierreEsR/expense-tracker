@@ -2283,6 +2283,18 @@ function paidByLabel(entryOrPaidBy) {
   return f ? f.name : paidBy;
 }
 
+// The small grey line under an entry's description: date, who paid, then the
+// entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
+// deleted since) are skipped.
+function entryMetaHtml_(entry, headline) {
+  const pills = (Array.isArray(entry.tagIds) ? entry.tagIds : [])
+    .map((id) => meta.tags.find((t) => t.id === id))
+    .filter(Boolean)
+    .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`)
+    .join("");
+  return `${entry.date} · ${headline.meta}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
+}
+
 // How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
 // "Load more" is tapped and is kept across full refreshes (after an
 // edit/delete) so the list doesn't snap back to the newest 100. Each fetch
@@ -2312,7 +2324,7 @@ function buildEntryRow_(entry) {
   left.innerHTML = `
     <div class="entry-category">${headline.title}</div>
     ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-    <div class="entry-meta">${entry.date} · ${headline.meta}</div>
+    <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${statusLine}
   `;
 
@@ -2408,7 +2420,7 @@ function renderEntryListFromCache_() {
 // While searching, the tab shows only the search box and its results.
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_PAGE_SIZE = 50;
-const SEARCH_CACHE_VERSION = 2;          // bump to drop every phone's saved copy
+const SEARCH_CACHE_VERSION = 3;          // bump to drop every phone's saved copy
 const SEARCH_FULL_RELOAD_MS = 24 * 3600 * 1000; // hand edits in the Sheet aren't tracked
 let searchIndex = null;          // array once loaded (from the phone's copy or the server)
 let searchSync = null;           // {structureVersion, entriesVersion, since, fullAt}
@@ -4423,7 +4435,7 @@ function renderDrilldownEntries(entries) {
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-        <div class="entry-meta">${entry.date} · ${headline.meta}</div>
+        <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
       </div>
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
