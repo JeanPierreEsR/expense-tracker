@@ -227,6 +227,48 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 
 #period-label { min-width: 140px; text-align: center; }
 
+/* Month/Year: the label opens the quick picker (a small ▾ says so). */
+#period-label.tappable,
+#drilldown-subtitle.tappable {
+  cursor: pointer;
+}
+#period-label.tappable::after,
+#drilldown-subtitle.tappable::after {
+  content: " ▾";
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.period-picker-year {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.period-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.period-picker-cell {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.period-picker-cell.now { border-color: var(--accent); }
+.period-picker-cell.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
 .period-type-chips {
   display: flex;
   gap: 8px;

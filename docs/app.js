@@ -3888,7 +3888,10 @@ function getPeriodBounds() {
 
 function renderPeriodSelector() {
   const bounds = getPeriodBounds();
-  document.getElementById("period-label").textContent = bounds.label;
+  const labelEl = document.getElementById("period-label");
+  labelEl.textContent = bounds.label;
+  labelEl.classList.toggle("tappable", periodType === "month" || periodType === "year");
+  labelEl.title = periodType === "month" || periodType === "year" ? tr("period.tapToChoose") : "";
 
   document.querySelectorAll(".period-type-chip").forEach((chip) => {
     chip.classList.toggle("active", chip.dataset.periodType === periodType);
@@ -3913,6 +3916,86 @@ function movePeriod(delta) {
 
 document.getElementById("period-prev").addEventListener("click", () => movePeriod(-1));
 document.getElementById("period-next").addEventListener("click", () => movePeriod(1));
+
+// ---- Quick month/year picker ----
+// Tapping the period name (Overview, Budgets, Projections and the Projections
+// category detail) opens a grid instead of stepping with ‹ › one period at a
+// time. Month: a year header (‹ ›) over 12 months. Year: a grid of years.
+// Future months/years are allowed (projections look ahead).
+let periodPickerYear = null;   // the year shown in the month grid
+
+function periodPickerAvailable_() { return periodType === "month" || periodType === "year"; }
+
+function openPeriodPicker_() {
+  if (!periodPickerAvailable_()) return;
+  periodPickerYear = periodAnchor.getFullYear();
+  const backdrop = document.getElementById("period-picker-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  renderPeriodPicker_();
+}
+
+function closePeriodPicker_() {
+  document.getElementById("period-picker-backdrop").hidden = true;
+}
+
+function renderPeriodPicker_() {
+  const grid = document.getElementById("period-picker-grid");
+  const now = new Date();
+  grid.innerHTML = "";
+  const addCell = (label, isSelected, isNow, onPick) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "period-picker-cell" + (isSelected ? " selected" : "") + (isNow ? " now" : "");
+    b.textContent = label;
+    b.addEventListener("click", onPick);
+    grid.appendChild(b);
+  };
+  if (periodType === "year") {
+    document.getElementById("period-picker-title").textContent = tr("period.pickYear");
+    document.getElementById("period-picker-year-row").hidden = true;
+    const selectedYear = periodAnchor.getFullYear();
+    const first = Math.min(now.getFullYear() - 9, selectedYear), last = Math.max(now.getFullYear() + 2, selectedYear);
+    for (let y = first; y <= last; y++) {
+      addCell(String(y), y === selectedYear, y === now.getFullYear(), () => choosePeriodAnchor_(new Date(y, periodAnchor.getMonth(), 1)));
+    }
+    return;
+  }
+  document.getElementById("period-picker-title").textContent = tr("period.pickMonth");
+  document.getElementById("period-picker-year-row").hidden = false;
+  document.getElementById("period-picker-year").textContent = String(periodPickerYear);
+  for (let m = 0; m < 12; m++) {
+    addCell(
+      I18n.monthShort(m, true),
+      periodPickerYear === periodAnchor.getFullYear() && m === periodAnchor.getMonth(),
+      periodPickerYear === now.getFullYear() && m === now.getMonth(),
+      () => choosePeriodAnchor_(new Date(periodPickerYear, m, 1))
+    );
+  }
+}
+
+// Same effect as pressing the arrows to get there: the shared period moves,
+// the open screen redraws, and an open Projections category detail reloads.
+function choosePeriodAnchor_(date) {
+  periodAnchor = date;
+  closePeriodPicker_();
+  refreshCurrentPeriodScreen();
+  if (drilldownProjection && currentDrilldown) currentDrilldown.refetch();
+}
+
+document.getElementById("period-label").addEventListener("click", openPeriodPicker_);
+document.getElementById("period-label").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPeriodPicker_(); }
+});
+document.getElementById("drilldown-subtitle").addEventListener("click", () => {
+  if (drilldownProjection) openPeriodPicker_();
+});
+document.getElementById("period-picker-close").addEventListener("click", closePeriodPicker_);
+document.getElementById("period-picker-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "period-picker-backdrop") closePeriodPicker_();
+});
+document.getElementById("period-picker-prev").addEventListener("click", () => { periodPickerYear -= 1; renderPeriodPicker_(); });
+document.getElementById("period-picker-next").addEventListener("click", () => { periodPickerYear += 1; renderPeriodPicker_(); });
 
 document.querySelectorAll(".period-type-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
@@ -4167,6 +4250,8 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
 
   title.textContent = titleText;
   subtitle.textContent = subtitleText;
+  // A Projections category detail lets the owner tap the period to pick another.
+  subtitle.classList.toggle("tappable", !!drilldownProjection && (periodType === "month" || periodType === "year"));
   list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;

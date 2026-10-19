@@ -202,6 +202,11 @@
     // ---- period ----
     "period.prev": { en: "Previous period", es: "Periodo anterior" },
     "period.next": { en: "Next period", es: "Periodo siguiente" },
+    "period.pickMonth": { en: "Choose month", es: "Elegir mes" },
+    "period.pickYear": { en: "Choose year", es: "Elegir año" },
+    "period.prevYear": { en: "Previous year", es: "Año anterior" },
+    "period.nextYear": { en: "Next year", es: "Año siguiente" },
+    "period.tapToChoose": { en: "Tap to choose", es: "Toca para elegir" },
     "period.month": { en: "Month", es: "Mes" },
     "period.year": { en: "Year", es: "Año" },
     "period.alltime": { en: "All-time", es: "Todo" },
