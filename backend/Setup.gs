@@ -8,7 +8,7 @@
 var TABLE_DEFINITIONS = {
   Entries: ['id', 'type', 'date', 'amount', 'currency', 'category_id',
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
-    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at'],
+    'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at', 'trip_id'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
   // key (added 2026-10-13, see adminMigrateCategories in Migrations.gs): the
   // hidden internal name of a BUILT-IN category (e.g. 'groceries'); `name`
@@ -16,6 +16,11 @@ var TABLE_DEFINITIONS = {
   // when shown (Strings.gs). Blank for categories the owner created.
   Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type', 'key'],
   Tags: ['id', 'name', 'color'],
+  // Trips & events (2026-10-19, see Trips.gs and specs/trips-events.md): a named
+  // period (a trip, a birthday) that entries can be linked to through
+  // Entries.trip_id. `kind` is 'trip' or 'event'. The budget is optional.
+  // Self-heals via ensureTripsSheet_.
+  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency'],
   'Entry Tags': ['entry_id', 'tag_id'],
   // Not part of the original spec — the bill behind a split expense (see
   // EntryBills.gs). Self-heals via ensureEntryBillsSheet_ on first save.
@@ -133,6 +138,7 @@ var DATE_LIKE_COLUMNS = {
   Loans: ['date', 'due_date'],
   'Recurring Expenses': ['date', 'start_date', 'end_date'],
   'Recurring Skips': ['month'],
+  Trips: ['start_date', 'end_date'],
   'Processed Emails': ['message_id', 'processed_at'],
   Sessions: ['token_hash', 'created_at', 'last_used_at'],
   Settlements: ['date'],
