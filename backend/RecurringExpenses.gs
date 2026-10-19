@@ -40,7 +40,7 @@ function ensureRecurringExpensesSheet_() {
   }
   // Columns added after the sheet already held real data are appended in
   // place, one at a time (the header row is re-read after each append).
-  ['date', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (col) {
+  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit'].forEach(function (col) {
     var headers = getHeaders(sheet);
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
@@ -116,7 +116,8 @@ var RECURRING_VARIABLE_STOPWORDS_ = {
 };
 
 function isVariableRecurring_(r) {
-  return String(r.variable) === 'true' && normalizeRecurringFrequency_(r.frequency) === 'monthly';
+  var f = normalizeRecurringFrequency_(r.frequency);
+  return String(r.variable) === 'true' && (f === 'monthly' || f === 'custom');
 }
 
 // Like significantWords_ but from 3 letters, because the bills that matter are
@@ -141,11 +142,25 @@ function tokensOverlap_(a, b) {
 
 // One entry per calendar month — the one closest to the item's day — newest
 // month first, at most 6.
-function variablePickPerMonth_(entries, day) {
+function variablePickPerMonth_(entries, day, occDates) {
   var bestByMonth = {};
   entries.forEach(function (e) {
-    var m = String(e.date).substring(0, 7);
-    var dist = Math.abs(Number(String(e.date).substring(8, 10)) - day);
+    var m, dist;
+    if (occDates) {
+      // Custom frequency: one payment per OCCURRENCE (the nearest one), the one
+      // closest to it — a calendar month is the wrong bucket for "every 5 months"
+      // or "every week".
+      var nearest = occDates[0], best = Infinity;
+      occDates.forEach(function (o) {
+        var gap = Math.abs(daysBetweenDates_(e.date, o));
+        if (gap < best) { best = gap; nearest = o; }
+      });
+      m = nearest;
+      dist = best;
+    } else {
+      m = String(e.date).substring(0, 7);
+      dist = Math.abs(Number(String(e.date).substring(8, 10)) - day);
+    }
     if (!bestByMonth[m] || dist < bestByMonth[m].dist) bestByMonth[m] = { date: e.date, amount: Number(e.amount), own: e._own, dist: dist, linked: !!e._linkedHere };
   });
   return Object.keys(bestByMonth).sort().reverse().slice(0, 6).map(function (m) { return bestByMonth[m]; });
@@ -179,13 +194,25 @@ function variablePaymentHistory_(r, categoryEntries, todayStr, splitSumByEntry) 
     // flat has most of it split off to friends).
     candidates.push({ date: e.date, amount: Number(e.amount), _own: Number(e.amount) - ((splitSumByEntry && splitSumByEntry[e.id]) || 0), _linkedHere: linkedHere });
   });
-  var firstPass = variablePickPerMonth_(candidates, day).map(function (h) { return h.amount; });
+  // Custom frequency: bucket the payments by the series' own dates (extended
+  // one step either side of the payments), not by calendar month.
+  var occDates = null;
+  if (isCustomRecurring_(r) && candidates.length) {
+    var sortedDates = candidates.map(function (c) { return c.date; }).sort();
+    var stepDays = customPeriodDays_(r);
+    var d0 = new Date(sortedDates[0] + 'T00:00:00'), d1 = new Date(sortedDates[sortedDates.length - 1] + 'T00:00:00');
+    occDates = customOccurrenceDatesRaw_(r,
+      formatCalendarDate_(new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - stepDays)),
+      formatCalendarDate_(new Date(d1.getFullYear(), d1.getMonth(), d1.getDate() + stepDays)));
+    if (!occDates.length) occDates = null;
+  }
+  var firstPass = variablePickPerMonth_(candidates, day, occDates).map(function (h) { return h.amount; });
   if (firstPass.length < 3) firstPass.push(r.base_amount);
   var anchor = medianOf_(firstPass);
   var low = anchor * RECURRING_VARIABLE_RANGE_LOW, high = anchor * RECURRING_VARIABLE_RANGE_HIGH;
   var history = variablePickPerMonth_(candidates.filter(function (c) {
     return c._linkedHere || (c.amount >= low && c.amount <= high);
-  }), day);
+  }), day, occDates);
   return { history: history, low: low, high: high };
 }
 
@@ -245,6 +272,14 @@ function variableEntryMatchesOccurrence_(entry, r, occurrenceDates) {
   if (r.amount_low !== undefined && (amt < r.amount_low || amt > r.amount_high)) return false;
   var tokens = r.match_tokens || keywordTokens_(r.match_words);
   if (!tokensOverlap_(tokens, keywordTokens_((entry.description || '') + ' ' + (entry.merchant || '')))) return false;
+  if (isCustomRecurring_(r)) {
+    // Loose real date ("every 4-6 months"): anywhere within half a step of the
+    // occurrence (windows of neighbouring occurrences never overlap).
+    var winDays = recurringMatchWindowDays_(r);
+    return occurrenceDates.some(function (occDate) {
+      return Math.abs(daysBetweenDates_(entry.date, occDate)) <= winDays;
+    });
+  }
   var entryMonth = String(entry.date).substring(0, 7);
   return occurrenceDates.some(function (occDate) {
     return String(occDate).substring(0, 7) === entryMonth ||
@@ -268,7 +303,7 @@ var VARIABLE_SCAN_MIN_SPREAD = 0.08;  // (max-min)/average below this = a fixed 
 // returns the cleaned pair. Not variable = the words are dropped.
 function validateVariableRecurring_(variable, matchWords, frequency) {
   if (!variable) return { variable: false, match_words: '' };
-  if (frequency !== 'monthly') throw new Error(tr_('rec.variableMonthlyOnly'));
+  if (frequency !== 'monthly' && frequency !== 'custom') throw new Error(tr_('rec.variableMonthlyOnly'));
   var words = String(matchWords || '').trim();
   if (!keywordTokens_(words).length) throw new Error(tr_('rec.variableNeedsWords'));
   return { variable: true, match_words: words };
@@ -523,7 +558,93 @@ function listRecurringExpenses() {
 function normalizeRecurringFrequency_(freq) {
   if (freq === 'yearly') return 'yearly';
   if (freq === 'once') return 'once';
+  if (freq === 'custom') return 'custom';
   return 'monthly';
+}
+
+// ---- Frequency "Other": every N days / weeks / months / years (2026-10-19) ----
+//
+// `frequency = 'custom'` with `interval` (N, a whole number) and
+// `interval_unit` (days | weeks | months | years). Every date is counted from
+// `start_date`, which is therefore required for these items (it is the
+// anchor — for something that already happened, e.g. the last car service,
+// use that date; the next one follows from it). Days/weeks are exact steps.
+// Months/years keep the anchor's day and clamp it in shorter months, like a
+// monthly item does (31st + every 2 months = Jan 31, Mar 31, May 31…).
+var RECURRING_CUSTOM_UNITS_ = { days: 1, weeks: 1, months: 1, years: 1 };
+
+function isCustomRecurring_(r) {
+  return normalizeRecurringFrequency_(r.frequency) === 'custom';
+}
+
+function customIntervalOf_(r) {
+  var n = Math.max(1, Math.floor(Number(r.interval) || 1));
+  var unit = RECURRING_CUSTOM_UNITS_[r.interval_unit] ? r.interval_unit : 'months';
+  return { n: n, unit: unit };
+}
+
+// Roughly how many days one step is (used to size match windows).
+function customPeriodDays_(r) {
+  var iv = customIntervalOf_(r);
+  if (iv.unit === 'days') return iv.n;
+  if (iv.unit === 'weeks') return iv.n * 7;
+  if (iv.unit === 'months') return Math.round(iv.n * 30.44);
+  return Math.round(iv.n * 365.25);
+}
+
+// Validated pair for a custom item; throws a readable error otherwise.
+function validateCustomRecurring_(interval, unit, startDate) {
+  var n = parseInt(interval, 10);
+  if (!(n >= 1 && n <= 999) || String(parseInt(interval, 10)) !== String(interval).trim()) throw new Error(tr_('rec.customInterval'));
+  if (!RECURRING_CUSTOM_UNITS_[unit]) throw new Error(tr_('rec.customUnit'));
+  if (!startDate) throw new Error(tr_('rec.customNeedsStart'));
+  return { interval: n, interval_unit: unit };
+}
+
+// Every date of the series inside [startDate, endDate], INCLUDING dates before
+// the anchor (the series continues backwards: past payments of a recurring
+// service are matched against it). The start/end-date filter of the item is
+// applied by recurringExpenseOccurrencesInRange_, not here.
+function customOccurrenceDatesRaw_(r, startDate, endDate) {
+  var anchorStr = r.start_date ? String(r.start_date) : '';
+  if (!anchorStr) return [];
+  var iv = customIntervalOf_(r);
+  var a = new Date(anchorStr + 'T00:00:00');
+  var start = new Date(startDate + 'T00:00:00'), end = new Date(endDate + 'T00:00:00');
+  var out = [];
+  var guard = 0;
+  if (iv.unit === 'days' || iv.unit === 'weeks') {
+    var stepDays = iv.n * (iv.unit === 'weeks' ? 7 : 1);
+    var diff = Math.round((start.getTime() - a.getTime()) / 86400000);
+    for (var k = Math.floor(diff / stepDays); guard++ < 5000; k++) {
+      var d = new Date(a.getFullYear(), a.getMonth(), a.getDate() + k * stepDays);
+      if (d > end) break;
+      if (d >= start) out.push(formatCalendarDate_(d));
+    }
+    return out;
+  }
+  var stepMonths = iv.n * (iv.unit === 'years' ? 12 : 1);
+  var monthDiff = (start.getFullYear() - a.getFullYear()) * 12 + (start.getMonth() - a.getMonth());
+  for (var j = Math.floor(monthDiff / stepMonths) - 1; guard++ < 5000; j++) {
+    var total = a.getMonth() + j * stepMonths;
+    var y = a.getFullYear() + Math.floor(total / 12);
+    var m = ((total % 12) + 12) % 12;
+    var d2 = clampedCalendarDate_(y, m + 1, a.getDate());
+    if (d2 > end) break;
+    if (d2 >= start) out.push(formatCalendarDate_(d2));
+  }
+  return out;
+}
+
+// Days around an occurrence within which a real entry counts as its payment.
+// A fixed monthly/yearly item: 5 (the long-standing rule). A custom item never
+// lets two neighbouring occurrences claim the same entry, so its window is at
+// most half a step; a variable one ("approximately every 4-6 months", like a
+// car service) uses that whole half-step because the real date is loose.
+function recurringMatchWindowDays_(r) {
+  if (!isCustomRecurring_(r)) return RECURRING_MATCH_DAY_WINDOW;
+  var half = Math.max(0, Math.ceil(customPeriodDays_(r) / 2) - 1);
+  return isVariableRecurring_(r) ? half : Math.min(RECURRING_MATCH_DAY_WINDOW, half);
 }
 
 function recurringExpenseForClient_(r, categoryById, splitSums) {
@@ -548,6 +669,8 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     amount: Number(r.amount),
     currency: r.currency || homeCurrency_(),
     frequency: frequency,
+    interval: frequency === 'custom' ? customIntervalOf_(r).n : null,
+    interval_unit: frequency === 'custom' ? customIntervalOf_(r).unit : '',
     day: r.day ? Number(r.day) : 1,
     month: r.month ? Number(r.month) : 1,
     date: r.date || '',
@@ -572,6 +695,12 @@ function addRecurringExpense(payload) {
   var frequency = normalizeRecurringFrequency_(payload.frequency);
   var windowDates = frequency === 'once' ? { start_date: '', end_date: '' } : validateRecurringWindow_(payload.start_date, payload.end_date);
   var variable = validateVariableRecurring_(!!payload.variable, payload.match_words, frequency);
+  var custom = frequency === 'custom'
+    ? validateCustomRecurring_(payload.interval, payload.interval_unit, windowDates.start_date)
+    : { interval: '', interval_unit: '' };
+  // A custom item's day/month come from its start date (the anchor).
+  var startDay = frequency === 'custom' ? Number(windowDates.start_date.substring(8, 10)) : null;
+  var startMonth = frequency === 'custom' ? Number(windowDates.start_date.substring(5, 7)) : null;
   var re = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
@@ -579,8 +708,10 @@ function addRecurringExpense(payload) {
     amount: payload.amount,
     currency: payload.currency || homeCurrency_(),
     frequency: frequency,
-    day: frequency === 'once' ? '' : (payload.day || 1),
-    month: frequency === 'once' ? '' : (payload.month || 1),
+    interval: custom.interval,
+    interval_unit: custom.interval_unit,
+    day: frequency === 'once' ? '' : (startDay || payload.day || 1),
+    month: frequency === 'once' ? '' : (startMonth || payload.month || 1),
     date: frequency === 'once' ? (payload.date || '') : '',
     active: payload.active === false ? 'false' : 'true',
     start_date: windowDates.start_date,
@@ -624,7 +755,30 @@ function updateRecurringExpense(payload) {
     payload.match_words = checked.match_words;
   }
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (field) {
+  // A custom item needs its interval, unit and start date (the anchor).
+  if (payload.frequency !== undefined || payload.interval !== undefined || payload.interval_unit !== undefined || payload.start_date !== undefined) {
+    var row = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.id; });
+    var mergedFreq = normalizeRecurringFrequency_(payload.frequency !== undefined ? payload.frequency : row.frequency);
+    if (mergedFreq === 'custom') {
+      var mergedStart = payload.start_date !== undefined ? payload.start_date : row.start_date;
+      var c = validateCustomRecurring_(
+        payload.interval !== undefined ? payload.interval : row.interval,
+        payload.interval_unit !== undefined ? payload.interval_unit : row.interval_unit,
+        mergedStart
+      );
+      payload.interval = c.interval;
+      payload.interval_unit = c.interval_unit;
+      if (mergedStart) {   // day/month follow the anchor
+        payload.day = Number(String(mergedStart).substring(8, 10));
+        payload.month = Number(String(mergedStart).substring(5, 7));
+      }
+    } else if (payload.frequency !== undefined) {
+      payload.interval = '';
+      payload.interval_unit = '';
+    }
+  }
+
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'variable') value = value ? 'true' : 'false';
@@ -912,6 +1066,8 @@ function recurringExpenseOccurrencesRaw_(re, startDate, endDate) {
     return dates;
   }
 
+  if (re.frequency === 'custom') return customOccurrenceDatesRaw_(re, startDate, endDate);
+
   if (re.frequency === 'yearly') {
     var month = re.month ? Number(re.month) : 1;
     for (var y = start.getFullYear(); y <= end.getFullYear(); y++) {
@@ -1040,6 +1196,13 @@ var RECURRING_MATCH_DAY_WINDOW = 5;
 // caller not yet passing one, just without the fix.
 function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, entrySplitSums, recurringSplitSums) {
   if (entry.recurring_expense_id && entry.recurring_expense_id === recurring.id) {
+    // A custom item (weekly, every 5 months…) can have several occurrences in a
+    // month or a long gap between them: a link counts for the occurrence
+    // within its window, not for "the same calendar month".
+    if (isCustomRecurring_(recurring)) {
+      var linkWindow = Math.max(recurringMatchWindowDays_(recurring), Math.min(10, Math.floor(customPeriodDays_(recurring) / 2)));
+      return occurrenceDates.some(function (occDate) { return Math.abs(daysBetweenDates_(entry.date, occDate)) <= linkWindow; });
+    }
     var entryMonth = String(entry.date).substring(0, 7);
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
@@ -1059,8 +1222,9 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
     amt = recPen;
   }
   if (Math.abs(entryAmt - amt) > amt * RECURRING_MATCH_TOLERANCE) return false;
+  var winDays = recurringMatchWindowDays_(recurring);
   return occurrenceDates.some(function (occDate) {
-    return Math.abs(daysBetweenDates_(entry.date, occDate)) <= RECURRING_MATCH_DAY_WINDOW;
+    return Math.abs(daysBetweenDates_(entry.date, occDate)) <= winDays;
   });
 }
 
@@ -1093,8 +1257,13 @@ function listExpectedRecurringItems() {
   var monthEnd = year + '-' + pad2_(month) + '-' + pad2_(new Date(year, month, 0).getDate());
 
   var categoryById = rowsById_(getAllRows('Categories'));
-  var confirmedThisMonth = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.date >= monthStart && e.date <= monthEnd;
+  // Confirmed entries of ANY date, by category: a custom item's window can
+  // reach well outside this month (a car service paid six weeks early), and a
+  // monthly item's 5-day window can cross a month edge.
+  var confirmedByCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed') return;
+    (confirmedByCategory[e.category_id] = confirmedByCategory[e.category_id] || []).push(e);
   });
   var splitSums = getRecurringExpenseSplitSums_();
   var entrySplitSumByEntry = {};
@@ -1102,23 +1271,33 @@ function listExpectedRecurringItems() {
     entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
-  function alreadyHandled(r, occurrenceDates) {
-    return confirmedThisMonth.some(function (e) {
-      return entryMatchesRecurringOccurrence_(e, r, occurrenceDates, entrySplitSumByEntry, splitSums);
+  // One occurrence at a time: a weekly item has several this month and each
+  // is paid or not on its own. (An explicitly linked entry from another
+  // category — "Mark as paid…" accepts any — is still found through the item's
+  // own category list only when it shares it; linking an entry sets
+  // recurring_expense_id, which is checked below.)
+  var linkedByItem = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status === 'confirmed' && e.recurring_expense_id) (linkedByItem[e.recurring_expense_id] = linkedByItem[e.recurring_expense_id] || []).push(e);
+  });
+  function occurrenceHandled(r, occDate) {
+    var pool = (confirmedByCategory[r.category_id] || []).concat(linkedByItem[r.id] || []);
+    return pool.some(function (e) {
+      return entryMatchesRecurringOccurrence_(e, r, [occDate], entrySplitSumByEntry, splitSums);
     });
   }
 
-  // Kept as {row, occurrenceDate} rather than just the row — a recurring
-  // item can only actually occur once within a single-month range, and
-  // the occurrence's own (clamped) date is what "overdue" below needs,
-  // not the raw day field (a "day 31" item genuinely occurs on the 28th
-  // in February, not the 31st).
+  // Kept as {row, occurrenceDate} rather than just the row — the
+  // occurrence's own (clamped) date is what "overdue" below needs, not the raw
+  // day field (a "day 31" item genuinely occurs on the 28th in February, not
+  // the 31st). One entry per unpaid occurrence.
   var stillExpected = [];
   getRecurringExpenseRows_().forEach(function (r) {
     if (String(r.active) === 'false') return;
-    var occurrenceDates = recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd);
-    if (occurrenceDates.length === 0 || alreadyHandled(r, occurrenceDates)) return;
-    stillExpected.push({ row: r, occurrenceDate: occurrenceDates[0] });
+    recurringExpenseOccurrencesInRange_(r, monthStart, monthEnd).forEach(function (occDate) {
+      if (occurrenceHandled(r, occDate)) return;
+      stillExpected.push({ row: r, occurrenceDate: occDate });
+    });
   });
 
   var ctx = buildBudgetContext_();

@@ -183,6 +183,15 @@ function computeAllCategoryProjections_(bounds) {
     if (!entriesInPeriodByCategory[e.category_id]) entriesInPeriodByCategory[e.category_id] = [];
     entriesInPeriodByCategory[e.category_id].push(e);
   });
+  // Every confirmed entry per category, any date: whether a programmed
+  // occurrence is already paid is judged against entries around ITS date, which
+  // for a custom item (a car service every ~5 months) can lie outside the
+  // period being viewed.
+  var entriesAllByCategory = {};
+  allEntries.forEach(function (e) {
+    if (!entriesAllByCategory[e.category_id]) entriesAllByCategory[e.category_id] = [];
+    entriesAllByCategory[e.category_id].push(e);
+  });
   var entriesYtd = ytd.ytdStart
     ? allEntries.filter(function (e) { return e.date >= ytd.ytdStart && e.date <= ytd.ytdEnd; })
     : [];
@@ -356,7 +365,7 @@ function computeAllCategoryProjections_(bounds) {
     var programmedRemainingPen = 0;
     recurringForPeriod.forEach(function (r) {
       recurringExpenseOccurrencesInRange_(r, bounds.startDate, bounds.endDate).forEach(function (occDate) {
-        var handled = categoryEntriesInPeriod.some(function (e) {
+        var handled = (entriesAllByCategory[category.id] || []).some(function (e) {
           return entryMatchesRecurringOccurrence_(e, r, [occDate], splitSumByEntry, recurringSplitSums);
         });
         if (handled) return;
@@ -521,9 +530,10 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     ? categoryRecurring
     : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
 
+  // Entries of ANY date in this category: "is this occurrence already paid"
+  // looks around the occurrence's own date (see computeAllCategoryProjections_).
   var entriesInPeriod = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.category_id === categoryId &&
-      e.date >= bounds.startDate && e.date <= bounds.endDate;
+    return e.status === 'confirmed' && e.category_id === categoryId;
   });
 
   var ratesByCurrency = buildRatesByCurrency_();

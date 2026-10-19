@@ -1286,6 +1286,20 @@
           <div class="type-tab active" data-frequency="monthly" data-i18n="period.monthly">Monthly</div>
           <div class="type-tab" data-frequency="yearly" data-i18n="period.yearly">Yearly</div>
           <div class="type-tab" data-frequency="once" data-i18n="recModal.once">One-time</div>
+          <div class="type-tab" data-frequency="custom" data-i18n="recModal.other">Other</div>
+        </div>
+
+        <div id="recurring-custom-fields" hidden>
+          <label for="recurring-interval" data-i18n="recModal.repeatsEvery">Repeats every</label>
+          <div class="interval-row">
+            <input type="number" inputmode="numeric" min="1" max="999" step="1" id="recurring-interval" value="1">
+            <select id="recurring-interval-unit">
+              <option value="days" data-i18n="recModal.unitDays">days</option>
+              <option value="weeks" data-i18n="recModal.unitWeeks">weeks</option>
+              <option value="months" data-i18n="recModal.unitMonths">months</option>
+              <option value="years" data-i18n="recModal.unitYears">years</option>
+            </select>
+          </div>
         </div>
 
         <div id="recurring-once-fields">
