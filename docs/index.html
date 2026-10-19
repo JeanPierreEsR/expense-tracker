@@ -1268,16 +1268,19 @@
           <div class="type-tab" data-frequency="once" data-i18n="recModal.once">One-time</div>
         </div>
 
-        <label for="recurring-occurrence-date" id="recurring-occurrence-date-label" data-i18n="recModal.dayOfMonth">Day of month</label>
-        <input type="date" id="recurring-occurrence-date">
-        <p class="hint" id="recurring-occurrence-date-hint"></p>
+        <div id="recurring-once-fields">
+          <label for="recurring-occurrence-date" id="recurring-occurrence-date-label" data-i18n="field.date">Date</label>
+          <input type="date" id="recurring-occurrence-date">
+          <p class="hint" id="recurring-occurrence-date-hint" data-i18n="recModal.onceHint"></p>
+        </div>
 
         <div id="recurring-window-fields">
-          <label for="recurring-start-date" data-i18n="recModal.startsOn">Starts on (optional)</label>
+          <label for="recurring-start-date" data-i18n="recModal.startsOn">Starts on</label>
           <input type="date" id="recurring-start-date">
+          <p class="hint" id="recurring-start-hint"></p>
           <label for="recurring-end-date" data-i18n="recModal.endsOn">Ends on (optional)</label>
           <input type="date" id="recurring-end-date">
-          <p class="hint" data-i18n="recModal.endHint">Leave blank for no start or end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
+          <p class="hint" data-i18n="recModal.endHint">Leave blank for no end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
         </div>
 
         <div id="recurring-skips-section" hidden>
