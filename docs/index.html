@@ -242,15 +242,9 @@
           <button type="button" class="period-type-chip" data-period-type="alltime" data-i18n="period.alltime">All-time</button>
           <button type="button" class="period-type-chip" data-period-type="custom" data-i18n="period.custom">Custom</button>
         </div>
-        <div id="custom-range-fields" class="row" hidden>
-          <div>
-            <label for="custom-start" data-i18n="period.from">From</label>
-            <input type="date" id="custom-start">
-          </div>
-          <div>
-            <label for="custom-end" data-i18n="period.to">To</label>
-            <input type="date" id="custom-end">
-          </div>
+        <div id="custom-range-fields" hidden>
+          <label data-i18n="period.dates">Dates</label>
+          <div><input type="date" id="custom-start"><input type="date" id="custom-end"></div>
         </div>
       </div>
 
@@ -604,15 +598,9 @@
               <option value="all" data-i18n="export.all">All time</option>
               <option value="custom" data-i18n="export.custom">Custom dates…</option>
             </select>
-            <div id="export-custom-fields" class="row" hidden>
-              <div>
-                <label for="export-start" data-i18n="period.from">From</label>
-                <input type="date" id="export-start">
-              </div>
-              <div>
-                <label for="export-end">To</label>
-                <input type="date" id="export-end">
-              </div>
+            <div id="export-custom-fields" hidden>
+              <label data-i18n="period.dates">Dates</label>
+              <div><input type="date" id="export-start"><input type="date" id="export-end"></div>
             </div>
             <label class="checkbox-row">
               <input type="checkbox" id="export-pending-check">
@@ -1301,11 +1289,9 @@
         <label for="trip-emoji" data-i18n="trips.emoji">Icon (optional)</label>
         <input type="text" id="trip-emoji" maxlength="4" placeholder="✈️">
 
-        <label for="trip-start" data-i18n="trips.start">Starts</label>
-        <input type="date" id="trip-start">
-        <label for="trip-end" data-i18n="trips.end">Ends</label>
-        <input type="date" id="trip-end">
-        <p class="hint" data-i18n="trips.endHint">For a single day, use the same date for both.</p>
+        <label data-i18n="trips.dates">Dates</label>
+        <div><input type="date" id="trip-start"><input type="date" id="trip-end"></div>
+        <p class="hint" data-i18n="trips.datesHint">Tap the first day, then the last. A single day needs only the first.</p>
 
         <label data-i18n="trips.currency">Currency of this trip</label>
         <input type="hidden" id="trip-currency" value="PEN">
@@ -1448,11 +1434,9 @@
         </div>
 
         <div id="recurring-window-fields">
-          <label for="recurring-start-date" data-i18n="recModal.startsOn">Starts on</label>
-          <input type="date" id="recurring-start-date">
+          <label data-i18n="recModal.dates">Starts on — ends on (optional)</label>
+          <div><input type="date" id="recurring-start-date"><input type="date" id="recurring-end-date"></div>
           <p class="hint" id="recurring-start-hint"></p>
-          <label for="recurring-end-date" data-i18n="recModal.endsOn">Ends on (optional)</label>
-          <input type="date" id="recurring-end-date">
           <p class="hint" data-i18n="recModal.endHint">Leave blank for no end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
         </div>
 
