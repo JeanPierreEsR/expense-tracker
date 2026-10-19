@@ -141,6 +141,21 @@ test("Yape works only with BCP accounts and Plin only with other banks (never BC
   assert.equal(r2.accounts.length, 2);
 });
 
+test("Plin can also use a credit card, of any bank (BCP included); Yape never uses a card", () => {
+  const rt = friendCopy();
+  const r = save(rt, [acct("c1", "Interbank", "credit"), acct("c2", "BCP", "credit"), acct("b", "BCP", "debit_pen")], {}, "es");
+  const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
+  rt.api("saveRailLinks", { plin_pen: id.c1, plin_usd: id.c2 });
+  const s = rt.api("getMeta").settings;
+  assert.equal(s.plin_pen, id.c1); assert.equal(s.plin_usd, id.c2);
+  assert.throws(() => rt.api("saveRailLinks", { yape_pen: id.c2 }), /solo funciona con cuentas BCP|only works with BCP/);
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/, "a BCP DEBIT account still cannot");
+  // the welcome step saves a card link too
+  const rt2 = friendCopy();
+  const r2 = save(rt2, [acct("k", "Scotiabank", "credit")], { plin_pen: "k" }, "es");
+  assert.equal(rt2.api("getMeta").settings.plin_pen, r2.accounts[0].id);
+});
+
 test("a Yape e-mail goes to the account the person linked", () => {
   const rt = friendCopy();
   const r = save(rt, [acct("s", "BCP", "debit_pen"), acct("o", "BCP", "debit_pen")], { yape_pen: "o" }, "es");
