@@ -1635,6 +1635,8 @@ body.income-revealed .sens-mask { display: none; }
 .recurring-row:last-child { border-bottom: none; }
 
 .recurring-row.inactive { opacity: 0.5; }
+.accounts-group-title { margin: 18px 0 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
+.accounts-group-title:first-child { margin-top: 6px; }
 #recurring-past-toggle { margin-top: 10px; }
 #recurring-past-section { margin-top: 8px; }
 

@@ -970,6 +970,19 @@ function populatePaidByOptions() {
   togglePaymentMethodVisibility();
 }
 
+// A hidden account is left out of every "pick an account" list, but an old entry that used it must
+// still show it when opened for editing (specs/accounts.md).
+function pmHidden_(pm) { return String(pm.hidden || "") === "yes"; }
+function keepHiddenAccountOption_(selectId, pmId) {
+  const pm = pmId && meta.paymentMethods.find((p) => p.id === pmId);
+  const select = document.getElementById(selectId);
+  if (!pm || !pmHidden_(pm) || Array.from(select.options).some((o) => o.value === pmId)) return;
+  const opt = document.createElement("option");
+  opt.value = pm.id;
+  opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+  select.appendChild(opt);
+}
+
 function populatePaymentMethodOptions() {
   const select = document.getElementById("payment_method");
   select.innerHTML = "";
@@ -983,7 +996,7 @@ function populatePaymentMethodOptions() {
 
   // Investment platforms are never a "paid with" account — they're only
   // ever the destination of an investment entry (see Investments.gs).
-  meta.paymentMethods.filter((pm) => pm.type !== "investment").forEach((pm) => {
+  meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -1010,7 +1023,7 @@ function populateToPaymentMethodOptions() {
   select.appendChild(noneOpt);
   // An investment's "To" is a platform; a transfer's is a real account.
   const wantPlatforms = selectedType === "investment";
-  meta.paymentMethods.filter((pm) => (pm.type === "investment") === wantPlatforms).forEach((pm) => {
+  meta.paymentMethods.filter((pm) => (pm.type === "investment") === wantPlatforms && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -2825,8 +2838,10 @@ async function startEditEntry(entry) {
   document.getElementById("paid_by").value = entry.paid_by;
   togglePaymentMethodVisibility();
   if (entry.type === "income" || entry.paid_by === "me") {
+    keepHiddenAccountOption_("payment_method", entry.payment_method_id);
     document.getElementById("payment_method").value = entry.payment_method_id || "";
   }
+  keepHiddenAccountOption_("to_payment_method", entry.to_payment_method_id);
   document.getElementById("to_payment_method").value = entry.to_payment_method_id || "";
 
   // Tags are per-entry (Entry Tags), not a column on Entries — loaded
@@ -3392,14 +3407,14 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
 // pending-investment row's one remaining decision when everything else was
 // already set through Telegram.
 function investmentPlatformOptions_(selectedId) {
-  const opts = meta.paymentMethods.filter((pm) => pm.type === "investment").map((pm) =>
+  const opts = meta.paymentMethods.filter((pm) => pm.type === "investment" && (!pmHidden_(pm) || pm.id === selectedId)).map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
   );
   return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
 
 function transferAccountOptions_(selectedId, blankLabel) {
-  const opts = meta.paymentMethods.map((pm) =>
+  const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
   );
   return `<option value="">${blankLabel}</option>` + opts.join("");
@@ -6140,7 +6155,7 @@ function renderRailsCard_() {
     // Yape: BCP accounts only. Plin: any bank but BCP. A link already saved stays listed even if it breaks that rule.
     // Plin may also use any credit card (two-currency), so cards are listed in both of its slots.
     meta.paymentMethods
-      .filter((pm) => String(settings[key] || "") === String(pm.id) || (!yape && pm.type === "credit") || (pm.type === "debit" && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
+      .filter((pm) => String(settings[key] || "") === String(pm.id) || (!yape && pm.type === "credit" && !pmHidden_(pm)) || (pm.type === "debit" && !pmHidden_(pm) && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
         (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd"))))
       .sort((a, b) => a.nickname.localeCompare(b.nickname))
       .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
@@ -6164,10 +6179,18 @@ function renderAccountsList_() {
   const rows = meta.paymentMethods.slice().sort((a, b) => a.nickname.localeCompare(b.nickname));
   document.getElementById("accounts-empty-note").hidden = rows.length > 0;
   list.innerHTML = "";
-  rows.forEach((pm) => {
+  // Three groups (owner, 2026-10-19): bank accounts + credit cards, wallets + cash + transfer, investment platforms.
+  const groupOf = (pm) => (pm.type === "investment" ? "platform" : pm.type === "credit" || pm.type === "debit" ? "bank" : "wallet");
+  ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => groupOf(pm) === g).forEach((pm, i) => {
+    if (i === 0) {
+      const head = document.createElement("h3");
+      head.className = "accounts-group-title";
+      head.textContent = tr(`accounts.group.${g}`);
+      list.appendChild(head);
+    }
     const row = document.createElement("div");
-    row.className = "recurring-row";
-    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "");
+    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id), pmHidden_(pm) ? tr("accounts.hiddenTag") : ""].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
@@ -6177,7 +6200,7 @@ function renderAccountsList_() {
     `;
     row.addEventListener("click", () => openPmModal_(pm));
     list.appendChild(row);
-  });
+  }));
 }
 
 function fillPmBankOptions_(selectedId) {
@@ -6222,6 +6245,9 @@ function openPmModal_(pm) {
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
   fillPmBankOptions_(pmModalState.lastBank);
   document.getElementById("pm-form-error").textContent = "";
+  // Delete / Hide only exist for an account that is already saved.
+  document.getElementById("pm-manage").hidden = !pm;
+  if (pm) document.getElementById("pm-hide-btn").textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -6290,6 +6316,49 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   } finally {
     saveBtn.disabled = false;
   }
+});
+
+// After a hide / show / delete the pickers are rebuilt the same way a save does it.
+function refreshAccountPickers_() {
+  const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
+  populatePaymentMethodOptions();
+  populateToPaymentMethodOptions();
+  ["payment_method", "to_payment_method"].forEach((id, k) => {
+    const sel = document.getElementById(id);
+    if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+  });
+}
+
+document.getElementById("pm-hide-btn").addEventListener("click", async () => {
+  if (!pmModalState || !pmModalState.id) return;
+  const errorEl = document.getElementById("pm-form-error");
+  errorEl.textContent = "";
+  const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
+  if (!pm) return;
+  try {
+    const res = await callApi("setPaymentMethodHidden", { id: pm.id, hidden: !pmHidden_(pm) });
+    pm.hidden = res.hidden;
+    refreshAccountPickers_();
+    closePmModal_();
+    renderAccountsList_();
+    renderRailsCard_();
+  } catch (err) { errorEl.textContent = err.message; }
+});
+
+document.getElementById("pm-delete-btn").addEventListener("click", async () => {
+  if (!pmModalState || !pmModalState.id) return;
+  const errorEl = document.getElementById("pm-form-error");
+  errorEl.textContent = "";
+  const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
+  if (!pm || !confirm(tr("accounts.confirmDelete", { name: pm.nickname }))) return;
+  try {
+    await callApi("deletePaymentMethod", { id: pm.id });
+    meta.paymentMethods = meta.paymentMethods.filter((p) => p.id !== pm.id);
+    refreshAccountPickers_();
+    closePmModal_();
+    renderAccountsList_();
+    renderRailsCard_();
+  } catch (err) { errorEl.textContent = err.message; }   // in use: the message says so and points to Hide
 });
 
 document.getElementById("pm-modal-close").addEventListener("click", closePmModal_);
@@ -8249,7 +8318,7 @@ function populateLoanPaymentMethodOptions() {
   noneOpt.value = "";
   noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
-  meta.paymentMethods.forEach((pm) => {
+  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -8411,7 +8480,7 @@ function populateSettlementPaymentMethodOptions() {
   noneOpt.value = "";
   noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
-  meta.paymentMethods.forEach((pm) => {
+  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -8847,7 +8916,7 @@ function populateReviewTransferPaymentMethodOptions() {
   noneOpt.value = "";
   noneOpt.textContent = tr("form.noneAccount");
   select.appendChild(noneOpt);
-  meta.paymentMethods.forEach((pm) => {
+  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -9084,7 +9153,7 @@ async function openBalanceModal(pmId) {
     // balance — picking one of those loads its existing rows, so adding
     // another currency to it works from here too.
     picker.innerHTML = "";
-    meta.paymentMethods.filter((pm) => pm.type !== "investment").forEach((pm) => {
+    meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm)).forEach((pm) => {
       const opt = document.createElement("option");
       opt.value = pm.id;
       const tracked = balancesCache.some((b) => b.id === pm.id);
