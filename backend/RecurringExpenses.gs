@@ -40,7 +40,7 @@ function ensureRecurringExpensesSheet_() {
   }
   // Columns added after the sheet already held real data are appended in
   // place, one at a time (the header row is re-read after each append).
-  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit'].forEach(function (col) {
+  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id'].forEach(function (col) {
     var headers = getHeaders(sheet);
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
@@ -686,7 +686,8 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     base_amount: r.base_amount !== undefined ? r.base_amount : Number(r.amount),
     payments_used: r.payments_used || 0,
     amount_low: r.amount_low !== undefined ? Math.round(r.amount_low * 100) / 100 : null,
-    amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null
+    amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null,
+    trip_id: r.trip_id ? String(r.trip_id) : ''   // a one-time item counted as an estimate in this trip/event (Trips.gs)
   };
 }
 
@@ -717,7 +718,8 @@ function addRecurringExpense(payload) {
     start_date: windowDates.start_date,
     end_date: windowDates.end_date,
     variable: variable.variable ? 'true' : 'false',
-    match_words: variable.match_words
+    match_words: variable.match_words,
+    trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : ''
   };
   appendRowObject('Recurring Expenses', re);
   var categoryById = rowsById_(getAllRows('Categories'));
@@ -778,7 +780,16 @@ function updateRecurringExpense(payload) {
     }
   }
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words'].forEach(function (field) {
+  // Only a one-time EXPENSE item can sit inside a trip or event: anything else drops the link.
+  if (payload.trip_id !== undefined || payload.frequency !== undefined || payload.category_id !== undefined) {
+    var tripRow = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.id; });
+    var tripFreq = normalizeRecurringFrequency_(payload.frequency !== undefined ? payload.frequency : tripRow.frequency);
+    payload.trip_id = tripFreq === 'once'
+      ? tripIdForProgrammed_(payload.trip_id !== undefined ? payload.trip_id : tripRow.trip_id, payload.category_id !== undefined ? payload.category_id : tripRow.category_id)
+      : '';
+  }
+
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'variable') value = value ? 'true' : 'false';
@@ -992,7 +1003,18 @@ function unskipRecurringOccurrence(payload) {
 // entry at the item it paid ('' to unlink). Automatic matching stays on.
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
-  return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
+  var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
+  // The owner just said this entry IS the payment for an estimate that sits in a
+  // trip/event: the payment joins that trip too (unless it already has one).
+  if (payload.recurringExpenseId) {
+    var item = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.recurringExpenseId; });
+    var entry = getEntryById_(payload.entryId);
+    if (item && item.trip_id && entry && entry.type === 'expense' && !entry.trip_id && validTripIdOrBlank_(item.trip_id)) {
+      ensureEntriesTripColumn_();
+      setEntryField_(payload.entryId, 'trip_id', String(item.trip_id));
+    }
+  }
+  return result;
 }
 
 // The picker for "Mark as paid": EVERY confirmed entry of the item's own kind

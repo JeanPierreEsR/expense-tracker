@@ -52,6 +52,15 @@ function validTripIdOrBlank_(id) {
   return id && tripById_(id) ? id : '';
 }
 
+// A Programmed item may carry a trip only when the trip exists and the item is an
+// expense (an income category never belongs to a trip). Anything else = none.
+function tripIdForProgrammed_(tripId, categoryId) {
+  var id = validTripIdOrBlank_(tripId);
+  if (!id) return '';
+  var cat = rowsById_(getAllRows('Categories'))[categoryId];
+  return cat && cat.type === 'expense' ? id : '';
+}
+
 function isIsoDate_(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T00:00:00Z').getTime());
 }
@@ -119,6 +128,16 @@ function deleteTrip(payload) {
         if (String(row[0]) === id) setCellByRow_(entrySheet, entryHeaders, i + 2, 'trip_id', '');
       });
     }
+    // Estimates (one-time Programmed items) in this trip stay, just unlinked.
+    ensureRecurringExpensesSheet_();
+    var recSheet = getSheet('Recurring Expenses');
+    var recHeaders = getHeaders(recSheet);
+    var recCol = recHeaders.indexOf('trip_id');
+    if (recCol !== -1 && recSheet.getLastRow() >= 2) {
+      recSheet.getRange(2, recCol + 1, recSheet.getLastRow() - 1, 1).getValues().forEach(function (row, i) {
+        if (String(row[0]) === id) setCellByRow_(recSheet, recHeaders, i + 2, 'trip_id', '');
+      });
+    }
     deleteRowsWhere_('Trips', function (row) { return row.id === id; });
   });
   return { done: true };
@@ -146,6 +165,49 @@ function tripExpenseRows_(onlyTripId) {
   return rows;
 }
 
+// ESTIMATES: the one-time Programmed items linked to trips that nothing has paid yet,
+// each at the owner's own share. An item stops being an estimate as soon as a real
+// confirmed entry pays it by the usual rule (same category, ~10% of the share, within
+// the day window — or an explicit "Mark as paid" link; entryMatchesRecurringOccurrence_).
+// `paidBy` is that entry, so the trip screen can offer to add it to the trip when it is
+// not part of it yet (nothing is linked without the owner's tap).
+function tripEstimateRows_(onlyTripId) {
+  ensureRecurringExpensesSheet_();
+  var items = getRecurringExpenseRows_().filter(function (r) {
+    return r.trip_id && normalizeRecurringFrequency_(r.frequency) === 'once' && String(r.active) !== 'false' &&
+      r.date && (!onlyTripId || r.trip_id === onlyTripId);
+  });
+  if (!items.length) return [];
+
+  var splitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSum = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSum[s.entry_id] = (entrySplitSum[s.entry_id] || 0) + Number(s.amount);
+  });
+  var confirmed = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed' && e.type === 'expense'; });
+  var categoryById = rowsById_(getAllRows('Categories'));
+
+  return items.map(function (r) {
+    var paidBy = null;
+    confirmed.some(function (e) {
+      if (e.recurring_expense_id && e.recurring_expense_id !== r.id) return false;
+      if (e.category_id !== r.category_id && e.recurring_expense_id !== r.id) return false;
+      if (!entryMatchesRecurringOccurrence_(e, r, [r.date], entrySplitSum, splitSums)) return false;
+      paidBy = e;
+      return true;
+    });
+    var currency = r.currency || homeCurrency_();
+    var own = recurringOwnAmount_(r, splitSums);
+    var rate = getRateForEntryCurrency_(currency, r.date);
+    var cat = categoryById[r.category_id];
+    return {
+      item: r, paidBy: paidBy, own: own, currency: currency, date: r.date,
+      ownMain: rate == null ? null : own * rate,
+      category: cat || null
+    };
+  });
+}
+
 // What the trip's budget is measured in: an entry already in the budget's own
 // currency counts exactly what was paid; any other goes through the main
 // currency at the budget currency's latest rate (same rule as category budgets).
@@ -165,52 +227,98 @@ function tripBudgetSpent_(trip, rows) {
   return total;
 }
 
-// For the Trips & events list: every trip with its running total.
+// Rows of both kinds share what the totals need: when (date), which category, and the
+// owner's share in its own currency and in the main currency.
+function tripRowDate_(r) { return r.entry ? r.entry.date : r.date; }
+function tripRowCategory_(r) { return r.entry ? r.entry.category_id : r.item.category_id; }
+
+// Real payments plus the estimates nothing has paid yet. Estimates whose payment exists but
+// is not part of the trip are NOT counted (the payment would be, once the owner adds it).
+function tripAllRows_(onlyTripId) {
+  var real = tripExpenseRows_(onlyTripId);
+  var estimates = tripEstimateRows_(onlyTripId).filter(function (e) { return !e.paidBy; });
+  return real.concat(estimates.map(function (e) { e.isEstimate = true; return e; }));
+}
+
+// For the Trips & events list: every trip with its running total (real + estimated).
 function listTrips() {
   var trips = getTripRows_().map(function (t) { return Object.assign({}, t); });
   var byTrip = {};
-  tripExpenseRows_(null).forEach(function (r) {
-    (byTrip[r.entry.trip_id] = byTrip[r.entry.trip_id] || []).push(r);
+  tripAllRows_(null).forEach(function (r) {
+    var id = r.entry ? r.entry.trip_id : r.item.trip_id;
+    (byTrip[id] = byTrip[id] || []).push(r);
   });
   trips.forEach(function (t) {
     var rows = byTrip[t.id] || [];
-    t.entryCount = rows.length;
+    t.entryCount = rows.filter(function (r) { return !r.isEstimate; }).length;
+    t.estimateCount = rows.filter(function (r) { return r.isEstimate; }).length;
     t.spentMain = rows.reduce(function (sum, r) { return sum + (r.ownMain || 0); }, 0);
+    t.estimatedMain = rows.reduce(function (sum, r) { return sum + (r.isEstimate ? (r.ownMain || 0) : 0); }, 0);
     t.budgetSpent = tripBudgetSpent_(t, rows);
   });
   return trips;
 }
 
-// One trip's full picture: totals before / during / after, by category, by day.
+// One trip's full picture: totals before / during / after, by category, by day, the
+// estimates still waiting, and payments that settled an estimate but are not in the trip.
 function getTripDetail(payload) {
   ensureTripsSheet_();
   var trip = tripById_(String(payload.id || ''));
   if (!trip) throw new Error(tr_('trip.notFound'));
-  var rows = tripExpenseRows_(trip.id);
+  var rows = tripAllRows_(trip.id);
   var categoryById = rowsById_(getAllRows('Categories'));
 
   var phases = { before: 0, during: 0, after: 0 };
-  var total = 0, missingRate = 0;
+  var total = 0, estimated = 0, missingRate = 0, realCount = 0;
   var byCategory = {};
   var byDay = {};
+  var estimates = [];
+  var today = formatCalendarDate_(new Date());
   rows.forEach(function (r) {
+    if (!r.isEstimate) realCount++;
+    if (r.isEstimate) {
+      var cat = r.category;
+      estimates.push({
+        id: r.item.id, description: r.item.description || '', date: r.date,
+        category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'), category_icon: cat ? cat.icon : '',
+        amount: r.own, currency: r.currency, own_main: r.ownMain, overdue: r.date < today
+      });
+    }
     if (r.ownMain == null) { missingRate++; return; }
-    var d = r.entry.date;
+    var d = tripRowDate_(r);
     var phase = d < trip.start_date ? 'before' : (d > trip.end_date ? 'after' : 'during');
     phases[phase] += r.ownMain;
     total += r.ownMain;
-    addToBucket_(byCategory, r.entry.category_id, r.ownMain, categoryById);
+    if (r.isEstimate) estimated += r.ownMain;
+    addToBucket_(byCategory, tripRowCategory_(r), r.ownMain, categoryById);
     byDay[d] = (byDay[d] || 0) + r.ownMain;
+  });
+  estimates.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+
+  // An estimate settled by a payment that is not part of this trip yet: offer it, never link on its own.
+  var unlinkedPayments = [];
+  tripEstimateRows_(trip.id).forEach(function (e) {
+    if (!e.paidBy || e.paidBy.trip_id) return;
+    unlinkedPayments.push({
+      item_description: e.item.description || '',
+      entry: {
+        id: e.paidBy.id, date: e.paidBy.date, description: e.paidBy.description || '',
+        amount: Number(e.paidBy.amount), currency: e.paidBy.currency
+      }
+    });
   });
 
   return {
     trip: trip,
     totalMain: total,
+    estimatedMain: estimated,
     before: phases.before, during: phases.during, after: phases.after,
-    entryCount: rows.length,
+    entryCount: realCount,
     missingRate: missingRate,
     budgetSpent: tripBudgetSpent_(trip, rows),
     byCategory: bucketToList_(byCategory, total, tr_('report.uncategorized')),
-    byDay: Object.keys(byDay).sort().map(function (d) { return { date: d, amount_main: byDay[d] }; })
+    byDay: Object.keys(byDay).sort().map(function (d) { return { date: d, amount_main: byDay[d] }; }),
+    estimates: estimates,
+    unlinkedPayments: unlinkedPayments
   };
 }
