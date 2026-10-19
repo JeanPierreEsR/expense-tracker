@@ -1156,6 +1156,22 @@ button.primary:disabled {
   margin-top: 2px;
 }
 
+.entry-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.entry-tag {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
 /* A background edit to this specific entry is saving, or failed — see
    applyQueuedEditOverlay_/buildEntryRow_ in app.js. */
 .entry-queue-status {

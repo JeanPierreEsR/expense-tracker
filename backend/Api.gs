@@ -595,6 +595,15 @@ function createEntry(payload) {
   return entry;
 }
 
+// entry id -> its tag ids, from one read of the Entry Tags tab.
+function tagIdsByEntry_() {
+  var byEntry = {};
+  getAllRows('Entry Tags').forEach(function (et) {
+    (byEntry[et.entry_id] = byEntry[et.entry_id] || []).push(et.tag_id);
+  });
+  return byEntry;
+}
+
 function getEntryTags(payload) {
   return getAllRows('Entry Tags')
     .filter(function (et) { return et.entry_id === payload.entryId; })
@@ -708,6 +717,7 @@ function listEntries(payload) {
   // "big amount is my share" rule.
   var splitSumByEntry = {};
   var splitsByEntry = {};
+  var tagIdsByEntry = tagIdsByEntry_();
   getAllRows('Entry Splits').forEach(function (s) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
@@ -727,6 +737,9 @@ function listEntries(payload) {
     // Already read above — lets the edit form show a split instantly instead of
     // waiting on a separate getEntrySplits call.
     entry.splits = splitsByEntry[entry.id] || [];
+    // Same idea for the labels: the row shows them after "who paid", and the
+    // edit form reuses them instead of a separate getEntryTags call.
+    entry.tagIds = tagIdsByEntry[entry.id] || [];
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
   });
   return entries;
@@ -821,6 +834,7 @@ function buildSearchIndexRows_(entries) {
   getAllRows('Entry Splits').forEach(function (sp) {
     splitSumByEntry[sp.entry_id] = (splitSumByEntry[sp.entry_id] || 0) + Number(sp.amount);
   });
+  var tagIdsByEntry = tagIdsByEntry_();
   var pen = function (amount, currency, date) {
     if (currency === homeCurrency_()) return amount;
     var rate = rateToMain_(ratesByCurrency, currency, String(date).substring(0, 7));
@@ -837,6 +851,7 @@ function buildSearchIndexRows_(entries) {
       own_share: ownShare,
       own_share_pen: pen(ownShare, e.currency, e.date),
       link: lk.transferLinks[e.id] || undefined,
+      tagIds: tagIdsByEntry[e.id] || [],
       _s: entrySearchText_(e, lk)
     };
   });
