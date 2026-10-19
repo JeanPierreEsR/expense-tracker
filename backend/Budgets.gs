@@ -503,10 +503,14 @@ function getBudgetChartSeries(payload) {
     ? allExpenseCategories
     : allExpenseCategories.filter(function (c) { return categoryIds.indexOf(c.id) !== -1; });
   var expectedRemainingPen = 0;
+  // Same seasonal shape Projections uses (see "Seasonality" in Projections.gs),
+  // learned for all of this budget's categories in one pass.
+  var seasonalProfiles = computeSeasonalProfiles_(budgetCategories.map(function (c) { return c.id; }));
   budgetCategories.forEach(function (cat) {
     if (String(cat.period_type || '').toLowerCase() === 'yearly' && payload.periodType !== 'yearly') return;
-    var ytd = computeCategoryYtdBreakdown_(cat.id);
-    expectedRemainingPen += ytd.ratePerMonth * (daysLeft / 30);
+    var profile = seasonalProfiles[cat.id] || flatSeasonProfile_();
+    var ytd = computeCategoryYtdBreakdown_(cat.id, profile);
+    expectedRemainingPen += ytd.levelPerMonth * (daysLeft / 30) * seasonalRemainingFactor_(profile, startDate, endDate);
   });
   var expectedRemaining = currency === homeCurrency_() ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
 

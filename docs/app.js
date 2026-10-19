@@ -7703,8 +7703,30 @@ function renderProjectionSplit_(detail) {
   const breakdown = detail.ytdBreakdown;
   const formulaEl = document.getElementById("drilldown-projection-expected-formula");
   const monthsEl = document.getElementById("drilldown-projection-expected-months");
+  // Seasonality: when past years show this time of year runs noticeably above
+  // or below an average month, the "× days left" line says so and shows the
+  // adjusted sum instead of the plain one (see "Seasonality" in Projections.gs).
+  const seasonal = p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
+  const prorationLine = () => {
+    if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
+    return tr(p.seasonalFactor > 1 ? "projections.seasonHigh" : "projections.seasonLow", {
+      pct: Math.round(Math.abs(p.seasonalFactor - 1) * 100),
+      years: (p.seasonalYearList || []).join(", "),
+      level: formatPen(p.levelPerMonth),
+      factor: p.seasonalFactor.toFixed(2),
+      n: p.daysLeft,
+      amount: formatPen(p.expectedRemainingPen)
+    });
+  };
   if (!breakdown || !breakdown.monthsElapsed) {
-    formulaEl.textContent = tr("projections.notEnoughHistory");
+    // January (no complete month yet): last year's monthly average stands in.
+    if (breakdown && breakdown.levelPerMonth > 0) {
+      formulaEl.innerHTML = `
+        <div>${escapeHtml(tr("projections.formulaPriorYear", { level: formatPen(breakdown.levelPerMonth) }))}</div>
+        <div style="margin-top:4px;">${escapeHtml(prorationLine())}</div>`;
+    } else {
+      formulaEl.textContent = tr("projections.notEnoughHistory");
+    }
     monthsEl.innerHTML = "";
     return;
   }
@@ -7722,7 +7744,7 @@ function renderProjectionSplit_(detail) {
   // happened.
   formulaEl.innerHTML = `
     <div>${escapeHtml(tr("projections.formulaBased", { total: formatPen(breakdown.totalPen), n: breakdown.monthsElapsed, span, rate: formatPen(breakdown.ratePerMonth) }))}</div>
-    <div style="margin-top:4px;">${escapeHtml(tr("projections.formulaProrated", { rate: formatPen(breakdown.ratePerMonth), n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) }))}</div>
+    <div style="margin-top:4px;">${escapeHtml(prorationLine())}</div>
     ${breakdown.annualExcludedCount > 0 ? `<div style="margin-top:4px;">${escapeHtml(tr("projections.annualLeftOut", { amount: formatPen(breakdown.annualExcludedPen), n: breakdown.annualExcludedCount }))}</div>` : ""}
   `;
 
