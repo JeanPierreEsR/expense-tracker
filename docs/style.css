@@ -2304,3 +2304,26 @@ body.income-revealed .sens-mask { display: none; }
 .trip-find-text { flex: 1 1 auto; min-width: 0; }
 #trip-find-btn { margin-bottom: 8px; }
 #trip-find-box { margin-bottom: 12px; }
+
+/* ---- Projection method picker (2026-10-19) ---- */
+.pmm-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1.5px solid var(--border, #d9dde3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  background: var(--card, #fff);
+  color: var(--text);
+  cursor: pointer;
+  min-height: 44px;
+}
+.pmm-option.selected { border-color: var(--accent); background: rgba(0, 122, 255, 0.08); }
+.pmm-option-name { font-weight: 600; }
+.pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
+.pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }

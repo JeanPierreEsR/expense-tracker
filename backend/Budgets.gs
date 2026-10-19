@@ -503,14 +503,17 @@ function getBudgetChartSeries(payload) {
     ? allExpenseCategories
     : allExpenseCategories.filter(function (c) { return categoryIds.indexOf(c.id) !== -1; });
   var expectedRemainingPen = 0;
-  // Same seasonal shape Projections uses (see "Seasonality" in Projections.gs),
-  // learned for all of this budget's categories in one pass.
-  var seasonalProfiles = computeSeasonalProfiles_(budgetCategories.map(function (c) { return c.id; }));
+  // The same predictor Projections uses for each category (its own choice or
+  // the default — see ProjectionMethods.gs), over the part of THIS budget's
+  // period still to come.
+  ensureCategoryProjectionMethodColumn_();
+  var seriesMap = buildMonthlySeries_(budgetCategories.map(function (c) { return c.id; }));
+  var defaultMethodId = getProjectionDefaultMethod_();
+  var asOfKey = formatCalendarDate_(new Date()).substring(0, 7);
   budgetCategories.forEach(function (cat) {
     if (String(cat.period_type || '').toLowerCase() === 'yearly' && payload.periodType !== 'yearly') return;
-    var profile = seasonalProfiles[cat.id] || flatSeasonProfile_();
-    var ytd = computeCategoryYtdBreakdown_(cat.id, profile);
-    expectedRemainingPen += ytd.levelPerMonth * seasonalMonthsLeft_(profile, startDate, endDate).weighted;
+    var prediction = predictCategoryBase_(seriesMap[cat.id], parseProjectionMethod_(categoryMethodId_(cat, defaultMethodId)), asOfKey);
+    expectedRemainingPen += forecastForPeriod_(prediction, startDate, endDate).expected;
   });
   var expectedRemaining = currency === homeCurrency_() ? expectedRemainingPen : (rate != null ? expectedRemainingPen / rate : null);
 

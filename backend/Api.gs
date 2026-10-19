@@ -303,6 +303,11 @@ function routeAction(action, payload) {
     case 'listCategoryProjections': return listCategoryProjections(payload);
     case 'getCategoryProjectionDetail': return getCategoryProjectionDetail(payload);
     case 'setProjectionOverride': return setProjectionOverride(payload);
+    case 'getProjectionMethodSettings': return projectionMethodSettings();
+    case 'setProjectionMethod': return setProjectionMethod(payload);
+    case 'applyProjectionMethodToAll': return applyProjectionMethodToAll(payload);
+    case 'compareProjectionMethods': return compareProjectionMethods(payload);
+    case 'applyBestProjectionMethods': return applyBestProjectionMethods();
     case 'deleteProjectionOverride': return deleteProjectionOverride(payload);
     case 'admin_resetProjectionOverridesSheet': return adminResetProjectionOverridesSheet();
     case 'admin_debugProjectionOverrides': return adminDebugProjectionOverrides();

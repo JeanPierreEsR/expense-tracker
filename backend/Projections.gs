@@ -101,37 +101,6 @@ function projectionPeriodBounds_(displayPeriodType, anchorDate) {
   };
 }
 
-// The window "Expected" learns its LEVEL from (2026-10-19; it used to be the
-// year to date): the 12 COMPLETE calendar months before the current one, always
-// relative to today (never the period being browsed) — projections are
-// inherently "as of right now". Twelve full months means every calendar month
-// appears once, so a category's seasonal indexes (which sum to 12) cancel out
-// and the level is simply the 12-month average; and it is never thin in
-// January or February the way "the year so far" was. The function keeps its old
-// name and field names (ytdStart/ytdEnd/monthsElapsed) so its many callers
-// didn't have to change: read them as "the window". A category that is younger
-// than 12 months uses only the complete months since its first entry
-// (categoryWindowMonths_).
-function ytdRangeForProjection_() {
-  var now = new Date();
-  var monthKeys = [];
-  for (var i = 12; i >= 1; i--) {
-    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthKeys.push(d.getFullYear() + '-' + pad2_(d.getMonth() + 1));
-  }
-  var last = monthKeys[11];
-  var lastDay = new Date(Number(last.substring(0, 4)), Number(last.substring(5, 7)), 0).getDate();
-  return { ytdStart: monthKeys[0] + '-01', ytdEnd: last + '-' + pad2_(lastDay), monthKeys: monthKeys, monthsElapsed: 12 };
-}
-
-// The window months a category can use: those strictly AFTER the month of its
-// first confirmed entry (that month is usually partial). Nothing before it
-// existed, so zero spend there says nothing.
-function categoryWindowMonths_(ytd, firstEntryMonthKey) {
-  if (!firstEntryMonthKey) return [];
-  return ytd.monthKeys.filter(function (k) { return k > firstEntryMonthKey; });
-}
-
 // The one place both the category list and the top summary compute a
 // category's projection — see the file header for the actual rule.
 // Returns one entry per category that has anything to show (a recurring
@@ -168,200 +137,51 @@ function adminSetCategoryPeriodType(categoryId, periodType) {
 
 // ---- Seasonality (2026-10-19) ----------------------------------------------
 //
-// The year-to-date rate treats every month alike. A category can have a real
-// yearly shape (December gifts, January school costs), so "Expected" is now
-//   level  x  the time-of-year index of the days still to come
-// where
-//   index[m]  = how much this category usually spends in calendar month m,
-//               relative to its own average month (1.0 = average), learned
-//               from up to the last 3 COMPLETE past years;
-//   level     = this year's spend so far ÷ the sum of the indexes of the months
-//               that produced it (the average month with the seasonality taken
-//               out); in January, with no month elapsed yet, last year's
-//               monthly average.
-// Everything explainable, nothing fitted: per year, a month's ratio = that
-// month's spend ÷ the year's monthly average; across years the MEDIAN ratio
-// (3 years; the mean of 2; the one value of 1 year), pulled toward 1 the less
-// history there is (weight n/(n+1)), clamped to 0.3-3, then rescaled so the 12
-// indexes average exactly 1 — the yearly total never changes, only its shape.
-// The same pool as the rate: own share, PEN at each entry's month rate, entries
-// explained by a programmed item and entries tagged Annual left out. A year only
-// counts if the category already existed on its January 1st (a habit that began
-// in September says nothing about March). With no usable year every index is 1,
-// which makes "Expected" exactly what it was before this existed.
-var SEASON_MAX_YEARS = 3;
+// The rules live in ProjectionMethods.gs (seasonIndexFromSeries_,
+// predictCategoryBase_): a category's time-of-year index per calendar month,
+// learned from complete past years. These constants are its clamp; the
+// helpers below are the small surface the tests and older callers use.
 var SEASON_MIN_INDEX = 0.3;
 var SEASON_MAX_INDEX = 3;
 
 function flatSeasonProfile_() {
-  var index = [];
-  for (var i = 0; i < 12; i++) index.push(1);
-  return { index: index, yearsUsed: 0, years: [] };
+  return { index: flatIndex_(), yearsUsed: 0, years: [] };
 }
 
-function medianOfNumbers_(numbers) {
-  var sorted = numbers.slice().sort(function (a, b) { return a - b; });
-  var mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-// categoryIds: array of ids, or null for every expense/investment category.
-// Returns { categoryId: profile } — a profile for every requested category (flat
-// when there is nothing to learn from).
+// Every requested expense/investment category's time-of-year profile under the
+// "balanced" preset (3 past years); flat when there is nothing to learn from.
 function computeSeasonalProfiles_(categoryIds) {
+  var series = buildMonthlySeries_(categoryIds);
   var thisYear = new Date().getFullYear();
-  var firstYear = thisYear - SEASON_MAX_YEARS;
-  var rangeStart = firstYear + '-01-01', rangeEnd = (thisYear - 1) + '-12-31';
-
-  var wanted = {};
+  var years = parseProjectionMethod_('balanced').seasonYears;
+  var profiles = {};
   getAllRows('Categories').forEach(function (c) {
     if (c.type !== 'expense' && c.type !== 'investment') return;
     if (categoryIds && categoryIds.indexOf(c.id) === -1) return;
-    wanted[c.id] = c;
-  });
-  var profiles = {};
-  Object.keys(wanted).forEach(function (id) { profiles[id] = flatSeasonProfile_(); });
-
-  var firstEntryYear = {};
-  var pool = {};
-  getAllRows('Entries').forEach(function (e) {
-    if (e.status !== 'confirmed' || !wanted[e.category_id]) return;
-    var y = Number(String(e.date).substring(0, 4));
-    if (!firstEntryYear[e.category_id] || y < firstEntryYear[e.category_id]) firstEntryYear[e.category_id] = y;
-    if (e.date >= rangeStart && e.date <= rangeEnd && e.type === wanted[e.category_id].type) {
-      (pool[e.category_id] = pool[e.category_id] || []).push(e);
-    }
-  });
-  if (!Object.keys(pool).length) return profiles;
-
-  var splitSumByEntry = {};
-  getAllRows('Entry Splits').forEach(function (s) {
-    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
-  });
-  var recurringSplitSums = getRecurringExpenseSplitSums_();
-  var recurringByCategory = {};
-  getRecurringExpenseRows_().forEach(function (r) {
-    if (String(r.active) === 'false' || !wanted[r.category_id]) return;
-    (recurringByCategory[r.category_id] = recurringByCategory[r.category_id] || []).push(r);
-  });
-  var ratesByCurrency = buildRatesByCurrency_();
-  function toPen_(amount, currency, dateStr) {
-    if (currency === homeCurrency_()) return amount;
-    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
-    return rate != null ? amount * rate : null;
-  }
-  var annualEntryIds = annualEntryIdSet_();
-
-  Object.keys(pool).forEach(function (categoryId) {
-    var entries = pool[categoryId];
-    var matched = {};
-    (recurringByCategory[categoryId] || []).forEach(function (r) {
-      var occ = recurringExpenseOccurrencesInRange_(r, rangeStart, rangeEnd);
-      if (!occ.length) return;
-      entries.forEach(function (e) {
-        if (matched[e.id]) return;
-        if (entryMatchesRecurringOccurrence_(e, r, occ, splitSumByEntry, recurringSplitSums)) matched[e.id] = true;
-      });
-    });
-    var byYear = {};   // year -> [12 monthly PEN sums]
-    entries.forEach(function (e) {
-      if (matched[e.id] || annualEntryIds[e.id]) return;
-      var pen = toPen_(Number(e.amount) - (splitSumByEntry[e.id] || 0), e.currency, e.date);
-      if (pen == null) return;
-      var y = Number(String(e.date).substring(0, 4));
-      var m = Number(String(e.date).substring(5, 7)) - 1;
-      (byYear[y] = byYear[y] || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])[m] += pen;
-    });
-
-    // Usable years, newest first: the category existed on that January 1st and
-    // spent something that year.
-    var ratiosByMonth = [[], [], [], [], [], [], [], [], [], [], [], []];
-    var years = [];
-    for (var y = thisYear - 1; y >= firstYear && years.length < SEASON_MAX_YEARS; y--) {
-      var months = byYear[y];
-      if (!months || !(firstEntryYear[categoryId] < y)) continue;
-      var total = months.reduce(function (a, b) { return a + b; }, 0);
-      if (!(total > 0)) continue;
-      var mean = total / 12;
-      years.push(y);
-      months.forEach(function (v, i) { ratiosByMonth[i].push(v / mean); });
-    }
-    if (!years.length) return;
-
-    var n = years.length;
-    var weight = n / (n + 1);
-    var index = ratiosByMonth.map(function (ratios) {
-      var typical = n >= 3 ? medianOfNumbers_(ratios) : ratios.reduce(function (a, b) { return a + b; }, 0) / ratios.length;
-      var s = 1 + weight * (typical - 1);
-      return Math.min(SEASON_MAX_INDEX, Math.max(SEASON_MIN_INDEX, s));
-    });
-    var sum = index.reduce(function (a, b) { return a + b; }, 0);
-    index = index.map(function (s) { return s * 12 / sum; });
-    profiles[categoryId] = { index: index, yearsUsed: n, years: years };
+    var s = seasonIndexFromSeries_(series[c.id], thisYear, years);
+    profiles[c.id] = { index: s.index, yearsUsed: s.years.length, years: s.years };
   });
   return profiles;
 }
 
-// Sum of the indexes of every calendar month the period touches (a Month view
-// is one month, a Year view all twelve = 12).
-function seasonalIndexSum_(profile, startDate, endDate) {
-  var sum = 0;
-  var y = Number(startDate.substring(0, 4)), m = Number(startDate.substring(5, 7));
-  var endKey = endDate.substring(0, 7);
-  for (var guard = 0; guard < 600; guard++) {
-    var key = y + '-' + pad2_(m);
-    if (key > endKey) break;
-    sum += profile.index[m - 1];
-    m++;
-    if (m > 12) { m = 1; y++; }
-  }
-  return sum;
-}
-
-// How much of the period is still to come, in MONTHS — each remaining day counts
-// 1 / (the number of days in ITS month), so a month always weighs exactly 1 and
-// February is no lighter than July (it was "days left / 30", which gave a 28-day
-// month 93%). Returns { months, weighted } where `weighted` multiplies each
-// month's share by that month's seasonal index. Month view = days left ÷ days
-// in that month; a Year view in October = (Oct's remaining days ÷ 31) + Nov + Dec,
-// each weighted by its index. A period that hasn't started counts whole.
+// How much of the period is still to come, in MONTHS (see remainingMonthShares_),
+// and the same weighted by a profile's index.
 function seasonalMonthsLeft_(profile, startDate, endDate) {
-  var todayStr = formatCalendarDate_(new Date());
-  if (todayStr > endDate) return { months: 0, weighted: 0 };
-  var from;
-  if (todayStr < startDate) {
-    from = startDate;
-  } else {
-    var t = new Date(todayStr + 'T00:00:00');
-    from = formatCalendarDate_(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1));
-  }
-  if (from > endDate) return { months: 0, weighted: 0 };
   var months = 0, weighted = 0;
-  var y = Number(from.substring(0, 4)), m = Number(from.substring(5, 7));
-  for (var guard = 0; guard < 600; guard++) {
-    var monthStart = y + '-' + pad2_(m) + '-01';
-    var lastDay = new Date(y, m, 0).getDate();
-    var monthEnd = y + '-' + pad2_(m) + '-' + pad2_(lastDay);
-    if (monthStart > endDate) break;
-    var lo = from > monthStart ? from : monthStart;
-    var hi = endDate < monthEnd ? endDate : monthEnd;
-    var count = daysBetweenDates_(hi, lo) + 1;
-    if (count > 0) {
-      var share = count / lastDay;
-      months += share;
-      weighted += share * profile.index[m - 1];
-    }
-    m++;
-    if (m > 12) { m = 1; y++; }
-  }
+  remainingMonthShares_(startDate, endDate).forEach(function (sh) {
+    months += sh.share;
+    weighted += sh.share * profile.index[sh.month - 1];
+  });
   return { months: months, weighted: weighted };
 }
 
 function computeAllCategoryProjections_(bounds) {
   ensureCategoryPeriodTypeColumn_();
   var periodMonths = bounds.periodType === 'yearly' ? 12 : 1;
-  var ytd = ytdRangeForProjection_();
-  var seasonal = computeSeasonalProfiles_(null);
+  ensureCategoryProjectionMethodColumn_();
+  var asOfKey = formatCalendarDate_(new Date()).substring(0, 7);
+  var seriesMap = buildMonthlySeries_(null);   // each category's non-recurring spend per month
+  var defaultMethodId = getProjectionDefaultMethod_();
 
   // "Remaining" figures (added 2026-09-16) — Actual/Programmed/Expected as
   // three things that sum to what's left in the period, rather than
@@ -394,12 +214,6 @@ function computeAllCategoryProjections_(bounds) {
   allEntries.forEach(function (e) {
     if (!entriesAllByCategory[e.category_id]) entriesAllByCategory[e.category_id] = [];
     entriesAllByCategory[e.category_id].push(e);
-  });
-  var entriesYtd = allEntries.filter(function (e) { return e.date >= ytd.ytdStart && e.date <= ytd.ytdEnd; });
-  var firstMonthByCategory = {};
-  allEntries.forEach(function (e) {
-    var k = String(e.date).substring(0, 7);
-    if (!firstMonthByCategory[e.category_id] || k < firstMonthByCategory[e.category_id]) firstMonthByCategory[e.category_id] = k;
   });
   var allRecurring = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false'; });
   var recurringSplitSums = getRecurringExpenseSplitSums_();
@@ -507,7 +321,9 @@ function computeAllCategoryProjections_(bounds) {
     var baseAmountPen = 0;
     var ratePerMonth = 0;
     var levelPerMonth = 0;
-    var profile = seasonal[category.id] || flatSeasonProfile_();
+    var methodId = '';
+    var prediction = null;
+    var forecast = null;
 
     if (category.type === 'income') {
       entriesInPeriod.forEach(function (e) {
@@ -521,47 +337,17 @@ function computeAllCategoryProjections_(bounds) {
         if (pen != null) baseAmountPen += pen;
       });
     } else {
-      // Matched against EVERY active recurring item (categoryRecurring),
-      // not just recurringForPeriod — a yearly item excluded from the
-      // period's own "programmed" line above must still have its matching
-      // entries pulled out of the YTD pool below, or its one-a-year lump
-      // payment gets smoothed into every month's "Expected" as if it were
-      // genuine unexplained variable spend. A category whose only YTD
-      // spend is that single yearly payment then correctly nets to 0 in a
-      // monthly view instead of showing a misleading fraction of it.
-      var matchedEntryIds = {};
-      categoryRecurring.forEach(function (r) {
-        var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
-        entriesYtd.forEach(function (e) {
-          if (e.category_id !== category.id || matchedEntryIds[e.id]) return;
-          if (entryMatchesRecurringOccurrence_(e, r, occYtd, splitSumByEntry, recurringSplitSums)) matchedEntryIds[e.id] = true;
-        });
-      });
-      var ytdNonRecurringPen = 0;
-      var windowMonths = categoryWindowMonths_(ytd, firstMonthByCategory[category.id]);
-      var inWindow = {};
-      windowMonths.forEach(function (k) { inWindow[k] = true; });
-      entriesYtd.forEach(function (e) {
-        if (e.category_id !== category.id || e.type !== category.type || matchedEntryIds[e.id]) return;
-        if (!inWindow[String(e.date).substring(0, 7)]) return;   // before the category existed
-        // Tagged Annual: a lump that happens once in a while (car maintenance,
-        // a yearly fee) — left out of the monthly rate so it doesn't inflate
-        // every month's "Expected". Nothing is projected in its place: only
-        // Programmed (recurring) items are projected.
-        if (annualEntryIds[e.id]) return;
-        var pen = toPen_(ownAmount_(e), e.currency, e.date);
-        if (pen != null) ytdNonRecurringPen += pen;
-      });
-      // ratePerMonth is the plain average over the window (what the trace shows);
-      // the level is the same spend with the time of year taken out — see the
-      // Seasonality block above. With 12 full months the indexes sum to 12 and
-      // level == ratePerMonth; with fewer (a young category) the months'
-      // indexes are summed. A flat profile makes them equal either way.
-      ratePerMonth = windowMonths.length > 0 ? ytdNonRecurringPen / windowMonths.length : 0;
-      var windowIndexSum = 0;
-      windowMonths.forEach(function (k) { windowIndexSum += profile.index[Number(k.substring(5, 7)) - 1]; });
-      levelPerMonth = windowIndexSum > 0 ? ytdNonRecurringPen / windowIndexSum : 0;
-      baseAmountPen = levelPerMonth * seasonalIndexSum_(profile, bounds.startDate, bounds.endDate);
+      // The category's own predictor (or the default) over its monthly series
+      // — see ProjectionMethods.gs. Entries explained by a programmed item
+      // (EVERY active one, even a yearly one left out of a monthly view's
+      // Programmed line, or its lump payment would be smoothed into every
+      // month's Expected) and entries tagged Annual are already out of the series.
+      methodId = categoryMethodId_(category, defaultMethodId);
+      prediction = predictCategoryBase_(seriesMap[category.id], parseProjectionMethod_(methodId), asOfKey);
+      forecast = forecastForPeriod_(prediction, bounds.startDate, bounds.endDate);
+      ratePerMonth = prediction.ratePerMonth;   // the plain average over the window (what the trace shows)
+      levelPerMonth = prediction.level;         // the same with the time of year taken out
+      baseAmountPen = forecast.base;
     }
 
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
@@ -603,9 +389,11 @@ function computeAllCategoryProjections_(bounds) {
     // the period's full month-equivalent count. Expense/investment only —
     // income has no YTD-rate concept to pro-rate (see the per-category
     // rule, above); its "Expected" line has never existed.
-    var monthsLeft = seasonalMonthsLeft_(profile, bounds.startDate, bounds.endDate);
-    var seasonalFactor = monthsLeft.months > 0 ? monthsLeft.weighted / monthsLeft.months : 1;
-    var expectedRemainingPen = levelPerMonth * monthsLeft.weighted;
+    // What is still to come = the predictor's months for the remaining part of
+    // the period (income never has one).
+    var expectedRemainingPen = forecast ? forecast.expected : 0;
+    var monthsLeftValue = forecast ? forecast.monthsLeft : 0;
+    var seasonalFactor = forecast ? forecast.factor : 1;
 
     var remainingTotalPen = hasOverride
       ? Math.max(0, overridesByKey[overrideKey] - actualPen)
@@ -647,9 +435,17 @@ function computeAllCategoryProjections_(bounds) {
       // past years it was learned from (0 = flat, nothing changes).
       levelPerMonth: levelPerMonth,
       seasonalFactor: seasonalFactor,
-      monthsLeft: monthsLeft.months,
-      seasonalYears: profile.yearsUsed,
-      seasonalYearList: profile.years,
+      monthsLeft: monthsLeftValue,
+      seasonalYears: prediction ? prediction.seasonalYears : 0,
+      seasonalYearList: prediction ? prediction.seasonalYearList : [],
+      // The predictor in use (a preset name or custom:<window>:<years>), whether it
+      // is the category's own choice, what was actually applied when it had to
+      // fall back, and the year copied in "same month last year".
+      method: methodId,
+      methodIsOwn: !!(category.projection_method && String(category.projection_method).trim() && isValidProjectionMethod_(category.projection_method)),
+      methodUsed: prediction ? prediction.methodUsed : '',
+      methodFallback: prediction ? prediction.fallback : '',
+      lastYearYear: prediction && prediction.lastYear ? prediction.lastYear.year : null,
       daysLeft: daysLeft
     };
   }).filter(function (c) {
@@ -668,7 +464,7 @@ function computeAllCategoryProjections_(bounds) {
 // so it can share the exact same period selector.
 function listCategoryProjections(payload) {
   var bounds = projectionPeriodBounds_((payload && payload.displayPeriodType) || 'month', payload && payload.anchorDate);
-  return { bounds: bounds, categories: computeAllCategoryProjections_(bounds) };
+  return { bounds: bounds, categories: computeAllCategoryProjections_(bounds), defaultMethod: getProjectionDefaultMethod_() };
 }
 
 // One category's full detail for its drill-down: the chart's daily actual
@@ -834,85 +630,37 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
 // particular month is visible rather than hidden inside a single blended
 // average. Every elapsed month gets a row even at 0 — a silent gap is as
 // informative as a number when eyeballing whether the rate makes sense.
-// profile: the category's seasonal profile (computeSeasonalProfiles_), passed by
-// a caller that already has it (Budgets does, for every category at once);
-// omitted = computed here for this one category.
-function computeCategoryYtdBreakdown_(categoryId, profile) {
-  var ytd = ytdRangeForProjection_();
-  if (!profile) profile = computeSeasonalProfiles_([categoryId])[categoryId] || flatSeasonProfile_();
-
-  var categoryRecurring = getRecurringExpenseRows_().filter(function (r) {
-    return String(r.active) !== 'false' && r.category_id === categoryId;
+// The months the category's predictor learned from, for the Expected trace: one
+// row per month of its window (even at 0), the plain average and the level, the
+// time-of-year shape, and the Annual-tagged spend left out. methodId defaults to
+// the category's own choice (or the default). The function keeps its old name.
+function computeCategoryYtdBreakdown_(categoryId, methodId) {
+  ensureCategoryProjectionMethodColumn_();
+  var series = buildMonthlySeries_([categoryId])[categoryId];
+  var asOfKey = formatCalendarDate_(new Date()).substring(0, 7);
+  var id = methodId || categoryMethodId_(rowsById_(getAllRows('Categories'))[categoryId], getProjectionDefaultMethod_());
+  var prediction = predictCategoryBase_(series, parseProjectionMethod_(id), asOfKey);
+  var totalPen = 0, annualExcludedPen = 0, annualExcludedCount = 0;
+  var months = prediction.windowMonths.map(function (k) {
+    var amount = series ? (series.totals[k] || 0) : 0;
+    totalPen += amount;
+    var a = series && series.annual[k];
+    if (a) { annualExcludedPen += a.pen; annualExcludedCount += a.count; }
+    return { monthKey: k, amountPen: amount };
   });
-  var categoryEntries = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.category_id === categoryId;
-  });
-  var firstMonth = '';
-  categoryEntries.forEach(function (e) {
-    var k = String(e.date).substring(0, 7);
-    if (!firstMonth || k < firstMonth) firstMonth = k;
-  });
-  var windowMonths = categoryWindowMonths_(ytd, firstMonth);
-  var inWindow = {};
-  windowMonths.forEach(function (k) { inWindow[k] = true; });
-  var entriesYtd = categoryEntries.filter(function (e) { return inWindow[String(e.date).substring(0, 7)]; });
-
-  var splitSumByEntry = {};
-  getAllRows('Entry Splits').forEach(function (s) {
-    splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
-  });
-  var recurringSplitSums = getRecurringExpenseSplitSums_();
-  var ratesByCurrency = buildRatesByCurrency_();
-  function toPen_(amount, currency, dateStr) {
-    if (currency === homeCurrency_()) return amount;
-    var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
-    return rate != null ? amount * rate : null;
-  }
-
-  var matchedEntryIds = {};
-  categoryRecurring.forEach(function (r) {
-    var occYtd = recurringExpenseOccurrencesInRange_(r, ytd.ytdStart, ytd.ytdEnd);
-    entriesYtd.forEach(function (e) {
-      if (matchedEntryIds[e.id]) return;
-      if (entryMatchesRecurringOccurrence_(e, r, occYtd, splitSumByEntry, recurringSplitSums)) matchedEntryIds[e.id] = true;
-    });
-  });
-
-  var annualEntryIds = annualEntryIdSet_();
-  var monthlyTotals = {};
-  var totalPen = 0;
-  var annualExcludedPen = 0;
-  var annualExcludedCount = 0;
-  entriesYtd.forEach(function (e) {
-    if (matchedEntryIds[e.id]) return;
-    var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
-    var pen = toPen_(ownAmount, e.currency, e.date);
-    if (pen == null) return;
-    // Same exclusion computeAllCategoryProjections_ applies to the rate; the
-    // amount left out is reported so the trace can say so.
-    if (annualEntryIds[e.id]) { annualExcludedPen += pen; annualExcludedCount++; return; }
-    var monthKey = String(e.date).substring(0, 7);
-    monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + pen;
-    totalPen += pen;
-  });
-
-  // One row per window month (even at 0): a month with nothing is as telling as
-  // a month with something.
-  var months = windowMonths.map(function (monthKey) { return { monthKey: monthKey, amountPen: monthlyTotals[monthKey] || 0 }; });
-  var windowIndexSum = 0;
-  windowMonths.forEach(function (k) { windowIndexSum += profile.index[Number(k.substring(5, 7)) - 1]; });
   return {
     months: months,
     totalPen: totalPen,
-    monthsElapsed: windowMonths.length,   // months in the window (<= 12): the old name, kept
-    ratePerMonth: windowMonths.length > 0 ? totalPen / windowMonths.length : 0,
-    // The same spend with the time of year taken out (== ratePerMonth when the
-    // profile is flat or the window is 12 full months): what "Expected" is built from.
-    levelPerMonth: windowIndexSum > 0 ? totalPen / windowIndexSum : 0,
-    seasonalYears: profile.yearsUsed,
-    seasonalYearList: profile.years,
+    monthsElapsed: months.length,   // months in the window (the old name, kept)
+    ratePerMonth: prediction.ratePerMonth,
+    levelPerMonth: prediction.level,
+    seasonalYears: prediction.seasonalYears,
+    seasonalYearList: prediction.seasonalYearList,
     annualExcludedPen: annualExcludedPen,
-    annualExcludedCount: annualExcludedCount
+    annualExcludedCount: annualExcludedCount,
+    method: id,
+    methodUsed: prediction.methodUsed,
+    methodFallback: prediction.fallback
   };
 }
 
@@ -993,6 +741,7 @@ function getProjections(payload) {
 
   return {
     monthLabel: periodLabel,
+    defaultMethod: getProjectionDefaultMethod_(),   // the predictor categories use unless they chose their own
     periodType: bounds.periodType,
     income: income,
     incomeActual: sumByType_('income', 'actualPen'),
