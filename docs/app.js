@@ -6697,7 +6697,20 @@ function renderTripEstimates_(d) {
         <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
         <div class="recurring-row-sub">${escapeHtml(e.date)}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
       </div>
-      <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}</div>`;
+      <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}<button type="button" class="add-inline trip-covered-btn">${escapeHtml(tr("trips.covered"))}</button></div>`;
+    // "Covered": a real expense has replaced this estimate, so the estimate is deleted.
+    row.querySelector(".trip-covered-btn").addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm(tr("trips.confirmCovered", { what: describeForConfirm_(e.description || e.category_name, formatAmount(e.amount, e.currency)) }))) return;
+      ev.target.disabled = true;
+      try {
+        await callApi("deleteRecurringExpense", { id: e.id });
+        await refreshTripDetail_();
+      } catch (err) {
+        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
+        ev.target.disabled = false;
+      }
+    });
     row.addEventListener("click", async () => {
       try {
         const items = await callApi("listRecurringExpenses");
