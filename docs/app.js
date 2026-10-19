@@ -1730,11 +1730,18 @@ document.getElementById("amount").addEventListener("input", (e) => {
 
 // ---- Currency & exchange rate ----
 
+const knownRateMonths_ = new Set();
+
 async function ensureExchangeRate(currency, dateStr) {
   if (currency === homeCur()) return;
   const month = dateStr.slice(0, 7);
+  // A rate that exists stays (it can be edited, not removed), so a month
+  // confirmed once this session isn't asked about again — saving a
+  // foreign-currency edit used to wait on this round trip every time.
+  const key = currency + "|" + month;
+  if (knownRateMonths_.has(key)) return;
   const existing = await callApi("getExchangeRate", { currency, month });
-  if (existing) return;
+  if (existing) { knownRateMonths_.add(key); return; }
 
   const rate = await openRateModal(currency, month, /* required */ true);
   if (rate == null) {
@@ -1882,6 +1889,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let writesDone = false;
   let splitSaveFailed = false;
   let billSaveFailed = false;
+  let popupHiddenEarly = false;
 
   try {
     const date = document.getElementById("date").value;
@@ -1960,6 +1968,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
         // anything fails (see convertEntryInto_ in Loans.gs).
+        // From the edit pop-up: it closes now while the server works, and
+        // comes back with the error shown if the conversion is refused.
+        if (editingViaPopup) {
+          document.getElementById("edit-entry-modal-backdrop").hidden = true;
+          popupHiddenEarly = true;
+        }
         result = await callApi(isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           entry_id: editingEntryId,
@@ -2172,6 +2186,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       alert(tr("entry.billSaveFailed"));
     }
   } catch (err) {
+    if (popupHiddenEarly && !writesDone) document.getElementById("edit-entry-modal-backdrop").hidden = false;
     errorEl.textContent = writesDone
       ? tr("entry.savedNotRefreshed", { error: err.message })
       : err.message;
@@ -9011,68 +9026,68 @@ document.getElementById("settlement-cancel-edit-btn").addEventListener("click", 
 document.getElementById("settlement-save-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("settlement-form-error");
   errorEl.textContent = "";
-  const saveBtn = document.getElementById("settlement-save-btn");
+
+  // Checked while the modal is still open, so a typo is shown right there.
+  const amount = parseFloat(document.getElementById("settlement-amount").value);
+  const date = document.getElementById("settlement-date").value;
+  const paymentMethodId = document.getElementById("settlement-payment-method").value;
+  if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
+  if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+
+  // Everything from here on runs after the modal has closed — the owner
+  // doesn't sit and wait for the server. A failure is reported with an alert
+  // (the modal is gone), and the lists are re-fetched so they show the truth.
+  // Captured first: closing the modal resets the editing state.
+  const settlementId = editingSettlementId;
+  const friendId = repaymentFriendId;
+  const friendName = repaymentFriendName;
+  const direction = repaymentDirection;
+  const currency = repaymentCurrency;
+  closeSettlementModal();
 
   try {
-    const amount = parseFloat(document.getElementById("settlement-amount").value);
-    const date = document.getElementById("settlement-date").value;
-    const paymentMethodId = document.getElementById("settlement-payment-method").value;
-
-    if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
-    if (!date) throw new Error(tr("error.dateRequired"));
-
-    saveBtn.disabled = true;
-
-    if (editingSettlementId) {
+    if (settlementId) {
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
       // Loans.gs).
-      await callApi("updateSettlement", { id: editingSettlementId, amount, date, payment_method_id: paymentMethodId });
-      closeSettlementModal();
+      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId });
       await refreshAfterSettlementChange_();
       return;
     }
 
     const result = await callApi("recordRepayment", {
-      friend_id: repaymentFriendId,
-      direction: repaymentDirection,
+      friend_id: friendId,
+      direction,
       amount,
-      currency: repaymentCurrency,
+      currency,
       date,
       payment_method_id: paymentMethodId
     });
 
-    // The loan-side effects are already committed at this point — show
-    // them right away regardless of whether there's overpayment left to
-    // resolve, rather than waiting on that separate step. openLoanDetail
-    // brings ITS OWN modal to front, which would otherwise bury this one
-    // (still open, and still what the owner's actively working in) —
-    // bring this one back to front immediately after.
     await refreshLoans();
-    await openLoanDetail(repaymentFriendId, repaymentFriendName);
-    bringModalToFront_(document.getElementById("settlement-modal-backdrop"));
-    await refreshSettlementList_();
+    await openLoanDetail(friendId, friendName);
 
     if (result.overpaid > 0.004) {
       // Mirror images: they overpaying YOU is your income; YOU overpaying
       // them is your expense (paid_by: "me", no split — see
-      // createOverpaymentEntry_ in Loans.gs).
-      const isIncome = repaymentDirection === "they_owe_me";
+      // createOverpaymentEntry_ in Loans.gs). Needs the owner's category
+      // pick, so the modal comes back, showing just that step.
+      const isIncome = direction === "they_owe_me";
       pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId, entryType: isIncome ? "income" : "expense" };
       document.getElementById("settlement-overpay-note").textContent = isIncome
-        ? tr("settle.overpaidIncome", { name: repaymentFriendName, cur: result.currency, amount: moneyFmt(result.overpaid) })
-        : tr("settle.overpaidExpense", { name: repaymentFriendName, cur: result.currency, amount: moneyFmt(result.overpaid) });
+        ? tr("settle.overpaidIncome", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) })
+        : tr("settle.overpaidExpense", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) });
       populateOverpayCategoryOptions(pendingOverpay.entryType);
       document.getElementById("settlement-overpay-error").textContent = "";
       document.getElementById("settlement-form").hidden = true;
       document.getElementById("settlement-overpay-section").hidden = false;
-    } else {
-      closeSettlementModal();
+      const backdrop = document.getElementById("settlement-modal-backdrop");
+      bringModalToFront_(backdrop);
+      backdrop.hidden = false;
     }
   } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
+    alert(tr("settle.saveFailed", { error: err.message }));
+    refreshAfterSettlementChange_().catch(() => {});
   }
 });
 
@@ -9082,12 +9097,15 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   const repDate = document.getElementById("settlement-date").value;
   if (!confirm(tr("settle.confirmDelete", { what: describeForConfirm_(repaymentFriendName || "", repAmt ? `${repaymentCurrency} ${repAmt}` : "", repDate) }))) return;
 
+  // Closes first, finishes in the background (same as the save button).
+  const settlementId = editingSettlementId;
+  closeSettlementModal();
   try {
-    await callApi("deleteSettlement", { id: editingSettlementId });
-    closeSettlementModal();
+    await callApi("deleteSettlement", { id: settlementId });
     await refreshAfterSettlementChange_();
   } catch (err) {
-    document.getElementById("settlement-form-error").textContent = err.message;
+    alert(tr("settle.saveFailed", { error: err.message }));
+    refreshAfterSettlementChange_().catch(() => {});
   }
 });
 

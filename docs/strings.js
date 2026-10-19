@@ -534,6 +534,7 @@
     "settle.extraSavedExpense": { en: "The extra {cur} {amount} is saved in your review queue as an expense — categorize it there.", es: "El excedente de {cur} {amount} quedó en tu lista por revisar como gasto: categorízalo ahí." },
     "settle.overpaidIncome": { en: "{name} paid {cur} {amount} more than they owed — recording it as income. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).", es: "{name} pagó {cur} {amount} más de lo que debía: se registra como ingreso. Elige una categoría ahora, o cierra esto y categorízalo después desde tu lista por revisar (ya está guardado ahí)." },
     "settle.overpaidExpense": { en: "You paid {name} {cur} {amount} more than you owed — recording it as an expense. Pick a category now, or close this and categorize it later from your review queue (it's already saved there).", es: "Le pagaste a {name} {cur} {amount} más de lo que debías: se registra como gasto. Elige una categoría ahora, o cierra esto y categorízalo después desde tu lista por revisar (ya está guardado ahí)." },
+    "settle.saveFailed": { en: "Couldn't save the repayment: {error}", es: "No se pudo guardar el repago: {error}" },
     "settle.confirmDelete": { en: "Delete the repayment with {what}? This can't be undone.", es: "¿Eliminar el repago con {what}? No se puede deshacer." },
 
     // ---- paid ----
