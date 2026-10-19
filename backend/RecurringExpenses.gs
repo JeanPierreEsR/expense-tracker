@@ -172,13 +172,21 @@ function medianOf_(numbers) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// A payment with no splits on an item that does carry a split: is it the
+// owner's share (close to base x ownFraction) rather than the whole bill (close
+// to base)? Nearer in ratio terms, i.e. below base x sqrt(ownFraction).
+function looksLikeOwnShare_(amount, baseAmount, ownFraction) {
+  if (!(baseAmount > 0) || !(ownFraction > 0) || ownFraction >= 1) return false;
+  return amount < baseAmount * Math.sqrt(ownFraction);
+}
+
 // The item's recognised payments, newest month first (at most 6), plus the
 // plausible amount range {low, high}. Entries already linked to ANOTHER
 // programmed item never count; entries linked to this one always do (even
 // outside the range). Two passes: the first finds the typical payment (the
 // median — with the typed estimate counted as one more data point while fewer
 // than 3 payments exist); the second drops entries far from it.
-function variablePaymentHistory_(r, categoryEntries, todayStr, splitSumByEntry) {
+function variablePaymentHistory_(r, categoryEntries, todayStr, splitSumByEntry, ownFraction) {
   var currency = r.currency || homeCurrency_();
   var day = r.day ? Number(r.day) : 1;
   var candidates = [];
@@ -192,7 +200,14 @@ function variablePaymentHistory_(r, categoryEntries, todayStr, splitSumByEntry) 
     if (!linkedHere && !tokensOverlap_(r.match_tokens, keywordTokens_((e.description || '') + ' ' + (e.merchant || '')))) return;
     // _own: the owner's own share of that payment (a bill paid for the whole
     // flat has most of it split off to friends).
-    candidates.push({ date: e.date, amount: Number(e.amount), _own: Number(e.amount) - ((splitSumByEntry && splitSumByEntry[e.id]) || 0), _linkedHere: linkedHere });
+    var paid = Number(e.amount), own = paid - ((splitSumByEntry && splitSumByEntry[e.id]) || 0);
+    // A shared bill whose payment was logged as the owner's share only (no
+    // splits): its amount is a SHARE, not the bill. Scale it up to the whole
+    // bill so the average, the range and the later split all speak about the
+    // same thing (reported 2026-10-19: a 100 gas shared by 3, logged as 33.33,
+    // was read as a 33.33 bill and then split again into ~11).
+    if (ownFraction && own >= paid - 0.005 && looksLikeOwnShare_(paid, r.base_amount, ownFraction)) paid = paid / ownFraction;
+    candidates.push({ date: e.date, amount: paid, _own: own, _linkedHere: linkedHere });
   });
   // Custom frequency: bucket the payments by the series' own dates (extended
   // one step either side of the payments), not by calendar month.
@@ -235,7 +250,10 @@ function applyVariableRecurringEstimates_(rows) {
     if (!isVariableRecurring_(r)) return;
     r.base_amount = Number(r.amount);
     r.match_tokens = keywordTokens_(r.match_words);
-    var found = variablePaymentHistory_(r, entriesByCategory[r.category_id] || [], todayStr, splitSumByEntry);
+    var savedFriendsShare = savedSplitSums[r.id] > 0.005 && r.base_amount > 0 ? Math.min(1, savedSplitSums[r.id] / r.base_amount) : 0;
+    var ownFraction = savedFriendsShare > 0 && savedFriendsShare < 1 ? 1 - savedFriendsShare : null;
+    r.own_fraction = ownFraction;
+    var found = variablePaymentHistory_(r, entriesByCategory[r.category_id] || [], todayStr, splitSumByEntry, ownFraction);
     r.payments_used = Math.min(3, found.history.length);
     r.amount_low = found.low;
     r.amount_high = found.high;
@@ -256,8 +274,7 @@ function applyVariableRecurringEstimates_(rows) {
       // it represented when typed, so it follows a bill that changes every month
       // instead of being dropped (reported 2026-10-19: the shared gas lost its
       // "Total" line).
-      var friendsShare = Math.min(1, savedSplitSums[r.id] / r.base_amount);
-      r.own_amount = Math.round(r.amount * (1 - friendsShare) * 100) / 100;
+      r.own_amount = Math.round(r.amount * (1 - savedFriendsShare) * 100) / 100;
     }
   });
 }
@@ -269,7 +286,11 @@ function variableEntryMatchesOccurrence_(entry, r, occurrenceDates) {
   if (entry.currency !== (r.currency || homeCurrency_())) return false;
   var amt = Number(entry.amount);
   if (!(amt > 0)) return false;
-  if (r.amount_low !== undefined && (amt < r.amount_low || amt > r.amount_high)) return false;
+  if (r.amount_low !== undefined && (amt < r.amount_low || amt > r.amount_high)) {
+    // An own-share-only payment of a shared bill is judged as the whole bill it stands for.
+    var asBill = r.own_fraction ? amt / r.own_fraction : 0;
+    if (!(asBill >= r.amount_low && asBill <= r.amount_high)) return false;
+  }
   var tokens = r.match_tokens || keywordTokens_(r.match_words);
   if (!tokensOverlap_(tokens, keywordTokens_((entry.description || '') + ' ' + (entry.merchant || '')))) return false;
   if (isCustomRecurring_(r)) {

@@ -291,6 +291,43 @@ test("a fixed split saved on the item does not follow a bill that changes every 
   assert.equal(group.amount, 22, "the real shares of recent payments win over the fixed 10");
 });
 
+// The owner logs only HIS share of a shared bill (no splits on the entry). The item
+// is typed as the whole bill with a saved split; the estimate must stay a whole bill.
+test("payments logged as the owner's share only are read as a share, not as the whole bill", () => {
+  const { rt } = setup();
+  [20, 22, 24].forEach((a, i) => addEntry(rt, monthsAgo(1 + i, 8), a, "Gas del depa"));   // a third of 60 / 66 / 72
+  rt.run(`appendRowObject('Friends', { id: 'f-flat-a', name: 'Flatmate A', notes: '' });`);
+  const r = variableItem(rt, { match_words: "gas", day: 8, amount: 60 });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: "f-flat-a", amount: 40 }] });   // 2/3 of the typed 60
+  const item = listed(rt, r.id);
+  assert.equal(item.amount, 66, "whole bill: each share x 3, then the average");
+  assert.equal(item.split_total, 44);
+  const group = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
+  assert.equal(group.amount, 22, "the owner's third again, not a third of a third");
+});
+
+test("a share-only payment this month still counts as paying the bill", () => {
+  const { rt } = setup();
+  [20, 22, 24].forEach((a, i) => addEntry(rt, monthsAgo(1 + i, 8), a, "Gas del depa"));
+  rt.run(`appendRowObject('Friends', { id: 'f-flat-a', name: 'Flatmate A', notes: '' });`);
+  const r = variableItem(rt, { match_words: "gas", day: 8, amount: 60 });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: "f-flat-a", amount: 40 }] });
+  addEntry(rt, thisMonthDay(1), 21, "Gas del depa");
+  assert.ok(!expectedIds(rt).includes(r.id), "paid already, so it is no longer expected");
+});
+
+test("whole-bill payments and share-only payments can be mixed", () => {
+  const { rt } = setup();
+  addEntry(rt, monthsAgo(1, 8), 21, "Gas del depa");              // share only
+  const whole = addEntry(rt, monthsAgo(2, 8), 66, "Gas del depa");   // whole bill, split on the entry
+  shareEntry(rt, whole, 44);
+  addEntry(rt, monthsAgo(3, 8), 63, "Gas del depa");              // whole bill, never split
+  const r = variableItem(rt, { match_words: "gas", day: 8, amount: 60 });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: "f-flat-a", amount: 40 }] });
+  const item = listed(rt, r.id);
+  assert.equal(item.amount, 64, "(63 + 66 + 21 x 3) / 3");
+});
+
 // ---- existing sheets ---------------------------------------------------------------
 test("a sheet from before these columns existed upgrades itself", () => {
   const { rt } = setup();
