@@ -72,15 +72,19 @@ test("projections: an Annual-tagged expense is left out of the monthly rate, and
   assert.ok(Math.abs(projection(rt).ratePerMonth - 1300 / 12) < 0.001);
 });
 
-test("projections: an Annual-tagged expense still counts as actual spend in its own month, and the trace reports it", () => {
+test("projections: a Month view leaves an Annual-tagged expense out of Actual (reported aside); a Year view counts it; the trace reports it", () => {
   const rt = setup();
   addEntry(rt, "e-first", ago(36, 1), 1, false);
   addEntry(rt, "e-gas", ago(2, 10), 100, false);
   addEntry(rt, "e-service", ago(2, 20), 1200, true);
   addEntry(rt, "e-today", today(), 900, true);
   const m = projection(rt);
-  assert.equal(m.actualPen, 900, "this month's actual includes the tagged expense");
+  assert.equal(m.actualPen, 0, "a Month view leaves the tagged 900 out of Actual, like a monthly budget");
+  assert.equal(m.annualInPeriodPen, 900, "and reports it aside");
+  assert.ok(projection(rt, "year").actualPen >= 900, "a Year view counts it (a yearly budget does too)");
+  assert.equal(projection(rt, "year").annualInPeriodPen, 0);
   const detail = rt.api("getCategoryProjectionDetail", { categoryId: "cat-annual-test", displayPeriodType: "month" });
+  assert.equal(detail.dailyActualPen[today()], undefined, "the chart's solid line leaves it out too");
   assert.equal(detail.ytdBreakdown.annualExcludedPen, 1200, "over the window, the tagged 1200 is reported as left out");
   assert.equal(detail.ytdBreakdown.annualExcludedCount, 1);
   assert.ok(Math.abs(detail.ytdBreakdown.totalPen - 100) < 0.001);
