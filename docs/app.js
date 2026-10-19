@@ -6467,7 +6467,11 @@ function populateRecurringCategoryChips() {
 // categories, where this field simply never appears.
 function toggleRecurringSplitFieldVisibility() {
   const cat = meta.categories.find((c) => c.id === selectedRecurringCategoryId);
-  const show = cat && cat.type === "expense";
+  // Shown from the start on a NEW item (no category picked yet): it used to
+  // appear only after an expense category was chosen, far down a long chip list,
+  // so creating a shared recurring expense looked like it had no such option
+  // (owner, 2026-10-19). Hidden only once an income category is picked.
+  const show = !cat || cat.type === "expense";
   document.getElementById("recurring-split-field").hidden = !show;
   if (!show) resetRecurringSplitState();
 }
