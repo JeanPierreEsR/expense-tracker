@@ -38,6 +38,8 @@ function onOpen() {
     .addItem('29. Categories cleanup: apply', 'menuCategoriesCleanupApply')
     .addItem('30. Compare the two ways of reading e-mail', 'menuCompareGmailReaders')
     .addItem('31. Read e-mail the new read-only way (on/off)', 'menuToggleGmailReader')
+    .addItem('32. Tag Travel expenses as Annual: preview (changes nothing)', 'menuTagTravelAnnualPreview')
+    .addItem('33. Tag Travel expenses as Annual: apply', 'menuTagTravelAnnualApply')
     .addToUi();
 }
 

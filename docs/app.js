@@ -828,10 +828,36 @@ function populateCategoryPicker() {
         <span class="category-tile-icon" style="background:${c.color || "#eee"}">${c.icon || "•"}</span>
         <span class="category-tile-name">${escapeHtml(c.name)}</span>
       `;
-      tile.addEventListener("click", () => showDetailForm(c));
+      tile.addEventListener("click", () => { showDetailForm(c); preselectAnnualForTravel_(c.id); });
       grid.appendChild(tile);
     });
 }
+
+// Travel is Annual by default: picking a Travel category ticks the Annual chip
+// (still removable by hand). Only for a pick the person just made — opening an
+// existing entry for editing never goes through here, so an old Travel entry
+// whose tag was removed stays as it is. The server applies the same rule to
+// entries that arrive without the form (email, photo, statements).
+// If the person then changes their mind to a non-Travel category, a tick that
+// WE added is taken back (one they ticked themselves is left alone).
+let annualAutoTicked = false;
+function preselectAnnualForTravel_(categoryId) {
+  if (selectedType !== "expense") return;
+  const byId = new Map(meta.categories.map((c) => [c.id, c]));
+  const isTravel = (c) => !!c && (c.key === "travel" || (!c.key && c.name === "Travel"));
+  const cat = byId.get(categoryId);
+  if (!isTravel(cat) && !(cat && isTravel(byId.get(cat.parent_id)))) {
+    if (annualAutoTicked && selectedTagIds.delete("system-annual")) populateTags();
+    annualAutoTicked = false;
+    return;
+  }
+  if (!meta.tags.some((t) => t.id === "system-annual") || selectedTagIds.has("system-annual")) return;
+  selectedTagIds.add("system-annual");
+  annualAutoTicked = true;
+  populateTags();
+}
+
+document.getElementById("category").addEventListener("change", (ev) => preselectAnnualForTravel_(ev.target.value));
 
 function showCategoryPicker() {
   selectedCategoryId = null;
@@ -1002,6 +1028,7 @@ function populateTags() {
     chip.className = "tag-chip" + (selectedTagIds.has(tag.id) ? " selected" : "");
     chip.textContent = tag.name;
     chip.addEventListener("click", () => {
+      if (tag.id === "system-annual") annualAutoTicked = false;   // the person's own choice from here on
       if (selectedTagIds.has(tag.id)) selectedTagIds.delete(tag.id);
       else selectedTagIds.add(tag.id);
       populateTags();

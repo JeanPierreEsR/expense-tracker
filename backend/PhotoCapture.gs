@@ -375,6 +375,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     merchant: ''
   };
   appendRowObject('Entries', entry);
+  autoTagTravelEntry_(entry);   // Travel is Annual by default
   sendTelegramEntryNotification_(entry, null, autoReason);
   if (ownerMatched) photoReply_(chatId, replyToMessageId, tr_('photo.ownerName'));
 }
