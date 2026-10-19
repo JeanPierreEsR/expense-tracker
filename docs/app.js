@@ -890,6 +890,8 @@ function showDetailForm(category) {
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
+  tripPickLocked_ = false;   // a fresh form: suggest again
+  autoPickTripForDate_();
   // Safety net: whichever way the form was reached, the labels and the
   // From/To/Paid-by fields always match the entry type being shown.
   togglePaymentMethodVisibilityBase_();
@@ -3571,6 +3573,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         </select>`}
         <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}">
         <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}">
+        ${entry.type === "expense" && (meta.trips || []).length ? `
+        <label class="review-transfer-label">${tr("field.trip")}</label>
+        <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
         <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccountLeft"))}</select>
@@ -3646,6 +3651,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const landEl = item.querySelector(".review-land");
         if (landEl) fields.payment_method_id = landEl.value;
       }
+      // A trip/event is linked only now, by the owner's Confirm — the card merely pre-selected the one
+      // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
+      const tripEl = item.querySelector(".review-trip");
+      if (tripEl) fields.trip_id = tripEl.value;
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -3708,7 +3717,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const rowCategory = item.querySelector(".review-category").value;
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
+        const rowTripEl = item.querySelector(".review-trip");
         return Object.assign({}, fresh, {
+          trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount
@@ -6481,6 +6492,36 @@ function fillTripOptions_(sel, keep) {
   if (sel.value !== (keep || "")) sel.value = "";
 }
 
+// <option> HTML for a review card's trip picker, `selected` pre-chosen (same order as the entry form's).
+function reviewTripOptions_(selected) {
+  const holder = document.createElement("select");
+  fillTripOptions_(holder, selected);
+  // innerHTML carries only attributes, not the select's current value: mark the chosen option.
+  Array.from(holder.options).forEach((o) => { if (o.value === holder.value && o.value) o.setAttribute("selected", ""); });
+  return holder.innerHTML;
+}
+
+// The entry form pre-selects the trip/event whose dates include the entry's date — only when exactly
+// one does, never over a choice the person made, and it follows the date until they choose.
+let tripAutoPickedId_ = "";
+let tripPickLocked_ = false;   // the person chose by hand (even "None"): leave it alone until the next entry
+function autoPickTripForDate_() {
+  if (selectedType !== "expense" || !entryFormIsNewEntry_() || tripPickLocked_) return;
+  const sel = document.getElementById("entry-trip");
+  const date = document.getElementById("date").value;
+  const covering = (meta.trips || []).filter((t) => date >= t.start_date && date <= t.end_date);
+  const target = covering.length === 1 ? covering[0].id : "";
+  const followingAuto = tripAutoPickedId_ && sel.value === tripAutoPickedId_;
+  if (sel.value === "" || followingAuto) {
+    sel.value = target;
+    tripAutoPickedId_ = target;
+  }
+}
+
+document.getElementById("entry-trip").addEventListener("change", () => { tripAutoPickedId_ = ""; tripPickLocked_ = true; });
+document.getElementById("date").addEventListener("input", autoPickTripForDate_);
+document.getElementById("date").addEventListener("change", autoPickTripForDate_);
+
 function setTripPick_(tripId) {
   const sel = document.getElementById("entry-trip");
   sel.value = tripId || "";
@@ -6570,6 +6611,7 @@ async function showTripDetail_(id) {
   document.getElementById("trip-detail-sub").textContent = known ? `${tr(`trips.kind.${known.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(known)}` : "";
   document.getElementById("trip-detail-body").innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
   document.getElementById("trip-detail-entries-card").hidden = true;
+  document.getElementById("trip-find-box").hidden = true;
   await refreshTripDetail_();
 }
 
@@ -6747,6 +6789,70 @@ function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;
   editingTripId_ = null;
 }
+
+// "Find expenses in these dates": lists the trip-less expenses inside the trip's dates, all ticked;
+// only the ones still ticked when "Add selected" is tapped are linked.
+document.getElementById("trip-find-btn").addEventListener("click", async () => {
+  const id = tripDetailId_;
+  const box = document.getElementById("trip-find-box");
+  if (!id) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  try {
+    const found = await callApi("findTripCandidates", { id });
+    if (tripDetailId_ !== id) return;
+    if (!found.entries.length) {
+      box.innerHTML = `<p class="hint">${escapeHtml(tr("trips.findNone"))}</p>`;
+      return;
+    }
+    box.innerHTML = `<p class="hint">${escapeHtml(tr("trips.findHint"))}</p>`;
+    const rows = [];
+    found.entries.forEach((e) => {
+      const row = document.createElement("label");
+      row.className = "recurring-row trip-find-row";
+      row.innerHTML = `
+        <input type="checkbox" checked>
+        <div class="trip-find-text">
+          <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
+          <div class="recurring-row-sub">${escapeHtml(e.date)}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
+        </div>
+        <div class="recurring-row-amount">${escapeHtml(formatAmount(e.own_share, e.currency))}</div>`;
+      rows.push({ e, input: row.querySelector("input") });
+      box.appendChild(row);
+    });
+    if (found.total > found.entries.length) {
+      const more = document.createElement("p");
+      more.className = "hint";
+      more.textContent = tr("trips.findMore", { n: found.entries.length, total: found.total });
+      box.appendChild(more);
+    }
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "primary";
+    const refreshLabel = () => {
+      const n = rows.filter((r) => r.input.checked).length;
+      addBtn.textContent = tr("trips.findAdd", { n });
+      addBtn.disabled = n === 0;
+    };
+    rows.forEach((r) => r.input.addEventListener("change", refreshLabel));
+    refreshLabel();
+    addBtn.addEventListener("click", async () => {
+      addBtn.disabled = true;
+      try {
+        await callApi("linkEntriesToTrip", { id, entryIds: rows.filter((r) => r.input.checked).map((r) => r.e.id) });
+        box.hidden = true;
+        await refreshTripDetail_();
+      } catch (err) {
+        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
+        addBtn.disabled = false;
+      }
+    });
+    box.appendChild(addBtn);
+  } catch (err) {
+    box.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
+  }
+});
 
 document.getElementById("more-trips-btn").addEventListener("click", showTripsScreen);
 document.getElementById("trips-back-btn").addEventListener("click", () => showScreen("more"));

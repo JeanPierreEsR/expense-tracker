@@ -322,3 +322,75 @@ function getTripDetail(payload) {
     unlinkedPayments: unlinkedPayments
   };
 }
+
+// ---- Suggestions by date (always confirmed by the owner; nothing links on its own) ----
+
+// The trips/events whose dates include `date` (YYYY-MM-DD).
+function tripsCoveringDate_(date, trips) {
+  var d = String(date || '');
+  return (trips || getTripRows_()).filter(function (t) { return d >= t.start_date && d <= t.end_date; });
+}
+
+// The one trip a date points to — or '' when none or SEVERAL cover it (never guess between two).
+function suggestedTripIdForDate_(date, trips) {
+  var found = tripsCoveringDate_(date, trips);
+  return found.length === 1 ? found[0].id : '';
+}
+
+// "Find expenses in these dates": confirmed expenses that fall inside the trip's dates and
+// belong to no trip yet. Only a list — the owner ticks which ones to add (linkEntriesToTrip).
+var TRIP_CANDIDATE_LIMIT_ = 300;
+
+function findTripCandidates(payload) {
+  ensureTripsSheet_();
+  var trip = tripById_(String(payload.id || ''));
+  if (!trip) throw new Error(tr_('trip.notFound'));
+  var splitSum = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount);
+  });
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var found = getAllRows('Entries').filter(function (e) {
+    return e.status === 'confirmed' && e.type === 'expense' && !e.trip_id &&
+      e.date >= trip.start_date && e.date <= trip.end_date;
+  }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  var rows = found.slice(0, TRIP_CANDIDATE_LIMIT_).map(function (e) {
+    var cat = categoryById[e.category_id];
+    return {
+      id: e.id, date: e.date, description: e.description || '', currency: e.currency,
+      amount: Number(e.amount), own_share: Number(e.amount) - (splitSum[e.id] || 0),
+      category_name: cat ? categoryLabel_(cat) : '', category_icon: cat ? cat.icon : ''
+    };
+  });
+  return { total: found.length, entries: rows };
+}
+
+// Links the ticked expenses to the trip. Only a confirmed expense with no trip is touched
+// (never one already in another trip), so a stale list can't overwrite anything.
+function linkEntriesToTrip(payload) {
+  ensureTripsSheet_();
+  var trip = tripById_(String(payload.id || ''));
+  if (!trip) throw new Error(tr_('trip.notFound'));
+  var wanted = {};
+  (payload.entryIds || []).forEach(function (id) { wanted[String(id)] = true; });
+  var eligible = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (wanted[e.id] && e.status === 'confirmed' && e.type === 'expense' && !e.trip_id) eligible[e.id] = true;
+  });
+  if (!Object.keys(eligible).length) return { linked: 0 };
+  ensureEntriesTripColumn_();
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  var idCol = headers.indexOf('id');
+  var idValues = sheet.getRange(2, idCol + 1, sheet.getLastRow() - 1, 1).getValues();
+  var linked = 0;
+  withWriteBatch_(function () {
+    idValues.forEach(function (row, i) {
+      if (eligible[String(row[0])]) {
+        setCellByRow_(sheet, headers, i + 2, 'trip_id', trip.id);
+        linked++;
+      }
+    });
+  });
+  return { linked: linked };
+}
