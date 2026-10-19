@@ -2343,3 +2343,15 @@ body.income-revealed .sens-mask { display: none; }
 .range-actions { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 #range-summary { min-height: 2.8em; }   /* room for two lines, so a longer prompt never moves the calendar */
 .range-day { min-width: 0; }
+
+/* tour scenes: More sub-screens (Programmed items, Trips & events) */
+.ts-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 0 6px; }
+.ts-h2 { font-weight: 700; font-size: 14px; margin: 2px 0 6px; }
+.ts-subbody { min-height: 40px; }
+.ts-subbody[hidden] { display: none; }
+.ts-grouptitle { font-weight: 700; font-size: 12px; margin: 6px 0 2px; }
+.ts-right { text-align: right; }
+.ts-detail-title { font-weight: 700; font-size: 15px; }
+.ts-total { font-size: 24px; font-weight: 700; margin: 6px 0 0; }
+.ts-phases { display: flex; gap: 6px; margin: 10px 0 4px; }
+.ts-phase { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
