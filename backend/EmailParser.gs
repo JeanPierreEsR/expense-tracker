@@ -546,6 +546,18 @@ function confirmEntryWithLearning_(entryId) {
   setEntryField_(entryId, 'status', 'confirmed');
 }
 
+// For More → Bank emails and the "this bank can't be read yet" notes: the address whose inbox is read (empty when e-mail
+// reading is off or Google won't say) and the names of the banks that have a parsing rule.
+function getEmailInfo_() {
+  var address = '';
+  if (featureOn_('gmail')) {
+    try { address = String(Session.getEffectiveUser().getEmail() || ''); } catch (err) { address = ''; }
+  }
+  var seen = {};
+  EMAIL_RULES.forEach(function (r) { if (r.bank) seen[r.bank] = true; });
+  return { address: address, banks: Object.keys(seen) };
+}
+
 function uniqueSenders_() {
   var seen = {};
   EMAIL_RULES.forEach(function (r) { seen[r.sender] = true; });
