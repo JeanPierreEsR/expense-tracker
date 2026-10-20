@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.9.12"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="0.9.13"><!-- ship.sh writes the release number here -->
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-20T22:10:16Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-20T22:31:25Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -435,6 +435,10 @@
           </button>
       </div>
       <div class="card more-group">
+          <button type="button" class="more-list-item" id="more-update-btn" hidden>
+            <span data-i18n="more.update">⬆️ Update available</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-perf-btn">
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
@@ -1751,6 +1755,18 @@
     </div>
   </div>
 
+  <div id="update-modal-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span></div>
+      <p data-i18n="update.body">A newer version of your app is ready.</p>
+      <p class="hint" id="update-modal-hint"></p>
+      <button type="button" class="primary" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
+      <button type="button" class="add-inline" id="update-open-btn" data-i18n="update.open">Open the update page</button>
+      <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
+      <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
+    </div>
+  </div>
+
   <div id="statement-match-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header"><span data-i18n="stmt.whichEntry">Which entry is this?</span></div>
@@ -1774,16 +1790,16 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="i18n.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="tour-scenes.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="signin-link.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="bank-sample.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="perf-share.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="receipt-parse.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="bill-split.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="app.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="statement-parsers.js?v=2026-10-20T22:10:16Z"></script>
-  <script src="statements.js?v=2026-10-20T22:10:16Z"></script>
+  <script src="strings.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="i18n.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="tour-scenes.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="signin-link.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="bank-sample.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="perf-share.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="receipt-parse.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="bill-split.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="app.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="statement-parsers.js?v=2026-10-20T22:31:25Z"></script>
+  <script src="statements.js?v=2026-10-20T22:31:25Z"></script>
 </body>
 </html>

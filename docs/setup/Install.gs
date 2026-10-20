@@ -26,6 +26,7 @@ var INSTALL_RELEASE = '__RELEASE__';    // replaced by the installer page on eve
 var INSTALL_CODE = '__CODE__';          // the access code the installer made
 var INSTALL_MAIN_URL = '__MAINURL__';   // this copy's own web address (for the keep-awake ping)
 var INSTALL_FEATURES = '__FEATURES__';  // abilities approved so far, e.g. "base,keepawake,gmail"
+var INSTALL_BACKEND_REF = '__BACKENDREF__';  // the last backend/ commit this copy was built from (the app offers an update when a newer one exists)
 
 var INSTALL_RETURN_PREFIXES_ = [
   'https://jeanpierreesr.github.io/expense-tracker/setup/',
@@ -45,6 +46,7 @@ function doGet(e) {
   if (params.check === 'version') {
     return installJson_({
       release: INSTALL_RELEASE,
+      backendRef: installedBackendRef_(),
       setUp: props.getProperty('INSTALL_SETUP_DONE') === 'yes',
       codeFor: props.getProperty('INSTALL_CODE_SET_FOR') || '',
       features: props.getProperty('FEATURES') || '',

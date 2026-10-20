@@ -12,7 +12,7 @@ const RETURN = "https://jeanpierreesr.github.io/expense-tracker/setup/";
 const MAIN = "https://script.google.com/macros/s/AKfycbMadeUpInstallerAddr/exec";
 
 // Adds Install.gs the way the installer page does (placeholders replaced) and fakes what a web app has.
-function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", url = "", features = "base" } = {}) {
+function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", url = "", features = "base", ref = "" } = {}) {
   const { rt } = freshApp({ small: true });
   const triggers = [];
   rt.ctx.__triggers = triggers;
@@ -28,8 +28,9 @@ function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", u
     HtmlService = { createHtmlOutput: (html) => { const o = { _html: html, getContent: () => html, setTitle: () => o, addMetaTag: () => o }; return o; } };
   `);
   const load = (opts) => {
-    const o = Object.assign({ release, code, url, features }, opts);
-    const src = INSTALL.replace("__RELEASE__", o.release).replace("__CODE__", o.code).replace("__MAINURL__", o.url).replace("__FEATURES__", o.features);
+    const o = Object.assign({ release, code, url, features, ref }, opts);
+    let src = INSTALL.replace("__RELEASE__", o.release).replace("__CODE__", o.code).replace("__MAINURL__", o.url).replace("__FEATURES__", o.features);
+    if (o.ref) src = src.replace("__BACKENDREF__", o.ref);
     rt.run(src);
   };
   load();
@@ -144,4 +145,29 @@ test("e-mail check only counts, never opens", () => {
   assert.equal(g.ok, true);
   assert.equal(typeof g.count, "number");
   assert.equal(calls.length, 0, "no e-mail was opened");
+});
+
+test("the backend version this copy was built from is reported (check=version and the app's capabilities); an unstamped copy reports none", () => {
+  const stamped = withInstall({ ref: "abc1234def" });
+  stamped.get({});
+  assert.equal(stamped.json({ check: "version" }).backendRef, "abc1234def");
+  assert.equal(stamped.rt.run("getCapabilities_().backendRef"), "abc1234def");
+  const bare = withInstall();   // the placeholder is never replaced (e.g. the owner's own testing)
+  bare.get({});
+  assert.equal(bare.json({ check: "version" }).backendRef, "");
+  assert.equal(bare.rt.run("getCapabilities_().backendRef"), "");
+});
+
+test("an UPDATE sent without an access code keeps the one this copy already has (so the person's other phone keeps working)", () => {
+  const { rt, load, get } = withInstall({ release: "r1", code: "first-code-0123456789abcdef", features: "base" });
+  get({});
+  assert.equal(rt.svc.props.get("ACCESS_CODE"), "first-code-0123456789abcdef");
+  load({ release: "r2", code: "" });   // an update pushed from a phone that does not know the code
+  get({});
+  assert.equal(rt.svc.props.get("ACCESS_CODE"), "first-code-0123456789abcdef");
+});
+
+test("the owner's own copy (no installer file) reports no backend version", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(rt.run("getCapabilities_().backendRef"), "");
 });
