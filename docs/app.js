@@ -5858,7 +5858,7 @@ function renderTour_() {
   });
   itemsEl.hidden = !itemsEl.children.length;
   // The animated mini scene for this card (tour-scenes.js); cards without one just hide the stage.
-  if (typeof TourScenes !== "undefined") TourScenes.play(key, welcomeEl_("tour-scene"), { tr, home: homeCur(), money: moneyFmt });
+  if (typeof TourScenes !== "undefined") TourScenes.play(key, welcomeEl_("tour-scene"), { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label });
   welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<span class="welcome-dot${n === tour_.i ? " active" : ""}"></span>`).join("");
   welcomeEl_("tour-back-btn").hidden = tour_.i === 0;
   welcomeEl_("tour-next-btn").textContent = tr(last ? "tour.done" : "tour.next");

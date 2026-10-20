@@ -555,5 +555,163 @@
     }
   };
 
+  // ---- Overview tab: this month's Income / Expenses / Investments / Net, then "By category" (pie + list); tap a category → its entries ----
+  //      The made-up month: Income 3,500 − Expenses 1,920 − Investments 500 = Net 1,080 (the app's own formula).
+  const PIE = {
+    expense: [["🏠", "scene.cat.home", 700, "#f4a58f"], ["🛒", "scene.cat.groceries", 480, "#9cc5ec"], ["🍽️", "scene.cat.restaurants", 320, "#f7cf7a"], ["🚌", "scene.cat.transport", 260, "#9fd18a"], ["🛍️", "scene.cat.shopping", 160, "#c9a8ec"]],
+    income: [["💰", "scene.cat.salary", 3200, "#7fcf9f"], ["💵", "scene.cat.extraIncome", 300, "#9cc5ec"]]
+  };
+  const monthIso = (day) => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0"); };
+
+  SCENES.overview = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      h("div", "ts-bar", tr("nav.overview"), phone);
+      const clip = h("div", "ts-clip", null, phone);
+      const scroll = h("div", "ts-scroll", null, clip);
+      // period selector: ‹ month › and Month / Year / All-time / Custom
+      const per = h("div", "ts-card", null, scroll);
+      const sel = h("div", "ts-period", null, per);
+      h("span", "ts-link", "‹", sel); h("b", null, ctx.period || "", sel); h("span", "ts-link", "›", sel);
+      chipRow(per, [tr("period.month"), tr("period.year"), tr("period.alltime"), tr("period.custom")], 0);
+      // the four totals
+      const sum = h("div", "ts-card ts-sum", null, scroll);
+      [["summary.income", 3500, "var(--income)"], ["summary.expenses", 1920, "var(--expense)"], ["summary.investments", 500, "var(--investment)"], ["summary.net", 1080, ""]].forEach(([k, v, color]) => {
+        const c = h("div", null, null, sum);
+        h("span", "ts-muted", tr(k), c);
+        const val = h("b", "ts-sum-value", ctx.home + " " + ctx.money(v), c);
+        if (color) val.style.color = color;
+      });
+      // By category
+      const card = h("div", "ts-card", null, scroll);
+      const tabs = h("div", "ts-seg", null, card);
+      const p = { phone, scroll, card, finger: makeFinger(stage), ctx, sum };
+      p.tabExpense = h("span", "on expense", tr("type.expense"), tabs);
+      p.tabIncome = h("span", null, tr("type.income"), tabs);
+      h("div", "ts-h3", tr("overview.byCategory"), card);
+      p.wrap = h("div", "ts-pie-wrap", null, card);
+      p.pie = h("div", "ts-pie", null, p.wrap);
+      p.legend = h("div", "ts-legend", null, card);
+      p.sheet = h("div", "ts-sheet", null, phone);
+      p.draw = (type) => {
+        const items = PIE[type], total = items.reduce((s, it) => s + it[2], 0), half = 65;
+        p.wrap.querySelectorAll(".ts-pie-label").forEach((e) => e.remove());
+        p.legend.innerHTML = "";
+        let cum = 0; const stops = []; p.rows = [];
+        items.forEach(([icon, key, amt, color]) => {
+          const pct = amt / total * 100;
+          stops.push(color + " " + cum + "% " + (cum + pct) + "%");
+          if (pct >= 4) {   // the app labels slices of 4% and more outside the pie
+            const a = (cum + pct / 2) / 100 * 2 * Math.PI, r = half * 0.82;
+            const lab = h("div", "ts-pie-label", null, p.wrap);
+            lab.style.left = (half + r * Math.sin(a)) + "px"; lab.style.top = (half - r * Math.cos(a)) + "px";
+            const ic = h("span", "ts-pie-icon", icon, lab); ic.style.background = color;
+            h("span", "ts-pie-pct", Math.round(pct) + "%", lab);
+          }
+          cum += pct;
+          const row = h("div", "ts-legend-row", null, p.legend);
+          const sw = h("span", "ts-legend-swatch", null, row); sw.style.background = color;
+          const text = h("div", "ts-legend-text", null, row);
+          h("div", "ts-legend-name", icon + " " + tr(key), text);
+          const sub = h("div", "ts-legend-sub", null, text);
+          h("span", null, ctx.home + " " + ctx.money(amt), sub); h("b", null, pct.toFixed(1) + "%", sub);
+          p.rows.push(row);
+        });
+        p.pie.style.background = "conic-gradient(" + stops.join(", ") + ")";
+      };
+      p.draw("expense");
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fg = p.finger;
+      const scrollTo = (el) => { p.scroll.style.transform = "translateY(" + (-(el.offsetTop - 2)) + "px)"; };
+      const tab = (type) => { p.tabExpense.className = type === "expense" ? "on expense" : ""; p.tabIncome.className = type === "income" ? "on income" : ""; p.draw(type); };
+      const today = new Date().getDate();
+      const rows = [[today, "scene.descShop", 210], [Math.max(1, Math.floor(today / 2)), null, 150], [1, null, 120]];
+      return [
+        [1200, () => scrollTo(p.card)],
+        [2600, (i) => fg.to(p.tabIncome, i)],
+        [3100, (i) => { fg.tap(i); tab("income"); }],
+        [4300, (i) => fg.to(p.tabExpense, i)],
+        [4800, (i) => { fg.tap(i); tab("expense"); }],
+        [5800, (i) => fg.to(p.rows[1], i)],
+        [6300, (i) => { fg.tap(i); p.rows[1].classList.add("on"); }],
+        [6600, () => {
+          const s = sheetOpen(p, "🛒 " + tr("scene.cat.groceries"));
+          h("div", "ts-hint", (ctx.period || "") + " · " + tr("type.expense"), s);
+          rows.forEach(([day, desc, amt]) => {
+            const r = h("div", "ts-entry", null, s);
+            const left = h("div", null, null, r);
+            const t = h("div", "ts-entry-cat", null, left);
+            const ic = h("span", "ts-entry-icon", "🛒", t); ic.style.background = "#9cc5ec";
+            t.appendChild(document.createTextNode(tr("scene.cat.groceries")));
+            if (desc) h("div", "ts-hint", tr(desc), left);
+            h("div", "ts-hint", monthIso(day) + " · " + tr("common.me"), left);
+            h("b", null, ctx.home + " " + ctx.money(amt), r);
+          });
+        }],
+        [7500, () => fg.hide()],
+        [10000, () => {}]
+      ];
+    }
+  };
+
+  // ---- Entries tab: a bank e-mail was read → "Needs review (1)" → pick the category → ✅ Confirm → it joins Recent entries ----
+  SCENES.bank = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      h("div", "ts-bar", tr("nav.entries"), phone);
+      const p = { phone, finger: makeFinger(stage), ctx };
+      p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
+      h("b", null, tr("review.title") + " (1)", p.card);
+      h("div", "ts-hint", tr("review.intro"), p.card);
+      const top = h("div", "ts-review-top", null, p.card);
+      const left = h("div", null, null, top);
+      h("b", null, "Cafe Luna", left);
+      h("div", "ts-hint", isoDay(0) + " · " + tr("type.expense").toLowerCase(), left);
+      h("b", null, ctx.home + " " + ctx.money(48), top);
+      p.category = box(p.card, "", tr("review.pickCategory"));
+      p.category.box.querySelector(".ts-box-label").remove();
+      const two = h("div", "ts-two", null, p.card);
+      box(two, "", "Cafe Luna", "grow").box.querySelector(".ts-box-label").remove();
+      box(two, "", "48", "grow").box.querySelector(".ts-box-label").remove();
+      const btns = h("div", "ts-two", null, p.card);
+      p.confirm = h("div", "ts-btn green grow", tr("review.confirm"), btns);
+      h("div", "ts-btn ghost grow", tr("review.discard"), btns);
+      const more = h("div", "ts-links", null, p.card);
+      ["review.split", "review.markRepayment", "review.convertLoan"].forEach((k) => h("span", "ts-link", tr(k), more));
+      const recent = h("div", "ts-list", null, phone);
+      h("div", "ts-list-title", tr("entries.recent"), recent);
+      p.rows = h("div", "ts-rows", null, recent);
+      const addRow = (name, amt, enter) => {
+        const r = h("div", "ts-row" + (enter ? " enter" : ""), null, null);
+        h("span", "ts-row-name", name, r); h("span", "ts-row-amt", amt, r);
+        p.rows.insertBefore(r, p.rows.firstChild);
+        while (p.rows.children.length > 3) p.rows.removeChild(p.rows.lastChild);
+      };
+      addRow("🚌 " + tr("scene.cat.transport"), ctx.home + " " + ctx.money(6.5));
+      addRow("🛒 " + tr("scene.cat.groceries"), ctx.home + " " + ctx.money(25.5));
+      p.addRow = addRow;
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fg = p.finger;
+      return [
+        [800, () => { p.card.hidden = false; p.card.classList.add("pop"); }],
+        [2000, (i) => fg.to(p.category.box, i)],
+        [2500, (i) => { fg.tap(i); p.category.box.classList.add("focus"); }],
+        [3100, () => { p.category.value.textContent = tr("scene.cat.restaurants"); p.category.box.classList.remove("focus"); }],
+        [3800, (i) => fg.to(p.confirm, i)],
+        [4300, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
+        [4600, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
+        [5400, () => fg.hide()]
+      ];
+    }
+  };
+
   root.TourScenes = { play, stop, has: (key) => !!SCENES[key] };
 })(typeof window !== "undefined" ? window : this);

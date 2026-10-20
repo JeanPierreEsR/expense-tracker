@@ -830,7 +830,7 @@
     "tour.skip": { en: "Skip", es: "Omitir" },
     "tour.done": { en: "Start using the app", es: "Empezar a usar la app" },
     "tour.overview.title": { en: "See where your money goes", es: "Mira a dónde va tu dinero" },
-    "tour.overview.body": { en: "The Overview tab shows each month by category. Tap a category to see the entries behind it.", es: "La pestaña Resumen muestra cada mes por categoría. Toca una categoría para ver los movimientos que la forman." },
+    "tour.overview.body": { en: "The Overview tab adds up each month: income, expenses, investments and what’s left (Net). Below, it splits it by category. Tap a category to see the entries behind it.", es: "La pestaña Resumen suma cada mes: ingresos, gastos, inversiones y lo que queda (Neto). Más abajo lo reparte por categoría. Toca una categoría para ver los movimientos que la forman." },
     "tour.budgets.title": { en: "Set a budget", es: "Fija un presupuesto" },
     "tour.bank.title": { en: "Bank transactions arrive by themselves", es: "Los movimientos del banco llegan solos" },
     "tour.bank.body": { en: "When your bank emails you about a payment, it appears under “Needs review” on the Entries tab. Check it and confirm. Nothing counts until you do.", es: "Cuando tu banco te envía un correo por un pago, aparece en “Por revisar” en la pestaña Movimientos. Revísalo y confírmalo. Nada cuenta hasta que lo hagas." },
