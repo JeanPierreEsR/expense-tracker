@@ -279,6 +279,9 @@ function routeAction(action, payload) {
     case 'admin_seedCategoryKeywords': seedCategoryKeywords(); return { done: true };
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
+    case 'saveCategory': return saveCategory(payload);
+    case 'deleteCategory': return deleteCategory(payload);
+    case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'addCategoryKeyword':
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);

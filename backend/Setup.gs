@@ -14,7 +14,7 @@ var TABLE_DEFINITIONS = {
   // hidden internal name of a BUILT-IN category (e.g. 'groceries'); `name`
   // keeps the English text forever and the Spanish name is looked up by key
   // when shown (Strings.gs). Blank for categories the owner created.
-  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type', 'key'],
+  Categories: ['id', 'name', 'type', 'icon', 'color', 'parent_id', 'period_type', 'key', 'hidden'],
   Tags: ['id', 'name', 'color'],
   // Trips & events (2026-10-19, see Trips.gs and specs/trips-events.md): a named
   // period (a trip, a birthday) that entries can be linked to through
