@@ -160,9 +160,10 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.file'
 ].join(' ');
 const REPO = 'JeanPierreEsR/expense-tracker';
-// The backend that new apps get is PINNED to one tested version, not to whatever is newest on GitHub, so a
-// change published later cannot break the next person's install. Bump it on purpose (see CHANGELOG.md).
-const BACKEND_REF = '9eb931d35835f53fe7ebbc155ff01e01310af633';
+// Once friends have the app, the backend that new apps get is PINNED to one tested commit (replace the placeholder with its id),
+// so a change published later cannot break the next person's install; bump it on purpose (see CHANGELOG.md).
+// UNPINNED on purpose while nobody but the owner uses the app (owner, 2026-10-20): installs follow the newest backend on GitHub.
+const BACKEND_REF = '__PIN__';
 const STORE_KEY = 'setupState';
 const TOKEN_KEY = 'setupToken';
 const HANDOFF_KEY = 'setupHandoff';
