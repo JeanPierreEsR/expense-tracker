@@ -2554,3 +2554,8 @@ body.income-revealed .sens-mask { display: none; }
 .tour-foot-row.scrubbing .welcome-dot.active { transform: scale(1.5); }
 .tour-bubble { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 8px); box-sizing: border-box; padding: 7px 14px; border-radius: 14px; background: var(--text); color: var(--bg); font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); z-index: 5; }
 .tour-bubble[hidden] { display: none; }
+
+/* Statements scene */
+.ts-stmt-result { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.ts-stmt-ok { color: var(--income); font-weight: 700; font-size: 11.5px; }
+.ts-stmt-out { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }

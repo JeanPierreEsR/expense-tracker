@@ -6015,6 +6015,7 @@ function tourCards_() {
   const caps = (meta && meta.capabilities) || {};
   const cards = ["flow", "add", "invest", "transfer", "loan", "repay", "programmed", "trips", "overview", "budgets"];
   if (caps.bankEmails) cards.push("bank");
+  cards.push("statements");
   cards.push("more");
   return cards;
 }
@@ -6043,6 +6044,7 @@ function buildTourSlide_(key, n, total) {
   add("h2", "", tr(`tour.${key}.title`));
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
+  if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
   add("p", "welcome-body", body);
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
