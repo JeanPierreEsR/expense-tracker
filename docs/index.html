@@ -4,13 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-20T00:51:33Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-20T11:43:38Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
 </head>
 <body>
-  <div id="rotate-lock" class="rotate-lock" aria-hidden="true"><span>📱</span><p data-i18n="app.rotateBack">Turn your phone upright to use the app</p></div>
   <button type="button" id="update-banner" class="update-banner" aria-live="polite" hidden data-i18n="banner.update">🔄 New version available — tap to reload</button>
   <div id="save-failed-banner" class="update-banner save-failed-banner" hidden></div>
 
@@ -411,6 +410,10 @@
             <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-categories-btn">
+            <span data-i18n="more.categories">🏷️ Categories</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
             <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
@@ -524,6 +527,18 @@
         <p class="hint" data-i18n="wa.railsScreenHint">Yape works only with BCP accounts; Plin works with other banks (and credit cards), not with BCP accounts. Choose which account each one uses, in soles and in dollars.</p>
         <div id="rails-card-selects"></div>
         <p class="hint" id="rails-card-status"></p>
+      </div>
+    </div>
+
+    <div id="screen-categories" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="categories-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="categories-add-btn" data-i18n="categories.add">+ New category</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
+        <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
+        <div id="categories-list"></div>
       </div>
     </div>
 
@@ -1586,6 +1601,48 @@
     </div>
   </div>
 
+  <div id="cat-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="cat-modal-title" data-i18n="categories.addTitle">New category</span>
+        <button type="button" id="cat-modal-close" class="currency-modal-close">✕</button>
+      </div>
+
+      <div class="cat-preview" aria-live="polite">
+        <span class="category-tile-icon" id="cat-preview-icon">🏷️</span>
+        <span class="category-tile-name" id="cat-preview-name"></span>
+      </div>
+
+      <div id="cat-type-field">
+        <label data-i18n="categories.type">Type</label>
+        <div class="type-tabs budget-period-tabs" id="cat-type-tabs">
+          <div class="type-tab active" data-type="expense" data-i18n="categories.type.expense">Expense</div>
+          <div class="type-tab" data-type="income" data-i18n="categories.type.income">Income</div>
+        </div>
+      </div>
+
+      <label for="cat-name" data-i18n="categories.name">Name</label>
+      <input type="text" id="cat-name" maxlength="40" data-i18n-placeholder="categories.namePlaceholder" placeholder="e.g. Pets">
+
+      <label data-i18n="categories.emoji">Emoji</label>
+      <div class="cat-emoji-groups" id="cat-emoji-groups"></div>
+      <input type="text" id="cat-emoji" maxlength="8" data-i18n-placeholder="categories.emojiPlaceholder" placeholder="🏷️">
+      <p class="hint" data-i18n="categories.emojiHint">Tap one above, or type or paste any emoji.</p>
+
+      <label data-i18n="categories.color">Color</label>
+      <div class="cat-swatches" id="cat-swatches"></div>
+
+      <p class="hint" id="cat-form-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="cat-save-btn" data-i18n="common.save">Save</button>
+      <button type="button" class="cancel-edit-btn" id="cat-cancel-btn" data-i18n="common.cancel">Cancel</button>
+      <div id="cat-manage" hidden>
+        <p class="hint" data-i18n="categories.hideHint">Delete only works for a category nothing uses. Hide keeps past records intact but removes the category from every list you pick from.</p>
+        <button type="button" class="cancel-edit-btn" id="cat-hide-btn" data-i18n="categories.hide">Hide</button>
+        <button type="button" class="delete-entry-btn" id="cat-delete-btn" data-i18n="categories.delete">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <div id="rate-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1657,16 +1714,16 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="i18n.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="tour-scenes.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="signin-link.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="bank-sample.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="perf-share.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="receipt-parse.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="bill-split.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="app.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="statement-parsers.js?v=2026-10-20T00:51:33Z"></script>
-  <script src="statements.js?v=2026-10-20T00:51:33Z"></script>
+  <script src="strings.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="i18n.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="tour-scenes.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="signin-link.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="bank-sample.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="perf-share.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="receipt-parse.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="bill-split.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="app.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="statement-parsers.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="statements.js?v=2026-10-20T11:43:38Z"></script>
 </body>
 </html>
