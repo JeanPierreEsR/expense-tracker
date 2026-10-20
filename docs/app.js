@@ -803,10 +803,18 @@ function sortedCategories_(list) {
   });
 }
 
+// A hidden category (More → Categories) is left out of every "pick a category" list, but one
+// already chosen on the record being edited (`keep`: an id, or a Set of ids) stays listed.
+function catHidden_(c) { return String(c.hidden || "") === "yes"; }
+function pickableCategories_(list, keep) {
+  const kept = (c) => (keep instanceof Set ? keep.has(c.id) : keep != null && keep === c.id);
+  return list.filter((c) => !catHidden_(c) || kept(c));
+}
+
 function populateCategoryOptions() {
   const select = document.getElementById("category");
   select.innerHTML = "";
-  sortedCategories_(meta.categories.filter((c) => c.type === selectedType))
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === selectedType)))
     .forEach((c) => {
       const opt = document.createElement("option");
       opt.value = c.id;
@@ -823,7 +831,7 @@ const ICON_PICKER_TYPES = ["expense", "income"];
 function populateCategoryPicker() {
   const grid = document.getElementById("category-picker");
   grid.innerHTML = "";
-  sortedCategories_(meta.categories.filter((c) => c.type === selectedType))
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === selectedType)))
     .forEach((c) => {
       const tile = document.createElement("button");
       tile.type = "button";
@@ -3555,7 +3563,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const item = document.createElement("div");
     item.className = "review-item";
 
-    const categoryOptions = sortedCategories_(meta.categories.filter((c) => c.type === entry.type))
+    const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
       .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
       .join("");
 
@@ -3827,7 +3835,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -4762,7 +4770,7 @@ function updateBudgetAllCategoriesCheckbox_() {
 function populateBudgetCategoryChips() {
   const container = document.getElementById("budget-category-chips");
   container.innerHTML = "";
-  sortedCategories_(meta.categories.filter((c) => c.type === "expense"))
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedBudgetCategoryIds))
     .forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedBudgetCategoryIds.has(c.id) ? " selected" : "");
@@ -6514,6 +6522,206 @@ document.getElementById("more-accounts-btn").addEventListener("click", showAccou
 document.getElementById("accounts-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("accounts-add-btn").addEventListener("click", () => openPmModal_(null));
 
+// ---- More → Categories: create / change / hide / delete a category (top-level only, no sub-categories) ----
+
+// The 8 colors the app has always used, then 8 more pastels — pastel so the emoji stays readable on every tile.
+const CAT_SWATCHES_ = ["#F7C6D9", "#C9E4F7", "#FFE0B2", "#D9F2D9", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0",
+  "#FFCDD2", "#B3E5FC", "#C8E6C9", "#D1C4E9", "#FFE082", "#B2DFDB", "#F8BBD0", "#CFD8DC"];
+// Suggested emojis by theme (strings split on spaces so multi-part emojis stay whole).
+const CAT_EMOJI_GROUPS_ = [
+  ["food", "🍽️ 🍔 🍕 🍣 🍜 🥗 🍝 🌮 🍞 🥐 🍰 🍦 ☕ 🍺 🍷 🥤 🛒 🥑 🍎 🥩"],
+  ["home", "🏠 🛋️ 🛏️ 🔧 💡 🚿 🧹 🧺 📦 👕 👗 👟 👜 🎁 💄 💈 🪴 🔑 📱 💻"],
+  ["transport", "🚗 🚕 🚌 🚇 🚲 🛵 ⛽ 🅿️ ✈️ 🧳 🏨 🏖️ ⛴️ 🚆 🗺️ ⛰️ 🚢 🛣️ 🛞 🚦"],
+  ["health", "💊 🩺 🏥 🦷 👓 🧘 🏋️ ⚽ 🎾 🏊 🚴 🏃 🥊 ⛳ 🧴 💆 🩹 🏀 🏐 🎿"],
+  ["fun", "🎬 🎮 🎵 🎤 🎨 📚 🎟️ 🎉 🎂 🎲 🎸 📷 🧩 🎭 🎳 🎯 🎡 🏕️ 🎣 🍿"],
+  ["people", "👨‍👩‍👧 👶 🧒 👵 🐶 🐱 🐾 🐠 🎓 🏫 ✏️ 🎒 💍 👪 🐴 🐦 🐢 🧸 🍼 🤝"],
+  ["money", "💰 💵 💳 🏦 📈 📉 🧾 💼 🏢 🧑‍💻 💸 🪙 🧮 📊 🏷️ 🧑‍🔧 🤑 💎 📑 🏧"],
+  ["symbols", "⭐ ❤️ 🔥 ✨ 🌟 🔔 ⚡ ☀️ 🌙 🌈 🍀 🌸 🌳 💧 ☂️ 🔒 ⚙️ ❓ ✅ 🎈"]
+];
+
+let catModalState = null;   // { id, type, color }
+
+function showCategoriesScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-categories"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  renderCategoriesList_();
+}
+
+function renderCategoriesList_() {
+  const list = document.getElementById("categories-list");
+  list.innerHTML = "";
+  ["expense", "income"].forEach((type) => {
+    const head = document.createElement("h3");
+    head.className = "accounts-group-title";
+    head.textContent = tr(`categories.group.${type}`);
+    list.appendChild(head);
+    sortedCategories_(meta.categories.filter((c) => c.type === type)).forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "recurring-row" + (catHidden_(c) ? " inactive" : "");
+      row.innerHTML = `
+        <div class="cat-preview" style="margin:0;">
+          <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
+          <div>
+            <div class="recurring-row-name">${escapeHtml(c.name)}</div>
+            ${catHidden_(c) ? `<div class="recurring-row-sub">${escapeHtml(tr("categories.hiddenTag"))}</div>` : ""}
+          </div>
+        </div>`;
+      row.addEventListener("click", () => openCatModal_(c));
+      list.appendChild(row);
+    });
+  });
+}
+
+function updateCatPreview_() {
+  const icon = document.getElementById("cat-emoji").value.trim() || "🏷️";
+  const iconEl = document.getElementById("cat-preview-icon");
+  iconEl.textContent = icon;
+  iconEl.style.background = catModalState.color;
+  document.getElementById("cat-preview-name").textContent = document.getElementById("cat-name").value.trim();
+  document.querySelectorAll("#cat-emoji-groups .cat-emoji-btn").forEach((b) => b.classList.toggle("selected", b.textContent === icon));
+  document.querySelectorAll("#cat-swatches .cat-swatch").forEach((b) => b.classList.toggle("selected", b.dataset.color === catModalState.color));
+}
+
+function buildCatPickers_() {
+  const groups = document.getElementById("cat-emoji-groups");
+  if (!groups.childElementCount) {
+    CAT_EMOJI_GROUPS_.forEach(([key, emojis]) => {
+      const title = document.createElement("div");
+      title.className = "cat-emoji-group-title";
+      title.textContent = tr(`categories.emojiGroup.${key}`);
+      groups.appendChild(title);
+      const row = document.createElement("div");
+      row.className = "cat-emoji-row";
+      emojis.split(" ").forEach((e) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "cat-emoji-btn";
+        b.textContent = e;
+        b.addEventListener("click", () => { document.getElementById("cat-emoji").value = e; updateCatPreview_(); });
+        row.appendChild(b);
+      });
+      groups.appendChild(row);
+    });
+  }
+  const sw = document.getElementById("cat-swatches");
+  if (!sw.childElementCount) {
+    CAT_SWATCHES_.forEach((color, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cat-swatch";
+      b.dataset.color = color;
+      b.style.background = color;
+      b.setAttribute("aria-label", tr("categories.colorLabel", { n: i + 1 }));
+      b.addEventListener("click", () => { catModalState.color = color; updateCatPreview_(); });
+      sw.appendChild(b);
+    });
+  }
+}
+
+function openCatModal_(cat) {
+  // The pickers' titles are translated when first built; rebuild if the language changed since.
+  const lang = I18n.getLang();
+  if (document.getElementById("cat-emoji-groups").dataset.lang !== lang) {
+    document.getElementById("cat-emoji-groups").innerHTML = "";
+    document.getElementById("cat-emoji-groups").dataset.lang = lang;
+  }
+  buildCatPickers_();
+  const used = new Set(meta.categories.map((c) => c.color));
+  const unusedColor = CAT_SWATCHES_.find((c) => !used.has(c)) || CAT_SWATCHES_[meta.categories.length % CAT_SWATCHES_.length];
+  catModalState = { id: cat ? cat.id : null, type: cat ? cat.type : "expense", color: cat ? (cat.color || unusedColor) : unusedColor };
+  document.getElementById("cat-modal-title").textContent = tr(cat ? "categories.editTitle" : "categories.addTitle");
+  // The type is chosen once, when the category is created; entries of one type only use categories of that type.
+  document.getElementById("cat-type-field").hidden = !!cat;
+  document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === catModalState.type));
+  document.getElementById("cat-name").value = cat ? cat.name : "";
+  document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
+  document.getElementById("cat-form-error").textContent = "";
+  const manageable = !!cat && cat.key !== "other";
+  document.getElementById("cat-manage").hidden = !manageable;
+  if (manageable) document.getElementById("cat-hide-btn").textContent = tr(catHidden_(cat) ? "categories.show" : "categories.hide");
+  updateCatPreview_();
+  const backdrop = document.getElementById("cat-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  if (!cat) document.getElementById("cat-name").focus();
+}
+
+function closeCatModal_() {
+  document.getElementById("cat-modal-backdrop").hidden = true;
+  catModalState = null;
+}
+
+// Reloads the lists (every picker follows) and redraws this screen.
+async function refreshCategoriesAfterChange_() {
+  await loadMeta();
+  renderCategoriesList_();
+}
+
+document.querySelectorAll("#cat-type-tabs .type-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    if (!catModalState) return;
+    catModalState.type = tab.dataset.type;
+    document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+  });
+});
+document.getElementById("cat-name").addEventListener("input", () => catModalState && updateCatPreview_());
+document.getElementById("cat-emoji").addEventListener("input", () => catModalState && updateCatPreview_());
+
+document.getElementById("cat-save-btn").addEventListener("click", async () => {
+  if (!catModalState) return;
+  const errorEl = document.getElementById("cat-form-error");
+  errorEl.textContent = "";
+  const btn = document.getElementById("cat-save-btn");
+  btn.disabled = true;
+  try {
+    await callApi("saveCategory", {
+      id: catModalState.id || undefined,
+      type: catModalState.type,
+      name: document.getElementById("cat-name").value,
+      icon: document.getElementById("cat-emoji").value.trim(),
+      color: catModalState.color
+    });
+    closeCatModal_();
+    await refreshCategoriesAfterChange_();
+  } catch (err) { errorEl.textContent = err.message; }
+  finally { btn.disabled = false; }
+});
+
+document.getElementById("cat-hide-btn").addEventListener("click", async () => {
+  if (!catModalState || !catModalState.id) return;
+  const errorEl = document.getElementById("cat-form-error");
+  errorEl.textContent = "";
+  const cat = meta.categories.find((c) => c.id === catModalState.id);
+  if (!cat) return;
+  try {
+    await callApi("setCategoryHidden", { id: cat.id, hidden: !catHidden_(cat) });
+    closeCatModal_();
+    await refreshCategoriesAfterChange_();
+  } catch (err) { errorEl.textContent = err.message; }
+});
+
+document.getElementById("cat-delete-btn").addEventListener("click", async () => {
+  if (!catModalState || !catModalState.id) return;
+  const errorEl = document.getElementById("cat-form-error");
+  errorEl.textContent = "";
+  const cat = meta.categories.find((c) => c.id === catModalState.id);
+  if (!cat || !confirm(tr("categories.confirmDelete", { name: cat.name }))) return;
+  try {
+    await callApi("deleteCategory", { id: cat.id });
+    closeCatModal_();
+    await refreshCategoriesAfterChange_();
+  } catch (err) { errorEl.textContent = err.message; }   // in use: the message says so and points to Hide
+});
+
+document.getElementById("cat-modal-close").addEventListener("click", closeCatModal_);
+document.getElementById("cat-cancel-btn").addEventListener("click", closeCatModal_);
+document.getElementById("cat-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "cat-modal-backdrop") closeCatModal_();
+});
+document.getElementById("more-categories-btn").addEventListener("click", showCategoriesScreen);
+document.getElementById("categories-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("categories-add-btn").addEventListener("click", () => openCatModal_(null));
+
 // ---- Trips & events (More → Trips & events; see specs/trips-events.md) ----
 // A trip or event is a named period that expenses can be linked to (one per
 // expense), so its whole cost — including tickets paid months before — shows in
@@ -7236,7 +7444,7 @@ const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i
 function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
   container.innerHTML = "";
-  sortedCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"))
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId))
     .forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
@@ -9780,7 +9988,7 @@ let forgiveReturnFriend = null;
 function populateCategoryOptionsForSelect_(selectId, type) {
   const select = document.getElementById(selectId);
   select.innerHTML = "";
-  sortedCategories_(meta.categories.filter((c) => c.type === type)).forEach((c) => {
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === type))).forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c.id;
     opt.textContent = (c.icon ? c.icon + " " : "") + c.name;
