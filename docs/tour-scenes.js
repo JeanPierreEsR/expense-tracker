@@ -651,7 +651,7 @@
       p.netVal = sv("text", { x: 292, y: 295, "text-anchor": "end", class: "ts-chart-num" }, p.net, fmt(0));
       // the explanations, one more appearing at each step
       p.list = h("ol", "ts-captions", null, frame);
-      p.caps = [1, 2, 3, 4].map((n) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(n), li); h("span", null, tr("scene.flow.s" + n), li); return li; });
+      p.caps = ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
       return p;
     },
     steps: [
