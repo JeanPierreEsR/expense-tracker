@@ -159,6 +159,7 @@ var BACKEND_STRINGS_ = {
   "err.railYape": { en: "Yape only works with BCP accounts.", es: "Yape solo funciona con cuentas BCP." },
   "err.railPlin": { en: "Plin doesn't work with BCP accounts. Pick an account at another bank.", es: "Plin no funciona con cuentas BCP. Elige una cuenta de otro banco." },
   "err.tooManyAccounts": { en: "Too many accounts at once.", es: "Demasiadas cuentas a la vez." },
+  "err.tooManyPlatforms": { en: "Too many platforms at once.", es: "Demasiadas plataformas a la vez." },
   "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },
   "err.rateMainFirst": { en: "Set the main currency's exchange rate first (More → Exchange rates).", es: "Primero fija el tipo de cambio de la moneda principal (Más → Tipos de cambio)." },
   "err.rateNeeded": { en: "To switch the main currency to {next}, enter how many {next} one {old} is worth today.", es: "Para cambiar la moneda principal a {next}, indica cuántos {next} vale hoy un {old}." },

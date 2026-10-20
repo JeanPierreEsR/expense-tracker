@@ -1097,6 +1097,24 @@
         </div>
       </div>
 
+      <div id="welcome-platforms" hidden>
+        <p class="hint" id="wp-step"></p>
+        <h2 data-i18n="wp.title">Investment platforms</h2>
+        <p class="hint" data-i18n="wp.intro">If you invest through apps or brokers, add them here so you can record deposits and withdrawals. This step is optional, and you can add or change platforms any time in More → Accounts, cards &amp; platforms.</p>
+        <div id="wp-chips" class="welcome-currencies"></div>
+        <h3 data-i18n="wp.addOwn">Another platform</h3>
+        <div class="wp-add">
+          <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
+          <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
+        </div>
+        <p class="hint" id="wp-error" style="color:#d64545;"></p>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wp-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wp-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+        <button type="button" class="add-inline" id="wp-skip-btn" data-i18n="wp.skip">Skip this step</button>
+      </div>
+
       <div id="welcome-tour" hidden>
         <p class="hint" id="tour-step"></p>
         <h2 id="tour-title"></h2>

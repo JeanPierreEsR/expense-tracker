@@ -1033,7 +1033,8 @@ function populateToPaymentMethodOptions() {
   select.innerHTML = "";
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
-  noneOpt.textContent = selectedType === "investment" ? tr("form.pickPlatform") : tr("form.noneAccount");
+  const anyPlatform = meta.paymentMethods.some((pm) => pm.type === "investment" && !pmHidden_(pm));
+  noneOpt.textContent = selectedType === "investment" ? tr(anyPlatform ? "form.pickPlatform" : "form.noPlatforms") : tr("form.noneAccount");
   select.appendChild(noneOpt);
   // An investment's "To" is a platform; a transfer's is a real account.
   const wantPlatforms = selectedType === "investment";
@@ -5660,10 +5661,12 @@ function maybeShowWelcome_() {
   if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
   const lang = I18n.getLang();
   welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
+    platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, linksTouched: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-accounts").hidden = true;
+  welcomeEl_("welcome-platforms").hidden = true;
   welcomeEl_("welcome-tour").hidden = true;
   renderWelcomeQuestions_();
 }
@@ -5758,8 +5761,10 @@ const waBanksOfList_ = (list) => list.slice().sort((x, y) => x.name.localeCompar
 function showWelcomeStep_(step) {
   welcomeEl_("welcome-questions").hidden = step !== 1;
   welcomeEl_("welcome-accounts").hidden = step !== 2;
+  welcomeEl_("welcome-platforms").hidden = step !== 3;
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (step === 2) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
+  else if (step === 3) renderWelcomePlatforms_();
   else renderWelcomeQuestions_();
 }
 
@@ -5910,19 +5915,61 @@ waEl_("wa-add-bank-btn").addEventListener("click", () => {
 waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(1));
 welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeStep_(2));
 
-// The end of step 2: save the accounts, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
-async function finishWelcome_() {
+// The end of step 2: check the Yape / Plin links, then on to step 3 (nothing is saved yet).
+function waNext_() {
   const missing = WA_RAILS.filter((k) => waCandidates_(k).length && !welcome_.links[k]);
   if (welcome_.accounts.length && missing.length && !confirm(tr("wa.railsConfirm"))) return;
-  const btn = waEl_("wa-next-btn");
+  showWelcomeStep_(3);
+}
+
+// Step 3 (optional): investment platforms. The four suggestions are Peruvian; anything else is typed in.
+const WP_SUGGESTIONS = ["Inteligo", "Hapi", "Prestamype", "Binance"];
+function renderWelcomePlatforms_() {
+  I18n.applyStatic(waEl_("welcome-platforms"));
+  waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
+  const box = waEl_("wp-chips");
+  box.innerHTML = "";
+  WP_SUGGESTIONS.concat(welcome_.platformsCustom).forEach((name) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (welcome_.platforms.includes(name) ? " active" : "");
+    b.textContent = name;
+    b.addEventListener("click", () => {
+      welcome_.platforms = welcome_.platforms.includes(name) ? welcome_.platforms.filter((n) => n !== name) : welcome_.platforms.concat(name);
+      renderWelcomePlatforms_();
+    });
+    box.appendChild(b);
+  });
+  waEl_("wp-skip-btn").hidden = welcome_.platforms.length > 0;
+  waEl_("wp-error").textContent = "";
+}
+function addWelcomePlatform_() {
+  const input = waEl_("wp-input");
+  const name = input.value.trim().slice(0, 40);
+  if (!name) return;
+  const existing = WP_SUGGESTIONS.concat(welcome_.platformsCustom).find((n) => n.toLowerCase() === name.toLowerCase());
+  const use = existing || name;
+  if (!existing) welcome_.platformsCustom.push(name);
+  if (!welcome_.platforms.includes(use)) welcome_.platforms.push(use);
+  input.value = "";
+  renderWelcomePlatforms_();
+}
+waEl_("wp-add-btn").addEventListener("click", addWelcomePlatform_);
+waEl_("wp-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWelcomePlatform_(); } });
+waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(2));
+
+// The end of step 3: save the accounts, the platforms, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+async function finishWelcome_() {
+  const btn = waEl_("wp-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
-  const errEl = waEl_("wa-error");
+  const errEl = waEl_("wp-error");
   errEl.textContent = "";
   try {
     if (welcome_.accounts.length) {
       await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
         accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
+    if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     errEl.textContent = tr("wa.error");
@@ -5939,14 +5986,16 @@ async function finishWelcome_() {
   document.getElementById("currency").value = welcome_.home;
   renderCurrencyChips("entry");
   I18n.saveLang(welcome_.lang);
-  welcomeEl_("welcome-accounts").hidden = true;
-  // The new accounts must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0;
+  welcomeEl_("welcome-platforms").hidden = true;
+  // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0;
   if (perfShareState_().asked) openTour_(reloadAfter);
   else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
 }
-waEl_("wa-next-btn").addEventListener("click", finishWelcome_);
-waEl_("wa-skip-btn").addEventListener("click", finishWelcome_);
+waEl_("wa-next-btn").addEventListener("click", waNext_);
+waEl_("wa-skip-btn").addEventListener("click", waNext_);
+waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
+waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 
 let tour_ = null;
 // The cards, in order. "bank" only exists when e-mail reading is on for this copy (capabilities.bankEmails is the backend's

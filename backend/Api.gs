@@ -147,6 +147,7 @@ function routeAction(action, payload) {
     case 'getSampleEmail': return getSampleEmail(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
     case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
+    case 'saveOnboardingPlatforms': return saveOnboardingPlatforms(payload);
     case 'saveRailLinks': return saveRailLinks(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);

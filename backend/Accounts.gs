@@ -173,6 +173,26 @@ function saveOnboardingAccounts(payload) {
   return { already: false, accounts: created };
 }
 
+// Welcome step 3 (optional): the investment platforms the person names (type 'investment', no balance). Safe to send twice (batch id),
+// and a name that already exists is reused, never duplicated (addPaymentMethod).
+function saveOnboardingPlatforms(payload) {
+  payload = payload || {};
+  var batch = String(payload.batch || '').slice(0, 80);
+  if (batch && String(getSettingsMap().platforms_batch || '') === batch) return { already: true, platforms: [] };
+  var names = Array.isArray(payload.names) ? payload.names : [];
+  if (names.length > 20) throw new Error(tr_('err.tooManyPlatforms'));
+  var created = [];
+  names.forEach(function (n) {
+    var name = String(n || '').trim().slice(0, 40);
+    if (!name) return;
+    var pm = addPaymentMethod({ nickname: name, type: 'investment' });
+    created.push({ id: pm.id, nickname: pm.nickname });
+  });
+  if (batch) setSetting_('platforms_batch', batch);
+  bumpStructureVersion_();
+  return { already: false, platforms: created };
+}
+
 // Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but a CREDIT CARD
 // can pay through Plin whatever its bank (owner, 2026-10-19: Interbank lets him Plin with his card; he asked to offer every bank's cards).
 function railAllowsAccount_(rail, pm) {
