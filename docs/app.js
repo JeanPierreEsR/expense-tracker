@@ -5461,6 +5461,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-perf-btn").hidden = !owner;
   document.getElementById("more-perf-share-btn").hidden = owner;
   document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
+  document.getElementById("more-email-accounts-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
 }
 
@@ -5989,8 +5990,13 @@ async function finishWelcome_() {
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
   const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0;
-  if (perfShareState_().asked) openTour_(reloadAfter);
-  else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
+  const toTour = () => {
+    if (perfShareState_().asked) openTour_(reloadAfter);
+    else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
+  };
+  // Optional question (only when bank e-mail reading is on): do the banks also write to another Google account?
+  if (meta && meta.capabilities && meta.capabilities.bankEmails) openEmailAccountsModal_({ ask: true, onClose: toTour });
+  else toTour();
 }
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
@@ -6184,6 +6190,141 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   });
 })();
 document.getElementById("devices-modal-close").addEventListener("click", () => { document.getElementById("devices-modal-backdrop").hidden = true; });
+
+// ---- More → Email accounts: extra Google accounts whose bank e-mails are read too (specs/review-telegram-email.md § Extra e-mail accounts) ----
+// The person pastes a small reader script into the OTHER account (in a private window, so Google uses that account) and
+// presses Run once; from then on that script pushes the account's bank e-mails to this app. This pop-up lists the accounts
+// and walks through the paste. The same pop-up is the optional last question of the welcome flow (opts.ask).
+const eaEl_ = (id) => document.getElementById(id);
+const EA_CREATE_URL_ = "https://script.google.com/create";
+let ea_ = { timer: null, onClose: null, pairing: null };
+
+async function eaCopy_(text) {
+  const msg = eaEl_("ea-msg");
+  try {
+    await navigator.clipboard.writeText(text);
+    msg.style.color = ""; msg.textContent = tr("emailAcct.copied");
+  } catch (err) {
+    msg.style.color = "#d64545"; msg.textContent = tr("emailAcct.copyFail");
+  }
+}
+
+function eaStatusText_(a) {
+  if (a.status === "wrong_account") return { text: tr("emailAcct.wrong", { actual: a.last_error || "?" }), bad: true };
+  if (a.status !== "connected") return { text: tr("emailAcct.waiting"), bad: false };
+  const when = formatSessionTime_(a.last_seen_at);
+  const seen = new Date(a.last_seen_at).getTime();
+  if (isFinite(seen) && Date.now() - seen > 60 * 60 * 1000) return { text: tr("emailAcct.stale", { when }), bad: true };
+  return { text: tr("emailAcct.connected", { when }), bad: false };
+}
+
+async function eaRefresh_() {
+  const list = eaEl_("ea-list");
+  let accounts;
+  try {
+    accounts = (await callApi("listEmailAccounts", {})).accounts;
+  } catch (err) {
+    list.innerHTML = "";
+    eaEl_("ea-msg").style.color = "#d64545";
+    eaEl_("ea-msg").textContent = tr("emailAcct.error", { error: err.message });
+    return;
+  }
+  list.innerHTML = accounts.length ? "" : `<p class="hint">${escapeHtml(tr("emailAcct.none"))}</p>`;
+  accounts.forEach((a) => {
+    const st = eaStatusText_(a);
+    const row = document.createElement("div");
+    row.className = "skipped-month-row";
+    row.innerHTML = `<div><div>${escapeHtml(a.address)}</div><div class="hint" style="${st.bad ? "color:#d64545;" : ""}">${escapeHtml(st.text)}</div></div>
+      <button type="button" class="add-inline">${escapeHtml(tr("emailAcct.remove"))}</button>`;
+    row.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(tr("emailAcct.confirmRemove", { address: a.address }))) return;
+      try { await callApi("removeEmailAccount", { id: a.id }); } catch (err) { eaEl_("ea-msg").textContent = err.message; }
+      if (ea_.pairing && ea_.pairing.id === a.id) eaHideGuide_();
+      eaRefresh_();
+    });
+    list.appendChild(row);
+  });
+  // The guide closes by itself once the account it is about reports in.
+  if (ea_.pairing) {
+    const mine = accounts.find((a) => a.id === ea_.pairing.id);
+    if (!mine || mine.status === "connected") eaHideGuide_();
+  }
+  eaEl_("ea-add-btn").hidden = accounts.length >= 5 || !eaEl_("ea-add-form").hidden || !!ea_.pairing;
+}
+
+function eaHideGuide_() {
+  ea_.pairing = null;
+  eaEl_("ea-guide").hidden = true;
+  eaEl_("ea-code").value = "";
+}
+
+function openEmailAccountsModal_(opts) {
+  opts = opts || {};
+  ea_.onClose = opts.onClose || null;
+  eaHideGuide_();
+  eaEl_("ea-add-form").hidden = true;
+  eaEl_("ea-address").value = "";
+  eaEl_("ea-msg").textContent = "";
+  eaEl_("ea-ask").hidden = !opts.ask;
+  eaEl_("ea-main").hidden = !!opts.ask;
+  const backdrop = eaEl_("email-accounts-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  eaRefresh_();
+  clearInterval(ea_.timer);
+  ea_.timer = setInterval(() => { if (!backdrop.hidden) eaRefresh_(); }, 8000);
+}
+
+function closeEmailAccountsModal_() {
+  eaEl_("email-accounts-modal-backdrop").hidden = true;
+  clearInterval(ea_.timer);
+  eaHideGuide_();
+  const done = ea_.onClose;
+  ea_.onClose = null;
+  if (done) done();
+}
+
+eaEl_("more-email-accounts-btn").addEventListener("click", () => openEmailAccountsModal_());
+eaEl_("email-accounts-close").addEventListener("click", closeEmailAccountsModal_);
+eaEl_("ea-ask-no").addEventListener("click", closeEmailAccountsModal_);
+eaEl_("ea-ask-yes").addEventListener("click", () => { eaEl_("ea-ask").hidden = true; eaEl_("ea-main").hidden = false; eaEl_("ea-add-btn").click(); });
+eaEl_("ea-add-btn").addEventListener("click", () => {
+  eaEl_("ea-add-form").hidden = false;
+  eaEl_("ea-add-btn").hidden = true;
+  eaEl_("ea-msg").textContent = "";
+  eaEl_("ea-address").focus();
+});
+eaEl_("ea-continue-btn").addEventListener("click", async () => {
+  const msg = eaEl_("ea-msg");
+  const btn = eaEl_("ea-continue-btn");
+  msg.style.color = "#d64545"; msg.textContent = "";
+  btn.disabled = true;
+  try {
+    const res = await callApi("addEmailAccount", { address: eaEl_("ea-address").value, apiUrl: getApiUrl() });
+    ea_.pairing = { id: res.account.id, script: res.script };
+    eaEl_("ea-add-form").hidden = true;
+    const address = res.account.address;
+    eaEl_("ea-guide-title").textContent = tr("emailAcct.guideTitle", { address });
+    eaEl_("ea-g1").textContent = tr("emailAcct.g1", { address });
+    eaEl_("ea-g3").textContent = tr("emailAcct.g3", { address });
+    eaEl_("ea-g4").textContent = tr("emailAcct.g4");
+    eaEl_("ea-code").value = res.script;
+    eaEl_("ea-guide").hidden = false;
+    // g2 holds the copy buttons; its sentence goes in front of them
+    const g2 = eaEl_("ea-g2");
+    let lead = g2.querySelector("[data-ea-lead]");
+    if (!lead) { lead = document.createElement("div"); lead.setAttribute("data-ea-lead", ""); g2.insertBefore(lead, g2.firstChild); }
+    lead.textContent = tr("emailAcct.g2");
+    msg.textContent = "";
+    eaRefresh_();
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+eaEl_("ea-copy-link").addEventListener("click", () => eaCopy_(EA_CREATE_URL_));
+eaEl_("ea-copy-code").addEventListener("click", () => { if (ea_.pairing) eaCopy_(ea_.pairing.script); });
 document.getElementById("devices-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
 });
