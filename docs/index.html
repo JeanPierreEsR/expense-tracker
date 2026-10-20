@@ -1197,6 +1197,7 @@
           <p class="hint" data-i18n="bankSample.senderHint">Open one of its e-mails and look at who sent it.</p>
           <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my e-mails</button>
           <button type="button" class="cancel-edit-btn" id="bs-paste"data-i18n="bankSample.pasteInstead">Paste an e-mail instead</button>
+          <p class="hint" data-i18n="bankSample.statementHint">Is it a bank statement the app cannot read? Open More → Statements, choose the PDF, and you will find the button to send it.</p>
         </div>
         <div id="bs-step-2" hidden>
           <div id="bs-pick">
@@ -1233,6 +1234,47 @@
           <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another e-mail</button>
         </div>
         <p class="hint" id="bs-msg" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="statement-sample-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="stmtSample.title">Send your statement</span>
+        <button type="button" id="ss-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="ss-step-1">
+          <p class="hint" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
+          <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, e-mail addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
+          <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
+          <button type="button" class="primary" id="ss-show" data-i18n="stmtSample.show">Show me what will be sent</button>
+        </div>
+        <div id="ss-step-2" hidden>
+          <p class="hint"><strong data-i18n="stmtSample.previewTitle">This is exactly what I will receive</strong></p>
+          <p class="hint" id="ss-size"></p>
+          <textarea id="ss-preview" rows="14" spellcheck="false"></textarea>
+          <label for="ss-hide" data-i18n="stmtSample.hideLabel">Anything else to hide everywhere? (a person's name, a shop, your street…)</label>
+          <input type="text" id="ss-hide" autocomplete="off" maxlength="300">
+          <p class="hint" data-i18n="bankSample.hideHint">Separate with commas. Then tap “Hide again”.</p>
+          <button type="button" class="cancel-edit-btn" id="ss-redo" data-i18n="bankSample.redo">Hide again</button>
+          <label for="ss-name" data-i18n="bankSample.nameLabel">Your first name, so I can tell you when your bank is ready</label>
+          <input type="text" id="ss-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
+          <label class="checkbox-row">
+            <input type="checkbox" id="ss-confirm">
+            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
+          </label>
+          <button type="button" class="primary" id="ss-send" data-i18n="bankSample.send" disabled>Send to JP</button>
+          <button type="button" class="cancel-edit-btn" id="ss-back" data-i18n="bankSample.back">Back</button>
+        </div>
+        <div id="ss-step-3" hidden>
+          <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
+          <p class="hint" data-i18n="stmtSample.doneBody">I received it. I will let you know when your bank is added. Each kind of statement helps (savings, credit card…), so send another if you can.</p>
+          <button type="button" class="primary" id="ss-done" data-i18n="common.close">Close</button>
+        </div>
+        <p class="hint" id="ss-msg" role="status"></p>
       </div>
     </div>
   </div>
@@ -1799,6 +1841,7 @@
   <script src="receipt-parse.js?v=2026-10-20T22:44:11Z"></script>
   <script src="bill-split.js?v=2026-10-20T22:44:11Z"></script>
   <script src="app.js?v=2026-10-20T22:44:11Z"></script>
+  <script src="statement-sample.js?v=2026-10-20T22:44:11Z"></script>
   <script src="statement-parsers.js?v=2026-10-20T22:44:11Z"></script>
   <script src="statements.js?v=2026-10-20T22:44:11Z"></script>
 </body>
