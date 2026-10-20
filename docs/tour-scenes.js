@@ -554,56 +554,92 @@
     }
   };
 
-  // ---- The big picture: Balances (what each account holds) and the Overview totals (Income / Expenses / Investments / Net) follow four kinds of movement ----
-  //      Income and expenses and investments change the Net (Net = income − expenses − investments); a transfer only moves money between two
-  //      accounts, so the totals do not change. Platforms are never in Balances (the app tracks only the cash put into them).
+  // ---- The big picture, as a flow chart: Income flows IN to Balances, Expense and Investment flow OUT, a Transfer only moves money between two
+  //      accounts inside Balances. Income − Expenses − Investments = Net (Overview's own formula). Platforms are never in Balances: the app
+  //      tracks only the cash put into them. ----
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function sv(tag, attrs, parent, text) {
+    const e = document.createElementNS(SVGNS, tag);
+    Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k]));
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
   SCENES.flow = {
-    hold: 2200,
+    hold: 2400,
     build(stage, ctx) {
       const tr = ctx.tr, fmt = (v) => ctx.home + " " + ctx.money(v);
-      const phone = h("div", "ts-phone", null, stage);
-      h("div", "ts-bar", tr("nav.overview"), phone);
-      const p = { ctx, fmt };
-      p.chip = h("div", "ts-flow-chip", null, phone);
-      const bal = h("div", "ts-card", null, phone);
-      h("b", null, tr("balances.title"), bal);
+      const phone = h("div", "ts-phone ts-chart", null, stage);
+      const svg = sv("svg", { viewBox: "0 0 320 340", class: "ts-chart-svg" }, phone);
+      const p = { ctx, fmt, svg };
+      const fillOf = (c) => "fill:" + c;
+      // an arrow = a flowing dashed line + a head; g.on lights it up, line.run makes the dashes travel
+      const arrow = (g, x1, y1, x2, y2, color, both) => {
+        const line = sv("line", { x1, y1, x2, y2, class: "ts-fl-line", style: "stroke:" + color }, g);
+        const dx = Math.sign(x2 - x1), dy = Math.sign(y2 - y1);
+        const head = (x, y, sx, sy) => sv("polygon", { points: sx ? (x + "," + y + " " + (x - sx * 8) + "," + (y - 5) + " " + (x - sx * 8) + "," + (y + 5)) : (x + "," + y + " " + (x - 5) + "," + (y - sy * 8) + " " + (x + 5) + "," + (y - sy * 8)), style: fillOf(color) }, g);
+        head(x2, y2, dx, dy);
+        if (both) head(x1, y1, -dx, -dy);
+        return line;
+      };
+      const pill = (g, x, y, w, hh, color, l1, l2) => {
+        sv("rect", { x, y, width: w, height: hh, rx: 10, style: fillOf(color) }, g);
+        sv("text", { x: x + w / 2, y: y + 14, "text-anchor": "middle", class: "ts-chart-pill" }, g, l1);
+        return l2 === undefined ? null : sv("text", { x: x + w / 2, y: y + 28, "text-anchor": "middle", class: "ts-chart-pill b" }, g, l2);
+      };
+      p.g = {};
+      // hub: Balances with two accounts
+      sv("rect", { x: 16, y: 80, width: 288, height: 124, rx: 14, class: "ts-chart-hub" }, svg);
+      sv("text", { x: 30, y: 99, class: "ts-chart-title" }, svg, tr("balances.title"));
       p.bal = {};
-      [["debit", "scene.debit", 1000], ["savings", "scene.savings", 2000]].forEach(([k, key, v]) => {
-        const r = h("div", "ts-loanrow", null, bal);
-        h("span", null, tr(key), r);
-        p.bal[k] = h("b", "ts-flow-num", fmt(v), r);
+      [["debit", "scene.debit", 30, 1000], ["savings", "scene.savings", 178, 2000]].forEach(([k, key, x, v]) => {
+        sv("rect", { x, y: 108, width: 112, height: 52, rx: 8, class: "ts-chart-acct" }, svg);
+        sv("text", { x: x + 8, y: 127, class: "ts-chart-muted" }, svg, tr(key));
+        p.bal[k] = sv("text", { x: x + 8, y: 150, class: "ts-chart-num" }, svg, fmt(v));
       });
-      const sum = h("div", "ts-card ts-sum ts-flow-sum", null, phone);
-      p.sum = {};
-      [["income", "summary.income", "var(--income)"], ["expense", "summary.expenses", "var(--expense)"], ["investment", "summary.investments", "var(--investment)"], ["net", "summary.net", ""]].forEach(([k, key, color]) => {
-        const c = h("div", null, null, sum);
-        h("span", "ts-muted", tr(key), c);
-        p.sum[k] = h("b", "ts-sum-value ts-flow-num", fmt(0), c);
-        if (color) p.sum[k].style.color = color;
-      });
+      // income: top, flows down into Balances
+      p.g.income = sv("g", { class: "ts-fl" }, svg);
+      arrow(p.g.income, 160, 42, 160, 78, "var(--income)");
+      p.incomeAmt = pill(p.g.income, 100, 6, 120, 36, "var(--income)", tr("type.income"), fmt(3500));
+      // transfer: between the two accounts, inside Balances
+      p.g.transfer = sv("g", { class: "ts-fl" }, svg);
+      arrow(p.g.transfer, 146, 134, 174, 134, "var(--transfer)", true);
+      pill(p.g.transfer, 80, 170, 160, 26, "var(--transfer)", "", undefined);
+      sv("text", { x: 160, y: 187, "text-anchor": "middle", class: "ts-chart-pill" }, p.g.transfer, tr("type.transfer") + " · " + fmt(200));
+      // expense: leaves Balances at the bottom left
+      p.g.expense = sv("g", { class: "ts-fl" }, svg);
+      arrow(p.g.expense, 70, 206, 70, 244, "var(--expense)");
+      pill(p.g.expense, 10, 246, 120, 36, "var(--expense)", tr("type.expense"), fmt(120));
+      // investment: leaves Balances at the bottom right, towards a platform
+      p.g.investment = sv("g", { class: "ts-fl" }, svg);
+      arrow(p.g.investment, 250, 206, 250, 244, "var(--investment)");
+      pill(p.g.investment, 190, 246, 120, 36, "var(--investment)", tr("type.investment"), fmt(500));
+      sv("text", { x: 250, y: 296, "text-anchor": "middle", class: "ts-chart-muted" }, p.g.investment, "→ " + tr("scene.platform"));
+      // net
+      p.net = sv("g", { class: "ts-fl on" }, svg);
+      sv("rect", { x: 16, y: 304, width: 288, height: 32, rx: 10, class: "ts-chart-hub" }, p.net);
+      sv("text", { x: 30, y: 325, class: "ts-chart-title" }, p.net, tr("summary.net"));
+      p.netVal = sv("text", { x: 292, y: 325, "text-anchor": "end", class: "ts-chart-num" }, p.net, fmt(0));
       return p;
     },
     timeline(p, ctx) {
-      const tr = ctx.tr, fmt = p.fmt;
-      const flash = (el) => { el.classList.remove("ts-flash"); void el.offsetWidth; el.classList.add("ts-flash"); };
-      const show = (type, text) => () => {
-        p.chip.innerHTML = "";
-        h("span", "ts-flow-pill " + type, tr("type." + type), p.chip);
-        h("span", null, text, p.chip);
-        p.chip.classList.add("show");
-      };
-      const set = (el, v) => { el.textContent = fmt(v); flash(el); };
-      const sc = tr("scene.savings"), dc = tr("scene.debit");
+      const fmt = p.fmt;
+      const lit = (k) => () => { p.g[k].classList.add("on"); p.g[k].querySelector("line").classList.add("run"); };
+      const done = (k) => () => p.g[k].querySelector("line").classList.remove("run");
+      const set = (el, v) => () => { el.textContent = fmt(v); el.classList.remove("ts-blink"); void el.getBoundingClientRect(); el.classList.add("ts-blink"); };
       return [
-        [400, show("income", "+" + fmt(3500) + " → " + dc)],
-        [1300, () => { set(p.bal.debit, 4500); set(p.sum.income, 3500); set(p.sum.net, 3500); }],
-        [2600, show("expense", "−" + fmt(120) + " · " + dc)],
-        [3500, () => { set(p.bal.debit, 4380); set(p.sum.expense, 120); set(p.sum.net, 3380); }],
-        [4800, show("transfer", dc + " → " + sc + " · " + fmt(200))],
-        [5700, () => { set(p.bal.debit, 4180); set(p.bal.savings, 2200); }],   // the totals above do not move
-        [7000, show("investment", "−" + fmt(500) + " · " + sc + " → " + tr("scene.platform"))],
-        [7900, () => { set(p.bal.savings, 1700); set(p.sum.investment, 500); set(p.sum.net, 2880); }],
-        [9200, () => p.chip.classList.remove("show")]
+        [400, lit("income")],
+        [1300, set(p.bal.debit, 4500)], [1300, set(p.netVal, 3500)],
+        [2000, done("income")],
+        [2400, lit("expense")],
+        [3300, set(p.bal.debit, 4380)], [3300, set(p.netVal, 3380)],
+        [4000, done("expense")],
+        [4400, lit("transfer")],
+        [5300, set(p.bal.debit, 4180)], [5300, set(p.bal.savings, 2200)],   // Net does not move
+        [6000, done("transfer")],
+        [6400, lit("investment")],
+        [7300, set(p.bal.savings, 1700)], [7300, set(p.netVal, 2880)],
+        [8000, done("investment")]
       ];
     }
   };

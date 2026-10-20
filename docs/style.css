@@ -2487,14 +2487,20 @@ body.income-revealed .sens-mask { display: none; }
 .wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: 10px; }
 .wp-add input { margin: 0; }
 
-/* "Big picture" scene: one movement at a time, then the balances and totals it changes */
-.ts-flow-chip { display: flex; align-items: center; gap: 8px; height: 42px; box-sizing: border-box; margin: 0 0 8px; padding: 6px 8px; border-radius: 10px; background: var(--bg); font-size: 11px; font-weight: 600; opacity: 0; transform: translateY(-8px); transition: opacity .35s, transform .35s; }
-.ts-flow-chip.show { opacity: 1; transform: none; }
-.ts-flow-pill { padding: 2px 8px; border-radius: 999px; color: #fff; font-size: 10.5px; flex-shrink: 0; }
-.ts-flow-pill.income { background: var(--income); }
-.ts-flow-pill.expense { background: var(--expense); }
-.ts-flow-pill.investment { background: var(--investment); }
-.ts-flow-pill.transfer { background: var(--transfer); }
-.ts-flow-sum { margin-top: 8px; }
-.ts-flash { animation: ts-flash .9s ease; }
-@keyframes ts-flash { 0% { background: rgba(0, 113, 227, 0.25); } 100% { background: transparent; } }
+/* "Big picture" scene: a flow chart (SVG). Income flows in, Expense and Investment flow out, a Transfer moves money between two accounts. */
+.ts-chart { padding: 6px 8px; }
+.ts-chart-svg { width: 100%; height: 100%; display: block; }
+.ts-chart-hub { fill: var(--card); stroke: var(--border); stroke-width: 2; }
+.ts-chart-acct { fill: var(--bg); }
+.ts-chart-title { fill: var(--text); font-size: 12px; font-weight: 700; }
+.ts-chart-muted { fill: var(--muted); font-size: 10.5px; }
+.ts-chart-num { fill: var(--text); font-size: 13px; font-weight: 700; }
+.ts-chart-pill { fill: #fff; font-size: 11px; font-weight: 600; }
+.ts-chart-pill.b { font-weight: 700; }
+.ts-fl { opacity: 0.22; transition: opacity .4s; }
+.ts-fl.on { opacity: 1; }
+.ts-fl-line { stroke-width: 3; stroke-dasharray: 6 5; fill: none; }
+.ts-fl-line.run { animation: ts-dash .45s linear infinite; }
+@keyframes ts-dash { to { stroke-dashoffset: -11; } }
+.ts-blink { animation: ts-blink .9s ease; }
+@keyframes ts-blink { 0% { opacity: 0.15; } 100% { opacity: 1; } }
