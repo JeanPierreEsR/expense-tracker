@@ -5938,23 +5938,6 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   window.location.reload();
 });
 
-// More tab order: every card A→Z by its label in the current language (the
-// leading emoji is ignored), then the fixed tail — How to use the app, Signed-in
-// devices, Sign out — and the language picker (already below the list). A
-// language change reloads the app, so sorting once at startup is enough.
-(function sortMoreList() {
-  const list = document.querySelector("#screen-more .more-list");
-  const tailIds = ["more-tour-btn", "more-devices-btn", "more-signout-btn"];
-  const labelOf = (btn) => tr(btn.querySelector("[data-i18n]").dataset.i18n).replace(/^[^\p{L}\p{N}]+/u, "");
-  const lang = I18n.getLang();
-  const tail = tailIds.map((id) => document.getElementById(id));
-  Array.from(list.children)
-    .filter((btn) => !tail.includes(btn))
-    .sort((a, b) => labelOf(a).localeCompare(labelOf(b), lang))
-    .concat(tail)
-    .forEach((btn) => list.appendChild(btn));
-})();
-
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.
 (function setupLanguagePicker() {
