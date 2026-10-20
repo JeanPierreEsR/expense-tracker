@@ -2435,3 +2435,16 @@ body.income-revealed .sens-mask { display: none; }
 .ts-total { font-size: 24px; font-weight: 700; margin: 6px 0 0; }
 .ts-phases { display: flex; gap: 6px; margin: 10px 0 4px; }
 .ts-phase { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+
+/* Portrait only: iOS ignores the manifest "orientation", so on a phone held
+   sideways (short screen) cover the app with a "turn upright" message. */
+.rotate-lock { display: none; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotate-lock {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: fixed; inset: 0; z-index: 99999; text-align: center; gap: 8px;
+    background: var(--bg, #f5f5f7); color: var(--text, #111); font-size: 18px; padding: 24px;
+  }
+  .rotate-lock span { font-size: 40px; }
+  .rotate-lock p { margin: 0; }
+}
