@@ -6024,11 +6024,13 @@ const TOUR_ITEMS = {
     ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
 };
 // The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button, so "Next step" inside the
-// step-by-step card cannot be confused with it. The dots stay at the bottom (tap one to jump), the last card has the Done button,
-// and only the card on screen plays its animation.
+// step-by-step card cannot be confused with it. Each card scrolls up and down on its own (so the next card always appears at its top),
+// the dots stay fixed at the bottom (tap one to jump; press and hold the bottom bar to run through the cards: left half goes back, right half
+// forward), the last card has the Done button, and only the card on screen plays its animation.
 function openTour_(reloadAfter) {
-  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter, slides: [], watch: null };
+  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter, slides: [], holding: false };
   welcomeEl_("welcome-overlay").hidden = false;
+  welcomeEl_("welcome-overlay").classList.add("tour-mode");
   welcomeEl_("welcome-questions").hidden = true;
   welcomeEl_("welcome-tour").hidden = false;
   renderTour_();
@@ -6070,42 +6072,46 @@ function renderTour_() {
   I18n.applyStatic(welcomeEl_("welcome-tour"));
   // Every card already shows its animation's starting picture, so a swipe never reveals an empty card (the one on screen plays from the start).
   tour_.slides.forEach((sl, n) => { if (n !== tour_.i) previewTourSlide_(sl); });
-  if (tour_.watch) tour_.watch.disconnect();
-  if (typeof ResizeObserver !== "undefined") tour_.watch = new ResizeObserver(() => fitTourTrack_());
   showTourCard_(tour_.i, false);
   track.scrollLeft = tour_.i * track.clientWidth;
 }
-// The track is as tall as the card on screen (cards differ a lot; the step-by-step one grows as it explains).
-function fitTourTrack_() {
-  const sl = tour_ && tour_.slides[tour_.i];
-  if (sl) welcomeEl_("tour-track").style.height = sl.el.offsetHeight + "px";
+// The bottom bar never changes height (the hint and Skip are hidden with visibility, not removed), so nothing jumps between cards.
+function tourChrome_(i) {
+  const last = i === tour_.cards.length - 1;
+  welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot${n === i ? " active" : ""}" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
+  welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
+  welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
 function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label }; }
 function previewTourSlide_(sl) {
   if (typeof TourScenes !== "undefined") TourScenes.preview(sl.key, sl.stage, tourSceneCtx_());
+}
+// A smooth scroll that crosses more than one card is ignored by the browser while snapping is on (scroll-snap-stop), so a long jump
+// (tapping a far dot) turns snapping off for the length of the slide and puts it back, exactly on the card, afterwards.
+function scrollTourTo_(i) {
+  const track = welcomeEl_("tour-track"), w = track.clientWidth;
+  if (Math.abs(i - Math.round(track.scrollLeft / w)) <= 1) { track.scrollTo({ left: i * w, behavior: "smooth" }); return; }
+  track.classList.add("fast");
+  track.scrollTo({ left: i * w, behavior: "smooth" });
+  clearTimeout(tour_.fastTimer);
+  tour_.fastTimer = setTimeout(() => { track.scrollLeft = i * w; track.classList.remove("fast"); }, 600);
 }
 function showTourCard_(i, scroll) {
   if (!tour_ || i === tour_.shown) return;
   const track = welcomeEl_("tour-track");
   const before = tour_.shown;
   tour_.i = i; tour_.shown = i;
-  const last = i === tour_.cards.length - 1;
-  welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot${n === i ? " active" : ""}" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
-  welcomeEl_("tour-hint").hidden = i !== 0;
-  welcomeEl_("tour-skip-btn").hidden = last;
-  if (tour_.watch) { tour_.watch.disconnect(); tour_.watch.observe(tour_.slides[i].el); }
-  fitTourTrack_();
-  welcomeEl_("welcome-overlay").scrollTop = 0;
-  if (scroll) track.scrollTo({ left: i * track.clientWidth, behavior: "smooth" });
-  // The animated mini scene (tour-scenes.js) plays only on the card on screen; the one just left goes back to its starting picture.
-  if (before >= 0 && before !== i && tour_.slides[before]) previewTourSlide_(tour_.slides[before]);
+  tourChrome_(i);
+  if (scroll) scrollTourTo_(i);
+  // The animated mini scene (tour-scenes.js) plays only on the card on screen; the one just left goes back to its starting picture,
+  // scrolled to its top, so it is ready for the next visit.
+  if (before >= 0 && before !== i && tour_.slides[before]) { tour_.slides[before].el.scrollTop = 0; previewTourSlide_(tour_.slides[before]); }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, tourSceneCtx_());
-  fitTourTrack_();
 }
 function closeTour_() {
   if (typeof TourScenes !== "undefined") TourScenes.stop();
-  if (tour_ && tour_.watch) tour_.watch.disconnect();
   welcomeEl_("welcome-overlay").hidden = true;
+  welcomeEl_("welcome-overlay").classList.remove("tour-mode");
   const reload = tour_ && tour_.reloadAfter;
   tour_ = null;
   if (reload) window.location.reload();
@@ -6116,9 +6122,48 @@ function closeTour_() {
   // After the swipe settles, find which card is centred.
   track.addEventListener("scroll", () => {
     clearTimeout(settle);
+    if (tour_ && tour_.holding) return;   // running through the cards: only the dots follow until the finger is lifted
     settle = setTimeout(() => { if (tour_ && track.clientWidth) showTourCard_(Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth))), false); }, 90);
   }, { passive: true });
-  welcomeEl_("tour-dots").addEventListener("click", (e) => { const d = e.target.closest("[data-tour-dot]"); if (d && tour_) { tour_.shown = -2; showTourCard_(Number(d.dataset.tourDot), true); } });
+  const cardNow = () => Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth)));
+  let hold = null, suppressClick = false;
+  welcomeEl_("tour-dots").addEventListener("click", (e) => {
+    if (suppressClick) return;
+    const d = e.target.closest("[data-tour-dot]"); if (d && tour_) { tour_.shown = -2; showTourCard_(Number(d.dataset.tourDot), true); }
+  });
+  // Press and hold the bottom bar: after a short pause the cards run past, one every ~0.3 s (left half = back, right half = forward).
+  // Animations stay quiet while it runs; the card you stop on starts its own.
+  const bar = document.querySelector(".tour-foot-row");
+  const endHold = () => {
+    if (!hold) return;
+    const h = hold; hold = null;
+    clearTimeout(h.timer); clearInterval(h.iv);
+    if (!h.repeating || !tour_) return;
+    tour_.holding = false;
+    suppressClick = true; setTimeout(() => { suppressClick = false; }, 120);
+    // let the last slide finish, then land exactly on the card and put snapping back
+    setTimeout(() => { track.scrollLeft = h.idx * track.clientWidth; track.classList.remove("fast"); if (tour_) showTourCard_(h.idx, false); }, 450);
+  };
+  bar.addEventListener("pointerdown", (e) => {
+    if (!tour_ || (e.button != null && e.button > 0) || e.target.closest("#tour-skip-btn")) return;
+    const r = bar.getBoundingClientRect();
+    hold = { dir: e.clientX < r.left + r.width / 2 ? -1 : 1, idx: tour_.i, repeating: false, iv: null, timer: null };
+    hold.timer = setTimeout(() => {
+      if (!hold || !tour_) return;
+      hold.repeating = true; tour_.holding = true;
+      track.classList.add("fast");   // snapping off while running through the cards (see scrollTourTo_)
+      const step = () => {
+        const n = hold.idx + hold.dir;
+        if (n < 0 || n > tour_.cards.length - 1) return;
+        hold.idx = n; tourChrome_(n);
+        track.scrollTo({ left: n * track.clientWidth, behavior: "smooth" });
+      };
+      step();
+      hold.iv = setInterval(step, 320);
+    }, 350);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => bar.addEventListener(ev, endHold));
+  bar.addEventListener("contextmenu", (e) => e.preventDefault());
   document.addEventListener("keydown", (e) => {   // arrow keys do the same as a swipe (handy on a computer)
     if (!tour_ || welcomeEl_("welcome-tour").hidden || welcomeEl_("welcome-overlay").hidden) return;
     if (e.key === "ArrowRight" && tour_.i < tour_.cards.length - 1) showTourCard_(tour_.i + 1, true);
