@@ -6328,7 +6328,8 @@ function fillBankNote_(el, bankNames) {
   el.innerHTML = "";
   const caps = (meta && meta.capabilities) || {};
   const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n)))];
-  if (!caps.bankEmails || perfIsOwnerCopy_() || !names.length) return;
+  // A copy still on an older pinned backend sends no emailInfo: say nothing rather than call every bank unreadable.
+  if (!caps.bankEmails || perfIsOwnerCopy_() || !names.length || !(meta && meta.emailInfo && meta.emailInfo.banks)) return;
   const p = document.createElement("p");
   p.className = "hint";
   p.style.fontWeight = "600";
