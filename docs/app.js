@@ -5467,6 +5467,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-perf-btn").hidden = !owner;
   document.getElementById("more-perf-share-btn").hidden = owner;
   document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
+  document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
   document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
 }
