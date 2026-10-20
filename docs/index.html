@@ -451,6 +451,10 @@
             <span data-i18n="more.tour">📖 How to use the app</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-email-accounts-btn" hidden>
+            <span data-i18n="more.emailAccounts">📧 Email accounts</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
             <span data-i18n="more.devices">📱 Signed-in devices</span>
             <span class="more-list-chevron">›</span>
@@ -1232,6 +1236,50 @@
         <div id="devices-list"></div>
         <p class="hint" id="devices-error" style="color:#d64545;"></p>
         <button type="button" class="add-inline" id="devices-signout-others-btn" data-i18n="devices.signOutOthers">Sign out all my other devices</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="email-accounts-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="emailAcct.title">Email accounts</span>
+        <button type="button" id="email-accounts-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="ea-ask" hidden>
+          <h3 data-i18n="emailAcct.askTitle">Do your banks also write to another Google account?</h3>
+          <p class="hint" data-i18n="emailAcct.askHint">This step is optional.</p>
+          <div class="welcome-tour-buttons">
+            <button type="button" id="ea-ask-no" data-i18n="emailAcct.askNo">Not now</button>
+            <button type="button" class="primary" id="ea-ask-yes" data-i18n="emailAcct.askYes">Yes, connect it</button>
+          </div>
+        </div>
+        <div id="ea-main">
+          <p class="hint" data-i18n="emailAcct.hint">Your bank emails are read from the Google account this app was set up with.</p>
+          <div id="ea-list"></div>
+          <div id="ea-add-form" hidden>
+            <label for="ea-address" data-i18n="emailAcct.addressLabel">Gmail address that receives the bank emails</label>
+            <input type="email" id="ea-address" autocomplete="off" autocapitalize="off" inputmode="email">
+            <button type="button" class="primary" id="ea-continue-btn" data-i18n="emailAcct.continue">Continue</button>
+          </div>
+          <button type="button" class="add-inline" id="ea-add-btn" data-i18n="emailAcct.add">+ Add an account</button>
+          <div id="ea-guide" hidden>
+            <h3 id="ea-guide-title"></h3>
+            <ol class="ea-steps">
+              <li id="ea-g1"></li>
+              <li id="ea-g2">
+                <div><button type="button" class="add-inline" id="ea-copy-link" data-i18n="emailAcct.copyLink">Copy link</button>
+                <button type="button" class="add-inline" id="ea-copy-code" data-i18n="emailAcct.copyCode">Copy code</button></div>
+              </li>
+              <li id="ea-g3"></li>
+              <li id="ea-g4"></li>
+            </ol>
+            <p class="hint" data-i18n="emailAcct.codeOnce">The code can only be copied now.</p>
+            <textarea id="ea-code" readonly rows="4" style="width:100%;font-family:monospace;font-size:11px;"></textarea>
+          </div>
+          <p class="hint" id="ea-msg" role="status" style="color:#d64545;"></p>
+        </div>
       </div>
     </div>
   </div>

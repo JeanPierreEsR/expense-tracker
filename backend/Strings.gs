@@ -264,6 +264,11 @@ var BACKEND_STRINGS_ = {
   "sb.older": { en: "Your balance registered on {date} is newer than this statement, so it stays.", es: "Tu saldo registrado el {date} es más reciente que este estado de cuenta, así que se mantiene." },
 
   // ---- auth ----
+  "emailAcct.badAddress": { en: "That doesn't look like an e-mail address.", es: "Eso no parece una dirección de correo." },
+  "emailAcct.noUrl": { en: "This app's own address is not known yet. Reload the app and try again.", es: "Aún no se conoce la dirección de esta app. Recarga la app e inténtalo de nuevo." },
+  "emailAcct.tooMany": { en: "You can connect up to {n} extra accounts.", es: "Puedes conectar hasta {n} cuentas extra." },
+  "emailAcct.duplicate": { en: "That account is already in the list.", es: "Esa cuenta ya está en la lista." },
+  "emailAcct.notFound": { en: "That account is no longer in the list.", es: "Esa cuenta ya no está en la lista." },
   "auth.invalidCode": { en: "Invalid access code", es: "Código de acceso no válido" },
   "auth.wrongCode": { en: "Wrong access code.", es: "Código de acceso incorrecto." },
   "auth.locked": { en: { one: "Too many wrong codes. Try again in {n} minute.", other: "Too many wrong codes. Try again in {n} minutes." }, es: { one: "Demasiados códigos incorrectos. Inténtalo de nuevo en {n} minuto.", other: "Demasiados códigos incorrectos. Inténtalo de nuevo en {n} minutos." } },
