@@ -1045,6 +1045,7 @@
     "emailAcct.copyFail": { en: "Could not copy. Select the text and copy it by hand.", es: "No se pudo copiar. Selecciona el texto y cópialo a mano." },
     "emailAcct.codeOnce": { en: "The code can only be copied now. If you close this and lose it, remove the account and add it again.", es: "El código solo se puede copiar ahora. Si cierras esto y lo pierdes, quita la cuenta y agrégala de nuevo." },
     "emailAcct.error": { en: "Could not load the accounts: {error}", es: "No se pudieron cargar las cuentas: {error}" },
+    "more.version": { en: "Version {v}", es: "Versión {v}" },
     "more.signout": { en: "🚪 Sign out of this device", es: "🚪 Cerrar sesión en este dispositivo" },
 
     // ---- accounts (More → Accounts, cards & platforms) ----
