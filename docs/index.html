@@ -435,6 +435,10 @@
           </button>
       </div>
       <div class="card more-group">
+          <button type="button" class="more-list-item" id="more-update-btn" hidden>
+            <span data-i18n="more.update">⬆️ Update available</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-perf-btn">
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
@@ -1748,6 +1752,18 @@
       <button type="button" class="primary" id="projection-override-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="add-inline" id="projection-override-reset-btn" data-i18n="projOverride.reset">Reset to calculated</button>
       <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="update-modal-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span></div>
+      <p data-i18n="update.body">A newer version of your app is ready.</p>
+      <p class="hint" id="update-modal-hint"></p>
+      <button type="button" class="primary" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
+      <button type="button" class="add-inline" id="update-open-btn" data-i18n="update.open">Open the update page</button>
+      <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
+      <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
     </div>
   </div>
 
