@@ -6779,6 +6779,7 @@ function renderTripDetail_(d) {
     <div class="trip-phases">${phase("trips.before", d.before)}${phase("trips.during", d.during)}${phase("trips.after", d.after)}</div>
     <p class="hint">${escapeHtml(tr("trips.phaseHint"))}</p>
     ${d.missingRate > 0 ? `<p class="hint">${escapeHtml(tr("trips.missingRate", { n: d.missingRate }))}</p>` : ""}
+    <div id="trip-detail-missing-rates"></div>
     ${cats ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byCategory"))}</h3>${cats}` : ""}
     ${days ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byDay"))}</h3>${days}` : ""}
     <div id="trip-detail-unlinked"></div>
@@ -6786,6 +6787,35 @@ function renderTripDetail_(d) {
   `;
   renderTripUnlinked_(d);
   renderTripEstimates_(d);
+  renderTripMissingRates_(d);
+}
+
+// Expenses that can't be converted yet: one "Set the rate" button per currency (at its earliest month, which
+// also covers every later one). The rate pop-up opens by itself once per trip per visit to the app; cancelling
+// it leaves the buttons here. After a rate is saved the trip is recalculated, and any rate still missing follows.
+const tripRatePrompted_ = {};
+function renderTripMissingRates_(d) {
+  const box = document.getElementById("trip-detail-missing-rates");
+  if (!box || !d.missingRates || !d.missingRates.length) return;
+  d.missingRates.forEach((m) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline";
+    btn.textContent = tr("trips.setRateRow", { currency: m.currency, month: m.month, n: m.count });
+    btn.addEventListener("click", () => setTripDetailRate_(d.trip.id, m));
+    box.appendChild(btn);
+  });
+  if (!tripRatePrompted_[d.trip.id]) {
+    tripRatePrompted_[d.trip.id] = true;
+    setTripDetailRate_(d.trip.id, d.missingRates[0]);
+  }
+}
+
+async function setTripDetailRate_(tripId, m) {
+  const rate = await openRateModal(m.currency, m.month, /* required */ false);
+  if (rate == null || tripDetailId_ !== tripId) return;
+  tripRatePrompted_[tripId] = false;   // ask again if another rate turns out to be missing
+  await refreshTripDetail_();
 }
 
 // Payments that settled an estimate but are not part of the trip: one tap adds each (never automatic).
@@ -6920,27 +6950,45 @@ function closeTripModal_() {
 
 // "Find expenses in these dates": lists the trip-less expenses inside the trip's dates, all ticked;
 // only the ones still ticked when "Add selected" is tapped are linked.
-document.getElementById("trip-find-btn").addEventListener("click", async () => {
-  const id = tripDetailId_;
+document.getElementById("trip-find-btn").addEventListener("click", () => {
   const box = document.getElementById("trip-find-box");
-  if (!id) return;
+  if (!tripDetailId_) return;
   if (!box.hidden) { box.hidden = true; return; }
   box.hidden = false;
+  loadTripFinder_(false);
+});
+
+// lookBack: also include the 12 months before the trip starts (offered by a button inside the box).
+async function loadTripFinder_(lookBack) {
+  const id = tripDetailId_;
+  const box = document.getElementById("trip-find-box");
   box.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  const earlierBtn = () => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline";
+    btn.textContent = tr("trips.findEarlier");
+    btn.addEventListener("click", () => loadTripFinder_(true));
+    return btn;
+  };
   try {
-    const found = await callApi("findTripCandidates", { id });
+    const found = await callApi("findTripCandidates", { id, lookBack: lookBack ? 12 : 0 });
     if (tripDetailId_ !== id) return;
     if (!found.entries.length) {
       box.innerHTML = `<p class="hint">${escapeHtml(tr("trips.findNone"))}</p>`;
+      if (!lookBack) box.appendChild(earlierBtn());
       return;
     }
-    box.innerHTML = `<p class="hint">${escapeHtml(tr("trips.findHint"))}</p>`;
+    // Expenses from BEFORE the trip start come unticked: most of them are everyday spending, not the trip.
+    const tripStart = ((meta.trips || []).find((t) => t.id === id) || {}).start_date || "";
+    box.innerHTML = `<p class="hint">${escapeHtml(tr(lookBack ? "trips.findEarlierHint" : "trips.findHint"))}</p>`;
+    if (!lookBack) box.appendChild(earlierBtn());
     const rows = [];
     found.entries.forEach((e) => {
       const row = document.createElement("label");
       row.className = "recurring-row trip-find-row";
       row.innerHTML = `
-        <input type="checkbox" checked>
+        <input type="checkbox"${e.date < tripStart ? "" : " checked"}>
         <div class="trip-find-text">
           <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
           <div class="recurring-row-sub">${escapeHtml(e.date)}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
@@ -6980,7 +7028,7 @@ document.getElementById("trip-find-btn").addEventListener("click", async () => {
   } catch (err) {
     box.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
   }
-});
+}
 
 document.getElementById("more-trips-btn").addEventListener("click", showTripsScreen);
 document.getElementById("trips-back-btn").addEventListener("click", () => showScreen("more"));

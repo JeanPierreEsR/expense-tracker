@@ -242,6 +242,17 @@ function tripAmountIn_(cur, r) {
   return rate == null || !(rate > 0) ? null : r.ownMain / rate;
 }
 
+// The exchange rate a row is waiting for, as { currency, month } — or null when it needs none. Mirrors
+// tripAmountIn_: first the row's own currency into the main one, then the main one into the trip's currency.
+function tripRateNeed_(cur, r) {
+  if (r.currency === cur) return null;
+  var month = String(tripRowDate_(r)).substring(0, 7);
+  if (r.ownMain == null) return { currency: r.currency, month: month };
+  if (cur === homeCurrency_()) return null;
+  var rate = rateToMain_(buildRatesByCurrency_(), cur, month);
+  return rate == null || !(rate > 0) ? { currency: cur, month: month } : null;
+}
+
 // Rows of both kinds share what the totals need: when (date), which category, and the
 // owner's share in its own currency and in the main currency.
 function tripRowDate_(r) { return r.entry ? r.entry.date : r.date; }
@@ -295,6 +306,7 @@ function getTripDetail(payload) {
 
   var phases = { before: 0, during: 0, after: 0 };
   var total = 0, estimated = 0, missingRate = 0, realCount = 0;
+  var needs = {};   // currency -> { currency, month (earliest), count }
   var byCategory = {};
   var byDay = {};
   var estimates = [];
@@ -310,7 +322,16 @@ function getTripDetail(payload) {
         amount: r.own, currency: r.currency, own_main: amount, overdue: r.date < today
       });
     }
-    if (amount == null) { missingRate++; return; }
+    if (amount == null) {
+      missingRate++;
+      var need = tripRateNeed_(cur, r);
+      if (need) {
+        var n = needs[need.currency] || (needs[need.currency] = { currency: need.currency, month: need.month, count: 0 });
+        n.count++;
+        if (need.month < n.month) n.month = need.month;
+      }
+      return;
+    }
     var d = tripRowDate_(r);
     var phase = d < trip.start_date ? 'before' : (d > trip.end_date ? 'after' : 'during');
     phases[phase] += amount;
@@ -342,6 +363,9 @@ function getTripDetail(payload) {
     before: phases.before, during: phases.during, after: phases.after,
     entryCount: realCount,
     missingRate: missingRate,
+    // One line per currency, at its EARLIEST month: a rate set there covers every later month, so the
+    // list shrinks as the person fills it in (never one prompt per expense).
+    missingRates: Object.keys(needs).sort().map(function (c) { return needs[c]; }),
     budgetSpent: Number(trip.budget_amount) > 0 ? total : null,
     byCategory: bucketToList_(byCategory, total, tr_('report.uncategorized')),
     byDay: Object.keys(byDay).sort().map(function (d) { return { date: d, amount_main: byDay[d] }; }),
@@ -377,10 +401,26 @@ function findTripCandidates(payload) {
     splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount);
   });
   var categoryById = rowsById_(getAllRows('Categories'));
+  // `lookBack` (months, up to 24): also list expenses paid before the trip starts — a flight bought months
+  // ahead is dated the day it was paid (see the dating rule), which is outside the trip's own dates.
+  var lookBack = Math.max(0, Math.min(24, Math.floor(Number(payload.lookBack) || 0)));
+  var from = trip.start_date;
+  if (lookBack) {
+    var y = Number(from.substring(0, 4)), m = Number(from.substring(5, 7)) - lookBack;
+    while (m < 1) { m += 12; y--; }
+    from = y + '-' + (m < 10 ? '0' : '') + m + '-' + from.substring(8, 10);
+  }
   var found = getAllRows('Entries').filter(function (e) {
     return e.status === 'confirmed' && e.type === 'expense' && !e.trip_id &&
-      e.date >= trip.start_date && e.date <= trip.end_date;
-  }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+      e.date >= from && e.date <= trip.end_date;
+  }).sort(function (a, b) {
+    // The trip's own dates first (oldest first); then, only when looking back, the nearest earlier ones first,
+    // so the 300-row cap never cuts off the expenses inside the trip.
+    var aBefore = a.date < trip.start_date, bBefore = b.date < trip.start_date;
+    if (aBefore !== bBefore) return aBefore ? 1 : -1;
+    if (aBefore) return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0);
+    return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+  });
   var rows = found.slice(0, TRIP_CANDIDATE_LIMIT_).map(function (e) {
     var cat = categoryById[e.category_id];
     return {

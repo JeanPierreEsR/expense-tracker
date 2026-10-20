@@ -655,6 +655,8 @@
     "trips.estimatesHint": { en: "Your expected share of things not paid yet. Tap one to change it, or ✓ Covered once the real expense is recorded. An estimate also disappears by itself when a matching expense is recorded.", es: "Tu parte esperada de lo que aún no se paga. Toca una para cambiarla, o ✓ Cubierta cuando ya registraste el gasto real. Una estimación también desaparece sola cuando se registra un gasto que coincide." },
     "trips.find": { en: "🔎 Find expenses in these dates", es: "🔎 Buscar gastos en estas fechas" },
     "trips.findHint": { en: "Your expenses on these dates that are not part of any trip or event. Untick the ones that don't belong here, then add the rest.", es: "Tus gastos en estas fechas que no son parte de ningún viaje ni evento. Desmarca los que no corresponden y agrega el resto." },
+    "trips.findEarlier": { en: "Also look at the 12 months before the trip", es: "Buscar también en los 12 meses antes del viaje" },
+    "trips.findEarlierHint": { en: "Also showing the 12 months before the trip. Those from before the start are unticked: tick the ones that belong, such as a flight bought in advance.", es: "Se muestran también los 12 meses antes del viaje. Los de antes del inicio vienen sin marcar: marca los que corresponden, por ejemplo un pasaje comprado con anticipación." },
     "trips.findNone": { en: "No other expenses fall in these dates.", es: "No hay otros gastos en estas fechas." },
     "trips.findAdd": { en: "Add selected ({n})", es: "Agregar seleccionados ({n})" },
     "trips.findMore": { en: "Showing the first {n} of {total}. Add these, then search again for the rest.", es: "Se muestran los primeros {n} de {total}. Agrégalos y vuelve a buscar para ver el resto." },
@@ -696,6 +698,7 @@
     "trips.byDay": { en: "By day", es: "Por día" },
     "trips.expenses": { en: "Expenses", es: "Gastos" },
     "trips.noEntries": { en: "No expenses linked yet. Open an expense and pick this one under \"Trip / event\".", es: "Aún no hay gastos vinculados. Abre un gasto y elige este en \"Viaje / evento\"." },
+    "trips.setRateRow": { en: { one: "Set the {currency} rate from {month} ({n} expense waiting)", other: "Set the {currency} rate from {month} ({n} expenses waiting)" }, es: { one: "Registrar el tipo de cambio de {currency} desde {month} ({n} gasto esperando)", other: "Registrar el tipo de cambio de {currency} desde {month} ({n} gastos esperando)" } },
     "trips.missingRate": { en: { one: "{n} expense has no exchange rate yet and is not counted in these totals.", other: "{n} expenses have no exchange rate yet and are not counted in these totals." }, es: { one: "{n} gasto aún no tiene tipo de cambio y no se cuenta en estos totales.", other: "{n} gastos aún no tienen tipo de cambio y no se cuentan en estos totales." } },
     "trips.loadFailed": { en: "Couldn't load this ({error}).", es: "No se pudo cargar ({error})." },
 
