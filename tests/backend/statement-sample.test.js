@@ -103,10 +103,10 @@ test("a sample can never become a spreadsheet formula, and bad reports store not
   assert.equal(Array.from(rt.rows("Statement Samples")).length, 1);
 });
 
-test("at most three statements per phone per day", () => {
+test("at most ten statements per phone per day", () => {
   const { rt } = freshApp({ small: true });
   linkTelegram(rt);
-  for (let i = 0; i < 3; i++) assert.equal(send(rt, {}).ok, true);
+  for (let i = 0; i < 10; i++) assert.equal(send(rt, {}).ok, true);
   const res = send(rt, {});
   assert.equal(res.ok, false);
   assert.equal(res.code, "sample_busy");

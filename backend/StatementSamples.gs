@@ -20,7 +20,7 @@ var STATEMENT_SAMPLE_HEADERS_ = ['received_at', 'install_id', 'label', 'bank', '
 var STATEMENT_SAMPLE_MAX_TEXT_ = 200000;     // a whole statement (several pages)
 var STATEMENT_SAMPLE_MIN_TEXT_ = 200;        // anything shorter is not a statement
 var STATEMENT_SAMPLE_PART_ = 40000;          // under the 50,000-character limit of a Sheets cell
-var STATEMENT_SAMPLE_MAX_PER_INSTALL_PER_DAY_ = 3;
+var STATEMENT_SAMPLE_MAX_PER_INSTALL_PER_DAY_ = 10;   // owner: each kind of statement helps, and a person may have several banks
 var STATEMENT_SAMPLE_MAX_ROWS_ = 600;
 
 function ensureStatementSamplesSheet_() {
