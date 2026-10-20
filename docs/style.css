@@ -2582,3 +2582,11 @@ body.income-revealed .sens-mask { display: none; }
 
 /* "Preview the welcome flow" (More): a floating way out while the welcome screens run without saving anything. */
 .welcome-preview-exit { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 12px; z-index: 450; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid #c0392b; background: #fff; color: #c0392b; }
+
+/* More scene */
+.ts-more-clip { height: 292px; overflow: hidden; position: relative; }
+.ts-more-group { padding: 2px 10px; margin-bottom: 8px; }
+.ts-more-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; font-size: 12px; transition: background .25s; }
+.ts-more-row + .ts-more-row { border-top: 1px solid var(--border); }
+.ts-more-row.on { background: rgba(0, 113, 227, 0.14); }
+.ts-more-lang { padding: 4px 2px 10px; }

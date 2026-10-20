@@ -586,6 +586,59 @@
     }
   };
 
+  // ---- The More tab: the list is scrolled down to the language picker and back, then "Accounts, cards & platforms" is opened (its three groups) ----
+  //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ); real order, groups and words.
+  SCENES.more = {
+    hold: 2200,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const p = { ctx, phone, finger: makeFinger(stage) };
+      // view A: the More list
+      p.a = h("div", null, null, phone);
+      h("div", "ts-bar", tr("nav.more"), p.a);
+      const clip = h("div", "ts-more-clip", null, p.a);
+      p.scroll = h("div", "ts-scroll", null, clip);
+      p.rows = {};
+      const card = (keys) => {
+        const c = h("div", "ts-card ts-more-group", null, p.scroll);
+        keys.forEach((k) => { const r = h("div", "ts-more-row", null, c); h("span", null, tr("more." + k), r); h("span", "ts-muted", "›", r); p.rows[k] = r; });
+        return c;
+      };
+      card(["programmed", "trips"]);
+      card(["accounts", "categories", "exchangeRates", "mainCurrency", "statements", "export"]);
+      card(["tour", "devices", "signout"]);
+      const lang = h("div", "ts-more-lang", null, p.scroll);
+      h("div", "ts-hint", "🌐 Language / Idioma", lang);
+      p.lang = h("div", "ts-box", null, lang); h("span", "ts-box-value", root.I18n && root.I18n.getLang() === "es" ? "Español" : "English", p.lang);
+      // view B: Accounts, cards & platforms
+      p.b = h("div", null, null, phone); p.b.hidden = true;
+      const head = h("div", "ts-head", null, p.b);
+      h("span", "ts-link", tr("common.back"), head); h("span", "ts-link", tr("accounts.add"), head);
+      h("div", "ts-h2", tr("accounts.title"), p.b);
+      [["accounts.group.bank", ["scene.savings", "accounts.type.credit"]], ["accounts.group.wallet", ["accounts.type.cash"]], ["accounts.group.platform", ["scene.platform"]]].forEach(([g, items]) => {
+        h("div", "ts-grouptitle", tr(g), p.b);
+        items.forEach((k) => { const r = h("div", "ts-more-row", null, p.b); h("span", null, tr(k), r); h("span", "ts-muted", "›", r); });
+      });
+      return p;
+    },
+    timeline(p, ctx) {
+      const fg = p.finger;
+      const room = () => Math.max(0, p.scroll.scrollHeight - p.scroll.parentNode.clientHeight);
+      return [
+        [500, (i) => fg.to(p.rows.exchangeRates, i)],
+        [1000, (i) => { fg.tap(i); }],
+        [1100, () => { p.scroll.style.transform = "translateY(" + (-room()) + "px)"; }],   // the finger drags the list up: the rest of More, down to the language
+        [1200, (i) => fg.to(p.lang, i)],
+        [3300, () => { p.scroll.style.transform = "translateY(0)"; }],
+        [3500, (i) => fg.to(p.rows.accounts, i)],
+        [4400, (i) => { fg.tap(i); p.rows.accounts.classList.add("on"); }],
+        [4800, () => { p.a.hidden = true; p.b.hidden = false; p.rows.accounts.classList.remove("on"); }],
+        [5300, () => fg.hide()]
+      ];
+    }
+  };
+
   // ---- More → Statements, told in 7 numbered steps the person advances with "Next step" (the real screens and words; numbers and merchants made up):
   //      1 read two statements at once (each is checked)   2 Add: a purchase not in the app   3 Match…: the line IS an entry you have
   //      4 Ignore   5 a transfer between your accounts is found on both statements and paired   6 balance check → Set balance to statement   7 Save (one step, undoable)
