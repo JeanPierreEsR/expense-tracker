@@ -87,6 +87,8 @@
     <button class="secondary" id="btnCancel" data-keep hidden data-t="cancelBtn"></button>
   </div>
 
+  <div class="callout" data-t="accountTip"></div>
+
   <div class="step" id="overview">
     <h3 data-t="whatTitle"></h3>
     <ol data-t="what"></ol>
@@ -191,8 +193,9 @@ const T = {
     stepSetup: 'Step 1 of 2',
     stepAllow: 'Step 2 of 2',
     stepOptional: 'Optional step',
+    accountTip: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so it is the one to prioritize. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails).',
     whatTitle: 'What will happen (about 3 minutes)',
-    what: '<li>We create a <b>private Google Sheet</b> in your own Google account. Your expenses are saved there, in your account.</li><li>We prepare <b>your app</b> so it can use that sheet.</li><li>Google will show you some screens asking you to allow things. <b>Before each one, this page tells you exactly what to tap.</b></li><li><b>Tip:</b> use the Google account whose Gmail <b>receives your bank emails</b>. If you turn on bank emails, the app reads them from that account.</li>',
+    what: '<li>We create a <b>private Google Sheet</b> in your own Google account. Your expenses are saved there, in your account.</li><li>We prepare <b>your app</b> so it can use that sheet.</li><li>Google will show you some screens asking you to allow things. <b>Before each one, this page tells you exactly what to tap.</b></li>',
     switchTitle: 'First: turn on one Google setting',
     switchIntro: 'Google asks for this once, so this page can set up your app in your account.',
     switchSteps: '<li>Tap the blue button. A Google page opens.</li><li>Find <b>Google Apps Script API</b> in the list and tap its switch so it says <b>On</b>.</li><li>Come back to this page. It continues by itself.</li>',
@@ -282,8 +285,9 @@ const T = {
     stepSetup: 'Paso 1 de 2',
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
+    accountTip: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que es la que debes priorizar. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco).',
     whatTitle: 'Qué va a pasar (unos 3 minutos)',
-    what: '<li>Creamos una <b>hoja de Google privada</b> en tu propia cuenta de Google. Tus gastos se guardan ahí, en tu cuenta.</li><li>Preparamos <b>tu app</b> para que pueda usar esa hoja.</li><li>Google te mostrará algunas pantallas pidiéndote permitir cosas. <b>Antes de cada una, esta página te dice exactamente qué tocar.</b></li><li><b>Consejo:</b> usa la cuenta de Google cuyo Gmail <b>recibe los correos de tu banco</b>. Si activas los correos del banco, la app los lee de esa cuenta.</li>',
+    what: '<li>Creamos una <b>hoja de Google privada</b> en tu propia cuenta de Google. Tus gastos se guardan ahí, en tu cuenta.</li><li>Preparamos <b>tu app</b> para que pueda usar esa hoja.</li><li>Google te mostrará algunas pantallas pidiéndote permitir cosas. <b>Antes de cada una, esta página te dice exactamente qué tocar.</b></li>',
     switchTitle: 'Primero: activa un ajuste de Google',
     switchIntro: 'Google lo pide una sola vez, para que esta página pueda preparar tu app en tu cuenta.',
     switchSteps: '<li>Toca el botón azul. Se abre una página de Google.</li><li>Busca <b>API de Google Apps Script</b> en la lista y toca su interruptor hasta que diga <b>Activado</b>.</li><li>Vuelve a esta página. Continúa sola.</li>',
