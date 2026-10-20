@@ -2480,3 +2480,9 @@ body.income-revealed .sens-mask { display: none; }
   padding: 0;
 }
 .cat-swatch.selected { border-color: var(--accent, #4a7bd0); }
+
+/* Welcome step 3: investment platforms */
+.wp-add { display: flex; gap: 8px; align-items: stretch; }
+.wp-add input { flex: 1; min-width: 0; }
+.wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: 10px; }
+.wp-add input { margin: 0; }

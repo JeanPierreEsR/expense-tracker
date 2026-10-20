@@ -113,16 +113,22 @@ function adminSetupInvestmentPlatforms(payload) {
   });
 
   var cats = getAllRows('Categories');
-  if (!cats.some(function (c) { return c.type === 'income' && c.name === 'Investment returns'; })) {
+  if (!hasInvestmentReturnsCategory_(cats)) {
     report.createdCategory = 'Investment returns';
-    if (!dryRun) {
-      appendRowObject('Categories', {
-        id: Utilities.getUuid(), name: 'Investment returns', type: 'income', icon: '📈',
-        color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'investment_returns'
-      });
-    }
+    if (!dryRun) createInvestmentReturnsCategory_(cats);
   }
   return report;
+}
+
+function hasInvestmentReturnsCategory_(cats) {
+  return cats.some(function (c) { return c.type === 'income' && c.name === 'Investment returns'; });
+}
+
+function createInvestmentReturnsCategory_(cats) {
+  appendRowObject('Categories', {
+    id: Utilities.getUuid(), name: 'Investment returns', type: 'income', icon: '📈',
+    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'investment_returns'
+  });
 }
 
 // Sheet menu item 18: shows what would be created, and only creates it
@@ -147,6 +153,13 @@ function menuSetupInvestmentPlatforms() {
 // exists yet, create the starter set (same as menu item 18). Never runs
 // again once any platform exists.
 function ensureInvestmentPlatforms_() {
+  // A friend's copy starts with NO platforms (owner, 2026-10-20): the welcome step lets them add their own, and deleting the
+  // last one must not bring the owner's four back. Only the "Investment returns" income category is kept for them.
+  if (isFriendCopy_()) {
+    var cats = getAllRowsCached_('Categories');
+    if (!hasInvestmentReturnsCategory_(cats)) createInvestmentReturnsCategory_(cats);
+    return;
+  }
   var any = getAllRows('Payment Methods').some(function (pm) { return pm.type === 'investment'; });
   if (!any) adminSetupInvestmentPlatforms({ dryRun: false });
 }
