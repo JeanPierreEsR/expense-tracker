@@ -6,7 +6,11 @@
 # the main folder, which only ever contains work that has been merged.
 #
 # Usage (real, from the main folder, on branch main):
-#   ./ship.sh <branch> "commit message"
+#   ./ship.sh <branch> "commit message" [--minor | --major | --release X.Y.Z]
+#       release number (shown in More, logged in ../VERSIONS.md, tagged vX.Y.Z in git):
+#       no flag = patch (small fix, 0.9.1 → 0.9.2); --minor = new feature (0.9.2 → 0.10.0);
+#       --major = big milestone (0.10.0 → 1.0.0); --release sets it exactly.
+#       Only ships that change docs/ get a new number. The very first one is 0.9.0.
 #   ./ship.sh                      finish an interrupted ship (merged but not pushed)
 # Preview (safe from ANYWHERE — works in a throwaway copy, touches nothing):
 #   ./ship.sh [<branch>] "commit message" --dry-run
@@ -24,13 +28,21 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
-DRY=""; POS=()
+DRY=""; POS=(); KIND="patch"; SETREL=""; EXPECT_REL=""
 for a in "$@"; do
+  if [ -n "$EXPECT_REL" ]; then SETREL="$a"; EXPECT_REL=""; continue; fi
   case "$a" in
     --dry-run) DRY=1 ;;
+    --minor) KIND="minor" ;;
+    --major) KIND="major" ;;
+    --release) EXPECT_REL=1 ;;
     *) POS+=("$a") ;;
   esac
 done
+[ -z "$EXPECT_REL" ] || { echo "✋ --release needs a number, e.g. --release 1.0.0" >&2; exit 1; }
+if [ -n "$SETREL" ] && ! echo "$SETREL" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "✋ --release must look like 1.4.2 (three numbers with dots)." >&2; exit 1
+fi
 BRANCH="${POS[0]:-}"; MSG="${POS[1]:-}"
 
 die() { echo "✋ $*" >&2; exit 1; }
@@ -152,17 +164,30 @@ CHANGED="$(G diff --name-only origin/main HEAD)"
 if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -qv 'version.json'; then
   OLD="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$W/docs/version.json")"
   NEW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  say "Bumping app version $OLD → $NEW"
+  # Release number (MAJOR.MINOR.PATCH): none recorded yet → this ship is 0.9.0.
+  REL="$(python3 -c "
+import json,sys,re
+old=json.load(open(sys.argv[1])).get('release'); kind,setrel=sys.argv[2],sys.argv[3]
+if setrel: print(setrel)
+elif not old: print('0.9.0')
+else:
+    a,b,c=map(int,old.split('.'))
+    print({'major':'%d.0.0'%(a+1),'minor':'%d.%d.0'%(a,b+1),'patch':'%d.%d.%d'%(a,b,c+1)}[kind])
+" "$W/docs/version.json" "$KIND" "$SETREL")"
+  say "Bumping app version $OLD → $NEW (release $REL)"
   sed -i '' "s/$OLD/$NEW/g" "$W/docs/index.html"
-  echo "{ \"version\": \"$NEW\" }" > "$W/docs/version.json"
+  sed -i '' -E "s/(<meta name=\"app-release\" content=\")[^\"]*\"/\1$REL\"/" "$W/docs/index.html"
+  grep -q "<meta name=\"app-release\" content=\"$REL\"" "$W/docs/index.html" || { [ -z "$RESUME" ] && rollback; die "index.html's app-release tag did not take the release number — nothing was published."; }
+  echo "{ \"version\": \"$NEW\", \"release\": \"$REL\" }" > "$W/docs/version.json"
   TOTAL="$(grep -c '?v=' "$W/docs/index.html" || true)"; GOOD="$(grep -c "?v=$NEW" "$W/docs/index.html" || true)"
   [ "$TOTAL" = "$GOOD" ] && [ "$GOOD" -gt 0 ] || { [ -z "$RESUME" ] && rollback; die "index.html's ?v= tags did not all take the new version ($GOOD of $TOTAL) — nothing was published."; }
   G add docs/index.html docs/version.json
-  G commit -q -m "Version bump $NEW
+  G commit -q -m "Version bump $NEW (release $REL)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 else
   say "No app (docs/) changes — version not bumped."
+  [ "$KIND" = "patch" ] && [ -z "$SETREL" ] || echo "⚠ --minor/--major/--release ignored: no app (docs/) changes, so there is no new release number."
 fi
 
 # ------------------------------------------------------- 5. backend (Google)
@@ -193,6 +218,19 @@ if [ -n "$DRY" ]; then
 else
   say "Pushing to GitHub…"
   git push -q origin main || die "git push failed. Everything is deployed to Google; re-run ./ship.sh (no arguments) to retry the push."
+  # Release bookkeeping (a failure here never undoes the ship): git tag vX.Y.Z + one line in ../VERSIONS.md.
+  if git log -1 --format=%s | grep -q '^Version bump '; then
+    REL="$(python3 -c "import json;print(json.load(open('docs/version.json')).get('release',''))")"
+    if [ -n "$REL" ] && ! git rev-parse -q --verify "refs/tags/v$REL" >/dev/null; then
+      git tag -a "v$REL" -m "Release $REL" && git push -q origin "v$REL" || echo "⚠ Could not tag/push v$REL (the ship itself is fine)."
+      VLOG="$HERE/../VERSIONS.md"
+      if [ -f "$VLOG" ] && ! grep -q "^| $REL |" "$VLOG"; then
+        SUBJ="$(git log -2 --format=%s | sed -n 2p | tr '|' '/')"
+        echo "| $REL | $(date +%Y-%m-%d) | $SUBJ |" >> "$VLOG"
+      fi
+      say "Release $REL (tag v$REL)."
+    fi
+  fi
   say "DONE. Shipped:"
   echo "$CHANGED" | sed 's/^/     /'
   echo "Other chats still open: they should run 'git merge main' in their own folder before their next ship."
