@@ -1647,7 +1647,6 @@ body.income-revealed .sens-mask { display: none; }
   justify-content: space-between;
   background: none;
   border: none;
-  border-top: 1px solid var(--border);
   padding: 14px 4px;
   font-family: inherit;
   font-size: 0.95rem;
@@ -1655,9 +1654,9 @@ body.income-revealed .sens-mask { display: none; }
   cursor: pointer;
 }
 
-/* Cards come in three unnamed groups; a gap (not a title) separates them. */
-.more-group + .more-group { margin-top: 18px; }
-.more-group > .more-list-item:last-child { border-bottom: 1px solid var(--border); }
+/* Three unnamed groups, each its own white card (the grey page shows between). */
+/* divider only between visible neighbours, so a hidden first card leaves no stray line */
+.more-list-item:not([hidden]) ~ .more-list-item:not([hidden]) { border-top: 1px solid var(--border); }
 
 .more-list-chevron {
   color: var(--muted);
