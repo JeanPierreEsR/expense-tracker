@@ -1671,6 +1671,13 @@ body.income-revealed .sens-mask { display: none; }
   color: var(--muted);
 }
 
+.app-version {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 /* ---- Recurring expenses screen (reuses the budget row's look) ---- */
 
 .recurring-row {

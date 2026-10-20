@@ -515,6 +515,13 @@ function perfShareOwnerInit_() {
   const s = perfShareState_();
   if (!(s.owner && s.on)) perfShareSave_({ on: true, owner: true, asked: true, label: "Owner" });
 }
+// The release number ("1.4.2") this copy of the app was shipped as. ship.sh writes it into the
+// <meta name="app-release"> tag of index.html; it reads "dev" on the test harness. Shown at the bottom of
+// More and sent with the app-speed reports and bank samples so the owner can tell which version a phone runs.
+function appRelease_() {
+  const m = document.querySelector("meta[name=app-release]");
+  return (m && /^[0-9A-Za-z.\-]{1,30}$/.test(m.content)) ? m.content : "";
+}
 // Where reports go: the owner's backend (his own copy: itself). Only a test page on this Mac may override it.
 function perfReportUrl_() {
   try {
@@ -529,7 +536,6 @@ async function perfSendOnce_() {
   if (!entries.length) return false;
   const share = perfShareState_();
   const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-  const link = document.querySelector("link[rel=stylesheet]");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
@@ -538,7 +544,7 @@ async function perfSendOnce_() {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "reportPerf", payload: {
-        install: perfInstallId_(), label: share.label || "", app: link ? (link.href.split("?v=")[1] || "") : "",
+        install: perfInstallId_(), label: share.label || "", app: appRelease_(),
         device: PerfShare.deviceKind(navigator.userAgent, standalone), entries
       } }),
       signal: controller.signal
@@ -5597,7 +5603,6 @@ bsEl_("bs-send").addEventListener("click", async () => {
   bs_.sending = true;
   bsEl_("bs-send").disabled = true;
   bsMsg_(tr("bankSample.sending"));
-  const link = document.querySelector("link[rel=stylesheet]");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25000);
   try {
@@ -5608,7 +5613,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
       body: JSON.stringify({ action: "reportBankSample", payload: {
         install: perfInstallId_(), label: PerfShare.cleanLabel(bsEl_("bs-name").value), sender: bs_.sender,
         subject: bsEl_("bs-subject").textContent, text: bsEl_("bs-preview").value, language: I18n.getLang(),
-        app: link ? (link.href.split("?v=")[1] || "") : "", how: bs_.how
+        app: appRelease_(), how: bs_.how
       } }),
       signal: controller.signal
     });
@@ -6116,6 +6121,13 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   } catch (e2) { /* storage blocked: the app reloads from the server anyway */ }
   window.location.reload();
 });
+
+// Release number at the bottom of the More tab.
+(function showAppVersion() {
+  const el = document.getElementById("more-app-version");
+  const v = appRelease_();
+  if (el && v) el.textContent = tr("more.version", { v });
+})();
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.

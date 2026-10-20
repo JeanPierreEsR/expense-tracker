@@ -1015,6 +1015,7 @@
     "tour.trips.title": { en: "Trips and events", es: "Viajes y eventos" },
     "tour.trips.body": { en: "Under More → Trips & events, group the expenses of a trip or an event (a birthday, a party) to see what it cost in total, even what you paid months before. Tap + Add, choose Trip or Event, name it, set the dates, pick its currency and, if you want, a budget. Then link expenses to it with the “Trip / event” picker in the entry form, which suggests the trip whose dates cover the expense. Open the trip to see your share so far, the budget bar, and what you paid Before, During and After. Only your share of each expense counts.", es: "En Más → Viajes y eventos, agrupa los gastos de un viaje o de un evento (un cumpleaños, una fiesta) para ver cuánto costó en total, incluso lo que pagaste meses antes. Toca + Agregar, elige Viaje o Evento, ponle nombre, fija las fechas, elige su moneda y, si quieres, un presupuesto. Luego vincula gastos con el selector “Viaje / evento” del formulario, que sugiere el viaje cuyas fechas cubren el gasto. Abre el viaje para ver tu parte hasta ahora, la barra del presupuesto y lo que pagaste Antes, Durante y Después. De cada gasto solo cuenta tu parte." },
     "more.devices": { en: "📱 Signed-in devices", es: "📱 Dispositivos con sesión iniciada" },
+    "more.version": { en: "Version {v}", es: "Versión {v}" },
     "more.signout": { en: "🚪 Sign out of this device", es: "🚪 Cerrar sesión en este dispositivo" },
 
     // ---- accounts (More → Accounts, cards & platforms) ----
