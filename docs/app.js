@@ -190,6 +190,8 @@ function selectCurrency(code, target) {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
+  } else if (resolvedTarget === "trip") {
+    refreshTripRateWarning_(true);   // a newly chosen trip currency with no rate on file asks for one
   }
 }
 
@@ -6783,11 +6785,48 @@ function openTripModal_(trip) {
   document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
+  refreshTripRateWarning_(false);
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+// A trip in a currency other than the app's main one converts everything else through the exchange rates, so
+// it needs a rate for that currency. When one is missing the form says so (with a "Set one" link) and — only
+// right after the person CHOOSES the currency (promptIfMissing) — opens the rate pop-up straight away, which
+// they may cancel. The month checked is the trip's start month: a rate on or before it covers every later month.
+async function refreshTripRateWarning_(promptIfMissing) {
+  const warning = document.getElementById("trip-rate-warning");
+  const currency = document.getElementById("trip-currency").value;
+  if (currency === homeCur()) { warning.hidden = true; return; }
+  const month = (document.getElementById("trip-start").value || todayLocalISO()).slice(0, 7);
+  let hasRate;
+  try {
+    const { rate } = await callApi("getLatestRateOnOrBefore", { currency, month });
+    hasRate = rate != null;
+  } catch (err) {
+    hasRate = true;   // don't nag over a network hiccup
+  }
+  if (document.getElementById("trip-currency").value !== currency) return;   // changed again while checking
+  warning.hidden = hasRate;
+  if (hasRate) return;
+  document.getElementById("trip-rate-warning-text").textContent = tr("trips.noRate", { currency });
+  if (promptIfMissing) await setTripCurrencyRate_(currency, month);
+}
+
+async function setTripCurrencyRate_(currency, month) {
+  const rate = await openRateModal(currency, month, /* required */ false);
+  if (rate != null) refreshTripRateWarning_(false);
+}
+
+document.getElementById("trip-rate-warning-link").addEventListener("click", () => {
+  const currency = document.getElementById("trip-currency").value;
+  const month = (document.getElementById("trip-start").value || todayLocalISO()).slice(0, 7);
+  setTripCurrencyRate_(currency, month);
+});
+// A different start date can move the month that needs a rate.
+document.getElementById("trip-start").addEventListener("change", () => refreshTripRateWarning_(false));
 
 function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;

@@ -670,6 +670,7 @@
     "trips.end": { en: "Ends", es: "Termina" },
     "trips.endHint": { en: "For a single day (a birthday), use the same date for both.", es: "Para un solo día (un cumpleaños), usa la misma fecha en las dos." },
     "trips.currency": { en: "Currency of this trip", es: "Moneda de este viaje" },
+    "trips.noRate": { en: "⚠️ No exchange rate on file for {currency} yet, so expenses in other currencies can't be converted into it.", es: "⚠️ Aún no hay un tipo de cambio registrado para {currency}, así que los gastos en otras monedas no se pueden convertir a ella." },
     "trips.currencyHint": { en: "Every total on this trip is shown in this currency, and the budget is in it too. Expenses already in it count exactly as paid; the rest are converted at the exchange rates on file.", es: "Todos los totales de este viaje se muestran en esta moneda, y el presupuesto también. Los gastos que ya están en ella cuentan tal como se pagaron; el resto se convierte con los tipos de cambio registrados." },
     "trips.budget": { en: "Budget (optional)", es: "Presupuesto (opcional)" },
     "trips.budgetHint": { en: "A guide for this trip or event — it does not change your category budgets. What it counts is what you have paid plus your estimates.", es: "Una guía para este viaje o evento: no cambia tus presupuestos por categoría. Cuenta lo que ya pagaste más tus estimaciones." },

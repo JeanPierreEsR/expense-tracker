@@ -1297,6 +1297,10 @@
         <input type="hidden" id="trip-currency" value="PEN">
         <div class="currency-chips" id="trip-currency-chips"></div>
         <p class="hint" data-i18n="trips.currencyHint">Totals are shown in this currency.</p>
+        <p class="hint" id="trip-rate-warning" hidden>
+          <span id="trip-rate-warning-text">⚠️ No exchange rate on file yet.</span>
+          <span class="add-inline" id="trip-rate-warning-link" data-i18n="budgetModal.setOne">Set one</span>
+        </p>
 
         <label for="trip-budget" data-i18n="trips.budget">Budget (optional)</label>
         <input type="text" inputmode="decimal" id="trip-budget" placeholder="0.00">
