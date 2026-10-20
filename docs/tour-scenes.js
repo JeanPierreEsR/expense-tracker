@@ -67,6 +67,8 @@
       timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (bar.scrollIntoView) bar.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, ms));
     };
     btn.onclick = () => go(false);
+    // Tapping the animation itself also goes to the next step (not while a step is still playing, and not to replay at the end).
+    stage.onclick = () => { if (!btn.disabled && i < total) go(false); };
     refresh();
     if (reduce) { for (let k = 0; k < total; k++) go(true); }
     else { btn.disabled = true; timers.push(setTimeout(() => go(false), 400)); }

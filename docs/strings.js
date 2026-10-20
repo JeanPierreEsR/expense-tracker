@@ -892,7 +892,7 @@
     "tour.skip": { en: "Skip", es: "Omitir" },
     "tour.done": { en: "Start using the app", es: "Empezar a usar la app" },
     "tour.flow.title": { en: "Everything that moves your money, in one place", es: "Todo lo que mueve tu dinero, en un solo lugar" },
-    "tour.flow.body": { en: "Record every income, expense, transfer and investment and you always know how much came in, how much went out and what you have left. Tap “Next step” to follow one movement at a time.", es: "Registra cada ingreso, gasto, transferencia e inversión y siempre sabes cuánto entró, cuánto salió y cuánto te queda. Toca “Siguiente paso” para seguir un movimiento a la vez." },
+    "tour.flow.body": { en: "Record every income, expense, transfer and investment and you always know how much came in, how much went out and what you have left. Tap “Next step” or the picture to follow one movement at a time.", es: "Registra cada ingreso, gasto, transferencia e inversión y siempre sabes cuánto entró, cuánto salió y cuánto te queda. Toca “Siguiente paso” o el dibujo para seguir un movimiento a la vez." },
     "tour.nextStep": { en: "Next step ›", es: "Siguiente paso ›" },
     "tour.replay": { en: "↻ Replay", es: "↻ Repetir" },
     "scene.flow.s1": { en: "Income: money comes in. It lands in an account (here, a savings account that was at zero) and your Net goes up.", es: "Ingreso: entra dinero. Llega a una cuenta (aquí, una cuenta de ahorros que estaba en cero) y tu Neto sube." },
