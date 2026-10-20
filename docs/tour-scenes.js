@@ -585,6 +585,70 @@
     }
   };
 
+  // ---- More → Statements: Choose statement PDFs → Reading… → "✓ Read and checked" → Review → pick Add for a purchase not in the app → Save → ✓ Saved ----
+  //      (the real screens and words; the numbers and the merchant are made up)
+  SCENES.statements = {
+    hold: 2000,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const head = h("div", "ts-head", null, phone);
+      h("span", "ts-link", tr("common.back"), head);
+      const p = { phone, finger: makeFinger(stage), ctx };
+      h("div", "ts-h2", tr("stmt.title"), phone);
+      // view A: Read a statement
+      p.a = h("div", "ts-subbody", null, phone);
+      h("b", null, tr("stmt.read"), p.a);
+      p.choose = h("div", "ts-btn", tr("stmt.choose"), p.a);
+      p.result = h("div", "ts-stmt-result", null, p.a);
+      // view B: the review
+      p.b = h("div", "ts-subbody", null, phone); p.b.hidden = true;
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fg = p.finger, cur = ctx.home;
+      let reviewBtn, addChip, saveBtn, out;
+      const label = (cls, text, parent) => h("div", cls, text, parent);
+      return [
+        [500, (i) => fg.to(p.choose, i)],
+        [1100, (i) => { fg.tap(i); p.choose.classList.add("pressed"); }],
+        [1400, () => { p.choose.classList.remove("pressed"); p.result.innerHTML = ""; label("ts-hint", tr("stmt.reading"), p.result); }],
+        [2400, () => {
+          p.result.innerHTML = "";
+          const ok = label("ts-stmt-ok", tr("stmt.verdictGood"), p.result);
+          label("ts-hint", tr("stmt.noteAccount", { label: tr("scene.debit") }), p.result);
+          const r1 = h("div", "ts-loanrow", null, p.result); h("span", "ts-muted", tr("stmt.period"), r1); h("b", null, isoDay(-30) + " – " + isoDay(-1), r1);
+          const r2 = h("div", "ts-loanrow", null, p.result); h("span", "ts-muted", tr("stmt.linesRead"), r2); h("b", null, "12", r2);
+          reviewBtn = h("div", "ts-btn", tr("stmt.reviewButton", { n: 1 }), p.result);
+        }],
+        [3400, (i) => fg.to(reviewBtn, i)],
+        [3900, (i) => { fg.tap(i); reviewBtn.classList.add("pressed"); }],
+        [4200, () => {
+          p.a.hidden = true; p.b.hidden = false;
+          label("ts-hint", tr("stmt.counts", { lines: 12, inApp: 11, handled: 0, notYet: 1 }), p.b);
+          h("b", "ts-grouptitle", tr("stmt.group.purchase"), p.b);
+          label("ts-hint", tr("stmt.group.purchaseHint"), p.b);
+          const row = h("div", "ts-loanrow", null, p.b); h("span", null, "Cafe Luna", row); h("b", null, cur + " " + ctx.money(48), row);
+          const chips = h("div", "ts-chips", null, p.b);
+          addChip = h("span", "ts-chip small", tr("stmt.choice.add"), chips);
+          h("span", "ts-chip small", tr("stmt.choice.match"), chips); h("span", "ts-chip small", tr("stmt.choice.ignore"), chips);
+          out = h("div", "ts-stmt-out", null, p.b);
+        }],
+        [5200, (i) => fg.to(addChip, i)],
+        [5700, (i) => { fg.tap(i); addChip.classList.add("on"); }],
+        [6100, () => { saveBtn = h("div", "ts-btn", tr("stmt.saveN", { n: 1 }), out); }],
+        [6900, (i) => fg.to(saveBtn, i)],
+        [7400, (i) => { fg.tap(i); saveBtn.classList.add("pressed"); }],
+        [7700, () => {
+          out.innerHTML = "";
+          label("ts-stmt-ok", tr("stmt.saved"), out);
+          label("ts-hint", tr("stmt.savedCreated", { n: 1, t: 0, f: 0, p: 1, i: 0, r: 0 }), out);
+        }],
+        [8700, () => fg.hide()]
+      ];
+    }
+  };
+
   // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
   //      1 Income lands in a savings account (it was at zero) → Net appears.   2 A credit card pays an expense → the card goes negative, Net down.
   //      3 Savings pays the card (a transfer) → only moves money between accounts, Net does not change.   4 Savings puts money into a platform
