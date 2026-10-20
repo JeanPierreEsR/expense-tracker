@@ -74,6 +74,9 @@ function doPost(e) {
       // The one request that needs no key: it trades the access code for a
       // session key (see Auth.gs), behind its own lockout.
       response = { ok: true, data: loginWithCode_(body.payload || {}) };
+    } else if (body && body.action === 'reportBankSample') {
+      // A redacted e-mail sample from a friend's phone: needs no sign-in, so BankSamples.gs validates every field.
+      response = { ok: true, data: reportBankSample_(body.payload || {}) };
     } else if (body && body.action === 'reportPerf') {
       // App-speed numbers from a friend's phone: needs no sign-in, so PerfReports.gs validates every field.
       response = { ok: true, data: reportPerf_(body.payload || {}) };
@@ -140,6 +143,8 @@ function routeAction(action, payload) {
     case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': return getMeta();
     case 'setLanguage': return setLanguage(payload);
+    case 'listSampleEmails': return listSampleEmails(payload);
+    case 'getSampleEmail': return getSampleEmail(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
     case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
     case 'saveRailLinks': return saveRailLinks(payload);

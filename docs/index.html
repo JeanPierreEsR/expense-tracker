@@ -440,6 +440,10 @@
             <span data-i18n="more.perfShare">📊 Share app speed</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-bank-sample-btn" hidden>
+            <span data-i18n="more.bankSample">🏦 My bank isn't supported yet</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-extras-btn" hidden>
             <span data-i18n="more.extras">⚡ Extra features</span>
             <span class="more-list-chevron">›</span>
@@ -1147,6 +1151,61 @@
     </div>
   </div>
 
+  <div id="bank-sample-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="bankSample.title">Add your bank</span>
+        <button type="button" id="bs-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="bs-step-1">
+          <p class="hint" data-i18n="bankSample.intro">Is your bank missing? Send me one of its e-mails and I will teach the app to read them. After that, your transactions from that bank show up in the app by themselves. It is the best way to help the app grow. Thank you! — JP</p>
+          <p class="hint" data-i18n="bankSample.privacy">🔒 Your privacy comes first. Before anything leaves your phone, the app hides private details: every digit turns into a 9, e-mail addresses and links are removed, and names are blanked out. You see the exact text first, you can edit it, and nothing is sent until you tap Send.</p>
+          <label for="bs-sender" data-i18n="bankSample.senderLabel">Which address does your bank send e-mails from?</label>
+          <input type="email" id="bs-sender" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-placeholder="bankSample.senderPlaceholder" placeholder="e.g. alerts@yourbank.com">
+          <p class="hint" data-i18n="bankSample.senderHint">Open one of its e-mails and look at who sent it.</p>
+          <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my e-mails</button>
+          <button type="button" class="cancel-edit-btn" id="bs-paste"data-i18n="bankSample.pasteInstead">Paste an e-mail instead</button>
+        </div>
+        <div id="bs-step-2" hidden>
+          <div id="bs-pick">
+            <p class="hint" data-i18n="bankSample.pickTitle">Pick an e-mail that shows a transaction (a purchase, a transfer…)</p>
+            <div id="bs-list" class="more-list"></div>
+          </div>
+          <div id="bs-paste-box" hidden>
+            <label for="bs-paste-text" data-i18n="bankSample.pasteTitle">Paste the e-mail text here</label>
+            <textarea id="bs-paste-text" rows="8" data-i18n-placeholder="bankSample.pastePlaceholder" placeholder="Open the e-mail, select all the text, copy it and paste it here."></textarea>
+            <button type="button" class="primary" id="bs-paste-go" data-i18n="bankSample.continue">Continue</button>
+          </div>
+          <button type="button" class="cancel-edit-btn" id="bs-back-2"data-i18n="bankSample.back">Back</button>
+        </div>
+        <div id="bs-step-3" hidden>
+          <p class="hint"><strong data-i18n="bankSample.previewTitle">This is exactly what I will receive</strong></p>
+          <p class="hint"><span data-i18n="bankSample.subjectLine">Subject:</span> <span id="bs-subject"></span></p>
+          <textarea id="bs-preview" rows="10" spellcheck="false"></textarea>
+          <label for="bs-hide" data-i18n="bankSample.hideLabel">Anything else to hide? (your name as the bank writes it, your street…)</label>
+          <input type="text" id="bs-hide" autocomplete="off" maxlength="200">
+          <p class="hint" data-i18n="bankSample.hideHint">Separate with commas. Then tap “Hide again”.</p>
+          <button type="button" class="cancel-edit-btn" id="bs-redo"data-i18n="bankSample.redo">Hide again</button>
+          <label for="bs-name" data-i18n="bankSample.nameLabel">Your first name, so I can tell you when your bank is ready</label>
+          <input type="text" id="bs-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
+          <label class="checkbox-row">
+            <input type="checkbox" id="bs-confirm">
+            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
+          </label>
+          <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send" disabled>Send to JP</button>
+          <button type="button" class="cancel-edit-btn" id="bs-back-3"data-i18n="bankSample.back">Back</button>
+        </div>
+        <div id="bs-step-4" hidden>
+          <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
+          <p class="hint" data-i18n="bankSample.doneBody">I received it. I will let you know when your bank is added. Each kind of e-mail helps (a purchase, a transfer, a deposit…), so send another if you can.</p>
+          <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another e-mail</button>
+        </div>
+        <p class="hint" id="bs-msg" role="status"></p>
+      </div>
+    </div>
+  </div>
+
   <div id="devices-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1659,6 +1718,7 @@
   <script src="i18n.js?v=2026-10-20T11:43:38Z"></script>
   <script src="tour-scenes.js?v=2026-10-20T11:43:38Z"></script>
   <script src="signin-link.js?v=2026-10-20T11:43:38Z"></script>
+  <script src="bank-sample.js?v=2026-10-20T11:43:38Z"></script>
   <script src="perf-share.js?v=2026-10-20T11:43:38Z"></script>
   <script src="receipt-parse.js?v=2026-10-20T11:43:38Z"></script>
   <script src="bill-split.js?v=2026-10-20T11:43:38Z"></script>
