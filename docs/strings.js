@@ -890,6 +890,8 @@
     "tour.next": { en: "Next", es: "Siguiente" },
     "tour.skip": { en: "Skip", es: "Omitir" },
     "tour.done": { en: "Start using the app", es: "Empezar a usar la app" },
+    "tour.flow.title": { en: "Everything that moves your money, in one place", es: "Todo lo que mueve tu dinero, en un solo lugar" },
+    "tour.flow.body": { en: "Record every income, expense, transfer and investment, and you always know how much came in, how much went out and what you have left. Income, expenses and investments change your Net. A transfer only moves money between your accounts, so your totals stay the same.", es: "Registra cada ingreso, gasto, transferencia e inversión y siempre sabes cuánto entró, cuánto salió y cuánto te queda. Los ingresos, gastos e inversiones cambian tu Neto. Una transferencia solo mueve dinero entre tus cuentas, así que tus totales no cambian." },
     "tour.overview.title": { en: "See where your money goes", es: "Mira a dónde va tu dinero" },
     "tour.overview.body": { en: "The Overview tab adds up each month: income, expenses, investments and what’s left (Net). Below, it splits it by category. Tap a category to see the entries behind it.", es: "La pestaña Resumen suma cada mes: ingresos, gastos, inversiones y lo que queda (Neto). Más abajo lo reparte por categoría. Toca una categoría para ver los movimientos que la forman." },
     "tour.budgets.title": { en: "Set a budget", es: "Fija un presupuesto" },
