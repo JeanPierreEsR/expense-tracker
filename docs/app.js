@@ -6012,48 +6012,101 @@ const TOUR_ITEMS = {
   add: [["field.amount", "tour.f.amount"], ["field.date", "tour.f.date"], ["field.currency", "tour.f.currency"], ["field.description", "tour.f.description"],
     ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
 };
+// The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button, so "Next step" inside the
+// step-by-step card cannot be confused with it. The dots stay at the bottom (tap one to jump), the last card has the Done button,
+// and only the card on screen plays its animation.
 function openTour_(reloadAfter) {
-  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter };
+  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter, slides: [], watch: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = true;
   welcomeEl_("welcome-tour").hidden = false;
   renderTour_();
 }
-function renderTour_() {
-  const root = welcomeEl_("welcome-tour");
-  const key = tour_.cards[tour_.i];
-  const last = tour_.i === tour_.cards.length - 1;
-  I18n.applyStatic(root);
-  welcomeEl_("tour-step").textContent = tr("tour.step", { n: tour_.i + 1, total: tour_.cards.length });
-  welcomeEl_("tour-title").textContent = tr(`tour.${key}.title`);
+function buildTourSlide_(key, n, total) {
+  const slide = document.createElement("section");
+  slide.className = "tour-slide";
+  const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; slide.appendChild(e); return e; };
+  add("p", "hint", tr("tour.step", { n: n + 1, total }));
+  add("h2", "", tr(`tour.${key}.title`));
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
-  welcomeEl_("tour-body").textContent = body;
-  const itemsEl = welcomeEl_("tour-items");
-  itemsEl.innerHTML = "";
-  (TOUR_ITEMS[key] || []).forEach(([label, what]) => {
-    const li = document.createElement("li");
-    const b = document.createElement("b"); b.textContent = tr(label);
-    li.appendChild(b); li.appendChild(document.createTextNode(": " + tr(what)));
-    itemsEl.appendChild(li);
-  });
-  itemsEl.hidden = !itemsEl.children.length;
-  // The animated mini scene for this card (tour-scenes.js); cards without one just hide the stage.
-  if (typeof TourScenes !== "undefined") TourScenes.play(key, welcomeEl_("tour-scene"), { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label });
-  welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<span class="welcome-dot${n === tour_.i ? " active" : ""}"></span>`).join("");
-  welcomeEl_("tour-back-btn").hidden = tour_.i === 0;
-  welcomeEl_("tour-next-btn").textContent = tr(last ? "tour.done" : "tour.next");
+  add("p", "welcome-body", body);
+  const stage = add("div", "ts-stage");
+  stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
+  const items = TOUR_ITEMS[key] || [];
+  if (items.length) {
+    const ul = add("ul", "welcome-items");
+    items.forEach(([label, what]) => {
+      const li = document.createElement("li");
+      const b = document.createElement("b"); b.textContent = tr(label);
+      li.appendChild(b); li.appendChild(document.createTextNode(": " + tr(what)));
+      ul.appendChild(li);
+    });
+  }
+  if (n === total - 1) {
+    const done = add("button", "primary tour-done-btn", tr("tour.done"));
+    done.type = "button";
+    done.addEventListener("click", closeTour_);
+  }
+  return { el: slide, key, stage };
+}
+function renderTour_() {
+  const track = welcomeEl_("tour-track");
+  track.innerHTML = "";
+  const total = tour_.cards.length;
+  tour_.slides = tour_.cards.map((key, n) => { const sl = buildTourSlide_(key, n, total); track.appendChild(sl.el); return sl; });
+  tour_.shown = -1;
+  I18n.applyStatic(welcomeEl_("welcome-tour"));
+  if (tour_.watch) tour_.watch.disconnect();
+  if (typeof ResizeObserver !== "undefined") tour_.watch = new ResizeObserver(() => fitTourTrack_());
+  showTourCard_(tour_.i, false);
+  track.scrollLeft = tour_.i * track.clientWidth;
+}
+// The track is as tall as the card on screen (cards differ a lot; the step-by-step one grows as it explains).
+function fitTourTrack_() {
+  const sl = tour_ && tour_.slides[tour_.i];
+  if (sl) welcomeEl_("tour-track").style.height = sl.el.offsetHeight + "px";
+}
+function showTourCard_(i, scroll) {
+  if (!tour_ || i === tour_.shown) return;
+  const track = welcomeEl_("tour-track");
+  tour_.i = i; tour_.shown = i;
+  const last = i === tour_.cards.length - 1;
+  welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot${n === i ? " active" : ""}" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
+  welcomeEl_("tour-hint").hidden = i !== 0;
   welcomeEl_("tour-skip-btn").hidden = last;
+  if (tour_.watch) { tour_.watch.disconnect(); tour_.watch.observe(tour_.slides[i].el); }
+  fitTourTrack_();
+  welcomeEl_("welcome-overlay").scrollTop = 0;
+  if (scroll) track.scrollTo({ left: i * track.clientWidth, behavior: "smooth" });
+  // The animated mini scene (tour-scenes.js): only on the card on screen; the others are stopped and emptied.
+  tour_.slides.forEach((sl, n) => { if (n !== i) { sl.stage.hidden = true; sl.stage.innerHTML = ""; } });
+  if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label });
+  fitTourTrack_();
 }
 function closeTour_() {
   if (typeof TourScenes !== "undefined") TourScenes.stop();
+  if (tour_ && tour_.watch) tour_.watch.disconnect();
   welcomeEl_("welcome-overlay").hidden = true;
   const reload = tour_ && tour_.reloadAfter;
   tour_ = null;
   if (reload) window.location.reload();
 }
-welcomeEl_("tour-next-btn").addEventListener("click", () => { if (tour_.i >= tour_.cards.length - 1) closeTour_(); else { tour_.i++; renderTour_(); } });
-welcomeEl_("tour-back-btn").addEventListener("click", () => { if (tour_.i > 0) { tour_.i--; renderTour_(); } });
+{
+  const track = welcomeEl_("tour-track");
+  let settle = null;
+  // After the swipe settles, find which card is centred.
+  track.addEventListener("scroll", () => {
+    clearTimeout(settle);
+    settle = setTimeout(() => { if (tour_ && track.clientWidth) showTourCard_(Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth))), false); }, 90);
+  }, { passive: true });
+  welcomeEl_("tour-dots").addEventListener("click", (e) => { const d = e.target.closest("[data-tour-dot]"); if (d && tour_) { tour_.shown = -2; showTourCard_(Number(d.dataset.tourDot), true); } });
+  document.addEventListener("keydown", (e) => {   // arrow keys do the same as a swipe (handy on a computer)
+    if (!tour_ || welcomeEl_("welcome-tour").hidden || welcomeEl_("welcome-overlay").hidden) return;
+    if (e.key === "ArrowRight" && tour_.i < tour_.cards.length - 1) showTourCard_(tour_.i + 1, true);
+    else if (e.key === "ArrowLeft" && tour_.i > 0) showTourCard_(tour_.i - 1, true);
+  });
+}
 welcomeEl_("tour-skip-btn").addEventListener("click", closeTour_);
 document.getElementById("more-tour-btn").addEventListener("click", () => openTour_(false));
 
