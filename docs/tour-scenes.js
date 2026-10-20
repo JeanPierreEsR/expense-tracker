@@ -45,12 +45,40 @@
     };
   }
 
+  // A step-by-step scene (scene.manual): step 1 plays by itself, then the person taps "Next step" at their own pace.
+  // scene.steps[i](parts, ctx, instant, later) runs one step and returns how long it animates (the button waits for it).
+  function playManual(scene, key, stage, ctx, reduce) {
+    stage.hidden = false; stage.innerHTML = ""; stage.onclick = null;
+    const parts = scene.build(stage, ctx);
+    const total = scene.steps.length;
+    const bar = h("div", "ts-stepper", null, stage);
+    const btn = h("button", "ts-step-btn", null, bar);
+    btn.type = "button";
+    let i = 0;
+    const refresh = () => { btn.textContent = ctx.tr(i < total ? "tour.nextStep" : "tour.replay"); };
+    const go = (instant) => {
+      if (i >= total) { play(key, stage, ctx); return; }
+      const later = (fn, ms) => { if (instant) fn(); else timers.push(setTimeout(fn, ms)); };
+      const ms = scene.steps[i](parts, ctx, instant, later) || 0;
+      i++;
+      if (instant) { refresh(); return; }
+      btn.disabled = true;
+      // keep the new explanation and the button in view (the page grows as explanations are added)
+      timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (bar.scrollIntoView) bar.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, ms));
+    };
+    btn.onclick = () => go(false);
+    refresh();
+    if (reduce) { for (let k = 0; k < total; k++) go(true); }
+    else { btn.disabled = true; timers.push(setTimeout(() => go(false), 400)); }
+  }
+
   function play(key, stage, ctx) {
     stop();
     const scene = SCENES[key];
     if (!scene) { stage.hidden = true; stage.innerHTML = ""; return false; }
     stage.hidden = false;
     const reduce = !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (scene.manual) { playManual(scene, key, stage, ctx, reduce); return true; }
     const run = () => {
       stage.innerHTML = "";
       const parts = scene.build(stage, ctx);
@@ -554,59 +582,125 @@
     }
   };
 
-  // ---- The big picture: Balances (what each account holds) and the Overview totals (Income / Expenses / Investments / Net) follow four kinds of movement ----
-  //      Income and expenses and investments change the Net (Net = income − expenses − investments); a transfer only moves money between two
-  //      accounts, so the totals do not change. Platforms are never in Balances (the app tracks only the cash put into them).
+  // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
+  //      1 Income lands in a savings account (it was at zero) → Net appears.   2 A credit card pays an expense → the card goes negative, Net down.
+  //      3 Savings pays the card (a transfer) → only moves money between accounts, Net does not change.   4 Savings puts money into a platform
+  //      (an investment) → Net down. Net = income − expenses − investments (Overview's own formula). Platforms are never in Balances.
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function sv(tag, attrs, parent, text) {
+    const e = document.createElementNS(SVGNS, tag);
+    Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k]));
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
   SCENES.flow = {
-    hold: 2200,
+    manual: true,
     build(stage, ctx) {
       const tr = ctx.tr, fmt = (v) => ctx.home + " " + ctx.money(v);
-      const phone = h("div", "ts-phone", null, stage);
-      h("div", "ts-bar", tr("nav.overview"), phone);
-      const p = { ctx, fmt };
-      p.chip = h("div", "ts-flow-chip", null, phone);
-      const bal = h("div", "ts-card", null, phone);
-      h("b", null, tr("balances.title"), bal);
-      p.bal = {};
-      [["debit", "scene.debit", 1000], ["savings", "scene.savings", 2000]].forEach(([k, key, v]) => {
-        const r = h("div", "ts-loanrow", null, bal);
-        h("span", null, tr(key), r);
-        p.bal[k] = h("b", "ts-flow-num", fmt(v), r);
-      });
-      const sum = h("div", "ts-card ts-sum ts-flow-sum", null, phone);
-      p.sum = {};
-      [["income", "summary.income", "var(--income)"], ["expense", "summary.expenses", "var(--expense)"], ["investment", "summary.investments", "var(--investment)"], ["net", "summary.net", ""]].forEach(([k, key, color]) => {
-        const c = h("div", null, null, sum);
-        h("span", "ts-muted", tr(key), c);
-        p.sum[k] = h("b", "ts-sum-value ts-flow-num", fmt(0), c);
-        if (color) p.sum[k].style.color = color;
-      });
+      const frame = h("div", "ts-phone ts-chart", null, stage);
+      const svg = sv("svg", { viewBox: "0 0 320 312", class: "ts-chart-svg" }, frame);
+      const p = { ctx, fmt, svg, els: [] };
+      const fillOf = (c) => "fill:" + c;
+      const fl = (parent) => { const g = sv("g", { class: "ts-fl" }, parent); p.els.push(g); return g; };
+      const head = (g, x, y, dx, dy, color) => sv("polygon", { points: dx ? (x + "," + y + " " + (x - dx * 8) + "," + (y - 5) + " " + (x - dx * 8) + "," + (y + 5)) : (x + "," + y + " " + (x - 5) + "," + (y - dy * 8) + " " + (x + 5) + "," + (y - dy * 8)), style: fillOf(color) }, g);
+      const arrow = (g, x1, y1, x2, y2, color) => {
+        const line = sv("line", { x1, y1, x2, y2, class: "ts-fl-line", style: "stroke:" + color }, g);
+        head(g, x2, y2, Math.sign(x2 - x1), Math.sign(y2 - y1), color);
+        return line;
+      };
+      const typeBox = (g, x, y, color, type, amount) => {
+        sv("rect", { x, y, width: 120, height: 36, rx: 10, style: fillOf(color) }, g);
+        sv("text", { x: x + 60, y: y + 14, "text-anchor": "middle", class: "ts-chart-pill" }, g, tr("type." + type));
+        sv("text", { x: x + 60, y: y + 29, "text-anchor": "middle", class: "ts-chart-pill b" }, g, amount);
+      };
+      const dot = (g, x, y, n) => { const d = sv("g", { class: "ts-stepdot" }, g); sv("circle", { cx: x, cy: y, r: 9 }, d); sv("text", { x, y: y + 4, "text-anchor": "middle" }, d, String(n)); };
+      const account = (g, x, name) => {
+        sv("rect", { x, y: 98, width: 120, height: 52, rx: 8, class: "ts-chart-acct" }, g);
+        sv("text", { x: x + 8, y: 117, class: "ts-chart-muted" }, g, name);
+        return sv("text", { x: x + 8, y: 140, class: "ts-chart-num" }, g, fmt(0));
+      };
+      // column A (moves left in step 2): income, savings account, investment
+      p.colA = sv("g", { class: "ts-col" }, svg);
+      p.income = fl(p.colA);
+      typeBox(p.income, 100, 4, "var(--income)", "income", "+" + fmt(3500));
+      dot(p.income, 98, 6, 1);
+      p.incomeArrow = fl(p.colA); p.incomeLine = arrow(p.incomeArrow, 160, 42, 160, 96, "var(--income)");
+      p.savings = fl(p.colA); p.savingsAmt = account(p.savings, 100, tr("scene.savings"));
+      p.investArrow = fl(p.colA); p.investLine = arrow(p.investArrow, 160, 152, 160, 206, "var(--investment)");
+      p.invest = fl(p.colA);
+      typeBox(p.invest, 100, 208, "var(--investment)", "investment", "−" + fmt(500));
+      dot(p.invest, 98, 210, 4);
+      sv("text", { x: 160, y: 258, "text-anchor": "middle", class: "ts-chart-muted" }, p.invest, "→ " + tr("scene.platform"));
+      // column B: credit card, its expense, and the transfer that pays it
+      p.card = fl(svg); p.cardAmt = account(p.card, 186, tr("accounts.type.credit"));
+      p.expenseArrow = fl(svg); p.expenseLine = arrow(p.expenseArrow, 246, 152, 246, 206, "var(--expense)");
+      p.expense = fl(svg);
+      typeBox(p.expense, 186, 208, "var(--expense)", "expense", "−" + fmt(120));
+      dot(p.expense, 184, 210, 2);
+      p.transferArrow = fl(svg); p.transferLine = arrow(p.transferArrow, 138, 124, 182, 124, "var(--transfer)");
+      p.transfer = fl(svg);
+      sv("line", { x1: 160, y1: 128, x2: 160, y2: 164, class: "ts-chart-stem" }, p.transfer);
+      sv("rect", { x: 78, y: 164, width: 164, height: 28, rx: 10, style: fillOf("var(--transfer)") }, p.transfer);
+      sv("text", { x: 160, y: 182, "text-anchor": "middle", class: "ts-chart-pill" }, p.transfer, tr("type.transfer") + " · " + fmt(120));
+      dot(p.transfer, 78, 166, 3);
+      // Net
+      p.net = fl(svg);
+      sv("rect", { x: 14, y: 274, width: 292, height: 32, rx: 10, class: "ts-chart-hub" }, p.net);
+      sv("text", { x: 28, y: 295, class: "ts-chart-title" }, p.net, tr("summary.net"));
+      p.netVal = sv("text", { x: 292, y: 295, "text-anchor": "end", class: "ts-chart-num" }, p.net, fmt(0));
+      // the explanations, one more appearing at each step
+      p.list = h("ol", "ts-captions", null, frame);
+      p.caps = ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
       return p;
     },
-    timeline(p, ctx) {
-      const tr = ctx.tr, fmt = p.fmt;
-      const flash = (el) => { el.classList.remove("ts-flash"); void el.offsetWidth; el.classList.add("ts-flash"); };
-      const show = (type, text) => () => {
-        p.chip.innerHTML = "";
-        h("span", "ts-flow-pill " + type, tr("type." + type), p.chip);
-        h("span", null, text, p.chip);
-        p.chip.classList.add("show");
-      };
-      const set = (el, v) => { el.textContent = fmt(v); flash(el); };
-      const sc = tr("scene.savings"), dc = tr("scene.debit");
-      return [
-        [400, show("income", "+" + fmt(3500) + " → " + dc)],
-        [1300, () => { set(p.bal.debit, 4500); set(p.sum.income, 3500); set(p.sum.net, 3500); }],
-        [2600, show("expense", "−" + fmt(120) + " · " + dc)],
-        [3500, () => { set(p.bal.debit, 4380); set(p.sum.expense, 120); set(p.sum.net, 3380); }],
-        [4800, show("transfer", dc + " → " + sc + " · " + fmt(200))],
-        [5700, () => { set(p.bal.debit, 4180); set(p.bal.savings, 2200); }],   // the totals above do not move
-        [7000, show("investment", "−" + fmt(500) + " · " + sc + " → " + tr("scene.platform"))],
-        [7900, () => { set(p.bal.savings, 1700); set(p.sum.investment, 500); set(p.sum.net, 2880); }],
-        [9200, () => p.chip.classList.remove("show")]
-      ];
-    }
+    steps: [
+      // 1 — Income: the box appears, then the savings account (at zero), the money flows in, Net appears
+      (p, ctx, instant, later) => {
+        step(p, 1, [p.income]);
+        later(() => { lit(p.savings); lit(p.incomeArrow); run(p.incomeLine, true); }, 900);
+        later(() => { setAmt(p.savingsAmt, p.fmt(3500)); lit(p.net); setAmt(p.netVal, p.fmt(3500)); }, 1900);
+        later(() => run(p.incomeLine, false), 2600);
+        return 3000;
+      },
+      // 2 — Expense: income and savings slide left, the credit card appears, pays an expense and goes negative; Net goes down
+      (p, ctx, instant, later) => {
+        step(p, 2, []);
+        p.colA.classList.add("left");
+        later(() => lit(p.card), 900);
+        later(() => { lit(p.expense); lit(p.expenseArrow); run(p.expenseLine, true); }, 1800);
+        later(() => { setAmt(p.cardAmt, "−" + p.fmt(120)); p.cardAmt.classList.add("neg"); lit(p.net); setAmt(p.netVal, p.fmt(3380)); }, 2700);
+        later(() => run(p.expenseLine, false), 3400);
+        return 3800;
+      },
+      // 3 — Transfer: savings pays the card; only the two accounts change, Net stays where it was (it stays dimmed)
+      (p, ctx, instant, later) => {
+        step(p, 3, [p.savings, p.card]);
+        later(() => { lit(p.transfer); lit(p.transferArrow); run(p.transferLine, true); }, 600);
+        later(() => { setAmt(p.savingsAmt, p.fmt(3380)); setAmt(p.cardAmt, p.fmt(0)); p.cardAmt.classList.remove("neg"); }, 1700);
+        later(() => run(p.transferLine, false), 2400);
+        return 2800;
+      },
+      // 4 — Investment: savings puts money into a platform; Net goes down. At the end everything is lit up.
+      (p, ctx, instant, later) => {
+        step(p, 4, [p.savings]);
+        later(() => { lit(p.invest); lit(p.investArrow); run(p.investLine, true); }, 600);
+        later(() => { setAmt(p.savingsAmt, p.fmt(2880)); lit(p.net); setAmt(p.netVal, p.fmt(2880)); }, 1700);
+        later(() => run(p.investLine, false), 2400);
+        later(() => p.els.forEach(lit), 3000);
+        return 3400;
+      }
+    ]
   };
+  // Step n begins: everything lit so far dims (so the eye goes to the new thing), `focus` stays fully lit, and the n-th explanation appears.
+  function step(p, n, focus) {
+    p.els.forEach((e) => { if (e.classList.contains("on")) e.classList.add("past"); });
+    focus.forEach(lit);
+    p.caps.forEach((li, k) => { if (k < n) li.classList.add("show"); li.classList.toggle("now", k === n - 1); });
+  }
+  function lit(e) { e.classList.add("on"); e.classList.remove("past"); }
+  function run(line, on) { line.classList.toggle("run", on); }
+  function setAmt(el, text) { el.textContent = text; el.classList.remove("ts-blink"); void el.getBoundingClientRect(); el.classList.add("ts-blink"); }
 
   // ---- Overview tab: this month's Income / Expenses / Investments / Net, then "By category" (pie + list); tap a category → its entries ----
   //      The made-up month: Income 3,500 − Expenses 1,920 − Investments 500 = Net 1,080 (the app's own formula).
