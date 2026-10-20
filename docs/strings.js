@@ -1014,7 +1014,6 @@
     "wp.g.bankFunds": { en: "Mutual funds from banks", es: "Fondos mutuos de bancos" },
     "wp.g.yours": { en: "Yours", es: "Las tuyas" },
     "wp.bankFund": { en: "{bank} funds", es: "Fondos {bank}" },
-    "wp.other": { en: "Other…", es: "Otras…" },
     "wp.addOwn": { en: "Another platform", es: "Otra plataforma" },
     "wp.placeholder": { en: "Platform name", es: "Nombre de la plataforma" },
     "wp.skip": { en: "Skip this step", es: "Omitir este paso" },
