@@ -554,6 +554,60 @@
     }
   };
 
+  // ---- The big picture: Balances (what each account holds) and the Overview totals (Income / Expenses / Investments / Net) follow four kinds of movement ----
+  //      Income and expenses and investments change the Net (Net = income − expenses − investments); a transfer only moves money between two
+  //      accounts, so the totals do not change. Platforms are never in Balances (the app tracks only the cash put into them).
+  SCENES.flow = {
+    hold: 2200,
+    build(stage, ctx) {
+      const tr = ctx.tr, fmt = (v) => ctx.home + " " + ctx.money(v);
+      const phone = h("div", "ts-phone", null, stage);
+      h("div", "ts-bar", tr("nav.overview"), phone);
+      const p = { ctx, fmt };
+      p.chip = h("div", "ts-flow-chip", null, phone);
+      const bal = h("div", "ts-card", null, phone);
+      h("b", null, tr("balances.title"), bal);
+      p.bal = {};
+      [["debit", "scene.debit", 1000], ["savings", "scene.savings", 2000]].forEach(([k, key, v]) => {
+        const r = h("div", "ts-loanrow", null, bal);
+        h("span", null, tr(key), r);
+        p.bal[k] = h("b", "ts-flow-num", fmt(v), r);
+      });
+      const sum = h("div", "ts-card ts-sum ts-flow-sum", null, phone);
+      p.sum = {};
+      [["income", "summary.income", "var(--income)"], ["expense", "summary.expenses", "var(--expense)"], ["investment", "summary.investments", "var(--investment)"], ["net", "summary.net", ""]].forEach(([k, key, color]) => {
+        const c = h("div", null, null, sum);
+        h("span", "ts-muted", tr(key), c);
+        p.sum[k] = h("b", "ts-sum-value ts-flow-num", fmt(0), c);
+        if (color) p.sum[k].style.color = color;
+      });
+      return p;
+    },
+    timeline(p, ctx) {
+      const tr = ctx.tr, fmt = p.fmt;
+      const flash = (el) => { el.classList.remove("ts-flash"); void el.offsetWidth; el.classList.add("ts-flash"); };
+      const show = (type, text) => () => {
+        p.chip.innerHTML = "";
+        h("span", "ts-flow-pill " + type, tr("type." + type), p.chip);
+        h("span", null, text, p.chip);
+        p.chip.classList.add("show");
+      };
+      const set = (el, v) => { el.textContent = fmt(v); flash(el); };
+      const sc = tr("scene.savings"), dc = tr("scene.debit");
+      return [
+        [400, show("income", "+" + fmt(3500) + " → " + dc)],
+        [1300, () => { set(p.bal.debit, 4500); set(p.sum.income, 3500); set(p.sum.net, 3500); }],
+        [2600, show("expense", "−" + fmt(120) + " · " + dc)],
+        [3500, () => { set(p.bal.debit, 4380); set(p.sum.expense, 120); set(p.sum.net, 3380); }],
+        [4800, show("transfer", dc + " → " + sc + " · " + fmt(200))],
+        [5700, () => { set(p.bal.debit, 4180); set(p.bal.savings, 2200); }],   // the totals above do not move
+        [7000, show("investment", "−" + fmt(500) + " · " + sc + " → " + tr("scene.platform"))],
+        [7900, () => { set(p.bal.savings, 1700); set(p.sum.investment, 500); set(p.sum.net, 2880); }],
+        [9200, () => p.chip.classList.remove("show")]
+      ];
+    }
+  };
+
   // ---- Overview tab: this month's Income / Expenses / Investments / Net, then "By category" (pie + list); tap a category → its entries ----
   //      The made-up month: Income 3,500 − Expenses 1,920 − Investments 500 = Net 1,080 (the app's own formula).
   const PIE = {

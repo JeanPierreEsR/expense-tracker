@@ -2486,3 +2486,15 @@ body.income-revealed .sens-mask { display: none; }
 .wp-add input { flex: 1; min-width: 0; }
 .wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: 10px; }
 .wp-add input { margin: 0; }
+
+/* "Big picture" scene: one movement at a time, then the balances and totals it changes */
+.ts-flow-chip { display: flex; align-items: center; gap: 8px; height: 42px; box-sizing: border-box; margin: 0 0 8px; padding: 6px 8px; border-radius: 10px; background: var(--bg); font-size: 11px; font-weight: 600; opacity: 0; transform: translateY(-8px); transition: opacity .35s, transform .35s; }
+.ts-flow-chip.show { opacity: 1; transform: none; }
+.ts-flow-pill { padding: 2px 8px; border-radius: 999px; color: #fff; font-size: 10.5px; flex-shrink: 0; }
+.ts-flow-pill.income { background: var(--income); }
+.ts-flow-pill.expense { background: var(--expense); }
+.ts-flow-pill.investment { background: var(--investment); }
+.ts-flow-pill.transfer { background: var(--transfer); }
+.ts-flow-sum { margin-top: 8px; }
+.ts-flash { animation: ts-flash .9s ease; }
+@keyframes ts-flash { 0% { background: rgba(0, 113, 227, 0.25); } 100% { background: transparent; } }
