@@ -393,6 +393,7 @@
     timeline(p, ctx) {
       const tr = ctx.tr, fg = p.finger, cur = ctx.home;
       const name = tr("scene.tripName");
+      const start = isoDay(14), end = isoDay(19);   // the trip list and detail show the plain dates (trip.start_date / end_date)
       let nameBox, datesBox, budgetBox, save, row;
       const part = (el, parts) => parts.map((x) => () => { el.textContent = x; });
       let n, b;
@@ -862,5 +863,16 @@
     }
   };
 
-  root.TourScenes = { play, stop, has: (key) => !!SCENES[key] };
+  // The finished picture of a scene, with no timers and no motion: used to show every card of the swipeable tour already filled in,
+  // so nothing looks empty while a swipe is under way. (The card that is on screen plays its scene from the start with play().)
+  function preview(key, stage, ctx) {
+    const scene = SCENES[key];
+    if (!scene) { stage.hidden = true; stage.innerHTML = ""; stage.onclick = null; return false; }
+    if (scene.manual) { playManual(scene, key, stage, ctx, true); return true; }
+    stage.hidden = false; stage.onclick = null; stage.innerHTML = "";
+    scene.timeline(scene.build(stage, ctx), ctx).forEach((s) => s[1](true));
+    return true;
+  }
+
+  root.TourScenes = { play, preview, stop, has: (key) => !!SCENES[key] };
 })(typeof window !== "undefined" ? window : this);
