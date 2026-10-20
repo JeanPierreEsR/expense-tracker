@@ -2545,3 +2545,12 @@ body.income-revealed .sens-mask { display: none; }
 .tour-foot .welcome-dot::after { content: ""; position: absolute; inset: -10px -4px; }
 .tour-hint { margin: 2px 0 0; min-height: 1.3em; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .tour-track { scroll-behavior: auto; } }
+/* Scrubbing the dots (press and hold, slide the finger): the dots swell and a bubble names the card under the finger */
+.tour-foot { position: relative; }
+.tour-foot-row { touch-action: none; }
+.tour-foot .welcome-dots { border-radius: 999px; padding: 6px 12px; transition: transform .18s ease, background .18s ease; }
+.tour-foot .welcome-dot { transition: transform .15s ease, background .15s; }
+.tour-foot-row.scrubbing .welcome-dots { transform: scale(1.4); background: rgba(0, 113, 227, 0.14); }
+.tour-foot-row.scrubbing .welcome-dot.active { transform: scale(1.5); }
+.tour-bubble { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 8px); box-sizing: border-box; padding: 7px 14px; border-radius: 14px; background: var(--text); color: var(--bg); font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); z-index: 5; }
+.tour-bubble[hidden] { display: none; }
