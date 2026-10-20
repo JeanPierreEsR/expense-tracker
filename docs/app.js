@@ -5500,6 +5500,7 @@ function maybeAskPerfShare_() {
   openPerfShareModal_(null);
 }
 document.getElementById("perf-share-save").addEventListener("click", () => {
+  if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
   const on = document.getElementById("perf-share-on").checked;
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false });
   if (!on) perfOutbox_.clear();
@@ -5665,8 +5666,13 @@ function maybeShowWelcome_() {
   let done = false;
   try { done = localStorage.getItem(WELCOME_FLAG_KEY) === "1"; } catch (e) { /* storage blocked: ask again next time */ }
   if (!caps.onboarding || done || !welcomeEl_("welcome-overlay").hidden) return;
+  startWelcome_(false);
+}
+// preview = true (More → Preview the welcome flow): the same screens, but nothing is sent or stored anywhere; leaving reloads the app.
+function startWelcome_(preview) {
   const lang = I18n.getLang();
-  welcome_ = { appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
+  welcomeEl_("welcome-preview-exit").hidden = !preview;
+  welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
     platforms: [], platformsCustom: [], platformsMore: false, platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, linksTouched: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
   welcomeEl_("welcome-overlay").hidden = false;
@@ -5679,6 +5685,7 @@ function maybeShowWelcome_() {
 function renderWelcomeQuestions_() {
   const root = welcomeEl_("welcome-questions");
   I18n.applyStatic(root);
+  welcomeEl_("welcome-preview-exit").textContent = tr("welcome.previewExit");
   root.querySelectorAll("[data-welcome-lang]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeLang === welcome_.lang));
   root.querySelectorAll("[data-welcome-order]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeOrder === welcome_.order));
   const box = welcomeEl_("welcome-currencies");
@@ -6010,6 +6017,17 @@ async function finishWelcome_() {
   btn.disabled = true; btn.textContent = tr("welcome.saving");
   const errEl = waEl_("wp-error");
   errEl.textContent = "";
+  if (welcome_.preview) {   // preview: save nothing, just carry on to the rest of the flow
+    btn.disabled = false; btn.textContent = tr("welcome.next");
+    welcomeEl_("welcome-platforms").hidden = true;
+    const toTourPreview = () => {
+      if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
+      else openPerfShareModal_(() => openTour_(true));
+    };
+    if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTourPreview });
+    else toTourPreview();
+    return;
+  }
   try {
     if (welcome_.accounts.length) {
       await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
@@ -6152,6 +6170,11 @@ function showTourCard_(i, scroll) {
   if (before >= 0 && before !== i && tour_.slides[before]) { tour_.slides[before].el.scrollTop = 0; previewTourSlide_(tour_.slides[before]); }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, tourSceneCtx_());
 }
+document.getElementById("more-preview-welcome-btn").addEventListener("click", () => {
+  if (!welcomeEl_("welcome-overlay").hidden) return;
+  startWelcome_(true);
+});
+welcomeEl_("welcome-preview-exit").addEventListener("click", () => window.location.reload());   // nothing was stored, so a reload puts the app back exactly as it was
 function closeTour_() {
   if (typeof TourScenes !== "undefined") TourScenes.stop();
   welcomeEl_("welcome-overlay").hidden = true;

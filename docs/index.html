@@ -451,6 +451,10 @@
             <span data-i18n="more.extras">⚡ Extra features</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-preview-welcome-btn">
+            <span data-i18n="more.previewWelcome">👀 Preview the welcome flow</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-tour-btn">
             <span data-i18n="more.tour">📖 How to use the app</span>
             <span class="more-list-chevron">›</span>
@@ -1031,6 +1035,7 @@
   </div>
 
   <div id="welcome-overlay" class="welcome-overlay" hidden>
+    <button type="button" id="welcome-preview-exit" class="welcome-preview-exit" hidden data-i18n="welcome.previewExit">Exit preview (nothing is saved)</button>
     <div class="welcome-card">
       <div id="welcome-questions" hidden>
         <p class="hint" id="wq-step"></p>

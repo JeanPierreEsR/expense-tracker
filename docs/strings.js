@@ -865,6 +865,8 @@
     "bankSample.another": { en: "Send another e-mail", es: "Enviar otro correo" },
     "bankSample.back": { en: "Back", es: "Atrás" },
     "more.tour": { en: "📖 How to use the app", es: "📖 Cómo usar la app" },
+    "more.previewWelcome": { en: "👀 Preview the welcome flow", es: "👀 Ver el flujo de bienvenida" },
+    "welcome.previewExit": { en: "Exit preview (nothing is saved)", es: "Salir de la vista previa (no se guarda nada)" },
     "more.perfShare": { en: "📊 Share app speed", es: "📊 Compartir la velocidad de la app" },
     "perfShare.title": { en: "Help me improve the app", es: "Ayúdame a mejorar la app" },
     "perfShare.body": { en: "This app is in beta, and how fast it runs on your phone helps me a lot. If you share, your phone sends me only timings: how many milliseconds each action took. It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy at all, and it does not slow the app down. It would be greatly appreciated. — JP", es: "Esta app está en beta, y saber qué tan rápido funciona en tu teléfono me ayuda muchísimo. Si compartes, tu teléfono me envía solo tiempos: cuántos milisegundos tomó cada acción. Nunca envía tus gastos, montos, nombres, cuentas ni nada de lo que escribes, así que no afecta tu privacidad en absoluto, y no hace más lenta la app. Te lo voy a agradecer mucho. — JP" },
