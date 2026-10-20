@@ -187,6 +187,7 @@ var BACKEND_STRINGS_ = {
   "export.linked.iOwe": { en: " (I owe them)", es: " (le debo)" },
 
   "bankSample.notice": { en: "📬 Bank sample from {label}\nSender: {sender}\nSubject: {subject}\n\n{text}\n\n(Saved in your Sheet tab \"Bank Samples\". Digits were hidden as 9, names removed.)", es: "📬 Muestra de banco de {label}\nRemitente: {sender}\nAsunto: {subject}\n\n{text}\n\n(Guardada en la pestaña \"Bank Samples\" de tu hoja. Los dígitos se ocultaron como 9 y se quitaron los nombres.)" },
+  "statementSample.notice": { en: "📄 Statement sample from {label}\nBank: {bank}\nWhy: {kind}\nSize: {chars} characters in {parts} part(s)\n\n(Saved in your Sheet tab \"Statement Samples\", one row per part. Digits were hidden as 9, names removed.)", es: "📄 Muestra de estado de cuenta de {label}\nBanco: {bank}\nMotivo: {kind}\nTamaño: {chars} caracteres en {parts} parte(s)\n\n(Guardada en la pestaña \"Statement Samples\" de tu hoja, una fila por parte. Los dígitos se ocultaron como 9 y se quitaron los nombres.)" },
   "err.bankSampleGmailOff": { en: "Reading bank e-mails is not turned on for this app. You can paste the e-mail text instead.", es: "La lectura de correos del banco no está activada en esta app. Puedes pegar el texto del correo." },
   "err.bankSampleBadSender": { en: "That does not look like an e-mail address.", es: "Eso no parece una dirección de correo." },
   "err.bankSampleWrongSender": { en: "That e-mail is not from the address you gave.", es: "Ese correo no es de la dirección que indicaste." },

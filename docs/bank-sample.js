@@ -88,7 +88,8 @@
     s = s.replace(/[A-Za-z0-9_-]{16,}/g, function (m) { return m.indexOf("9") >= 0 ? "[code]" : m; });
 
     s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    return s.length > MAX_CHARS ? s.slice(0, MAX_CHARS) : s;
+    var max = opts.maxChars || MAX_CHARS;   // an e-mail is short; a whole statement (docs/statement-sample.js) asks for more
+    return s.length > max ? s.slice(0, max) : s;
   }
 
   return { parseSender: parseSender, redact: redact, MAX_CHARS: MAX_CHARS };

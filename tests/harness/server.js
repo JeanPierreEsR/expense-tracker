@@ -56,6 +56,13 @@ http.createServer((req, res) => {
     res.end(JSON.stringify(rows));
     return;
   }
+  if (url === "/__statementsamples") {   // the rows the owner's Sheet would hold in its "Statement Samples" tab
+    res.writeHead(200, { "Content-Type": "application/json" });
+    let rows = [];
+    try { rows = rt.rows("Statement Samples"); } catch (e) { /* no sample has arrived yet */ }
+    res.end(JSON.stringify(rows.map((r) => ({ ...r, text: String(r.text).slice(0, 400) + " […]" }))));
+    return;
+  }
   if (url === "/__perf") {   // the rows the owner's Sheet would hold in its "Perf Reports" tab
     res.writeHead(200, { "Content-Type": "application/json" });
     let rows = [];

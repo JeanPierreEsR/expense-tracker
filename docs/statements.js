@@ -263,6 +263,82 @@
     if (resolve) resolve(value);
   }
 
+  // ---- "Send this statement": a statement the app cannot read goes to the owner as TEXT, with the private details hidden ----
+  // Friends' copies only (the owner's own banks are built in). The PDF and its password never leave the phone: this works on the rows the reader
+  // already extracted (docs/statement-sample.js hides what it can, the person reads the whole text, and only then is it sent). The owner's backend
+  // (StatementSamples.gs) hides digits and addresses a second time and keeps the text in the Sheet tab "Statement Samples".
+  const ss_ = { rows: null, kind: "unrecognised", sending: false };
+  const ssEl_ = (id) => $(id);
+  function ssMsg_(t) { ssEl_("ss-msg").textContent = t || ""; }
+  function ssStep_(n) { [1, 2, 3].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
+  function offerSample(body, rows, kind) {
+    if (!rows || !rows.length || perfIsOwnerCopy_()) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline";
+    btn.textContent = tr("stmtSample.offer");
+    btn.addEventListener("click", () => openSampleModal(rows, kind));
+    body.appendChild(btn);
+  }
+  function openSampleModal(rows, kind) {
+    Object.assign(ss_, { rows, kind, sending: false });
+    const backdrop = ssEl_("statement-sample-backdrop");
+    I18n.applyStatic(backdrop);
+    ssEl_("ss-bank").value = "";
+    ssEl_("ss-hide").value = "";
+    ssEl_("ss-name").value = perfShareState_().label || "";
+    ssStep_(1);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  }
+  function ssRedo() {
+    const hide = ssEl_("ss-hide").value + "," + ssEl_("ss-name").value;   // the person's own first name is always hidden
+    const text = StatementSample.rowsToText(ss_.rows, { hide });
+    ssEl_("ss-preview").value = text;
+    ssEl_("ss-size").textContent = tr("stmtSample.size", { chars: text.length.toLocaleString("en-US"), lines: text.split("\n").length.toLocaleString("en-US") });
+  }
+  ssEl_("ss-show").addEventListener("click", () => {
+    if (!PerfShare.cleanLabel(ssEl_("ss-bank").value)) { ssMsg_(tr("stmtSample.bankMissing")); return; }
+    ssEl_("ss-confirm").checked = false;
+    ssEl_("ss-send").disabled = true;
+    ssRedo();
+    ssStep_(2);
+  });
+  ssEl_("ss-redo").addEventListener("click", ssRedo);
+  ssEl_("ss-confirm").addEventListener("change", () => { ssEl_("ss-send").disabled = !ssEl_("ss-confirm").checked || ss_.sending; });
+  ssEl_("ss-back").addEventListener("click", () => ssStep_(1));
+  ssEl_("ss-close").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
+  ssEl_("ss-done").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
+  ssEl_("ss-send").addEventListener("click", async () => {
+    if (ss_.sending || !ssEl_("ss-confirm").checked) return;
+    ss_.sending = true;
+    ssEl_("ss-send").disabled = true;
+    ssMsg_(tr("bankSample.sending"));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);   // a whole statement is a bigger upload than an e-mail
+    try {
+      // A plain fetch like the e-mail samples and the app-speed reports: no sign-in on the owner's copy, and no retry that could send it twice.
+      const res = await fetch(perfReportUrl_(), {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "reportStatementSample", payload: {
+          install: perfInstallId_(), label: PerfShare.cleanLabel(ssEl_("ss-name").value), bank: PerfShare.cleanLabel(ssEl_("ss-bank").value),
+          kind: ss_.kind, text: ssEl_("ss-preview").value, language: I18n.getLang(), app: appRelease_()
+        } }),
+        signal: controller.signal
+      });
+      const json = await res.json();
+      if (json && json.ok) { ssStep_(3); return; }
+      ssMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
+    } catch (e) {
+      ssMsg_(tr("bankSample.sendFailed"));
+    } finally {
+      clearTimeout(timer);
+      ss_.sending = false;
+      ssEl_("ss-send").disabled = !ssEl_("ss-confirm").checked;
+    }
+  });
+
   // ---- reading a file and showing the result ----
 
   function resultCardShell(fileName) {
@@ -297,9 +373,10 @@
     return notes;
   }
 
-  function renderResult(body, result) {
+  function renderResult(body, result, rows) {
     if (!result.kind) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p>`;
+      offerSample(body, rows, "unrecognised");
       return;
     }
     let verdict;
@@ -326,6 +403,7 @@
       ${balances}
       ${errors ? `<ul class="stmt-errors">${errors}</ul>` : ""}
       ${lines ? `<details class="stmt-lines"><summary>${escapeHtml(tr("stmt.showLines", { n: (result.lines || []).length }))}</summary>${lines}</details>` : ""}`;
+    if (!result.ok) offerSample(body, rows, "unverified");   // a layout we know but cannot make add up: the owner wants to see it too
   }
 
   async function readStatementFile(file) {
@@ -342,7 +420,7 @@
         }
       });
       const result = StatementParsers.parseStatement(rows);
-      renderResult(body, result);
+      renderResult(body, result, rows);
       if (result.kind && result.ok) {
         // A re-read of the same file replaces its earlier reading.
         usable = usable.filter((u) => u.file !== file.name);

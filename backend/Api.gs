@@ -77,6 +77,9 @@ function doPost(e) {
     } else if (body && body.action === 'reportBankSample') {
       // A redacted e-mail sample from a friend's phone: needs no sign-in, so BankSamples.gs validates every field.
       response = { ok: true, data: reportBankSample_(body.payload || {}) };
+    } else if (body && body.action === 'reportStatementSample') {
+      // A redacted bank STATEMENT (text only) from a friend's phone: no sign-in either; StatementSamples.gs validates every field.
+      response = { ok: true, data: reportStatementSample_(body.payload || {}) };
     } else if (body && body.action === 'reportPerf') {
       // App-speed numbers from a friend's phone: needs no sign-in, so PerfReports.gs validates every field.
       response = { ok: true, data: reportPerf_(body.payload || {}) };
