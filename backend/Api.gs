@@ -80,9 +80,6 @@ function doPost(e) {
     } else if (body && body.action === 'reportPerf') {
       // App-speed numbers from a friend's phone: needs no sign-in, so PerfReports.gs validates every field.
       response = { ok: true, data: reportPerf_(body.payload || {}) };
-    } else if (body && body.action === 'emailReader') {
-      // A reader script in an extra e-mail account pushing bank e-mails: no sign-in, its pairing code is checked in EmailAccounts.gs.
-      response = { ok: true, data: emailReaderRequest_(body.payload || {}) };
     } else if (!authenticateRequest_(body)) {
       recordFailedAccessAttempt_('app');
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
@@ -142,9 +139,6 @@ function routeAction(action, payload) {
   switch (action) {
     case 'logout': return logout();
     case 'listSessions': return listSessions();
-    case 'listEmailAccounts': return listEmailAccounts();
-    case 'addEmailAccount': return addEmailAccount(payload);
-    case 'removeEmailAccount': return removeEmailAccount(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': return getMeta();
@@ -487,7 +481,9 @@ function getMeta() {
     // Export screen offers "Send to my email" only when an address was saved.
     capabilities: getCapabilities_(),
     // Banks for the welcome questions (two alphabetical groups) and the words account names are built from.
-    bankCatalog: getBankCatalog_()
+    bankCatalog: getBankCatalog_(),
+    // Which Google account's inbox bank e-mails are read from, and the banks whose e-mails have a rule (EmailParser.gs): More → Bank emails.
+    emailInfo: getEmailInfo_()
   };
 }
 

@@ -409,8 +409,8 @@
             <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-email-accounts-btn" hidden>
-            <span data-i18n="more.emailAccounts">📧 Email accounts</span>
+          <button type="button" class="more-list-item" id="more-bank-mail-btn" hidden>
+            <span data-i18n="more.bankEmails">📧 Bank emails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-categories-btn">
@@ -521,6 +521,7 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
         <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
+        <div id="accounts-bank-note"></div>
         <div id="accounts-list"></div>
         <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
       </div>
@@ -1073,6 +1074,7 @@
           <p class="hint" data-i18n="wa.railsHint">Yape works only with BCP accounts. Plin works with accounts at other banks, not with BCP, and also with credit cards. Neither holds money of its own: each one runs on top of an account, so link the account it uses. You can change this later in More → Accounts, cards &amp; platforms.</p>
           <div id="wa-rails"></div>
           <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts, cards &amp; platforms.</p>
+          <div id="wa-note"></div>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
@@ -1083,6 +1085,7 @@
         <div id="wa-bank" hidden>
           <button type="button" class="add-inline" id="wa-bank-back" data-i18n="wa.banksBack">‹ Banks</button>
           <h2 id="wa-bank-name"></h2>
+          <div id="wa-bank-note"></div>
           <div id="wa-bank-accounts"></div>
           <button type="button" class="add-inline" id="wa-add-account-btn" data-i18n="wa.addAccount">+ Add account</button>
           <div id="wa-form" hidden>
@@ -1241,46 +1244,25 @@
     </div>
   </div>
 
-  <div id="email-accounts-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+  <div id="bank-mail-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="emailAcct.title">Email accounts</span>
-        <button type="button" id="email-accounts-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+        <span data-i18n="bankMail.title">Bank emails</span>
+        <button type="button" id="bank-mail-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <div id="ea-ask" hidden>
-          <h3 data-i18n="emailAcct.askTitle">Do your banks also write to another Google account?</h3>
-          <p class="hint" data-i18n="emailAcct.askHint">This step is optional.</p>
-          <div class="welcome-tour-buttons">
-            <button type="button" id="ea-ask-no" data-i18n="emailAcct.askNo">Not now</button>
-            <button type="button" class="primary" id="ea-ask-yes" data-i18n="emailAcct.askYes">Yes, connect it</button>
-          </div>
-        </div>
-        <div id="ea-main">
-          <p class="hint" data-i18n="emailAcct.hint">Your bank emails are read from the Google account this app was set up with.</p>
-          <div id="ea-list"></div>
-          <div id="ea-add-form" hidden>
-            <label for="ea-address" data-i18n="emailAcct.addressLabel">Gmail address that receives the bank emails</label>
-            <input type="email" id="ea-address" autocomplete="off" autocapitalize="off" inputmode="email">
-            <button type="button" class="primary" id="ea-continue-btn" data-i18n="emailAcct.continue">Continue</button>
-          </div>
-          <button type="button" class="add-inline" id="ea-add-btn" data-i18n="emailAcct.add">+ Add an account</button>
-          <div id="ea-guide" hidden>
-            <h3 id="ea-guide-title"></h3>
-            <ol class="ea-steps">
-              <li id="ea-g1"></li>
-              <li id="ea-g2">
-                <div><button type="button" class="add-inline" id="ea-copy-link" data-i18n="emailAcct.copyLink">Copy link</button>
-                <button type="button" class="add-inline" id="ea-copy-code" data-i18n="emailAcct.copyCode">Copy code</button></div>
-              </li>
-              <li id="ea-g3"></li>
-              <li id="ea-g4"></li>
-            </ol>
-            <p class="hint" data-i18n="emailAcct.codeOnce">The code can only be copied now.</p>
-            <textarea id="ea-code" readonly rows="4" style="width:100%;font-family:monospace;font-size:11px;"></textarea>
-          </div>
-          <p class="hint" id="ea-msg" role="status" style="color:#d64545;"></p>
-        </div>
+        <p class="hint" data-i18n="bankMail.intro">The app reads your bank's notification emails from this Google account:</p>
+        <p id="bm-address" style="font-weight:700;word-break:break-all;margin:6px 0;"></p>
+        <button type="button" class="add-inline" id="bm-copy-btn" data-i18n="bankMail.copy">Copy address</button>
+        <p class="hint" id="bm-msg" role="status"></p>
+        <h3 data-i18n="bankMail.otherTitle">Do your banks write to a different address?</h3>
+        <ol class="bm-steps">
+          <li data-i18n="bankMail.w1">Easiest, on your phone: in your bank's app or website, change the email for notifications to the address above.</li>
+          <li data-i18n="bankMail.w2">On a computer: in the other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails.</li>
+        </ol>
+        <p class="hint" id="bm-banks"></p>
+        <p class="hint" data-i18n="bankMail.review">Everything it finds waits in your review list until you confirm it.</p>
+        <button type="button" class="primary" id="bm-done-btn" data-i18n="bankMail.gotIt" hidden>Got it</button>
       </div>
     </div>
   </div>
