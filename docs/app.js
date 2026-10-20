@@ -5674,7 +5674,7 @@ function startWelcome_(preview) {
   const lang = I18n.getLang();
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
-    platforms: [], platformsCustom: [], platformsMore: false, platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
+    platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, linksTouched: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
@@ -5941,17 +5941,16 @@ function waNext_() {
   showWelcomeStep_(3);
 }
 
-// Step 3 (optional): investment platforms, in groups. `shown` chips are on screen at once; `more` ones sit behind the "Other"
-// chip. Brand names are the same in both languages; only a bank's fund arm ("BCP funds" / "Fondos BCP") is worded per language.
-const WP_GROUPS = [
-  { title: "wp.g.brokers", shown: ["Inteligo", "Hapi", "Trii", "eToro"], more: [] },
-  { title: "wp.g.funds", shown: ["Fintual"], more: ["Prestamype"] },
-  { title: "wp.g.crypto", shown: ["Binance", "Coinbase"], more: ["Bybit"] },
-  { title: "wp.g.bankFunds", shown: [], more: () => wpBankFunds_() }
-];
+// Step 3 (optional): investment platforms, in groups. Brand names are the same in both languages; only a bank's fund arm
+// ("BCP funds" / "Fondos BCP") is worded per language.
 const wpBankFunds_ = () => ["BCP", "BBVA", "Interbank", "Scotiabank"].map((bank) => tr("wp.bankFund", { bank }));
-const wpMore_ = (g) => (typeof g.more === "function" ? g.more() : g.more);
-const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.shown.concat(wpMore_(g))).concat(welcome_.platformsCustom);
+const WP_GROUPS = [
+  { title: "wp.g.brokers", names: () => ["Inteligo", "Hapi", "Trii", "eToro"] },
+  { title: "wp.g.funds", names: () => ["Fintual", "Prestamype"] },
+  { title: "wp.g.crypto", names: () => ["Binance", "Coinbase", "Bybit"] },
+  { title: "wp.g.bankFunds", names: wpBankFunds_ }
+];
+const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.platformsCustom);
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
   waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
@@ -5978,22 +5977,8 @@ function renderWelcomePlatforms_() {
     names.forEach((n) => row.appendChild(chip(n)));
     box.appendChild(row);
   };
-  let hidden = 0;
-  WP_GROUPS.forEach((g) => {
-    // A platform behind "Other" that is already picked stays on screen.
-    const extra = wpMore_(g).filter((n) => welcome_.platformsMore || welcome_.platforms.includes(n));
-    hidden += wpMore_(g).length - extra.length;
-    group(g.title, g.shown.concat(extra));
-  });
+  WP_GROUPS.forEach((g) => group(g.title, g.names()));
   group("wp.g.yours", welcome_.platformsCustom);
-  if (hidden) {
-    const other = document.createElement("button");
-    other.type = "button";
-    other.className = "add-inline";
-    other.textContent = tr("wp.other");
-    other.addEventListener("click", () => { welcome_.platformsMore = true; renderWelcomePlatforms_(); });
-    box.appendChild(other);
-  }
   waEl_("wp-skip-btn").hidden = welcome_.platforms.length > 0;
   waEl_("wp-error").textContent = "";
 }
