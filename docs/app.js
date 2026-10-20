@@ -190,6 +190,8 @@ function selectCurrency(code, target) {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
+  } else if (resolvedTarget === "trip") {
+    refreshTripRateWarning_(true);   // a newly chosen trip currency with no rate on file asks for one
   }
 }
 
@@ -6868,11 +6870,48 @@ function openTripModal_(trip) {
   document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
+  refreshTripRateWarning_(false);
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+// A trip in a currency other than the app's main one converts everything else through the exchange rates, so
+// it needs a rate for that currency. When one is missing the form says so (with a "Set one" link) and — only
+// right after the person CHOOSES the currency (promptIfMissing) — opens the rate pop-up straight away, which
+// they may cancel. The month checked is the trip's start month: a rate on or before it covers every later month.
+async function refreshTripRateWarning_(promptIfMissing) {
+  const warning = document.getElementById("trip-rate-warning");
+  const currency = document.getElementById("trip-currency").value;
+  if (currency === homeCur()) { warning.hidden = true; return; }
+  const month = (document.getElementById("trip-start").value || todayLocalISO()).slice(0, 7);
+  let hasRate;
+  try {
+    const { rate } = await callApi("getLatestRateOnOrBefore", { currency, month });
+    hasRate = rate != null;
+  } catch (err) {
+    hasRate = true;   // don't nag over a network hiccup
+  }
+  if (document.getElementById("trip-currency").value !== currency) return;   // changed again while checking
+  warning.hidden = hasRate;
+  if (hasRate) return;
+  document.getElementById("trip-rate-warning-text").textContent = tr("trips.noRate", { currency });
+  if (promptIfMissing) await setTripCurrencyRate_(currency, month);
+}
+
+async function setTripCurrencyRate_(currency, month) {
+  const rate = await openRateModal(currency, month, /* required */ false);
+  if (rate != null) refreshTripRateWarning_(false);
+}
+
+document.getElementById("trip-rate-warning-link").addEventListener("click", () => {
+  const currency = document.getElementById("trip-currency").value;
+  const month = (document.getElementById("trip-start").value || todayLocalISO()).slice(0, 7);
+  setTripCurrencyRate_(currency, month);
+});
+// A different start date can move the month that needs a rate.
+document.getElementById("trip-start").addEventListener("change", () => refreshTripRateWarning_(false));
 
 function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;
@@ -6962,11 +7001,6 @@ document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((tab) => tab.addE
 document.getElementById("trip-budget").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
-});
-// A trip that ends before it starts is never wanted: moving the start past the end drags the end along.
-document.getElementById("trip-start").addEventListener("change", (e) => {
-  const end = document.getElementById("trip-end");
-  if (!end.value || end.value < e.target.value) end.value = e.target.value;
 });
 
 document.getElementById("trip-save-btn").addEventListener("click", async () => {
@@ -11135,5 +11169,180 @@ document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   if (file) readBillPhoto_(file);
 });
 
+
+// ---- One calendar for a start AND an end date (2026-10-19) ----
+// Wherever the app asks for "from … to …" (a trip's dates, a Programmed item's start/end, Overview's custom
+// period, Export's custom range) a single field shows the whole range and opens ONE calendar pop-up: tap the
+// first day, then the last. The two real <input type="date"> elements stay in the page, hidden, as the
+// values every existing handler already reads and writes — so nothing that uses them had to change.
+// See specs/trips-events.md § Dates in one calendar.
+
+// What a tap on a day does (pure, so it is tested on its own):
+//  - nothing chosen yet, or a finished range → that day starts a new range (no end);
+//  - a start but no end: a day BEFORE the start becomes the new start; the same day or later is the end
+//    (the same day twice = a one-day range).
+function rangeTap_(state, iso) {
+  const start = state.start || "", end = state.end || "";
+  if (!start || end) return { start: iso, end: "" };
+  if (iso < start) return { start: iso, end: "" };
+  return { start, end: iso };
+}
+
+function rangeFmt_(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return I18n.fmtDateMedium(new Date(y, m - 1, d));   // built from parts: new Date("YYYY-MM-DD") is UTC and can land a day early
+}
+
+// The text on the field. noEnd: "single" = a missing end date means one day (trips); "open" = no end date.
+function rangeSummary_(noEnd, start, end) {
+  if (!start && !end) return "";
+  if (!start) return tr("range.until", { end: rangeFmt_(end) });
+  if (!end) return noEnd === "single" ? rangeFmt_(start) : tr("range.fromOpen", { start: rangeFmt_(start) });
+  if (end === start && noEnd === "single") return rangeFmt_(start);
+  return tr("range.span", { start: rangeFmt_(start), end: rangeFmt_(end) });
+}
+
+const RANGE_WEEKDAY_KEYS_ = ["range.wd1", "range.wd2", "range.wd3", "range.wd4", "range.wd5", "range.wd6", "range.wd7"];   // Monday first
+let rangeDom_ = null;
+let rangeSession_ = null;   // { cfg, startEl, endEl, state, viewY, viewM }
+
+function ensureRangeDom_() {
+  if (rangeDom_) return rangeDom_;
+  const backdrop = document.createElement("div");
+  backdrop.id = "range-picker-backdrop";
+  backdrop.className = "currency-modal-backdrop";
+  backdrop.hidden = true;
+  backdrop.innerHTML = `
+    <div class="currency-modal range-modal">
+      <div class="currency-modal-header">
+        <span id="range-title"></span>
+        <button type="button" id="range-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="range-nav">
+        <button type="button" data-step="-12" aria-label="−12">«</button>
+        <button type="button" data-step="-1" aria-label="−1">‹</button>
+        <span id="range-month"></span>
+        <button type="button" data-step="1" aria-label="+1">›</button>
+        <button type="button" data-step="12" aria-label="+12">»</button>
+      </div>
+      <div class="range-weekdays">${RANGE_WEEKDAY_KEYS_.map((k) => `<span>${escapeHtml(tr(k))}</span>`).join("")}</div>
+      <div class="range-grid" id="range-grid"></div>
+      <p class="hint" id="range-summary"></p>
+      <div class="range-actions">
+        <button type="button" class="add-inline" id="range-remove-end">${escapeHtml(tr("range.removeEnd"))}</button>
+        <button type="button" class="add-inline" id="range-clear">${escapeHtml(tr("range.clear"))}</button>
+      </div>
+      <button type="button" class="primary" id="range-done">${escapeHtml(tr("range.done"))}</button>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const dom = {
+    backdrop, title: backdrop.querySelector("#range-title"), month: backdrop.querySelector("#range-month"),
+    grid: backdrop.querySelector("#range-grid"), summary: backdrop.querySelector("#range-summary"),
+    removeEnd: backdrop.querySelector("#range-remove-end"), clear: backdrop.querySelector("#range-clear"),
+    done: backdrop.querySelector("#range-done")
+  };
+  const close = () => { backdrop.hidden = true; rangeSession_ = null; };
+  backdrop.querySelector("#range-close").addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+  backdrop.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => {
+    const s = rangeSession_;
+    if (!s) return;
+    const moved = new Date(s.viewY, s.viewM - 1 + Number(b.dataset.step), 1);
+    s.viewY = moved.getFullYear();
+    s.viewM = moved.getMonth() + 1;
+    renderRange_();
+  }));
+  dom.removeEnd.addEventListener("click", () => { if (rangeSession_) { rangeSession_.state.end = ""; renderRange_(); } });
+  dom.clear.addEventListener("click", () => { if (rangeSession_) { rangeSession_.state = { start: "", end: "" }; renderRange_(); } });
+  dom.done.addEventListener("click", () => {
+    const s = rangeSession_;
+    if (!s) return;
+    // Written to the real inputs, which then tell every existing listener ("change") as if typed.
+    s.startEl.value = s.state.start;
+    s.endEl.value = s.state.end;
+    [s.startEl, s.endEl].forEach((el) => { el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); });
+    close();
+  });
+  rangeDom_ = dom;
+  return dom;
+}
+
+function renderRange_() {
+  const s = rangeSession_, dom = rangeDom_;
+  if (!s || !dom) return;
+  const { start, end } = s.state;
+  dom.month.textContent = I18n.fmtMonthYear(new Date(s.viewY, s.viewM - 1, 1));
+  dom.grid.innerHTML = "";
+  const first = new Date(s.viewY, s.viewM - 1, 1);
+  const lead = (first.getDay() + 6) % 7;                       // Monday = 0
+  const days = new Date(s.viewY, s.viewM, 0).getDate();
+  const today = todayLocalISO();
+  for (let i = 0; i < lead; i++) dom.grid.appendChild(document.createElement("span"));
+  for (let d = 1; d <= days; d++) {
+    const iso = `${s.viewY}-${String(s.viewM).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = d;
+    b.className = "range-day"
+      + (iso === start ? " is-start" : "") + (iso === end ? " is-end" : "")
+      + (start && end && iso > start && iso < end ? " in-range" : "")
+      + (iso === today ? " is-today" : "");
+    b.addEventListener("click", () => { s.state = rangeTap_(s.state, iso); renderRange_(); });
+    dom.grid.appendChild(b);
+  }
+  const cfg = s.cfg;
+  dom.summary.textContent = !start
+    ? tr("range.promptStart")
+    : !end
+      ? tr(cfg.noEnd === "single" ? "range.promptEndSingle" : "range.promptEndOpen")
+      : rangeSummary_(cfg.noEnd, start, end);
+  // visibility, not `hidden`: the pop-up must keep its height, or the days jump under the finger between taps
+  dom.removeEnd.style.visibility = end ? "visible" : "hidden";
+  dom.clear.style.visibility = cfg.startRequired || (!start && !end) ? "hidden" : "visible";
+  dom.done.disabled = !!cfg.startRequired && !start;
+}
+
+function openDateRangePicker_(cfg, startEl, endEl) {
+  const dom = ensureRangeDom_();
+  const state = { start: startEl.value || "", end: endEl.value || "" };
+  const anchor = state.start || state.end || todayLocalISO();
+  rangeSession_ = { cfg, startEl, endEl, state, viewY: Number(anchor.slice(0, 4)), viewM: Number(anchor.slice(5, 7)) };
+  dom.title.textContent = tr(cfg.titleKey);
+  bringModalToFront_(dom.backdrop);
+  dom.backdrop.hidden = false;
+  renderRange_();
+}
+
+// Replaces a pair of date inputs by one field. cfg: { startId, endId, titleKey, startRequired, noEnd }.
+// The inputs stay (hidden) as the stored values; assigning `.value` from code refreshes the field too.
+function attachDateRange_(cfg) {
+  const startEl = document.getElementById(cfg.startId), endEl = document.getElementById(cfg.endId);
+  const field = document.createElement("button");
+  field.type = "button";
+  field.className = "range-field";
+  startEl.insertAdjacentElement("beforebegin", field);
+  startEl.hidden = true;
+  endEl.hidden = true;
+  const refresh = () => {
+    const text = rangeSummary_(cfg.noEnd, startEl.value, endEl.value);
+    field.textContent = text || tr("range.choose");
+    field.classList.toggle("empty", !text);
+  };
+  const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  [startEl, endEl].forEach((el) => {
+    Object.defineProperty(el, "value", {
+      configurable: true,
+      get() { return nativeValue.get.call(this); },
+      set(v) { nativeValue.set.call(this, v); refresh(); }
+    });
+  });
+  field.addEventListener("click", () => openDateRangePicker_(cfg, startEl, endEl));
+  refresh();
+}
+
+attachDateRange_({ startId: "custom-start", endId: "custom-end", titleKey: "period.dates", startRequired: false, noEnd: "open" });
+attachDateRange_({ startId: "export-start", endId: "export-end", titleKey: "period.dates", startRequired: false, noEnd: "open" });
+attachDateRange_({ startId: "trip-start", endId: "trip-end", titleKey: "trips.dates", startRequired: true, noEnd: "single" });
+attachDateRange_({ startId: "recurring-start-date", endId: "recurring-end-date", titleKey: "recModal.dates", startRequired: true, noEnd: "open" });
 
 init();

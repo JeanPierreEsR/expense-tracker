@@ -280,6 +280,8 @@
   };
 
   // ---- a More sub-screen: "‹ Back" and "+ Add", a title and its list; a sheet slides up for the form ----
+  // The day as the app's date field shows it ("Oct 28, 2026" / "28 oct 2026"), for the one-calendar date fields.
+  const fmtDay = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return root.I18n ? root.I18n.fmtDateMedium(d) : d.toDateString(); };
   const isoDay = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
   function subPhone(stage, ctx, title) {
     const tr = ctx.tr;
@@ -320,7 +322,7 @@
           amount = box(s, tr("field.amount"), "");
           seg = h("div", "ts-seg", null, s);
           [["period.monthly", true], ["period.yearly"], ["recModal.once"], ["recModal.other"]].forEach(([k, on]) => h("span", on ? "on" : "", tr(k), seg));
-          box(s, tr("recModal.startsOn"), isoDay(0));
+          box(s, tr("recModal.dates"), tr("range.fromOpen", { start: fmtDay(0) }));   // the one date field: start, no end
           save = h("div", "ts-btn", tr("common.save"), s);
           d = t(desc.value, ["Re", tr("scene.rent").slice(0, 3), tr("scene.rent")]); a = t(amount.value, ["1", "1,2", "1,200"]);
         }],
@@ -360,8 +362,8 @@
     },
     timeline(p, ctx) {
       const tr = ctx.tr, fg = p.finger, cur = ctx.home;
-      const start = isoDay(14), end = isoDay(19), name = tr("scene.tripName");
-      let nameBox, startBox, endBox, budgetBox, save, row;
+      const name = tr("scene.tripName");
+      let nameBox, datesBox, budgetBox, save, row;
       const part = (el, parts) => parts.map((x) => () => { el.textContent = x; });
       let n, b;
       return [
@@ -372,8 +374,7 @@
           const s = sheetOpen(p, tr("trips.addTitle"));
           const seg = h("div", "ts-seg", null, s); h("span", "on", tr("trips.kind.trip"), seg); h("span", null, tr("trips.kind.event"), seg);
           nameBox = box(s, tr("trips.name"), "");
-          const r = h("div", "ts-two", null, s);
-          startBox = box(r, tr("trips.start"), start, "grow"); endBox = box(r, tr("trips.end"), end, "grow");
+          datesBox = box(s, tr("trips.dates"), tr("range.span", { start: fmtDay(14), end: fmtDay(19) }));   // one field, one calendar
           box(s, tr("trips.currency"), cur);
           budgetBox = box(s, tr("trips.budget"), "");
           save = h("div", "ts-btn", tr("trips.save"), s);
@@ -382,11 +383,9 @@
         [1900, (i) => fg.to(nameBox.box, i)],
         [2400, (i) => { fg.tap(i); nameBox.box.classList.add("focus"); }],
         [2500, () => n[0]()], [2700, () => n[1]()], [2900, () => n[2]()],
-        [3400, (i) => { nameBox.box.classList.remove("focus"); fg.to(startBox.box, i); }],
-        [3900, (i) => { fg.tap(i); startBox.box.classList.add("focus"); }],
-        [4300, (i) => { startBox.box.classList.remove("focus"); fg.to(endBox.box, i); }],
-        [4800, (i) => { fg.tap(i); endBox.box.classList.add("focus"); }],
-        [5200, (i) => { endBox.box.classList.remove("focus"); fg.to(budgetBox.box, i); }],
+        [3400, (i) => { nameBox.box.classList.remove("focus"); fg.to(datesBox.box, i); }],
+        [3900, (i) => { fg.tap(i); datesBox.box.classList.add("focus"); }],
+        [5200, (i) => { datesBox.box.classList.remove("focus"); fg.to(budgetBox.box, i); }],
         [5700, (i) => { fg.tap(i); budgetBox.box.classList.add("focus"); }],
         [5800, () => b[0]()], [6000, () => b[1]()], [6200, () => b[2]()],
         [6700, (i) => { budgetBox.box.classList.remove("focus"); fg.to(save, i); }],
