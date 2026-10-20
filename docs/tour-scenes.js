@@ -311,6 +311,7 @@
 
   // ---- a More sub-screen: "‹ Back" and "+ Add", a title and its list; a sheet slides up for the form ----
   // The day as the app's date field shows it ("Oct 28, 2026" / "28 oct 2026"), for the one-calendar date fields.
+  const fmtMd = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return root.I18n ? root.I18n.fmtMonthDay(d) : d.toDateString(); };
   const fmtDay = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return root.I18n ? root.I18n.fmtDateMedium(d) : d.toDateString(); };
   const isoDay = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
   function subPhone(stage, ctx, title) {
@@ -585,69 +586,206 @@
     }
   };
 
-  // ---- More → Statements: Choose statement PDFs → Reading… → "✓ Read and checked" → Review → pick Add for a purchase not in the app → Save → ✓ Saved ----
-  //      (the real screens and words; the numbers and the merchant are made up)
+  // ---- More → Statements, told in 7 numbered steps the person advances with "Next step" (the real screens and words; numbers and merchants made up):
+  //      1 read two statements at once (each is checked)   2 Add: a purchase not in the app   3 Match…: the line IS an entry you have
+  //      4 Ignore   5 a transfer between your accounts is found on both statements and paired   6 balance check → Set balance to statement   7 Save (one step, undoable)
   SCENES.statements = {
-    hold: 2000,
+    manual: true,
     build(stage, ctx) {
-      const tr = ctx.tr;
-      const phone = h("div", "ts-phone", null, stage);
+      const tr = ctx.tr, cur = ctx.home;
+      const money = (n) => (n < 0 ? "−" : "") + cur + " " + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const phone = h("div", "ts-phone ts-stmt", null, stage);
       const head = h("div", "ts-head", null, phone);
       h("span", "ts-link", tr("common.back"), head);
-      const p = { phone, finger: makeFinger(stage), ctx };
       h("div", "ts-h2", tr("stmt.title"), phone);
+      const clip = h("div", "ts-stmt-clip", null, phone);
+      const scroll = h("div", "ts-scroll", null, clip);
+      const p = { ctx, money, phone, clip, scroll, sel: {}, finger: makeFinger(stage) };
       // view A: Read a statement
-      p.a = h("div", "ts-subbody", null, phone);
+      p.a = h("div", null, null, scroll);
       h("b", null, tr("stmt.read"), p.a);
       p.choose = h("div", "ts-btn", tr("stmt.choose"), p.a);
-      p.result = h("div", "ts-stmt-result", null, p.a);
-      // view B: the review
-      p.b = h("div", "ts-subbody", null, phone); p.b.hidden = true;
+      p.results = h("div", "ts-stmt-result", null, p.a);
+      // view B: the review (real order of groups; the steps scroll to the one being explained)
+      p.b = h("div", null, null, scroll); p.b.hidden = true;
+      h("div", "ts-stmt-ok", tr("stmt.counts", { lines: 24, inApp: 20, handled: 0, notYet: 4 }), p.b);
+      p.groups = {};
+      const group = (key, title, count, hint) => {
+        const g = h("div", "ts-sg", null, p.b);
+        const t = h("div", "ts-sg-title", title, g); h("span", "ts-stmt-count", String(count), t);
+        if (hint) h("div", "ts-hint", hint, g);
+        p.groups[key] = g; return g;
+      };
+      const line = (g, date, desc, amt, sub) => {
+        const it = h("div", "ts-sl", null, g);
+        const l = h("div", "ts-sline", null, it);
+        h("span", "ts-muted", fmtMd(date), l); h("span", null, desc, l); h("b", "out", money(amt), l);
+        if (sub) h("div", "ts-hint", sub, it);
+        return it;
+      };
+      const chips = (it, labels) => { const row = h("div", "ts-schoices", null, it); return labels.map((l) => h("span", "ts-schoice", l, row)); };
+      // balance check
+      const gBal = group("balance", tr("stmt.group.balance"), 1, tr("stmt.group.balanceHint"));
+      const bal = h("div", "ts-sl", null, gBal);
+      h("div", "ts-spair", tr("scene.savings") + " · " + cur, bal);
+      const kv = (a, b) => { const r = h("div", "ts-kv", null, bal); h("span", null, a, r); h("span", null, b, r); };
+      kv(tr("stmt.balClosing", { date: fmtDay(-1) }), money(2512));
+      kv(tr("stmt.balInApp"), money(2880));
+      kv(tr("stmt.balDiff"), cur + " −368.00");
+      h("div", "ts-stmt-ok", tr("stmt.balExplained", { parts: tr("stmt.balNotInApp", { amount: cur + " −368.00", n: 3 }) }), bal);
+      p.balChip = chips(bal, [tr("stmt.choice.setBalance")])[0];
+      // transfers between your accounts
+      const gPair = group("pair", tr("stmt.group.pair"), 1, tr("stmt.group.pairHint"));
+      const pair = h("div", "ts-sl", null, gPair);
+      h("div", "ts-spair", tr("scene.savings") + " → " + tr("accounts.type.credit") + " · " + money(300).replace("−", ""), pair);
+      h("div", "ts-hint", fmtMd(-2) + " “CARD PAYMENT” / " + fmtMd(-2) + " “PAYMENT RECEIVED”", pair);
+      p.pairChip = chips(pair, [tr("stmt.choice.record")])[0];
+      // purchases not in the app: Add, Match…, Ignore
+      const gBuy = group("purchase", tr("stmt.group.purchase"), 3, tr("stmt.group.purchaseHint"));
+      p.addItem = line(gBuy, -3, "CAFE LUNA", -48, tr("scene.savings") + " — " + tr("stmt.itemNoSuggestion"));
+      [p.addChip, p.addMatch, p.addIgnore] = chips(p.addItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
+      p.catBox = h("div", "ts-scat", tr("stmt.noCategory"), p.addItem); p.catBox.hidden = true;
+      p.matchItem = line(gBuy, -4, "BODEGA SOL", -25.5, tr("accounts.type.credit") + " — " + tr("stmt.itemNoSuggestion"));
+      [, p.matchChip] = chips(p.matchItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
+      p.matchedTo = h("div", "ts-hint", null, p.matchItem); p.matchedTo.hidden = true;
+      p.ignoreItem = line(gBuy, -5, "YAPE-ANA", -20, tr("scene.savings") + " — " + tr("stmt.itemNoSuggestion"));
+      [, , p.ignoreChip] = chips(p.ignoreItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
+      // the Match… pop-up (a sheet over the review)
+      p.sheet = h("div", "ts-sheet", null, phone);
+      // the save bar (sticky at the bottom of the screen once there is a review)
+      p.bar = h("div", "ts-stmt-bar", null, phone); p.bar.hidden = true;
+      p.summary = h("div", "ts-hint", tr("stmt.nothingSelected"), p.bar);
+      p.save = h("div", "ts-btn", tr("stmt.markProcessed"), p.bar);
+      // the explanations, one more appearing at each step
+      p.list = h("ol", "ts-captions", null, stage);
+      p.caps = ["scene.stmt.s1", "scene.stmt.s2", "scene.stmt.s3", "scene.stmt.s4", "scene.stmt.s5", "scene.stmt.s6", "scene.stmt.s7"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
       return p;
     },
-    timeline(p, ctx) {
-      const tr = ctx.tr, fg = p.finger, cur = ctx.home;
-      let reviewBtn, addChip, saveBtn, out;
-      const label = (cls, text, parent) => h("div", cls, text, parent);
-      return [
-        [500, (i) => fg.to(p.choose, i)],
-        [1100, (i) => { fg.tap(i); p.choose.classList.add("pressed"); }],
-        [1400, () => { p.choose.classList.remove("pressed"); p.result.innerHTML = ""; label("ts-hint", tr("stmt.reading"), p.result); }],
-        [2400, () => {
-          p.result.innerHTML = "";
-          const ok = label("ts-stmt-ok", tr("stmt.verdictGood"), p.result);
-          label("ts-hint", tr("stmt.noteAccount", { label: tr("scene.debit") }), p.result);
-          const r1 = h("div", "ts-loanrow", null, p.result); h("span", "ts-muted", tr("stmt.period"), r1); h("b", null, isoDay(-30) + " – " + isoDay(-1), r1);
-          const r2 = h("div", "ts-loanrow", null, p.result); h("span", "ts-muted", tr("stmt.linesRead"), r2); h("b", null, "12", r2);
-          reviewBtn = h("div", "ts-btn", tr("stmt.reviewButton", { n: 1 }), p.result);
-        }],
-        [3400, (i) => fg.to(reviewBtn, i)],
-        [3900, (i) => { fg.tap(i); reviewBtn.classList.add("pressed"); }],
-        [4200, () => {
-          p.a.hidden = true; p.b.hidden = false;
-          label("ts-hint", tr("stmt.counts", { lines: 12, inApp: 11, handled: 0, notYet: 1 }), p.b);
-          h("b", "ts-grouptitle", tr("stmt.group.purchase"), p.b);
-          label("ts-hint", tr("stmt.group.purchaseHint"), p.b);
-          const row = h("div", "ts-loanrow", null, p.b); h("span", null, "Cafe Luna", row); h("b", null, cur + " " + ctx.money(48), row);
-          const chips = h("div", "ts-chips", null, p.b);
-          addChip = h("span", "ts-chip small", tr("stmt.choice.add"), chips);
-          h("span", "ts-chip small", tr("stmt.choice.match"), chips); h("span", "ts-chip small", tr("stmt.choice.ignore"), chips);
-          out = h("div", "ts-stmt-out", null, p.b);
-        }],
-        [5200, (i) => fg.to(addChip, i)],
-        [5700, (i) => { fg.tap(i); addChip.classList.add("on"); }],
-        [6100, () => { saveBtn = h("div", "ts-btn", tr("stmt.saveN", { n: 1 }), out); }],
-        [6900, (i) => fg.to(saveBtn, i)],
-        [7400, (i) => { fg.tap(i); saveBtn.classList.add("pressed"); }],
-        [7700, () => {
-          out.innerHTML = "";
-          label("ts-stmt-ok", tr("stmt.saved"), out);
-          label("ts-hint", tr("stmt.savedCreated", { n: 1, t: 0, f: 0, p: 1, i: 0, r: 0 }), out);
-        }],
-        [8700, () => fg.hide()]
-      ];
-    }
+    initial(p, ctx) { /* the starting picture is just the empty "Read a statement" screen */ },
+    steps: [
+      // 1 — read two statements at once; each one is checked; then Review
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr;
+        stmtStep(p, 1);
+        later(() => p.finger.to(p.choose, instant), 400);
+        later(() => { p.finger.tap(instant); p.choose.classList.add("pressed"); }, 900);
+        later(() => {
+          p.choose.classList.remove("pressed"); p.results.innerHTML = "";
+          h("div", "ts-hint", tr("stmt.reading"), p.results);
+        }, 1200);
+        later(() => {
+          p.results.innerHTML = "";
+          [tr("scene.savings"), tr("accounts.type.credit")].forEach((name) => {
+            const c = h("div", "ts-stmt-card", null, p.results);
+            h("div", "ts-stmt-ok", tr("stmt.verdictGood"), c);
+            h("div", "ts-hint", tr("stmt.noteAccount", { label: name }), c);
+          });
+          p.reviewBtn = h("div", "ts-btn", tr("stmt.reviewButton", { n: 2 }), p.results);
+        }, 2200);
+        later(() => p.finger.to(p.reviewBtn, instant), 3000);
+        later(() => { p.finger.tap(instant); p.reviewBtn.classList.add("pressed"); }, 3500);
+        later(() => { p.a.hidden = true; p.b.hidden = false; p.bar.hidden = false; p.finger.hide(); stmtFocus(p, null); }, 3800);
+        return 4400;
+      },
+      // 2 — Add: a purchase that is not in the app → pick a category → it will land as a pending entry
+      (p, ctx, instant, later) => {
+        stmtStep(p, 2); stmtFocus(p, "purchase"); stmtScroll(p, p.groups.purchase);
+        later(() => p.finger.to(p.addChip, instant), 1000);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.addChip, "add"); p.catBox.hidden = false; stmtSummary(p); }, 1500);
+        later(() => p.finger.to(p.catBox, instant), 2300);
+        later(() => { p.finger.tap(instant); p.catBox.textContent = ctx.tr("scene.cat.restaurants"); p.catBox.classList.add("set"); }, 2800);
+        later(() => p.finger.hide(), 3400);
+        return 3600;
+      },
+      // 3 — Match…: the line IS an entry you already have: pick it from the list
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr;
+        stmtStep(p, 3); stmtFocus(p, "purchase"); stmtScroll(p, p.matchItem, true);
+        later(() => p.finger.to(p.matchChip, instant), 900);
+        later(() => {
+          p.finger.tap(instant);
+          p.sheet.innerHTML = "";
+          const hd = h("div", "ts-sheet-head", null, p.sheet); h("b", null, tr("stmt.whichEntry"), hd);
+          h("div", "ts-hint", fmtMd(-4) + " · BODEGA SOL · " + p.money(-25.5), p.sheet);
+          h("div", "ts-hint", tr("paid.mostSimilar"), p.sheet);
+          p.matchRow = h("div", "ts-smatch", fmtMd(-4) + " · " + tr("scene.cat.groceries") + " · " + p.money(-25.5) + " · " + tr("accounts.type.credit"), p.sheet);
+          h("div", "ts-smatch", fmtMd(-6) + " · " + tr("scene.cat.transport") + " · " + p.money(-6.5), p.sheet);
+          p.sheet.classList.add("show");
+        }, 1400);
+        later(() => p.finger.to(p.matchRow, instant), 2400);
+        later(() => {
+          p.finger.tap(instant); p.sheet.classList.remove("show");
+          stmtPick(p, p.matchChip, "match");
+          p.matchedTo.hidden = false; p.matchedTo.textContent = tr("stmt.matchedTo", { text: fmtMd(-4) + " · " + tr("scene.cat.groceries") + " · " + p.money(-25.5) }).replace(/^<br>/, "");
+          stmtSummary(p);
+        }, 2900);
+        later(() => p.finger.hide(), 3500);
+        return 3700;
+      },
+      // 4 — Ignore: leave the line out; the app remembers it
+      (p, ctx, instant, later) => {
+        stmtStep(p, 4); stmtFocus(p, "purchase"); stmtScroll(p, p.ignoreItem, true);
+        later(() => p.finger.to(p.ignoreChip, instant), 900);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.ignoreChip, "ignore"); stmtSummary(p); }, 1400);
+        later(() => p.finger.hide(), 2100);
+        return 2400;
+      },
+      // 5 — a transfer between your accounts: its two sides (one on each statement) are paired into ONE transfer
+      (p, ctx, instant, later) => {
+        stmtStep(p, 5); stmtFocus(p, "pair"); stmtScroll(p, p.groups.pair);
+        later(() => p.finger.to(p.pairChip, instant), 1000);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.pairChip, "record"); stmtSummary(p); }, 1500);
+        later(() => p.finger.hide(), 2200);
+        return 2600;
+      },
+      // 6 — balance check: the statement's closing balance against the app's; Set balance to statement
+      (p, ctx, instant, later) => {
+        stmtStep(p, 6); stmtFocus(p, "balance"); stmtScroll(p, p.groups.balance);
+        later(() => p.finger.to(p.balChip, instant), 1000);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.balChip, "set"); stmtSummary(p); }, 1500);
+        later(() => p.finger.hide(), 2200);
+        return 2600;
+      },
+      // 7 — Save: everything chosen is applied at once, and can be undone at once
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr;
+        stmtStep(p, 7); stmtFocus(p, null);
+        later(() => p.finger.to(p.save, instant), 700);
+        later(() => { p.finger.tap(instant); p.save.classList.add("pressed"); }, 1300);
+        later(() => {
+          p.save.classList.remove("pressed"); p.finger.hide();
+          p.summary.textContent = tr("stmt.saved") + " · " + tr("stmt.recentHint");
+          p.summary.classList.add("ts-stmt-ok");
+          p.save.hidden = true;
+        }, 1700);
+        return 2400;
+      }
+    ]
   };
+  // helpers of the statements scene
+  function stmtStep(p, n) { p.caps.forEach((li, k) => { if (k < n) li.classList.add("show"); li.classList.toggle("now", k === n - 1); }); }
+  function stmtFocus(p, key) { Object.keys(p.groups).forEach((k) => p.groups[k].classList.toggle("dim", !!key && k !== key)); }
+  function stmtScroll(p, el, inside) {
+    const y = inside ? el.offsetTop + el.offsetParent.offsetTop : el.offsetTop;
+    p.scroll.style.transform = "translateY(" + (-Math.max(0, y - 4)) + "px)";
+  }
+  function stmtPick(p, chip, key) {
+    const row = chip.parentNode;
+    [...row.children].forEach((c) => { c.classList.remove("on"); c.textContent = c.textContent.replace(/^✓ /, ""); });
+    chip.classList.add("on"); chip.textContent = "✓ " + chip.textContent;
+    p.sel[key] = true;
+  }
+  // the save bar, as the real one: what the chosen actions will do, and "Save N changes"
+  function stmtSummary(p) {
+    const tr = p.ctx.tr, parts = [];
+    if (p.sel.record) parts.push(tr("stmt.sum.transfer", { n: 1 }));
+    if (p.sel.add) parts.push(tr("stmt.sum.purchase", { n: 1 }));
+    if (p.sel.match) parts.push(tr("stmt.sum.match", { n: 1 }));
+    if (p.sel.set) parts.push(tr("stmt.sum.balance", { n: 1 }));
+    if (p.sel.ignore) parts.push(tr("stmt.sum.ignore", { n: 1 }));
+    p.summary.textContent = parts.join(" · ") || tr("stmt.nothingSelected");
+    p.save.textContent = parts.length ? tr("stmt.saveN", { n: parts.length }) : tr("stmt.markProcessed");
+  }
 
   // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
   //      1 Income lands in a savings account (it was at zero) → Net appears.   2 A credit card pays an expense → the card goes negative, Net down.
