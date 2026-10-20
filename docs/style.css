@@ -1655,6 +1655,10 @@ body.income-revealed .sens-mask { display: none; }
   cursor: pointer;
 }
 
+/* Cards come in three unnamed groups; a gap (not a title) separates them. */
+.more-group + .more-group { margin-top: 18px; }
+.more-group > .more-list-item:last-child { border-bottom: 1px solid var(--border); }
+
 .more-list-chevron {
   color: var(--muted);
 }

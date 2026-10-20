@@ -637,7 +637,7 @@
     "recModal.dates": { en: "Starts on — ends on (optional)", es: "Empieza el — termina el (opcional)" },
 
     // ---- trips & events (More → Trips & events; see specs/trips-events.md) ----
-    "more.trips": { en: "🧳 Trips & events", es: "🧳 Viajes y eventos" },
+    "more.trips": { en: "✈️ Trips & events", es: "✈️ Viajes y eventos" },
     "field.trip": { en: "Trip / event", es: "Viaje / evento" },
     "trips.none": { en: "None", es: "Ninguno" },
     "trips.title": { en: "Trips & events", es: "Viajes y eventos" },
