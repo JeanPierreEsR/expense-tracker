@@ -389,6 +389,11 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     clearLocalSignIn_();
     showSignedOutScreen_(tr("signin.signedOutHere"));
   }
+  if (!json.ok && /^Unknown action/.test(String(json.error || ""))) {
+    // The app is newer than this copy's backend (it asked for something the backend does not have yet): say so, and offer the update.
+    setUpdateAvailable_(true);
+    json.error = tr("update.needed");
+  }
   if (!json.ok) {
     const failure = new Error(json.error || tr("error.unknown"));
     failure.code = json.code;   // the app recognises some errors by code, not by their (translated) text
@@ -5470,6 +5475,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
   document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
+  checkBackendUpdate_();
 }
 
 // ---- "Help me improve the app" pop-up (a friend's copy only) ----
@@ -5494,6 +5500,55 @@ function closePerfShareModal_() {
   perfShareDone_ = null;
   if (next) next();
 }
+// ---- Updating a friend's copy of the backend (stage 4c) ----
+// A copy made by the installer carries the backend version it was built from (capabilities.backendRef = the last commit that changed backend/).
+// Once a day the app asks GitHub for the newest one (docs/setup/pin.json says whether everyone is held at a pinned commit); when they differ,
+// More shows "Update available" and the More tab gets a dot. The update itself is done by the setup page (it has the person's Google sign-in).
+// The owner's own copy is updated by ship.sh, so it never asks (capabilities.perfLog is true there).
+const UPDATE_CHECK_KEY = "etBackendUpdate";
+let updateChecked_ = false, updateChecking_ = false;
+function setUpdateAvailable_(on) {
+  document.getElementById("more-update-btn").hidden = !on;
+  document.body.classList.toggle("update-ready", !!on);
+}
+async function checkBackendUpdate_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (updateChecked_ || updateChecking_ || caps.perfLog !== false) return;   // false (not just missing) = a copy made by the installer
+  updateChecking_ = true;
+  try { await checkBackendUpdateNow_(caps); } finally { updateChecking_ = false; }
+}
+async function checkBackendUpdateNow_(caps) {
+  let latest = "";
+  try { const c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY)); if (c && Date.now() - c.at < 12 * 3600 * 1000) latest = c.latest || ""; } catch (e) { /* no memory of an earlier check */ }
+  if (!latest) {
+    try {
+      const pin = String(((await (await fetch("setup/pin.json", { cache: "no-store" })).json()) || {}).pin || "");
+      const r = await fetch("https://api.github.com/repos/JeanPierreEsR/expense-tracker/commits?path=backend&sha=" + encodeURIComponent(pin || "main") + "&per_page=1");
+      if (!r.ok) return;   // GitHub says no (busy, offline): try again next time, never bother the person
+      latest = ((await r.json())[0] || {}).sha || "";
+      if (latest) localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify({ at: Date.now(), latest }));
+    } catch (e) { return; }
+  }
+  // A copy made before backend versions were stamped has none: it is offered the update too.
+  if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
+}
+function updatePageUrl_() { return new URL("setup/#update", location.href).href; }
+function openUpdateModal_() {
+  const standalone = !!(navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches));
+  document.getElementById("update-modal-hint").textContent = tr(standalone ? "update.hintHome" : "update.hintSafari");
+  document.getElementById("update-copied").hidden = true;
+  const backdrop = document.getElementById("update-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
+document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; });
+document.getElementById("update-open-btn").addEventListener("click", () => { window.open(updatePageUrl_(), "_blank", "noopener"); });
+document.getElementById("update-copy-btn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(updatePageUrl_()); document.getElementById("update-copied").hidden = false; }
+  catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
+});
+
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
   if (!meta || perfIsOwnerCopy_() || caps.onboarding || perfShareState_().asked) return;

@@ -52,8 +52,17 @@ function healWebAppUrl_(url) {
 }
 
 // What this copy can do, for the app to show or hide things.
+// The backend version this copy was installed with: the installer writes INSTALL_BACKEND_REF (docs/setup/Install.gs) = the last
+// commit that changed backend/ at install/update time. '' on the owner's own copy, which has no installer file. The app compares it with
+// the newest one to offer "Update available" (More → Update).
+function installedBackendRef_() {
+  var ref = typeof INSTALL_BACKEND_REF === 'undefined' ? '' : String(INSTALL_BACKEND_REF || '');
+  return ref.indexOf('__') === 0 ? '' : ref;
+}
+
 function getCapabilities_() {
   return {
+    backendRef: installedBackendRef_(),
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
