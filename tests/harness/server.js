@@ -43,6 +43,19 @@ http.createServer((req, res) => {
     res.end(JSON.stringify(rt.svc.mailLog.map((m) => ({ to: m.to, subject: m.subject, body: m.body, attachments: m.attachments.map((a) => ({ name: a.name, chars: a.data.length, head: a.data.slice(0, 300) })) }))));
     return;
   }
+  if (req.method === "POST" && url === "/__addmail") {   // drops a made-up e-mail into the fake Gmail: {from, subject, body, daysAgo}
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => { rt.svc.gmail.addEmail(JSON.parse(body)); res.end("added"); });
+    return;
+  }
+  if (url === "/__samples") {   // the rows the owner's Sheet would hold in its "Bank Samples" tab
+    res.writeHead(200, { "Content-Type": "application/json" });
+    let rows = [];
+    try { rows = rt.rows("Bank Samples"); } catch (e) { /* no sample has arrived yet */ }
+    res.end(JSON.stringify(rows));
+    return;
+  }
   if (url === "/__perf") {   // the rows the owner's Sheet would hold in its "Perf Reports" tab
     res.writeHead(200, { "Content-Type": "application/json" });
     let rows = [];

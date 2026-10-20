@@ -5451,6 +5451,7 @@ function refreshExtrasRow_() {
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-btn").hidden = !owner;
   document.getElementById("more-perf-share-btn").hidden = owner;
+  document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
   maybeAskPerfShare_();
 }
 
@@ -5492,6 +5493,127 @@ document.getElementById("perf-share-save").addEventListener("click", () => {
 });
 document.getElementById("perf-share-close").addEventListener("click", closePerfShareModal_);
 document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
+
+// ---- "My bank isn't supported yet": send the owner ONE e-mail from the bank, with the private details hidden ----
+// Steps: 1 the bank's sender address → 2 pick one of the person's own e-mails (or paste one) → 3 preview of the exact
+// text that would be sent (editable) → 4 thanks. The hiding is done here (docs/bank-sample.js) BEFORE anything is sent;
+// the owner's backend (BankSamples.gs) hides digits and addresses a second time. A friend's phone is not signed in to the
+// owner's copy, so the sample goes the same way the app-speed reports do (perfReportUrl_).
+const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false };
+const bsEl_ = (id) => document.getElementById(id);
+function bsMsg_(text) { bsEl_("bs-msg").textContent = text || ""; }
+function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
+function openBankSampleModal_() {
+  const backdrop = bsEl_("bank-sample-modal-backdrop");
+  Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false });
+  I18n.applyStatic(backdrop);
+  bsEl_("bs-sender").value = "";
+  bsEl_("bs-paste-text").value = "";
+  bsEl_("bs-hide").value = "";
+  bsEl_("bs-name").value = perfShareState_().label || "";
+  bsEl_("bs-find").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails !== false);
+  bsStep_(1);
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function bsSenderOrWarn_() {
+  const sender = BankSample.parseSender(bsEl_("bs-sender").value);
+  if (!sender) { bsMsg_(tr("bankSample.badSender")); return ""; }
+  bs_.sender = sender;
+  return sender;
+}
+function bsShowPreview_() {
+  bsEl_("bs-confirm").checked = false;
+  bsEl_("bs-send").disabled = true;
+  bsRedo_();
+  bsStep_(3);
+}
+// Hides again from the ORIGINAL text, so an earlier edit in the box is replaced (the person can edit after).
+function bsRedo_() {
+  const hide = bsEl_("bs-hide").value + "," + bsEl_("bs-name").value;   // the person's own first name is always hidden
+  bsEl_("bs-preview").value = BankSample.redact(bs_.raw, { sender: bs_.sender, hide });
+  bsEl_("bs-subject").textContent = BankSample.redact(bs_.subject, { sender: bs_.sender, hide });
+  bsEl_("bs-subject").parentElement.hidden = !bs_.subject;   // a pasted e-mail has no subject line
+}
+bsEl_("bs-find").addEventListener("click", async () => {
+  const sender = bsSenderOrWarn_();
+  if (!sender) return;
+  bsMsg_(tr("bankSample.finding"));
+  try {
+    const list = await callApi("listSampleEmails", { sender });
+    const box = bsEl_("bs-list");
+    box.textContent = "";
+    if (!list.length) { bsMsg_(tr("bankSample.noneFound")); return; }
+    list.forEach((m) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "more-list-item";
+      b.textContent = m.date + " · " + (m.subject || "-");
+      b.addEventListener("click", async () => {
+        bsMsg_(tr("bankSample.finding"));
+        try {
+          const got = await callApi("getSampleEmail", { id: m.id, sender });
+          Object.assign(bs_, { raw: got.body || "", subject: got.subject || m.subject || "", how: "picked" });
+          bsShowPreview_();
+        } catch (e) { bsMsg_(tr("bankSample.openFailed")); }
+      });
+      box.appendChild(b);
+    });
+    bsEl_("bs-pick").hidden = false;
+    bsEl_("bs-paste-box").hidden = true;
+    bsStep_(2);
+  } catch (e) { bsMsg_(e.message || tr("bankSample.noneFound")); }
+});
+bsEl_("bs-paste").addEventListener("click", () => {
+  if (!bsSenderOrWarn_()) return;
+  bsEl_("bs-pick").hidden = true;
+  bsEl_("bs-paste-box").hidden = false;
+  bsStep_(2);
+});
+bsEl_("bs-paste-go").addEventListener("click", () => {
+  const raw = bsEl_("bs-paste-text").value;
+  if (!raw.trim()) { bsMsg_(tr("bankSample.pasteEmpty")); return; }
+  Object.assign(bs_, { raw, subject: "", how: "pasted" });
+  bsShowPreview_();
+});
+bsEl_("bs-redo").addEventListener("click", bsRedo_);
+bsEl_("bs-confirm").addEventListener("change", () => { bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked || bs_.sending; });
+bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
+bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
+bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
+bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
+bsEl_("more-bank-sample-btn").addEventListener("click", openBankSampleModal_);
+bsEl_("bs-send").addEventListener("click", async () => {
+  if (bs_.sending || !bsEl_("bs-confirm").checked) return;
+  bs_.sending = true;
+  bsEl_("bs-send").disabled = true;
+  bsMsg_(tr("bankSample.sending"));
+  const link = document.querySelector("link[rel=stylesheet]");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    // A plain fetch like the app-speed report: no sign-in on the owner's copy, and no retry that could send it twice.
+    const res = await fetch(perfReportUrl_(), {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "reportBankSample", payload: {
+        install: perfInstallId_(), label: PerfShare.cleanLabel(bsEl_("bs-name").value), sender: bs_.sender,
+        subject: bsEl_("bs-subject").textContent, text: bsEl_("bs-preview").value, language: I18n.getLang(),
+        app: link ? (link.href.split("?v=")[1] || "") : "", how: bs_.how
+      } }),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json && json.ok) { bsStep_(4); return; }
+    bsMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
+  } catch (e) {
+    bsMsg_(tr("bankSample.sendFailed"));
+  } finally {
+    clearTimeout(timer);
+    bs_.sending = false;
+    bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked;
+  }
+});
 document.getElementById("more-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
   document.getElementById("extras-copy-msg").textContent = "";
