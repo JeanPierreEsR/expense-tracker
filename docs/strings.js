@@ -18,7 +18,6 @@
   const STRINGS = {
     // ---- app ----
     "app.title": { en: "Expense Tracker", es: "Expense Tracker" },
-    "app.rotateBack": { en: "Turn your phone upright to use the app", es: "Gira el teléfono a vertical para usar la app" },
 
     // ---- search ----
     "search.placeholder": { en: "🔍 Search entries…", es: "🔍 Buscar movimientos…" },
