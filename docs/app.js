@@ -6068,6 +6068,8 @@ function renderTour_() {
   tour_.slides = tour_.cards.map((key, n) => { const sl = buildTourSlide_(key, n, total); track.appendChild(sl.el); return sl; });
   tour_.shown = -1;
   I18n.applyStatic(welcomeEl_("welcome-tour"));
+  // Every card already shows its animation's starting picture, so a swipe never reveals an empty card (the one on screen plays from the start).
+  tour_.slides.forEach((sl, n) => { if (n !== tour_.i) previewTourSlide_(sl); });
   if (tour_.watch) tour_.watch.disconnect();
   if (typeof ResizeObserver !== "undefined") tour_.watch = new ResizeObserver(() => fitTourTrack_());
   showTourCard_(tour_.i, false);
@@ -6078,9 +6080,14 @@ function fitTourTrack_() {
   const sl = tour_ && tour_.slides[tour_.i];
   if (sl) welcomeEl_("tour-track").style.height = sl.el.offsetHeight + "px";
 }
+function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label }; }
+function previewTourSlide_(sl) {
+  if (typeof TourScenes !== "undefined") TourScenes.preview(sl.key, sl.stage, tourSceneCtx_());
+}
 function showTourCard_(i, scroll) {
   if (!tour_ || i === tour_.shown) return;
   const track = welcomeEl_("tour-track");
+  const before = tour_.shown;
   tour_.i = i; tour_.shown = i;
   const last = i === tour_.cards.length - 1;
   welcomeEl_("tour-dots").innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot${n === i ? " active" : ""}" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
@@ -6090,9 +6097,9 @@ function showTourCard_(i, scroll) {
   fitTourTrack_();
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (scroll) track.scrollTo({ left: i * track.clientWidth, behavior: "smooth" });
-  // The animated mini scene (tour-scenes.js): only on the card on screen; the others are stopped and emptied.
-  tour_.slides.forEach((sl, n) => { if (n !== i) { sl.stage.hidden = true; sl.stage.innerHTML = ""; } });
-  if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label });
+  // The animated mini scene (tour-scenes.js) plays only on the card on screen; the one just left goes back to its starting picture.
+  if (before >= 0 && before !== i && tour_.slides[before]) previewTourSlide_(tour_.slides[before]);
+  if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, tourSceneCtx_());
   fitTourTrack_();
 }
 function closeTour_() {

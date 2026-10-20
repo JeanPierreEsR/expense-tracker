@@ -393,6 +393,7 @@
     timeline(p, ctx) {
       const tr = ctx.tr, fg = p.finger, cur = ctx.home;
       const name = tr("scene.tripName");
+      const start = isoDay(14), end = isoDay(19);   // the trip list and detail show the plain dates (trip.start_date / end_date)
       let nameBox, datesBox, budgetBox, save, row;
       const part = (el, parts) => parts.map((x) => () => { el.textContent = x; });
       let n, b;
@@ -656,6 +657,7 @@
       p.caps = ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
       return p;
     },
+    initial(p) { lit(p.income); },   // the starting picture: only the Income box
     steps: [
       // 1 — Income: the box appears, then the savings account (at zero), the money flows in, Net appears
       (p, ctx, instant, later) => {
@@ -862,5 +864,22 @@
     }
   };
 
-  root.TourScenes = { play, stop, has: (key) => !!SCENES[key] };
+  // The STARTING picture of a scene, with no timers and no motion (owner: do not spoil the ending): used to show every card of the swipeable
+  // tour already filled in, so nothing looks empty while a swipe is under way. (The card that is on screen plays its scene with play().)
+  function preview(key, stage, ctx) {
+    const scene = SCENES[key];
+    stage.onclick = null;
+    if (!scene) { stage.hidden = true; stage.innerHTML = ""; return false; }
+    stage.hidden = false; stage.innerHTML = "";
+    const parts = scene.build(stage, ctx);
+    if (scene.manual) {
+      if (scene.initial) scene.initial(parts, ctx);   // e.g. the first box that appears
+      const bar = h("div", "ts-stepper", null, stage);
+      const btn = h("button", "ts-step-btn", ctx.tr("tour.nextStep"), bar);
+      btn.type = "button"; btn.disabled = true;   // same height as the playing scene; it only becomes usable when the card is on screen
+    }
+    return true;
+  }
+
+  root.TourScenes = { play, preview, stop, has: (key) => !!SCENES[key] };
 })(typeof window !== "undefined" ? window : this);
