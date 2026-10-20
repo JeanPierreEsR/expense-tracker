@@ -888,6 +888,7 @@
     "tour.step": { en: "{n} of {total}", es: "{n} de {total}" },
     "tour.back": { en: "Back", es: "Atrás" },
     "tour.next": { en: "Next", es: "Siguiente" },
+    "tour.swipe": { en: "Swipe to continue ›", es: "Desliza para continuar ›" },
     "tour.skip": { en: "Skip", es: "Omitir" },
     "tour.done": { en: "Start using the app", es: "Empezar a usar la app" },
     "tour.flow.title": { en: "Everything that moves your money, in one place", es: "Todo lo que mueve tu dinero, en un solo lugar" },
