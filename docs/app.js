@@ -6260,13 +6260,17 @@ waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 let tour_ = null;
 // The cards, in order. "bank" only exists when e-mail reading is on for this copy (capabilities.bankEmails is the backend's
 // featureOn_('gmail'): false on a friend's app until they turned on bank transactions, always true on the owner's copy).
-function tourCards_() {
-  const caps = (meta && meta.capabilities) || {};
-  const cards = ["flow", "add", "invest", "transfer", "loan", "repay", "programmed", "trips", "overview", "budgets"];
-  if (caps.bankEmails) cards.push("bank");
-  cards.push("statements");
-  cards.push("more");
-  return cards;
+// The tour comes in two parts (owner's decision 2026-10-21): "basic" is what the welcome flow shows (and More → The basics); "pro" holds the
+// advanced features (More → Pro features, or the button at the end of the basics).
+function tourCards_(part) {
+  if (part === "pro") {
+    const caps = (meta && meta.capabilities) || {};
+    const cards = ["invest", "loan", "repay", "programmed", "trips", "projections"];
+    if (caps.bankEmails) cards.push("bank");
+    cards.push("statements");
+    return cards;
+  }
+  return ["flow", "add", "transfer", "overview", "budgets", "more"];
 }
 // The entry form's fields, explained under the first card: [the app's own field label, what it is for].
 const TOUR_ITEMS = {
@@ -6277,8 +6281,8 @@ const TOUR_ITEMS = {
 // step-by-step card cannot be confused with it. Each card scrolls up and down on its own (so the next card always appears at its top),
 // the dots stay fixed at the bottom (tap one to jump; press and hold them and slide your finger along them to scrub through the cards),
 // the last card has the Done button, and only the card on screen plays its animation.
-function openTour_(reloadAfter) {
-  tour_ = { i: 0, cards: tourCards_(), reloadAfter: !!reloadAfter, slides: [], holding: false };
+function openTour_(reloadAfter, part) {
+  tour_ = { i: 0, part: part === "pro" ? "pro" : "basic", cards: tourCards_(part), reloadAfter: !!reloadAfter, slides: [], holding: false };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-overlay").classList.add("tour-mode");
   welcomeEl_("welcome-questions").hidden = true;
@@ -6289,7 +6293,7 @@ function buildTourSlide_(key, n, total) {
   const slide = document.createElement("section");
   slide.className = "tour-slide";
   const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; slide.appendChild(e); return e; };
-  add("p", "hint", tr("tour.step", { n: n + 1, total }));
+  add("p", "hint", tourStepLabel_(n, total));
   add("h2", "", tr(`tour.${key}.title`));
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
@@ -6308,11 +6312,27 @@ function buildTourSlide_(key, n, total) {
     });
   }
   if (n === total - 1) {
-    const done = add("button", "primary tour-done-btn", tr("tour.done"));
+    const done = add("button", "primary tour-done-btn", tr(tour_.part === "pro" ? "tour.doneShort" : "tour.done"));
     done.type = "button";
     done.addEventListener("click", closeTour_);
+    if (tour_.part !== "pro") {   // the basics end with a way into the advanced features
+      const pro = add("button", "tour-pro-btn", tr("tour.openPro"));
+      pro.type = "button";
+      pro.addEventListener("click", () => openTourPart_("pro"));
+    }
   }
   return { el: slide, key, stage };
+}
+function tourStepLabel_(n, total) { return (tour_ && tour_.part === "pro" ? tr("tour.proTag") + " · " : "") + tr("tour.step", { n: n + 1, total }); }
+// From the end of the basics straight into the Pro cards (the same overlay; closing it still reloads when the welcome flow asked for that).
+function openTourPart_(part) {
+  if (!tour_) return;
+  const reload = tour_.reloadAfter;
+  if (typeof TourScenes !== "undefined") TourScenes.stop();
+  welcomeEl_("tour-dots").innerHTML = "";
+  tour_ = { i: 0, part, cards: tourCards_(part), reloadAfter: reload, slides: [], holding: false };
+  renderTour_();
+  welcomeEl_("tour-track").scrollLeft = 0;
 }
 function renderTour_() {
   const track = welcomeEl_("tour-track");
@@ -6404,7 +6424,7 @@ function closeTour_() {
   };
   const showBubble = (idx, x) => {
     const foot = bar.parentElement.getBoundingClientRect();
-    bubble.textContent = tr("tour.step", { n: idx + 1, total: tour_.cards.length }) + " · " + tr(`tour.${tour_.cards[idx]}.title`);
+    bubble.textContent = tourStepLabel_(idx, tour_.cards.length) + " · " + tr(`tour.${tour_.cards[idx]}.title`);
     bubble.hidden = false;
     const half = bubble.offsetWidth / 2;
     bubble.style.left = Math.max(half + 4, Math.min(foot.width - half - 4, x - foot.left)) + "px";
@@ -6454,6 +6474,7 @@ function closeTour_() {
 }
 welcomeEl_("tour-skip-btn").addEventListener("click", closeTour_);
 document.getElementById("more-tour-btn").addEventListener("click", () => openTour_(false));
+document.getElementById("more-tour-pro-btn").addEventListener("click", () => openTour_(false, "pro"));
 
 // ---- Main currency (More → Main currency) ----
 // Switching is reversible and rewrites no data: exchange rates are stored against a fixed base currency and the main
