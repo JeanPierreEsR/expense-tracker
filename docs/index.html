@@ -448,7 +448,7 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-bank-sample-btn" hidden>
-            <span data-i18n="more.bankSample">🏦 My bank isn't supported yet</span>
+            <span data-i18n="more.bankSample">📩 Teach the app my bank's e-mails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-feedback-btn" hidden>
@@ -1243,7 +1243,7 @@
   <div id="bank-sample-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="bankSample.title">Add your bank</span>
+        <span data-i18n="bankSample.title">Teach the app your bank's e-mails</span>
         <button type="button" id="bs-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
@@ -1254,7 +1254,9 @@
           <input type="email" id="bs-sender" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-placeholder="bankSample.senderPlaceholder" placeholder="e.g. alerts@yourbank.com">
           <p class="hint" data-i18n="bankSample.senderHint">Open one of its e-mails and look at who sent it.</p>
           <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my e-mails</button>
-          <button type="button" class="cancel-edit-btn" id="bs-paste"data-i18n="bankSample.pasteInstead">Paste an e-mail instead</button>
+          <p class="hint" id="bs-find-hint" data-i18n="bankSample.findHint">The app looks in this Gmail for e-mails from that address.</p>
+          <button type="button" class="cancel-edit-btn" id="bs-paste" data-i18n="bankSample.pasteInstead">My e-mails are in another inbox</button>
+          <p class="hint" data-i18n="bankSample.pasteHint">Open one of the bank's e-mails there, copy all its text and paste it here.</p>
           <p class="hint" data-i18n="bankSample.statementHint">Is it a bank statement the app cannot read? Open More → Statements, choose the PDF, and you will find the button to send it.</p>
         </div>
         <div id="bs-step-2" hidden>
