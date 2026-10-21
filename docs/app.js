@@ -841,8 +841,16 @@ function syncLanguageSetting_() {
 }
 
 let homeCurFormDone_ = false;
+// Spending alerts (budgets and trip budgets) are delivered by Telegram, so the "Alert at (%)" fields are shown only when this copy has
+// Telegram connected. A copy that says nothing about it (an older backend) keeps showing them.
+function refreshTelegramFields_() {
+  const hide = !!(meta && meta.capabilities && meta.capabilities.telegram === false);
+  ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = hide; });
+}
+
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
   try {

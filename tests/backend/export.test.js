@@ -139,7 +139,7 @@ test("entries CSV: PEN value comes from the rate table, share excludes what was 
   assert.equal(row["Your share"], "60.00");
   assert.equal(row["Your share (PEN)"], "225.00");
   assert.equal(row["Shared with"], "Export Friend 40.00");
-  assert.equal(row["Payment method"], data.pms[3].nickname);
+  assert.equal(row["Account or card"], data.pms[3].nickname);
   const catRows = rt.rows("Categories");
   const parent = catRows.find((c) => c.id === cat.parent_id);
   assert.equal(row.Category, parent ? `${parent.name} › ${cat.name}` : cat.name);
@@ -213,7 +213,7 @@ test("in Spanish: e-mail, file names (no accents) and column headings are Spanis
   assert.ok(names.every((n) => /^[a-z0-9_.-]+$/.test(n)), "file names without accents or spaces");
   const csv = attachment(mail, "movimientos_");
   const head = csv.data.replace(/^﻿/, "").split("\r\n")[0];
-  assert.equal(head, "ID,Fecha,Tipo,Descripción,Comercio,Categoría,Monto,Moneda,Monto (PEN),Tu parte,Tu parte (PEN),Compartido con,Medio de pago,Hacia la cuenta,Pagado por,Amigo vinculado,Vinculado como,Etiquetas,Viaje / evento,Estado,Origen,Creado el");
+  assert.equal(head, "ID,Fecha,Tipo,Descripción,Comercio,Categoría,Monto,Moneda,Monto (PEN),Tu parte,Tu parte (PEN),Compartido con,Cuenta o tarjeta,Hacia la cuenta,Pagado por,Amigo vinculado,Vinculado como,Etiquetas,Viaje / evento,Estado,Origen,Creado el");
   assert.match(JSON.parse(attachment(mail, "respaldo_").data).note, /^Filas originales/);
 });
 

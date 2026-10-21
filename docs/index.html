@@ -1552,9 +1552,11 @@
           <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
         </div>
 
+<div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
         <p class="hint" data-i18n="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
+        </div>
 
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
@@ -1598,9 +1600,11 @@
         <input type="text" inputmode="decimal" id="trip-budget" placeholder="0.00">
         <p class="hint" data-i18n="trips.budgetHint">Only a guide for this trip or event.</p>
 
+<div id="trip-alert-fields">
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
         <p class="hint" data-i18n="trips.alertHint">Comma-separated percentages of the budget.</p>
+        </div>
 
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>

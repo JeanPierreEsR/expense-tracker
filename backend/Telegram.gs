@@ -818,14 +818,15 @@ var EDIT_COMMAND_PATTERNS = [
   { field: 'split', re: /^(?:split|repartir|dividir)\s+(.+)/i },
   // Payment method and label(s) — same parity goal, requested directly:
   // whatever the app's own entry-editing pop-up can change, a Telegram
-  // reply should be able to change too. "payment method" (not "payment"
-  // alone) to read unambiguously in a help line next to "paid by".
-  { field: 'payment method', re: /^(?:payment\s*method|medio\s*de\s*pago)\s+(.+)/i },
+  // reply should be able to change too. The word is "account" / "cuenta" (owner,
+  // 2026-10-21: one name for it everywhere); "payment method" / "medio de pago" are
+  // still accepted so old habits keep working.
+  { field: 'payment method', re: /^(?:account|cuenta|payment\s*method|medio\s*de\s*pago)\s+(.+)/i },
   // Transfers only (see applyOneEditSegment_): the two ends of the move.
   { field: 'from', re: /^(?:from|desde)\s+(.+)/i },
   { field: 'to', re: /^(?:to|hasta|hacia)\s+(.+)/i },
   // Withdrawals only: same as "to", worded the way it reads for money coming back.
-  { field: 'received at', re: /^(?:received\s*at|recibido\s*en)\s+(.+)/i },
+  { field: 'received at', re: /^(?:received\s*(?:at|in)|recibido\s*en)\s+(.+)/i },
   { field: 'label', re: /^(?:labels?|tags?|etiquetas?)\s+(.+)/i },
   // Trips & events (expenses only): "trip Cusco" links the expense, "trip none" unlinks it.
   { field: 'trip', re: /^(?:trip|event|viaje|evento)\s+(.+)/i },

@@ -73,6 +73,25 @@ test("split, labels, payment method in Spanish", () => {
   assert.equal(rt.rows("Entry Tags").filter((t) => t.entry_id === entry().id).length, 0);
 });
 
+test("the account of an entry is changed with 'cuenta' / 'account' (and the old 'medio de pago' / 'payment method' still work)", () => {
+  const { data, reply, entry } = setup();
+  const [a, b, c, d] = data.pms.filter((p) => p.type !== "investment");
+  reply(`cuenta ${a.nickname}`);
+  assert.equal(entry().payment_method_id, a.id);
+  reply(`account ${b.nickname}`);
+  assert.equal(entry().payment_method_id, b.id);
+  reply(`medio de pago ${c.nickname}`);
+  assert.equal(entry().payment_method_id, c.id);
+  reply(`payment method ${d.nickname}`);
+  assert.equal(entry().payment_method_id, d.id);
+});
+
+test("'received in' is accepted next to 'received at' / 'recibido en'", () => {
+  const { rt } = setup();
+  const ok = (text) => rt.run(`EDIT_COMMAND_PATTERNS.some(function (p) { return p.field === 'received at' && p.re.test(${JSON.stringify(text)}); })`);
+  for (const text of ["received in Interbank", "received at Interbank", "recibido en Interbank"]) assert.equal(ok(text), true, text);
+});
+
 test("type words and transfer ends in Spanish", () => {
   const { rt, data, reply, entry } = setup();
   const [a, b] = data.pms.filter((p) => p.type !== "investment");
