@@ -1830,6 +1830,22 @@ body.income-revealed .sens-mask { display: none; }
   cursor: pointer;
 }
 
+/* The period total is the row you tap to set a figure by hand (it looks tappable, like the hand-set row above it). */
+#drilldown-projection-total-row:not([hidden]) {
+  padding: 12px;
+  margin: 6px 0 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#drilldown-projection-total-row > span:last-child {
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
 .drilldown-projection-label {
   font-weight: 600;
   font-size: 0.9rem;
@@ -2610,6 +2626,7 @@ body.income-revealed .sens-mask { display: none; }
 .ts-plegend { display: flex; gap: 12px; font-size: 10px; color: var(--muted); }
 .ts-drow { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 4px 4px; border-top: 1px solid var(--border); border-radius: 6px; transition: background .3s; }
 .ts-drow.now { background: rgba(0, 113, 227, 0.1); }
+.ts-drow.edit { padding: 6px 8px; margin-top: 4px; border: 1px dashed var(--border); background: var(--bg); font-weight: 600; }
 .ts-trace { font-size: 10px; color: var(--muted); line-height: 1.35; padding: 2px 4px 4px; display: flex; flex-direction: column; gap: 3px; }
 .ts-trace[hidden] { display: none; }
 

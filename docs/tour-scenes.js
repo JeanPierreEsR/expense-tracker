@@ -712,8 +712,8 @@
           p.dProg = drow(tr("drill.programmed") + " " + tr("drill.tapToTrace"), p.money(c.prog));
           p.dExp = drow(tr("drill.expected") + " " + tr("drill.tapToTrace"), p.money(c.exp));
           p.trace = h("div", "ts-trace", null, s); p.trace.hidden = true;
-          p.dRem = drow(tr("drill.projectedRemaining"), p.money(c.prog + c.exp));
-          p.dTot = drow(tr("drill.periodTotal"), p.money(c.total));
+          p.dTot = drow(tr("drill.periodTotal") + " " + tr("drill.periodTotalHint"), p.money(c.total));   // Actual + Programmed + Expected; tap it to set a figure by hand
+          p.dTot.classList.add("edit");
         }, 700);
         return 2100;
       },
@@ -737,7 +737,7 @@
       (p, ctx, instant, later) => {
         const tr = ctx.tr, c = p.cats[0];
         stmtStep(p, 5);
-        later(() => { p.dExp.classList.remove("now"); p.finger.to(p.dRem, instant); }, 300);
+        later(() => { p.dExp.classList.remove("now"); p.finger.to(p.dTot, instant); }, 300);
         later(() => {
           p.finger.tap(instant);
           const s = sheetOpen(p, tr("projOverride.title"));
