@@ -1164,7 +1164,8 @@
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="extras-off-list" style="font-weight:600;"></p>
-        <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Open the setup page in Safari (not from this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
+        <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Tap “Open in Safari” below (the setup page does not work well inside this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
+        <button type="button" class="primary" id="extras-open-btn" data-i18n="extras.open">Open the setup page</button>
         <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
         <p class="hint" id="extras-copy-msg"></p>
       </div>
@@ -1849,8 +1850,9 @@
       <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span></div>
       <p data-i18n="update.body">A newer version of your app is ready.</p>
       <p class="hint" id="update-modal-hint"></p>
-      <button type="button" class="primary" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
-      <button type="button" class="add-inline" id="update-open-btn" data-i18n="update.open">Open the update page</button>
+      <button type="button" class="primary" id="update-open-btn" data-i18n="update.open">Open the update page</button>
+      <button type="button" class="add-inline" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
+      <p class="hint" id="update-stuck" hidden data-i18n="app.safariStuck">Safari did not open? Tap the copy button, open Safari yourself and paste the link in the address bar.</p>
       <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
       <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
     </div>
