@@ -296,6 +296,7 @@ function clearLocalSignIn_() {
   localStorage.removeItem("sessionToken");
   localStorage.removeItem("accessCode");
   localStorage.removeItem(STARTUP_CACHE_KEY);
+  localStorage.removeItem(PROJECTIONS_CACHE_KEY);
   localStorage.removeItem(ENTRY_DRAFT_KEY);
   clearSearchCache_();
 }
@@ -9013,21 +9014,97 @@ async function refreshProjectionsScreen() {
   await Promise.all([refreshProjections(), refreshProjectionCategories()]);
 }
 
+// The last projections shown are kept on this phone (per period) and painted at
+// once on the next open, with an "Updating…" line while the live ones load —
+// the same idea as the saved start-up bundle for Entries. Cleared on sign-out.
+const PROJECTIONS_CACHE_KEY = "projectionsCache";
+const PROJECTIONS_CACHE_MAX_PERIODS = 6;
+
+function projectionsCacheKey_() {
+  const p = projectionPeriodPayload_();
+  return `${p.displayPeriodType}|${p.anchorDate}`;
+}
+
+function loadProjectionsCache_(key, part) {
+  try {
+    const c = JSON.parse(localStorage.getItem(PROJECTIONS_CACHE_KEY));
+    // Category names come from the server already translated, so another
+    // language's copy is not shown.
+    if (!c || c.lang !== I18n.getLang()) return null;
+    const entry = c.periods && c.periods[key];
+    return (entry && entry[part]) || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveProjectionsCache_(key, part, value) {
+  try {
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(PROJECTIONS_CACHE_KEY)); } catch (err) { c = null; }
+    if (!c || c.lang !== I18n.getLang() || !c.periods) c = { lang: I18n.getLang(), periods: {} };
+    const entry = c.periods[key] || {};
+    entry[part] = value;
+    delete c.periods[key];
+    c.periods[key] = entry;   // most recently used goes last
+    const keys = Object.keys(c.periods);
+    while (keys.length > PROJECTIONS_CACHE_MAX_PERIODS) delete c.periods[keys.shift()];
+    localStorage.setItem(PROJECTIONS_CACHE_KEY, JSON.stringify(c));
+  } catch (err) {
+    // Storage full/unavailable — the tab just shows "Loading…" each time, as before.
+  }
+}
+
+// One "Updating…" line above the category list while either part is refreshing.
+let projectionsUpdating_ = 0;
+function setProjectionsUpdating_(on) {
+  let note = document.getElementById("projections-updating");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "projections-updating";
+    note.className = "status-msg";
+    document.getElementById("projections-body").before(note);
+  }
+  projectionsUpdating_ = Math.max(0, projectionsUpdating_ + (on ? 1 : -1));
+  note.textContent = tr("projections.updating");
+  note.hidden = projectionsUpdating_ === 0;
+}
+
 async function refreshProjections() {
   const body = document.getElementById("projections-body");
   const monthLabel = document.getElementById("projections-month-label");
   const methodNote = document.getElementById("projections-method-note");
-  body.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
-  monthLabel.textContent = "";
-  methodNote.textContent = "";
+  const cacheKey = projectionsCacheKey_();
+  const cached = loadProjectionsCache_(cacheKey, "summary");
+  if (cached) {
+    renderProjectionsSummary_(cached);
+  } else {
+    body.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+    monthLabel.textContent = "";
+    methodNote.textContent = "";
+  }
 
   let p;
+  setProjectionsUpdating_(true);
   try {
     p = await callApi("getProjections", projectionPeriodPayload_());
   } catch (err) {
-    body.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    // With saved numbers on screen, keep them rather than replace them with an error.
+    if (!cached) body.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
     return;
+  } finally {
+    setProjectionsUpdating_(false);
   }
+  // The owner moved to another period while this was loading.
+  if (cacheKey !== projectionsCacheKey_()) return;
+  saveProjectionsCache_(cacheKey, "summary", p);
+  renderProjectionsSummary_(p);
+}
+
+function renderProjectionsSummary_(p) {
+  const body = document.getElementById("projections-body");
+  const monthLabel = document.getElementById("projections-month-label");
+  const methodNote = document.getElementById("projections-method-note");
 
   // The server names the month in English; yearly keeps the plain year.
   const projectedPeriod = p.periodType === "yearly" ? p.monthLabel : I18n.fmtMonthYear(periodType === "month" ? periodAnchor : new Date(), true);
@@ -9126,17 +9203,30 @@ function projectionRowBreakdown_(c) {
 
 async function refreshProjectionCategories() {
   const list = document.getElementById("projections-categories-list");
-  const emptyNote = document.getElementById("projections-categories-empty-note");
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  const cacheKey = projectionsCacheKey_();
+  const cached = loadProjectionsCache_(cacheKey, "categories");
+  if (cached) renderProjectionCategories_(cached);
+  else list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
 
   let result;
+  setProjectionsUpdating_(true);
   try {
     result = await callApi("listCategoryProjections", projectionPeriodPayload_());
   } catch (err) {
-    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    if (!cached) list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
     return;
+  } finally {
+    setProjectionsUpdating_(false);
   }
+  // The owner moved to another period while this was loading.
+  if (cacheKey !== projectionsCacheKey_()) return;
+  saveProjectionsCache_(cacheKey, "categories", result);
+  renderProjectionCategories_(result);
+}
 
+function renderProjectionCategories_(result) {
+  const list = document.getElementById("projections-categories-list");
+  const emptyNote = document.getElementById("projections-categories-empty-note");
   const categories = result.categories;
   list.innerHTML = "";
   emptyNote.hidden = categories.length > 0;
@@ -9205,13 +9295,14 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
     categoryId: categoryProjection.category_id
   };
 
+  // Both requests start together (the chart/detail one is not awaited), so the
+  // wait is the slower of the two rather than their sum.
+  loadAndRenderProjectionChart_(categoryProjection);
   await openDrilldownWithPayload_(
     payload,
     `${categoryProjection.category_icon ? categoryProjection.category_icon + " " : ""}${categoryProjection.category_name}`,
     `${bounds.label} · ${tr("drill.projectedLegend")}`
   );
-
-  loadAndRenderProjectionChart_(categoryProjection);
 }
 
 // Fetches this category's projection detail (breakdown + daily actual
