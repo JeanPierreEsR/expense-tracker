@@ -332,6 +332,7 @@ function routeAction(action, payload) {
     case 'admin_debugProjectionOverrides': return adminDebugProjectionOverrides();
     case 'admin_debugBudgetAlertLog': return adminDebugBudgetAlertLog();
     case 'listPendingEntries': return listPendingEntries();
+    case 'listSupportedSenders': return listSupportedSenders();
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': return discardEntryWithRepayments_(payload.id);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);

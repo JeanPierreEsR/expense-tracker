@@ -16,6 +16,9 @@
 //   parseSender(text)            -> "name@bank.com" or "" (accepts `Bank <name@bank.com>` too)
 //   redact(text, { sender, hide }) -> the safe text
 //   MAX_CHARS                    the most that is ever sent (the backend enforces the same limit)
+//   rememberSender(list, sender, now) / pending(list) / readyBanks(list, supported) / markTold(list, senders)
+//       "tell the person when their bank is ready": the phone keeps the addresses it sent samples for; once the app's rules
+//       cover one of them (backend listSupportedSenders), the person is told once.
 //
 // Used by docs/app.js; also loaded by Node for tests/backend/bank-sample.test.js. Holds no secrets.
 (function (root, factory) {
@@ -92,5 +95,40 @@
     return s.length > max ? s.slice(0, max) : s;
   }
 
-  return { parseSender: parseSender, redact: redact, MAX_CHARS: MAX_CHARS };
+  // ---- "your bank is ready" ----
+  // list = [{ s: "alerts@bank.com", at: 1700000000000, told: false }]; every function returns a new list and never throws.
+  function rememberSender(list, sender, now) {
+    var s = parseSender(sender);
+    var out = (Array.isArray(list) ? list : []).filter(function (e) { return e && typeof e.s === "string"; });
+    if (!s) return out;
+    // sending again for an address that was already told about is a new wait: the person may be sending a kind of e-mail the rules still lack
+    out = out.filter(function (e) { return e.s !== s; });
+    out.push({ s: s, at: now, told: false });
+    return out.slice(-20);
+  }
+  function pending(list) {
+    return (Array.isArray(list) ? list : []).filter(function (e) { return e && typeof e.s === "string" && !e.told; });
+  }
+  // supported = [{ sender, bank }] from the backend. -> { senders: [addresses now covered], banks: [their bank names, once each] }
+  function readyBanks(list, supported) {
+    var bySender = {};
+    (Array.isArray(supported) ? supported : []).forEach(function (r) {
+      if (r && typeof r.sender === "string") bySender[r.sender.toLowerCase()] = String(r.bank || "");
+    });
+    var senders = [], banks = [];
+    pending(list).forEach(function (e) {
+      if (!Object.prototype.hasOwnProperty.call(bySender, e.s)) return;
+      senders.push(e.s);
+      var bank = bySender[e.s];
+      if (bank && banks.indexOf(bank) < 0) banks.push(bank);
+    });
+    return { senders: senders, banks: banks };
+  }
+  function markTold(list, senders) {
+    return (Array.isArray(list) ? list : []).map(function (e) {
+      return e && senders.indexOf(e.s) >= 0 ? { s: e.s, at: e.at, told: true } : e;
+    });
+  }
+
+  return { parseSender: parseSender, redact: redact, MAX_CHARS: MAX_CHARS, rememberSender: rememberSender, pending: pending, readyBanks: readyBanks, markTold: markTold };
 });
