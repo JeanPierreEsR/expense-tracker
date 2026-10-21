@@ -43,5 +43,5 @@ test("paid more than owed: PAGO DEL MES 0.00 with negative subtotals is accepted
 test("a genuinely wrong PAGO DEL MES is still rejected", () => {
   const r = SP.parseStatement(statement({ monthlyUsd: "5.00" }));
   assert.equal(r.ok, false);
-  assert.match(r.errors.join(" "), /Sum of subtotals/);
+  assert.match(r.errors.join(" "), /The subtotals add up to/);
 });

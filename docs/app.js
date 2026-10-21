@@ -1224,6 +1224,7 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
+  document.getElementById("to-payment-method-hint-exchange").hidden = isInvestment;
   updateFromNoneOption_();
   // A transfer has no "Paid by": who it came from is the From account (or
   // None). Friends are handled by the loan/repayment kinds. Kept at "me" so
