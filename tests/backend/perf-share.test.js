@@ -107,3 +107,62 @@ test("phone type uses only the words the backend accepts", () => {
   assert.equal(PerfShare.deviceKind("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", false), "Mac");
   assert.equal(PerfShare.deviceKind("", false), "Other");
 });
+
+// ---- the beta counts (a failed action's name + short code): a second outbox, the consent version, the daily limit ----
+
+test("a second outbox with its own keys works like the first and the two never mix", () => {
+  const st = fakeStorage();
+  const timings = PerfShare.create(st);
+  const beta = PerfShare.create(st, { outboxKey: "betaOutbox", seqKey: "betaSeq" });
+  timings.append(call("getMeta"));
+  beta.appendRaw({ t: 1, k: "error", n: "listEntries", d: "network", v: 1 });
+  beta.appendRaw({ t: 2, k: "error", n: "createEntry", d: "unknown", v: 1 });
+  assert.deepEqual(timings.peek(10).map((e) => e.s), [1]);
+  const [a, b] = beta.peek(10);
+  assert.deepEqual([a.s, b.s], [1, 2]);
+  assert.equal(Object.keys(a)[0], "s", "the number goes first, which is what acknowledging relies on");
+  assert.deepEqual([a.n, a.d], ["listEntries", "network"]);
+  beta.ack(1);
+  assert.deepEqual(beta.peek(10).map((e) => e.s), [2]);
+  assert.equal(timings.peek(10).length, 1, "acknowledging one outbox leaves the other alone");
+});
+
+test("the beta counts are worth sending as soon as one waits (the timings need 30)", () => {
+  const now = Date.now();
+  const one = { count: 1, oldestT: now };
+  assert.equal(PerfShare.shouldSend(one, now, 0, false), false);
+  assert.equal(PerfShare.shouldSend(one, now, 0, false, 1), true);
+  assert.equal(PerfShare.shouldSend(one, now, now - 3600000, false, 1), false, "still never more often than every 2 hours");
+});
+
+test("someone who agreed to speed only is asked again about the new part; 'not now' is respected three times; a no stays a no", () => {
+  const ask = (state, owner = false) => PerfShare.needsAsk(state, owner);
+  assert.equal(ask({}), true, "never asked");
+  assert.equal(ask({ asked: true, on: true, scope: PerfShare.SCOPE }), false, "agreed to everything shown today");
+  assert.equal(ask({ asked: true, on: true }), true, "agreed before the new part existed");
+  assert.equal(ask({ asked: true, on: true, scopeSkips: 2 }), true);
+  assert.equal(ask({ asked: true, on: true, scopeSkips: 3 }), false, "after three 'not now' it stays at what they agreed to");
+  assert.equal(ask({ asked: true, on: false }), false, "a no is never asked again");
+  assert.equal(ask({ asked: true, on: true }, true), false, "the owner's own phone is never asked");
+  assert.equal(ask({}, true), false);
+});
+
+test("the error code is a plain lower-case word, never the message", () => {
+  assert.equal(PerfShare.errorCode({ code: "invalid_access_code" }), "invalid_access_code");
+  assert.equal(PerfShare.errorCode({ code: "Some Message 45.20" }), "unknown");
+  assert.equal(PerfShare.errorCode({ message: "Amount 45.20 is not valid" }), "unknown");
+  assert.equal(PerfShare.errorCode(null), "unknown");
+  assert.equal(PerfShare.errorCode({ code: "x".repeat(60) }), "unknown");
+});
+
+test("one phone records at most 5 of the same error and 40 errors a day, then starts again the next day", () => {
+  const st = fakeStorage();
+  const day1 = Date.UTC(2026, 9, 21, 15, 0, 0);
+  let ok = 0;
+  for (let i = 0; i < 10; i++) if (PerfShare.shouldRecordError(st, "listEntries", "network", day1)) ok++;
+  assert.equal(ok, 5, "the same broken screen cannot flood the outbox");
+  let other = 0;
+  for (let i = 0; i < 60; i++) if (PerfShare.shouldRecordError(st, "action" + i, "unknown", day1)) other++;
+  assert.equal(other, 35, "40 a day in all (5 were already used)");
+  assert.equal(PerfShare.shouldRecordError(st, "listEntries", "network", day1 + 86400000), true, "a new day starts fresh");
+});
