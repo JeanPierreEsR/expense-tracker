@@ -1209,6 +1209,7 @@ function togglePaymentMethodVisibilityBase_() {
   // reads as "From" and a "To" picker appears alongside it.
   const isInvestment = selectedType === "investment";
   document.getElementById("payment-method-label").textContent =
+    isInvestment && investmentDirection === "withdrawal" ? tr("field.to") :
     selectedType === "transfer" || isInvestment ? tr("field.from") :
     selectedType === "income" ? tr("field.receivedAt") :
     tr("field.paymentMethod");
@@ -1694,6 +1695,8 @@ function setInvestmentDirection(direction) {
   document.getElementById("investment-direction-hint").textContent = direction === "withdrawal"
     ? tr("investment.withdrawalHint")
     : tr("investment.depositHint");
+  // The account is where the money leaves from on a deposit, and where it lands on a withdrawal.
+  if (selectedType === "investment") document.getElementById("payment-method-label").textContent = tr(direction === "withdrawal" ? "field.to" : "field.from");
 }
 
 document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) => {

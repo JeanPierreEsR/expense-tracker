@@ -107,6 +107,7 @@
     "field.tags": { en: "Tags", es: "Etiquetas" },
     "field.receivedFrom": { en: "Received from", es: "Recibido de" },
     "field.from": { en: "From", es: "Desde" },
+    "field.to": { en: "To", es: "Hacia" },
     "field.receivedAt": { en: "Received at", es: "Recibido en" },
     "field.platform": { en: "Platform", es: "Plataforma" },
     "field.paidFromAccount": { en: "Paid from (account)", es: "Pagado desde (cuenta)" },
