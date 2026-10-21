@@ -725,9 +725,16 @@ async function saveProgress() {
   if (!state.spreadsheetId) return;
   await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + state.spreadsheetId, { appProperties: progressToProps() });
 }
-async function restoreIfNeeded() {
+// The apps this page makes carry the Drive mark etSetup. The OWNER's own leftover apps from the throwaway test page
+// (docs/setup-test/) carry setupTest instead, with the same saved-progress keys; `includeTestApps` lets the Update page
+// find those too (2026-10-21: it said "No app of yours was found" for the owner's spare account). Setting up never does, so a
+// fresh setup is never mistaken for a resume.
+async function restoreIfNeeded(includeTestApps) {
   if (state.spreadsheetId) return;
-  const q = encodeURIComponent("appProperties has { key='etSetup' and value='1' } and trashed=false");
+  const mark = includeTestApps
+    ? "(appProperties has { key='etSetup' and value='1' } or appProperties has { key='setupTest' and value='1' })"
+    : "appProperties has { key='etSetup' and value='1' }";
+  const q = encodeURIComponent(mark + " and trashed=false");
   const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime%20desc&fields=files(id,webViewLink,appProperties)');
   const f = (res.files || [])[0];
   if (!f) return;
@@ -1141,7 +1148,7 @@ async function versionCount() {
 // the app is found again in Drive (restoreIfNeeded) and its own sign-in code is left alone.
 async function updateMyApp() {
   progress(T.p_google, 5, T.stepUpdate);
-  await restoreIfNeeded();
+  await restoreIfNeeded(true);
   accountReady = showAccount();
   if (!state.scriptId || !state.deploymentId) throw new Error(T.updNone);
   progress(T.p_updCheck, 12);
