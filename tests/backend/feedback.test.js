@@ -1,4 +1,4 @@
-// "Send feedback to JP" notes (backend/Feedback.gs). Made-up ids, names and text only.
+// "Send me feedback" notes (backend/Feedback.gs). Made-up ids, names and text only.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { freshApp, linkTelegram } = require("./helpers");
