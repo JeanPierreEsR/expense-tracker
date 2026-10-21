@@ -39,12 +39,14 @@ function ensureRecurringExpensesSheet_() {
     return;
   }
   // Columns added after the sheet already held real data are appended in
-  // place, one at a time (the header row is re-read after each append).
+  // place, one at a time. The header row is read once and re-read only after an
+  // append (this runs many times per request, and each read is a trip to Google).
+  var headers = getHeaders(sheet);
   ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id'].forEach(function (col) {
-    var headers = getHeaders(sheet);
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
       if (col !== 'date') sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+      headers = getHeaders(sheet);
     }
   });
 }
@@ -66,6 +68,34 @@ function ensureRecurringSkipsSheet_() {
 // months (`skip_months`) and recurringExpenseOccurrencesInRange_ — also the
 // one place start/end dates are applied — needs no extra sheet reads.
 function getRecurringExpenseRows_() {
+  // Inside a rows-memo scope (see withRowsMemo_) the finished list is reused: it
+  // is called many times per projection request, and each call re-checks several
+  // sheets. Valid only while the two sheets' memoed copies are the very same ones
+  // (a write drops them, so the list is rebuilt).
+  var memoed = ROWS_MEMO_ && ROWS_MEMO_['@recurring_rows'];
+  if (memoed && memoed.src === ROWS_MEMO_['Recurring Expenses'] && memoed.skips === ROWS_MEMO_['Recurring Skips']) {
+    return memoed.rows.map(function (r) {
+      var copy = Object.assign({}, r);
+      copy.skip_months = r.skip_months.slice();
+      return copy;
+    });
+  }
+  var built = buildRecurringExpenseRows_();
+  if (ROWS_MEMO_ && ROWS_MEMO_['Recurring Expenses'] && ROWS_MEMO_['Recurring Skips']) {
+    ROWS_MEMO_['@recurring_rows'] = {
+      src: ROWS_MEMO_['Recurring Expenses'],
+      skips: ROWS_MEMO_['Recurring Skips'],
+      rows: built.map(function (r) {
+        var copy = Object.assign({}, r);
+        copy.skip_months = r.skip_months.slice();
+        return copy;
+      })
+    };
+  }
+  return built;
+}
+
+function buildRecurringExpenseRows_() {
   ensureRecurringExpensesSheet_();
   ensureEntriesRecurringLinkColumn_();
   ensureRecurringSkipsSheet_();
