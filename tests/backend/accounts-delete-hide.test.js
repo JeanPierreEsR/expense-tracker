@@ -28,9 +28,9 @@ test("an account used by an entry (either end) is refused with a count, in both 
   addEntry(rt, "e-del-1", { payment_method_id: a.id });
   addEntry(rt, "e-del-2", { type: "transfer", payment_method_id: a.id, to_payment_method_id: b.id });
   const en = JSON.stringify(post(rt, "deletePaymentMethod", { id: a.id }));
-  assert.match(en, /2 records use it/);
-  assert.match(JSON.stringify(post(rt, "deletePaymentMethod", { id: b.id })), /1 record uses it/);
-  assert.match(JSON.stringify(post(rt, "deletePaymentMethod", { id: a.id }, "es")), /2 registros la usan/);
+  assert.match(en, /2 entries use it/);
+  assert.match(JSON.stringify(post(rt, "deletePaymentMethod", { id: b.id })), /1 entry uses it/);
+  assert.match(JSON.stringify(post(rt, "deletePaymentMethod", { id: a.id }, "es")), /2 movimientos la usan/);
   assert.ok(rt.rows("Payment Methods").some((p) => p.id === a.id), "still there");
   assert.ok(rt.rows("Payment Methods").some((p) => p.id === b.id), "still there");
 });

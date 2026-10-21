@@ -77,8 +77,8 @@ test("a category used by an entry or a budget is refused with a count, in both l
   const c = post(rt, "saveCategory", { type: "expense", name: "Used one" }).data;
   rt.run(`appendRowObject('Entries', { id: 'e-cat-1', type: 'expense', date: '2026-01-05', amount: 10, currency: 'PEN', category_id: ${JSON.stringify(c.id)}, description: 'x', paid_by: 'me', status: 'confirmed', source: 'manual' });`);
   rt.run(`appendRowObject('Budgets', { id: 'b-cat-1', category_id: ${JSON.stringify(c.id)}, amount: 100, currency: 'PEN', period_type: 'monthly' });`);
-  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: c.id })), /2 records use it/);
-  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: c.id }, "es")), /2 registros la usan/);
+  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: c.id })), /2 entries use it/);
+  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: c.id }, "es")), /2 movimientos la usan/);
   assert.ok(rt.rows("Categories").some((r) => r.id === c.id), "still there");
 
   const hid = post(rt, "setCategoryHidden", { id: c.id, hidden: true });
