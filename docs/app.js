@@ -6473,8 +6473,15 @@ function closeTour_() {
   });
 }
 welcomeEl_("tour-skip-btn").addEventListener("click", closeTour_);
-document.getElementById("more-tour-btn").addEventListener("click", () => openTour_(false));
-document.getElementById("more-tour-pro-btn").addEventListener("click", () => openTour_(false, "pro"));
+// More → How to use the app: one row, then a small choice between the two parts of the tour.
+{
+  const choice = document.getElementById("tour-choice-backdrop");
+  const open = (part) => { choice.hidden = true; openTour_(false, part); };
+  document.getElementById("more-tour-btn").addEventListener("click", () => { choice.hidden = false; });
+  document.getElementById("tour-choice-basic").addEventListener("click", () => open("basic"));
+  document.getElementById("tour-choice-pro").addEventListener("click", () => open("pro"));
+  document.getElementById("tour-choice-close").addEventListener("click", () => { choice.hidden = true; });
+}
 
 // ---- Main currency (More → Main currency) ----
 // Switching is reversible and rewrites no data: exchange rates are stored against a fixed base currency and the main
@@ -9182,7 +9189,7 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
   document.getElementById("drilldown-chart").hidden = true;
   document.getElementById("drilldown-chart-svg").innerHTML = "";
   document.getElementById("drilldown-chart-legend-2").textContent = tr("drill.projectedLegend");
-  document.getElementById("drilldown-projection-row").hidden = false;
+  document.getElementById("drilldown-projection-row").hidden = true;   // only shown for a hand-set figure, once the detail has loaded
   document.getElementById("drilldown-projection-amount").textContent = "…";
   ["drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
   document.getElementById("drilldown-projection-override-note").hidden = true;
@@ -9244,8 +9251,13 @@ async function loadAndRenderProjectionChart_(categoryProjection) {
 // unchanged), not this remaining figure — see openProjectionOverrideModal_.
 function renderProjectionDrilldownAmount_(detail) {
   const p = detail.projection;
+  // Merged with Expected (owner, 2026-10-21): "Projected remaining" was just Programmed + Expected, so with nothing programmed it repeated Expected.
+  // Now Actual + Programmed + Expected = Total, and the Total row is the one you tap to set a figure by hand. Only a hand-set figure
+  // (which replaces Programmed and Expected) still gets its own "✏️ Remaining · Manually set" row, the same words as the By-category list.
+  document.getElementById("drilldown-projection-row").hidden = !p.hasOverride;
+  document.getElementById("drilldown-projection-remaining-label").textContent = "✏️ " + tr("projections.remainingManual");
   document.getElementById("drilldown-projection-amount").textContent = formatPen(p.remainingTotalPen);
-  document.getElementById("drilldown-projection-override-note").hidden = !p.hasOverride;
+  document.getElementById("drilldown-projection-override-note").hidden = true;
 
   // Actual, what is left, and their sum: so the numbers add up where they can be seen.
   document.getElementById("drilldown-projection-actual-row").hidden = false;
@@ -9384,10 +9396,10 @@ document.getElementById("drilldown-projection-expected-row").addEventListener("c
   detailEl.hidden = !detailEl.hidden;
 });
 
-document.getElementById("drilldown-projection-row").addEventListener("click", () => {
+["drilldown-projection-row", "drilldown-projection-total-row"].forEach((id) => document.getElementById(id).addEventListener("click", () => {
   if (!drilldownProjection || !drilldownProjectionDetail) return;
   openProjectionOverrideModal_(drilldownProjection, drilldownProjectionDetail);
-});
+}));
 
 // ---- Projection method picker (2026-10-19) ----
 // The owner chooses what predicts his expenses best: six presets + custom, a
