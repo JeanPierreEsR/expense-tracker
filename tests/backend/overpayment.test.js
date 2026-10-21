@@ -126,7 +126,7 @@ test("Telegram 'repayment <friend>' with extra: the extra is saved, and the repl
   const pending = data.entries.find((e) => e.status === "pending" && e.currency === "PEN");
   rt.api("updateEntry", { id: pending.id, fields: { amount: 100 } });
   const out = JSON.parse(rt.run(`JSON.stringify(applyTerminalReviewAction_(${JSON.stringify(pending.id)}, 'repayment ${f.name}', ${JSON.stringify(f.name)}))`));
-  assert.match(out.message, /review queue/i);
+  assert.match(out.message, /Needs review/);
   assert.equal(overEntries().length, 1);
   assert.equal(Number(overEntries()[0].amount), 60);
 });
