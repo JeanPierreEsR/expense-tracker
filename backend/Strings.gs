@@ -25,8 +25,8 @@ var REQUEST_LANG_ = null;   // set by doPost for the duration of one request
 var BACKEND_STRINGS_ = {
   // ---- err ----
   // ---- optional abilities (Features.gs) ----
-  "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet.", es: "La lectura de tus correos del banco aún no está activada en esta app." },
-  "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu teléfono y vuelve a intentarlo." },
+  "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet. Turn it on in More → Extra features.", es: "La lectura de tus correos del banco aún no está activada en esta app. Actívala en Más → Funciones extra." },
+  "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu celular y vuelve a intentarlo." },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
   "err.validAmount": { en: "Enter a valid amount.", es: "Ingresa un monto válido." },
@@ -50,18 +50,18 @@ var BACKEND_STRINGS_ = {
   "err.pmLast4": { en: "Last 4 digits must be exactly 4 numbers (or leave it blank).", es: "Los últimos 4 dígitos deben ser exactamente 4 números (o déjalo en blanco)." },
   "err.pmBank": { en: "That bank doesn't exist.", es: "Ese banco no existe." },
   "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
-  "err.gapNotFound": { en: "Gap note not found.", es: "No se encontró la nota de diferencia." },
+  "err.gapNotFound": { en: "Difference note not found.", es: "No se encontró la nota de diferencia." },
   "err.catNameLong": { en: "Use a shorter name (40 letters at most).", es: "Usa un nombre más corto (máximo 40 letras)." },
   "err.catType": { en: "Choose Expense or Income.", es: "Elige Gasto o Ingreso." },
   "err.catIcon": { en: "Pick an emoji for the icon.", es: "Elige un emoji para el ícono." },
   "err.catColor": { en: "Pick one of the colors.", es: "Elige uno de los colores." },
   "err.catExists": { en: "You already have a category called \"{name}\".", es: "Ya tienes una categoría llamada \"{name}\"." },
   "err.catNotFound": { en: "Category not found.", es: "No se encontró la categoría." },
-  "err.catProtected": { en: "This category can't be changed that way.", es: "Esta categoría no se puede cambiar de esa forma." },
-  "err.catInUse": { en: { one: "This category can't be deleted: {n} record uses it. Hide it instead — it disappears from the pickers but past records keep its name.", other: "This category can't be deleted: {n} records use it. Hide it instead — it disappears from the pickers but past records keep its name." }, es: { one: "No se puede eliminar esta categoría: {n} registro la usa. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre.", other: "No se puede eliminar esta categoría: {n} registros la usan. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre." } },
+  "err.catProtected": { en: "This built-in category can't be edited, hidden or deleted.", es: "Esta categoría viene incluida en la app y no se puede editar, ocultar ni eliminar." },
+  "err.catInUse": { en: { one: "This category can't be deleted: {n} record uses it. Hide it instead — it disappears from the lists you choose from, but past records keep its name.", other: "This category can't be deleted: {n} records use it. Hide it instead — it disappears from the lists you choose from, but past records keep its name." }, es: { one: "No se puede eliminar esta categoría: {n} registro la usa. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre.", other: "No se puede eliminar esta categoría: {n} registros la usan. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre." } },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
-  "err.pmInUse": { en: { one: "This account can't be deleted: {n} record uses it. Hide it instead — it disappears from the pickers but past records keep its name.", other: "This account can't be deleted: {n} records use it. Hide it instead — it disappears from the pickers but past records keep its name." }, es: { one: "No se puede eliminar esta cuenta: {n} registro la usa. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre.", other: "No se puede eliminar esta cuenta: {n} registros la usan. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre." } },
-  "err.pmRailLinked": { en: "This account is linked to Yape or Plin. Change that link first (below), then delete it.", es: "Esta cuenta está vinculada a Yape o Plin. Cambia ese vínculo primero (abajo) y luego elimínala." },
+  "err.pmInUse": { en: { one: "This account can't be deleted: {n} record uses it. Hide it instead — it disappears from the lists you choose from, but past records keep its name.", other: "This account can't be deleted: {n} records use it. Hide it instead — it disappears from the lists you choose from, but past records keep its name." }, es: { one: "No se puede eliminar esta cuenta: {n} registro la usa. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre.", other: "No se puede eliminar esta cuenta: {n} registros la usan. Mejor ocúltala: desaparece de las listas pero los registros anteriores conservan su nombre." } },
+  "err.pmRailLinked": { en: "This account is linked to Yape or Plin. Change that link first (below), then delete it.", es: "Esta cuenta está vinculada a Yape o Plin. Cambia ese vínculo primero (en esta misma pantalla) y luego elimínala." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
   "err.pickPlatformFirst": { en: "Pick the platform first.", es: "Primero elige la plataforma." },
 
@@ -83,7 +83,7 @@ var BACKEND_STRINGS_ = {
 
   // ---- convert ----
   "convert.gone": { en: "That entry no longer exists — it may already have been converted.", es: "Ese movimiento ya no existe: puede que ya se haya convertido." },
-  "convert.pickExtraCategory": { en: "Pick a category for any extra amount.", es: "Elige una categoría para cualquier excedente." },
+  "convert.pickExtraCategory": { en: "Pick a category for any extra amount.", es: "Elige una categoría para cualquier extra." },
   "convert.alreadyMovement": { en: "This transfer is already the money movement of a loan or repayment — change it from the Loans tab instead.", es: "Esta transferencia ya es el traspaso de dinero de un préstamo o repago: cámbiala desde la pestaña Préstamos." },
   "convert.debtHasRepayments": { en: "The debt this expense created already has repayments recorded against it — sort those out from the Loans tab first.", es: "La deuda que creó este gasto ya tiene repagos registrados: resuélvelos primero desde la pestaña Préstamos." },
   "convert.onlyLoan": { en: "Only an expense, an income or a transfer can be turned into a loan.", es: "Solo un gasto, un ingreso o una transferencia se puede convertir en un préstamo." },
@@ -95,8 +95,8 @@ var BACKEND_STRINGS_ = {
   "forgive.already": { en: "This loan is already forgiven.", es: "Este préstamo ya está perdonado." },
 
   // ---- repay ----
-  "repay.autoOffsetEdit": { en: "That was an automatic offset from a repayment, not a real payment — it can't be edited directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede editar directamente." },
-  "repay.autoOffsetDelete": { en: "That was an automatic offset from a repayment, not a real payment — it can't be deleted directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede eliminar directamente." },
+  "repay.autoOffsetEdit": { en: "That line was created automatically when you recorded a repayment, so it can't be edited directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede editar directamente." },
+  "repay.autoOffsetDelete": { en: "That line was created automatically when you recorded a repayment, so it can't be deleted directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede eliminar directamente." },
   "repay.moreThanRemaining": { en: "That's more than the remaining balance ({cur} {amount}).", es: "Eso es más que el saldo restante ({cur} {amount})." },
   "repay.noLoanFromYou": { en: "{friend} has no {cur} loan from you on record, so there is nothing for this to repay. Add the loan first (Loans tab), or use \"Convert to loan\" if they lent you this money.", es: "{friend} no tiene un préstamo tuyo en {cur} registrado, así que no hay nada que repagar. Agrega primero el préstamo (pestaña Préstamos), o usa \"Convertir en préstamo\" si te prestaron este dinero." },
   "repay.noDebt": { en: "You have no {cur} debt to {friend} on record, so there is nothing for this to repay.", es: "No tienes una deuda en {cur} con {friend} registrada, así que no hay nada que repagar." },
@@ -120,16 +120,16 @@ var BACKEND_STRINGS_ = {
   "rec.startDate": { en: "The start date must be a real date (YYYY-MM-DD).", es: "La fecha de inicio debe ser una fecha real (AAAA-MM-DD)." },
   "rec.endDate": { en: "The end date must be a real date (YYYY-MM-DD).", es: "La fecha de fin debe ser una fecha real (AAAA-MM-DD)." },
   "rec.variableMonthlyOnly": { en: "Only a monthly item, or one with its own repeat interval (Other), can have a variable amount.", es: "Solo un movimiento mensual, o uno con su propio intervalo (Otra), puede tener monto variable." },
-  "rec.customInterval": { en: "\"Repeats every\" must be a whole number from 1 to 999.", es: "\"Repite cada\" debe ser un número entero de 1 a 999." },
+  "rec.customInterval": { en: "\"Repeats every\" must be a whole number from 1 to 999.", es: "\"Se repite cada\" debe ser un número entero de 1 a 999." },
   "rec.customUnit": { en: "Pick days, weeks, months or years.", es: "Elige días, semanas, meses o años." },
   "rec.customNeedsStart": { en: "An item with its own repeat interval needs a start date: every following date is counted from it.", es: "Un movimiento con su propio intervalo necesita una fecha de inicio: desde ella se cuentan las siguientes." },
-  "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognize its payments, e.g. \"luz\".", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, p. ej. \"luz\"." },
+  "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognize its payments, e.g. \"luz\" (electricity).", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, p. ej. \"luz\"." },
   "rec.endBeforeStart": { en: "The end date is before the start date.", es: "La fecha de fin es anterior a la de inicio." },
 
   // ---- bill ----
-  "bill.format": { en: "That bill is not in a format this app can store.", es: "Esa cuenta no tiene un formato que esta app pueda guardar." },
-  "bill.onlyExpense": { en: "Only an expense can have a bill.", es: "Solo un gasto puede tener una cuenta." },
-  "bill.tooLarge": { en: "That bill is too large to store.", es: "Esa cuenta es demasiado grande para guardarla." },
+  "bill.format": { en: "That bill is not in a format this app can store.", es: "Esa boleta no tiene un formato que esta app pueda guardar." },
+  "bill.onlyExpense": { en: "Only an expense can have a bill.", es: "Solo un gasto puede tener una boleta." },
+  "bill.tooLarge": { en: "That bill is too large to store.", es: "Esa boleta es demasiado grande para guardarla." },
 
   // ---- export ----
   "export.chooseOne": { en: "Choose at least one file to send.", es: "Elige al menos un archivo para enviar." },
@@ -193,8 +193,8 @@ var BACKEND_STRINGS_ = {
   "err.bankSampleWrongSender": { en: "That email is not from the address you gave.", es: "Ese correo no es de la dirección que indicaste." },
 
   // ---- auth ----
-  "perf.tabNearlyFull": { en: "📊 The \"Perf Reports\" tab in your Sheet holds {n} of at most {max} rows. Ask Claude to archive it before it fills up — once it is full, new app-speed reports are refused (phones keep them for a while).", es: "📊 La pestaña \"Perf Reports\" de tu hoja tiene {n} de un máximo de {max} filas. Pídele a Claude que la archive antes de que se llene: cuando se llena, los nuevos reportes de velocidad se rechazan (los teléfonos los guardan un tiempo)." },
-  "beta.tabNearlyFull": { en: "📈 The \"Beta Events\" tab in your Sheet holds {n} of at most {max} rows. Ask Claude to archive it before it fills up — once it is full, new setup and error counts are refused (phones keep them for a while).", es: "📈 La pestaña \"Beta Events\" de tu hoja tiene {n} de un máximo de {max} filas. Pídele a Claude que la archive antes de que se llene: cuando se llena, los nuevos conteos de configuración y errores se rechazan (los teléfonos los guardan un tiempo)." },
+  "perf.tabNearlyFull": { en: "📊 The \"Perf Reports\" tab in your Sheet holds {n} of at most {max} rows. Ask Claude to archive it before it fills up — once it is full, new app-speed reports are refused (phones keep them for a while).", es: "📊 La pestaña \"Perf Reports\" de tu hoja tiene {n} de un máximo de {max} filas. Pídele a Claude que la archive antes de que se llene: cuando se llena, los nuevos reportes de velocidad se rechazan (los celulars los guardan un tiempo)." },
+  "beta.tabNearlyFull": { en: "📈 The \"Beta Events\" tab in your Sheet holds {n} of at most {max} rows. Ask Claude to archive it before it fills up — once it is full, new setup and error counts are refused (phones keep them for a while).", es: "📈 La pestaña \"Beta Events\" de tu hoja tiene {n} de un máximo de {max} filas. Pídele a Claude que la archive antes de que se llene: cuando se llena, los nuevos conteos de configuración y errores se rechazan (los celulars los guardan un tiempo)." },
   "feedback.notice": { en: "💬 Feedback from {label}\nKind: {kind}\nScreen: {screen}\n\n{text}\n\n(Saved in your Sheet tab \"Feedback\".)", es: "💬 Comentario de {label}\nTipo: {kind}\nPantalla: {screen}\n\n{text}\n\n(Guardado en la pestaña \"Feedback\" de tu hoja.)" },
   "auth.failedAttempts": { en: { one: "⚠️ {n} wrong access-code attempt in the last hour ({source}). If that was not you, someone may be guessing your code — check its strength with the sheet menu (item 22) and replace it if it is not long and random (item 23).", other: "⚠️ {n} wrong access-code attempts in the last hour ({source}). If that was not you, someone may be guessing your code — check its strength with the sheet menu (item 22) and replace it if it is not long and random (item 23)." }, es: { one: "⚠️ {n} intento con un código de acceso incorrecto en la última hora ({source}). Si no fuiste tú, alguien podría estar adivinando tu código: revisa su fortaleza con el menú de la hoja (opción 22) y cámbialo si no es largo y aleatorio (opción 23).", other: "⚠️ {n} intentos con un código de acceso incorrecto en la última hora ({source}). Si no fuiste tú, alguien podría estar adivinando tu código: revisa su fortaleza con el menú de la hoja (opción 22) y cámbialo si no es largo y aleatorio (opción 23)." } },
 
@@ -326,8 +326,8 @@ var BACKEND_STRINGS_ = {
   "bot.discardButton": { en: "❌ Discard", es: "❌ Descartar" },
   "bot.alreadyConfirmed": { en: "ℹ️ Already confirmed.", es: "ℹ️ Ya estaba confirmado." },
   "bot.entryGone": { en: "ℹ️ This entry no longer exists.", es: "ℹ️ Este movimiento ya no existe." },
-  "bot.needCategoryFirst": { en: "⚠️ Not confirmed — it needs a category first. Reply to the card with \"category groceries\" (or another category), then tap Confirm.", es: "⚠️ No se confirmó: primero necesita una categoría. Responde a la tarjeta con \"categoría supermercado\" (u otra categoría) y luego toca Confirmar." },
-  "bot.needPlatformFirst": { en: "⚠️ Not confirmed — an investment needs its platform first. Reply to the card with \"platform Hapi\" (or another platform), then tap Confirm.", es: "⚠️ No se confirmó: una inversión necesita primero su plataforma. Responde a la tarjeta con \"plataforma Hapi\" (u otra plataforma) y luego toca Confirmar." },
+  "bot.needCategoryFirst": { en: "⚠️ Not confirmed — it needs a category first. Reply to the card with \"category groceries\" (or another category), then tap Confirm.", es: "⚠️ No se confirmó: primero necesita una categoría. Responde a este mensaje con \"categoría supermercado\" (u otra categoría) y luego toca Confirmar." },
+  "bot.needPlatformFirst": { en: "⚠️ Not confirmed — an investment needs its platform first. Reply to the card with \"platform Hapi\" (or another platform), then tap Confirm.", es: "⚠️ No se confirmó: una inversión necesita primero su plataforma. Responde a este mensaje con \"plataforma Hapi\" (u otra plataforma) y luego toca Confirmar." },
   "bot.confirmed": { en: "✅ Confirmed.", es: "✅ Confirmado." },
   "bot.alreadyConfirmedDelete": { en: "ℹ️ Already confirmed — delete it from the app if you really want it gone.", es: "ℹ️ Ya estaba confirmado: elimínalo desde la app si de verdad quieres borrarlo." },
   "bot.discarded": { en: "🗑️ Discarded.", es: "🗑️ Descartado." },
@@ -344,8 +344,8 @@ var BACKEND_STRINGS_ = {
   "bot.unknownFriend": { en: "Didn't recognize the friend \"{name}\".", es: "No reconocí al amigo \"{name}\"." },
   "bot.markedRepaymentFrom": { en: "✅ Marked as a repayment from {friend}.", es: "✅ Marcado como repago de {friend}." },
   "bot.markedRepaymentTo": { en: "✅ Marked as a repayment to {friend}.", es: "✅ Marcado como repago a {friend}." },
-  "bot.overpaidIn": { en: " {cur} {amount} was more than they owed you — the extra is in your review queue in the app, waiting for a category.", es: " {cur} {amount} era más de lo que te debían: el excedente está en tu lista por revisar en la app, esperando una categoría." },
-  "bot.overpaidOut": { en: " {cur} {amount} was more than they were owed — the extra is in your review queue in the app, waiting for a category.", es: " {cur} {amount} era más de lo que se le debía: el excedente está en tu lista por revisar en la app, esperando una categoría." },
+  "bot.overpaidIn": { en: " {cur} {amount} was more than they owed you — the extra is in your review queue in the app, waiting for a category.", es: " {cur} {amount} era más de lo que te debían: el extra está en tu lista por revisar en la app, esperando una categoría." },
+  "bot.overpaidOut": { en: " {cur} {amount} was more than they were owed — the extra is in your review queue in the app, waiting for a category.", es: " {cur} {amount} era más de lo que se le debía: el extra está en tu lista por revisar en la app, esperando una categoría." },
   "bot.loanIOwe": { en: "✅ Converted to a loan — you now owe {friend} {cur} {amount}.", es: "✅ Convertido en préstamo: ahora le debes {cur} {amount} a {friend}." },
   "bot.loanTheyOwe": { en: "✅ Converted to a loan — {friend} now owes you {cur} {amount}.", es: "✅ Convertido en préstamo: {friend} ahora te debe {cur} {amount}." },
   "bot.notRecognized": { en: "Didn't recognize that.", es: "No entendí eso." },
@@ -359,7 +359,7 @@ var BACKEND_STRINGS_ = {
   "bot.thisYear": { en: "this year", es: "este año" },
   "bot.thisMonth": { en: "this month", es: "este mes" },
   "bot.tripLabel": { en: "🧳 Trip/event: ", es: "🧳 Viaje/evento: " },
-  "bot.tripWillLink": { en: "🧳 Will be linked to: {name} when you confirm — reply \"trip none\" to skip it, or \"trip <name>\" to pick another.", es: "🧳 Se vinculará a: {name} al confirmar — responde \"viaje ninguno\" para no vincularla, o \"viaje <nombre>\" para elegir otro." },
+  "bot.tripWillLink": { en: "🧳 Will be linked to: {name} when you confirm — reply \"trip none\" to skip it, or \"trip <name>\" to pick another.", es: "🧳 Se vinculará a: {name} al confirmar — responde \"viaje ninguno\" para no vincularlo, o \"viaje <nombre>\" para elegir otro." },
   "bot.tripNotLinked": { en: "🧳 Trip/event: none (it will not be linked)", es: "🧳 Viaje/evento: ninguno (no se vinculará)" },
   "bot.tripBudgetAlert": { en: "{emoji} {name}: {percent}% of its {cur} {amount} budget ({cur} {spent} counted so far, estimates included).", es: "{emoji} {name}: {percent}% de su presupuesto de {cur} {amount} ({cur} {spent} contados hasta ahora, estimaciones incluidas)." },
   "help.trip": { en: "trip — \"trip Cusco\" (or \"trip none\")", es: "viaje — \"viaje Cusco\" (o \"viaje ninguno\")" },

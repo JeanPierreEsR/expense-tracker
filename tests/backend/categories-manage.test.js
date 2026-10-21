@@ -90,7 +90,7 @@ test("a category used by an entry or a budget is refused with a count, in both l
 test("'Other' and non-expense/income categories can't be deleted or hidden", () => {
   const { rt } = freshApp({ entries: 50 });
   const other = rt.rows("Categories").find((c) => c.key === "other" && c.type === "expense");
-  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: other.id })), /can't be changed that way/);
-  assert.match(JSON.stringify(post(rt, "setCategoryHidden", { id: other.id, hidden: true })), /can't be changed that way/);
+  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: other.id })), /built-in category can't be edited, hidden or deleted/);
+  assert.match(JSON.stringify(post(rt, "setCategoryHidden", { id: other.id, hidden: true })), /built-in category can't be edited, hidden or deleted/);
   assert.match(JSON.stringify(post(rt, "deleteCategory", { id: "nope" })), /not found/);
 });
