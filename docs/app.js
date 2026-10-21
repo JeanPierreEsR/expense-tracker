@@ -6377,7 +6377,7 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "loan", "repay", "programmed", "trips", "projections"];
+    const cards = ["invest", "loan", "repay", "bill", "programmed", "trips", "projections"];
     if (caps.bankEmails) cards.push("bank");
     cards.push("statements");
     return cards;
@@ -6386,6 +6386,7 @@ function tourCards_(part) {
 }
 // The entry form's fields, explained under the first card: [the app's own field label, what it is for].
 const TOUR_ITEMS = {
+  bill: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ["tour.bill.l" + n, "tour.bill.t" + n]),
   add: [["field.amount", "tour.f.amount"], ["field.date", "tour.f.date"], ["field.currency", "tour.f.currency"], ["field.description", "tour.f.description"],
     ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
 };
@@ -6415,7 +6416,7 @@ function buildTourSlide_(key, n, total) {
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
   const items = TOUR_ITEMS[key] || [];
   if (items.length) {
-    const ul = add("ul", "welcome-items");
+    const ul = add(key === "bill" ? "ol" : "ul", "welcome-items");
     items.forEach(([label, what]) => {
       const li = document.createElement("li");
       const b = document.createElement("b"); b.textContent = tr(label);
