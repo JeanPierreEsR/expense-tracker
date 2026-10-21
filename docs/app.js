@@ -6227,13 +6227,16 @@ function closeTour_() {
 {
   const track = welcomeEl_("tour-track");
   let settle = null;
-  // After the swipe settles, find which card is centred.
+  const cardNow = () => Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth)));
+  // The dots follow the card nearest the middle of the screen WHILE you swipe (a quick swipe through several cards never leaves the dot behind);
+  // the card's animation starts only once the swipe settles.
   track.addEventListener("scroll", () => {
     clearTimeout(settle);
-    if (tour_ && tour_.holding) return;   // running through the cards: only the dots follow until the finger is lifted
-    settle = setTimeout(() => { if (tour_ && track.clientWidth) showTourCard_(Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth))), false); }, 90);
+    if (!tour_ || !track.clientWidth) return;
+    if (tour_.holding) return;   // running through the cards: only the dots follow until the finger is lifted
+    if (!track.classList.contains("fast")) tourChrome_(cardNow());
+    settle = setTimeout(() => { if (tour_ && track.clientWidth) { const n = cardNow(); tourChrome_(n); showTourCard_(n, false); } }, 90);
   }, { passive: true });
-  const cardNow = () => Math.max(0, Math.min(tour_.cards.length - 1, Math.round(track.scrollLeft / track.clientWidth)));
   let hold = null, suppressClick = false;   // hold = the finger on the bar
   welcomeEl_("tour-dots").addEventListener("click", (e) => {
     if (suppressClick) return;
