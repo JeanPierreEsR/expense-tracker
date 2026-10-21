@@ -5814,7 +5814,13 @@ async function checkBankReady_() {
 }
 document.getElementById("bank-ready-ok").addEventListener("click", () => { document.getElementById("bank-ready-backdrop").hidden = true; });
 const bsEl_ = (id) => document.getElementById(id);
-function bsMsg_(text) { bsEl_("bs-msg").textContent = text || ""; }
+// Step 1 shows its messages (a missing address, "Looking…", no e-mails found) right under the address box. The shared line at the very
+// bottom of the sheet is below the screen on a phone, so a warning there looked like "the button does nothing".
+function bsMsg_(text) {
+  const first = !bsEl_("bs-step-1").hidden;
+  bsEl_("bs-msg-1").textContent = first ? text || "" : "";
+  bsEl_("bs-msg").textContent = first ? "" : text || "";
+}
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
 function openBankSampleModal_() {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
