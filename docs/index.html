@@ -460,11 +460,7 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-tour-btn">
-            <span data-i18n="more.tour">📖 The basics</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-tour-pro-btn">
-            <span data-i18n="more.tourPro">🚀 Pro features</span>
+            <span data-i18n="more.tour">📖 How to use the app</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
@@ -803,7 +799,7 @@
         </div>
         <div class="drilldown-projection-row" id="drilldown-projection-row" hidden>
           <div class="drilldown-projection-label">
-            <div data-i18n="drill.projectedRemaining">🔮 Projected remaining</div>
+            <div id="drilldown-projection-remaining-label">✏️ Remaining · Manually set</div>
             <div class="hint" id="drilldown-projection-override-note" hidden data-i18n="drill.manuallySet">Manually set</div>
           </div>
           <div class="drilldown-projection-amount" id="drilldown-projection-amount">0.00</div>
@@ -1799,6 +1795,17 @@
       <button type="button" class="primary" id="projection-override-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="add-inline" id="projection-override-reset-btn" data-i18n="projOverride.reset">Reset to calculated</button>
       <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="tour-choice-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header"><span data-i18n="tourChoice.title">How to use the app</span></div>
+      <div class="welcome-choices">
+        <button type="button" class="welcome-choice" id="tour-choice-basic"><b data-i18n="tourChoice.basic">📖 The basics</b><br><span class="hint" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></button>
+        <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Pro features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
+      </div>
+      <button type="button" class="cancel-edit-btn" id="tour-choice-close" data-i18n="common.close">Close</button>
     </div>
   </div>
 
