@@ -1102,7 +1102,11 @@ async function handleReturn() {
 
 // ---------- the extras chosen BEFORE setup: one approval screen covers them all ----------
 const EXTRA_NAMES = ['keepawake', 'gmail'];
-function wantedExtras() { return (state.wanted || []).filter((x) => EXTRA_NAMES.includes(x)); }
+// Both optional extras start ticked (owner, 2026-10-21) until the person touches a box (which stores state.wanted); only before the app exists.
+function wantedExtras() {
+  if (state.wanted === undefined && !state.webAppUrl) return EXTRA_NAMES.slice();
+  return (state.wanted || []).filter((x) => EXTRA_NAMES.includes(x));
+}
 function scopeCountFor(stages) { const u = new Set(); stages.forEach((x) => (STAGE_SCOPES[x] || []).forEach((y) => u.add(y))); return u.size; }
 function renderChoices() {
   const locked = !!state.webAppUrl;
