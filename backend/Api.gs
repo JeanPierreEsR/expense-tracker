@@ -155,6 +155,7 @@ function routeAction(action, payload) {
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
+    case 'eraseEverything': return eraseEverything(payload);
     case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
     case 'saveOnboardingPlatforms': return saveOnboardingPlatforms(payload);
     case 'saveRailLinks': return saveRailLinks(payload);

@@ -5673,6 +5673,7 @@ function refreshPerfShareRow_() {
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-share-btn").hidden = !PerfShare.showImproveRow(perfShareState_(), owner);
   document.getElementById("more-privacy-btn").hidden = owner;   // the owner's own copy is his own data
+  document.getElementById("more-erase-btn").hidden = owner;     // friends' copies only: on the owner's copy a mis-tap would wipe his real data
 }
 function refreshPrivacyStatus_() {
   const s = perfShareState_();
@@ -5692,8 +5693,69 @@ document.getElementById("privacy-change-btn").addEventListener("click", () => {
   openPerfShareModal_(null);
 });
 
+// ---- More → Delete everything (friends' copies only) ----
+// Step 1 happens here: the backend empties the Sheet, stops its timers, forgets its settings, signs every device out and takes
+// back its own Google permission (backend/EraseAll.gs). It cannot delete the Sheet or itself (no Drive permission), so step 2
+// hands over to the setup page ("#remove"), which has Drive access to the files it made and deletes them.
+let appErased_ = false;
+function removePageUrl_() { return new URL("setup/#remove", location.href).href; }
+function eraseEl_(id) { return document.getElementById(id); }
+function eraseWordOk_() { return eraseEl_("erase-confirm-input").value.trim().toLowerCase() === tr("erase.word").toLowerCase(); }
+document.getElementById("more-erase-btn").addEventListener("click", () => {
+  const backdrop = eraseEl_("erase-modal-backdrop");
+  I18n.applyStatic(backdrop);
+  eraseEl_("erase-step1").hidden = false;
+  eraseEl_("erase-step2").hidden = true;
+  eraseEl_("erase-confirm-input").value = "";
+  eraseEl_("erase-go-btn").disabled = true;
+  eraseEl_("erase-error").hidden = true;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+});
+eraseEl_("erase-confirm-input").addEventListener("input", () => { eraseEl_("erase-go-btn").disabled = !eraseWordOk_(); });
+["erase-close", "erase-cancel-btn"].forEach((id) => eraseEl_(id).addEventListener("click", () => { eraseEl_("erase-modal-backdrop").hidden = true; }));
+eraseEl_("erase-go-btn").addEventListener("click", async () => {
+  if (!eraseWordOk_()) return;
+  const btn = eraseEl_("erase-go-btn");
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("erase.working");
+  eraseEl_("erase-error").hidden = true;
+  try {
+    await callApi("eraseEverything", { confirm: true });
+  } catch (err) {
+    btn.textContent = label;
+    btn.disabled = !eraseWordOk_();
+    eraseEl_("erase-error").textContent = tr("erase.failed");
+    eraseEl_("erase-error").hidden = false;
+    return;
+  }
+  btn.textContent = label;
+  appErased_ = true;
+  clearLocalSignIn_();   // the backend has signed every device out already
+  const standalone = isHomeScreenApp_();
+  eraseEl_("erase-modal-hint").textContent = tr(standalone ? "erase.hintHome" : "erase.hintSafari");
+  eraseEl_("erase-finish-btn").textContent = tr(standalone ? "app.openInSafari" : "erase.finishBtn");
+  eraseEl_("erase-copied").hidden = true;
+  eraseEl_("erase-stuck").hidden = true;
+  eraseEl_("erase-step1").hidden = true;
+  eraseEl_("erase-step2").hidden = false;
+});
+eraseEl_("erase-finish-btn").addEventListener("click", () => {
+  openInSafari_(removePageUrl_(), () => { eraseEl_("erase-stuck").hidden = false; });
+});
+eraseEl_("erase-copy-btn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(removePageUrl_()); eraseEl_("erase-copied").hidden = false; }
+  catch (e) { window.prompt(tr("update.copyManual"), removePageUrl_()); }
+});
+eraseEl_("erase-later-btn").addEventListener("click", () => {
+  eraseEl_("erase-modal-backdrop").hidden = true;
+  showSignedOutScreen_(tr("erase.signedOut"));
+});
+
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
+  if (appErased_) return;   // everything was just deleted: no questions for a person who is leaving
   if (!meta || caps.onboarding || !PerfShare.needsAsk(perfShareState_(), perfIsOwnerCopy_())) return;
   if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
   openPerfShareModal_(null);

@@ -480,6 +480,10 @@
             <span data-i18n="more.signout">🚪 Sign out of this device</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-erase-btn" hidden>
+            <span data-i18n="more.erase">🗑️ Delete everything</span>
+            <span class="more-list-chevron">›</span>
+          </button>
         <!-- Fixed bilingual label on purpose: it must stay readable in either language. -->
         <label for="language-select" class="language-label">🌐 Language / Idioma</label>
         <select id="language-select">
@@ -1229,6 +1233,42 @@
         <p class="hint" id="privacy-share-status"></p>
         <button type="button" class="primary" id="privacy-change-btn" data-i18n="privacy.change">Change what I share</button>
         <button type="button" class="cancel-edit-btn" id="privacy-done-btn" data-i18n="common.close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="erase-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="erase.title">Delete everything</span>
+        <button type="button" id="erase-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="erase-step1">
+          <p class="hint" data-i18n="erase.intro">This removes the app from your Google account for good. All of this will be deleted:</p>
+          <ul class="hint">
+            <li data-i18n="erase.item1">Your Google Sheet “Expense Tracker”, with all your expenses, accounts, budgets and loans.</li>
+            <li data-i18n="erase.item2">Your app and its timers.</li>
+            <li data-i18n="erase.item3">The permissions your app and the setup page have in your Google account.</li>
+            <li data-i18n="erase.item4">Your sign-in on every device.</li>
+          </ul>
+          <p class="hint"><strong data-i18n="erase.noUndo">This cannot be undone. If you want to keep a copy of your data, close this and use More → Export data first.</strong></p>
+          <label class="hint" for="erase-confirm-input" data-i18n="erase.typePrompt">To confirm, type DELETE here:</label>
+          <input type="text" id="erase-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <p class="hint" id="erase-error" hidden></p>
+          <button type="button" class="primary danger" id="erase-go-btn" data-i18n="erase.btn" disabled>Delete everything</button>
+          <button type="button" class="cancel-edit-btn" id="erase-cancel-btn" data-i18n="common.cancel">Cancel</button>
+        </div>
+        <div id="erase-step2" hidden>
+          <p class="hint"><strong data-i18n="erase.step2Title">Last step: finish in Google</strong></p>
+          <p class="hint" data-i18n="erase.step2Body">Your data is erased, your app is signed out everywhere and it gave back its permission. One step is left: the setup page deletes the Google Sheet and the app itself.</p>
+          <p class="hint" id="erase-modal-hint"></p>
+          <button type="button" class="primary" id="erase-finish-btn" data-i18n="erase.finishBtn">Finish deleting in Google</button>
+          <button type="button" class="add-inline" id="erase-copy-btn" data-i18n="erase.copy">Copy the link</button>
+          <p class="hint" id="erase-stuck" hidden data-i18n="app.safariStuck">Safari did not open?</p>
+          <p class="hint" id="erase-copied" hidden data-i18n="update.copied">Link copied.</p>
+          <button type="button" class="cancel-edit-btn" id="erase-later-btn" data-i18n="erase.later">Not now</button>
+        </div>
       </div>
     </div>
   </div>

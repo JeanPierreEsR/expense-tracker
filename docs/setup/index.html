@@ -71,6 +71,8 @@
   #tsKeep { margin-top:8px; color:var(--muted); }
   .step input[type=text] { font:inherit; font-size:18px; width:100%; box-sizing:border-box; padding:12px; margin:4px 0 8px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); }
   #shareCard label.small { display:block; color:var(--muted); }
+  button.danger { background:var(--bad); }
+  body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1) { display:none !important; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../signin-link.js"></script>
@@ -78,7 +80,7 @@
 </head>
 <body>
 <main>
-  <p class="small" style="text-align:right;margin:0"><a href="#" data-lang="es">Español</a> · <a href="#" data-lang="en">English</a></p>
+  <p class="small langrow" style="text-align:right;margin:0"><a href="#" data-lang="es">Español</a> · <a href="#" data-lang="en">English</a></p>
   <h1 data-t="title"></h1>
   <p class="banner" id="inAppWarn" hidden data-t="inAppWarn"></p>
 
@@ -101,6 +103,17 @@
   <div class="step" id="overview">
     <h3 data-t="whatTitle"></h3>
     <ol data-t="what"></ol>
+  </div>
+
+  <div class="step" id="removeCard" hidden>
+    <h3 data-t="rmTitle"></h3>
+    <p data-t="rmBody"></p>
+    <div id="sRm"></div>
+    <button id="btnRemove" class="danger" data-t="rmBtn"></button>
+    <div id="rmDone" hidden>
+      <p data-t="rmAfter"></p>
+      <a class="bigbtn" href="https://myaccount.google.com/connections" target="_blank" rel="noopener" data-t="rmOpenGoogle"></a>
+    </div>
   </div>
 
   <div class="step" id="updateCard" hidden>
@@ -220,6 +233,7 @@ const T = {
     title: 'Set up your Expense Tracker app',
     inAppWarn: 'It looks like this page was opened inside another app (WhatsApp, Facebook, Instagram…). Google may refuse to sign you in here. Tap the <b>•••</b> or Share button and choose <b>Open in Safari</b>.',
     ready: 'Ready. Tap “Set up my app” to begin.',
+    rmReady: 'Ready. Tap the red button to finish deleting.',
     allDone: '✓ Your app is ready.',
     keepOpen: 'Please keep this screen open and your phone unlocked until it finishes.',
     stepSetup: 'Step 1 of 2',
@@ -271,6 +285,18 @@ const T = {
     approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker</b> (if Google is in Spanish: <b>Ir a Expense Tracker</b>), then <b>Allow</b> (if Google is in Spanish: <b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     stepUpdate: 'Update',
+    stepRemove: 'Delete',
+    rmPageTitle: 'Delete your Expense Tracker app',
+    rmTitle: 'Finish deleting your app',
+    rmBody: 'Your app already erased your data and gave back its own permission. This last step signs in to your Google account and deletes your Google Sheet “Expense Tracker” and the app itself, then removes this page’s own permission. <b>It cannot be undone.</b> Use the same Google account you used to set up your app.',
+    rmBtn: 'Delete my Google Sheet and my app',
+    rmWorking: 'Deleting…',
+    rmLooking: 'Looking for your app in Google Drive…',
+    rmNone: 'No app of yours was found in this Google account, so there is nothing left to delete here. If you expected one, sign in with the Google account you used to set up your app. This page’s permission was removed.',
+    rmDone: '✓ Deleted: your Google Sheet and your app are gone, and this page’s permission was removed.',
+    rmFile: 'Could not delete one file: {e}',
+    rmAfter: 'One last check, in your Google Account: open the list of apps with access, and if “Expense Tracker” or “Expense Tracker Installer” still appears, tap it and choose “Delete all connections”.',
+    rmOpenGoogle: 'Open my Google Account’s app list',
     updTitle: 'Update your app',
     updBody: 'A newer version of your app is ready. Updating keeps your data and your access code, and Google does not ask for any new permission. It takes about a minute: keep this screen open.',
     updBtn: 'Update my app',
@@ -334,6 +360,7 @@ const T = {
     title: 'Configura tu app Expense Tracker',
     inAppWarn: 'Parece que abriste esta página dentro de otra app (WhatsApp, Facebook, Instagram…). Google puede negarse a iniciar sesión aquí. Toca el botón <b>•••</b> o Compartir y elige <b>Abrir en Safari</b>.',
     ready: 'Lista. Toca “Configurar mi app” para empezar.',
+    rmReady: 'Listo. Toca el botón rojo para terminar de borrar.',
     allDone: '✓ Tu app está lista.',
     keepOpen: 'Por favor deja esta pantalla abierta y el celular desbloqueado hasta que termine.',
     stepSetup: 'Paso 1 de 2',
@@ -385,6 +412,18 @@ const T = {
     approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker</b> (si Google está en inglés: <b>Go to Expense Tracker</b>) y luego <b>Permitir</b> (si Google está en inglés: <b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     stepUpdate: 'Actualizar',
+    stepRemove: 'Borrar',
+    rmPageTitle: 'Borra tu app Expense Tracker',
+    rmTitle: 'Termina de borrar tu app',
+    rmBody: 'Tu app ya borró tus datos y devolvió su propio permiso. Este último paso inicia sesión en tu cuenta de Google y elimina tu archivo de Google Sheets “Expense Tracker” y la app misma, y luego quita el permiso de esta página. <b>No se puede deshacer.</b> Usa la misma cuenta de Google con la que configuraste tu app.',
+    rmBtn: 'Borrar mi archivo de Google Sheets y mi app',
+    rmWorking: 'Borrando…',
+    rmLooking: 'Buscando tu app en Google Drive…',
+    rmNone: 'No se encontró ninguna app tuya en esta cuenta de Google, así que no queda nada por borrar aquí. Si esperabas encontrar una, inicia sesión con la cuenta de Google con la que configuraste tu app. El permiso de esta página se quitó.',
+    rmDone: '✓ Listo: tu archivo de Google Sheets y tu app ya no existen, y se quitó el permiso de esta página.',
+    rmFile: 'No se pudo borrar un archivo: {e}',
+    rmAfter: 'Una última revisión, en tu cuenta de Google: abre la lista de apps con acceso y, si todavía aparece “Expense Tracker” o “Expense Tracker Installer”, tócala y elige “Eliminar todas las conexiones”.',
+    rmOpenGoogle: 'Abrir la lista de apps de mi cuenta de Google',
     updTitle: 'Actualiza tu app',
     updBody: 'Hay una versión más nueva de tu app. Al actualizar se conservan tus datos y tu código de acceso, y Google no pide ningún permiso nuevo. Toma cerca de un minuto: deja esta pantalla abierta.',
     updBtn: 'Actualizar mi app',
@@ -445,6 +484,8 @@ const T = {
     p_switchWait: 'Esperando el ajuste de Google…'
   }
 }[LANG];
+const WANT_REMOVE = /(^|[#&?])remove\b/.test(location.hash + location.search);   // the app's "Delete everything" opens this page that way
+if (WANT_REMOVE) { document.body.classList.add('removing'); document.querySelector('h1').setAttribute('data-t', 'rmPageTitle'); }
 document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
 document.querySelectorAll('[data-lang]').forEach((a) => a.addEventListener('click', (ev) => {
   ev.preventDefault();
@@ -1159,6 +1200,44 @@ async function updateMyApp() {
   say('sUpd', T.updDone);
 }
 
+// "Delete everything", step 2 (step 1 is backend/EraseAll.gs, done from the app): permanently deletes every app this page made in the
+// signed-in Google account (the Sheet and the script bound to it; the owner's throwaway test apps count too, like Update), then takes back
+// this page's own Google permission and forgets what this phone saved. Falls back to the trash if Drive refuses a permanent delete.
+async function removeEverything() {
+  progress(T.p_google, 5, T.stepRemove);
+  const q = encodeURIComponent("(appProperties has { key='etSetup' and value='1' } or appProperties has { key='setupTest' and value='1' }) and trashed=false");
+  progress(T.rmLooking, 20);
+  const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&pageSize=100&fields=files(id,appProperties)');
+  const files = res.files || [];
+  log('Found ' + files.length + ' app(s) to delete.');
+  let failed = null;
+  const drop = async (id) => {
+    try { await google_('DELETE', 'https://www.googleapis.com/drive/v3/files/' + id); }
+    catch (e) {
+      log('Permanent delete refused (' + e.message + ') — moving it to the trash instead.', 'bad');
+      try { await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + id, { trashed: true }); }
+      catch (e2) { failed = failed || e2; }
+    }
+  };
+  for (let i = 0; i < files.length; i++) {
+    progress(T.rmWorking, 30 + Math.round(60 * i / files.length));
+    const scriptId = files[i].appProperties && files[i].appProperties.scriptId;
+    if (scriptId) await drop(scriptId);   // the app first, then the Sheet it belongs to
+    await drop(files[i].id);
+  }
+  if (failed) throw new Error(T.rmFile.replace('{e}', failed.message));
+  progress(T.rmWorking, 95);
+  try { await new Promise((r) => google.accounts.oauth2.revoke(accessToken, r)); log('This page’s Google permission was removed.', 'ok'); }
+  catch (e) { log('Could not revoke this page’s permission automatically: ' + e.message, 'bad'); }
+  accessToken = null;
+  try { sessionStorage.removeItem(TOKEN_KEY); localStorage.removeItem(STORE_KEY); localStorage.removeItem(HANDOFF_KEY); localStorage.removeItem('etSigninHandoff'); } catch (e) {}
+  state = {};
+  say('sRm', files.length ? T.rmDone : T.rmNone);
+  setTop('ok', '', files.length ? T.rmDone : T.rmNone, 100);
+  $('btnRemove').hidden = true;
+  $('rmDone').hidden = false;
+}
+
 // ---------- the one-time "Apps Script API" setting ----------
 let apiRetryTimer = null, apiRetryUntil = 0, apiRetrying = false;
 function startApiWait() {
@@ -1276,7 +1355,8 @@ function render(failed) {
   if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);
   if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
   $('readyCard').hidden = !state.permissionDone;
-  $('updateCard').hidden = !(WANT_UPDATE || state.permissionDone);
+  $('updateCard').hidden = WANT_REMOVE || !(WANT_UPDATE || state.permissionDone);
+  $('removeCard').hidden = !WANT_REMOVE;
   $('btnContinue').hidden = !showRetry || !!state.permissionDone;
   $('btnContinueAdd').hidden = !showRetry || !state.pending;
   // Shown only once the person has been sent to Google's approval page and is back here without approving.
@@ -1301,7 +1381,7 @@ function render(failed) {
     $('btnInstall').classList.toggle('donebtn', mainDone);
     $('btnInstall').disabled = false;
   }
-  if (!busy && !failed && !apiRetryTimer) {
+  if (!busy && !failed && !apiRetryTimer && !WANT_REMOVE) {   // the delete page writes its own status (removeEverything)
     if (state.pending) setTop('wait', T.stepAdd, T.p_wait);
     else if (state.permissionDone) setTop('ok', '', T.allDone, 100);
     else if (state.pending || state.webAppUrl) setTop('wait', state.pending ? T.stepAdd : T.stepAllow, T.p_wait);
@@ -1333,7 +1413,7 @@ async function run(boxId, fn, btnId, step) {
     log(e.message, 'bad');
     if (e.apiOff) { betaSend('api_switch_needed'); log('→ Showing the Google setting card.'); startApiWait(); failed = false; }
     else {
-      betaSend('step_failed', { s1: 'create', s2: 'approve', sAdd: 'extras', sUpd: 'update' }[boxId] || 'other');
+      betaSend('step_failed', { s1: 'create', s2: 'approve', sAdd: 'extras', sUpd: 'update', sRm: 'remove' }[boxId] || 'other');
       if (boxId) say(boxId, '✗ ' + e.message, 'err');
       setTop('err', currentStep, '✗ ' + e.message, 100);
       if (boxId === 's2' || boxId === 'sAdd' || approvalTarget()) showRetry = true;
@@ -1370,6 +1450,7 @@ $('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval
 $('btnContinueAdd').addEventListener('click', () => run('sAdd', continueAfterApproval, null, T.stepAdd));
 $('btnAdd').addEventListener('click', () => run('sAdd', startAdd, 'btnAdd', T.stepAdd));
 $('btnUpdate').addEventListener('click', () => run('sUpd', updateMyApp, 'btnUpdate', T.stepUpdate));
+$('btnRemove').addEventListener('click', () => run('sRm', removeEverything, 'btnRemove', T.stepRemove));
 $('btnCopy').addEventListener('click', async () => {
   const text = [...$('log').children].map((li) => li.textContent).join('\n') + '\n\nLanguage: ' + LANG + '\nUser agent: ' + navigator.userAgent;
   try { await navigator.clipboard.writeText(text); log('Log copied.'); } catch (e) { log('Could not copy automatically — select the log text by hand.', 'bad'); }
@@ -1400,6 +1481,7 @@ render();
 if (WANT_UPDATE) setTimeout(() => { try { $('updateCard').scrollIntoView({ block: 'start' }); } catch (e) {} }, 200);
 log('Ready (' + LANG + ').' + (state.webAppUrl ? ' Resuming an earlier test.' : ''));
 handleReturn();
+if (WANT_REMOVE) setTop('idle', '', T.rmReady, 0);
 </script>
 </body>
 </html>

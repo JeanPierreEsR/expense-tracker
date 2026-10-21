@@ -122,6 +122,7 @@ class FakeSheet {
   }
   deleteRow(r) { this.rows.splice(r - 1, 1); }
   deleteRows(r, n) { this.rows.splice(r - 1, n); }
+  clear() { this.rows = []; this.lastCol = 0; }
   _norm(v, col) {
     if (v === undefined || v === null) return "";
     if (this.textCols.has(col)) return v;
@@ -316,6 +317,7 @@ function buildServices(state) {
     getProperty: (k) => (m.has(k) ? m.get(k) : null),
     setProperty(k, v) { m.set(k, String(v)); },
     deleteProperty(k) { m.delete(k); },
+    deleteAllProperties() { m.clear(); },
     getProperties: () => Object.fromEntries(m)
   });
 
@@ -386,6 +388,7 @@ function buildServices(state) {
     ScriptApp: {
       getProjectTriggers: () => [],
       deleteTrigger() {},
+      invalidateAuth() { state.authInvalidated = (state.authInvalidated || 0) + 1; },
       newTrigger: () => unsupported("ScriptApp.newTrigger"),
       getService: () => ({ getUrl: () => "http://localhost/fake-exec" })
     },
