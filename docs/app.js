@@ -5563,6 +5563,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
   checkBackendUpdate_();
+  checkBankReady_();
 }
 
 // ---- "Help me improve the app" pop-up (a friend's copy only) ----
@@ -5749,6 +5750,41 @@ fbEl_("fb-send").addEventListener("click", async () => {
 // the owner's backend (BankSamples.gs) hides digits and addresses a second time. A friend's phone is not signed in to the
 // owner's copy, so the sample goes the same way the app-speed reports do (perfReportUrl_).
 const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false };
+
+// ---- "Your bank is ready": told once, after an update brings the rule for a bank the person sent an e-mail from ----
+// The phone keeps the sender address of every sample it sent (localStorage "bankSamplesSent", the address only). When the app's
+// backend can read that address (listSupportedSenders — the person updated to a version with the rule), a pop-up says so once.
+// Nothing is sent anywhere for this; it only asks the person's own backend which addresses it can read.
+const BANK_SENT_KEY = "bankSamplesSent";
+function bankSentList_() {
+  try { return JSON.parse(localStorage.getItem(BANK_SENT_KEY)) || []; } catch (e) { return []; }
+}
+function bankSentSave_(list) {
+  try { localStorage.setItem(BANK_SENT_KEY, JSON.stringify(list)); } catch (e) { /* storage blocked: the person is simply not told */ }
+}
+let bankReadyChecked_ = false;
+async function checkBankReady_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (bankReadyChecked_ || !meta || caps.bankReady !== true || perfIsOwnerCopy_()) return;   // an older backend lacks the question: stay quiet
+  if (!BankSample.pending(bankSentList_()).length) return;                                  // nobody is waiting for a bank
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;   // not on top of another question
+  bankReadyChecked_ = true;
+  try {
+    const supported = await callApi("listSupportedSenders", {});
+    const ready = BankSample.readyBanks(bankSentList_(), supported);
+    if (!ready.senders.length) return;
+    document.getElementById("bank-ready-body").textContent = tr("bankReady.body", { banks: ready.banks.join(", ") || tr("bankReady.yourBank") });
+    document.getElementById("bank-ready-mail").hidden = caps.bankEmails !== false;   // only when reading bank e-mails is switched off
+    const backdrop = document.getElementById("bank-ready-backdrop");
+    I18n.applyStatic(backdrop);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+    bankSentSave_(BankSample.markTold(bankSentList_(), ready.senders));
+  } catch (e) {
+    bankReadyChecked_ = false;   // offline or busy: asked again at the next refresh
+  }
+}
+document.getElementById("bank-ready-ok").addEventListener("click", () => { document.getElementById("bank-ready-backdrop").hidden = true; });
 const bsEl_ = (id) => document.getElementById(id);
 function bsMsg_(text) { bsEl_("bs-msg").textContent = text || ""; }
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
@@ -5852,7 +5888,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
       signal: controller.signal
     });
     const json = await res.json();
-    if (json && json.ok) { bsStep_(4); return; }
+    if (json && json.ok) { bankSentSave_(BankSample.rememberSender(bankSentList_(), bs_.sender, Date.now())); bsStep_(4); return; }
     bsMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
   } catch (e) {
     bsMsg_(tr("bankSample.sendFailed"));

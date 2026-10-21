@@ -69,6 +69,8 @@ function getCapabilities_() {
     telegram: !!getTelegramToken_(),
     // More → Performance log is a diagnostic for the owner only; a copy made by the installer never shows it.
     perfLog: !isFriendCopy_(),
+    // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
+    bankReady: true,
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };

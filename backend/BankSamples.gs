@@ -83,6 +83,23 @@ function getSampleEmail(p) {
   };
 }
 
+// ---- friend's copy: which bank addresses the app can read now ----
+// The phone remembers the sender address of every e-mail the person sent as a sample (docs/bank-sample.js). When a newer
+// backend version has a rule for that address, the app tells the person their bank is ready. Only the addresses (and the
+// bank each rule belongs to) are listed — nothing of what a rule does. A sender that only has "ignore" rules is not listed.
+function listSupportedSenders() {
+  var seen = {};
+  var out = [];
+  EMAIL_RULES.forEach(function (r) {
+    if (r.skip || !r.sender) return;
+    var sender = String(r.sender).toLowerCase();
+    if (seen[sender]) return;
+    seen[sender] = true;
+    out.push({ sender: sender, bank: String(r.bank || '') });
+  });
+  return out;
+}
+
 // ---- owner's copy: receive a redacted sample ----
 
 function reportBankSample_(p) {
