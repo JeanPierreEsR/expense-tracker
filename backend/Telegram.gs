@@ -855,7 +855,7 @@ var EDIT_COMMAND_PATTERNS = [
 // ("Ana 20, Carlos 15") and a multi-label set ("label Trip, Work") stay
 // intact as one segment each: "Carlos"/"Work" aren't field keywords, so
 // the comma before either is never treated as a new segment boundary.
-var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|categor[ií]a|amount|monto|description|descripci[oó]n|paid\\s*by|pagado\\s*por|currency|moneda|date|fecha|split|repartir|dividir|payment\\s*method|medio\\s*de\\s*pago|labels?|tags?|etiquetas?|trip|event|viaje|evento|from|desde|to|hasta|hacia|received\\s*at|recibido\\s*en|platform|plataforma|type|tipo)\\s+|(?:withdrawal|deposit|retiro|dep[oó]sito)(?![\\wáéíóúñ]))';
+var EDIT_FIELD_KEYWORDS_RE = '(?:(?:category|categor[ií]a|amount|monto|description|descripci[oó]n|paid\\s*by|pagado\\s*por|currency|moneda|date|fecha|split|repartir|dividir|account|cuenta|payment\\s*method|medio\\s*de\\s*pago|labels?|tags?|etiquetas?|trip|event|viaje|evento|from|desde|to|hasta|hacia|received\\s*(?:at|in)|recibido\\s*en|platform|plataforma|type|tipo)\\s+|(?:withdrawal|deposit|retiro|dep[oó]sito)(?![\\wáéíóúñ]))';
 
 function splitEditCommands_(text) {
   var boundaryRe = new RegExp('\\s*,\\s*(?=' + EDIT_FIELD_KEYWORDS_RE + ')', 'i');
