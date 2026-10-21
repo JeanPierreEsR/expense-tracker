@@ -5772,7 +5772,7 @@ fbEl_("fb-send").addEventListener("click", async () => {
   fbEl_("fb-error").hidden = false;
 });
 
-// ---- "My bank isn't supported yet": send the owner ONE e-mail from the bank, with the private details hidden ----
+// ---- "Teach the app my bank's e-mails" (was "My bank isn't supported yet"): send the owner ONE e-mail from the bank, with the private details hidden ----
 // Steps: 1 the bank's sender address → 2 pick one of the person's own e-mails (or paste one) → 3 preview of the exact
 // text that would be sent (editable) → 4 thanks. The hiding is done here (docs/bank-sample.js) BEFORE anything is sent;
 // the owner's backend (BankSamples.gs) hides digits and addresses a second time. A friend's phone is not signed in to the
@@ -5825,6 +5825,9 @@ function openBankSampleModal_() {
   bsEl_("bs-hide").value = "";
   bsEl_("bs-name").value = perfShareState_().label || "";
   bsEl_("bs-find").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails !== false);
+  bsEl_("bs-find-hint").hidden = bsEl_("bs-find").hidden;   // the hint explains that button
+  // With no Find button (bank e-mail reading is off) pasting is the only way, so it is not "another inbox".
+  bsEl_("bs-paste").textContent = tr(bsEl_("bs-find").hidden ? "bankSample.pasteOnly" : "bankSample.pasteInstead");
   bsStep_(1);
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -6696,7 +6699,7 @@ bmEl_("bm-copy-btn").addEventListener("click", async () => {
 });
 
 // "We can't read this bank's emails yet": shown (on a friend's copy, where bank e-mail reading is on) next to accounts at a bank with no
-// parsing rule, with a button to the "My bank isn't supported yet" sheet. The owner's own copy never shows it (he writes the rules).
+// parsing rule, with a button to the "Teach the app my bank's e-mails" sheet. The owner's own copy never shows it (he writes the rules).
 function bankReadable_(name) {
   const list = (meta && meta.emailInfo && meta.emailInfo.banks) || [];
   return list.some((b) => b.toLowerCase() === String(name || "").trim().toLowerCase());
