@@ -5614,17 +5614,34 @@ async function checkBackendUpdateNow_(caps) {
   if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
 }
 function updatePageUrl_() { return new URL("setup/#update", location.href).href; }
+// The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
+// Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
+// address starts with "x-safari-" (x-safari-https://…), so that is what the buttons below use from the Home Screen app.
+function safariUrl_(url) { return String(url).replace(/^(https?):/, "x-safari-$1:"); }
+function isHomeScreenApp_() { return !!(navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches)); }
+// Opens `url` in Safari. From a Home Screen app, if this app is still in front after a moment (the phone did not hand over),
+// `onStuck` runs so the screen can point to the copy-the-link fallback. In a normal browser tab it is just a new tab.
+function openInSafari_(url, onStuck) {
+  if (!isHomeScreenApp_()) { window.open(url, "_blank", "noopener"); return; }
+  location.href = safariUrl_(url);
+  setTimeout(() => { if (!document.hidden && onStuck) onStuck(); }, 2000);
+}
 function openUpdateModal_() {
-  const standalone = !!(navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches));
+  const standalone = isHomeScreenApp_();
   document.getElementById("update-modal-hint").textContent = tr(standalone ? "update.hintHome" : "update.hintSafari");
   document.getElementById("update-copied").hidden = true;
+  document.getElementById("update-stuck").hidden = true;
+  // From the Home Screen the button says it hands the page to Safari; copying the link is only the fallback.
+  document.getElementById("update-open-btn").textContent = tr(standalone ? "app.openInSafari" : "update.open");
   const backdrop = document.getElementById("update-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
 document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; });
-document.getElementById("update-open-btn").addEventListener("click", () => { window.open(updatePageUrl_(), "_blank", "noopener"); });
+document.getElementById("update-open-btn").addEventListener("click", () => {
+  openInSafari_(updatePageUrl_(), () => { document.getElementById("update-stuck").hidden = false; });
+});
 document.getElementById("update-copy-btn").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(updatePageUrl_()); document.getElementById("update-copied").hidden = false; }
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
@@ -5839,10 +5856,14 @@ bsEl_("bs-send").addEventListener("click", async () => {
 document.getElementById("more-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
   document.getElementById("extras-copy-msg").textContent = "";
+  document.getElementById("extras-open-btn").textContent = tr(isHomeScreenApp_() ? "app.openInSafari" : "extras.open");
   document.getElementById("extras-modal-backdrop").hidden = false;
 });
 document.getElementById("extras-modal-close").addEventListener("click", () => { document.getElementById("extras-modal-backdrop").hidden = true; });
 document.getElementById("extras-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "extras-modal-backdrop") e.target.hidden = true; });
+document.getElementById("extras-open-btn").addEventListener("click", () => {
+  openInSafari_(new URL("setup/", location.href).href, () => { document.getElementById("extras-copy-msg").textContent = tr("app.safariStuck"); });
+});
 document.getElementById("extras-copy-btn").addEventListener("click", async () => {
   const msg = document.getElementById("extras-copy-msg");
   try { await navigator.clipboard.writeText(new URL("setup/", location.href).href); msg.textContent = tr("extras.copied"); }
