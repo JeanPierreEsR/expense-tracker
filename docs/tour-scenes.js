@@ -138,7 +138,8 @@
       const nm = h("span", "ts-row-name", null, r);
       if (dot) { const d = h("span", "ts-dot", null, nm); d.style.background = dot; }
       nm.appendChild(document.createTextNode(name));
-      h("span", "ts-row-amt", amt, r);
+      const a = h("span", "ts-row-amt", Array.isArray(amt) ? amt[0] : amt, r);
+      if (Array.isArray(amt)) h("small", "ts-row-sub", amt[1], a);   // a shared entry: your part big, the full total small underneath
       rows.insertBefore(r, rows.firstChild);
       while (rows.children.length > 3) rows.removeChild(rows.lastChild);
     };
@@ -158,7 +159,10 @@
     build(stage, ctx) {
       const tr = ctx.tr;
       const p = entriesPhone(stage, ctx, "expense");
-      const f = p.formView;
+      // the form is taller than the little screen once Split and Tags are in: its inner box slides up like the page does in the app
+      p.formView.classList.add("ts-form-clip");
+      const f = h("div", "ts-form-inner", null, p.formView);
+      p.formInner = f;
       const banner = h("div", "ts-banner", null, f);
       p.bannerIcon = h("span", null, "🛒", banner); p.bannerName = h("b", null, tr("scene.cat.groceries"), banner); h("span", "ts-change", tr("common.change"), banner);
       const r1 = h("div", "ts-two", null, f);
@@ -170,11 +174,26 @@
       const r2 = h("div", "ts-two", null, f);
       p.paidBox = box(r2, tr("field.paidBy"), tr("scene.me"));
       p.methodBox = box(r2, tr("field.paymentMethod"), tr("scene.debit"), "grow");
+      // Split this expense (checkbox -> Equal/Custom, Shared with, summary) and Tags: the form's own fields, after the payment method
+      p.splitRow = h("div", "ts-check", null, f);
+      p.splitBox = h("span", "ts-checkbox", null, p.splitRow); h("span", null, tr("split.toggle"), p.splitRow);
+      p.splitDetail = h("div", "ts-split", null, f); p.splitDetail.hidden = true;
+      const mode = h("div", "ts-seg", null, p.splitDetail); h("span", "on", tr("split.equal"), mode); h("span", null, tr("split.custom"), mode);
+      h("div", "ts-box-label", tr("split.sharedWith"), p.splitDetail);
+      const fr = h("div", "ts-tags", null, p.splitDetail);
+      p.friendChip = h("span", "ts-tag", "Ana", fr); h("span", "ts-tag", "Luis", fr);
+      p.splitSummary = h("div", "ts-hint", null, p.splitDetail); p.splitSummary.hidden = true;
+      h("div", "ts-box-label", tr("field.tags"), f);
+      const tg = h("div", "ts-tags", null, f);
+      h("span", "ts-tag", tr("scene.tagAnnual"), tg); p.tagChip = h("span", "ts-tag", tr("scene.tagFamily"), tg);
       p.save = h("div", "ts-btn", tr("entry.save"), f);
       return p;
     },
     timeline(p, ctx) {
       const tr = ctx.tr, fg = p.finger;
+      const half = ctx.money(12.75);
+      // slide the form up just far enough to bring the bottom of an element into view
+      const slide = (el) => { const clipH = p.formView.clientHeight; p.formInner.style.transform = "translateY(" + (-Math.max(0, el.offsetTop + el.offsetHeight - clipH + 6)) + "px)"; };
       const amt = typing(p.amountBox.value, ["2", "25", "25.", "25.5", "25.50"]);
       const dsc = typing(p.descBox.value, ["Comp", tr("scene.descShop").slice(0, 8), tr("scene.descShop")]);
       return [
@@ -194,10 +213,18 @@
         [6800, (i) => { dsc[0](i); }], [7000, (i) => { dsc[1](i); }], [7200, (i) => { dsc[2](i); }],
         [7700, (i) => { p.descBox.box.classList.remove("focus"); fg.to(p.methodBox.box, i); }],
         [8200, (i) => { fg.tap(i); p.methodBox.box.classList.add("focus"); }],
-        [8800, (i) => { p.methodBox.box.classList.remove("focus"); fg.to(p.save, i); }],
-        [9300, (i) => { fg.tap(i); p.save.classList.add("pressed"); }],
-        [9600, (i) => { p.save.classList.remove("pressed"); showForm(p, false); p.tiles[0].classList.remove("on"); p.addRow("🛒 " + tr("scene.cat.groceries"), ctx.home + " " + ctx.money(25.5), true); }],
-        [10200, () => fg.hide()]
+        [8800, (i) => { p.methodBox.box.classList.remove("focus"); fg.to(p.splitRow, i); }],
+        [9300, (i) => { fg.tap(i); p.splitBox.classList.add("on"); p.splitDetail.hidden = false; }],
+        [9450, () => slide(p.splitDetail)],
+        [10200, (i) => fg.to(p.friendChip, i)],
+        [10700, (i) => { fg.tap(i); p.friendChip.classList.add("on"); p.splitSummary.textContent = tr("split.summaryEqual", { cur: ctx.home, each: half, own: half }); p.splitSummary.hidden = false; slide(p.splitDetail); }],
+        [11500, () => slide(p.save)],
+        [12300, (i) => fg.to(p.tagChip, i)],
+        [12800, (i) => { fg.tap(i); p.tagChip.classList.add("on"); }],
+        [13400, (i) => fg.to(p.save, i)],
+        [13900, (i) => { fg.tap(i); p.save.classList.add("pressed"); }],
+        [14200, (i) => { p.save.classList.remove("pressed"); showForm(p, false); p.formInner.style.transform = ""; p.tiles[0].classList.remove("on"); p.addRow("🛒 " + tr("scene.cat.groceries"), [ctx.home + " " + half, tr("common.total") + " " + ctx.home + " " + ctx.money(25.5)], true); }],
+        [14800, () => fg.hide()]
       ];
     }
   };
@@ -585,6 +612,168 @@
       return [[0, set(0)], [500, set(80)], [800, set(160)], [1900, set(240)], [2200, set(320)], [3300, set(420)], [4800, () => {}]];
     }
   };
+
+  // ---- Projections tab, told in 6 numbered steps the person advances with "Next step" (the real screens and words; numbers made up):
+  //      1 the projected totals   2 a category's three lines (✅ Actual / 🔁 Programmed / 📈 Expected)   3 tap it: chart + the sums
+  //      4 tap Expected: how it was worked out   5 set the remaining by hand ("Manually set")   6 how to get the most out of it
+  SCENES.projections = {
+    manual: true,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const money = (n) => ctx.home + " " + ctx.money(n);
+      const now = new Date(), dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const left = Math.min(dim - 4, Math.max(4, dim - now.getDate())), frac = left / dim;   // the days still to come this month
+      const cats = [
+        { icon: "🛒", name: tr("scene.cat.groceries"), rate: 600, actual: Math.round(600 * (1 - frac) * 1.1), prog: 0, exp: Math.round(600 * frac) },
+        { icon: "🏠", name: tr("scene.cat.home"), rate: 0, actual: 0, prog: 1500, exp: 0 },
+        { icon: "🍽️", name: tr("scene.cat.restaurants"), rate: 300, actual: Math.round(300 * (1 - frac) * 0.9), prog: 0, exp: Math.round(300 * frac) }
+      ];
+      cats.forEach((c) => { c.total = c.actual + c.prog + c.exp; });
+      const add = (k) => cats.reduce((s, c) => s + c[k], 0);
+      const income = 3500, invest = 500, expenses = add("total");
+      const phone = h("div", "ts-phone ts-proj", null, stage);
+      h("div", "ts-bar", tr("nav.projections"), phone);
+      const clip = h("div", "ts-proj-clip", null, phone);
+      const scroll = h("div", "ts-scroll", null, clip);
+      const p = { ctx, money, now, dim, left, frac, cats, phone, scroll, rows: [], finger: makeFinger(stage) };
+      // the top card: projected totals and the confirmed + programmed + expected lines
+      p.top = h("div", "ts-card", null, scroll);
+      h("div", "ts-hint", tr("projections.projectedFor", { period: ctx.period || "" }), p.top);
+      p.sum = h("div", "ts-sum", null, p.top);
+      [["summary.income", income, "var(--income)"], ["summary.expenses", expenses, "var(--expense)"], ["summary.investments", invest, "var(--investment)"], ["summary.net", income - expenses - invest, ""]].forEach(([k, v, color]) => {
+        const c = h("div", null, null, p.sum);
+        h("span", "ts-muted", tr(k), c);
+        const val = h("b", "ts-sum-value", money(v), c);
+        if (color) val.style.color = color;
+      });
+      h("div", "ts-brk", tr("projections.lineIncome", { actual: money(income), programmed: money(0) }), p.top);
+      h("div", "ts-brk", tr("projections.lineExpenses", { actual: money(add("actual")), programmed: money(add("prog")), expected: money(add("exp")) }), p.top);
+      // By category: one row each, three lines under the name
+      p.list = h("div", "ts-card", null, scroll);
+      h("div", "ts-h3", tr("overview.byCategory"), p.list);
+      p.drawRow = (c) => {
+        c.nameTotal.textContent = money(c.total);
+        c.lines.innerHTML = "";
+        const line = (icon, amount, label) => { const l = h("div", "ts-pline", null, c.lines); h("span", "ts-pline-ic", icon, l); h("span", "ts-pline-am", money(amount), l); h("span", null, label, l); };
+        line("✅", c.actual, tr("projections.actual"));
+        if (c.manual) line("✏️", c.remaining, tr("projections.remainingManual"));
+        else { line("🔁", c.prog, tr("projections.programmed")); line("📈", c.exp, tr("projections.expected")); }
+      };
+      cats.forEach((c) => {
+        c.row = h("div", "ts-prow", null, p.list);
+        const top = h("div", "ts-prow-top", null, c.row);
+        h("span", null, c.icon + " " + c.name, top); c.nameTotal = h("span", null, "", top);
+        c.lines = h("div", null, null, c.row);
+        p.drawRow(c);
+        p.rows.push(c.row);
+      });
+      p.sheet = h("div", "ts-sheet", null, phone);
+      p.list2 = h("ol", "ts-captions", null, stage);
+      p.caps = ["scene.proj.s1", "scene.proj.s2", "scene.proj.s3", "scene.proj.s4", "scene.proj.s5", "scene.proj.s6"].map((key, k) => { const li = h("li", null, null, p.list2); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
+      return p;
+    },
+    initial(p, ctx) { /* the starting picture is the Projections screen itself */ },
+    steps: [
+      // 1 — the projected totals
+      (p, ctx, instant, later) => {
+        stmtStep(p, 1);
+        later(() => p.finger.to(p.sum, instant), 400);
+        later(() => { p.finger.tap(instant); p.top.classList.add("now"); }, 900);
+        later(() => { p.top.classList.remove("now"); p.finger.hide(); }, 2400);
+        return 2500;
+      },
+      // 2 — the three lines of one category
+      (p, ctx, instant, later) => {
+        stmtStep(p, 2);
+        later(() => { projScroll(p, p.list); }, 100);
+        later(() => { p.cats[0].row.classList.add("now"); p.finger.to(p.cats[0].lines, instant); }, 1200);
+        return 2600;
+      },
+      // 3 — tap the category: its chart and the sums
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr, c = p.cats[0];
+        stmtStep(p, 3);
+        later(() => p.finger.tap(instant), 300);
+        later(() => {
+          p.finger.hide();
+          const s = sheetOpen(p, c.icon + " " + c.name);
+          h("div", "ts-hint", (ctx.period || "") + " · " + tr("drill.projectedLegend"), s);
+          // the chart: the solid line is the spend so far, the dashed one where it is heading
+          const NS = "http://www.w3.org/2000/svg", W = 260, H = 64, x = Math.round(W * (1 - p.frac));
+          const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "ts-pchart"); s.appendChild(svg);
+          const line = (pts, cls) => { const l = document.createElementNS(NS, "polyline"); l.setAttribute("points", pts); l.setAttribute("class", cls); svg.appendChild(l); };
+          line("0," + (H - 4) + " " + Math.round(x * 0.3) + "," + (H - 16) + " " + Math.round(x * 0.6) + "," + (H - 26) + " " + x + "," + (H - 36), "ts-pl-actual");
+          line(x + "," + (H - 36) + " " + W + "," + 8, "ts-pl-proj");
+          const lg = h("div", "ts-plegend", null, s);
+          const a = h("span", null, null, lg); h("span", "chart-legend-swatch legend-actual", null, a); a.appendChild(document.createTextNode(tr("drill.actualSpend")));
+          const b = h("span", null, null, lg); h("span", "chart-legend-swatch legend-pace", null, b); b.appendChild(document.createTextNode(tr("drill.projectedLegend")));
+          const drow = (label, value) => { const r = h("div", "ts-drow", null, s); h("span", null, label, r); h("b", null, value, r); return r; };
+          p.dActual = drow(tr("drill.actual"), p.money(c.actual));
+          p.dProg = drow(tr("drill.programmed") + " " + tr("drill.tapToTrace"), p.money(c.prog));
+          p.dExp = drow(tr("drill.expected") + " " + tr("drill.tapToTrace"), p.money(c.exp));
+          p.trace = h("div", "ts-trace", null, s); p.trace.hidden = true;
+          p.dRem = drow(tr("drill.projectedRemaining"), p.money(c.prog + c.exp));
+          p.dTot = drow(tr("drill.periodTotal"), p.money(c.total));
+        }, 700);
+        return 2100;
+      },
+      // 4 — tap Expected: how it was worked out
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr, c = p.cats[0];
+        stmtStep(p, 4);
+        later(() => p.finger.to(p.dExp, instant), 300);
+        later(() => {
+          p.finger.tap(instant); p.dExp.classList.add("now");
+          const mon = (d) => (root.I18n ? root.I18n.monthShort(d.getMonth(), true) : "") + " " + d.getFullYear();
+          const span = mon(new Date(p.now.getFullYear(), p.now.getMonth() - 12, 1)) + "–" + mon(new Date(p.now.getFullYear(), p.now.getMonth() - 1, 1));
+          p.trace.innerHTML = "";
+          h("div", null, tr("projections.formulaBased", { total: p.money(c.rate * 12), n: 12, span, rate: p.money(c.rate) }), p.trace);
+          h("div", null, tr("projections.formulaProrated", { rate: p.money(c.rate), months: p.frac.toFixed(2), n: p.left, amount: p.money(c.exp) }), p.trace);
+          p.trace.hidden = false;
+        }, 800);
+        return 2400;
+      },
+      // 5 — set the remaining by hand
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr, c = p.cats[0];
+        stmtStep(p, 5);
+        later(() => { p.dExp.classList.remove("now"); p.finger.to(p.dRem, instant); }, 300);
+        later(() => {
+          p.finger.tap(instant);
+          const s = sheetOpen(p, tr("projOverride.title"));
+          h("div", "ts-hint", tr("projOverride.subtitleCalculated", { category: c.name, amount: p.money(c.total) }), s);
+          const seg = h("div", "ts-seg", null, s); h("span", null, tr("projOverride.total"), seg); p.remTab = h("span", null, tr("projOverride.remaining"), seg);
+          p.ovBox = box(s, p.ctx.home, "");
+          h("div", "ts-hint", tr("projOverride.hintRemaining", { actual: p.money(c.actual) }), s);
+          p.ovSave = h("div", "ts-btn", tr("common.save"), s);
+          h("div", "ts-link", tr("projOverride.reset"), s);
+        }, 800);
+        later(() => p.finger.to(p.remTab, instant), 1500);
+        later(() => { p.finger.tap(instant); p.remTab.classList.add("on"); }, 2000);
+        later(() => p.finger.to(p.ovBox.box, instant), 2500);
+        later(() => { p.finger.tap(instant); p.ovBox.box.classList.add("focus"); p.ovBox.value.textContent = "450"; }, 3000);
+        later(() => p.finger.to(p.ovSave, instant), 3700);
+        later(() => {
+          p.finger.tap(instant); p.ovSave.classList.add("pressed");
+        }, 4200);
+        later(() => {
+          p.finger.hide(); sheetClose(p);
+          c.manual = true; c.remaining = 450; c.total = c.actual + 450;
+          p.drawRow(c); c.row.classList.add("now");
+          projScroll(p, p.list);
+        }, 4600);
+        return 5400;
+      },
+      // 6 — how to get the most out of it (the whole list again)
+      (p, ctx, instant, later) => {
+        stmtStep(p, 6);
+        later(() => { p.cats[0].row.classList.remove("now"); p.list.classList.add("now"); }, 200);
+        later(() => p.list.classList.remove("now"), 1800);
+        return 1900;
+      }
+    ]
+  };
+  function projScroll(p, el) { p.scroll.style.transform = "translateY(" + (-Math.max(0, el.offsetTop - 2)) + "px)"; }
 
   // ---- The More tab: only the More screen itself — the list is dragged down to the language picker and back up (it does not open any section) ----
   //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ); real order, groups and words.
