@@ -13,6 +13,9 @@
 //   shouldSend(status, now, lastTry, lastFailed[, minBatch]) -> boolean
 //   cleanLabel(text), deviceKind(userAgent, standalone)
 //   SCOPE, needsAsk(state, isOwner), errorCode(err), shouldRecordError(storage, name, code, now)
+//   bankSlug(name), queueEvents(entry, fields, bank)     what the person did with one pending entry (names only)
+//   weekKey(ms), screenName(id), recordScreen(storage, name, now) -> entries of a finished week   screen-use counts
+//   cleanFeedback(text)                                   the text of a feedback note, as it will be sent
 //
 // A second outbox (keys "betaOutbox"/"betaSeq") carries the small beta counts (a failed action's name and a short
 // error code — backend/BetaEvents.gs); it works exactly like the timings one.
@@ -32,9 +35,11 @@
 
   function intOrNull(v) { return typeof v === "number" && isFinite(v) ? Math.round(v) : null; }
 
-  // What the person agreed to share. Version 1 = app speed only; 2 = also which actions failed (name + short code).
-  // A person who agreed to an older version is asked again (needsAsk) — an agreement is never widened silently.
-  var SCOPE = 2;
+  // What the person agreed to share. Version 1 = app speed only; 2 = also which actions failed (name + short code);
+  // 3 = also what they did with each pending entry (confirmed / edited / discarded, and which field — never its content)
+  // and how often they open each screen. A person who agreed to an older version is asked again (needsAsk) — an agreement
+  // is never widened silently. Each kind is recorded only from the version that announced it (errors from 2, the rest from 3).
+  var SCOPE = 3;
   var MAX_REASKS = 3;               // "not now" on the new question is respected three times, then it stays at what they agreed to
   var ERR_DAY_MAX = 40;             // error entries one phone records per day …
   var ERR_PER_KIND_MAX = 5;         // … and per (action, code) per day, so one broken screen cannot flood the outbox
@@ -169,7 +174,78 @@
     return standalone ? kind + " (home screen)" : kind;
   }
 
+  // The same rule as backend/BetaEvents.gs betaSlug_: lower case, no accents, anything else becomes "_", at most 30 characters.
+  function bankSlug(name) {
+    var s = String(name == null ? "" : name).toLowerCase();
+    if (s.normalize) s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return s.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 30);
+  }
+
+  // What the person did with ONE pending entry of the review queue, as the entries the beta outbox takes:
+  //   one "queue" (confirmed = nothing changed, edited = something changed, discarded) + one "queue_edit" per changed field.
+  // Names only — never the amount, text or account. `entry` is the pending entry as it was (the parser's work), `fields` what
+  // was submitted on Confirm (null for a discard), `bank` the slug of where it came from.
+  function num2(v) { return Math.round(Math.abs(Number(v)) * 100) / 100; }
+  function queueEvents(entry, fields, bank) {
+    entry = entry || {};
+    if (!fields) return [{ k: "queue", n: "discarded", d: bank, v: 1 }];
+    var edits = [];
+    if (fields.category_id !== undefined && fields.category_id !== "") {
+      if (!entry.category_id) edits.push("category_filled");
+      else if (fields.category_id !== entry.category_id) edits.push("category");
+    }
+    if (fields.amount !== undefined && num2(fields.amount) !== num2(entry.amount)) edits.push("amount");
+    if (fields.description !== undefined && String(fields.description || "").trim() !== String(entry.description || "").trim()) edits.push("description");
+    ["payment_method_id", "to_payment_method_id"].some(function (f) {
+      return fields[f] !== undefined && String(fields[f] || "") !== String(entry[f] || "");
+    }) && edits.push("account");
+    var out = [{ k: "queue", n: edits.length ? "edited" : "confirmed", d: bank, v: 1 }];
+    edits.forEach(function (f) { out.push({ k: "queue_edit", n: f, d: bank, v: 1 }); });
+    return out;
+  }
+
+  // ISO week ("w2026_43") of a moment, by the phone's own calendar; the week starts on Monday.
+  function weekKey(ms) {
+    var d = new Date(ms);
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);                       // the Thursday of this week decides the year
+    var year = t.getUTCFullYear();
+    var week = Math.ceil(((t - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+    return "w" + year + "_" + (week < 10 ? "0" : "") + week;
+  }
+  function screenName(id) { return String(id || "").replace(/^screen-/, "").replace(/-/g, "_"); }
+
+  // Counts one opening of a screen in this week's tally (kept in `store`). Returns the entries of the week that just ended,
+  // when there is one: the app puts them in the beta outbox. Call with name = null just to close a finished week (at startup).
+  var SCREEN_KEY = "betaScreens";
+  function recordScreen(store, name, now) {
+    var wk = weekKey(now);
+    var rec = {};
+    try { rec = JSON.parse(store.getItem(SCREEN_KEY)) || {}; } catch (e) { rec = {}; }
+    var out = [];
+    if (rec.week && rec.week !== wk) {
+      Object.keys(rec.counts || {}).forEach(function (n) { if (rec.counts[n] > 0) out.push({ t: now, k: "screen", n: n, d: rec.week, v: Math.min(rec.counts[n], 100000) }); });
+      rec = {};
+    }
+    if (!rec.week) rec = { week: wk, counts: {} };
+    if (name) rec.counts[name] = (rec.counts[name] || 0) + 1;
+    try { store.setItem(SCREEN_KEY, JSON.stringify(rec)); } catch (e) { /* storage full: the count is lost, nothing else */ }
+    return out;
+  }
+
+  // The text of a feedback note exactly as it will be sent (the person sees this before Send; backend/Feedback.gs does it again):
+  // e-mail addresses and long runs of digits are hidden, at most 1,000 characters.
+  function cleanFeedback(text) {
+    return String(text == null ? "" : text).replace(/\r\n?/g, "\n")
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/gi, "[email]")
+      .replace(/\d(?:[\s.\-]?\d){7,}/g, "[number]")
+      .trim().slice(0, 1000);
+  }
+
   return {
+    bankSlug: bankSlug, queueEvents: queueEvents, weekKey: weekKey, screenName: screenName, recordScreen: recordScreen, cleanFeedback: cleanFeedback,
     OUTBOX_KEY: OUTBOX_KEY, SEQ_KEY: SEQ_KEY, MAX_CHARS: MAX_CHARS, SCOPE: SCOPE, create: create, shouldSend: shouldSend,
     cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, errorCode: errorCode, shouldRecordError: shouldRecordError
   };

@@ -502,6 +502,36 @@ const perfOutbox_ = PerfShare.create(localStorage);
 // A second, much smaller outbox: which app actions failed (name + a short code, never the message) — backend/BetaEvents.gs.
 // Only recorded for a person who agreed to scope 2 (see PerfShare.SCOPE); a person who agreed to speed only sends no errors.
 const betaOutbox_ = PerfShare.create(localStorage, { outboxKey: "betaOutbox", seqKey: "betaSeq" });
+// Scope 3 (see PerfShare.SCOPE): what the person did with a pending entry, and how often each screen is opened. Only for a person
+// who agreed to the version that announced them; names and counts only — never an amount, text, account or name.
+function betaScope3_() {
+  const share = perfShareState_();
+  return !!(share.on && (share.scope || 1) >= 3);
+}
+function betaRecordEvents_(events) {
+  try {
+    if (!betaScope3_()) return;
+    events.forEach((e) => betaOutbox_.appendRaw({ t: Date.now(), ...e }));
+  } catch (err) {
+    // Counting must never break the app.
+  }
+}
+// Where a pending entry came from: the bank of its account (as the app's own bank list names it), or the other way it arrived.
+function betaEntryPlace_(entry) {
+  if (entry.source && entry.source !== "email") return ["photo", "shortcut", "import", "manual"].includes(entry.source) ? entry.source : "other_source";
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === (entry.payment_method_id || entry.to_payment_method_id));
+  const bank = pm && ((meta && meta.banks) || []).find((b) => b.id === pm.bank_id);
+  return bank ? PerfShare.bankSlug(bank.name) : "no_account";
+}
+let betaScreenNow_ = "entries", betaScreenBefore_ = "entries";   // in memory only: the feedback note says which screen the person was on
+function betaCountScreen_(name) {
+  try {
+    if (!betaScope3_()) return;
+    PerfShare.recordScreen(localStorage, name, Date.now()).forEach((e) => betaOutbox_.appendRaw(e));
+  } catch (err) {
+    // Counting must never break the app.
+  }
+}
 function betaRecordError_(action, code) {
   try {
     const share = perfShareState_();
@@ -622,6 +652,16 @@ async function perfAndBetaSend_() { await perfSendMaybe_(); await betaSendMaybe_
 function perfSchedule_(delayMs) {
   setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(() => perfAndBetaSend_(), { timeout: 10000 }); else perfAndBetaSend_(); }, delayMs);
 }
+// Every time a screen becomes visible it counts once in this week's tally (docs/perf-share.js recordScreen); a finished week goes to
+// the beta outbox as one entry per screen. Watching the screens' own hidden flag covers every way of getting to a screen.
+const betaScreenObserver_ = new MutationObserver((records) => records.forEach((r) => {
+  if (r.target.hidden) return;
+  const name = PerfShare.screenName(r.target.id);
+  if (name !== betaScreenNow_) { betaScreenBefore_ = betaScreenNow_; betaScreenNow_ = name; }
+  betaCountScreen_(name);
+}));
+document.querySelectorAll(".screen").forEach((el) => betaScreenObserver_.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+setTimeout(() => betaCountScreen_("entries"), 0);   // the app opens on Entries: counts as an opening, and closes a week that has ended
 perfSchedule_(20000);                               // shortly after the app has opened and settled
 setInterval(() => perfSchedule_(0), 15 * 60000);    // while it stays open
 document.addEventListener("visibilitychange", () => { if (!document.hidden) perfSchedule_(15000); });
@@ -3712,6 +3752,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
       const tripEl = item.querySelector(".review-trip");
       if (tripEl) fields.trip_id = tripEl.value;
+      betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -3730,6 +3771,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     discardBtn.addEventListener("click", () => {
       if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
 
+      betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
       queueReviewAction_(entry.id, "discard", null);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -5507,6 +5549,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-perf-btn").hidden = !owner;
   document.getElementById("more-perf-share-btn").hidden = owner;
   document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
+  document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
   document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
@@ -5611,6 +5654,68 @@ document.getElementById("perf-share-close").addEventListener("click", () => {
   closePerfShareModal_();
 });
 document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
+
+// ---- "Send feedback to JP": a short note the person writes on purpose (backend/Feedback.gs, tab "Feedback") ----
+// Steps: 1 kind + text + first name → 2 the exact note as it will be sent (e-mail addresses and long numbers hidden, docs/perf-share.js)
+// → 3 thanks. It goes the same way the app-speed reports do (perfReportUrl_). No screenshots (they would show money). It does not depend
+// on the "Help me improve the app" choice: the person writes it and taps Send themselves.
+const fbEl_ = (id) => document.getElementById(id);
+function fbStep_(n) { [1, 2, 3].forEach((i) => { fbEl_("fb-step-" + i).hidden = i !== n; }); }
+function openFeedbackModal_() {
+  const backdrop = fbEl_("fb-modal-backdrop");
+  I18n.applyStatic(backdrop);
+  fbEl_("fb-text").value = "";
+  fbEl_("fb-kind").value = "broke";
+  fbEl_("fb-name").value = perfShareState_().label || "";
+  fbEl_("fb-error").hidden = true;
+  fbEl_("fb-review").disabled = true;
+  fbStep_(1);
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function fbScreen_() { return betaScreenNow_ === "more" ? betaScreenBefore_ : betaScreenNow_; }
+function fbReady_() { return PerfShare.cleanFeedback(fbEl_("fb-text").value).length >= 5; }
+fbEl_("fb-text").addEventListener("input", () => { fbEl_("fb-review").disabled = !fbReady_(); });
+document.getElementById("more-feedback-btn").addEventListener("click", openFeedbackModal_);
+fbEl_("fb-close").addEventListener("click", () => { fbEl_("fb-modal-backdrop").hidden = true; });
+fbEl_("fb-done").addEventListener("click", () => { fbEl_("fb-modal-backdrop").hidden = true; });
+fbEl_("fb-back").addEventListener("click", () => fbStep_(1));
+fbEl_("fb-review").addEventListener("click", () => {
+  if (!fbReady_()) return;
+  const text = PerfShare.cleanFeedback(fbEl_("fb-text").value);
+  fbEl_("fb-preview").textContent = text;
+  fbEl_("fb-also").textContent = tr("feedback.alsoSent", { name: PerfShare.cleanLabel(fbEl_("fb-name").value) || "—", version: appRelease_() || "dev" });
+  fbEl_("fb-error").hidden = true;
+  fbStep_(2);
+});
+fbEl_("fb-send").addEventListener("click", async () => {
+  const btn = fbEl_("fb-send");
+  btn.disabled = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+    const label = PerfShare.cleanLabel(fbEl_("fb-name").value);
+    const res = await fetch(perfReportUrl_(), {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "reportFeedback", payload: {
+        install: perfInstallId_(), label, kind: fbEl_("fb-kind").value, screen: fbScreen_(), language: I18n.getLang(), app: appRelease_(),
+        device: PerfShare.deviceKind(navigator.userAgent, standalone), text: PerfShare.cleanFeedback(fbEl_("fb-text").value)
+      } }),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json && json.ok) { fbStep_(3); return; }
+    fbEl_("fb-error").textContent = tr(json && json.code === "feedback_busy" ? "feedback.tooMany" : "feedback.sendFailed");
+  } catch (e) {
+    fbEl_("fb-error").textContent = tr("feedback.sendFailed");
+  } finally {
+    clearTimeout(timer);
+    btn.disabled = false;
+  }
+  fbEl_("fb-error").hidden = false;
+});
 
 // ---- "My bank isn't supported yet": send the owner ONE e-mail from the bank, with the private details hidden ----
 // Steps: 1 the bank's sender address → 2 pick one of the person's own e-mails (or paste one) → 3 preview of the exact

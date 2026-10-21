@@ -173,3 +173,53 @@ test("near the row limit the owner gets one Telegram heads-up; at the limit repo
   const later = report(rt, { entries: Array.from({ length: 10 }, (_, i) => err(i + 18)) });
   assert.deepEqual([later.ok, later.data.ack, later.data.stored], [true, 27, 10]);
 });
+
+// ---- review-queue results ("queue", "queue_edit") and weekly screen counts ("screen") ----
+
+const queue = (s, name = "confirmed", d = "bcp", extra = {}) => ({ s, t: Date.now() - 1000, k: "queue", n: name, d, v: 1, ...extra });
+const edit = (s, name = "category", d = "bcp", extra = {}) => ({ s, t: Date.now() - 1000, k: "queue_edit", n: name, d, v: 1, ...extra });
+const screen = (s, name = "overview", d = "w2026_43", v = 12, extra = {}) => ({ s, t: Date.now() - 1000, k: "screen", n: name, d, v, ...extra });
+
+test("what the person did with a pending entry is stored with the bank it came from", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [queue(1, "edited", "interbank"), edit(2, "category", "interbank"), edit(3, "amount", "interbank"), queue(4, "discarded", "yape"), queue(5, "confirmed", "no_account")] });
+  assert.deepEqual(stored(rt).map((r) => [r.kind, r.name, r.detail]), [
+    ["queue", "edited", "interbank"], ["queue_edit", "category", "interbank"], ["queue_edit", "amount", "interbank"],
+    ["queue", "discarded", "yape"], ["queue", "confirmed", "no_account"]
+  ]);
+});
+
+test("a bank the person typed in themselves is stored as other_bank, never by name", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [queue(1, "confirmed", "tia_rosa_savings"), queue(2, "confirmed", "caja_piura"), queue(3, "confirmed", "photo")] });
+  assert.deepEqual(stored(rt).map((r) => r.detail), ["other_bank", "caja_piura", "photo"]);
+});
+
+test("a queue entry with an unknown outcome or field is dropped", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [queue(1, "deleted"), edit(2, "payee"), edit(3, "category", "bcp", { n: "notes" }), queue(4, "confirmed"), edit(5, "category_filled")] });
+  assert.deepEqual(stored(rt).map((r) => Number(r.seq)), [4, 5]);
+});
+
+test("a screen count carries the screen, the week and how many times it was opened", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [screen(1, "overview", "w2026_43", 12), screen(2, "trip_detail", "w2026_43", 3)] });
+  assert.deepEqual(stored(rt).map((r) => [r.kind, r.name, r.detail, Number(r.n)]), [["screen", "overview", "w2026_43", 12], ["screen", "trip_detail", "w2026_43", 3]]);
+});
+
+test("a screen count with an unknown screen, a bad week or no opens is dropped", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [screen(1, "secret_screen"), screen(2, "overview", "2026-43"), screen(3, "overview", "w2026_43", 0), screen(4, "overview", "w2026_43", 5, { d: "w26_4" }), screen(5, "more", "w2026_44", 2)] });
+  assert.deepEqual(stored(rt).map((r) => Number(r.seq)), [5]);
+});
+
+test("every screen of the app is on the list the backend accepts", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const html = fs.readFileSync(path.join(__dirname, "../../docs/index.html"), "utf8");
+  const ids = [...html.matchAll(/id="screen-([a-z-]+)" class="screen/g)].map((m) => m[1].replace(/-/g, "_"));
+  assert.ok(ids.length >= 15, "found the screens");
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: ids.map((id, i) => screen(i + 1, id)) });
+  assert.deepEqual(stored(rt).map((r) => r.name), ids, "none was dropped");
+});
