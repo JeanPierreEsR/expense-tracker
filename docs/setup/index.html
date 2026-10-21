@@ -90,6 +90,12 @@
     <button class="secondary" id="btnCancel" data-keep hidden data-t="cancelBtn"></button>
   </div>
 
+  <div class="callout" id="privateTip">
+    <h3 data-t="privateTitle"></h3>
+    <div data-t="privateBody"></div>
+    <button id="btnCopyPrivate" data-t="copyPageBtn"></button>
+  </div>
+
   <div class="callout" data-t="accountTip"></div>
 
   <div class="step" id="overview">
@@ -219,6 +225,8 @@ const T = {
     stepSetup: 'Step 1 of 2',
     stepAllow: 'Step 2 of 2',
     stepOptional: 'Optional step',
+    privateTitle: 'Before you start: open this page in a Private tab',
+    privateBody: '<p style="color:inherit">This is the surest way to set up without problems. Many phones are signed in to several Google accounts, and Google’s approval screen gets confused by that. A Private tab starts with no accounts, so you sign in with only the one you choose.</p><ol><li>Tap <b>Copy this page’s address</b> below.</li><li>In Safari tap the tabs icon (two squares), then <b>Private</b>, then the <b>+</b>.</li><li>Paste the address in the bar and open it. This page appears again: carry on from there.</li></ol><p style="color:inherit" class="small">Already in a Private tab? Then you are all set: go on with the steps below.</p>',
     accountTip: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so it is the one to prioritize. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails). No Gmail, because your bank writes to Outlook, iCloud or Yahoo? Create a free Gmail and forward to it; the app explains how.',
     whatTitle: 'What will happen (about 3 minutes)',
     what: '<li>We create a <b>private Google Sheet</b> in your own Google account. Your expenses are saved there, in your account.</li><li>We prepare <b>your app</b> so it can use that sheet.</li><li>Google will show you some screens asking you to allow things. <b>Before each one, this page tells you exactly what to tap.</b></li>',
@@ -303,6 +311,7 @@ const T = {
     openHelpBody: '<p style="color:inherit">This happens when your phone is signed in to <b>more than one Google account</b>: Google tries the wrong one. It is a Google limitation, and your progress is saved, so it takes about a minute to finish:</p><ol><li>Tap <b>Copy this page’s address</b> below.</li><li>In Safari tap the tabs icon (two squares), then <b>Private</b>, then the <b>+</b>.</li><li>Paste the address and open it. When Google asks, sign in with <b>{account}</b>.</li><li>Tap <b>Continue setup</b>. Nothing is done twice.</li></ol>',
     copyPageBtn: 'Copy this page’s address',
     copiedBtn: '✓ Copied — now open a Private tab',
+    copyManual: 'Copy this address, open a Private tab in Safari and paste it:',
     p_google: 'Opening Google…',
     p_sheet: 'Creating your Google Sheet…',
     p_project: 'Setting up your app…',
@@ -330,6 +339,8 @@ const T = {
     stepSetup: 'Paso 1 de 2',
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
+    privateTitle: 'Antes de empezar: abre esta página en una pestaña privada',
+    privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos teléfonos tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
     accountTip: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que es la que debes priorizar. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
     whatTitle: 'Qué va a pasar (unos 3 minutos)',
     what: '<li>Creamos una <b>hoja de Google privada</b> en tu propia cuenta de Google. Tus gastos se guardan ahí, en tu cuenta.</li><li>Preparamos <b>tu app</b> para que pueda usar esa hoja.</li><li>Google te mostrará algunas pantallas pidiéndote permitir cosas. <b>Antes de cada una, esta página te dice exactamente qué tocar.</b></li>',
@@ -414,6 +425,7 @@ const T = {
     openHelpBody: '<p style="color:inherit">Esto pasa cuando tu teléfono tiene <b>más de una cuenta de Google</b> con sesión iniciada: Google prueba con la equivocada. Es una limitación de Google, y tu avance está guardado, así que terminar toma como un minuto:</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección y ábrela. Cuando Google lo pida, inicia sesión con <b>{account}</b>.</li><li>Toca <b>Continuar la configuración</b>. No se repite nada.</li></ol>',
     copyPageBtn: 'Copiar la dirección de esta página',
     copiedBtn: '✓ Copiada — ahora abre una pestaña privada',
+    copyManual: 'Copia esta dirección, abre una pestaña privada en Safari y pégala:',
     p_google: 'Abriendo Google…',
     p_sheet: 'Creando tu hoja de Google…',
     p_project: 'Configurando tu app…',
@@ -1261,6 +1273,9 @@ function render(failed) {
   $('openHelp').hidden = !help;
   if (help) betaSend('help_card_shown');
   $('shareCard').hidden = !!state.permissionDone;
+  // The Private-tab advice is for starting a setup (or turning extras on, which also goes through Google's approval screen);
+  // an update asks Google for nothing new, and once the app exists the "can't open the file" card takes over.
+  $('privateTip').hidden = WANT_UPDATE || !!state.webAppUrl;
   if (state.permissionDone) betaSend('ready');
   if (help) $('openHelp').querySelector('div').innerHTML = T.openHelpBody.replace('{account}', state.account || 'the account you chose');
   if (!busy) {
@@ -1320,10 +1335,13 @@ async function run(boxId, fn, btnId, step) {
   }
 }
 $('btnInstall').addEventListener('click', () => { betaSend('tapped'); run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup); });
-$('btnCopyPage').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(location.origin + location.pathname); log('Page address copied.'); $('btnCopyPage').textContent = T.copiedBtn; }
-  catch (e) { log('Could not copy automatically.', 'bad'); }
-});
+// Two buttons copy the page address for a Private tab: the one in the card at the top (shown to everyone) and the one in the
+// "can't open the file" card (shown after a failed trip to Google).
+['btnCopyPrivate', 'btnCopyPage'].forEach((id) => $(id).addEventListener('click', async () => {
+  const address = location.origin + location.pathname;
+  try { await navigator.clipboard.writeText(address); log('Page address copied.'); $(id).textContent = T.copiedBtn; }
+  catch (e) { log('Could not copy automatically.', 'bad'); try { window.prompt(T.copyManual, address); } catch (e2) {} }
+}));
 $('btnCopySignin').addEventListener('click', async () => {
   const msg = $('signinMsg');
   try {
