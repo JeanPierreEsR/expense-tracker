@@ -452,7 +452,7 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-bank-sample-btn" hidden>
-            <span data-i18n="more.bankSample">📩 Teach the app my bank's e-mails</span>
+            <span data-i18n="more.bankSample">📩 Teach the app my bank's emails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-feedback-btn" hidden>
@@ -837,7 +837,7 @@
           <textarea id="bill-photo-text" class="bill-photo-text" rows="9" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
           <button type="button" class="add-inline" id="bill-photo-reparse" data-i18n="bill.reparse">↻ Work out the items again from this text</button>
         </details>
-        <p class="hint bill-check-bad" id="bill-stale-note" hidden data-i18n="bill.stale">This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Pressing “Use this split” will replace the amount and the split with the bill's numbers.</p>
+        <p class="hint bill-check-bad" id="bill-stale-note" hidden data-i18n="bill.stale">This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Tapping “Use this split” will replace the amount and the split with the bill's numbers.</p>
         <label for="bill-total"><span data-i18n="bill.totalBefore">Bill total before discounts</span> (<span id="bill-currency">PEN</span>)</label>
         <input type="text" id="bill-total" inputmode="decimal" placeholder="0.00" autocomplete="off">
         <p class="hint" data-i18n="bill.totalHint">The sum of everything on the bill, before any discount and before the tip. The items below must add up to this; discounts are taken off after.</p>
@@ -1113,7 +1113,7 @@
             <p class="hint" data-i18n="wa.aliasHint">If you leave it empty, the app names the account for you.</p>
             <h3 data-i18n="wa.last4">Last 4 digits (optional)</h3>
             <input type="text" id="wa-last4" inputmode="numeric" maxlength="4" autocomplete="off">
-            <p class="hint" data-i18n="wa.last4Hint">They help the app recognise your bank e-mails. Never the full number.</p>
+            <p class="hint" data-i18n="wa.last4Hint">They help the app recognize your bank emails. Never the full number.</p>
             <label class="checkbox-row"><input type="checkbox" id="wa-show4"><span data-i18n="wa.showLast4">Show the last 4 digits in the name</span></label>
             <p class="hint" id="wa-preview" style="font-weight:600;"></p>
             <p class="hint" id="wa-form-error" style="color:#d64545;"></p>
@@ -1179,8 +1179,8 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which actions failed, whether each bank e-mail was confirmed, changed or discarded, and which screens you open — never what is inside. Read the text below, then keep this ticked or untick it.</p>
-        <p class="hint" data-i18n="perfShare.body">This app is in beta, and your help makes it better. If you share, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code (for example “listEntries – network”); whether each bank e-mail was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can turn it off at any time here. It would be greatly appreciated. — JP</p>
+        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which actions failed, whether each bank email was confirmed, changed or discarded, and which screens you open — never what is inside. Read the text below, then keep this checked or uncheck it.</p>
+        <p class="hint" data-i18n="perfShare.body">I'm JP, who made this app. It is in beta, and your help makes it better. If you share, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can turn it off at any time here. It would be greatly appreciated. — JP</p>
         <label class="checkbox-row">
           <input type="checkbox" id="perf-share-on" checked>
           <span data-i18n="perfShare.check">Share how the app is doing (speed, problems, screens I use)</span>
@@ -1205,17 +1205,17 @@
         <p class="hint" data-i18n="privacy.live">Everything you enter is saved in a Google Sheet that belongs to your own Google account, and your app runs in that same account. JP cannot open it, and neither can anyone else unless you share the sheet yourself. The app's files are public (on GitHub) and hold none of your data.</p>
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
-        <p class="hint" data-i18n="privacy.readsMail">Your bank e-mails, only if you turned that on. Your app reads them (it can never send, change or delete an e-mail) and turns each payment into an entry that waits for your OK. Those e-mails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
         <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
-        <p class="hint" data-i18n="privacy.agree">If you tick “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank e-mail was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box ticked.</p>
+        <p class="hint" data-i18n="privacy.agree">If you check “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box checked.</p>
 
         <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
-        <p class="hint" data-i18n="privacy.send">A sample of a bank e-mail or statement that the app cannot read yet (you see the exact text first, and digits, names and e-mail addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
+        <p class="hint" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
 
         <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
-        <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your e-mails, your photos and PDFs, and your sign-in.</p>
+        <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
 
         <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
         <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>
@@ -1239,8 +1239,8 @@
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="bank-ready-body"></p>
-        <p class="hint" data-i18n="bankReady.needAccount">Check that this bank is in More → Accounts, cards &amp; platforms (with the last 4 digits of the card), so each e-mail finds its account.</p>
-        <p class="hint" id="bank-ready-mail" hidden data-i18n="bankReady.needMail">Reading bank e-mails is still off: turn it on in More → Extra features.</p>
+        <p class="hint" data-i18n="bankReady.needAccount">Check that this bank is in More → Accounts, cards &amp; platforms (with the last 4 digits of the card), so each email finds its account.</p>
+        <p class="hint" id="bank-ready-mail" hidden data-i18n="bankReady.needMail">Reading bank emails is still off: turn it on in More → Extra features.</p>
         <button type="button" class="primary" id="bank-ready-ok" data-i18n="bankReady.ok">Great, thanks!</button>
       </div>
     </div>
@@ -1255,7 +1255,7 @@
       <div class="budget-modal-body">
         <div id="fb-step-1">
           <p class="hint" data-i18n="feedback.intro">Something broke, confused you, or you have an idea? Tell me in a few words. I read every note and answer personally. — JP</p>
-          <p class="hint" data-i18n="feedback.privacy">🔒 Please don't write amounts or the names of people. E-mail addresses and long numbers are hidden automatically. No screenshots are sent. You see the exact note before it goes.</p>
+          <p class="hint" data-i18n="feedback.privacy">🔒 Please don't write amounts or the names of people. Email addresses and long numbers are hidden automatically. No screenshots are sent. You see the exact note before it goes.</p>
           <label for="fb-kind" data-i18n="feedback.kindLabel">What is it about?</label>
           <select id="fb-kind">
             <option value="broke" data-i18n="feedback.kind.broke">Something broke</option>
@@ -1287,31 +1287,31 @@
   <div id="bank-sample-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="bankSample.title">Teach the app your bank's e-mails</span>
+        <span data-i18n="bankSample.title">Teach the app your bank's emails</span>
         <button type="button" id="bs-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
         <div id="bs-step-1">
-          <p class="hint" data-i18n="bankSample.intro">Is your bank missing? Send me one of its e-mails and I will teach the app to read them. After that, your transactions from that bank show up in the app by themselves. It is the best way to help the app grow. Thank you! — JP</p>
-          <p class="hint" data-i18n="bankSample.privacy">🔒 Your privacy comes first. Before anything leaves your phone, the app hides private details: every digit turns into a 9, e-mail addresses and links are removed, and names are blanked out. You see the exact text first, you can edit it, and nothing is sent until you tap Send.</p>
-          <label for="bs-sender" data-i18n="bankSample.senderLabel">Which address does your bank send e-mails from?</label>
+          <p class="hint" data-i18n="bankSample.intro">Is your bank missing? Send me one of its emails and I will teach the app to read them. After that, your transactions from that bank show up in the app by themselves. It is the best way to help the app grow. Thank you! — JP</p>
+          <p class="hint" data-i18n="bankSample.privacy">🔒 Your privacy comes first. Before anything leaves your phone, the app hides private details: every digit turns into a 9, email addresses and links are removed, and names are blanked out. You see the exact text first, you can edit it, and nothing is sent until you tap Send.</p>
+          <label for="bs-sender" data-i18n="bankSample.senderLabel">Which address does your bank send emails from?</label>
           <input type="email" id="bs-sender" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-placeholder="bankSample.senderPlaceholder" placeholder="e.g. alerts@yourbank.com">
-          <p class="hint" data-i18n="bankSample.senderHint">Open one of its e-mails and look at who sent it.</p>
+          <p class="hint" data-i18n="bankSample.senderHint">Open one of its emails and look at who sent it.</p>
           <p class="hint" id="bs-msg-1" role="status" style="color:#d64545;font-weight:600;"></p>
-          <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my e-mails</button>
-          <p class="hint" id="bs-find-hint" data-i18n="bankSample.findHint">The app looks in this Gmail for e-mails from that address.</p>
-          <button type="button" class="cancel-edit-btn" id="bs-paste" data-i18n="bankSample.pasteInstead">My e-mails are in another inbox</button>
-          <p class="hint" data-i18n="bankSample.pasteHint">Open one of the bank's e-mails there, copy all its text and paste it here.</p>
+          <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my emails</button>
+          <p class="hint" id="bs-find-hint" data-i18n="bankSample.findHint">The app looks in this Gmail for emails from that address.</p>
+          <button type="button" class="cancel-edit-btn" id="bs-paste" data-i18n="bankSample.pasteInstead">My emails are in another inbox</button>
+          <p class="hint" data-i18n="bankSample.pasteHint">Open one of the bank's emails there, copy all its text and paste it here.</p>
           <p class="hint" data-i18n="bankSample.statementHint">Is it a bank statement the app cannot read? Open More → Statements, choose the PDF, and you will find the button to send it.</p>
         </div>
         <div id="bs-step-2" hidden>
           <div id="bs-pick">
-            <p class="hint" data-i18n="bankSample.pickTitle">Pick an e-mail that shows a transaction (a purchase, a transfer…)</p>
+            <p class="hint" data-i18n="bankSample.pickTitle">Pick an email that shows a transaction (a purchase, a transfer…)</p>
             <div id="bs-list" class="more-list"></div>
           </div>
           <div id="bs-paste-box" hidden>
-            <label for="bs-paste-text" data-i18n="bankSample.pasteTitle">Paste the e-mail text here</label>
-            <textarea id="bs-paste-text" rows="8" data-i18n-placeholder="bankSample.pastePlaceholder" placeholder="Open the e-mail, select all the text, copy it and paste it here."></textarea>
+            <label for="bs-paste-text" data-i18n="bankSample.pasteTitle">Paste the email text here</label>
+            <textarea id="bs-paste-text" rows="8" data-i18n-placeholder="bankSample.pastePlaceholder" placeholder="Open the email, select all the text, copy it and paste it here."></textarea>
             <button type="button" class="primary" id="bs-paste-go" data-i18n="bankSample.continue">Continue</button>
           </div>
           <button type="button" class="cancel-edit-btn" id="bs-back-2"data-i18n="bankSample.back">Back</button>
@@ -1335,8 +1335,8 @@
         </div>
         <div id="bs-step-4" hidden>
           <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
-          <p class="hint" data-i18n="bankSample.doneBody">I received it. I will let you know when your bank is added. Each kind of e-mail helps (a purchase, a transfer, a deposit…), so send another if you can.</p>
-          <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another e-mail</button>
+          <p class="hint" data-i18n="bankSample.doneBody">I received it. I will let you know when your bank is added. Each kind of email helps (a purchase, a transfer, a deposit…), so send another if you can.</p>
+          <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another email</button>
         </div>
         <p class="hint" id="bs-msg" role="status"></p>
       </div>
@@ -1352,7 +1352,7 @@
       <div class="budget-modal-body">
         <div id="ss-step-1">
           <p class="hint" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
-          <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, e-mail addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
           <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
           <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
           <button type="button" class="primary" id="ss-show" data-i18n="stmtSample.show">Show me what will be sent</button>
@@ -1422,7 +1422,7 @@
         <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
         <ul class="bm-steps">
           <li data-i18n="bankMail.o1">Outlook / Hotmail: open Outlook on the web, then Settings, Mail, Forwarding. Turn on forwarding and enter the address above. Free. A work or school account may not allow it.</li>
-          <li data-i18n="bankMail.o2">iCloud: open iCloud.com, then Mail, the gear icon, Settings, General, and tick Forward my email to. Enter the address above. Free.</li>
+          <li data-i18n="bankMail.o2">iCloud: open iCloud.com, then Mail, the gear icon, Settings, General, and check Forward my email to. Enter the address above. Free.</li>
           <li data-i18n="bankMail.o3">Yahoo: automatic forwarding is only offered with the paid Yahoo Mail Plus. If you do not pay for it, change the email your bank uses (best option above) instead.</li>
         </ul>
         <p class="hint" data-i18n="bankMail.o4">Forwarding sends everything to this Gmail, not only bank emails. That is fine: the app only looks at emails from your bank.</p>
@@ -1907,7 +1907,7 @@
       <div class="currency-modal-header"><span data-i18n="tourChoice.title">How to use the app</span></div>
       <div class="welcome-choices">
         <button type="button" class="welcome-choice" id="tour-choice-basic"><b data-i18n="tourChoice.basic">📖 The basics</b><br><span class="hint" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></button>
-        <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Pro features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
+        <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Advanced features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
       </div>
       <button type="button" class="cancel-edit-btn" id="tour-choice-close" data-i18n="common.close">Close</button>
     </div>

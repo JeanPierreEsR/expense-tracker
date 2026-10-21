@@ -45,7 +45,7 @@ test("what the card promises is what the app does: it names every kind of count,
   const en = /"privacy\.agree": \{ en: "([^"]*)"/.exec(strings)[1];
   for (const part of ["how fast", "failed", "confirmed", "changed or discarded", "screen"]) assert.ok(en.includes(part), part);
   const never = /"privacy\.never": \{ en: "([^"]*)"/.exec(strings)[1];
-  for (const part of ["amounts", "e-mails", "photos", "sign-in"]) assert.ok(never.includes(part), part);
+  for (const part of ["amounts", "emails", "photos", "sign-in"]) assert.ok(never.includes(part), part);
   assert.match(/"privacy\.readsFiles": \{ en: "([^"]*)"/.exec(strings)[1], /not uploaded/);
   // the statement and receipt readers really are on-device (the promise would be false otherwise)
   assert.match(app, /Nothing is uploaded and the photo is not\s+\/\/ kept/);

@@ -25,7 +25,7 @@ var REQUEST_LANG_ = null;   // set by doPost for the duration of one request
 var BACKEND_STRINGS_ = {
   // ---- err ----
   // ---- optional abilities (Features.gs) ----
-  "feature.gmailOff": { en: "Reading your bank e-mails is not turned on for this app yet.", es: "La lectura de tus correos del banco aún no está activada en esta app." },
+  "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet.", es: "La lectura de tus correos del banco aún no está activada en esta app." },
   "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu teléfono y vuelve a intentarlo." },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
@@ -77,7 +77,7 @@ var BACKEND_STRINGS_ = {
   "loan.repaymentLocked": { en: "This loan already has a repayment recorded — you can't change its friend, direction or currency.", es: "Este préstamo ya tiene un repago registrado: no puedes cambiar su amigo, dirección ni moneda." },
   "loan.fromSharedDelete": { en: "This loan came from a shared expense — delete that entry instead.", es: "Este préstamo viene de un gasto compartido: elimina ese movimiento." },
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
-  "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el traspaso de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
+  "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
   "loan.amountBelowSettled": { en: "This loan already has {settled} in repayments — the amount can't be lower than that.", es: "Este préstamo ya tiene {settled} en repagos: el monto no puede ser menor." },
 
@@ -88,7 +88,7 @@ var BACKEND_STRINGS_ = {
   "convert.debtHasRepayments": { en: "The debt this expense created already has repayments recorded against it — sort those out from the Loans tab first.", es: "La deuda que creó este gasto ya tiene repagos registrados: resuélvelos primero desde la pestaña Préstamos." },
   "convert.onlyLoan": { en: "Only an expense, an income or a transfer can be turned into a loan.", es: "Solo un gasto, un ingreso o una transferencia se puede convertir en un préstamo." },
   "convert.onlyRepayment": { en: "Only an expense, an income or a transfer can be turned into a repayment.", es: "Solo un gasto, un ingreso o una transferencia se puede convertir en un repago." },
-  "convert.undoFailed": { en: "Something went wrong AND putting the original back failed — entry \"{what}\" ({date}, {amount}) needs re-entering. {error}", es: "Algo salió mal Y no se pudo restaurar el original: el movimiento \"{what}\" ({date}, {amount}) hay que volver a ingresarlo. {error}" },
+  "convert.undoFailed": { en: "Something went wrong AND putting the original back failed — entry \"{what}\" ({date}, {amount}) needs re-entering. {error}", es: "Algo salió mal y además no se pudo restaurar el original: el movimiento \"{what}\" ({date}, {amount}) hay que volver a ingresarlo. {error}" },
   "convert.nothingChanged": { en: "Nothing was changed — {error}", es: "No se cambió nada: {error}" },
 
   // ---- forgive ----
@@ -123,7 +123,7 @@ var BACKEND_STRINGS_ = {
   "rec.customInterval": { en: "\"Repeats every\" must be a whole number from 1 to 999.", es: "\"Repite cada\" debe ser un número entero de 1 a 999." },
   "rec.customUnit": { en: "Pick days, weeks, months or years.", es: "Elige días, semanas, meses o años." },
   "rec.customNeedsStart": { en: "An item with its own repeat interval needs a start date: every following date is counted from it.", es: "Un movimiento con su propio intervalo necesita una fecha de inicio: desde ella se cuentan las siguientes." },
-  "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognise its payments, e.g. \"luz\".", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, e.g. \"luz\"." },
+  "rec.variableNeedsWords": { en: "A variable-amount item needs at least one keyword (3+ letters) to recognize its payments, e.g. \"luz\".", es: "Un movimiento de monto variable necesita al menos una palabra clave (3 letras o más) para reconocer sus pagos, p. ej. \"luz\"." },
   "rec.endBeforeStart": { en: "The end date is before the start date.", es: "La fecha de fin es anterior a la de inicio." },
 
   // ---- bill ----
@@ -188,9 +188,9 @@ var BACKEND_STRINGS_ = {
 
   "bankSample.notice": { en: "📬 Bank sample from {label}\nSender: {sender}\nSubject: {subject}\n\n{text}\n\n(Saved in your Sheet tab \"Bank Samples\". Digits were hidden as 9, names removed.)", es: "📬 Muestra de banco de {label}\nRemitente: {sender}\nAsunto: {subject}\n\n{text}\n\n(Guardada en la pestaña \"Bank Samples\" de tu hoja. Los dígitos se ocultaron como 9 y se quitaron los nombres.)" },
   "statementSample.notice": { en: "📄 Statement sample from {label}\nBank: {bank}\nWhy: {kind}\nSize: {chars} characters in {parts} part(s)\n\n(Saved in your Sheet tab \"Statement Samples\", one row per part. Digits were hidden as 9, names removed.)", es: "📄 Muestra de estado de cuenta de {label}\nBanco: {bank}\nMotivo: {kind}\nTamaño: {chars} caracteres en {parts} parte(s)\n\n(Guardada en la pestaña \"Statement Samples\" de tu hoja, una fila por parte. Los dígitos se ocultaron como 9 y se quitaron los nombres.)" },
-  "err.bankSampleGmailOff": { en: "Reading bank e-mails is not turned on for this app. You can paste the e-mail text instead.", es: "La lectura de correos del banco no está activada en esta app. Puedes pegar el texto del correo." },
-  "err.bankSampleBadSender": { en: "That does not look like an e-mail address.", es: "Eso no parece una dirección de correo." },
-  "err.bankSampleWrongSender": { en: "That e-mail is not from the address you gave.", es: "Ese correo no es de la dirección que indicaste." },
+  "err.bankSampleGmailOff": { en: "Reading bank emails is not turned on for this app. You can paste the email text instead.", es: "La lectura de correos del banco no está activada en esta app. Puedes pegar el texto del correo." },
+  "err.bankSampleBadSender": { en: "That does not look like an email address.", es: "Eso no parece una dirección de correo." },
+  "err.bankSampleWrongSender": { en: "That email is not from the address you gave.", es: "Ese correo no es de la dirección que indicaste." },
 
   // ---- auth ----
   "perf.tabNearlyFull": { en: "📊 The \"Perf Reports\" tab in your Sheet holds {n} of at most {max} rows. Ask Claude to archive it before it fills up — once it is full, new app-speed reports are refused (phones keep them for a while).", es: "📊 La pestaña \"Perf Reports\" de tu hoja tiene {n} de un máximo de {max} filas. Pídele a Claude que la archive antes de que se llene: cuando se llena, los nuevos reportes de velocidad se rechazan (los teléfonos los guardan un tiempo)." },
@@ -212,7 +212,7 @@ var BACKEND_STRINGS_ = {
   "sa.unknownIncomeCat": { en: "Unknown income category", es: "Categoría de ingreso desconocida" },
   "sa.reversalIn": { en: "A reversal must be money coming back", es: "Una reversión debe ser dinero que vuelve" },
   "sa.chargeNotFound": { en: "The charge to cancel was not found", es: "No se encontró el cargo a cancelar" },
-  "sa.onlyExpenseCancel": { en: "Only an expense can be cancelled by a reversal", es: "Solo un gasto se puede cancelar con una reversión" },
+  "sa.onlyExpenseCancel": { en: "Only an expense can be canceled by a reversal", es: "Solo un gasto se puede cancelar con una reversión" },
   "sa.reversalMismatch": { en: "The reversal and the charge are not the same amount and currency", es: "La reversión y el cargo no tienen el mismo monto y moneda" },
   "sa.notTransfer": { en: "Not a transfer", es: "No es una transferencia" },
   "sa.endFilled": { en: "That end of the transfer is already filled in", es: "Ese extremo de la transferencia ya está completo" },
@@ -395,7 +395,7 @@ var BACKEND_STRINGS_ = {
   "help.o.split": { en: "split — \"split equal Ana\", \"split Ana 20, Carlos 15\", \"split Ana, me 30\" (your share; Ana owes the rest), or \"split none\"", es: "repartir — \"repartir igual Ana\", \"repartir Ana 20, Carlos 15\", \"repartir Ana, yo 30\" (tu parte; Ana debe el resto) o \"repartir ninguno\"" },
   "help.o.type": { en: "type — \"type transfer\" (this was actually a move between your own accounts — follow with \"from Plin, to Diners\" in the same reply or a later one), or \"type investment\" (money you put into a platform — follow with \"platform Hapi\")", es: "tipo — \"tipo transferencia\" (en realidad fue un traspaso entre tus cuentas: sigue con \"desde Plin, hacia Diners\" en la misma respuesta o en otra) o \"tipo inversión\" (dinero que pones en una plataforma: sigue con \"plataforma Hapi\")" },
   "help.o.combine": { en: "Combine several with commas: \"category groceries, amount 48, description Uber\".", es: "Combina varios con comas: \"categoría supermercado, monto 48, descripción Uber\"." },
-  "help.o.names": { en: "Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.", es: "Los nombres deben coincidir con una palabra completa o con el inicio de una; si un nombre encaja con más de uno (e.g. dos personas llamadas Ray), escribe más de él." },
+  "help.o.names": { en: "Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.", es: "Los nombres deben coincidir con una palabra completa o con el inicio de una; si un nombre encaja con más de uno (p. ej. dos personas llamadas Ray), escribe más de él." },
   "help.transfer.intro": { en: "Or if this was really money with a friend, not between your accounts:", es: "O si en realidad fue dinero con un amigo, no entre tus cuentas:" },
   "help.transfer.repayment": { en: "repayment — \"repayment Ana\" (only a \"to\" account: Ana paying you back; only a \"from\" account: you paying Ana)", es: "repago — \"repago Ana\" (solo cuenta \"hacia\": Ana te paga lo que debía; solo cuenta \"desde\": tú le pagas a Ana)" },
   "help.transfer.loan": { en: "loan — \"loan Ana\" (only a \"to\" account: Ana lent you this; only a \"from\" account: you lent it to her)", es: "préstamo — \"préstamo Ana\" (solo cuenta \"hacia\": Ana te prestó esto; solo cuenta \"desde\": tú se lo prestaste)" },
