@@ -380,6 +380,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
       return callApi(action, payload, attempt + 1, startedAt);
     }
     perfRecordCall_(action, performance.now() - startedAt, attempt, null, null, false);
+    betaRecordError_(action, "network");
     throw new Error(tr("error.unreachable"));
   }
   perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
@@ -393,6 +394,9 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     // The app is newer than this copy's backend (it asked for something the backend does not have yet): say so, and offer the update.
     setUpdateAvailable_(true);
     json.error = tr("update.needed");
+    betaRecordError_(action, "backend_old");
+  } else if (!json.ok) {
+    betaRecordError_(action, PerfShare.errorCode({ code: json.code }));
   }
   if (!json.ok) {
     const failure = new Error(json.error || tr("error.unknown"));
@@ -495,6 +499,20 @@ function perfRecordStartup_(name, ms) {
 // with the label "Owner" (to his own backend); the log screen in More exists only there.
 const PERF_SHARE_KEY = "perfShare";   // { on, label, asked, owner } — chosen per phone
 const perfOutbox_ = PerfShare.create(localStorage);
+// A second, much smaller outbox: which app actions failed (name + a short code, never the message) — backend/BetaEvents.gs.
+// Only recorded for a person who agreed to scope 2 (see PerfShare.SCOPE); a person who agreed to speed only sends no errors.
+const betaOutbox_ = PerfShare.create(localStorage, { outboxKey: "betaOutbox", seqKey: "betaSeq" });
+function betaRecordError_(action, code) {
+  try {
+    const share = perfShareState_();
+    if (!share.on || (share.scope || 1) < PerfShare.SCOPE) return;
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(String(action || ""))) return;
+    if (!PerfShare.shouldRecordError(localStorage, action, code, Date.now())) return;
+    betaOutbox_.appendRaw({ t: Date.now(), k: "error", n: action, d: code, v: 1 });
+  } catch (err) {
+    // Counting must never break the app.
+  }
+}
 
 function perfShareState_() {
   try { return JSON.parse(localStorage.getItem(PERF_SHARE_KEY)) || {}; } catch (e) { return {}; }
@@ -518,7 +536,7 @@ function perfIsOwnerCopy_() {
 function perfShareOwnerInit_() {
   if (!perfIsOwnerCopy_()) return;
   const s = perfShareState_();
-  if (!(s.owner && s.on)) perfShareSave_({ on: true, owner: true, asked: true, label: "Owner" });
+  if (!(s.owner && s.on && s.scope === PerfShare.SCOPE)) perfShareSave_({ on: true, owner: true, asked: true, label: "Owner", scope: PerfShare.SCOPE });
 }
 // The release number ("1.4.2") this copy of the app was shipped as. ship.sh writes it into the
 // <meta name="app-release"> tag of index.html; it reads "dev" on the test harness. Shown at the bottom of
@@ -536,8 +554,8 @@ function perfReportUrl_() {
   return perfShareState_().owner ? getApiUrl() : OWNER_API_URL;
 }
 
-async function perfSendOnce_() {
-  const entries = perfOutbox_.peek(200);
+async function perfSendOnce_(outbox = perfOutbox_, action = "reportPerf") {
+  const entries = outbox.peek(action === "reportPerf" ? 200 : 100);
   if (!entries.length) return false;
   const share = perfShareState_();
   const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
@@ -548,14 +566,14 @@ async function perfSendOnce_() {
     const res = await fetch(perfReportUrl_(), {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "reportPerf", payload: {
+      body: JSON.stringify({ action, payload: {
         install: perfInstallId_(), label: share.label || "", app: appRelease_(),
         device: PerfShare.deviceKind(navigator.userAgent, standalone), entries
       } }),
       signal: controller.signal
     });
     const json = await res.json();
-    if (json && json.ok && json.data && Number.isFinite(json.data.ack)) { perfOutbox_.ack(json.data.ack); return true; }
+    if (json && json.ok && json.data && Number.isFinite(json.data.ack)) { outbox.ack(json.data.ack); return true; }
     return false;
   } catch (e) {
     return false;
@@ -584,8 +602,25 @@ async function perfSendMaybe_() {
     perfSending_ = false;
   }
 }
+// The beta counts are rare, so ONE waiting entry is enough to send (at most every 2 h, 30 min after a failure).
+async function betaSendMaybe_() {
+  try {
+    if (perfSending_ || perfInflight_ > 0 || document.hidden || !perfShareState_().on) return;
+    const failed = localStorage.getItem("betaSendFailed") === "1";
+    if (!PerfShare.shouldSend(betaOutbox_.status(), Date.now(), Number(localStorage.getItem("betaLastTry")) || 0, failed, 1)) return;
+    perfSending_ = true;
+    localStorage.setItem("betaLastTry", String(Date.now()));
+    const ok = await perfSendOnce_(betaOutbox_, "reportBeta");
+    localStorage.setItem("betaSendFailed", ok ? "0" : "1");
+  } catch (e) {
+    /* sharing must never break the app */
+  } finally {
+    perfSending_ = false;
+  }
+}
+async function perfAndBetaSend_() { await perfSendMaybe_(); await betaSendMaybe_(); }
 function perfSchedule_(delayMs) {
-  setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(() => perfSendMaybe_(), { timeout: 10000 }); else perfSendMaybe_(); }, delayMs);
+  setTimeout(() => { if (window.requestIdleCallback) requestIdleCallback(() => perfAndBetaSend_(), { timeout: 10000 }); else perfAndBetaSend_(); }, delayMs);
 }
 perfSchedule_(20000);                               // shortly after the app has opened and settled
 setInterval(() => perfSchedule_(0), 15 * 60000);    // while it stays open
@@ -5481,7 +5516,7 @@ function refreshExtrasRow_() {
 // ---- "Help me improve the app" pop-up (a friend's copy only) ----
 // Asked once per phone: at the end of the welcome questions for a new app, or at the next open for an app that was
 // already set up. "Share" starts ticked; More → Share app speed changes the choice or the name at any time.
-let perfShareDone_ = null;
+let perfShareDone_ = null, perfShareReask_ = false;
 function openPerfShareModal_(onDone) {
   const s = perfShareState_();
   const backdrop = document.getElementById("perf-share-modal-backdrop");
@@ -5490,6 +5525,9 @@ function openPerfShareModal_(onDone) {
   document.getElementById("perf-share-on").checked = s.asked ? !!s.on : true;
   document.getElementById("perf-share-name").value = s.label || "";
   document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is the Save button
+  // Someone who agreed to an older version sees what is new, and ✕ means "not now" (asked again later, three times at most).
+  perfShareReask_ = !!(s.asked && s.on && (s.scope || 1) < PerfShare.SCOPE);
+  document.getElementById("perf-share-new").hidden = !perfShareReask_;
   bringModalToFront_(backdrop);
   backdrop.style.zIndex = 400;   // above the welcome card (300), which is still open behind it at the end of the welcome questions
   backdrop.hidden = false;
@@ -5551,20 +5589,27 @@ document.getElementById("update-copy-btn").addEventListener("click", async () =>
 
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
-  if (!meta || perfIsOwnerCopy_() || caps.onboarding || perfShareState_().asked) return;
+  if (!meta || caps.onboarding || !PerfShare.needsAsk(perfShareState_(), perfIsOwnerCopy_())) return;
   if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
   openPerfShareModal_(null);
 }
 document.getElementById("perf-share-save").addEventListener("click", () => {
   if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
   const on = document.getElementById("perf-share-on").checked;
-  perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false });
-  if (!on) perfOutbox_.clear();
+  perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
+  if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
   try { localStorage.removeItem(PERF_LOG_KEY); } catch (e) { /* nothing to remove */ }   // a friend keeps no on-phone log
   closePerfShareModal_();
   perfSchedule_(5000);
 });
-document.getElementById("perf-share-close").addEventListener("click", closePerfShareModal_);
+document.getElementById("perf-share-close").addEventListener("click", () => {
+  if (perfShareReask_) {   // "not now" on the new question: keep what they agreed to before, ask again at a later open (3 times at most)
+    const s = perfShareState_();
+    perfShareSave_({ ...s, scopeSkips: (s.scopeSkips || 0) + 1 });
+    perfShareReask_ = false;
+  }
+  closePerfShareModal_();
+});
 document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
 
 // ---- "My bank isn't supported yet": send the owner ONE e-mail from the bank, with the private details hidden ----

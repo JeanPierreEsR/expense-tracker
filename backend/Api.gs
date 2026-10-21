@@ -83,6 +83,9 @@ function doPost(e) {
     } else if (body && body.action === 'reportPerf') {
       // App-speed numbers from a friend's phone: needs no sign-in, so PerfReports.gs validates every field.
       response = { ok: true, data: reportPerf_(body.payload || {}) };
+    } else if (body && body.action === 'reportBeta') {
+      // Setup-step and error counts from a friend's phone / the installer page: no sign-in either; BetaEvents.gs validates every field.
+      response = { ok: true, data: reportBeta_(body.payload || {}) };
     } else if (!authenticateRequest_(body)) {
       recordFailedAccessAttempt_('app');
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };

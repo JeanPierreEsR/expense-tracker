@@ -444,7 +444,7 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-perf-share-btn" hidden>
-            <span data-i18n="more.perfShare">📊 Share app speed</span>
+            <span data-i18n="more.perfShare">📊 Help me improve the app</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-bank-sample-btn" hidden>
@@ -1170,10 +1170,11 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" data-i18n="perfShare.body">This app is in beta, and how fast it runs on your phone helps me a lot. If you share, your phone sends me only timings: how many milliseconds each action took. It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy at all, and it does not slow the app down. It would be greatly appreciated. — JP</p>
+        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me when an action failed. Read the text below, then keep this ticked or untick it.</p>
+        <p class="hint" data-i18n="perfShare.body">This app is in beta, and your help makes it better. If you share, your phone sends me only small counts: how fast each action ran, and which action failed with a short code (for example “listEntries – network”). It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can turn it off at any time here. It would be greatly appreciated. — JP</p>
         <label class="checkbox-row">
           <input type="checkbox" id="perf-share-on" checked>
-          <span data-i18n="perfShare.check">Share how fast the app runs</span>
+          <span data-i18n="perfShare.check">Share how fast the app runs and what fails</span>
         </label>
         <label for="perf-share-name" data-i18n="perfShare.nameLabel">Your first name, so I know whose phone it is</label>
         <input type="text" id="perf-share-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">

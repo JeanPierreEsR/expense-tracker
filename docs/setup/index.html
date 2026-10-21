@@ -69,9 +69,12 @@
   .topstatus.err { border-color:var(--bad); } .topstatus.err #tsBar { background:var(--bad); width:100% !important; } .topstatus.err #tsText { color:var(--bad); }
   .topstatus.idle .bar, .topstatus.wait .bar { display:none; }
   #tsKeep { margin-top:8px; color:var(--muted); }
+  .step input[type=text] { font:inherit; font-size:18px; width:100%; box-sizing:border-box; padding:12px; margin:4px 0 8px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); }
+  #shareCard label.small { display:block; color:var(--muted); }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../signin-link.js"></script>
+<script src="../perf-share.js"></script>
 </head>
 <body>
 <main>
@@ -124,6 +127,18 @@
     <ol data-t="switchSteps"></ol>
     <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
     <p id="apiWait" style="color:inherit;margin-top:10px"></p>
+  </div>
+
+  <div class="step" id="shareCard">
+    <h3 data-t="shareTitle"></h3>
+    <p data-t="shareBody"></p>
+    <label class="opt"><input type="checkbox" id="optShare" checked><span data-t="optShareLabel"></span></label>
+    <label class="small" for="shareName" data-t="shareNameLabel"></label>
+    <input type="text" id="shareName" maxlength="30" autocomplete="off">
+    <details>
+      <summary data-t="shareWhatSummary"></summary>
+      <div data-t="shareWhat"></div>
+    </details>
   </div>
 
   <div class="step">
@@ -227,6 +242,13 @@ const T = {
     approveExtrasTitle: 'Because of the extras you chose, Google will also ask to:',
     approveExtraAwake: 'run a small timer every 5 minutes, even when you are away; connect to the internet — only to wake itself up',
     approveExtraGmail: '<b>read</b> your e-mail — it can never send, change or delete one; run a timer to check for new bank e-mails',
+    shareTitle: 'Help me improve the app',
+    shareBody: 'This app is new, and I want to see where people get stuck while setting it up, so I can fix it. If you leave the box below ticked, this page sends me a short note each time you reach a step, and how many seconds it took. It never sends your Google account, e-mail, expenses or anything you type. Untick it if you prefer not to share. — JP',
+    optShareLabel: '<b>Tell JP where I got stuck</b> (step names and seconds only)',
+    shareNameLabel: 'Your first name (optional), so JP knows who to help',
+    sharePlaceholder: 'e.g. Ana',
+    shareWhatSummary: 'Exactly what is sent',
+    shareWhat: '<ul><li>The name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or e-mail, your sign-in, or anything about your spending.</p>',
     createTitle: '1. Set up my app',
     createAsk: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, tick <b>Select all</b> (<b>Seleccionar todo</b>), then tap <b>Continue</b> (<b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (<b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” / “Volver a un sitio seguro”): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
@@ -331,6 +353,13 @@ const T = {
     approveExtrasTitle: 'Por los extras que elegiste, Google también pedirá permiso para:',
     approveExtraAwake: 'ejecutar un pequeño temporizador cada 5 minutos, aunque no la estés usando; conectarse a internet — solo para despertarse a sí misma',
     approveExtraGmail: '<b>leer</b> tu correo — nunca puede enviar, cambiar ni borrar uno; ejecutar un temporizador para revisar si hay correos nuevos del banco',
+    shareTitle: 'Ayúdame a mejorar la app',
+    shareBody: 'Esta app es nueva y quiero ver en qué paso se atasca la gente al configurarla, para arreglarlo. Si dejas marcada la casilla de abajo, esta página me envía una nota corta cada vez que llegas a un paso, y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos ni nada de lo que escribes. Desmárcala si prefieres no compartir. — JP',
+    optShareLabel: '<b>Avisar a JP dónde me atasqué</b> (solo nombres de pasos y segundos)',
+    shareNameLabel: 'Tu nombre (opcional), para que JP sepa a quién ayudar',
+    sharePlaceholder: 'p. ej. Ana',
+    shareWhatSummary: 'Exactamente qué se envía',
+    shareWhat: '<ul><li>El nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu hoja, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de teléfono (por ejemplo iPhone) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu acceso, ni nada sobre tus gastos.</p>',
     createTitle: '1. Configurar mi app',
     createAsk: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree la hoja de Google donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (<b>Select all</b>) y toca <b>Continuar</b> (<b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (<b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” / “Back to safety”): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
@@ -441,6 +470,51 @@ function say(boxId, text, kind) { $(boxId).innerHTML = ''; const sp = document.c
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const backUrl = () => location.origin + location.pathname;
 function goTo(url) { location.href = url; }   // the one place the page leaves for Google
+
+// ---------- "Help me improve the app": where people get stuck (backend/BetaEvents.gs, tab "Beta Events") ----------
+// Step names and seconds only — never the Google account, e-mail, sign-in or anything about spending. The box is ticked by
+// default and the person sees exactly what is sent BEFORE the first tap: nothing leaves this phone until "Set up my app"
+// is tapped (that tap starts the clock, beta.t0), so a step before it, or a person who never taps, is never counted.
+// Notes wait in beta.pending until the owner's backend confirms them (ack), and every send carries all that wait, so a
+// note sent just before the page jumps to Google (keepalive) or one that arrives out of order is never lost.
+const OWNER_API_URL = 'https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec';
+const BETA_KEY = 'setupBeta';
+let beta = {};
+try { beta = JSON.parse(localStorage.getItem(BETA_KEY) || '{}') || {}; } catch (e) { beta = {}; }
+if (!/^[0-9a-f-]{16,36}$/.test(beta.id || '')) beta.id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+if (typeof beta.on !== 'boolean') beta.on = true;
+beta.sent = beta.sent || {}; beta.pending = beta.pending || []; beta.seq = beta.seq || 0; beta.fails = beta.fails || 0;
+function betaSave() { try { localStorage.setItem(BETA_KEY, JSON.stringify(beta)); } catch (e) {} }
+// Where notes go: the owner's backend. Only a test page on this Mac may override it.
+function betaUrl() {
+  try { const o = localStorage.getItem('perfReportUrl'); if (o && /^http:\/\/localhost(:\d+)?\//.test(o)) return o; } catch (e) {}
+  return OWNER_API_URL;
+}
+async function betaFlush() {
+  if (!beta.on || !beta.pending.length) return;
+  const sending = beta.pending.slice(0, 20);
+  try {
+    const res = await fetch(betaUrl(), {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, keepalive: true,
+      body: JSON.stringify({ action: 'reportBeta', payload: { install: beta.id, label: PerfShare.cleanLabel(beta.label || ''), app: 'setup', device: PerfShare.deviceKind(navigator.userAgent, false), entries: sending } })
+    });
+    const json = await res.json();
+    if (json && json.ok && json.data && Number.isFinite(json.data.ack)) { beta.pending = beta.pending.filter((x) => x.s > json.data.ack); betaSave(); }
+  } catch (e) { /* the notes stay and go with the next one; the setup never depends on them */ }
+}
+function betaSend(name, detail) {
+  try {
+    if (!beta.on) return;
+    if (name === 'tapped') { if (!beta.t0) beta.t0 = Date.now(); }
+    else if (!beta.t0) return;                                   // only after the person's own tap
+    if (name === 'step_failed') { if (beta.fails >= 5) return; beta.fails++; }
+    else { if (beta.sent[name]) return; beta.sent[name] = 1; }
+    beta.seq++;
+    beta.pending.push({ s: beta.seq, t: Date.now(), k: 'setup', n: name, d: detail || '', v: Math.round((Date.now() - beta.t0) / 1000) });
+    betaSave();
+    betaFlush();
+  } catch (e) { /* counting never breaks the setup */ }
+}
 
 // ---------- the general status at the top + the status inside the pressed button ----------
 let barFloor = 0, lastProgressAt = 0, clockStart = 0, clockTimer = null, activeBtn = null, currentStep = '', wakeLock = null;
@@ -764,6 +838,7 @@ async function install() {
     const s = Date.now();
     const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE } });
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
+    betaSend('sheet_created');
     saveProgressBg();
     log('Created the spreadsheet (' + secs(s) + ').', 'ok');
   }
@@ -772,6 +847,7 @@ async function install() {
     const s = Date.now();
     const proj = await google_('POST', 'https://script.googleapis.com/v1/projects', { title: BACKEND_TITLE, parentId: state.spreadsheetId });
     state.scriptId = proj.scriptId; save(); saveProgressBg();
+    betaSend('app_created');
     log('Created the backend "' + BACKEND_TITLE + '", attached to the spreadsheet (' + secs(s) + ').', 'ok');
     await waitForProjectReady();
   }
@@ -890,6 +966,7 @@ async function afterFirstApproval() {
   if (!st.setUp) { await buildSheet(); st = await status(); }
   if (!st.setUp) throw new Error(T.buildFailed);
   state.permissionDone = true; state.sentAt = 0; save();
+  betaSend('approved');
   if (!state.accessCode || st.codeFor !== state.codeRelease) {
     progress(T.p_code2, 82);
     log('The backend does not have this page’s access code yet — sending it with an update…');
@@ -1100,6 +1177,7 @@ async function goToFirstApproval() {
   await accountReady;
   await sleep(2500);     // a brand-new app address needs a moment before Google serves it
   state.sentAt = Date.now(); save();
+  betaSend('sent_to_google');
   log('Going to Google’s approval page: ' + withAccount(state.webAppUrl, 'return=…'));
   goTo(withAccount(state.webAppUrl, 'return=' + encodeURIComponent(backUrl())));
 }
@@ -1111,6 +1189,7 @@ async function handleReturn() {
   if (!done && !appr) return;
   history.replaceState(null, '', location.pathname + location.search);
   if (done) {
+    betaSend('back_from_google');
     log('Back from Google: step 2 approved.', 'ok');
     await run('s2', afterFirstApproval, null, T.stepAllow);
   } else {
@@ -1180,6 +1259,9 @@ function render(failed) {
   // Shown only once the person has been sent to Google's approval page and is back here without approving.
   const help = !!(state.webAppUrl && (!state.permissionDone || state.pending) && !busy && state.sentAt);
   $('openHelp').hidden = !help;
+  if (help) betaSend('help_card_shown');
+  $('shareCard').hidden = !!state.permissionDone;
+  if (state.permissionDone) betaSend('ready');
   if (help) $('openHelp').querySelector('div').innerHTML = T.openHelpBody.replace('{account}', state.account || 'the account you chose');
   if (!busy) {
     // The main button always works: tapping it again resumes wherever setup stopped (closed tab,
@@ -1223,8 +1305,9 @@ async function run(boxId, fn, btnId, step) {
   catch (e) {
     failed = true;
     log(e.message, 'bad');
-    if (e.apiOff) { log('→ Showing the Google setting card.'); startApiWait(); failed = false; }
+    if (e.apiOff) { betaSend('api_switch_needed'); log('→ Showing the Google setting card.'); startApiWait(); failed = false; }
     else {
+      betaSend('step_failed', { s1: 'create', s2: 'approve', sAdd: 'extras', sUpd: 'update' }[boxId] || 'other');
       if (boxId) say(boxId, '✗ ' + e.message, 'err');
       setTop('err', currentStep, '✗ ' + e.message, 100);
       if (boxId === 's2' || boxId === 'sAdd' || approvalTarget()) showRetry = true;
@@ -1236,7 +1319,7 @@ async function run(boxId, fn, btnId, step) {
     render(failed);
   }
 }
-$('btnInstall').addEventListener('click', () => run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup));
+$('btnInstall').addEventListener('click', () => { betaSend('tapped'); run('s1', async () => { await install(); await goToFirstApproval(); if (state.permissionDone) await repairSignIn(); }, 'btnInstall', T.stepSetup); });
 $('btnCopyPage').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(location.origin + location.pathname); log('Page address copied.'); $('btnCopyPage').textContent = T.copiedBtn; }
   catch (e) { log('Could not copy automatically.', 'bad'); }
@@ -1264,6 +1347,7 @@ $('btnCopy').addEventListener('click', async () => {
 });
 $('btnForget').addEventListener('click', () => {
   state = {}; save(); accessToken = null;
+  beta.sent = {}; beta.t0 = 0; beta.fails = 0; betaSave();   // starting over restarts the count of steps too
   try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
   log('This phone forgot the setup (your Google Sheet in Drive is untouched).');
   ['s1', 's2', 'sAdd'].forEach((id) => { $(id).innerHTML = ''; });
@@ -1273,6 +1357,16 @@ $('btnForget').addEventListener('click', () => {
   render();
 });
 
+$('shareName').placeholder = T.sharePlaceholder;
+$('shareName').value = beta.label || '';
+$('optShare').checked = beta.on;
+$('optShare').addEventListener('change', () => {
+  beta.on = $('optShare').checked;
+  if (!beta.on) beta.pending = [];   // unticked: whatever has not left yet never will
+  betaSave();
+});
+$('shareName').addEventListener('input', () => { beta.label = PerfShare.cleanLabel($('shareName').value); betaSave(); });
+if (beta.pending.length) betaFlush();   // notes left over from before the page jumped to Google
 render();
 if (WANT_UPDATE) setTimeout(() => { try { $('updateCard').scrollIntoView({ block: 'start' }); } catch (e) {} }, 200);
 log('Ready (' + LANG + ').' + (state.webAppUrl ? ' Resuming an earlier test.' : ''));

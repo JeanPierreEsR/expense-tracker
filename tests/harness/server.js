@@ -70,6 +70,13 @@ http.createServer((req, res) => {
     res.end(JSON.stringify(rows));
     return;
   }
+  if (url === "/__beta") {   // the rows the owner's Sheet would hold in its "Beta Events" tab
+    res.writeHead(200, { "Content-Type": "application/json" });
+    let rows = [];
+    try { rows = rt.rows("Beta Events"); } catch (e) { /* no count has arrived yet */ }
+    res.end(JSON.stringify(rows));
+    return;
+  }
   if (url === "/__info") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ accessCode: ACCESS_CODE, friends: data.friends.map((f) => f.name) }));
