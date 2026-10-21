@@ -5556,7 +5556,7 @@ function refreshExtrasRow_() {
   perfShareOwnerInit_();
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-btn").hidden = !owner;
-  document.getElementById("more-perf-share-btn").hidden = owner;
+  refreshPerfShareRow_();
   document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
   document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
@@ -5657,6 +5657,32 @@ document.getElementById("update-copy-btn").addEventListener("click", async () =>
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
 });
 
+// ---- More → Privacy: how the person's data is treated, in plain words, and the one place to change the sharing choice ----
+// The "Help me improve the app" row is only shown to a friend who has NOT agreed to what is shared today (PerfShare.showImproveRow);
+// once they agreed, the choice is changed from here, so the same thing is not offered twice next to "Send feedback to JP".
+function refreshPerfShareRow_() {
+  const owner = perfIsOwnerCopy_();
+  document.getElementById("more-perf-share-btn").hidden = !PerfShare.showImproveRow(perfShareState_(), owner);
+  document.getElementById("more-privacy-btn").hidden = owner;   // the owner's own copy is his own data
+}
+function refreshPrivacyStatus_() {
+  const s = perfShareState_();
+  const key = !s.on ? "privacy.statusOff" : (s.scope || 1) < PerfShare.SCOPE ? "privacy.statusOld" : "privacy.statusOn";
+  document.getElementById("privacy-share-status").textContent = tr(key);
+}
+document.getElementById("more-privacy-btn").addEventListener("click", () => {
+  const backdrop = document.getElementById("privacy-modal-backdrop");
+  I18n.applyStatic(backdrop);
+  refreshPrivacyStatus_();
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+});
+["privacy-close", "privacy-done-btn"].forEach((id) => document.getElementById(id).addEventListener("click", () => { document.getElementById("privacy-modal-backdrop").hidden = true; }));
+document.getElementById("privacy-change-btn").addEventListener("click", () => {
+  document.getElementById("privacy-modal-backdrop").hidden = true;
+  openPerfShareModal_(null);
+});
+
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
   if (!meta || caps.onboarding || !PerfShare.needsAsk(perfShareState_(), perfIsOwnerCopy_())) return;
@@ -5668,6 +5694,8 @@ document.getElementById("perf-share-save").addEventListener("click", () => {
   const on = document.getElementById("perf-share-on").checked;
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
   if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
+  refreshPerfShareRow_();
+  refreshPrivacyStatus_();
   try { localStorage.removeItem(PERF_LOG_KEY); } catch (e) { /* nothing to remove */ }   // a friend keeps no on-phone log
   closePerfShareModal_();
   perfSchedule_(5000);

@@ -443,6 +443,10 @@
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-privacy-btn" hidden>
+            <span data-i18n="more.privacy">🔒 Privacy</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-perf-share-btn" hidden>
             <span data-i18n="more.perfShare">📊 Help me improve the app</span>
             <span class="more-list-chevron">›</span>
@@ -1184,6 +1188,46 @@
         <label for="perf-share-name" data-i18n="perfShare.nameLabel">Your first name, so I know whose phone it is</label>
         <input type="text" id="perf-share-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
         <button type="button" class="primary" id="perf-share-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="privacy-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="privacy.title">Your privacy</span>
+        <button type="button" id="privacy-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="privacy.intro">Your money is private. Here, in plain words, is where your information lives and what little can reach me, JP, who made this app.</p>
+
+        <p class="hint"><strong data-i18n="privacy.liveTitle">Where your data lives</strong></p>
+        <p class="hint" data-i18n="privacy.live">Everything you enter is saved in a Google Sheet that belongs to your own Google account, and your app runs in that same account. I cannot open it, and neither can anyone else unless you share the sheet yourself. The app's files are public (on GitHub) and hold none of your data.</p>
+
+        <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
+        <p class="hint" data-i18n="privacy.readsMail">Your bank e-mails, only if you turned that on. Your app reads them (it can never send, change or delete an e-mail) and turns each payment into an entry that waits for your OK. Those e-mails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
+
+        <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
+        <p class="hint" data-i18n="privacy.agree">If you tick “Help me improve the app”, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank e-mail was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell me which step you reached, if you leave its box ticked.</p>
+
+        <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
+        <p class="hint" data-i18n="privacy.send">A sample of a bank e-mail or statement that the app cannot read yet (you see the exact text first, and digits, names and e-mail addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
+
+        <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
+        <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your e-mails, your photos and PDFs, and your sign-in.</p>
+
+        <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
+        <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>
+        <p class="hint" data-i18n="privacy.signin">Your sign-in is kept only on your phone. In More → Signed-in devices you can see every device and end any of them.</p>
+
+        <p class="hint"><strong data-i18n="privacy.removeTitle">Removing everything</strong></p>
+        <p class="hint" data-i18n="privacy.remove">Delete the Google Sheet called “Expense Tracker” in your Google Drive: your data and your app go with it. You can also remove this app's access in your Google Account, in its list of third-party apps.</p>
+
+        <p class="hint"><strong data-i18n="privacy.choiceTitle">Your choice about sharing counts</strong></p>
+        <p class="hint" id="privacy-share-status"></p>
+        <button type="button" class="primary" id="privacy-change-btn" data-i18n="privacy.change">Change what I share</button>
+        <button type="button" class="cancel-edit-btn" id="privacy-done-btn" data-i18n="common.close">Close</button>
       </div>
     </div>
   </div>
