@@ -318,9 +318,9 @@ function routeAction(action, payload) {
     case 'saveRecurringExpenseSplits': return saveRecurringExpenseSplits(payload);
     case 'listExpectedRecurringItems': return listExpectedRecurringItems();
     case 'suggestVariableRecurring': return suggestVariableRecurring();
-    case 'getProjections': return getProjections(payload);
-    case 'listCategoryProjections': return listCategoryProjections(payload);
-    case 'getCategoryProjectionDetail': return getCategoryProjectionDetail(payload);
+    case 'getProjections': return withRowsMemo_(function () { return getProjections(payload); });
+    case 'listCategoryProjections': return withRowsMemo_(function () { return listCategoryProjections(payload); });
+    case 'getCategoryProjectionDetail': return withRowsMemo_(function () { return getCategoryProjectionDetail(payload); });
     case 'setProjectionOverride': return setProjectionOverride(payload);
     case 'getProjectionMethodSettings': return projectionMethodSettings();
     case 'setProjectionMethod': return setProjectionMethod(payload);
@@ -415,6 +415,20 @@ var STRING_FIELDS = { external_id: true, id: true };
 // the rows they get). appendRowObject / deleteRowsWhere_ drop a sheet's cache
 // entry, and the bundle switches it off in a finally.
 var ROWS_MEMO_ = null;
+
+// Runs `fn` with each sheet read from Google at most once (getAllRows then serves
+// repeats from memory; a write to a sheet drops its copy). The projection screens
+// read Entries dozens of times per request otherwise. Inside an outer scope (the
+// start-up bundle) the outer one is kept.
+function withRowsMemo_(fn) {
+  if (ROWS_MEMO_) return fn();
+  ROWS_MEMO_ = {};
+  try {
+    return fn();
+  } finally {
+    ROWS_MEMO_ = null;
+  }
+}
 
 function getAllRows(sheetName) {
   if (ROWS_MEMO_ && ROWS_MEMO_[sheetName]) {

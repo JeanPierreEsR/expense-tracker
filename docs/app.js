@@ -1209,6 +1209,7 @@ function togglePaymentMethodVisibilityBase_() {
   // reads as "From" and a "To" picker appears alongside it.
   const isInvestment = selectedType === "investment";
   document.getElementById("payment-method-label").textContent =
+    isInvestment && investmentDirection === "withdrawal" ? tr("field.to") :
     selectedType === "transfer" || isInvestment ? tr("field.from") :
     selectedType === "income" ? tr("field.receivedAt") :
     tr("field.paymentMethod");
@@ -1694,6 +1695,8 @@ function setInvestmentDirection(direction) {
   document.getElementById("investment-direction-hint").textContent = direction === "withdrawal"
     ? tr("investment.withdrawalHint")
     : tr("investment.depositHint");
+  // The account is where the money leaves from on a deposit, and where it lands on a withdrawal.
+  if (selectedType === "investment") document.getElementById("payment-method-label").textContent = tr(direction === "withdrawal" ? "field.to" : "field.from");
 }
 
 document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) => {
@@ -4356,10 +4359,15 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 
+  // A later open (another month picked while this one loads) replaces
+  // currentDrilldown; this one's late answer must not paint over it.
+  const thisDrilldown = currentDrilldown;
   try {
     const entries = await callApi("listEntries", payload);
+    if (currentDrilldown !== thisDrilldown) return;
     renderDrilldownEntries(entries);
   } catch (err) {
+    if (currentDrilldown !== thisDrilldown) return;
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
   }
 }
@@ -9369,13 +9377,15 @@ async function openCategoryProjectionDrilldown_(categoryProjection) {
 // list from showing, same reasoning as loadAndRenderBudgetChart_.
 async function loadAndRenderProjectionChart_(categoryProjection) {
   const chartEl = document.getElementById("drilldown-chart");
+  const thisDrilldown = currentDrilldown;
   try {
     const detail = await callApi(
       "getCategoryProjectionDetail",
       Object.assign({ categoryId: categoryProjection.category_id }, projectionPeriodPayload_())
     );
-    // The drill-down may have been closed, or moved on to a different
-    // category, while this was in flight.
+    // The drill-down may have been closed, moved on to a different category,
+    // or moved to another month, while this was in flight.
+    if (currentDrilldown !== thisDrilldown) return;
     if (!drilldownProjection || drilldownProjection.category_id !== categoryProjection.category_id) return;
     drilldownProjectionDetail = detail;
     renderProjectionChart_(detail);
