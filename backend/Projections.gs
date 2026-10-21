@@ -175,12 +175,15 @@ function seasonalMonthsLeft_(profile, startDate, endDate) {
   return { months: months, weighted: weighted };
 }
 
-function computeAllCategoryProjections_(bounds) {
+// `onlyCategoryId` (optional) computes just that one category — the drill-down
+// needs one row, so it skips the monthly history and per-category math of every
+// other category. The one category's numbers are identical either way.
+function computeAllCategoryProjections_(bounds, onlyCategoryId) {
   ensureCategoryPeriodTypeColumn_();
   var periodMonths = bounds.periodType === 'yearly' ? 12 : 1;
   ensureCategoryProjectionMethodColumn_();
   var asOfKey = formatCalendarDate_(new Date()).substring(0, 7);
-  var seriesMap = buildMonthlySeries_(null);   // each category's non-recurring spend per month
+  var seriesMap = buildMonthlySeries_(onlyCategoryId ? [onlyCategoryId] : null);   // each category's non-recurring spend per month
   var defaultMethodId = getProjectionDefaultMethod_();
 
   // "Remaining" figures (added 2026-09-16) — Actual/Programmed/Expected as
@@ -197,6 +200,7 @@ function computeAllCategoryProjections_(bounds) {
   var daysLeft = daysLeftInPeriod_(bounds.startDate, bounds.endDate);
 
   var categories = getAllRows('Categories').filter(function (c) {
+    if (onlyCategoryId && c.id !== onlyCategoryId) return false;
     return c.type === 'income' || c.type === 'expense' || c.type === 'investment';
   });
   var allEntries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
@@ -483,8 +487,7 @@ function listCategoryProjections(payload) {
 // is) plus its own projection breakdown.
 function getCategoryProjectionDetail(payload) {
   var bounds = projectionPeriodBounds_(payload.displayPeriodType || 'month', payload.anchorDate);
-  var all = computeAllCategoryProjections_(bounds);
-  var match = all.filter(function (c) { return c.category_id === payload.categoryId; })[0];
+  var match = computeAllCategoryProjections_(bounds, payload.categoryId)[0];
 
   var categoryById = rowsById_(getAllRows('Categories'));
   var category = categoryById[payload.categoryId];
