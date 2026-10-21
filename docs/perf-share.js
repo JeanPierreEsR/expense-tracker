@@ -139,6 +139,15 @@
     return !!state.on && (state.scope || 1) < SCOPE && (state.scopeSkips || 0) < MAX_REASKS;
   }
 
+  // Is the "Help me improve the app" row in More shown? Only for a friend who has NOT agreed to what the app shares today:
+  // never asked, said no, or agreed to an older version. A friend who agreed changes the choice from More → Privacy instead,
+  // so the same thing is not offered twice next to "Send feedback to JP". The owner's own phone never shows it.
+  function showImproveRow(state, isOwner) {
+    state = state || {};
+    if (isOwner) return false;
+    return !(state.asked && state.on && (state.scope || 1) >= SCOPE);
+  }
+
   // The short code that goes with a failed action: the error's own code if it is a plain lower-case word, else "unknown".
   // Never the message (it could contain something the person typed).
   function errorCode(err) {
@@ -247,6 +256,6 @@
   return {
     bankSlug: bankSlug, queueEvents: queueEvents, weekKey: weekKey, screenName: screenName, recordScreen: recordScreen, cleanFeedback: cleanFeedback,
     OUTBOX_KEY: OUTBOX_KEY, SEQ_KEY: SEQ_KEY, MAX_CHARS: MAX_CHARS, SCOPE: SCOPE, create: create, shouldSend: shouldSend,
-    cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, errorCode: errorCode, shouldRecordError: shouldRecordError
+    cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, showImproveRow: showImproveRow, errorCode: errorCode, shouldRecordError: shouldRecordError
   };
 });
