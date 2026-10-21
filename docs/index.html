@@ -451,6 +451,10 @@
             <span data-i18n="more.bankSample">🏦 My bank isn't supported yet</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-feedback-btn" hidden>
+            <span data-i18n="more.feedback">💬 Send feedback to JP</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-extras-btn" hidden>
             <span data-i18n="more.extras">⚡ Extra features</span>
             <span class="more-list-chevron">›</span>
@@ -1170,15 +1174,53 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me when an action failed. Read the text below, then keep this ticked or untick it.</p>
-        <p class="hint" data-i18n="perfShare.body">This app is in beta, and your help makes it better. If you share, your phone sends me only small counts: how fast each action ran, and which action failed with a short code (for example “listEntries – network”). It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can turn it off at any time here. It would be greatly appreciated. — JP</p>
+        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which actions failed, whether each bank e-mail was confirmed, changed or discarded, and which screens you open — never what is inside. Read the text below, then keep this ticked or untick it.</p>
+        <p class="hint" data-i18n="perfShare.body">This app is in beta, and your help makes it better. If you share, your phone sends me only small counts: how fast each action ran; which action failed, with a short code (for example “listEntries – network”); whether each bank e-mail was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. It never sends your expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can turn it off at any time here. It would be greatly appreciated. — JP</p>
         <label class="checkbox-row">
           <input type="checkbox" id="perf-share-on" checked>
-          <span data-i18n="perfShare.check">Share how fast the app runs and what fails</span>
+          <span data-i18n="perfShare.check">Share how the app is doing (speed, problems, screens I use)</span>
         </label>
         <label for="perf-share-name" data-i18n="perfShare.nameLabel">Your first name, so I know whose phone it is</label>
         <input type="text" id="perf-share-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
         <button type="button" class="primary" id="perf-share-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="fb-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="feedback.title">Send feedback to JP</span>
+        <button type="button" id="fb-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="fb-step-1">
+          <p class="hint" data-i18n="feedback.intro">Something broke, confused you, or you have an idea? Tell me in a few words. I read every note and answer personally. — JP</p>
+          <p class="hint" data-i18n="feedback.privacy">🔒 Please don't write amounts or the names of people. E-mail addresses and long numbers are hidden automatically. No screenshots are sent. You see the exact note before it goes.</p>
+          <label for="fb-kind" data-i18n="feedback.kindLabel">What is it about?</label>
+          <select id="fb-kind">
+            <option value="broke" data-i18n="feedback.kind.broke">Something broke</option>
+            <option value="confused" data-i18n="feedback.kind.confused">Something confused me</option>
+            <option value="idea" data-i18n="feedback.kind.idea">I have an idea</option>
+          </select>
+          <label for="fb-text" data-i18n="feedback.textLabel">Your note</label>
+          <textarea id="fb-text" rows="6" maxlength="1000" data-i18n-placeholder="feedback.textPlaceholder" placeholder="e.g. When I tap … nothing happens"></textarea>
+          <label for="fb-name" data-i18n="feedback.nameLabel">Your first name, so I know who to answer</label>
+          <input type="text" id="fb-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
+          <button type="button" class="primary" id="fb-review" data-i18n="feedback.review" disabled>Review</button>
+        </div>
+        <div id="fb-step-2" hidden>
+          <p class="hint"><strong data-i18n="feedback.previewTitle">This is exactly what I will receive</strong></p>
+          <div id="fb-preview" class="hint" style="white-space:pre-wrap"></div>
+          <p class="hint" id="fb-also"></p>
+          <p class="hint" id="fb-error" style="color:var(--danger,#b3261e)" hidden></p>
+          <button type="button" class="primary" id="fb-send" data-i18n="feedback.send">Send to JP</button>
+          <button type="button" class="cancel-edit-btn" id="fb-back" data-i18n="feedback.back">Back</button>
+        </div>
+        <div id="fb-step-3" hidden>
+          <p class="hint" data-i18n="feedback.thanks">Thank you! I read it, and I'll write back if I need to ask you something. — JP</p>
+          <button type="button" class="primary" id="fb-done" data-i18n="feedback.done">Close</button>
+        </div>
       </div>
     </div>
   </div>

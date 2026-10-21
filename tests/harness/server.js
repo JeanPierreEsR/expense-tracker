@@ -77,6 +77,13 @@ http.createServer((req, res) => {
     res.end(JSON.stringify(rows));
     return;
   }
+  if (url === "/__feedback") {   // the rows the owner's Sheet would hold in its "Feedback" tab
+    res.writeHead(200, { "Content-Type": "application/json" });
+    let rows = [];
+    try { rows = rt.rows("Feedback"); } catch (e) { /* no note has arrived yet */ }
+    res.end(JSON.stringify(rows));
+    return;
+  }
   if (url === "/__info") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ accessCode: ACCESS_CODE, friends: data.friends.map((f) => f.name) }));

@@ -8,9 +8,12 @@
  *   - rows are only ever APPENDED; every entry has a number (`seq`) that grows per install, anything at or below the
  *     last stored number is ignored, so a re-sent report never duplicates;
  *   - caps: 100 entries per request, 600 per install per day, 100,000 rows in total (Telegram heads-up at 80%).
- * Kinds (L1 of the beta learning plan): "setup" = a step the installer page reached (name from a fixed list, `n` =
+ * Kinds (the beta learning plan): "setup" = a step the installer page reached (name from a fixed list, `n` =
  * seconds since the person tapped the first button), "error" = an app action that failed (name = the action's own name,
- * `detail` = a short error code, never the message). Later steps add kinds here (review-queue results, screen use).
+ * `detail` = a short error code, never the message), "queue" = what the person did with ONE pending entry in the review
+ * queue (name = confirmed / edited / discarded, `detail` = the bank it came from, from the bank catalog, or where else it
+ * came from), "queue_edit" = one field they changed on it (name = which field, never its content), "screen" = how many
+ * times a screen was opened in one week (name from a fixed list, `detail` = the week "w2026_43", `n` = the count).
  * Friends' own copies refuse these reports. The tab is written only here (not in TABLE_DEFINITIONS).
  */
 
@@ -22,6 +25,28 @@ var BETA_MAX_ROWS_ = 100000;   // x 11 columns = 1.1 million cells, well inside 
 // The steps the installer page reports (docs/setup/index.html). Anything else is dropped.
 var BETA_SETUP_NAMES_ = { tapped: 1, api_switch_needed: 1, sheet_created: 1, app_created: 1, sent_to_google: 1,
   back_from_google: 1, help_card_shown: 1, approved: 1, ready: 1, step_failed: 1 };
+
+// The screens of the app (docs/index.html, id="screen-…", hyphens as underscores) — the only names a "screen" count may carry.
+var BETA_SCREENS_ = { entries: 1, overview: 1, budgets: 1, projections: 1, loans: 1, more: 1, recurring: 1, accounts: 1,
+  categories: 1, trips: 1, trip_detail: 1, exchange_rates: 1, perf: 1, export: 1, statements: 1 };
+var BETA_QUEUE_OUTCOMES_ = { confirmed: 1, edited: 1, discarded: 1 };
+var BETA_QUEUE_FIELDS_ = { category: 1, category_filled: 1, amount: 1, description: 1, account: 1 };
+// Where a pending entry came from when it is not a bank e-mail (or the e-mail's bank has no account in the app).
+var BETA_QUEUE_PLACES_ = { no_account: 1, other_bank: 1, photo: 1, shortcut: 1, import: 1, manual: 1, other_source: 1 };
+
+// The same rule the phone uses (PerfShare.bankSlug in docs/perf-share.js): lower case, no accents, other characters become "_".
+function betaSlug_(name) {
+  return String(name === undefined || name === null ? '' : name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').substring(0, 30);
+}
+
+// A bank's slug is kept only if it is a bank of the app's own catalog; a bank the person typed in themselves becomes "other_bank".
+function betaQueueDetail_(detail) {
+  if (BETA_QUEUE_PLACES_.hasOwnProperty(detail)) return detail;
+  var known = bankCatalogNames_().concat(BANK_NAMES);
+  for (var i = 0; i < known.length; i++) if (betaSlug_(known[i]) === detail) return detail;
+  return 'other_bank';
+}
 
 function ensureBetaEventsSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -50,6 +75,14 @@ function betaRow_(e, batch, nowMs, receivedAt) {
     if (!BETA_SETUP_NAMES_.hasOwnProperty(name)) return null;
   } else if (e.k === 'error') {
     if (!/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(name) || detail === '') return null;
+  } else if (e.k === 'queue') {
+    if (!BETA_QUEUE_OUTCOMES_.hasOwnProperty(name)) return null;
+    detail = betaQueueDetail_(detail);
+  } else if (e.k === 'queue_edit') {
+    if (!BETA_QUEUE_FIELDS_.hasOwnProperty(name)) return null;
+    detail = betaQueueDetail_(detail);
+  } else if (e.k === 'screen') {
+    if (!BETA_SCREENS_.hasOwnProperty(name) || !/^w\d{4}_\d{2}$/.test(detail) || n < 1) return null;
   } else {
     return null;
   }

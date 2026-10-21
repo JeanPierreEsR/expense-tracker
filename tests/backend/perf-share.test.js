@@ -166,3 +166,76 @@ test("one phone records at most 5 of the same error and 40 errors a day, then st
   assert.equal(other, 35, "40 a day in all (5 were already used)");
   assert.equal(PerfShare.shouldRecordError(st, "listEntries", "network", day1 + 86400000), true, "a new day starts fresh");
 });
+
+// ---- scope 3: what was done with a pending entry, weekly screen counts, the feedback text ----
+
+test("the consent version is 3, and someone at version 2 is asked again about the newer parts", () => {
+  assert.equal(PerfShare.SCOPE, 3);
+  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 2 }, false), true);
+  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 3 }, false), false);
+  assert.equal(PerfShare.needsAsk({ asked: true, on: false, scope: 2 }, false), false, "a no stays a no");
+});
+
+test("bank names become the same slugs the backend knows", () => {
+  assert.equal(PerfShare.bankSlug("BCP"), "bcp");
+  assert.equal(PerfShare.bankSlug("Caja Piura"), "caja_piura");
+  assert.equal(PerfShare.bankSlug("Scotiabank Perú"), "scotiabank_peru");
+  assert.equal(PerfShare.bankSlug("  Banco de la Nación! "), "banco_de_la_nacion");
+  assert.equal(PerfShare.bankSlug(null), "");
+});
+
+test("confirming an entry exactly as it came is 'confirmed', with no edited fields", () => {
+  const entry = { type: "expense", category_id: "c1", amount: "45.20", description: "Cafe Luna", payment_method_id: "p1" };
+  const fields = { description: "Cafe Luna", amount: 45.2, category_id: "c1" };
+  assert.deepEqual(PerfShare.queueEvents(entry, fields, "bcp"), [{ k: "queue", n: "confirmed", d: "bcp", v: 1 }]);
+});
+
+test("each changed field is named, never its content", () => {
+  const entry = { type: "expense", category_id: "c1", amount: "45.20", description: "Cafe Luna", payment_method_id: "p1" };
+  const ev = PerfShare.queueEvents(entry, { description: "Cafe Luna Lima", amount: 50, category_id: "c2" }, "interbank");
+  assert.deepEqual(ev.map((e) => [e.k, e.n]), [["queue", "edited"], ["queue_edit", "category"], ["queue_edit", "amount"], ["queue_edit", "description"]]);
+  assert.ok(!JSON.stringify(ev).includes("Luna") && !JSON.stringify(ev).includes("50"));
+});
+
+test("choosing a category where the app had no guess is 'category_filled', not a wrong guess", () => {
+  const ev = PerfShare.queueEvents({ type: "expense", category_id: "", amount: "10", description: "x" }, { description: "x", amount: 10, category_id: "c9" }, "no_account");
+  assert.deepEqual(ev.map((e) => e.n), ["edited", "category_filled"]);
+});
+
+test("a withdrawal's amount is compared by size, and a changed account is an account edit", () => {
+  const inv = PerfShare.queueEvents({ type: "investment", amount: "-100", description: "", payment_method_id: "p1", to_payment_method_id: "p2" }, { description: "", amount: -100, to_payment_method_id: "p2", payment_method_id: "p1" }, "bcp");
+  assert.deepEqual(inv.map((e) => e.n), ["confirmed"]);
+  const tr = PerfShare.queueEvents({ type: "transfer", amount: "5", description: "", payment_method_id: "", to_payment_method_id: "p2" }, { description: "", amount: 5, category_id: "c1", payment_method_id: "p1", to_payment_method_id: "p2" }, "bcp");
+  assert.deepEqual(tr.map((e) => e.n), ["edited", "category_filled", "account"]);
+});
+
+test("discarding is one 'discarded' entry", () => {
+  assert.deepEqual(PerfShare.queueEvents({ amount: "1" }, null, "yape"), [{ k: "queue", n: "discarded", d: "yape", v: 1 }]);
+});
+
+test("weeks follow the ISO calendar, Monday to Sunday", () => {
+  assert.equal(PerfShare.weekKey(new Date(2026, 9, 19, 9).getTime()), "w2026_43");   // Monday
+  assert.equal(PerfShare.weekKey(new Date(2026, 9, 25, 23).getTime()), "w2026_43");  // Sunday night
+  assert.equal(PerfShare.weekKey(new Date(2026, 9, 26, 0, 5).getTime()), "w2026_44");
+  assert.equal(PerfShare.weekKey(new Date(2027, 0, 3).getTime()), "w2026_53");
+  assert.equal(PerfShare.screenName("screen-trip-detail"), "trip_detail");
+});
+
+test("screen openings are counted per week and handed over when the week ends", () => {
+  const st = fakeStorage();
+  const mon = new Date(2026, 9, 19, 9).getTime(), fri = new Date(2026, 9, 23, 9).getTime(), nextMon = new Date(2026, 9, 26, 9).getTime();
+  assert.deepEqual(PerfShare.recordScreen(st, "overview", mon), []);
+  PerfShare.recordScreen(st, "overview", mon + 1000);
+  PerfShare.recordScreen(st, "loans", fri);
+  const done = PerfShare.recordScreen(st, "entries", nextMon);
+  assert.deepEqual(done.map((e) => [e.k, e.n, e.d, e.v]).sort(), [["screen", "loans", "w2026_43", 1], ["screen", "overview", "w2026_43", 2]]);
+  assert.deepEqual(PerfShare.recordScreen(st, "entries", nextMon + 1000), [], "handed over only once");
+  const later = PerfShare.recordScreen(st, null, new Date(2026, 10, 2).getTime());   // just closing a finished week
+  assert.deepEqual(later.map((e) => [e.n, e.d, e.v]), [["entries", "w2026_44", 2]]);
+});
+
+test("a feedback note is cleaned exactly as the backend does it", () => {
+  assert.equal(PerfShare.cleanFeedback("  mail ana.lo@example.com or 987 654 321, v0.10.1  "), "mail [email] or [number], v0.10.1");
+  assert.equal(PerfShare.cleanFeedback("x".repeat(1500)).length, 1000);
+  assert.equal(PerfShare.cleanFeedback(null), "");
+});
