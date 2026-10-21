@@ -5659,7 +5659,7 @@ document.getElementById("update-copy-btn").addEventListener("click", async () =>
 
 // ---- More → Privacy: how the person's data is treated, in plain words, and the one place to change the sharing choice ----
 // The "Help me improve the app" row is only shown to a friend who has NOT agreed to what is shared today (PerfShare.showImproveRow);
-// once they agreed, the choice is changed from here, so the same thing is not offered twice next to "Send me feedback".
+// once they agreed, the choice is changed from here, so the same thing is not offered twice next to "Send feedback to JP".
 function refreshPerfShareRow_() {
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-share-btn").hidden = !PerfShare.showImproveRow(perfShareState_(), owner);
@@ -5710,7 +5710,7 @@ document.getElementById("perf-share-close").addEventListener("click", () => {
 });
 document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
 
-// ---- "Send me feedback": a short note the person writes on purpose (backend/Feedback.gs, tab "Feedback") ----
+// ---- "Send feedback to JP": a short note the person writes on purpose (backend/Feedback.gs, tab "Feedback") ----
 // Steps: 1 kind + text + first name → 2 the exact note as it will be sent (e-mail addresses and long numbers hidden, docs/perf-share.js)
 // → 3 thanks. It goes the same way the app-speed reports do (perfReportUrl_). No screenshots (they would show money). It does not depend
 // on the "Help me improve the app" choice: the person writes it and taps Send themselves.

@@ -141,7 +141,7 @@
 
   // Is the "Help me improve the app" row in More shown? Only for a friend who has NOT agreed to what the app shares today:
   // never asked, said no, or agreed to an older version. A friend who agreed changes the choice from More → Privacy instead,
-  // so the same thing is not offered twice next to "Send me feedback". The owner's own phone never shows it.
+  // so the same thing is not offered twice next to "Send feedback to JP". The owner's own phone never shows it.
   function showImproveRow(state, isOwner) {
     state = state || {};
     if (isOwner) return false;
