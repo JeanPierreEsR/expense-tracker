@@ -145,3 +145,24 @@ test("cash lent to the group is the mirror image", () => {
   assert.equal(detail().group.rows[0].pending, 80);
   assert.equal(detail().group.rows[0].fronted, 80);
 });
+
+test("the same rules hold when the entry is made from the Entries tab (plain repayment / new loan with the group)", () => {
+  const { rt, trip, group, pay, detail } = setup();
+  // Entries tab -> Transfer -> New loan -> "They paid me": cash borrowed from the group.
+  rt.api("addLoan", { friend_id: group.id, direction: "i_owe_them", amount: 100, currency: "PEN", date: "2026-12-12", payment_method_id: pay });
+  assert.equal(detail().group.rows[0].pending, -100);
+  // Entries tab -> Transfer -> Repayments -> "I paid them", more than owed: the extra is a trip expense.
+  const res = rt.api("recordRepayment", { friend_id: group.id, direction: "i_owe_them", amount: 160, currency: "PEN", date: "2026-12-20", payment_method_id: pay, overpay_category_id: "cat-a" });
+  assert.equal(res.overpaid, 60);
+  const e = rt.rows("Entries").find((x) => x.id === res.overpayment_entry.id);
+  assert.equal(e.trip_id, trip.id, "the leftover belongs to the trip, whichever screen recorded it");
+  assert.equal(detail().group.rows[0].pending, 0);
+  assert.equal(detail().totalMain, 60);
+});
+
+test("an ordinary friend's overpayment is never linked to a trip", () => {
+  const { rt, pay } = setup();
+  const ana = rt.api("addFriend", { name: "Ana Plain" });
+  const res = rt.api("recordRepayment", { friend_id: ana.id, direction: "i_owe_them", amount: 50, currency: "PEN", date: "2026-12-20", payment_method_id: pay });
+  assert.ok(!rt.rows("Entries").find((x) => x.id === res.overpayment_entry.id).trip_id);
+});

@@ -656,6 +656,13 @@ function recordRepayment(payload) {
       category_id: payload.overpay_category_id || '',
       pending: !payload.overpay_category_id
     });
+    // The owner paid a trip's group more than was owed: that leftover is his share of what others paid, so it
+    // belongs to that trip (every way of recording the repayment lands here — the trip screen, the Entries tab,
+    // the Loans tab, Telegram). Income (the group paid him more) is never linked.
+    if (payload.direction === 'i_owe_them' && friend.trip_id && tripById_(friend.trip_id)) {
+      ensureEntriesTripColumn_();
+      setEntryField_(overpaymentEntry.id, 'trip_id', friend.trip_id);
+    }
   }
 
   return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };

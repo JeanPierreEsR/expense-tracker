@@ -1297,10 +1297,12 @@ function populateRepaymentFriendOptions_() {
   const select = document.getElementById("repayment-friend");
   const previous = select.value;
   select.innerHTML = "";
-  plainFriends_().forEach((f) => {
+  // The trips' hidden group friends come last, so a group settlement or group cash loan can also be entered
+  // from here (the trip screen's "Group settlement" does the same through the same repayment engine).
+  plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -1426,6 +1428,11 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
 function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f)); }
+// Groups of trips that still exist, the most recent trip first.
+function groupFriendsNewestFirst_() {
+  const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
+  return meta.friends.filter((f) => isGroupFriend_(f) && end(f)).sort((a, b) => end(b).localeCompare(end(a)));
+}
 
 // The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
 function splitFriendsList_() {

@@ -676,9 +676,5 @@ function recordTripSettlement(payload) {
     overpay_category_id: payload.overpay_category_id,
     description: tr_(received ? 'trip.settlementReceived' : 'trip.settlementPaid', { trip: tripDisplayName_(trip) })
   });
-  if (!received && result.overpayment_entry) {
-    ensureEntriesTripColumn_();
-    setEntryField_(result.overpayment_entry.id, 'trip_id', trip.id);
-  }
-  return result;
+  return result;   // recordRepayment links a "paid more than owed" leftover to the trip itself
 }
