@@ -53,3 +53,26 @@ test("making a sign-in from bad details throws, so the setup page can never copy
   assert.throws(() => SigninLink.make("https://evil.example/x", CODE));
   assert.throws(() => SigninLink.make(URL1, "short"));
 });
+
+// ---- the "Help me improve the app" choice made on the setup page travels with the sign-in ----
+test("the sharing choice comes back as it was made", () => {
+  const text = SigninLink.make(URL1, CODE, { on: true, label: "Ana", scope: 3 });
+  assert.deepEqual(SigninLink.parse(text), { url: URL1, code: CODE, share: { on: true, label: "Ana", scope: 3 } });
+  const off = SigninLink.make(URL1, CODE, { on: false, label: "", scope: 3 });
+  assert.deepEqual(SigninLink.parse(off).share, { on: false, label: "", scope: 3 });
+});
+
+test("without a choice the result has no share at all (the app then asks itself)", () => {
+  assert.deepEqual(SigninLink.parse(SigninLink.make(URL1, CODE)), { url: URL1, code: CODE });
+  assert.deepEqual(SigninLink.parse(SigninLink.make(URL1, CODE, { on: "yes", label: "x", scope: 3 })), { url: URL1, code: CODE }, "a broken choice is dropped, the sign-in still works");
+});
+
+test("a forged or odd choice is cleaned: a bad scope drops it, bad characters in the name are dropped", () => {
+  const forge = (s) => "ETSIGNIN1:" + Buffer.from(JSON.stringify({ u: URL1, c: CODE, s })).toString("base64url");
+  assert.equal(SigninLink.parse(forge({ o: 1, l: "Ana", v: 0 })).share, undefined);
+  assert.equal(SigninLink.parse(forge({ o: 1, l: "Ana", v: 2.5 })).share, undefined);
+  assert.equal(SigninLink.parse(forge({ o: 2, l: "Ana", v: 3 })).share.on, false, "only 1 means yes");
+  assert.equal(SigninLink.parse(forge({ o: 1, l: "<b>Ana</b>", v: 3 })).share.label, "");
+  assert.equal(SigninLink.parse(forge({ o: 1, l: "x".repeat(31), v: 3 })).share.label, "");
+  assert.equal(SigninLink.parse(forge({ o: 1, l: "María-José", v: 3 })).share.label, "María-José");
+});
