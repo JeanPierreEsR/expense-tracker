@@ -436,10 +436,12 @@
         usable = usable.filter((u) => u.file !== file.name);
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
+        const hadReview = !!review;
         review = null;
         historyPlan = null;
         $("statement-history").innerHTML = "";
-        $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>`;
+        // Only a comparison that was open needs telling that it is out of date; to someone who has not compared anything it is noise.
+        $("statement-review").innerHTML = hadReview ? `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>` : "";
         updateReviewButton();
       }
     } catch (err) {
@@ -485,7 +487,7 @@
     out.innerHTML = `<p class="hint">${escapeHtml(tr("hist.planning"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
-      historyPlan.chosen = new Set();      // indexes into summary.aside the person counted after all
+      historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
       historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
       historyPlan.asideOpen = false;
@@ -516,20 +518,24 @@
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
     const taken = {};
-    p.chosen.forEach((i) => { taken[lineKey(aside[i])] = true; });
+    p.chosen.forEach((mode, i) => { taken[lineKey(aside[i])] = true; });
     const kept = p.actions.filter((a) => {
       if (a.stmt === undefined) return true;                 // a transfer pair carries out/in instead of stmt/line
       const k = lineKey(a);
       return !linked[k] && !(a.type === "wait" && taken[k]);
     });
-    const optIns = Array.from(p.chosen).map((i) => aside[i].optIn).filter((a) => !linked[lineKey(a)]);
+    const optIns = [];
+    p.chosen.forEach((mode, i) => {
+      const action = mode === "transfer" ? aside[i].optInTransfer : aside[i].optIn;
+      if (action && !linked[lineKey(action)]) optIns.push(action);
+    });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
     return kept.concat(optIns, exchanges);
   }
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, legs: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -538,11 +544,12 @@
       } else if (a.type === "add_history_income") c.income++;
       else if (a.type === "add_history_reversal") c.refunds++;
       else if (a.type === "record_transfer") c.transfers++;
+      else if (a.type === "record_transfer_leg") c.legs++;
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
-    c.entries = c.expenses + c.income + c.refunds + c.transfers + 2 * c.exchanges + c.fees;
+    c.entries = c.expenses + c.income + c.refunds + c.transfers + c.legs + 2 * c.exchanges + c.fees;
     return c;
   }
 
@@ -608,38 +615,41 @@
   }
 
   // ---- the set-aside lines: one row each, or one row for a run of similar lines (same wording, amount within 10%) ----
+  // Each line can be counted as spending/income OR as a transfer (one side of it; the other end completes when that account's
+  // statement arrives). `chosen` maps the line's index in summary.aside to "cash" or "transfer".
+
+  function modeButton(attrs, on, label) {
+    return `<button type="button" class="stmt-choice ${on ? "on" : ""}" ${attrs}>${on ? "✓ " : ""}${escapeHtml(label)}</button>`;
+  }
 
   function asideHtml() {
     const p = historyPlan, aside = p.summary.aside || [], chosen = p.chosen;
     if (!aside.length) return "";
     const rendered = {};
     const rows = aside.map((a, i) => {
+      const cashLabel = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+      const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
       if (a.group) {
         if (rendered[a.group]) return "";
         rendered[a.group] = true;
         const members = aside.map((m, mi) => ({ m, mi })).filter(({ m }) => m.group === a.group);
-        const all = members.every(({ mi }) => chosen.has(mi));
+        const allIn = (mode) => members.every(({ mi }) => chosen.get(mi) === mode);
         const amounts = members.map(({ m }) => Math.abs(m.amount));
         const sum = members.reduce((t, { m }) => t + m.amount, 0);
         const lo = Math.min(...amounts), hi = Math.max(...amounts);
         const range = lo === hi ? fmtMoney(a.currency, lo) : `${fmtMoney(a.currency, lo)} – ${fmtMoney(a.currency, hi).replace(/^[A-Z]{3} /, "")}`;
-        const label = tr(a.amount > 0 ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n: members.length });
-        // The same lines one by one, for a person who does not want them decided together: each has its own button.
-        const single = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
-        const each = members.map(({ m, mi }) => {
-          const on = chosen.has(mi);
-          return lineRow({ date: m.date, description: m.description, amount: m.amount, currency: m.currency },
-            `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${mi}">${on ? "✓ " : ""}${escapeHtml(single)}</button></div>`);
-        }).join("");
+        const groupButtons = (a.optIn ? modeButton(`data-agroup="${a.group}" data-mode="cash"`, allIn("cash"), tr(a.amount > 0 ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n: members.length })) : "")
+          + modeButton(`data-agroup="${a.group}" data-mode="transfer"`, allIn("transfer"), tr("hist.aside.addAllTransfer", { n: members.length }));
+        // The same lines one by one, for a person who does not want them decided together: each has its own buttons.
+        const each = members.map(({ m, mi }) => lineRow({ date: m.date, description: m.description, amount: m.amount, currency: m.currency },
+          `<div class="stmt-choices" style="padding-left:0">${m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : ""}${modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))}</div>`)).join("");
         const opened = p.openGroups.has(a.group);
         return lineRow({ date: a.date, description: `${a.description} × ${members.length}`, amount: sum, currency: a.currency },
-          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${all ? "on" : ""}" data-agroup="${a.group}">${all ? "✓ " : ""}${escapeHtml(label)}</button></div>
+          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0">${groupButtons}</div>
             <details data-gopen="${a.group}" ${opened ? "open" : ""}><summary class="hint">${escapeHtml(tr("hist.aside.showEach", { n: members.length }))}</summary>${each}</details>`);
       }
-      const on = chosen.has(i);
-      const label = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
-      const button = a.optIn ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${i}">${on ? "✓ " : ""}${escapeHtml(label)}</button></div>` : "";
-      return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${button}`);
+      const buttons = `<div class="stmt-choices" style="padding-left:0">${a.optIn ? modeButton(`data-aside="${i}" data-mode="cash"`, chosen.get(i) === "cash", cashLabel) : ""}${modeButton(`data-aside="${i}" data-mode="transfer"`, chosen.get(i) === "transfer", tr("hist.aside.addTransfer"))}</div>`;
+      return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${maybe}${buttons}`);
     }).join("");
     return `<details class="stmt-group" id="statement-history-aside" ${p.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: aside.length }))}</summary>
       <p class="hint">${escapeHtml(tr("hist.aside.hint"))}</p>${rows}</details>`;
@@ -654,6 +664,7 @@
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
     if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
     if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
+    if (c.legs) lines.push(tr("hist.sum.legs", { n: c.legs }));
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
@@ -1248,13 +1259,14 @@
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
     if (one) {
-      const i = Number(one.dataset.aside);
-      if (historyPlan.chosen.has(i)) historyPlan.chosen.delete(i); else historyPlan.chosen.add(i);
+      const i = Number(one.dataset.aside), mode = one.dataset.mode;
+      if (historyPlan.chosen.get(i) === mode) historyPlan.chosen.delete(i); else historyPlan.chosen.set(i, mode);
     } else if (grp) {
-      // One tap for a run of similar lines: all on, or (when all were on) all off.
+      // One tap for a run of similar lines: all on in that way, or (when all already were) all off.
+      const mode = grp.dataset.mode;
       const idx = aside.map((a, i) => (a.group === Number(grp.dataset.agroup) ? i : -1)).filter((i) => i >= 0);
-      const allOn = idx.every((i) => historyPlan.chosen.has(i));
-      idx.forEach((i) => { if (allOn) historyPlan.chosen.delete(i); else historyPlan.chosen.add(i); });
+      const allOn = idx.every((i) => historyPlan.chosen.get(i) === mode);
+      idx.forEach((i) => { if (allOn) historyPlan.chosen.delete(i); else historyPlan.chosen.set(i, mode); });
     } else if (link) {
       const s = historyPlan.summary.exchangeSuggestions[Number(link.dataset.xlink)];
       historyPlan.exchanges.push({ out: { stmt: s.out.stmt, line: s.out.line }, in: { stmt: s.in.stmt, line: s.in.line } });

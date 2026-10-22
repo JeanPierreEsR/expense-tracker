@@ -324,7 +324,11 @@ function analyzeStatements(payload) {
   // and can't pair with new lines.
   ensureStatementLinesSheet_();
   var handledRows = {};
-  getAllRows('Statement Lines').forEach(function (r) { if (STATEMENT_HANDLED_OUTCOMES_[r.outcome]) handledRows[r.line_key] = r; });
+  var waitingRows = {};   // lines an earlier upload already set aside as "waiting": there is nothing new to remember about them
+  getAllRows('Statement Lines').forEach(function (r) {
+    if (STATEMENT_HANDLED_OUTCOMES_[r.outcome]) handledRows[r.line_key] = r;
+    else if (r.outcome === 'waiting') waitingRows[r.line_key] = true;
+  });
   var lineKeys = stmts.map(function (s) { return stmtLineKeys_(s.key, s.lines); });
   var matcherInput = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
@@ -378,6 +382,7 @@ function analyzeStatements(payload) {
       var o = { i: i, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
         section: l.section, status: r.status, guess: r.guess };
       counts.lines++;
+      if (waitingRows[lineKeys[idx][i]]) o.rememberedWaiting = true;
       var hr = handledRows[lineKeys[idx][i]];
       if (hr) {
         o.handled = { outcome: hr.outcome, entryId: hr.entry_id || '', entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };

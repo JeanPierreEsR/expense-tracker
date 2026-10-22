@@ -324,8 +324,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
-  "exportData"
+  "exportData",
+  "applyStatementDecisions", "undoStatementBatch"   // long statement writes: a resend must not run a second copy beside the first
 ]);
+// How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
+// Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
+const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000 };
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -354,7 +358,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     // flush loop) from ever moving on. 25s comfortably covers Apps
     // Script's own cold-start delay (up to ~20s, see below).
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), LONG_ACTIONS[action] || 25000);
     let res;
     try {
       res = await fetch(apiUrl, {
@@ -378,7 +382,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     // wake it up, and sometimes the slow/cold response comes back
     // looking like a CORS failure. Retrying clears it up once the
     // backend is warm.
-    if (attempt < 6) {
+    if (attempt < (LONG_ACTIONS[action] ? 2 : 6)) {
       await sleep(400 * attempt);
       return callApi(action, payload, attempt + 1, startedAt);
     }
