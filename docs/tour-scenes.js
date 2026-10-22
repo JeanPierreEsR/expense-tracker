@@ -775,6 +775,226 @@
   };
   function projScroll(p, el) { p.scroll.style.transform = "translateY(" + (-Math.max(0, el.offsetTop - 2)) + "px)"; }
 
+  // ---- Pro: split a restaurant bill. The expense form -> "Split a bill by items…" -> who is splitting -> the photo reads the dishes -> a misread price is
+  //      fixed -> who shared each dish -> the tip -> the total check -> "Use this split" fills the form. Every number comes from the app's own BillSplit maths
+  //      and every line of text from its own strings. ----
+  const BILL_NAMES = { ana: "Ana", luis: "Luis" };
+  function billScroll(p, el) {
+    const max = Math.max(0, p.scroll.offsetHeight - p.clip.clientHeight);
+    p.scroll.style.transform = "translateY(" + (-Math.min(max, Math.max(0, el.offsetTop - 2))) + "px)";
+  }
+  // Works the bill out again from what is on screen and redraws the check line, the tip line and the per-person rows (as recomputeBill_ in app.js).
+  function billRecompute(p) {
+    const tr = p.ctx.tr, fmt = p.fmt;
+    const people = ["me"].concat(Object.keys(BILL_NAMES).filter((k) => p.sel[k]));
+    Object.keys(BILL_NAMES).forEach((k) => p.items.forEach((it) => { it.chips[k].hidden = !p.sel[k]; }));
+    const res = root.BillSplit.compute({
+      people,
+      items: p.shown ? p.items.map((it, k) => ({ id: k, name: it.name, people: Array.from(it.people), price: it.price })) : [],
+      adjustments: [],
+      tip: { type: "percent", mode: "proportional", value: p.tipPct },
+      printedTotal: p.total
+    });
+    const chargesCents = res.preDiscountCents - res.itemsCents;
+    const counted = chargesCents ? tr("bill.countedCharges", { items: fmt(res.itemsCents), charges: fmt(chargesCents) }) : tr("bill.counted", { items: fmt(res.itemsCents) });
+    const lead = chargesCents ? tr("bill.leadCharges", { counted, total: fmt(res.preDiscountCents) }) : tr("bill.leadPlain", { items: fmt(res.itemsCents) });
+    p.check.className = "ts-hint";
+    if (res.printedCents > 0) {
+      if (res.diffCents === 0) { p.check.classList.add("ts-stmt-ok"); p.check.textContent = tr("bill.checkOk", { counted, printed: fmt(res.printedCents) }); }
+      else {
+        p.check.classList.add("ts-bill-bad");
+        p.check.textContent = res.diffCents > 0 ? tr("bill.checkShort", { lead, printed: fmt(res.printedCents), diff: fmt(res.diffCents) })
+          : tr("bill.checkTooMuch", { lead, printed: fmt(res.printedCents), diff: fmt(-res.diffCents) });
+      }
+    } else p.check.textContent = res.itemsCents ? tr("bill.itemsSoFar", { items: fmt(res.itemsCents) }) : "";
+    p.tipPreview.textContent = p.tipPct && res.tipCents ? tr("bill.tipPctOf", { pct: p.tipPct, bill: fmt(res.billCents), tip: fmt(res.tipCents), odd: "" })
+      : (res.billCents > 0 ? tr("bill.tipBase", { bill: fmt(res.billCents) }) : "");
+    p.results.innerHTML = "";
+    if (res.itemsCents) {
+      people.forEach((k) => {
+        const pp = res.perPerson[k], row = h("div", "ts-bill-resrow", null, p.results);
+        const left = h("div", null, null, row);
+        h("div", null, k === "me" ? tr("common.me") : BILL_NAMES[k], left);
+        const bits = [tr("bill.subItems", { v: p.ctx.money(pp.items / 100) })];
+        if (pp.tip) bits.push(tr("bill.subTip", { v: p.ctx.money(pp.tip / 100) }));
+        h("div", "ts-hint", bits.join(" · "), left);
+        h("b", null, fmt(pp.total), row);
+      });
+      if (res.tipCents) h("div", "ts-hint", tr("bill.tipTotal", { tip: fmt(res.tipCents), total: fmt(res.grandCents) }), p.results);
+    }
+    p.apply.classList.toggle("off", !res.ok);
+    return res;
+  }
+  SCENES.bill = {
+    manual: true,
+    build(stage, ctx) {
+      const tr = ctx.tr, cur = ctx.home;
+      const phone = h("div", "ts-phone ts-billp", null, stage);
+      h("div", "ts-bar", tr("nav.entries"), phone);
+      const p = { ctx, phone, finger: makeFinger(stage), tipPct: "", total: "", sel: {}, shown: false };
+      p.fmt = (cents) => cur + " " + ctx.money(cents / 100);
+      // the expense form, behind the sheet
+      const form = h("div", "ts-billform", null, phone);
+      const banner = h("div", "ts-banner", null, form);
+      h("span", null, "🍽️", banner); h("b", null, tr("scene.cat.restaurants"), banner); h("span", "ts-change", tr("common.change"), banner);
+      p.amountBox = box(form, tr("field.amount"), "");
+      p.openBtn = h("div", "ts-billbtn", tr("split.openBill"), form);
+      const chk = h("div", "ts-check", null, form);
+      p.splitBox = h("span", "ts-checkbox", null, chk); h("span", null, tr("split.toggle"), chk);
+      p.splitDetail = h("div", "ts-split", null, form); p.splitDetail.hidden = true;
+      const mode = h("div", "ts-seg", null, p.splitDetail); h("span", null, tr("split.equal"), mode); h("span", "on", tr("split.custom"), mode);
+      p.splitSummary = h("div", "ts-hint", null, p.splitDetail);
+      p.save = h("div", "ts-btn", tr("entry.save"), form);
+      // the bill sheet
+      p.ov = h("div", "ts-billov", null, phone);
+      const hd = h("div", "ts-sheet-head", null, p.ov); h("b", null, tr("bill.title"), hd); h("span", null, "✕", hd);
+      p.clip = h("div", "ts-bill-clip", null, p.ov);
+      p.scroll = h("div", "ts-scroll", null, p.clip);
+      const S = p.scroll;
+      p.photoBtn = h("div", "ts-billbtn", tr("bill.photo"), S);
+      p.status = h("div", "ts-hint", null, S); p.status.hidden = true;
+      p.totalBox = box(S, tr("bill.totalBefore") + " (" + cur + ")", "");
+      h("div", "ts-box-label", tr("bill.who"), S);
+      const who = h("div", "ts-tags", null, S);
+      p.friends = {}; Object.keys(BILL_NAMES).forEach((k) => { p.friends[k] = h("span", "ts-tag", BILL_NAMES[k], who); });
+      p.itemsLabel = h("div", "ts-box-label", tr("bill.items"), S);
+      // what the photo reads (one price is misread, the way a thermal printout sometimes is) and the right price
+      p.items = [["Ceviche", "40.00", "40.00"], ["Lomo saltado", "82.00", "32.00"], ["Pasta", "28.00", "28.00"], ["Pizza", "20.00", "20.00"]].map(([name, read, right]) => {
+        const it = { name, price: read, right, people: new Set(), chips: {} };
+        it.row = h("div", "ts-bill-item", null, S); it.row.hidden = true;
+        const ln = h("div", "ts-bill-line", null, it.row); h("b", null, name, ln); it.priceEl = h("span", "ts-bill-price", read, ln);
+        const cs = h("div", "ts-tags", null, it.row);
+        [["me", tr("common.me")], ["ana", "Ana"], ["luis", "Luis"]].forEach(([key, label]) => { it.chips[key] = h("span", "ts-tag", label, cs); });
+        return it;
+      });
+      p.check = h("div", "ts-hint", null, S);
+      p.adjLabel = h("div", "ts-box-label", tr("bill.adjs"), S);
+      const adj = h("div", "ts-bill-adj", null, S);
+      p.addDiscount = h("span", "ts-billbtn small", tr("bill.addDiscount"), adj); h("span", "ts-billbtn small", tr("bill.addCharge"), adj);
+      p.tipLabel = h("div", "ts-box-label", tr("bill.tip"), S);
+      const tt = h("div", "ts-seg", null, S); h("span", "on", tr("bill.tipPercentTab"), tt); h("span", null, tr("bill.tipAmountTab"), tt);
+      p.tipBox = box(S, tr("bill.tipPercentLabel"), "");
+      p.tipPreview = h("div", "ts-hint", null, S);
+      const tm = h("div", "ts-seg", null, S); h("span", "on", tr("bill.byOrdered"), tm); h("span", null, tr("split.equal"), tm);
+      p.results = h("div", "ts-bill-res", null, S);
+      p.apply = h("div", "ts-btn off", tr("bill.apply"), p.ov);
+      // the explanations, one more appearing at each step
+      p.list = h("ol", "ts-captions", null, stage);
+      p.caps = [["tour.bill.l1", "tour.bill.t1"], ["tour.bill.l2", "tour.bill.t2"], ["tour.bill.l3", "tour.bill.t3"], ["tour.bill.l4", "tour.bill.t4"],
+        ["tour.bill.l5", "tour.bill.t5"], ["tour.bill.l6", "tour.bill.t6"], ["tour.bill.l7", "tour.bill.t7"], ["tour.bill.l8", "tour.bill.t8"]].map(([head, text], k) => {
+        const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(head) + ": " + tr(text), li); return li;
+      });
+      billRecompute(p);
+      return p;
+    },
+    initial(p, ctx) { /* the starting picture is the empty expense form */ },
+    steps: [
+      // 1 — open the sheet from the expense form
+      (p, ctx, instant, later) => {
+        stmtStep(p, 1);
+        later(() => p.finger.to(p.openBtn, instant), 400);
+        later(() => { p.finger.tap(instant); p.openBtn.classList.add("pressed"); }, 900);
+        later(() => { p.openBtn.classList.remove("pressed"); p.ov.classList.add("show"); p.finger.hide(); }, 1150);
+        return 1700;
+      },
+      // 2 — tap the friends who are splitting
+      (p, ctx, instant, later) => {
+        stmtStep(p, 2);
+        ["ana", "luis"].forEach((k, n) => {
+          later(() => p.finger.to(p.friends[k], instant), 300 + n * 900);
+          later(() => { p.finger.tap(instant); p.friends[k].classList.add("on"); p.sel[k] = true; billRecompute(p); }, 750 + n * 900);
+        });
+        later(() => p.finger.hide(), 2300);
+        return 2400;
+      },
+      // 3 — the photo reads the dishes (and the total printed on the bill)
+      (p, ctx, instant, later) => {
+        const tr = ctx.tr;
+        stmtStep(p, 3);
+        later(() => p.finger.to(p.photoBtn, instant), 300);
+        later(() => { p.finger.tap(instant); p.photoBtn.classList.add("pressed"); p.status.textContent = tr("photo.reading"); p.status.hidden = false; }, 800);
+        later(() => {
+          p.photoBtn.classList.remove("pressed"); p.finger.hide();
+          p.status.textContent = tr("photo.readN", { n: 4, notes: "" });
+          p.shown = true; p.total = "120.00"; p.totalBox.value.textContent = p.total;
+          p.items.forEach((it) => { it.row.hidden = false; });
+          billRecompute(p);
+        }, 2000);
+        later(() => billScroll(p, p.itemsLabel), 2600);
+        return 3700;
+      },
+      // 4 — the check line says "too much": one price was misread; fix it
+      (p, ctx, instant, later) => {
+        const it = p.items[1];
+        stmtStep(p, 4);
+        later(() => { billScroll(p, it.row); p.check.classList.add("now"); }, 100);
+        later(() => p.finger.to(it.priceEl, instant), 1300);
+        later(() => { p.finger.tap(instant); it.priceEl.classList.add("focus"); }, 1800);
+        ["3", "32", "32.0", "32.00"].forEach((v, n) => later(() => { it.price = v; it.priceEl.textContent = v; billRecompute(p); p.check.classList.add("now"); }, 1950 + n * 200));
+        later(() => { it.priceEl.classList.remove("focus"); p.finger.hide(); }, 3000);
+        later(() => p.check.classList.remove("now"), 3400);
+        return 3500;
+      },
+      // 5 — tap who shared each dish
+      (p, ctx, instant, later) => {
+        stmtStep(p, 5);
+        let t = 100;
+        later(() => billScroll(p, p.items[0].row), t);
+        t = 1200;
+        [[0, "me"], [0, "ana"], [1, "me"], [2, "ana"], [3, "luis"]].forEach(([k, who]) => {
+          if (k === 2) { const at = t; later(() => billScroll(p, p.items[2].row), at); t += 1100; }
+          const at = t;
+          later(() => p.finger.to(p.items[k].chips[who], instant), at);
+          later(() => { p.finger.tap(instant); p.items[k].people.add(who); p.items[k].chips[who].classList.add("on"); billRecompute(p); }, at + 450);
+          t += 900;
+        });
+        later(() => p.finger.hide(), t);
+        return t + 200;
+      },
+      // 6 — discounts and extra charges exist; the tip is typed as a percentage
+      (p, ctx, instant, later) => {
+        stmtStep(p, 6);
+        later(() => billScroll(p, p.adjLabel), 100);
+        later(() => p.finger.to(p.addDiscount, instant), 1200);
+        later(() => billScroll(p, p.tipLabel), 2300);
+        later(() => p.finger.to(p.tipBox.box, instant), 3400);
+        later(() => { p.finger.tap(instant); p.tipBox.box.classList.add("focus"); }, 3900);
+        ["1", "10"].forEach((v, n) => later(() => { p.tipPct = v; p.tipBox.value.textContent = v; billRecompute(p); }, 4000 + n * 250));
+        later(() => { p.tipBox.box.classList.remove("focus"); p.finger.hide(); }, 4800);
+        return 5000;
+      },
+      // 7 — the total printed on the bill against the dishes: a green ✓
+      (p, ctx, instant, later) => {
+        stmtStep(p, 7);
+        later(() => billScroll(p, p.totalBox.box), 100);
+        later(() => p.finger.to(p.totalBox.box, instant), 1200);
+        later(() => { p.finger.tap(instant); p.totalBox.box.classList.add("focus"); }, 1700);
+        later(() => { p.totalBox.box.classList.remove("focus"); p.finger.hide(); billScroll(p, p.itemsLabel); }, 2500);
+        later(() => p.check.classList.add("now"), 3500);
+        later(() => p.check.classList.remove("now"), 5000);
+        return 5100;
+      },
+      // 8 — Use this split: the form is filled in; Save entry
+      (p, ctx, instant, later) => {
+        stmtStep(p, 8);
+        later(() => billScroll(p, p.results), 100);
+        later(() => p.finger.to(p.apply, instant), 1700);
+        later(() => { p.finger.tap(instant); p.apply.classList.add("pressed"); }, 2200);
+        later(() => {
+          p.apply.classList.remove("pressed"); p.ov.classList.remove("show");
+          const res = billRecompute(p), money = (c) => ctx.money(c / 100);
+          p.amountBox.value.textContent = money(res.grandCents);
+          p.splitBox.classList.add("on"); p.splitDetail.hidden = false;
+          p.splitSummary.textContent = ctx.tr("split.summaryCustom", { cur: ctx.home, friends: money(res.grandCents - res.perPerson.me.total), total: money(res.grandCents), own: money(res.perPerson.me.total) });
+        }, 2500);
+        later(() => p.finger.to(p.save, instant), 3300);
+        later(() => { p.finger.tap(instant); p.save.classList.add("pressed"); }, 3800);
+        later(() => { p.save.classList.remove("pressed"); p.finger.hide(); }, 4200);
+        return 4300;
+      }
+    ]
+  };
+
   // ---- The More tab: only the More screen itself — the list is dragged down to the language picker and back up (it does not open any section) ----
   //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ); real order, groups and words.
   SCENES.more = {

@@ -6377,7 +6377,7 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "loan", "repay", "programmed", "trips", "projections"];
+    const cards = ["invest", "loan", "repay", "bill", "programmed", "trips", "projections"];
     if (caps.bankEmails) cards.push("bank");
     cards.push("statements");
     return cards;
