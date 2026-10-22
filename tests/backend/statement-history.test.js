@@ -166,6 +166,25 @@ test("balances are not touched", () => {
   assert.equal(run(rt, "getAllRows('Account Opening Balances').length"), before);
 });
 
+test("a new account has no Bank fees category: it is created on first use, once, and not by a dry run", () => {
+  // Found on a fresh install (2026-10-22): only the owner's copy had "Bank fees", so the whole save was refused.
+  const { rt, savingsStmt } = setup();
+  rt.run("deleteRowsWhere_('Categories', function (r) { return r.type === 'expense' && (r.name === 'Bank fees' || r.key === 'bank_fees'); })");
+  const count = () => run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'expense' && c.name === 'Bank fees'; }).length");
+  assert.equal(count(), 0);
+  const stmt = { ...savingsStmt, lines: [{ date: "2019-03-12", description: "IMPUESTO ITF", amount: -0.5, currency: "PEN" }, { date: "2019-03-13", description: "ITF 0123", amount: -0.2, currency: "PEN" }] };
+  const p = plan(rt, [stmt]);
+  assert.equal(p.summary.counts.fees, 2);
+  save(rt, [stmt], p.actions, true);
+  assert.equal(count(), 0, "a dry run creates nothing");
+  const res = save(rt, [stmt], p.actions, false);
+  assert.equal(res.created.fees, 2);
+  assert.equal(count(), 1, "one category for both fees");
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'expense' && c.name === 'Bank fees'; })[0]");
+  const fees = made(rt);
+  assert.ok(fees.every((e) => e.category_id === cat.id && e.status === "confirmed"));
+});
+
 test("a card charge with a payment word in its name is a purchase, not a transfer", () => {
   const { rt, card, cardStmt } = setup();
   const stmt = { ...cardStmt, lines: [{ date: "2019-03-14", description: "MDOPAGO*MERCADO PAGO LIMA PER", amount: -77.7, currency: "PEN" }] };
