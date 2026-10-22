@@ -485,6 +485,8 @@
     out.innerHTML = `<p class="hint">${escapeHtml(tr("hist.planning"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      historyPlan.chosen = new Set();      // indexes into summary.aside the person counted after all
+      historyPlan.asideOpen = false;
       renderHistoryPlan();
     } catch (err) {
       historyPlan = null;
@@ -498,6 +500,16 @@
     return Object.keys(spent).sort().map((cur) => fmtMoney(cur, spent[cur])).join(" + ");
   }
 
+  // The plan's actions with the person's opt-ins applied: a set-aside line counted after all replaces its "wait" (if it
+  // had one) with the action that imports it.
+  function historyActions() {
+    const aside = historyPlan.summary.aside || [];
+    const taken = {};
+    historyPlan.chosen.forEach((i) => { taken[`${aside[i].stmt}:${aside[i].line}`] = true; });
+    return historyPlan.actions.filter((a) => !(a.type === "wait" && taken[`${a.stmt}:${a.line}`]))
+      .concat(Array.from(historyPlan.chosen).map((i) => aside[i].optIn));
+  }
+
   function renderHistoryPlan() {
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
@@ -509,20 +521,37 @@
     if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.linked + c.completed) lines.push(tr("hist.sum.linked", { n: c.linked + c.completed }));
+    if (historyPlan.chosen.size) lines.push(tr("hist.sum.chosen", { n: historyPlan.chosen.size }));
     const notes = [];
+    if (left.fromPeople) notes.push(tr("hist.left.people", { n: left.fromPeople }));
     if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
     if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("");
-    if (!actions.length) {
+    const chosen = historyPlan.chosen;
+    // The lines set aside, each with a one-tap way to count it after all (a salary deposit worded like a payment, a
+    // purchase at a payment app, a friend's money that really was income).
+    const aside = summary.aside || [];
+    const asideHtml = aside.length
+      ? `<details class="stmt-group" id="statement-history-aside" ${historyPlan.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: aside.length }))}</summary>
+          <p class="hint">${escapeHtml(tr("hist.aside.hint"))}</p>
+          ${aside.map((a, i) => {
+            const on = chosen.has(i);
+            const label = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+            const button = a.optIn ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${i}">${on ? "✓ " : ""}${escapeHtml(label)}</button></div>` : "";
+            return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${button}`);
+          }).join("")}
+        </details>`
+      : "";
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + asideHtml;
+    if (!actions.length && !aside.length) {
       out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
       return;
     }
-    if (!summary.importable) {
-      // Only lines to set aside (waiting for their other statement): saving just remembers them so they pair up later.
+    if (!summary.importable && !chosen.size) {
+      // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later.
       out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}
-        <button type="button" class="stmt-choice" id="statement-history-save">${escapeHtml(tr("hist.remember"))}</button>`;
+        ${actions.length ? `<button type="button" class="stmt-choice" id="statement-history-save">${escapeHtml(tr("hist.remember"))}</button>` : ""}`;
       return;
     }
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
@@ -541,10 +570,10 @@
   }
 
   async function saveHistory() {
-    if (!historyPlan || !historyPlan.actions.length) return;
+    if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const adding = historyPlan.summary.importable;
+    const adding = historyPlan.summary.importable + historyPlan.chosen.size;
     if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
     btn.disabled = true;
     status.innerHTML = `<p class="hint">${escapeHtml(tr("hist.saving"))}</p>`;
@@ -557,7 +586,7 @@
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
-      actions: historyPlan.actions
+      actions: historyActions()
     });
     try {
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
@@ -1084,7 +1113,18 @@
   });
   $("statement-review-btn").addEventListener("click", runReview);
   $("statement-history-btn").addEventListener("click", runHistoryPlan);
-  $("statement-history").addEventListener("click", (e) => { if (e.target.closest("#statement-history-save")) saveHistory(); });
+  $("statement-history").addEventListener("click", (e) => {
+    if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
+    const t = e.target.closest("[data-aside]");
+    if (t && historyPlan) {
+      const i = Number(t.dataset.aside);
+      if (historyPlan.chosen.has(i)) historyPlan.chosen.delete(i); else historyPlan.chosen.add(i);
+      renderHistoryPlan();
+    }
+  });
+  $("statement-history").addEventListener("toggle", (e) => {
+    if (historyPlan && e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
+  }, true);
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
     if (all) openAllInboxItems(all);

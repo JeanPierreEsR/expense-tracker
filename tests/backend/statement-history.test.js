@@ -165,3 +165,58 @@ test("balances are not touched", () => {
   save(rt, stmts, p.actions, false);
   assert.equal(run(rt, "getAllRows('Account Opening Balances').length"), before);
 });
+
+test("a card charge with a payment word in its name is a purchase, not a transfer", () => {
+  const { rt, card, cardStmt } = setup();
+  const stmt = { ...cardStmt, lines: [{ date: "2019-03-14", description: "MDOPAGO*MERCADO PAGO LIMA PER", amount: -77.7, currency: "PEN" }] };
+  const s = plan(rt, [stmt]).summary;
+  assert.equal(s.counts.expenses, 1);
+  assert.equal(s.leftOut.waiting, 0);
+  assert.equal(card.type, "credit");
+});
+
+test("money from a person by Yape/Plin is set aside, not counted as income, and can be opted in", () => {
+  const { rt, savings, savingsStmt } = setup();
+  const stmt = { ...savingsStmt, lines: [
+    { date: "2019-03-02", description: "ABONO SUELDO", amount: 3000.13, currency: "PEN" },
+    { date: "2019-03-03", description: "Yape Ana Lo", amount: 50, currency: "PEN" },
+    { date: "2019-03-04", description: "ABON PLIN-ANA LO", amount: 31.3, currency: "PEN" },
+    { date: "2019-03-05", description: "Yape Ana Lo", amount: -19.9, currency: "PEN" }
+  ] };
+  const p = plan(rt, [stmt]);
+  assert.equal(p.summary.counts.income, 1, "only the salary");
+  assert.equal(p.summary.counts.expenses, 1, "paying a person is still spending");
+  assert.equal(p.summary.leftOut.fromPeople, 2);
+  const aside = p.summary.aside.filter((a) => a.reason === "person");
+  assert.equal(aside.length, 2);
+  assert.deepEqual(aside[0].optIn.type, "add_history_income");
+  // Opting one in: add its action, and the entry is a confirmed uncategorized income on the right account.
+  const res = save(rt, [stmt], p.actions.concat([aside[0].optIn]), false);
+  assert.equal(res.created.income, 2);
+  const mine = made(rt).filter((e) => e.type === "income" && Number(e.amount) === 50);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].status, "confirmed");
+  assert.equal(mine[0].payment_method_id, savings.id);
+});
+
+test("a payment received on a credit card is set aside with no way to count it as income", () => {
+  const { rt, cardStmt } = setup();
+  const stmt = { ...cardStmt, lines: [{ date: "2019-03-11", description: "PAGO DEUDA TOT APP", amount: 1234.56, currency: "PEN" }] };
+  const p = plan(rt, [stmt]);
+  assert.equal(p.summary.aside.length, 1);
+  assert.equal(p.summary.aside[0].optIn, null);
+  assert.equal(p.summary.counts.income, 0);
+});
+
+test("a waiting line can be opted in: it replaces the wait action, nothing is counted twice", () => {
+  const { rt, savingsStmt } = setup();
+  const stmt = { ...savingsStmt, lines: [{ date: "2019-03-28", description: "PPA PAGOS", amount: 4321.09, currency: "PEN" }] };
+  const p = plan(rt, [stmt]);
+  assert.equal(p.summary.leftOut.waiting, 1, "looks like a payment between accounts");
+  const a = p.summary.aside[0];
+  assert.equal(a.reason, "waiting");
+  const actions = p.actions.filter((x) => !(x.type === "wait" && x.stmt === a.stmt && x.line === a.line)).concat([a.optIn]);
+  const res = save(rt, [stmt], actions, false);
+  assert.equal(res.created.income, 1);
+  assert.equal(res.linesRemembered, 1, "the line is remembered once, as added");
+});

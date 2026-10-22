@@ -9,21 +9,41 @@
  *   - a bank fee → Bank fees; a line already in the app → just remembered (never duplicated);
  *   - a line that looks like a transfer or card payment but whose other statement is not here → left WAITING, so it
  *     pairs when that statement arrives (counting it now would count a card purchase twice later);
+ *   - a charge on a credit card is always a purchase, whatever words its name contains (MercadoPago, "…PAGO…");
+ *   - money received from a person by Yape/Plin → set aside, not income (a friend paying their share is not income);
+ *   - every line set aside is listed (`summary.aside`) so the person can opt one in (a salary deposit, for example);
  *   - a "possible match" to an existing entry → left alone (it may already be there);
  *   - a statement whose account is not in the app → skipped, and listed.
  * Balances are never touched here; the ordinary review does that.
  * Nothing in this file writes to the Sheet.
  */
 
+// Money that came in from a person by Yape or Plin ("Yape Ana Lo*", "PLIN-ANA"). Usually a friend paying their share, which
+// is never income (principle 2), so it is set aside rather than imported — the person can still opt a line in.
+function stmtFromPerson_(l) {
+  return l.amount > 0 && /\b(YAPE|PLIN)\b/i.test(String(l.description || ''));
+}
+
 /**
  * analysis: what analyzeStatements returned. Returns { actions, summary }.
  * `summary.counts` says how many of each; `summary.leftOut` what was not imported and why.
+ * `summary.aside` lists the lines set aside that the person might want anyway (a salary deposit whose wording looks like a
+ * payment, a purchase at a payment app, a friend's money that really was income); each carries `optIn`, the action that
+ * would import it, which replaces the `wait` action (if any) for that line.
  */
 function stmtHistoryPlan_(analysis) {
   var sts = analysis.statements || [];
   var actions = [];
+  var aside = [];
   var counts = { expenses: 0, income: 0, refunds: 0, transfers: 0, fees: 0, linked: 0, completed: 0 };
-  var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0 };
+  var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
+  function setAside(si, li, st, l, reason) {
+    // Money arriving on a credit card that looks like a payment is the card being paid — never income, so no opt-in.
+    var cardPaid = st.account.type === 'credit' && l.amount > 0 && reason === 'waiting';
+    aside.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
+      account: st.account.nickname, reason: reason,
+      optIn: cardPaid ? null : { type: l.amount > 0 ? 'add_history_income' : 'add_history_expense', stmt: si, line: li } });
+  }
   var spent = {};
   var unknownAccounts = {};
   var first = null, last = null;
@@ -68,9 +88,18 @@ function stmtHistoryPlan_(analysis) {
         return;
       }
       if (l.possible) { leftOut.possible++; return; }
-      if (l.waiting) {
+      // A charge on a credit card is never money moving between the person's own accounts (card payments arrive as credits),
+      // so "MDOPAGO*…" or "…PAGO…" in a merchant's name is just a purchase.
+      var cardCharge = st.account.type === 'credit' && l.amount < 0 && l.section !== 'payments';
+      if (l.waiting && !cardCharge) {
         actions.push({ type: 'wait', stmt: si, line: li });
         leftOut.waiting++;
+        setAside(si, li, st, l, 'waiting');
+        return;
+      }
+      if (stmtFromPerson_(l) && !l.reversal) {
+        leftOut.fromPeople++;
+        setAside(si, li, st, l, 'person');
         return;
       }
       if (!(Math.abs(l.amount) > 0)) return;
@@ -90,7 +119,7 @@ function stmtHistoryPlan_(analysis) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent,
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside,
       unknownAccounts: Object.keys(unknownAccounts),
       from: first, to: last,
       importable: counts.expenses + counts.income + counts.refunds + counts.transfers + counts.fees
