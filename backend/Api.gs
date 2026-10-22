@@ -117,7 +117,7 @@ function doPost(e) {
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
   createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
-  recordOverpaymentIncome: 1, recordOverpaymentExpense: 1,
+  recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
   exportData: 1   // a resend must not email the same files twice
 };
@@ -190,6 +190,7 @@ function routeAction(action, payload) {
     case 'deleteTrip': return deleteTrip(payload);
     case 'findTripCandidates': return findTripCandidates(payload);
     case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
+    case 'recordTripSettlement': return recordTripSettlement(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
@@ -494,6 +495,7 @@ function getMeta() {
   ensureInvestmentPlatforms_();
   ensureRailDefaults_();
   ensureAnnualTag_();
+  ensureAllTripGroupFriends_();
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),

@@ -110,6 +110,7 @@ function addTrip(payload) {
   var trip = cleanTripInput_(payload || {});
   trip.id = Utilities.getUuid();
   appendRowObject('Trips', trip);
+  ensureTripGroupFriend_(trip);
   return trip;
 }
 
@@ -124,6 +125,7 @@ function updateTrip(payload) {
     Object.keys(clean).forEach(function (key) { setCellByRow_(sheet, headers, rowIndex, key, clean[key]); });
   });
   clean.id = payload.id;
+  renameTripGroupFriend_(clean, payload.id);
   return clean;
 }
 
@@ -153,6 +155,7 @@ function deleteTrip(payload) {
         if (String(row[0]) === id) setCellByRow_(recSheet, recHeaders, i + 2, 'trip_id', '');
       });
     }
+    releaseTripGroupFriend_(id);
     deleteRowsWhere_('Trips', function (row) { return row.id === id; });
     deleteRowsWhere_('Budget Alert Log', function (r) { return r.budget_id === id && r.period === TRIP_ALERT_PERIOD_; });
   });
@@ -175,7 +178,8 @@ function tripExpenseRows_(onlyTripId) {
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     rows.push({
       entry: e, own: own, currency: e.currency,
-      ownMain: rate == null ? null : own * rate
+      ownMain: rate == null ? null : own * rate,
+      full: Number(e.amount), fullMain: rate == null ? null : Number(e.amount) * rate
     });
   });
   return rows;
@@ -370,7 +374,8 @@ function getTripDetail(payload) {
     byCategory: bucketToList_(byCategory, total, tr_('report.uncategorized')),
     byDay: Object.keys(byDay).sort().map(function (d) { return { date: d, amount_main: byDay[d] }; }),
     estimates: estimates,
-    unlinkedPayments: unlinkedPayments
+    unlinkedPayments: unlinkedPayments,
+    group: tripGroupBalance_(trip, cur)
   };
 }
 
@@ -555,4 +560,110 @@ function linkSuggestedTripOnTelegramConfirm_(entryId) {
   if (!suggested) return;                          // no trip, or two cover the date: no guess
   ensureEntriesTripColumn_();
   setEntryField_(entryId, 'trip_id', suggested);
+}
+
+
+// ---- Group settlement (Splitwise-style trips) ----
+// A trip has ONE hidden "group" friend (Friends.trip_id = the trip's id). What the owner fronted for the
+// group is split with that friend, so it becomes an ordinary loan and the trip still counts only the owner's
+// share. Money moving between the owner and the group is a normal repayment (never income or expense);
+// only what goes beyond any debt becomes a real expense (the owner paid the group more than was owed) —
+// linked to the trip — or income (the group paid more than was owed). See specs/trips-events.md.
+
+function ensureFriendsTripColumn_() {
+  ensureColumn_('Friends', 'trip_id');
+}
+
+function tripGroupName_(trip) {
+  return tr_('trip.groupName', { trip: tripDisplayName_(trip) });
+}
+
+// The group friend of a trip, created on first use. Reads the sheet uncached so a repeat call can't make a second.
+function ensureTripGroupFriend_(trip) {
+  ensureFriendsTripColumn_();
+  var found = getAllRows('Friends').find(function (f) { return f.trip_id === trip.id; });
+  if (found) return found;
+  var friend = { id: Utilities.getUuid(), name: tripGroupName_(trip), notes: '', trip_id: trip.id };
+  appendRowObject('Friends', friend);
+  return friend;
+}
+
+function ensureAllTripGroupFriends_() {
+  getTripRows_().forEach(function (t) { ensureTripGroupFriend_(t); });
+}
+
+function tripGroupFriend_(tripId) {
+  var sheet = getSheet('Friends');
+  if (getHeaders(sheet).indexOf('trip_id') === -1) return null;
+  return getAllRows('Friends').find(function (f) { return f.trip_id === tripId; }) || null;
+}
+
+function renameTripGroupFriend_(trip, tripId) {
+  var friend = tripGroupFriend_(tripId);
+  if (friend) updateRowFields_('Friends', friend.id, { name: tripGroupName_(trip) });
+}
+
+// Deleting a trip: a group friend with no loans goes away; one that still has a balance stays as an ordinary friend.
+function releaseTripGroupFriend_(tripId) {
+  var friend = tripGroupFriend_(tripId);
+  if (!friend) return;
+  var hasLoans = getAllRows('Loans').some(function (l) { return l.friend_id === friend.id; });
+  if (hasLoans) updateRowFields_('Friends', friend.id, { trip_id: '' });
+  else deleteRowsWhere_('Friends', function (row) { return row.id === friend.id; });
+}
+
+// The balance check: per currency what the group owes the owner (positive pending) or the owner owes it
+// (negative), from the group friend's loans. Plus, in the trip's currency, what the owner paid out of pocket.
+function tripGroupBalance_(trip, cur) {
+  var friend = tripGroupFriend_(trip.id);
+  var paidOut = 0, paidOutKnown = true;
+  tripExpenseRows_(trip.id).forEach(function (r) {
+    if (r.entry.paid_by !== 'me') return;
+    var amount = tripAmountIn_(cur, { currency: r.currency, own: r.full, ownMain: r.fullMain, entry: r.entry });
+    if (amount == null) paidOutKnown = false; else paidOut += amount;
+  });
+  var out = { friend_id: friend ? friend.id : '', paidOut: paidOut, paidOutKnown: paidOutKnown, rows: [] };
+  if (!friend) return out;
+  var settled = buildSettlementTotalsByLoan_();
+  var byCur = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.friend_id !== friend.id || l.status === 'forgiven') return;
+    var c = byCur[l.currency] || (byCur[l.currency] = { currency: l.currency, fronted: 0, borrowed: 0, pending: 0 });
+    var remaining = Number(l.amount) - (settled[l.id] || 0);
+    if (l.direction === 'they_owe_me') { c.fronted += Number(l.amount); c.pending += remaining; }
+    else { c.borrowed += Number(l.amount); c.pending -= remaining; }
+  });
+  out.rows = Object.keys(byCur).sort().map(function (k) {
+    byCur[k].pending = Math.round(byCur[k].pending * 100) / 100;
+    return byCur[k];
+  });
+  return out;
+}
+
+// "Group settlement": money that moved between the owner and the trip's group. direction 'received' = the
+// group paid the owner, 'paid' = the owner paid the group. It is a normal repayment with the group friend
+// (same engine, same linked transfer), so it never counts as income/expense — except the part beyond any debt:
+// an expense when the owner paid more than was owed (the share of what others paid), linked to this trip.
+function recordTripSettlement(payload) {
+  ensureTripsSheet_();
+  var trip = tripById_(String(payload.trip_id || ''));
+  if (!trip) throw new Error(tr_('trip.notFound'));
+  var friend = ensureTripGroupFriend_(trip);
+  var received = payload.direction === 'received';
+  if (!received && payload.direction !== 'paid') throw new Error(tr_('err.invalidDirection'));
+  var result = recordRepayment({
+    friend_id: friend.id,
+    direction: received ? 'they_owe_me' : 'i_owe_them',
+    amount: payload.amount,
+    date: payload.date,
+    currency: payload.currency || tripCurrency_(trip),
+    payment_method_id: payload.payment_method_id,
+    overpay_category_id: payload.overpay_category_id,
+    description: tr_(received ? 'trip.settlementReceived' : 'trip.settlementPaid', { trip: tripDisplayName_(trip) })
+  });
+  if (!received && result.overpayment_entry) {
+    ensureEntriesTripColumn_();
+    setEntryField_(result.overpayment_entry.id, 'trip_id', trip.id);
+  }
+  return result;
 }

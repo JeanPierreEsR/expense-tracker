@@ -37,7 +37,8 @@ var TABLE_DEFINITIONS = {
     'alias_kind', 'alias_auto', 'alias_show_last4', 'hidden'],
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
-  Friends: ['id', 'name', 'notes'],
+  // trip_id: set on a trip's hidden "group" friend (Trips.gs); self-heals via ensureFriendsTripColumn_.
+  Friends: ['id', 'name', 'notes', 'trip_id'],
   Payors: ['id', 'name', 'notes'],
   // transfer_entry_id (added 2026-09-23, self-heals via
   // ensureLoansTransferEntryColumn_ in Loans.gs): set for a `cash`-origin
