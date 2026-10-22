@@ -34,7 +34,6 @@ function stmtGroupAside_(aside) {
   var buckets = {};
   aside.forEach(function (a) {
     a.group = null;
-    if (!a.optIn) return;
     var words = String(a.description || '').toUpperCase().replace(/[0-9*._\-]+/g, ' ').replace(/\s+/g, ' ').trim();
     var k = [a.account, a.currency, a.amount > 0 ? 'in' : 'out', words].join('|');
     (buckets[k] = buckets[k] || []).push(a);
@@ -106,11 +105,21 @@ function stmtHistoryPlan_(analysis) {
   var counts = { expenses: 0, income: 0, refunds: 0, transfers: 0, fees: 0, linked: 0, completed: 0 };
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
   function setAside(si, li, st, l, reason) {
-    // Money arriving on a credit card that looks like a payment is the card being paid — never income, so no opt-in.
+    // Money arriving on a credit card that looks like a payment is the card being paid — never income, so no "count as
+    // income"; it can still be counted as a transfer (the other end is whatever account paid it).
     var cardPaid = st.account.type === 'credit' && l.amount > 0 && reason === 'waiting';
-    aside.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
+    var row = { stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency,
       account: st.account.nickname, reason: reason,
-      optIn: cardPaid ? null : { type: l.amount > 0 ? 'add_history_income' : 'add_history_expense', stmt: si, line: li } });
+      optIn: cardPaid ? null : { type: l.amount > 0 ? 'add_history_income' : 'add_history_expense', stmt: si, line: li },
+      // One side of a transfer whose other end is not in the app (yet): when that account's statement arrives, the open
+      // transfer is completed by its line (the existing "complete transfer" rule), so nothing is counted twice.
+      optInTransfer: { type: 'record_transfer_leg', stmt: si, line: li } };
+    // A line held back because it looks like an entry already in the app: say which one, so the person can judge.
+    if (reason === 'possible' && l.possible && l.possible.entry) {
+      var pe = l.possible.entry;
+      row.maybe = { date: pe.date, description: pe.description, amount: pe.amount, currency: pe.currency, account: pe.account };
+    }
+    aside.push(row);
   }
   var spent = {};
   var unknownAccounts = {};
@@ -156,12 +165,12 @@ function stmtHistoryPlan_(analysis) {
         counts.fees++;
         return;
       }
-      if (l.possible) { leftOut.possible++; return; }
+      if (l.possible) { leftOut.possible++; setAside(si, li, st, l, 'possible'); return; }
       // A charge on a credit card is never money moving between the person's own accounts (card payments arrive as credits),
       // so "MDOPAGO*…" or "…PAGO…" in a merchant's name is just a purchase.
       var cardCharge = st.account.type === 'credit' && l.amount < 0 && l.section !== 'payments';
       if (l.waiting && !cardCharge) {
-        actions.push({ type: 'wait', stmt: si, line: li });
+        if (!l.rememberedWaiting) actions.push({ type: 'wait', stmt: si, line: li });   // already remembered by an earlier upload
         leftOut.waiting++;
         setAside(si, li, st, l, 'waiting');
         return;

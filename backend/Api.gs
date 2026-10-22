@@ -119,7 +119,10 @@ var ONCE_ACTIONS_ = {
   createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
-  exportData: 1   // a resend must not email the same files twice
+  exportData: 1,   // a resend must not email the same files twice
+  // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
+  // next to the first (the lock below makes it wait, then get the first one's answer).
+  applyStatementDecisions: 1, undoStatementBatch: 1
 };
 
 function routeActionOnce_(action, payload) {

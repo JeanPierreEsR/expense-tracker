@@ -22,6 +22,8 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   record_transfer_leg { stmt, line }      ONE side of a transfer whose other end is not in the app: money out has From = this
+ *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
  *                    become two one-sided transfers (confirmed) — never spending or income
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
@@ -282,6 +284,21 @@ function applyStatementDecisions(payload) {
       if (madeOut) report.created.transfers++;
       if (madeIn) report.created.transfers++;
       remember(xo, 'recorded', outId); remember(xi, 'recorded', inId);
+    } else if (a.type === 'record_transfer_leg') {
+      // One side of a transfer whose other end is not in the app (yet). Money out: From = this account, To empty; money in:
+      // From empty, To = this account — the shape the Transfer tab makes by hand. When the other account's statement is
+      // uploaded later, its line COMPLETES this transfer (the matcher's open-transfer rule), so nothing is counted twice.
+      var tl = line(a); useLine(tl);
+      if (!(Math.abs(tl.l.amount) > 0)) throw new Error(tr_('sa.notTransferLeg'));
+      var tCat = catByName['transfer:Between Accounts'];
+      if (!tCat) throw new Error(tr_('sa.catMissingBetween'));
+      var tOut = tl.l.amount < 0;
+      var madeTL = newEntry({ type: 'transfer', date: tl.l.date, amount: Math.abs(tl.l.amount), currency: tl.l.currency, category_id: tCat,
+        description: tr_('desc.transferLeg', { text: stmtCleanDescription_(tl.l.description) }),
+        payment_method_id: tOut ? requirePm(tl).id : '', to_payment_method_id: tOut ? '' : requirePm(tl).id,
+        status: 'confirmed', external_id: 'stmt-' + tl.key });
+      if (madeTL) report.created.transfers++;
+      remember(tl, 'recorded', madeTL ? creations[creations.length - 1].id : '');
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
@@ -415,7 +432,8 @@ function applyStatementDecisions(payload) {
   report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
   report.gapsRecorded = gapOps.map(function (g) { return { account: g.pm.nickname, currency: g.currency, gap: g.gap, date: g.period_end }; });
   report.linesRemembered = outcomes.length;
-  report.batchEntries = creations.map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
+  report.batchEntries = creations.slice(0, 20).map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
+  report.batchEntriesTotal = creations.length;
   report.rateNeeds = stmtRateNeeds_(creations);
 
   if (dryRun) return report;
@@ -434,6 +452,7 @@ function applyStatementDecisions(payload) {
 
   var usheet = getSheet('Statement Uploads');
   var uheaders = getHeaders(usheet);
+  var newUploadRows = [];   // written in ONE call after the loop: a year of statements is dozens of rows
   uploadOps.forEach(function (op) {
     var closing = JSON.stringify(op.s.balances || {});
     var fields = { closing_json: closing, file_name: op.s.file_name || '', processed_at: today, batch_id: batchId,
@@ -448,7 +467,7 @@ function applyStatementDecisions(payload) {
       });
     } else {
       var newId = Utilities.getUuid();
-      appendRowObject('Statement Uploads', Object.assign({ id: newId, account_key: op.acctKey,
+      newUploadRows.push(Object.assign({ id: newId, account_key: op.acctKey,
         account_label: (accounts[op.si] ? accounts[op.si].nickname + ' …' + op.acctKey : op.acctKey),
         payment_method_id: accounts[op.si] ? accounts[op.si].id : '', kind: op.s.kind,
         period_start: (op.s.period || {}).start || '', period_end: op.s.period.end }, fields));
@@ -456,6 +475,7 @@ function applyStatementDecisions(payload) {
         old_value: '', new_value: '', created_at: now });
     }
   });
+  appendRowsBulk_('Statement Uploads', newUploadRows);
 
   // Balances: the newest balance prevails, so a statement only ever replaces an OLDER
   // snapshot (checked above). The replaced row is logged so undo can bring it back.
@@ -546,9 +566,9 @@ function undoStatementBatch(payload) {
   deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
 
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
-  changes.filter(function (c) { return c.sheet === 'Account Opening Balances'; }).forEach(function (c) {
-    if (c.field === '__created__') deleteRowsWhere_('Account Opening Balances', function (row) { return row.id === c.row_id; });
-  });
+  var createdBalanceIds = {};
+  changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__created__'; }).forEach(function (c) { createdBalanceIds[c.row_id] = true; });
+  if (Object.keys(createdBalanceIds).length) deleteRowsWhere_('Account Opening Balances', function (row) { return createdBalanceIds[row.id]; });
   changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__deleted__'; }).forEach(function (c) {
     try {
       var r = JSON.parse(c.old_value);
@@ -563,10 +583,9 @@ function undoStatementBatch(payload) {
   });
 
   // Statement Gaps: remove the notes this batch created.
-  changes.filter(function (c) { return c.sheet === 'Statement Gaps' && c.field === '__created__'; }).forEach(function (c) {
-    deleteRowsWhere_('Statement Gaps', function (row) { return row.id === c.row_id; });
-    res.gapsRemoved = (res.gapsRemoved || 0) + 1;
-  });
+  var createdGapIds = {};
+  changes.filter(function (c) { return c.sheet === 'Statement Gaps' && c.field === '__created__'; }).forEach(function (c) { createdGapIds[c.row_id] = true; res.gapsRemoved = (res.gapsRemoved || 0) + 1; });
+  if (Object.keys(createdGapIds).length) deleteRowsWhere_('Statement Gaps', function (row) { return createdGapIds[row.id]; });
 
   // Statement Lines: forget this batch's, restore what it replaced.
   var forgotten = getAllRows('Statement Lines').filter(function (r) { return r.batch_id === batchId; }).length;
@@ -585,15 +604,18 @@ function undoStatementBatch(payload) {
   // before this point can be tapped again. (Delete rows this batch created, restore rows it updated.)
   var usheet = getSheet('Statement Uploads');
   var uheaders = getHeaders(usheet);
+  var createdUploadIds = {};
   changes.filter(function (c) { return c.sheet === 'Statement Uploads'; }).forEach(function (c) {
     if (c.field === '__created__') {
-      deleteRowsWhere_('Statement Uploads', function (row) { return row.id === c.row_id; });
+      createdUploadIds[c.row_id] = true;
       res.uploadsRestored++;
     } else {
       var ri = findRowIndexById(usheet, uheaders, c.row_id);
       if (ri !== -1) setCellByRow_(usheet, uheaders, ri, c.field, c.old_value);
     }
   });
+  // One call for all of them (one per statement took ~1 s each on a real Sheet: 60 statements outlast the app's patience).
+  if (Object.keys(createdUploadIds).length) deleteRowsWhere_('Statement Uploads', function (row) { return createdUploadIds[row.id]; });
 
 
   deleteRowsWhere_('Import Batches', function (row) { return row.id === batchId; });

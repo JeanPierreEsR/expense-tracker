@@ -92,6 +92,9 @@ function stmtClassifyLine_(line) {
   return line.amount > 0 ? 'income' : 'expense';
 }
 
+// Created by a statement upload (its external_id is 'stmt-' + the line's key).
+function stmtFromStatement_(e) { return String(e.external_id || '').indexOf('stmt-') === 0; }
+
 /**
  * statements: [{ key, pmId, kind, lines: [{ date, description, amount, currency, section }] }]
  * entries:    Entries rows (any status)
@@ -167,6 +170,10 @@ function matchStatements_(statements, entries, opts) {
         // A transfer between two other accounts says nothing about this one —
         // this pass is for an income/expense logged under the wrong account.
         if (e.type === 'transfer') return;
+        // An entry an earlier statement upload created is tied to its OWN statement line: it is never "possibly" the same
+        // payment as a different line that merely shares the amount (found 2026-10-22: a PEN 10 card purchase was held back
+        // because another upload had made a PEN 10 entry on another account).
+        if (stmtFromStatement_(e)) return;
         var dd = Math.abs(stmtDayNumber_(e.date) - ld);
         if (dd > windowDays) return;
         var amt = Number(e.amount);
@@ -182,6 +189,7 @@ function matchStatements_(statements, entries, opts) {
       if (!r.possibleEntry && l.amount < 0) {
         entries.forEach(function (e) {
           if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency || e.type !== 'expense') return;
+          if (stmtFromStatement_(e)) return;
           if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
           var dd = Math.abs(stmtDayNumber_(e.date) - ld);
           if (dd > windowDays) return;
