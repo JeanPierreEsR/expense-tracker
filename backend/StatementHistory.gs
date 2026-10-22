@@ -53,7 +53,8 @@ function stmtGroupAside_(aside) {
 }
 
 /**
- * Pairs that look like a currency exchange: money leaving in one currency and arriving in another within 3 days, whose
+ * Pairs that look like a currency exchange: money leaving in one currency and arriving in another within 24 hours (the
+ * same day or the next — a statement line has a date, not a time; owner: "exchanges happen on a 24h window"), whose
  * amounts agree (within 15%) once both are converted with the rates ON FILE. Needs a rate for both currencies, so a person
  * with no rates gets no suggestions (the picker still works). Best pairs first, each line used once, at most 10.
  */
@@ -72,7 +73,7 @@ function stmtExchangeSuggestions_(candidates) {
     outs.forEach(function (o) {
       if (o.currency === i.currency) return;
       var gap = days(o.date, i.date);
-      if (gap > 3) return;
+      if (gap > 1) return;   // an exchange settles within 24 hours; statement lines carry a date, not a time, so same or next day
       var outMain = toMain(o, o.amount);
       if (outMain === null) return;
       var ratio = outMain / inMain;

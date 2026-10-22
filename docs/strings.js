@@ -1517,6 +1517,7 @@
     "hist.sum.exchanges": { en: { one: "{n} currency exchange (two transfers, not spending or income)", other: "{n} currency exchanges (two transfers each, not spending or income)" }, es: { one: "{n} cambio de moneda (dos transferencias, no cuenta como gasto ni ingreso)", other: "{n} cambios de moneda (dos transferencias cada uno, no cuentan como gasto ni ingreso)" } },
     "hist.aside.addAllIncome": { en: "Count all {n} as income", es: "Contar las {n} como ingreso" },
     "hist.aside.addAllExpense": { en: "Count all {n} as spending", es: "Contar las {n} como gasto" },
+    "hist.aside.showEach": { en: "Show the {n} lines, one by one", es: "Ver las {n} líneas, una por una" },
     "hist.aside.groupSub": { en: "{n} similar lines, {amounts} each · {account}", es: "{n} líneas parecidas, de {amounts} cada una · {account}" },
     "hist.xch.title": { en: "Currency exchange", es: "Cambio de moneda" },
     "hist.xch.hint": { en: "Changed money (for example PEN into USD)? It looks like one expense and one income. Link the two lines and they are recorded as an exchange instead, which counts as neither.", es: "¿Cambiaste dinero (por ejemplo, de PEN a USD)? Se ve como un gasto y un ingreso. Une las dos líneas y se registran como un cambio de moneda, que no cuenta como ninguno de los dos." },

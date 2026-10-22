@@ -487,6 +487,7 @@
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
       historyPlan.chosen = new Set();      // indexes into summary.aside the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
+      historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
       historyPlan.asideOpen = false;
       renderHistoryPlan();
     } catch (err) {
@@ -623,8 +624,17 @@
         const lo = Math.min(...amounts), hi = Math.max(...amounts);
         const range = lo === hi ? fmtMoney(a.currency, lo) : `${fmtMoney(a.currency, lo)} – ${fmtMoney(a.currency, hi).replace(/^[A-Z]{3} /, "")}`;
         const label = tr(a.amount > 0 ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n: members.length });
+        // The same lines one by one, for a person who does not want them decided together: each has its own button.
+        const single = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+        const each = members.map(({ m, mi }) => {
+          const on = chosen.has(mi);
+          return lineRow({ date: m.date, description: m.description, amount: m.amount, currency: m.currency },
+            `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${mi}">${on ? "✓ " : ""}${escapeHtml(single)}</button></div>`);
+        }).join("");
+        const opened = p.openGroups.has(a.group);
         return lineRow({ date: a.date, description: `${a.description} × ${members.length}`, amount: sum, currency: a.currency },
-          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${all ? "on" : ""}" data-agroup="${a.group}">${all ? "✓ " : ""}${escapeHtml(label)}</button></div>`);
+          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${all ? "on" : ""}" data-agroup="${a.group}">${all ? "✓ " : ""}${escapeHtml(label)}</button></div>
+            <details data-gopen="${a.group}" ${opened ? "open" : ""}><summary class="hint">${escapeHtml(tr("hist.aside.showEach", { n: members.length }))}</summary>${each}</details>`);
       }
       const on = chosen.has(i);
       const label = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
@@ -1255,6 +1265,10 @@
     if (!historyPlan) return;
     if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
     if (e.target.id === "statement-history-xch") historyPlan.xchOpen = e.target.open;
+    if (e.target.dataset && e.target.dataset.gopen) {
+      const g = Number(e.target.dataset.gopen);
+      if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);
+    }
   }, true);
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");

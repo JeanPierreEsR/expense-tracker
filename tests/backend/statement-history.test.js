@@ -247,6 +247,16 @@ test("a currency exchange looks like one expense and one income, and is suggeste
   assert.equal(after.summary.exchangeSuggestions[0].in.currency, "USD");
 });
 
+test("an exchange is only suggested within 24 hours: the same or the next day, not two days apart", () => {
+  const { rt, stmts } = exchangeSetup();
+  run(rt, `setExchangeRate('USD', '2019-03', 3.36)`);
+  assert.equal(plan(rt, stmts).summary.exchangeSuggestions.length, 1, "the next day is inside the window");
+  const later = [stmts[0], { ...stmts[1], lines: [{ ...stmts[1].lines[0], date: "2019-03-22" }] }];
+  assert.deepEqual(plan(rt, later).summary.exchangeSuggestions, [], "two days apart is not suggested");
+  const sameDay = [stmts[0], { ...stmts[1], lines: [{ ...stmts[1].lines[0], date: "2019-03-20" }] }];
+  assert.equal(plan(rt, sameDay).summary.exchangeSuggestions.length, 1, "the same day is");
+});
+
 test("an amount that does not fit the rate is not suggested", () => {
   const { rt, stmts } = exchangeSetup();
   run(rt, `setExchangeRate('USD', '2019-03', 5.5)`);
