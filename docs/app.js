@@ -321,7 +321,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
-  "recordOverpaymentIncome", "recordOverpaymentExpense", "addLoan", "addFriend", "addRecurringExpense",
+  "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "exportData"
 ]);
 
@@ -1066,7 +1066,7 @@ function populatePaidByOptions() {
     meOpt.textContent = tr("common.me");
     select.appendChild(meOpt);
 
-    meta.friends.forEach((f) => {
+    plainFriends_().forEach((f) => {
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = f.name;
@@ -1297,7 +1297,7 @@ function populateRepaymentFriendOptions_() {
   const select = document.getElementById("repayment-friend");
   const previous = select.value;
   select.innerHTML = "";
-  meta.friends.forEach((f) => {
+  plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = f.name;
@@ -1423,18 +1423,41 @@ function resetSplitState() {
 let splitFriendsExpanded = false;
 const SPLIT_FRIEND_MAX_ROWS = 3;
 
+// A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
+function isGroupFriend_(f) { return !!f.trip_id; }
+function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f)); }
+
+// The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
+function splitFriendsList_() {
+  const tripId = document.getElementById("entry-trip").value;
+  return meta.friends.filter((f) => !isGroupFriend_(f) || (tripId && f.trip_id === tripId));
+}
+
+// The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
+function syncSplitToTrip_() {
+  const ok = new Set(splitFriendsList_().map((f) => f.id));
+  Array.from(splitFriendIds).forEach((id) => {
+    if (!ok.has(id)) { splitFriendIds.delete(id); delete customSplitAmounts[id]; }
+  });
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+}
+
 function renderSplitFriendChips() {
   const container = document.getElementById("split-friend-chips");
   container.innerHTML = "";
-  const sorted = meta.friends
+  const eligible = splitFriendsList_();
+  document.getElementById("split-group-hint").hidden = !eligible.some(isGroupFriend_);
+  const sorted = eligible
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => (b.f.last_used || "").localeCompare(a.f.last_used || "") || a.i - b.i)
+    .sort((a, b) => (isGroupFriend_(b.f) - isGroupFriend_(a.f)) || (b.f.last_used || "").localeCompare(a.f.last_used || "") || a.i - b.i)
     .map((x) => x.f);
 
   const chips = sorted.map((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = f.name;
+    chip.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
     chip.addEventListener("click", () => {
       if (splitFriendIds.has(f.id)) {
         splitFriendIds.delete(f.id);
@@ -7745,10 +7768,11 @@ function autoPickTripForDate_() {
   if (sel.value === "" || followingAuto) {
     sel.value = target;
     tripAutoPickedId_ = target;
+    syncSplitToTrip_();
   }
 }
 
-document.getElementById("entry-trip").addEventListener("change", () => { tripAutoPickedId_ = ""; tripPickLocked_ = true; });
+document.getElementById("entry-trip").addEventListener("change", () => { tripAutoPickedId_ = ""; tripPickLocked_ = true; syncSplitToTrip_(); });
 document.getElementById("date").addEventListener("input", autoPickTripForDate_);
 document.getElementById("date").addEventListener("change", autoPickTripForDate_);
 
@@ -7756,6 +7780,7 @@ function setTripPick_(tripId) {
   const sel = document.getElementById("entry-trip");
   sel.value = tripId || "";
   if (sel.value !== (tripId || "")) sel.value = "";
+  syncSplitToTrip_();
 }
 
 let tripDetailId_ = null;
@@ -7923,12 +7948,129 @@ function renderTripDetail_(d) {
     <div id="trip-detail-missing-rates"></div>
     ${cats ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byCategory"))}</h3>${cats}` : ""}
     ${days ? `<h3 class="accounts-group-title">${escapeHtml(tr("trips.byDay"))}</h3>${days}` : ""}
+    <div id="trip-detail-group"></div>
     <div id="trip-detail-unlinked"></div>
     <div id="trip-detail-estimates"></div>
   `;
+  renderTripGroup_(d);
   renderTripUnlinked_(d);
   renderTripEstimates_(d);
   renderTripMissingRates_(d);
+}
+
+// Splitwise-style trips: the group's balance (what the owner fronted for the group, what is still to receive or
+// pay) and the "Group settlement" form. A settlement is a repayment with the trip's hidden group friend: it never
+// changes the trip total; only what goes beyond any debt becomes an expense (linked to this trip) or income.
+function renderTripGroup_(d) {
+  const box = document.getElementById("trip-detail-group");
+  const g = d.group;
+  if (!box || !g || !g.friend_id) return;
+  const cur = d.currency || homeCur();
+  const rows = g.rows.map((r) => {
+    const pending = Math.abs(r.pending) < 0.005 ? 0 : r.pending;
+    const status = pending === 0
+      ? tr("trips.groupSettled")
+      : tr(pending > 0 ? "trips.groupToReceive" : "trips.groupToPay", { cur: r.currency, amount: moneyFmt(Math.abs(pending)) });
+    return `<div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${escapeHtml(tr("trips.groupFronted", { cur: r.currency, amount: moneyFmt(r.fronted) }))}</div>
+      <div class="recurring-row-amount">${escapeHtml(status)}</div>
+    </div>`;
+  }).join("");
+  const paidLine = g.paidOutKnown && g.paidOut > 0.004
+    ? `<div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("trips.groupPaidOut"))}</div><div class="recurring-row-amount">${cur} ${moneyFmt(g.paidOut)}</div></div>
+       <div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("trips.groupShare"))}</div><div class="recurring-row-amount">${cur} ${moneyFmt(d.totalMain)}</div></div>`
+    : "";
+  box.innerHTML = `
+    <h3 class="accounts-group-title">${escapeHtml(tr("trips.groupTitle"))}</h3>
+    <p class="hint">${escapeHtml(tr("trips.groupHint"))}</p>
+    ${paidLine}${rows}
+    <button type="button" class="add-inline" id="trip-group-settle-btn">${escapeHtml(tr("trips.groupSettleBtn"))}</button>
+    <div id="trip-group-form" hidden></div>`;
+  document.getElementById("trip-group-settle-btn").addEventListener("click", () => {
+    const form = document.getElementById("trip-group-form");
+    if (!form.hidden) { form.hidden = true; return; }
+    form.hidden = false;
+    renderTripGroupForm_(form, d);
+  });
+}
+
+function renderTripGroupForm_(form, d) {
+  const cur = d.currency || homeCur();
+  const pending = (d.group.rows.find((r) => r.currency === cur) || { pending: 0 }).pending;
+  const methods = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  form.innerHTML = `
+    <div class="type-tabs budget-period-tabs" id="trip-group-dir">
+      <button type="button" class="type-tab${pending >= 0 ? " active" : ""}" data-dir="received">${escapeHtml(tr("trips.groupReceived"))}</button>
+      <button type="button" class="type-tab${pending < 0 ? " active" : ""}" data-dir="paid">${escapeHtml(tr("trips.groupPaid"))}</button>
+    </div>
+    <label>${escapeHtml(tr("trips.groupAmount", { cur }))}</label>
+    <input type="text" inputmode="decimal" id="trip-group-amount" placeholder="0.00" value="${Math.abs(pending) > 0.004 ? Math.abs(pending).toFixed(2) : ""}">
+    <label>${escapeHtml(tr("trips.groupDate"))}</label>
+    <input type="date" id="trip-group-date" value="${escapeHtml(todayLocalISO())}">
+    <label>${escapeHtml(tr("trips.groupAccount"))}</label>
+    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
+    <div id="trip-group-cat-block">
+      <label>${escapeHtml(tr("trips.groupCategory"))}</label>
+      <select id="trip-group-category"></select>
+      <p class="hint" id="trip-group-cat-hint"></p>
+    </div>
+    <p class="hint" id="trip-group-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="trip-group-save">${escapeHtml(tr("trips.groupSave"))}</button>`;
+  let dir = pending >= 0 ? "received" : "paid";
+  const catBlock = form.querySelector("#trip-group-cat-block");
+  const catSel = form.querySelector("#trip-group-category");
+  const fillCats = () => {
+    const type = dir === "paid" ? "expense" : "income";
+    populateCategoryOptionsForSelect_("trip-group-category", type);
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = tr("trips.groupCategoryLater");
+    catSel.insertBefore(none, catSel.firstChild);
+    catSel.value = "";
+    form.querySelector("#trip-group-cat-block label").textContent = tr(dir === "paid" ? "trips.groupCategory" : "trips.groupCategoryIncome");
+    form.querySelector("#trip-group-cat-hint").textContent = tr(dir === "paid" ? "trips.groupCategoryHint" : "trips.groupCategoryHintIncome");
+  };
+  fillCats();
+  catBlock.hidden = false;
+  form.querySelectorAll("#trip-group-dir .type-tab").forEach((tab) => tab.addEventListener("click", () => {
+    dir = tab.dataset.dir;
+    form.querySelectorAll("#trip-group-dir .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    fillCats();
+  }));
+  const amountEl = form.querySelector("#trip-group-amount");
+  amountEl.addEventListener("input", (e) => {
+    const clean = sanitizeAmountInputValue(e.target.value);
+    if (clean !== e.target.value) e.target.value = clean;
+  });
+  form.querySelector("#trip-group-save").addEventListener("click", async (ev) => {
+    const errEl = form.querySelector("#trip-group-error");
+    errEl.textContent = "";
+    const amount = parseFloat(amountEl.value);
+    if (!(amount > 0)) { errEl.textContent = tr("trips.groupAmountErr"); return; }
+    const btn = ev.target;
+    btn.disabled = true;
+    try {
+      const categoryId = catSel.value;
+      const result = await callApi("recordTripSettlement", {
+        trip_id: d.trip.id, direction: dir, amount, currency: cur,
+        date: form.querySelector("#trip-group-date").value || todayLocalISO(),
+        payment_method_id: form.querySelector("#trip-group-account").value,
+        overpay_category_id: categoryId
+      });
+      let note = tr("trips.groupSaved");
+      if (result.overpaid > 0.004) {
+        const isIncome = dir === "received";
+        note += tr((categoryId ? "repay.overpaidRecorded" : "repay.overpaidPending") + (isIncome ? "Income" : "Expense"), { cur: result.currency, amount: moneyFmt(result.overpaid) });
+        refreshReviewQueue().catch(() => {});
+      }
+      showFormNotice_(note);
+      refreshLoans().catch(() => {});
+      await refreshTripDetail_();
+    } catch (err) {
+      errEl.textContent = tr("trips.loadFailed", { error: err.message });
+      btn.disabled = false;
+    }
+  });
 }
 
 // Expenses that can't be converted yet: one "Set the rate" button per currency (at its earliest month, which
@@ -8450,7 +8592,7 @@ function resetRecurringSplitState() {
 function renderRecurringSplitFriendChips() {
   const container = document.getElementById("recurring-split-friend-chips");
   container.innerHTML = "";
-  meta.friends.forEach((f) => {
+  plainFriends_().forEach((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
     chip.textContent = f.name;
@@ -10547,7 +10689,7 @@ let loanModalReturnFriend = null;
 function populateLoanFriendOptions() {
   const select = document.getElementById("loan-friend");
   select.innerHTML = "";
-  meta.friends.forEach((f) => {
+  plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = f.name;
@@ -11151,7 +11293,7 @@ let reviewTransferMode = null; // "repay" | "loan"
 function populateReviewTransferFriendOptions() {
   const select = document.getElementById("review-transfer-friend");
   select.innerHTML = "";
-  meta.friends.forEach((f) => {
+  plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = f.name;
@@ -11783,7 +11925,7 @@ function syncBillTabs_() {
 function renderBillPeople_() {
   const box = document.getElementById("bill-people-chips");
   box.innerHTML = "";
-  const sorted = meta.friends.slice().sort((a, b) =>
+  const sorted = plainFriends_().sort((a, b) =>
     (billState.people.has(b.id) - billState.people.has(a.id)) || (b.last_used || "").localeCompare(a.last_used || ""));
   const LIMIT = 10;
   const shown = billShowAllFriends ? sorted : sorted.slice(0, Math.max(LIMIT, billState.people.size));

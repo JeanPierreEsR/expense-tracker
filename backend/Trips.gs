@@ -575,7 +575,7 @@ function ensureFriendsTripColumn_() {
 }
 
 function tripGroupName_(trip) {
-  return tr_('trip.groupName', { trip: tripDisplayName_(trip) });
+  return tr_('trip.groupName', { trip: trip.name });
 }
 
 // The group friend of a trip, created on first use. Reads the sheet uncached so a repeat call can't make a second.
