@@ -7999,10 +7999,14 @@ function renderTripGroupForm_(form, d) {
   const pending = (d.group.rows.find((r) => r.currency === cur) || { pending: 0 }).pending;
   const methods = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
   form.innerHTML = `
-    <div class="type-tabs budget-period-tabs" id="trip-group-dir">
-      <button type="button" class="type-tab${pending >= 0 ? " active" : ""}" data-dir="received">${escapeHtml(tr("trips.groupReceived"))}</button>
-      <button type="button" class="type-tab${pending < 0 ? " active" : ""}" data-dir="paid">${escapeHtml(tr("trips.groupPaid"))}</button>
-    </div>
+    <label>${escapeHtml(tr("trips.groupWhat"))}</label>
+    <select id="trip-group-dir">
+      <option value="received">${escapeHtml(tr("trips.groupReceived"))}</option>
+      <option value="paid">${escapeHtml(tr("trips.groupPaid"))}</option>
+      <option value="borrowed">${escapeHtml(tr("trips.groupBorrowed"))}</option>
+      <option value="lent">${escapeHtml(tr("trips.groupLent"))}</option>
+    </select>
+    <p class="hint" id="trip-group-dir-hint"></p>
     <label>${escapeHtml(tr("trips.groupAmount", { cur }))}</label>
     <input type="text" inputmode="decimal" id="trip-group-amount" placeholder="0.00" value="${Math.abs(pending) > 0.004 ? Math.abs(pending).toFixed(2) : ""}">
     <label>${escapeHtml(tr("trips.groupDate"))}</label>
@@ -8016,7 +8020,9 @@ function renderTripGroupForm_(form, d) {
     </div>
     <p class="hint" id="trip-group-error" style="color:#d64545;"></p>
     <button type="button" class="primary" id="trip-group-save">${escapeHtml(tr("trips.groupSave"))}</button>`;
-  let dir = pending >= 0 ? "received" : "paid";
+  const dirSel = form.querySelector("#trip-group-dir");
+  dirSel.value = pending >= 0 ? "received" : "paid";
+  let dir = dirSel.value;
   const catBlock = form.querySelector("#trip-group-cat-block");
   const catSel = form.querySelector("#trip-group-category");
   const fillCats = () => {
@@ -8029,14 +8035,12 @@ function renderTripGroupForm_(form, d) {
     catSel.value = "";
     form.querySelector("#trip-group-cat-block label").textContent = tr(dir === "paid" ? "trips.groupCategory" : "trips.groupCategoryIncome");
     form.querySelector("#trip-group-cat-hint").textContent = tr(dir === "paid" ? "trips.groupCategoryHint" : "trips.groupCategoryHintIncome");
+    // Cash lent or borrowed inside the group is a loan: no category (nothing goes beyond a debt).
+    catBlock.hidden = dir === "borrowed" || dir === "lent";
+    form.querySelector("#trip-group-dir-hint").textContent = tr("trips.groupHint." + dir);
   };
   fillCats();
-  catBlock.hidden = false;
-  form.querySelectorAll("#trip-group-dir .type-tab").forEach((tab) => tab.addEventListener("click", () => {
-    dir = tab.dataset.dir;
-    form.querySelectorAll("#trip-group-dir .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
-    fillCats();
-  }));
+  dirSel.addEventListener("change", () => { dir = dirSel.value; fillCats(); });
   const amountEl = form.querySelector("#trip-group-amount");
   amountEl.addEventListener("input", (e) => {
     const clean = sanitizeAmountInputValue(e.target.value);
@@ -8050,14 +8054,14 @@ function renderTripGroupForm_(form, d) {
     const btn = ev.target;
     btn.disabled = true;
     try {
-      const categoryId = catSel.value;
+      const categoryId = catBlock.hidden ? "" : catSel.value;
       const result = await callApi("recordTripSettlement", {
         trip_id: d.trip.id, direction: dir, amount, currency: cur,
         date: form.querySelector("#trip-group-date").value || todayLocalISO(),
         payment_method_id: form.querySelector("#trip-group-account").value,
         overpay_category_id: categoryId
       });
-      let note = tr("trips.groupSaved");
+      let note = tr(dir === "borrowed" || dir === "lent" ? "trips.groupCashSaved" : "trips.groupSaved");
       if (result.overpaid > 0.004) {
         const isIncome = dir === "received";
         note += tr((categoryId ? "repay.overpaidRecorded" : "repay.overpaidPending") + (isIncome ? "Income" : "Expense"), { cur: result.currency, amount: moneyFmt(result.overpaid) });

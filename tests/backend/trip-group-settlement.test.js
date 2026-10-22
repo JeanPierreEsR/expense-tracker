@@ -124,3 +124,24 @@ test("a normal friend's debt is separate from the group's", () => {
   rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: "2026-12-13", payment_method_id: pay });
   assert.equal(detail().group.rows[0].pending, 350, "Ana paying me directly does not touch the group");
 });
+
+test("cash borrowed from the group is a loan (not income); the final settlement nets it", () => {
+  const { rt, trip, pay, front, detail } = setup();
+  front("e1", 600, 350);   // the group owes me 350
+  rt.api("recordTripSettlement", { trip_id: trip.id, direction: "borrowed", amount: 100, date: "2026-12-12", payment_method_id: pay });
+  assert.equal(rt.rows("Entries").filter((e) => /Cash borrowed from the group/.test(e.description) && e.type === "income").length, 0, "never income");
+  let d = detail();
+  assert.equal(d.group.rows[0].borrowed, 100);
+  assert.equal(d.group.rows[0].pending, 250, "350 owed to me minus the 100 I owe");
+  rt.api("recordTripSettlement", { trip_id: trip.id, direction: "received", amount: 250, date: "2026-12-20", payment_method_id: pay });
+  d = detail();
+  assert.equal(d.group.rows[0].pending, 0);
+  assert.equal(d.totalMain, 250, "the trip total never moved");
+});
+
+test("cash lent to the group is the mirror image", () => {
+  const { rt, trip, pay, detail } = setup();
+  rt.api("recordTripSettlement", { trip_id: trip.id, direction: "lent", amount: 80, date: "2026-12-12", payment_method_id: pay });
+  assert.equal(detail().group.rows[0].pending, 80);
+  assert.equal(detail().group.rows[0].fronted, 80);
+});

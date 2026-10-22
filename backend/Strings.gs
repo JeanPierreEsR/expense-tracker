@@ -72,6 +72,8 @@ var BACKEND_STRINGS_ = {
   "trip.groupName": { en: "{trip} group", es: "Grupo {trip}" },
   "trip.settlementReceived": { en: "Group settlement received — {trip}", es: "Liquidación del grupo recibida — {trip}" },
   "trip.settlementPaid": { en: "Group settlement paid — {trip}", es: "Liquidación del grupo pagada — {trip}" },
+  "trip.cashBorrowed": { en: "Cash borrowed from the group — {trip}", es: "Efectivo prestado por el grupo — {trip}" },
+  "trip.cashLent": { en: "Cash lent to the group — {trip}", es: "Efectivo prestado al grupo — {trip}" },
   "trip.notFound": { en: "Trip or event not found", es: "No se encontró el viaje o evento" },
   "trip.errDates": { en: "Enter a start date and an end date (the end date can be the same day).", es: "Ingresa una fecha de inicio y una de fin (la de fin puede ser el mismo día)." },
   "trip.errEndBeforeStart": { en: "The end date can't be before the start date.", es: "La fecha de fin no puede ser anterior a la de inicio." },

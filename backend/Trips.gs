@@ -640,7 +640,8 @@ function tripGroupBalance_(trip, cur) {
   return out;
 }
 
-// "Group settlement": money that moved between the owner and the trip's group. direction 'received' = the
+// "Group settlement": money that moved between the owner and the trip's group. direction 'borrowed' / 'lent' = cash
+// loaned inside the group (a new loan); 'received' = the
 // group paid the owner, 'paid' = the owner paid the group. It is a normal repayment with the group friend
 // (same engine, same linked transfer), so it never counts as income/expense — except the part beyond any debt:
 // an expense when the owner paid more than was owed (the share of what others paid), linked to this trip.
@@ -649,6 +650,20 @@ function recordTripSettlement(payload) {
   var trip = tripById_(String(payload.trip_id || ''));
   if (!trip) throw new Error(tr_('trip.notFound'));
   var friend = ensureTripGroupFriend_(trip);
+  // Cash that changed hands INSIDE the group (borrowed from / lent to it) is a loan, not a repayment: the
+  // balance block then shows it, and the final settlement nets it like any other debt.
+  if (payload.direction === 'borrowed' || payload.direction === 'lent') {
+    var lent = payload.direction === 'lent';
+    return addLoan({
+      friend_id: friend.id,
+      direction: lent ? 'they_owe_me' : 'i_owe_them',
+      amount: payload.amount,
+      date: payload.date,
+      currency: payload.currency || tripCurrency_(trip),
+      payment_method_id: payload.payment_method_id,
+      description: tr_(lent ? 'trip.cashLent' : 'trip.cashBorrowed', { trip: tripDisplayName_(trip) })
+    });
+  }
   var received = payload.direction === 'received';
   if (!received && payload.direction !== 'paid') throw new Error(tr_('err.invalidDirection'));
   var result = recordRepayment({
