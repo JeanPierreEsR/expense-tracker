@@ -23,6 +23,9 @@
   let coverage = null;       // last listStatementCoverage result
   let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
+  // The password that last opened a statement, tried silently on the next ones (banks usually use one password for every
+  // file) so a dozen statements need typing it once. Memory only: forgotten when this screen is left, never stored.
+  let sessionPassword = null;
 
   // ---- helpers ----
 
@@ -54,6 +57,7 @@
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
   function showStatementsScreen() {
+    sessionPassword = null;
     document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-statements"; });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.screen === "more");
@@ -409,16 +413,22 @@
   async function readStatementFile(file) {
     const body = resultCardShell(file.name);
     let cancelled = false;
+    let triedSession = false, asked = false, typed = null;
     try {
       const pdfjs = await loadPdfjs();
       const data = new Uint8Array(await file.arrayBuffer());
       const rows = await StatementParsers.readPdfRows(pdfjs, data, {
         onPassword: async (reason) => {
-          const pw = await askStatementPassword(file.name, reason);
-          if (pw === null) cancelled = true;
+          // First ask of this file: the password that opened the last one, without bothering the person.
+          if (!triedSession && sessionPassword !== null) { triedSession = true; return sessionPassword; }
+          // The silent try failing is not the person's mistake, so the first prompt reads "protected", not "didn't work".
+          const pw = await askStatementPassword(file.name, triedSession && !asked ? 1 : reason);
+          asked = true;
+          if (pw === null) cancelled = true; else typed = pw;
           return pw;
         }
       });
+      if (typed !== null) sessionPassword = typed;   // it opened the file, so it is worth trying on the next one
       const result = StatementParsers.parseStatement(rows);
       renderResult(body, result, rows);
       if (result.kind && result.ok) {
@@ -427,6 +437,8 @@
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
         review = null;
+        historyPlan = null;
+        $("statement-history").innerHTML = "";
         $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>`;
         updateReviewButton();
       }
@@ -450,22 +462,283 @@
     $("statement-review-hint").textContent = tr("stmt.reviewHint");
   }
 
+  // What the server is sent for an analysis (never the file): each statement's account key, period, balances and lines.
+  function statementsForAnalysis() {
+    return usable.map(({ result }) => ({
+      key: accountKeyOf(result),
+      kind: result.kind,
+      period: result.period,
+      balances: result.balances,
+      verified: !!(result.ok && result.verified !== false),
+      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+    }));
+  }
+
+  // ---- "Fill my history": one approval for everything, no per-line choices (backend/StatementHistory.gs) ----
+
+  let historyPlan = null;   // { actions, summary } from planStatementHistory, for the statements read right now
+
+  async function runHistoryPlan() {
+    const btn = $("statement-history-btn");
+    const out = $("statement-history");
+    btn.disabled = true;
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("hist.planning"))}</p>`;
+    try {
+      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      historyPlan.chosen = new Set();      // indexes into summary.aside the person counted after all
+      historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
+      historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
+      historyPlan.asideOpen = false;
+      renderHistoryPlan();
+    } catch (err) {
+      historyPlan = null;
+      out.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("hist.planFailed"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function moneyTotals(spent) {
+    return Object.keys(spent).sort().map((cur) => fmtMoney(cur, spent[cur])).join(" + ");
+  }
+
+  // ---- the plan's actions, with the person's choices applied ----
+  // A set-aside line counted after all replaces its "wait" (if it had one) with the action that imports it; two lines linked
+  // as a currency exchange lose whatever action they had and become one `record_exchange`.
+  function lineKey(ref) { return `${ref.stmt}:${ref.line}`; }
+  function linkedKeys() {
+    const linked = {};
+    historyPlan.exchanges.forEach((x) => { linked[lineKey(x.out)] = true; linked[lineKey(x.in)] = true; });
+    return linked;
+  }
+
+  function historyActions() {
+    const p = historyPlan, aside = p.summary.aside || [];
+    const linked = linkedKeys();
+    const taken = {};
+    p.chosen.forEach((i) => { taken[lineKey(aside[i])] = true; });
+    const kept = p.actions.filter((a) => {
+      if (a.stmt === undefined) return true;                 // a transfer pair carries out/in instead of stmt/line
+      const k = lineKey(a);
+      return !linked[k] && !(a.type === "wait" && taken[k]);
+    });
+    const optIns = Array.from(p.chosen).map((i) => aside[i].optIn).filter((a) => !linked[lineKey(a)]);
+    const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
+    return kept.concat(optIns, exchanges);
+  }
+
+  // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
+  function historyCounts() {
+    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    historyActions().forEach((a) => {
+      if (a.type === "add_history_expense") {
+        const l = usable[a.stmt].result.lines[a.line];
+        c.expenses++;
+        c.spent[l.currency] = Math.round(((c.spent[l.currency] || 0) + Math.abs(l.amount)) * 100) / 100;
+      } else if (a.type === "add_history_income") c.income++;
+      else if (a.type === "add_history_reversal") c.refunds++;
+      else if (a.type === "record_transfer") c.transfers++;
+      else if (a.type === "record_exchange") c.exchanges++;
+      else if (a.type === "record_fee") c.fees++;
+      else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
+    });
+    c.entries = c.expenses + c.income + c.refunds + c.transfers + 2 * c.exchanges + c.fees;
+    return c;
+  }
+
+  // ---- currency exchange: two lines in different currencies recorded as an exchange, not an expense and an income ----
+
+  function pairTitle(out, inn) { return `${fmtMoney(out.currency, Math.abs(out.amount))} → ${fmtMoney(inn.currency, inn.amount)}`; }
+  function pairSub(out, inn) {
+    return `${escapeHtml(fmtDate(out.date))} “${escapeHtml(out.description)}” · ${escapeHtml(out.account)} / ${escapeHtml(fmtDate(inn.date))} “${escapeHtml(inn.description)}” · ${escapeHtml(inn.account)}`;
+  }
+  function candidateAt(ref) { return historyPlan.summary.candidates.find((c) => c.stmt === ref.stmt && c.line === ref.line); }
+
+  function exchangeHtml() {
+    const p = historyPlan, linked = linkedKeys();
+    const suggestions = (p.summary.exchangeSuggestions || []).map((s, i) => ({ s, i })).filter(({ s }) => !linked[lineKey(s.out)] && !linked[lineKey(s.in)]);
+    const done = p.exchanges.map((x, i) => {
+      const o = candidateAt(x.out), n = candidateAt(x.in);
+      return `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(pairTitle(o, n))}</div><div class="stmt-line-sub" style="padding-left:0">${pairSub(o, n)}</div>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice on" data-xunlink="${i}">✓ ${escapeHtml(tr("hist.xch.unlink"))}</button></div></div>`;
+    }).join("");
+    const suggested = suggestions.map(({ s, i }) =>
+      `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(pairTitle(s.out, s.in))}</div><div class="stmt-line-sub" style="padding-left:0">${pairSub(s.out, s.in)}</div>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" data-xlink="${i}">${escapeHtml(tr("hist.xch.link"))}</button></div></div>`).join("");
+    const open = p.xchOpen === undefined ? (suggestions.length > 0 || p.exchanges.length > 0) : p.xchOpen;
+    return `<details class="stmt-group" id="statement-history-xch" ${open ? "open" : ""}><summary>${escapeHtml(tr("hist.xch.title"))}${suggestions.length ? ` <span class="stmt-count">${suggestions.length}</span>` : ""}</summary>
+      <p class="hint">${escapeHtml(tr("hist.xch.hint"))}</p>${done}${suggested}
+      <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" data-xmanual="1">${escapeHtml(tr("hist.xch.manual"))}</button></div></details>`;
+  }
+
+  // The picker: first the line where money left, then the line where it arrived in another currency.
+  function openExchangePicker() {
+    const p = historyPlan, linked = linkedKeys();
+    const backdrop = $("statement-exchange-backdrop"), list = $("statement-exchange-list"), filter = $("statement-exchange-filter");
+    let step = 1, out = null, shown = [];
+    const close = () => { backdrop.hidden = true; list.onclick = null; filter.oninput = null; $("statement-exchange-cancel").onclick = null; };
+    const draw = () => {
+      const q = filter.value.trim().toLowerCase();
+      let items = p.summary.candidates.filter((c) => !linked[lineKey(c)] && (step === 1 ? c.amount < 0 : (c.amount > 0 && c.currency !== out.currency)));
+      if (q) items = items.filter((c) => `${c.description} ${c.account}`.toLowerCase().includes(q));
+      if (step === 1) items.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+      else items.sort((a, b) => Math.abs(new Date(a.date) - new Date(out.date)) - Math.abs(new Date(b.date) - new Date(out.date)));
+      shown = items.slice(0, 60);
+      $("statement-exchange-title").textContent = tr(step === 1 ? "hist.xch.pickOut" : "hist.xch.pickIn");
+      list.innerHTML = shown.length
+        ? shown.map((c, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${escapeHtml(fmtDate(c.date))} · ${escapeHtml(c.description)} · ${escapeHtml(fmtMoney(c.currency, c.amount))} · ${escapeHtml(c.account)}</button>`).join("")
+        : `<p class="hint">${escapeHtml(tr("hist.xch.none"))}</p>`;
+    };
+    list.onclick = (ev) => {
+      const b = ev.target.closest(".stmt-match-row");
+      if (!b) return;
+      const c = shown[Number(b.dataset.i)];
+      if (step === 1) { out = c; step = 2; filter.value = ""; draw(); return; }
+      p.exchanges.push({ out: { stmt: out.stmt, line: out.line }, in: { stmt: c.stmt, line: c.line } });
+      p.xchOpen = true;
+      close();
+      renderHistoryPlan();
+    };
+    filter.oninput = draw;
+    $("statement-exchange-cancel").onclick = close;
+    filter.value = "";
+    draw();
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  }
+
+  // ---- the set-aside lines: one row each, or one row for a run of similar lines (same wording, amount within 10%) ----
+
+  function asideHtml() {
+    const p = historyPlan, aside = p.summary.aside || [], chosen = p.chosen;
+    if (!aside.length) return "";
+    const rendered = {};
+    const rows = aside.map((a, i) => {
+      if (a.group) {
+        if (rendered[a.group]) return "";
+        rendered[a.group] = true;
+        const members = aside.map((m, mi) => ({ m, mi })).filter(({ m }) => m.group === a.group);
+        const all = members.every(({ mi }) => chosen.has(mi));
+        const amounts = members.map(({ m }) => Math.abs(m.amount));
+        const sum = members.reduce((t, { m }) => t + m.amount, 0);
+        const lo = Math.min(...amounts), hi = Math.max(...amounts);
+        const range = lo === hi ? fmtMoney(a.currency, lo) : `${fmtMoney(a.currency, lo)} – ${fmtMoney(a.currency, hi).replace(/^[A-Z]{3} /, "")}`;
+        const label = tr(a.amount > 0 ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n: members.length });
+        // The same lines one by one, for a person who does not want them decided together: each has its own button.
+        const single = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+        const each = members.map(({ m, mi }) => {
+          const on = chosen.has(mi);
+          return lineRow({ date: m.date, description: m.description, amount: m.amount, currency: m.currency },
+            `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${mi}">${on ? "✓ " : ""}${escapeHtml(single)}</button></div>`);
+        }).join("");
+        const opened = p.openGroups.has(a.group);
+        return lineRow({ date: a.date, description: `${a.description} × ${members.length}`, amount: sum, currency: a.currency },
+          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${all ? "on" : ""}" data-agroup="${a.group}">${all ? "✓ " : ""}${escapeHtml(label)}</button></div>
+            <details data-gopen="${a.group}" ${opened ? "open" : ""}><summary class="hint">${escapeHtml(tr("hist.aside.showEach", { n: members.length }))}</summary>${each}</details>`);
+      }
+      const on = chosen.has(i);
+      const label = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+      const button = a.optIn ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice ${on ? "on" : ""}" data-aside="${i}">${on ? "✓ " : ""}${escapeHtml(label)}</button></div>` : "";
+      return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${button}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-aside" ${p.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: aside.length }))}</summary>
+      <p class="hint">${escapeHtml(tr("hist.aside.hint"))}</p>${rows}</details>`;
+  }
+
+  function renderHistoryPlan() {
+    const out = $("statement-history");
+    const { actions, summary } = historyPlan;
+    const left = summary.leftOut, c = historyCounts();
+    const lines = [];
+    if (c.expenses) lines.push(tr("hist.sum.expenses", { n: c.expenses, total: moneyTotals(c.spent) }));
+    if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
+    if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
+    if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
+    if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
+    if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
+    if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
+    const notes = [];
+    if (left.fromPeople) notes.push(tr("hist.left.people", { n: left.fromPeople }));
+    if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
+    if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
+    if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
+    if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
+    if (!actions.length && !(summary.aside || []).length) {
+      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
+      return;
+    }
+    if (!c.entries) {
+      // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later.
+      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}
+        ${historyActions().length ? `<button type="button" class="stmt-choice" id="statement-history-save">${escapeHtml(tr("hist.remember"))}</button>` : ""}`;
+      return;
+    }
+    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
+    out.innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+      ${range}<p class="hint">${escapeHtml(tr("hist.noCategory"))}</p>${noteHtml}
+      <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
+  }
+
+  // Foreign-currency months the save created entries for that have no exchange rate of their own yet.
+  function rateNeedsHtml(needs) {
+    if (!needs || !needs.months || !needs.months.length) return "";
+    const list = needs.months.map((m) => `${m.currency} ${I18n.fmtMonthYear(new Date(`${m.month}-01T00:00:00`))}`).join(", ");
+    const none = needs.noRate && needs.noRate.length;
+    return `<p class="stmt-note warn">${escapeHtml(tr(none ? "hist.rates.none" : "hist.rates.some", { list: none ? needs.noRate.join(", ") : list }))}</p>`;
+  }
+
+  async function saveHistory() {
+    if (!historyPlan || !historyActions().length) return;
+    const btn = $("statement-history-save");
+    const status = $("statement-review-status");
+    const adding = historyCounts().entries;
+    if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
+    btn.disabled = true;
+    status.innerHTML = `<p class="hint">${escapeHtml(tr("hist.saving"))}</p>`;
+    const payload = (dryRun) => ({
+      dryRun,
+      filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
+      statements: usable.map(({ file, result }) => ({
+        key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+      })),
+      inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
+      actions: historyActions()
+    });
+    try {
+      await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
+      const res = await callApi("applyStatementDecisions", payload(false));
+      lastBatchId = res.batchId;
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
+      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
+        ${rateNeedsHtml(res.rateNeeds)}
+        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
+      review = null;
+      $("statement-review").innerHTML = "";
+      coverage = null;
+      refreshStatementCoverage();
+      refreshStatementGaps();
+      refreshStatementBatches();
+      refreshStatementInbox();
+      refreshOtherScreens();
+    } catch (err) {
+      status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      btn.disabled = false;
+    }
+  }
+
   async function runReview() {
     const btn = $("statement-review-btn");
     const out = $("statement-review");
     btn.disabled = true;
     out.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.comparing"))}</p>`;
     try {
-      const analysis = await callApi("analyzeStatements", {
-        statements: usable.map(({ result }) => ({
-          key: accountKeyOf(result),
-          kind: result.kind,
-          period: result.period,
-          balances: result.balances,
-          verified: !!(result.ok && result.verified !== false),
-          lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
-        }))
-      });
+      const analysis = await callApi("analyzeStatements", { statements: statementsForAnalysis() });
       review = null;
       renderReview(analysis);
     } catch (err) {
@@ -889,6 +1162,8 @@
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.savedPressReview"))}</p>`;
       review = null;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
@@ -917,6 +1192,8 @@
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
       lastBatchId = null;
       review = null;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
       $("statement-review").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
@@ -943,18 +1220,56 @@
   }
 
   // exposed for testing in the browser
-  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; } };
+  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, runHistoryPlan, saveHistory, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; }, setUsable: (u) => { usable = u; historyPlan = null; updateReviewButton(); } };
 
   // ---- wiring ----
 
   $("more-statements-btn").addEventListener("click", showStatementsScreen);
-  $("statements-back-btn").addEventListener("click", () => showScreen("more"));
+  $("statements-back-btn").addEventListener("click", () => { sessionPassword = null; showScreen("more"); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
   });
   $("statement-review-btn").addEventListener("click", runReview);
+  $("statement-history-btn").addEventListener("click", runHistoryPlan);
+  $("statement-history").addEventListener("click", (e) => {
+    if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
+    if (!historyPlan) return;
+    const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
+    const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
+    const aside = historyPlan.summary.aside || [];
+    if (one) {
+      const i = Number(one.dataset.aside);
+      if (historyPlan.chosen.has(i)) historyPlan.chosen.delete(i); else historyPlan.chosen.add(i);
+    } else if (grp) {
+      // One tap for a run of similar lines: all on, or (when all were on) all off.
+      const idx = aside.map((a, i) => (a.group === Number(grp.dataset.agroup) ? i : -1)).filter((i) => i >= 0);
+      const allOn = idx.every((i) => historyPlan.chosen.has(i));
+      idx.forEach((i) => { if (allOn) historyPlan.chosen.delete(i); else historyPlan.chosen.add(i); });
+    } else if (link) {
+      const s = historyPlan.summary.exchangeSuggestions[Number(link.dataset.xlink)];
+      historyPlan.exchanges.push({ out: { stmt: s.out.stmt, line: s.out.line }, in: { stmt: s.in.stmt, line: s.in.line } });
+      historyPlan.xchOpen = true;
+    } else if (unlink) {
+      historyPlan.exchanges.splice(Number(unlink.dataset.xunlink), 1);
+    } else if (manual) {
+      openExchangePicker();
+      return;
+    } else {
+      return;
+    }
+    renderHistoryPlan();
+  });
+  $("statement-history").addEventListener("toggle", (e) => {
+    if (!historyPlan) return;
+    if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
+    if (e.target.id === "statement-history-xch") historyPlan.xchOpen = e.target.open;
+    if (e.target.dataset && e.target.dataset.gopen) {
+      const g = Number(e.target.dataset.gopen);
+      if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);
+    }
+  }, true);
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
     if (all) openAllInboxItems(all);

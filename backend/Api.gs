@@ -285,6 +285,7 @@ function routeAction(action, payload) {
     case 'dismissStatement': return dismissStatement(payload);
     case 'admin_scanStatementInbox': return scanStatementInbox_();
     case 'analyzeStatements': return analyzeStatements(payload);
+    case 'planStatementHistory': return planStatementHistory(payload);
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();

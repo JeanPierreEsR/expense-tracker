@@ -693,7 +693,7 @@
 
       <div class="card" id="statement-inbox-card">
         <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
-        <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password each time.</p>
+        <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
         <div id="statement-inbox-list"></div>
       </div>
 
@@ -708,9 +708,14 @@
       </div>
 
       <div class="card" id="statement-review-card" hidden>
-        <h2 style="margin-top:0;" data-i18n="stmt.review">Review</h2>
+        <h2 style="margin-top:0;" data-i18n="hist.title">Fill my history</h2>
+        <p class="hint" data-i18n="hist.hint">For the past: adds everything these statements show as confirmed entries, with no categories or descriptions to fill in. A payment between your own accounts is recorded once. Nothing is saved until you tap the button, and you can undo it in one step.</p>
+        <button type="button" class="primary" id="statement-history-btn" data-i18n="hist.button">📚 Fill my history</button>
+        <div id="statement-history"></div>
+        <h2 style="margin-top:22px;" data-i18n="stmt.review">Review</h2>
+        <p class="hint" data-i18n="hist.orReview">Or decide line by line:</p>
         <p class="hint" id="statement-review-hint"></p>
-        <button type="button" class="primary" id="statement-review-btn" data-i18n="stmt.review">Review</button>
+        <button type="button" class="stmt-choice" id="statement-review-btn" data-i18n="stmt.review">Review</button>
         <div id="statement-review"></div>
         <div id="statement-review-status"></div>
       </div>
@@ -1980,6 +1985,15 @@
     </div>
   </div>
 
+  <div id="statement-exchange-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header"><span id="statement-exchange-title"></span></div>
+      <input type="text" id="statement-exchange-filter" data-i18n-placeholder="hist.xch.filter" placeholder="Search the description or account" autocomplete="off" style="margin:6px 0;">
+      <div class="currency-option-list" id="statement-exchange-list"></div>
+      <button type="button" class="cancel-edit-btn" id="statement-exchange-cancel" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+
   <div id="statement-match-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header"><span data-i18n="stmt.whichEntry">Which entry is this?</span></div>
@@ -1997,7 +2011,7 @@
       <p class="hint" id="statement-password-file" style="margin:8px 0 0;"></p>
       <p class="hint" id="statement-password-msg" style="margin:4px 0 8px;"></p>
       <input type="password" id="statement-password-input" data-i18n-placeholder="stmt.passwordPlaceholder" placeholder="Password" autocomplete="off">
-      <p class="hint" style="margin:6px 0 10px;" data-i18n="stmt.passwordHint">Asked every time; it is never saved.</p>
+      <p class="hint" style="margin:6px 0 10px;" data-i18n="stmt.passwordHint">It is tried on your other statements too, so you type it once. It is only kept in memory while you stay on this screen — never saved.</p>
       <button type="button" class="primary" id="statement-password-ok" data-i18n="stmt.open">Open</button>
       <button type="button" class="cancel-edit-btn" id="statement-password-cancel" data-i18n="stmt.skipFile">Skip this file</button>
     </div>

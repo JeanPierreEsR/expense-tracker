@@ -444,7 +444,7 @@ function analyzeStatements(payload) {
     });
     return {
       key: s.key, kind: s.kind, period: s.period,
-      account: pm ? { id: pm.id, nickname: pm.nickname } : null,
+      account: pm ? { id: pm.id, nickname: pm.nickname, type: pm.type } : null,
       lines: lines
     };
   });
