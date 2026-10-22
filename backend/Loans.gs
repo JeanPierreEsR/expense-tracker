@@ -293,6 +293,7 @@ function deleteRowsWhere_(sheetName, predicate) {
   if (lastRow < 2) return;
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var deleted = [];
+  var rowNumbers = [];   // sheet rows to remove, highest first
   var tz = Session.getScriptTimeZone();
   for (var i = values.length - 1; i >= 0; i--) {
     var obj = {};
@@ -302,7 +303,17 @@ function deleteRowsWhere_(sheetName, predicate) {
       var v = values[i][idx];
       obj[h] = (v instanceof Date && DATE_FIELD_FORMATS[h]) ? Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]) : v;
     });
-    if (predicate(obj)) { sheet.deleteRow(i + 2); deleted.push(obj); }
+    if (predicate(obj)) { rowNumbers.push(i + 2); deleted.push(obj); }
+  }
+  // Rows that sit together go in ONE call. Deleting 180 entries one by one took minutes on a real Sheet (each call is a round
+  // trip to Google), longer than the app waits — an "Undo" of a statement upload stopped half-way (found 2026-10-22). Highest
+  // block first, so the numbers of the blocks still to delete do not move.
+  var k = 0;
+  while (k < rowNumbers.length) {
+    var top = rowNumbers[k], bottom = top, count = 1;
+    while (k + count < rowNumbers.length && rowNumbers[k + count] === bottom - 1) { bottom--; count++; }
+    sheet.deleteRows(bottom, count);
+    k += count;
   }
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;

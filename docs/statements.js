@@ -1187,6 +1187,10 @@
 
   async function undoBatch(batchId) {
     if (!confirm(tr("stmt.confirmUndo"))) return;
+    // Show that something is happening and stop a second tap: a second Undo running at the same time was never meant to be.
+    const buttons = Array.from(document.querySelectorAll("#stmt-undo-btn, .stmt-undo-row"));
+    buttons.forEach((b) => { b.disabled = true; });
+    $("statement-review-status").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.undoing"))}</p>`;
     try {
       const r = await callApi("undoStatementBatch", { batchId });
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
@@ -1201,7 +1205,11 @@
       refreshStatementBatches();
       refreshOtherScreens();
     } catch (err) {
-      alert(tr("stmt.undoFailed", { error: err.message }));
+      // The server may still be working (or have stopped part-way): say so, and show what Recent uploads says now.
+      $("statement-review-status").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.undoFailed", { error: err.message }))}</p><p class="hint">${escapeHtml(tr("stmt.undoCheck"))}</p>`;
+      buttons.forEach((b) => { b.disabled = false; });
+      refreshStatementBatches();
+      refreshOtherScreens();
     }
   }
 

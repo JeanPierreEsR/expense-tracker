@@ -69,8 +69,8 @@ function maybeDate(v) {
 // here understates the real app. What carries over is the AMOUNT of sheet work:
 // each read call and each cell read is counted, and a request that does 10x the
 // reads will be roughly 10x slower on the real sheet too.
-const stats = { reads: 0, cellsRead: 0, writes: 0, cellsWritten: 0 };
-function resetStats() { stats.reads = 0; stats.cellsRead = 0; stats.writes = 0; stats.cellsWritten = 0; }
+const stats = { reads: 0, cellsRead: 0, writes: 0, cellsWritten: 0, rowDeletes: 0 };
+function resetStats() { stats.reads = 0; stats.cellsRead = 0; stats.writes = 0; stats.cellsWritten = 0; stats.rowDeletes = 0; }
 
 class FakeRange {
   constructor(sheet, row, col, nrows, ncols) {
@@ -120,8 +120,9 @@ class FakeSheet {
   appendRow(values) {
     this._write(this.rows.length + 1, 1, [values]);
   }
-  deleteRow(r) { this.rows.splice(r - 1, 1); }
-  deleteRows(r, n) { this.rows.splice(r - 1, n); }
+  // Each call is one round trip to Google on the real thing (~0.1-0.3 s), which is why they are counted.
+  deleteRow(r) { stats.rowDeletes++; this.rows.splice(r - 1, 1); }
+  deleteRows(r, n) { stats.rowDeletes++; this.rows.splice(r - 1, n); }
   clear() { this.rows = []; this.lastCol = 0; }
   _norm(v, col) {
     if (v === undefined || v === null) return "";

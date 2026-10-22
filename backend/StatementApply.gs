@@ -539,18 +539,11 @@ function undoStatementBatch(payload) {
   });
   if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
 
-  // Statement Uploads: delete rows this batch created, restore rows it updated.
-  var usheet = getSheet('Statement Uploads');
-  var uheaders = getHeaders(usheet);
-  changes.filter(function (c) { return c.sheet === 'Statement Uploads'; }).forEach(function (c) {
-    if (c.field === '__created__') {
-      deleteRowsWhere_('Statement Uploads', function (row) { return row.id === c.row_id; });
-      res.uploadsRestored++;
-    } else {
-      var ri = findRowIndexById(usheet, uheaders, c.row_id);
-      if (ri !== -1) setCellByRow_(usheet, uheaders, ri, c.field, c.old_value);
-    }
-  });
+  // The entries this upload created go FIRST: it is the slow part, and the upload stays in "Recent uploads" (its Statement
+  // Uploads row) until everything is done, so an Undo that is cut short can simply be tapped again. It used to remove the
+  // bookkeeping first, and a cut-short Undo left the entries behind with no way back (found 2026-10-22).
+  res.deletedEntries = getAllRows('Entries').filter(function (e) { return e.import_batch_id === batchId; }).length;
+  deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
 
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   changes.filter(function (c) { return c.sheet === 'Account Opening Balances'; }).forEach(function (c) {
@@ -559,6 +552,11 @@ function undoStatementBatch(payload) {
   changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__deleted__'; }).forEach(function (c) {
     try {
       var r = JSON.parse(c.old_value);
+      // An Undo that is tapped again after being cut short must not bring the same balance back twice.
+      var there = getAllRows('Account Opening Balances').some(function (o) {
+        return o.payment_method_id === r.payment_method_id && String(o.currency).toUpperCase() === String(r.currency).toUpperCase() && String(o.date).substring(0, 10) === String(r.date).substring(0, 10);
+      });
+      if (there) return;
       addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''));
       res.balancesRestored = (res.balancesRestored || 0) + 1;
     } catch (e) { /* unreadable — leave */ }
@@ -578,10 +576,26 @@ function undoStatementBatch(payload) {
   changes.filter(function (c) { return c.sheet === 'Statement Lines' && c.field === '__deleted__'; }).forEach(function (c) {
     try { restore.push(JSON.parse(c.old_value)); } catch (e) { /* skip unreadable */ }
   });
-  appendRowsBulk_('Statement Lines', restore);
+  // (a retried Undo must not bring the same remembered line back twice)
+  var present = {};
+  getAllRows('Statement Lines').forEach(function (r) { present[r.line_key] = true; });
+  appendRowsBulk_('Statement Lines', restore.filter(function (r) { return !present[r.line_key]; }));
 
-  res.deletedEntries = getAllRows('Entries').filter(function (e) { return e.import_batch_id === batchId; }).length;
-  deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
+  // Statement Uploads LAST: while its row is there the upload is still listed in Recent uploads, so an Undo cut short
+  // before this point can be tapped again. (Delete rows this batch created, restore rows it updated.)
+  var usheet = getSheet('Statement Uploads');
+  var uheaders = getHeaders(usheet);
+  changes.filter(function (c) { return c.sheet === 'Statement Uploads'; }).forEach(function (c) {
+    if (c.field === '__created__') {
+      deleteRowsWhere_('Statement Uploads', function (row) { return row.id === c.row_id; });
+      res.uploadsRestored++;
+    } else {
+      var ri = findRowIndexById(usheet, uheaders, c.row_id);
+      if (ri !== -1) setCellByRow_(usheet, uheaders, ri, c.field, c.old_value);
+    }
+  });
+
+
   deleteRowsWhere_('Import Batches', function (row) { return row.id === batchId; });
   deleteRowsWhere_('Statement Changes', function (row) { return row.batch_id === batchId; });
   return res;
