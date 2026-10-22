@@ -1614,6 +1614,8 @@
     "stmt.nothingSaved": { en: "✗ Nothing was saved", es: "✗ No se guardó nada" },
     "stmt.confirmUndo": { en: "Undo this upload? The entries it created are deleted, the changes it made are reverted, and its statements are un-marked as processed.", es: "¿Deshacer esta carga? Los movimientos que creó se eliminan, los cambios que hizo se revierten y sus estados de cuenta se desmarcan como procesados." },
     "stmt.undone": { en: "↩ Undone — entries removed: {n}, changes reverted: {r}.", es: "↩ Deshecho: movimientos eliminados: {n}, cambios revertidos: {r}." },
+    "stmt.undoing": { en: "Undoing… this can take a few seconds. Keep this screen open.", es: "Deshaciendo… puede tardar unos segundos. Deja esta pantalla abierta." },
+    "stmt.undoCheck": { en: "The undo may still be finishing. Wait a minute, then look at Recent uploads: if the upload is still listed, tap Undo again.", es: "Puede que el deshacer siga terminando. Espera un minuto y mira Cargas recientes: si la carga sigue en la lista, vuelve a tocar Deshacer." },
     "stmt.undoFailed": { en: "Couldn't undo: {error}", es: "No se pudo deshacer: {error}" },
     "stmt.batchCounts": { en: "Entries created: {n} · changed: {c}", es: "Movimientos creados: {n} · modificados: {c}" },
     "stmt.undo": { en: "Undo", es: "Deshacer" },
