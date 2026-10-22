@@ -213,6 +213,7 @@ var BACKEND_STRINGS_ = {
   "sa.unknownExpenseCat": { en: "Unknown expense category", es: "Categoría de gasto desconocida" },
   "sa.incomeIn": { en: "Income must be money coming in", es: "Un ingreso debe ser dinero que entra" },
   "sa.unknownIncomeCat": { en: "Unknown income category", es: "Categoría de ingreso desconocida" },
+  "sa.notExchange": { en: "A currency exchange needs one line of money leaving and one of money arriving, in different currencies", es: "Un cambio de moneda necesita una línea de dinero que sale y otra de dinero que llega, en monedas distintas" },
   "sa.reversalIn": { en: "A refund must be money coming back", es: "Un reembolso debe ser dinero que vuelve" },
   "sa.chargeNotFound": { en: "The charge to cancel was not found", es: "No se encontró el cargo a cancelar" },
   "sa.onlyExpenseCancel": { en: "Only an expense can be canceled by a refund", es: "Solo un gasto se puede anular con un reembolso" },
@@ -250,6 +251,8 @@ var BACKEND_STRINGS_ = {
   "desc.forgave": { en: "Forgave {name}'s debt", es: "Perdoné la deuda de {name}" },
   "desc.forgaveMe": { en: "{name} forgave a debt I owed them", es: "{name} me perdonó una deuda" },
   "desc.transfer": { en: "Transfer {from} → {to}", es: "Transferencia {from} → {to}" },
+  "desc.exchangeOut": { en: "Currency exchange: {cur} sent", es: "Cambio de moneda: salida de {cur}" },
+  "desc.exchangeIn": { en: "Currency exchange: {cur} received", es: "Cambio de moneda: entrada de {cur}" },
   "desc.reversal": { en: "Refund: {text}", es: "Reembolso: {text}" },
 
   // ---- report ----

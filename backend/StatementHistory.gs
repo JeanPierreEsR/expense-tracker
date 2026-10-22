@@ -25,6 +25,73 @@ function stmtFromPerson_(l) {
 }
 
 /**
+ * Lines set aside that are the same thing again and again (a salary deposit every month) get one shared `group`, so the
+ * person counts them all with one tap. Same account, same currency, same direction, same wording (digits ignored) AND an
+ * amount within 10% — "sometimes it has the same description but is another thing" (owner, 2026-10-22). Only lines with an
+ * opt-in are grouped; `group` is a number shared by 2 or more lines, otherwise null.
+ */
+function stmtGroupAside_(aside) {
+  var buckets = {};
+  aside.forEach(function (a) {
+    a.group = null;
+    if (!a.optIn) return;
+    var words = String(a.description || '').toUpperCase().replace(/[0-9*._\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    var k = [a.account, a.currency, a.amount > 0 ? 'in' : 'out', words].join('|');
+    (buckets[k] = buckets[k] || []).push(a);
+  });
+  var gid = 0;
+  Object.keys(buckets).forEach(function (k) {
+    var list = buckets[k].slice().sort(function (x, y) { return Math.abs(x.amount) - Math.abs(y.amount); });
+    var i = 0;
+    while (i < list.length) {
+      var anchor = Math.abs(list[i].amount), j = i + 1;
+      while (j < list.length && Math.abs(list[j].amount) <= anchor * 1.1) j++;
+      if (j - i >= 2) { gid++; for (var m = i; m < j; m++) list[m].group = gid; }
+      i = j;
+    }
+  });
+}
+
+/**
+ * Pairs that look like a currency exchange: money leaving in one currency and arriving in another within 3 days, whose
+ * amounts agree (within 15%) once both are converted with the rates ON FILE. Needs a rate for both currencies, so a person
+ * with no rates gets no suggestions (the picker still works). Best pairs first, each line used once, at most 10.
+ */
+function stmtExchangeSuggestions_(candidates) {
+  var outs = candidates.filter(function (c) { return c.amount < 0; });
+  var ins = candidates.filter(function (c) { return c.amount > 0; });
+  function toMain(c, amt) {
+    var r = getLatestRateOnOrBefore_(c.currency, String(c.date).substring(0, 7));
+    return r === null || r === undefined ? null : Math.abs(amt) * r;
+  }
+  function days(a, b) { return Math.abs(Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000)); }
+  var pairs = [];
+  ins.forEach(function (i) {
+    var inMain = toMain(i, i.amount);
+    if (inMain === null || inMain < 20) return;
+    outs.forEach(function (o) {
+      if (o.currency === i.currency) return;
+      var gap = days(o.date, i.date);
+      if (gap > 3) return;
+      var outMain = toMain(o, o.amount);
+      if (outMain === null) return;
+      var ratio = outMain / inMain;
+      if (ratio < 0.85 || ratio > 1.15) return;
+      pairs.push({ out: o, in: i, gap: gap, off: Math.abs(ratio - 1) });
+    });
+  });
+  pairs.sort(function (x, y) { return (x.gap - y.gap) || (x.off - y.off); });
+  var usedOut = {}, usedIn = {}, result = [];
+  pairs.forEach(function (p) {
+    var ko = p.out.stmt + ':' + p.out.line, ki = p.in.stmt + ':' + p.in.line;
+    if (usedOut[ko] || usedIn[ki] || result.length >= 10) return;
+    usedOut[ko] = true; usedIn[ki] = true;
+    result.push({ out: p.out, in: p.in });
+  });
+  return result;
+}
+
+/**
  * analysis: what analyzeStatements returned. Returns { actions, summary }.
  * `summary.counts` says how many of each; `summary.leftOut` what was not imported and why.
  * `summary.aside` lists the lines set aside that the person might want anyway (a salary deposit whose wording looks like a
@@ -47,6 +114,7 @@ function stmtHistoryPlan_(analysis) {
   var spent = {};
   var unknownAccounts = {};
   var first = null, last = null;
+  var imported = [];   // lines the plan turns into an expense or an income, for the exchange picker
 
   sts.forEach(function (st, si) {
     if (!st.account) unknownAccounts[st.key] = true;
@@ -107,19 +175,29 @@ function stmtHistoryPlan_(analysis) {
       if (l.date && (last === null || l.date > last)) last = l.date;
       if (l.amount > 0) {
         if (l.reversal) { actions.push({ type: 'add_history_reversal', stmt: si, line: li }); counts.refunds++; }
-        else { actions.push({ type: 'add_history_income', stmt: si, line: li }); counts.income++; }
+        else {
+          actions.push({ type: 'add_history_income', stmt: si, line: li }); counts.income++;
+          imported.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname, kind: 'imported' });
+        }
       } else {
         actions.push({ type: 'add_history_expense', stmt: si, line: li });
+        imported.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname, kind: 'imported' });
         counts.expenses++;
         spent[l.currency] = Math.round(((spent[l.currency] || 0) + Math.abs(l.amount)) * 100) / 100;
       }
     });
   });
 
+  stmtGroupAside_(aside);
+  var candidates = imported.concat(aside.filter(function (a) { return a.optIn; }).map(function (a) {
+    return { stmt: a.stmt, line: a.line, date: a.date, description: a.description, amount: a.amount, currency: a.currency, account: a.account, kind: 'aside' };
+  }));
+
   return {
     actions: actions,
     summary: {
       counts: counts, leftOut: leftOut, spent: spent, aside: aside,
+      candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       from: first, to: last,
       importable: counts.expenses + counts.income + counts.refunds + counts.transfers + counts.fees

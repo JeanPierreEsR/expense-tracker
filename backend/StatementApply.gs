@@ -22,6 +22,8 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
+ *                    become two one-sided transfers (confirmed) — never spending or income
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
  *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
  *                    batch once and can undo it in one step (StatementHistory.gs builds these)
@@ -259,6 +261,27 @@ function applyStatementDecisions(payload) {
       if (made) report.created.transfers++;
       var eid = made ? creations[creations.length - 1].id : '';
       remember(out, 'recorded', eid); remember(inn, 'recorded', eid);
+    } else if (a.type === 'record_exchange') {
+      // A currency exchange: the money that left in one currency and the money that arrived in another are TWO one-sided
+      // transfers (the way the Transfer tab records it by hand: the PEN with To empty, the USD with From "None"). Neither
+      // is spending or income.
+      var xo = line(a.out), xi = line(a.in);
+      useLine(xo); useLine(xi);
+      if (xo.l.amount >= 0 || xi.l.amount <= 0 || xo.l.currency === xi.l.currency) throw new Error(tr_('sa.notExchange'));
+      var xCat = catByName['transfer:Between Accounts'];
+      if (!xCat) throw new Error(tr_('sa.catMissingBetween'));
+      var madeOut = newEntry({ type: 'transfer', date: xo.l.date, amount: Math.abs(xo.l.amount), currency: xo.l.currency, category_id: xCat,
+        description: tr_('desc.exchangeOut', { cur: xo.l.currency }), payment_method_id: requirePm(xo).id, to_payment_method_id: '',
+        status: 'confirmed', external_id: 'stmt-' + xo.key });
+      var outId = madeOut ? creations[creations.length - 1].id : '';
+      var madeIn = newEntry({ type: 'transfer', date: xi.l.date, amount: xi.l.amount, currency: xi.l.currency, category_id: xCat,
+        description: tr_('desc.exchangeIn', { cur: xi.l.currency }), payment_method_id: '', to_payment_method_id: requirePm(xi).id,
+        status: 'confirmed', external_id: 'stmt-' + xi.key });
+      var inId = madeIn ? creations[creations.length - 1].id : '';
+      report.created.exchanges = (report.created.exchanges || 0) + 1;
+      if (madeOut) report.created.transfers++;
+      if (madeIn) report.created.transfers++;
+      remember(xo, 'recorded', outId); remember(xi, 'recorded', inId);
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
