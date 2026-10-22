@@ -60,6 +60,8 @@ let editingViaPopup = false;
 // own share is always the leftover, never stored, per CLAUDE.md's Entry
 // Splits section). customSplitAmounts only matters in "custom" mode.
 let splitFriendIds = new Set();
+let repaymentAutoPickedId_ = "";
+let repaymentFriendTouched_ = false;   // the person picked the Repayment / New loan friend by hand (see autoPickRepaymentGroup_)
 let splitMode = "equal";
 let customSplitAmounts = {};
 // The owner's own box in Custom mode ("Me"). Blank = "not filled", same as
@@ -999,6 +1001,7 @@ function showDetailForm(category) {
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
   tripPickLocked_ = false;   // a fresh form: suggest again
+  repaymentFriendTouched_ = false;
   autoPickTripForDate_();
   // Safety net: whichever way the form was reached, the labels and the
   // From/To/Paid-by fields always match the entry type being shown.
@@ -1297,10 +1300,12 @@ function populateRepaymentFriendOptions_() {
   const select = document.getElementById("repayment-friend");
   const previous = select.value;
   select.innerHTML = "";
-  plainFriends_().forEach((f) => {
+  // The trips' hidden group friends come last, so a group settlement or group cash loan can also be entered
+  // from here (the trip screen's "Group settlement" does the same through the same repayment engine).
+  plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -1310,7 +1315,29 @@ function populateRepaymentFriendOptions_() {
   if (previous && previous !== "__add__" && meta.friends.some((f) => f.id === previous)) select.value = previous;
 }
 
+// On the dates of a trip, a new Repayment / New loan starts with that trip's group as the friend (only when
+// exactly one trip covers the date, and never over a friend the person picked by hand).
+function autoPickRepaymentGroup_() {
+  if (!repaymentActive_() || !entryFormIsNewEntry_() || repaymentFriendTouched_) return;
+  const sel = document.getElementById("repayment-friend");
+  const date = document.getElementById("date").value;
+  const covering = (meta.trips || []).filter((t) => date >= t.start_date && date <= t.end_date);
+  const group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
+  if (group && Array.from(sel.options).some((o) => o.value === group.id)) {
+    sel.value = group.id;
+    repaymentAutoPickedId_ = group.id;
+  } else if (repaymentAutoPickedId_ && sel.value === repaymentAutoPickedId_) {
+    // The date left the trip and the group was only our suggestion: back to the usual first friend.
+    const first = plainFriends_()[0];
+    sel.value = first ? first.id : "";
+    repaymentAutoPickedId_ = "";
+  }
+}
+document.getElementById("date").addEventListener("input", autoPickRepaymentGroup_);
+document.getElementById("date").addEventListener("change", autoPickRepaymentGroup_);
+
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
+  repaymentFriendTouched_ = true;
   if (e.target.value !== "__add__") return;
   const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
@@ -1340,6 +1367,7 @@ function updateRepaymentUi_() {
   const iPaid = repaymentDirectionChoice === "i_owe_them";
   document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.direction === repaymentDirectionChoice));
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
+  autoPickRepaymentGroup_();
 
   document.getElementById("repayment-overpay-block").hidden = isLoan;
   document.getElementById("loan-due-block").hidden = !isLoan;
@@ -1426,6 +1454,11 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
 function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f)); }
+// Groups of trips that still exist, the most recent trip first.
+function groupFriendsNewestFirst_() {
+  const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
+  return meta.friends.filter((f) => isGroupFriend_(f) && end(f)).sort((a, b) => end(b).localeCompare(end(a)));
+}
 
 // The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
 function splitFriendsList_() {
@@ -2291,6 +2324,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
+    repaymentFriendTouched_ = false;
     resetSplitState();
 
     await refreshEntryList();

@@ -364,6 +364,7 @@ function telegramEditHelpText_(entry) {
   if (entry.type === 'expense' && getTripRows_().length) keys.splice(keys.indexOf('o.split'), 0, 'trip');
   if (entry.type === 'expense') keys = keys.concat(['', 'expense.intro', 'expense.repayment', 'expense.loan']);
   if (entry.type === 'income') keys = keys.concat(['', 'income.intro', 'income.repayment', 'income.loan']);
+  if ((entry.type === 'expense' || entry.type === 'income') && getTripRows_().length) keys.push('groupDefault');
   return help(keys.concat(tail));
 }
 
@@ -648,10 +649,12 @@ function handleTelegramMessage_(msg) {
   // reroute the WHOLE entry to the Loans tab instead of editing a field
   // on it (see applyTerminalReviewAction_, below), so they don't try to
   // combine with other edits the way "category X, amount Y" does.
-  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)\s+(.+)/i) ||
-    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)\s+(.+)/i);
+  // With no name ("repayment") the friend is the group of the trip whose dates cover the entry, when there is
+  // exactly one such trip (applyTerminalReviewAction_).
+  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:\s+(.+))?$/i) ||
+    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:\s+(.+))?$/i);
   var result = terminalMatch
-    ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1])
+    ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1] || '')
     : applyEditCommand_(mapping.entry_id, text);
 
   // Threads to the owner's own edit command, which is itself already a
@@ -721,9 +724,17 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
     return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
 
-  var friend = fuzzyFindFriend_(String(friendText).trim());
-  if (!friend) {
-    return { message: tr_('bot.unknownFriend', { name: String(friendText).trim() }) };
+  var friend;
+  if (!String(friendText || '').trim()) {
+    // No name given: during a trip, that trip's group (one trip covering the date, never a guess between two).
+    var tripId = suggestedTripIdForDate_(entry.date);
+    friend = tripId ? tripGroupFriend_(tripId) : null;
+    if (!friend) return { message: tr_('bot.needFriend') };
+  } else {
+    friend = fuzzyFindFriend_(String(friendText).trim());
+    if (!friend) {
+      return { message: tr_('bot.unknownFriend', { name: String(friendText).trim() }) };
+    }
   }
 
   var isRepayment = /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(fullText.trim());
