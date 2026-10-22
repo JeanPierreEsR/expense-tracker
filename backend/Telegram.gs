@@ -1443,7 +1443,7 @@ function deleteEntry_(entryId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
-  sheet.deleteRow(rowIndex);
+  deleteSheetRows_(sheet, rowIndex, 1);
   recordEntryDeletions_([entryId]);
   // A no-op for an entry that was never split (the common case, and every
   // pending/review-queue entry today, since Phase 5's split UI is only on

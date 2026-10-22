@@ -107,11 +107,23 @@ class FakeSheet {
     this.textCols = new Set();
     this.lastCol = 0;
     this.frozen = 0;
+    // A sheet whose every row is a real row (no spare blank rows), as the owner's spare account had on its Entries tab. Google
+    // refuses to delete rows when that would leave nothing but the frozen header: "You can't delete all non-frozen rows"
+    // (found 2026-10-22). Off by default, so the other tests keep their roomy 1000-row sheets.
+    this.tightRows = false;
+    this.extraRows = 0;
+  }
+  getFrozenRows() { return this.frozen; }
+  insertRowAfter() { this.extraRows++; }
+  _checkDelete(n) {
+    if (this.tightRows && this.rows.length + this.extraRows - n <= this.frozen) {
+      throw new Error("You can't delete all non-frozen rows.");
+    }
   }
   getName() { return this.name; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return this.lastCol; }
-  getMaxRows() { return Math.max(1000, this.rows.length); }
+  getMaxRows() { return this.tightRows ? this.rows.length + this.extraRows : Math.max(1000, this.rows.length); }
   setFrozenRows(n) { this.frozen = n; }
   getRange(row, col, nrows, ncols) {
     if (typeof row !== "number") unsupported("getRange with A1 notation");
@@ -121,8 +133,8 @@ class FakeSheet {
     this._write(this.rows.length + 1, 1, [values]);
   }
   // Each call is one round trip to Google on the real thing (~0.1-0.3 s), which is why they are counted.
-  deleteRow(r) { stats.rowDeletes++; this.rows.splice(r - 1, 1); }
-  deleteRows(r, n) { stats.rowDeletes++; this.rows.splice(r - 1, n); }
+  deleteRow(r) { this._checkDelete(1); stats.rowDeletes++; this.rows.splice(r - 1, 1); }
+  deleteRows(r, n) { this._checkDelete(n); stats.rowDeletes++; this.rows.splice(r - 1, n); }
   clear() { this.rows = []; this.lastCol = 0; }
   _norm(v, col) {
     if (v === undefined || v === null) return "";

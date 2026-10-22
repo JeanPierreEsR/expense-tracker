@@ -725,7 +725,7 @@ function deleteProjectionOverride(payload) {
   })[0];
   if (existing) {
     var rowIndex = findRowIndexById(sheet, headers, existing.id);
-    if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+    if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
   }
   return { done: true };
 }

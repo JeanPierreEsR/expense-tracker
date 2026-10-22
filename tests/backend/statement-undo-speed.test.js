@@ -45,6 +45,39 @@ test("an Undo that is cut short can be tapped again: the upload stays listed unt
   assert.equal(run(rt, "getAllRows('Statement Lines').length"), 0);
 });
 
+test("undoing the FIRST import (every row on the sheets) works: Google refuses to delete all non-frozen rows", () => {
+  // Found on the owner's spare account 2026-10-22: "No se pueden eliminar todas las filas que no estén inmovilizadas" left one
+  // entry behind. The fake Sheet now enforces the same rule on sheets that have no spare blank rows.
+  const { rt, data } = freshApp({ entries: 60 });
+  rt.run("deleteRowsWhere_('Entries', function () { return true; })");   // a brand-new account has no entries
+  const savings = data.pms.find((p) => p.type === "debit");
+  const stmt = {
+    key: savings.last_4, kind: "savings", verified: true, period: { start: "2019-03-01", end: "2019-03-31" }, balances: { PEN: { closing: 1 } }, file_name: "first.pdf",
+    lines: Array.from({ length: 12 }, (_, i) => ({ date: "2019-03-" + String(1 + i).padStart(2, "0"), description: "COMPRA TIENDA " + i, amount: -(10 + i + 0.37), currency: "PEN" }))
+  };
+  const plan = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  const res = run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "first", statements: [stmt], actions: plan.actions })})`);
+  assert.equal(batchEntries(rt, res.batchId), 12);
+  ["Entries", "Statement Lines", "Statement Uploads", "Import Batches", "Statement Changes"].forEach((name) => { rt.run(`getSheet('${name}')`).tightRows = true; });
+  const undone = run(rt, `undoStatementBatch(${JSON.stringify({ batchId: res.batchId })})`);
+  assert.equal(undone.deletedEntries, 12);
+  assert.equal(run(rt, "getAllRows('Entries').length"), 0, "every entry is gone, including the last row");
+  assert.equal(run(rt, "listStatementBatches()").length, 0);
+  assert.equal(run(rt, "getAllRows('Statement Lines').length"), 0);
+});
+
+test("deleting the ONLY entry of an account works on a sheet with no spare rows", () => {
+  const { rt } = freshApp({ entries: 60 });
+  const keep = run(rt, "getAllRows('Entries')[0].id");
+  rt.run(`var __keep = ${JSON.stringify(keep)}; deleteRowsWhere_('Entries', function (r) { return r.id !== __keep; });`);
+  assert.equal(run(rt, "getAllRows('Entries').length"), 1);
+  const sheet = rt.run("getSheet('Entries')");
+  sheet.frozen = 1;
+  sheet.tightRows = true;
+  rt.run(`deleteEntry_(${JSON.stringify(keep)})`);
+  assert.equal(run(rt, "getAllRows('Entries').length"), 0, "Google would have refused to delete the last row without the guard");
+});
+
 test("deleting scattered and contiguous rows removes exactly the right ones and keeps the order", () => {
   const { rt } = freshApp({ entries: 60 });
   const ids = run(rt, "getAllRows('Entries').map(function (e) { return e.id; })");
