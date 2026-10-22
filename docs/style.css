@@ -1020,7 +1020,12 @@ button.primary.danger {
   transition: max-height 0.22s ease;
 }
 
-#drilldown-modal-inner.expanded {
+body.sheet-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.currency-modal.expanded {
   max-height: 100vh;
   max-height: 100dvh;
   height: 100dvh;
