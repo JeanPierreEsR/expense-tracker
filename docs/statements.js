@@ -23,6 +23,9 @@
   let coverage = null;       // last listStatementCoverage result
   let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
+  // The password that last opened a statement, tried silently on the next ones (banks usually use one password for every
+  // file) so a dozen statements need typing it once. Memory only: forgotten when this screen is left, never stored.
+  let sessionPassword = null;
 
   // ---- helpers ----
 
@@ -54,6 +57,7 @@
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
   function showStatementsScreen() {
+    sessionPassword = null;
     document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-statements"; });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.screen === "more");
@@ -409,16 +413,22 @@
   async function readStatementFile(file) {
     const body = resultCardShell(file.name);
     let cancelled = false;
+    let triedSession = false, asked = false, typed = null;
     try {
       const pdfjs = await loadPdfjs();
       const data = new Uint8Array(await file.arrayBuffer());
       const rows = await StatementParsers.readPdfRows(pdfjs, data, {
         onPassword: async (reason) => {
-          const pw = await askStatementPassword(file.name, reason);
-          if (pw === null) cancelled = true;
+          // First ask of this file: the password that opened the last one, without bothering the person.
+          if (!triedSession && sessionPassword !== null) { triedSession = true; return sessionPassword; }
+          // The silent try failing is not the person's mistake, so the first prompt reads "protected", not "didn't work".
+          const pw = await askStatementPassword(file.name, triedSession && !asked ? 1 : reason);
+          asked = true;
+          if (pw === null) cancelled = true; else typed = pw;
           return pw;
         }
       });
+      if (typed !== null) sessionPassword = typed;   // it opened the file, so it is worth trying on the next one
       const result = StatementParsers.parseStatement(rows);
       renderResult(body, result, rows);
       if (result.kind && result.ok) {
@@ -427,6 +437,8 @@
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
         review = null;
+        historyPlan = null;
+        $("statement-history").innerHTML = "";
         $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>`;
         updateReviewButton();
       }
@@ -450,22 +462,134 @@
     $("statement-review-hint").textContent = tr("stmt.reviewHint");
   }
 
+  // What the server is sent for an analysis (never the file): each statement's account key, period, balances and lines.
+  function statementsForAnalysis() {
+    return usable.map(({ result }) => ({
+      key: accountKeyOf(result),
+      kind: result.kind,
+      period: result.period,
+      balances: result.balances,
+      verified: !!(result.ok && result.verified !== false),
+      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+    }));
+  }
+
+  // ---- "Fill my history": one approval for everything, no per-line choices (backend/StatementHistory.gs) ----
+
+  let historyPlan = null;   // { actions, summary } from planStatementHistory, for the statements read right now
+
+  async function runHistoryPlan() {
+    const btn = $("statement-history-btn");
+    const out = $("statement-history");
+    btn.disabled = true;
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("hist.planning"))}</p>`;
+    try {
+      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      renderHistoryPlan();
+    } catch (err) {
+      historyPlan = null;
+      out.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("hist.planFailed"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function moneyTotals(spent) {
+    return Object.keys(spent).sort().map((cur) => fmtMoney(cur, spent[cur])).join(" + ");
+  }
+
+  function renderHistoryPlan() {
+    const out = $("statement-history");
+    const { actions, summary } = historyPlan;
+    const c = summary.counts, left = summary.leftOut;
+    const lines = [];
+    if (c.expenses) lines.push(tr("hist.sum.expenses", { n: c.expenses, total: moneyTotals(summary.spent) }));
+    if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
+    if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
+    if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
+    if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
+    if (c.linked + c.completed) lines.push(tr("hist.sum.linked", { n: c.linked + c.completed }));
+    const notes = [];
+    if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
+    if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
+    if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
+    if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("");
+    if (!actions.length) {
+      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
+      return;
+    }
+    if (!summary.importable) {
+      // Only lines to set aside (waiting for their other statement): saving just remembers them so they pair up later.
+      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}
+        <button type="button" class="stmt-choice" id="statement-history-save">${escapeHtml(tr("hist.remember"))}</button>`;
+      return;
+    }
+    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
+    out.innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+      ${range}<p class="hint">${escapeHtml(tr("hist.noCategory"))}</p>${noteHtml}
+      <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
+  }
+
+  // Foreign-currency months the save created entries for that have no exchange rate of their own yet.
+  function rateNeedsHtml(needs) {
+    if (!needs || !needs.months || !needs.months.length) return "";
+    const list = needs.months.map((m) => `${m.currency} ${I18n.fmtMonthYear(new Date(`${m.month}-01T00:00:00`))}`).join(", ");
+    const none = needs.noRate && needs.noRate.length;
+    return `<p class="stmt-note warn">${escapeHtml(tr(none ? "hist.rates.none" : "hist.rates.some", { list: none ? needs.noRate.join(", ") : list }))}</p>`;
+  }
+
+  async function saveHistory() {
+    if (!historyPlan || !historyPlan.actions.length) return;
+    const btn = $("statement-history-save");
+    const status = $("statement-review-status");
+    const adding = historyPlan.summary.importable;
+    if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
+    btn.disabled = true;
+    status.innerHTML = `<p class="hint">${escapeHtml(tr("hist.saving"))}</p>`;
+    const payload = (dryRun) => ({
+      dryRun,
+      filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
+      statements: usable.map(({ file, result }) => ({
+        key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+      })),
+      inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
+      actions: historyPlan.actions
+    });
+    try {
+      await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
+      const res = await callApi("applyStatementDecisions", payload(false));
+      lastBatchId = res.batchId;
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
+      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
+        ${rateNeedsHtml(res.rateNeeds)}
+        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
+      review = null;
+      $("statement-review").innerHTML = "";
+      coverage = null;
+      refreshStatementCoverage();
+      refreshStatementGaps();
+      refreshStatementBatches();
+      refreshStatementInbox();
+      refreshOtherScreens();
+    } catch (err) {
+      status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      btn.disabled = false;
+    }
+  }
+
   async function runReview() {
     const btn = $("statement-review-btn");
     const out = $("statement-review");
     btn.disabled = true;
     out.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.comparing"))}</p>`;
     try {
-      const analysis = await callApi("analyzeStatements", {
-        statements: usable.map(({ result }) => ({
-          key: accountKeyOf(result),
-          kind: result.kind,
-          period: result.period,
-          balances: result.balances,
-          verified: !!(result.ok && result.verified !== false),
-          lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
-        }))
-      });
+      const analysis = await callApi("analyzeStatements", { statements: statementsForAnalysis() });
       review = null;
       renderReview(analysis);
     } catch (err) {
@@ -889,6 +1013,8 @@
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.savedPressReview"))}</p>`;
       review = null;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
@@ -917,6 +1043,8 @@
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
       lastBatchId = null;
       review = null;
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
       $("statement-review").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
@@ -943,18 +1071,20 @@
   }
 
   // exposed for testing in the browser
-  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; } };
+  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, runHistoryPlan, saveHistory, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; }, setUsable: (u) => { usable = u; historyPlan = null; updateReviewButton(); } };
 
   // ---- wiring ----
 
   $("more-statements-btn").addEventListener("click", showStatementsScreen);
-  $("statements-back-btn").addEventListener("click", () => showScreen("more"));
+  $("statements-back-btn").addEventListener("click", () => { sessionPassword = null; showScreen("more"); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
   });
   $("statement-review-btn").addEventListener("click", runReview);
+  $("statement-history-btn").addEventListener("click", runHistoryPlan);
+  $("statement-history").addEventListener("click", (e) => { if (e.target.closest("#statement-history-save")) saveHistory(); });
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
     if (all) openAllInboxItems(all);

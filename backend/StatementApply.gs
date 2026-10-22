@@ -22,6 +22,9 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
+ *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
+ *                    batch once and can undo it in one step (StatementHistory.gs builds these)
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
  *   assign_account   { stmt, line, entryId }  entry has no account yet
@@ -123,6 +126,27 @@ function appendRowsBulk_(sheetName, objs) {
   var headers = getHeaders(sheet);
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? o[h] : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+}
+
+/**
+ * Foreign-currency months among the entries a save creates that have no exchange rate of their own yet, so the phone can
+ * say so. Totals still work (they use the closest earlier rate); `noRate` lists currencies with no rate at all, whose
+ * entries cannot be converted until one is set under More → Exchange rates.
+ */
+function stmtRateNeeds_(creations) {
+  var main = homeCurrency_(), seen = {}, months = [], noRate = {};
+  creations.forEach(function (e) {
+    var cur = String(e.currency || main).toUpperCase();
+    if (cur === main) return;
+    var month = String(e.date).substring(0, 7), k = cur + '|' + month;
+    if (seen[k]) return;
+    seen[k] = true;
+    if (getExchangeRate(cur, month)) return;
+    if (getLatestRateOnOrBefore_(cur, month) === null) noRate[cur] = true;
+    months.push({ currency: cur, month: month });
+  });
+  months.sort(function (x, y) { return x.month < y.month ? -1 : (x.month > y.month ? 1 : (x.currency < y.currency ? -1 : 1)); });
+  return { months: months, noRate: Object.keys(noRate).sort() };
 }
 
 /**
@@ -257,6 +281,24 @@ function applyStatementDecisions(payload) {
         status: 'pending', external_id: 'stmt-' + p.key, merchant: stmtMerchantKey_(p.l.description) });
       if (madeP) report.created.purchases++;
       remember(p, 'added', madeP ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_expense' || a.type === 'add_history_reversal') {
+      // "Fill my history" (see StatementHistory.gs): confirmed at once, no category, the bank's own wording as the description.
+      var hx = line(a); useLine(hx);
+      var isRev = a.type === 'add_history_reversal';
+      if (isRev ? hx.l.amount <= 0 : hx.l.amount >= 0) throw new Error(tr_(isRev ? 'sa.reversalIn' : 'sa.purchaseOut'));
+      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: '', payment_method_id: requirePm(hx).id,
+        amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
+        description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
+        status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
+      if (madeH) { if (isRev) report.created.reversals++; else report.created.purchases++; }
+      remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_income') {
+      var hi = line(a); useLine(hi);
+      if (hi.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: '',
+        description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
+      if (madeHI) report.created.income++;
+      remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {
       var inc = line(a); useLine(inc);
       if (inc.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
@@ -346,6 +388,7 @@ function applyStatementDecisions(payload) {
   report.gapsRecorded = gapOps.map(function (g) { return { account: g.pm.nickname, currency: g.currency, gap: g.gap, date: g.period_end }; });
   report.linesRemembered = outcomes.length;
   report.batchEntries = creations.map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
+  report.rateNeeds = stmtRateNeeds_(creations);
 
   if (dryRun) return report;
 
