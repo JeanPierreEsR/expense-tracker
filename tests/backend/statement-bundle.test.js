@@ -78,6 +78,56 @@ test("money arriving on a card that looks like a payment cannot be income but ca
   assert.equal(e.to_payment_method_id, card.id, "To = the card");
 });
 
+test("a set-aside line can be counted as an investment (or a withdrawal), with the platform guessed from the wording", () => {
+  const { rt, a, stmt } = accounts();
+  const hapi = run(rt, "savePaymentMethod({ nickname: 'Hapi', type: 'investment' })");
+  const s = stmt(a, [
+    { date: "2019-03-10", description: "TRANSFERENCIA A HAPI INC", amount: -500, currency: "PEN" },
+    { date: "2019-03-20", description: "TRANSFERENCIA DE HAPI INC", amount: 120, currency: "PEN" },
+    { date: "2019-03-21", description: "TRANSFERENCIA A OTRO", amount: -75, currency: "PEN" }
+  ]);
+  const p = plan(rt, [s]);
+  assert.deepEqual(p.summary.platforms, [{ id: hapi.id, name: "Hapi" }]);
+  const [dep, wd, other] = p.summary.aside;
+  assert.equal(dep.optInInvestment.platformId, hapi.id, "named in the wording → guessed");
+  assert.equal(wd.optInInvestment.platformId, hapi.id);
+  assert.equal(other.optInInvestment.platformId, "", "no platform named → left blank");
+  // Count all three; the third on a platform the person picks.
+  const actions = p.actions.filter((x) => x.type !== "wait").concat([dep.optInInvestment, wd.optInInvestment, { ...other.optInInvestment, platformId: hapi.id }]);
+  const res = save(rt, [s], actions, false);
+  assert.equal(res.created.investments, 3);
+  const rows = made(rt);
+  const deposit = rows.find((e) => Number(e.amount) === 500);
+  assert.equal(deposit.type, "investment");
+  assert.equal(deposit.status, "confirmed");
+  assert.equal(deposit.payment_method_id, a.id, "From = the account the money left");
+  assert.equal(deposit.to_payment_method_id, hapi.id, "To = the platform");
+  const withdrawal = rows.find((e) => Number(e.amount) === -120);
+  assert.ok(withdrawal, "money coming back is a NEGATIVE investment entry, as the app stores a withdrawal");
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'investment' && c.name === 'Investments'; })[0]");
+  assert.equal(deposit.category_id, cat.id, "filed under the default Investments category");
+  const sum = run(rt, "getPeriodSummary({ startDate: '2019-03-01', endDate: '2019-03-31' })");
+  assert.equal(sum.totals.expense, 0, "not spending");
+  assert.ok(sum.totals.investment > 0, "counted as investment");
+});
+
+test("an investment needs a real platform, and a dry run does not create the Investments category", () => {
+  const { rt, a, stmt } = accounts();
+  rt.run("deleteRowsWhere_('Categories', function (r) { return r.type === 'investment' && r.name === 'Investments'; })");
+  const s = stmt(a, [{ date: "2019-03-10", description: "ENVIO", amount: -50, currency: "PEN" }]);
+  assert.throws(() => save(rt, [s], [{ type: "add_history_investment", stmt: 0, line: 0, platformId: "not-a-platform" }], false), /platform/i);
+  save(rt, [s], [{ type: "add_history_investment", stmt: 0, line: 0 }], true);
+  assert.equal(run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'investment' && c.name === 'Investments'; }).length"), 0, "a dry run creates nothing");
+  save(rt, [s], [{ type: "add_history_investment", stmt: 0, line: 0 }], false);
+  assert.equal(run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'investment' && c.name === 'Investments'; }).length"), 1);
+});
+
+test("money arriving on a credit card is never offered as an investment", () => {
+  const { rt, card, stmt } = accounts();
+  const s = stmt(card, [{ date: "2019-03-11", description: "PAGO DEUDA TOT APP", amount: 1234.56, currency: "PEN" }], "visa");
+  assert.equal(plan(rt, [s]).summary.aside[0].optInInvestment, null);
+});
+
 test("lines already remembered as waiting are not offered to be remembered again", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [{ date: "2019-03-10", description: "I-BANC TRANSFERENCIA", amount: -800, currency: "PEN" }]);

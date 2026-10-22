@@ -35,6 +35,13 @@
     return I18n.fmtMonthDay(d, withYear);
   }
 
+  // Anything the app is working on shows this: a small spinning ring and what it is doing, in the place where the person tapped
+  // (the same quiet look as the app's other "Loading…" and "Saving…" lines, plus the ring so it is clearly moving).
+  function loadingHtml(text) {
+    return `<div class="stmt-loading" role="status" aria-live="polite"><span class="stmt-spinner" aria-hidden="true"></span><span>${escapeHtml(text)}</span></div>`;
+  }
+  function setBusy(btn, text) { btn.innerHTML = `<span class="stmt-spinner" aria-hidden="true" style="display:inline-block;vertical-align:-2px;margin-right:6px"></span>${escapeHtml(text)}`; }
+
   function fmtMoney(currency, n) {
     const sign = n < 0 ? "−" : "";
     return `${sign}${currency} ${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -74,7 +81,7 @@
 
   async function refreshStatementInbox() {
     const list = $("statement-inbox-list");
-    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+    list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
     try { inbox = (await callApi("listStatementInbox", {})).items; }
     catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
     if (!inbox.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.inboxEmpty"))}</p>`; return; }
@@ -109,7 +116,7 @@
 
   async function openInboxItem(id, btn) {
     if (!inbox.find((i) => i.id === id)) return;
-    btn.disabled = true; btn.textContent = tr("stmt.fetching");
+    btn.disabled = true; setBusy(btn, tr("stmt.fetching"));
     try {
       await fetchAndReadInboxItem(id);
       $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -128,7 +135,7 @@
     btn.disabled = true;
     const failed = [];
     for (let n = 0; n < waiting.length; n++) {
-      btn.textContent = tr("stmt.openingN", { i: n + 1, n: waiting.length });
+      setBusy(btn, tr("stmt.openingN", { i: n + 1, n: waiting.length }));
       try { await fetchAndReadInboxItem(waiting[n].id); }
       catch (err) { failed.push(`${waiting[n].bank} (${waiting[n].received}): ${err && err.message ? err.message : err}`); }
     }
@@ -141,7 +148,7 @@
 
   async function refreshStatementGaps() {
     const list = $("statement-gaps-list");
-    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+    list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
     let res;
     try { res = await callApi("listStatementGaps", {}); }
     catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
@@ -186,7 +193,7 @@
 
   async function refreshStatementCoverage() {
     const list = $("statement-coverage-list");
-    list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+    list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
     try {
       coverage = await callApi("listStatementCoverage", {});
     } catch (err) {
@@ -348,7 +355,7 @@
   function resultCardShell(fileName) {
     const card = document.createElement("div");
     card.className = "stmt-result";
-    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body"><p class="hint">${escapeHtml(tr("stmt.reading"))}</p></div>`;
+    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body">${loadingHtml(tr("stmt.reading"))}</div>`;
     $("statement-results").prepend(card);
     return card.querySelector(".stmt-result-body");
   }
@@ -484,9 +491,11 @@
     const btn = $("statement-history-btn");
     const out = $("statement-history");
     btn.disabled = true;
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("hist.planning"))}</p>`;
+    $("statement-review-status").innerHTML = "";   // an old "Saved" / "Undone" message is not about this run
+    out.innerHTML = loadingHtml(tr("hist.planning"));
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
       historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
@@ -526,7 +535,8 @@
     });
     const optIns = [];
     p.chosen.forEach((mode, i) => {
-      const action = mode === "transfer" ? aside[i].optInTransfer : aside[i].optIn;
+      let action = mode === "transfer" ? aside[i].optInTransfer : mode === "investment" ? aside[i].optInInvestment : aside[i].optIn;
+      if (action && mode === "investment") action = { ...action, platformId: platformOf(i) };
       if (action && !linked[lineKey(action)]) optIns.push(action);
     });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
@@ -535,7 +545,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, legs: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, legs: 0, investments: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -545,11 +555,12 @@
       else if (a.type === "add_history_reversal") c.refunds++;
       else if (a.type === "record_transfer") c.transfers++;
       else if (a.type === "record_transfer_leg") c.legs++;
+      else if (a.type === "add_history_investment") c.investments++;
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
-    c.entries = c.expenses + c.income + c.refunds + c.transfers + c.legs + 2 * c.exchanges + c.fees;
+    c.entries = c.expenses + c.income + c.refunds + c.transfers + c.legs + c.investments + 2 * c.exchanges + c.fees;
     return c;
   }
 
@@ -615,11 +626,23 @@
   }
 
   // ---- the set-aside lines: one row each, or one row for a run of similar lines (same wording, amount within 10%) ----
-  // Each line can be counted as spending/income OR as a transfer (one side of it; the other end completes when that account's
-  // statement arrives). `chosen` maps the line's index in summary.aside to "cash" or "transfer".
+  // Each line can be counted as spending/income, as a transfer (one side of it; the other end completes when that account's
+  // statement arrives) or as an investment (money into a platform, or a withdrawal). `chosen` maps the line's index in
+  // summary.aside to "cash", "transfer" or "investment"; `platform` holds the platform picked for an investment (else the guess).
 
   function modeButton(attrs, on, label) {
     return `<button type="button" class="stmt-choice ${on ? "on" : ""}" ${attrs}>${on ? "✓ " : ""}${escapeHtml(label)}</button>`;
+  }
+
+  function platformSelect(attrs, current) {
+    const platforms = historyPlan.summary.platforms || [];
+    if (!platforms.length) return "";
+    return `<select class="stmt-platform" ${attrs} style="margin-top:6px"><option value="">${escapeHtml(tr("hist.aside.platformNone"))}</option>${platforms.map((pl) => `<option value="${escapeHtml(pl.id)}" ${pl.id === current ? "selected" : ""}>${escapeHtml(pl.name)}</option>`).join("")}</select>`;
+  }
+
+  function platformOf(i) {
+    const p = historyPlan, a = p.summary.aside[i];
+    return p.platform.has(i) ? p.platform.get(i) : ((a.optInInvestment && a.optInInvestment.platformId) || "");
   }
 
   function asideHtml() {
@@ -627,8 +650,13 @@
     if (!aside.length) return "";
     const rendered = {};
     const rows = aside.map((a, i) => {
-      const cashLabel = tr(a.amount > 0 ? "hist.aside.addIncome" : "hist.aside.addExpense");
+      const inflow = a.amount > 0;
+      const cashLabel = tr(inflow ? "hist.aside.addIncome" : "hist.aside.addExpense");
+      const invLabel = tr(inflow ? "hist.aside.addWithdrawal" : "hist.aside.addInvestment");
       const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
+      const buttonsFor = (m, mi) => (m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : "")
+        + modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))
+        + (m.optInInvestment ? modeButton(`data-aside="${mi}" data-mode="investment"`, chosen.get(mi) === "investment", invLabel) : "");
       if (a.group) {
         if (rendered[a.group]) return "";
         rendered[a.group] = true;
@@ -638,17 +666,20 @@
         const sum = members.reduce((t, { m }) => t + m.amount, 0);
         const lo = Math.min(...amounts), hi = Math.max(...amounts);
         const range = lo === hi ? fmtMoney(a.currency, lo) : `${fmtMoney(a.currency, lo)} – ${fmtMoney(a.currency, hi).replace(/^[A-Z]{3} /, "")}`;
-        const groupButtons = (a.optIn ? modeButton(`data-agroup="${a.group}" data-mode="cash"`, allIn("cash"), tr(a.amount > 0 ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n: members.length })) : "")
-          + modeButton(`data-agroup="${a.group}" data-mode="transfer"`, allIn("transfer"), tr("hist.aside.addAllTransfer", { n: members.length }));
+        const n = members.length;
+        const groupButtons = (a.optIn ? modeButton(`data-agroup="${a.group}" data-mode="cash"`, allIn("cash"), tr(inflow ? "hist.aside.addAllIncome" : "hist.aside.addAllExpense", { n })) : "")
+          + modeButton(`data-agroup="${a.group}" data-mode="transfer"`, allIn("transfer"), tr("hist.aside.addAllTransfer", { n }))
+          + (a.optInInvestment ? modeButton(`data-agroup="${a.group}" data-mode="investment"`, allIn("investment"), tr(inflow ? "hist.aside.addAllWithdrawal" : "hist.aside.addAllInvestment", { n })) : "");
+        const groupPlatform = allIn("investment") ? platformSelect(`data-pgroup="${a.group}"`, platformOf(members[0].mi)) : "";
         // The same lines one by one, for a person who does not want them decided together: each has its own buttons.
         const each = members.map(({ m, mi }) => lineRow({ date: m.date, description: m.description, amount: m.amount, currency: m.currency },
-          `<div class="stmt-choices" style="padding-left:0">${m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : ""}${modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))}</div>`)).join("");
+          `<div class="stmt-choices" style="padding-left:0">${buttonsFor(m, mi)}</div>${chosen.get(mi) === "investment" ? platformSelect(`data-pidx="${mi}"`, platformOf(mi)) : ""}`)).join("");
         const opened = p.openGroups.has(a.group);
-        return lineRow({ date: a.date, description: `${a.description} × ${members.length}`, amount: sum, currency: a.currency },
-          `${escapeHtml(tr("hist.aside.groupSub", { n: members.length, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0">${groupButtons}</div>
-            <details data-gopen="${a.group}" ${opened ? "open" : ""}><summary class="hint">${escapeHtml(tr("hist.aside.showEach", { n: members.length }))}</summary>${each}</details>`);
+        return lineRow({ date: a.date, description: `${a.description} × ${n}`, amount: sum, currency: a.currency },
+          `${escapeHtml(tr("hist.aside.groupSub", { n, amounts: range, account: a.account }))}<div class="stmt-choices" style="padding-left:0">${groupButtons}</div>${groupPlatform}
+            <details data-gopen="${a.group}" ${opened ? "open" : ""}><summary class="hint">${escapeHtml(tr("hist.aside.showEach", { n }))}</summary>${each}</details>`);
       }
-      const buttons = `<div class="stmt-choices" style="padding-left:0">${a.optIn ? modeButton(`data-aside="${i}" data-mode="cash"`, chosen.get(i) === "cash", cashLabel) : ""}${modeButton(`data-aside="${i}" data-mode="transfer"`, chosen.get(i) === "transfer", tr("hist.aside.addTransfer"))}</div>`;
+      const buttons = `<div class="stmt-choices" style="padding-left:0">${buttonsFor(a, i)}</div>${chosen.get(i) === "investment" ? platformSelect(`data-pidx="${i}"`, platformOf(i)) : ""}`;
       return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${maybe}${buttons}`);
     }).join("");
     return `<details class="stmt-group" id="statement-history-aside" ${p.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: aside.length }))}</summary>
@@ -665,6 +696,7 @@
     if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
     if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
     if (c.legs) lines.push(tr("hist.sum.legs", { n: c.legs }));
+    if (c.investments) lines.push(tr("hist.sum.investments", { n: c.investments }));
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
@@ -706,8 +738,9 @@
     const status = $("statement-review-status");
     const adding = historyCounts().entries;
     if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
-    btn.disabled = true;
-    status.innerHTML = `<p class="hint">${escapeHtml(tr("hist.saving"))}</p>`;
+    btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
+    btn.hidden = true;
+    status.innerHTML = "";
     const payload = (dryRun) => ({
       dryRun,
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
@@ -723,7 +756,7 @@
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));
       lastBatchId = res.batchId;
-      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${rateNeedsHtml(res.rateNeeds)}
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
@@ -739,7 +772,7 @@
       refreshOtherScreens();
     } catch (err) {
       status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
-      btn.disabled = false;
+      renderHistoryPlan();   // brings the Add button back and drops the loading line
     }
   }
 
@@ -747,7 +780,8 @@
     const btn = $("statement-review-btn");
     const out = $("statement-review");
     btn.disabled = true;
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.comparing"))}</p>`;
+    $("statement-review-status").innerHTML = "";
+    out.innerHTML = loadingHtml(tr("stmt.comparing"));
     try {
       const analysis = await callApi("analyzeStatements", { statements: statementsForAnalysis() });
       review = null;
@@ -1097,7 +1131,7 @@
       const backdrop = $("statement-match-backdrop");
       const list = $("statement-match-list");
       $("statement-match-title").textContent = `${fmtDate(it.line.date)} · ${it.line.description} · ${fmtMoney(it.line.currency, it.line.amount)}`;
-      list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.lookingForEntries"))}</p>`;
+      list.innerHTML = loadingHtml(tr("stmt.lookingForEntries"));
       bringModalToFront_(backdrop);
       backdrop.hidden = false;
       const close = (val) => { backdrop.hidden = true; list.onclick = null; $("statement-match-cancel").onclick = null; resolve(val); };
@@ -1158,7 +1192,7 @@
       "\n\n" + tr("stmt.confirmUndoable");
     if (!confirm(msg)) return;
     btn.disabled = true;
-    status.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.saving"))}</p>`;
+    status.innerHTML = loadingHtml(tr("stmt.saving"));
     try {
       const check = await callApi("applyStatementDecisions", buildSavePayload(true)); // validates first, writes nothing
       if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
@@ -1196,12 +1230,15 @@
     });
   }
 
-  async function undoBatch(batchId) {
+  async function undoBatch(batchId, trigger) {
     if (!confirm(tr("stmt.confirmUndo"))) return;
+    // The Undo buttons sit in Recent uploads, far from the status box: show the loading line in the row that was tapped as well.
+    const slot = trigger && trigger.closest(".stmt-row") ? trigger.closest(".stmt-row").querySelector(".stmt-undo-progress") : null;
+    if (slot) slot.innerHTML = loadingHtml(tr("stmt.undoing"));
     // Show that something is happening and stop a second tap: a second Undo running at the same time was never meant to be.
     const buttons = Array.from(document.querySelectorAll("#stmt-undo-btn, .stmt-undo-row"));
     buttons.forEach((b) => { b.disabled = true; });
-    $("statement-review-status").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.undoing"))}</p>`;
+    $("statement-review-status").innerHTML = loadingHtml(tr("stmt.undoing"));
     try {
       const r = await callApi("undoStatementBatch", { batchId });
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
@@ -1219,6 +1256,7 @@
       // The server may still be working (or have stopped part-way): say so, and show what Recent uploads says now.
       $("statement-review-status").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.undoFailed", { error: err.message }))}</p><p class="hint">${escapeHtml(tr("stmt.undoCheck"))}</p>`;
       buttons.forEach((b) => { b.disabled = false; });
+      if (slot) slot.innerHTML = "";
       refreshStatementBatches();
       refreshOtherScreens();
     }
@@ -1231,7 +1269,7 @@
       box.innerHTML = batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
-        <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div></div>
+        <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-undo-progress"></div></div>
         <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
@@ -1281,6 +1319,13 @@
     }
     renderHistoryPlan();
   });
+  $("statement-history").addEventListener("change", (e) => {
+    if (!historyPlan || !e.target.classList || !e.target.classList.contains("stmt-platform")) return;
+    const aside = historyPlan.summary.aside || [];
+    if (e.target.dataset.pidx !== undefined) historyPlan.platform.set(Number(e.target.dataset.pidx), e.target.value);
+    else if (e.target.dataset.pgroup !== undefined) aside.forEach((a, i) => { if (a.group === Number(e.target.dataset.pgroup)) historyPlan.platform.set(i, e.target.value); });
+    renderHistoryPlan();
+  });
   $("statement-history").addEventListener("toggle", (e) => {
     if (!historyPlan) return;
     if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
@@ -1322,7 +1367,7 @@
     if (review && e.target.dataset && e.target.dataset.gkey) review.open.set(e.target.dataset.gkey, e.target.open);
   }, true);
   $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
-  $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch); });
+  $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });
   $("statement-password-ok").addEventListener("click", () => closeStatementPassword($("statement-password-input").value));
   $("statement-password-cancel").addEventListener("click", () => closeStatementPassword(null));
   $("statement-password-input").addEventListener("keydown", (e) => {

@@ -98,7 +98,18 @@ function stmtExchangeSuggestions_(candidates) {
  * payment, a purchase at a payment app, a friend's money that really was income); each carries `optIn`, the action that
  * would import it, which replaces the `wait` action (if any) for that line.
  */
-function stmtHistoryPlan_(analysis) {
+// Which investment platform a line names ("PAGO A HAPI INC" → Hapi): its nickname appears in the wording, accents and case ignored.
+// Rule-based and optional: no match leaves the platform blank, and the person can pick one.
+function stmtPlatformGuess_(description, platforms) {
+  var text = ' ' + String(description || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ') + ' ';
+  var hit = (platforms || []).filter(function (p) {
+    var name = String(p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    return name.length >= 3 && text.indexOf(' ' + name + ' ') !== -1;
+  })[0];
+  return hit ? hit.id : '';
+}
+
+function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
   var aside = [];
@@ -113,7 +124,9 @@ function stmtHistoryPlan_(analysis) {
       optIn: cardPaid ? null : { type: l.amount > 0 ? 'add_history_income' : 'add_history_expense', stmt: si, line: li },
       // One side of a transfer whose other end is not in the app (yet): when that account's statement arrives, the open
       // transfer is completed by its line (the existing "complete transfer" rule), so nothing is counted twice.
-      optInTransfer: { type: 'record_transfer_leg', stmt: si, line: li } };
+      optInTransfer: { type: 'record_transfer_leg', stmt: si, line: li },
+      // Money into (or out of) an investment platform. Never for the card being paid.
+      optInInvestment: cardPaid ? null : { type: 'add_history_investment', stmt: si, line: li, platformId: stmtPlatformGuess_(l.description, platforms) } };
     // A line held back because it looks like an entry already in the app: say which one, so the person can judge.
     if (reason === 'possible' && l.possible && l.possible.entry) {
       var pe = l.possible.entry;
@@ -206,7 +219,7 @@ function stmtHistoryPlan_(analysis) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside,
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       from: first, to: last,
@@ -221,6 +234,7 @@ function stmtHistoryPlan_(analysis) {
  */
 function planStatementHistory(payload) {
   var analysis = analyzeStatements(payload);
-  var plan = stmtHistoryPlan_(analysis);
+  var platforms = getAllRows('Payment Methods').filter(function (pm) { return pm.type === 'investment'; }).map(function (pm) { return { id: pm.id, name: pm.nickname }; });
+  var plan = stmtHistoryPlan_(analysis, platforms);
   return { actions: plan.actions, summary: plan.summary };
 }

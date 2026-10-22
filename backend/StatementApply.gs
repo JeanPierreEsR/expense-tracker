@@ -22,6 +22,8 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   add_history_investment { stmt, line, platformId? }   money into an investment platform (positive) or out of one (a withdrawal:
+ *                    NEGATIVE amount), confirmed, filed under "Investments"; the platform is optional
  *   record_transfer_leg { stmt, line }      ONE side of a transfer whose other end is not in the app: money out has From = this
  *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
@@ -299,6 +301,25 @@ function applyStatementDecisions(payload) {
         status: 'confirmed', external_id: 'stmt-' + tl.key });
       if (madeTL) report.created.transfers++;
       remember(tl, 'recorded', madeTL ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_investment') {
+      // Money put into an investment platform (From = this account, amount positive) or taken out of one (a "withdrawal": the
+      // same kind of entry with a NEGATIVE amount — see Investments.gs). Investments carry no category in the app; they are
+      // quietly filed under "Investments". The platform is optional.
+      var iv = line(a); useLine(iv);
+      if (!(Math.abs(iv.l.amount) > 0)) throw new Error(tr_('sa.notInvestment'));
+      var platformId = '';
+      if (a.platformId) {
+        var plat = pmsById[a.platformId];
+        if (!plat || plat.type !== 'investment') throw new Error(tr_('sa.unknownPlatform'));
+        platformId = plat.id;
+      }
+      var invCat = catByName['investment:Investments'] || (dryRun ? 'investments-to-be-created' : defaultInvestmentCategoryId_());
+      catByName['investment:Investments'] = invCat;
+      var madeIv = newEntry({ type: 'investment', date: iv.l.date, amount: iv.l.amount < 0 ? Math.abs(iv.l.amount) : -iv.l.amount, currency: iv.l.currency,
+        category_id: invCat, description: stmtCleanDescription_(iv.l.description), payment_method_id: requirePm(iv).id, to_payment_method_id: platformId,
+        status: 'confirmed', external_id: 'stmt-' + iv.key });
+      if (madeIv) report.created.investments = (report.created.investments || 0) + 1;
+      remember(iv, 'added', madeIv ? creations[creations.length - 1].id : '');
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
