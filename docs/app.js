@@ -7383,11 +7383,25 @@ const CAT_EMOJI_GROUPS_ = [
 ];
 
 let catModalState = null;   // { id, type, color }
+let categoryCounts_ = {};   // category id -> number of entries, filled by renderCategoriesList_
 
 function showCategoriesScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-categories"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
   renderCategoriesList_();
+}
+
+function catCountText_(id) {
+  return id in categoryCounts_ || Object.keys(categoryCounts_).length ? escapeHtml(tr("categories.entryCount", { n: categoryCounts_[id] || 0 })) : "";
+}
+
+// The per-category entry counts come from the server; the list is drawn first and the numbers fill in.
+async function loadCategoryCounts_() {
+  try {
+    const res = await callApi("getCategoryCounts");
+    categoryCounts_ = (res && res.counts) || {};
+    document.querySelectorAll("#categories-list .cat-count").forEach((el) => { el.innerHTML = catCountText_(el.dataset.catId); });
+  } catch (err) { /* counts are a nicety: the list works without them */ }
 }
 
 function renderCategoriesList_() {
@@ -7406,13 +7420,14 @@ function renderCategoriesList_() {
           <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
             <div class="recurring-row-name">${escapeHtml(c.name)}</div>
-            ${catHidden_(c) ? `<div class="recurring-row-sub">${escapeHtml(tr("categories.hiddenTag"))}</div>` : ""}
+            <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
           </div>
         </div>`;
       row.addEventListener("click", () => openCatModal_(c));
       list.appendChild(row);
     });
   });
+  loadCategoryCounts_();
 }
 
 function updateCatPreview_() {
@@ -7479,6 +7494,7 @@ function openCatModal_(cat) {
   document.getElementById("cat-name").value = cat ? cat.name : "";
   document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
   document.getElementById("cat-form-error").textContent = "";
+  document.getElementById("cat-reassign").hidden = true;
   const manageable = !!cat && cat.key !== "other";
   document.getElementById("cat-manage").hidden = !manageable;
   if (manageable) document.getElementById("cat-hide-btn").textContent = tr(catHidden_(cat) ? "categories.show" : "categories.hide");
@@ -7543,17 +7559,58 @@ document.getElementById("cat-hide-btn").addEventListener("click", async () => {
   } catch (err) { errorEl.textContent = err.message; }
 });
 
+// Where a deleted category's records can move: any other category of the same type.
+function showCatReassign_(cat, hintKey, n) {
+  const sel = document.getElementById("cat-reassign-select");
+  sel.innerHTML = "";
+  sortedCategories_(meta.categories.filter((c) => c.type === cat.type && c.id !== cat.id)).forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = `${c.icon || "•"} ${c.name}${catHidden_(c) ? ` (${tr("categories.hiddenTag")})` : ""}`;
+    sel.appendChild(o);
+  });
+  document.getElementById("cat-reassign-hint").textContent = tr(hintKey, { n, name: cat.name });
+  document.getElementById("cat-reassign").hidden = false;
+}
+
 document.getElementById("cat-delete-btn").addEventListener("click", async () => {
   if (!catModalState || !catModalState.id) return;
   const errorEl = document.getElementById("cat-form-error");
   errorEl.textContent = "";
   const cat = meta.categories.find((c) => c.id === catModalState.id);
-  if (!cat || !confirm(tr("categories.confirmDelete", { name: cat.name }))) return;
+  if (!cat) return;
+  const n = categoryCounts_[cat.id] || 0;
+  // Entries use it: they must go somewhere, so ask where instead of refusing.
+  if (n > 0) { showCatReassign_(cat, "categories.reassignHint", n); return; }
+  if (!confirm(tr("categories.confirmDelete", { name: cat.name }))) return;
   try {
     await callApi("deleteCategory", { id: cat.id });
     closeCatModal_();
     await refreshCategoriesAfterChange_();
-  } catch (err) { errorEl.textContent = err.message; }   // in use: the message says so and points to Hide
+  } catch (err) {
+    // Not used by any entry, but by a programmed item or budget: offer to move those too.
+    if (n === 0 && meta.categories.some((c) => c.type === cat.type && c.id !== cat.id)) showCatReassign_(cat, "categories.reassignOtherUse", 0);
+    else errorEl.textContent = err.message;
+  }
+});
+
+document.getElementById("cat-reassign-btn").addEventListener("click", async () => {
+  if (!catModalState || !catModalState.id) return;
+  const errorEl = document.getElementById("cat-form-error");
+  errorEl.textContent = "";
+  const cat = meta.categories.find((c) => c.id === catModalState.id);
+  const target = meta.categories.find((c) => c.id === document.getElementById("cat-reassign-select").value);
+  if (!cat || !target) return;
+  if (!confirm(tr("categories.confirmMove", { from: cat.name, to: target.name }))) return;
+  const btn = document.getElementById("cat-reassign-btn");
+  btn.disabled = true;
+  try {
+    await callApi("deleteCategory", { id: cat.id, reassign_to: target.id });
+    closeCatModal_();
+    await refreshCategoriesAfterChange_();
+    refreshEntriesInBackground_();
+  } catch (err) { errorEl.textContent = err.message; }
+  finally { btn.disabled = false; }
 });
 
 document.getElementById("cat-modal-close").addEventListener("click", closeCatModal_);

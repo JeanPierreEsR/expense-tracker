@@ -297,6 +297,7 @@ function routeAction(action, payload) {
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
     case 'deleteCategory': return deleteCategory(payload);
+    case 'getCategoryCounts': return getCategoryCounts();
     case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'addCategoryKeyword':
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
