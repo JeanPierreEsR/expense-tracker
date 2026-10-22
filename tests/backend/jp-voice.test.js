@@ -62,7 +62,7 @@ test("rows, buttons and labels that name the recipient say JP", () => {
 });
 
 test("the installer page names JP in the third person outside its signed request, and never guesses a pronoun for JP", () => {
-  assert.match(setup, /Tell JP where I got stuck/);
+  assert.match(setup, /Share how the app is doing/);   // the one sharing question (words of the app's own pop-up; signin-consent.test.js)
   assert.match(setup, /so JP knows who to help/);
   assert.match(setup, /Please message JP, who will help you/);
   assert.match(setup, /Escríbele a JP, quien te ayudará/);

@@ -239,3 +239,28 @@ test("a feedback note is cleaned exactly as the backend does it", () => {
   assert.equal(PerfShare.cleanFeedback("x".repeat(1500)).length, 1000);
   assert.equal(PerfShare.cleanFeedback(null), "");
 });
+
+// ---- the choice made on the setup page becomes the phone's saved choice (no second question) ----
+test("a choice that comes with the sign-in is saved as already asked, at the scope the setup page showed", () => {
+  const yes = PerfShare.stateFromSignin({ on: true, label: "Ana", scope: PerfShare.SCOPE }, {}, false);
+  assert.deepEqual(yes, { on: true, label: "Ana", asked: true, owner: false, scope: PerfShare.SCOPE });
+  assert.equal(PerfShare.needsAsk(yes, false), false, "the app does not ask again");
+  const no = PerfShare.stateFromSignin({ on: false, label: "Ana", scope: PerfShare.SCOPE }, {}, false);
+  assert.deepEqual(no, { on: false, label: "", asked: true, owner: false, scope: PerfShare.SCOPE }, "a no keeps no name");
+  assert.equal(PerfShare.needsAsk(no, false), false, "a no is never asked again");
+});
+
+test("a choice from an older setup page is asked again by the app (never widened silently)", () => {
+  const old = PerfShare.stateFromSignin({ on: true, label: "", scope: 1 }, {}, false);
+  assert.equal(old.scope, 1);
+  assert.equal(PerfShare.needsAsk(old, false), true);
+  assert.equal(PerfShare.stateFromSignin({ on: true, label: "", scope: 99 }, {}, false).scope, PerfShare.SCOPE, "never above what this app knows");
+});
+
+test("nothing is saved from the sign-in when there is no choice, on the owner's phone, or when the person already chose here", () => {
+  assert.equal(PerfShare.stateFromSignin(null, {}, false), null);
+  assert.equal(PerfShare.stateFromSignin(undefined, {}, false), null);
+  assert.equal(PerfShare.stateFromSignin({ on: true, label: "", scope: 3 }, {}, true), null);
+  assert.equal(PerfShare.stateFromSignin({ on: true, label: "", scope: 3 }, { asked: true, on: false }, false), null, "an earlier no is not overwritten by a link");
+  assert.equal(PerfShare.stateFromSignin({ on: "yes", label: "", scope: 3 }, {}, false), null);
+});

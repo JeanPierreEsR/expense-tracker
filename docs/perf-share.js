@@ -13,6 +13,7 @@
 //   shouldSend(status, now, lastTry, lastFailed[, minBatch]) -> boolean
 //   cleanLabel(text), deviceKind(userAgent, standalone)
 //   SCOPE, needsAsk(state, isOwner), errorCode(err), shouldRecordError(storage, name, code, now)
+//   stateFromSignin(share, current, isOwner)             the choice made on the setup page, as this phone's saved choice (or null)
 //   bankSlug(name), queueEvents(entry, fields, bank)     what the person did with one pending entry (names only)
 //   weekKey(ms), screenName(id), recordScreen(storage, name, now) -> entries of a finished week   screen-use counts
 //   cleanFeedback(text)                                   the text of a feedback note, as it will be sent
@@ -148,6 +149,17 @@
     return !(state.asked && state.on && (state.scope || 1) >= SCOPE);
   }
 
+  // The choice made on the setup page (carried in the sign-in text, signin-link.js) becomes this phone's saved choice, so the app does not
+  // ask the same question again. Returns the state to save, or null when nothing should change: no choice came along, it is the owner's phone,
+  // or the person already made a choice here (an agreement is never overwritten or widened by a link). The scope is the consent version the
+  // setup page SHOWED, capped at today's; an older one is asked again by needsAsk, with the "new since" note, like any older agreement.
+  function stateFromSignin(share, current, isOwner) {
+    if (!share || typeof share.on !== "boolean" || isOwner) return null;
+    if (current && current.asked) return null;
+    var scope = Math.min(Math.max(Math.floor(Number(share.scope)) || 1, 1), SCOPE);
+    return { on: share.on, label: share.on ? cleanLabel(share.label) : "", asked: true, owner: false, scope: scope };
+  }
+
   // The short code that goes with a failed action: the error's own code if it is a plain lower-case word, else "unknown".
   // Never the message (it could contain something the person typed).
   function errorCode(err) {
@@ -256,6 +268,6 @@
   return {
     bankSlug: bankSlug, queueEvents: queueEvents, weekKey: weekKey, screenName: screenName, recordScreen: recordScreen, cleanFeedback: cleanFeedback,
     OUTBOX_KEY: OUTBOX_KEY, SEQ_KEY: SEQ_KEY, MAX_CHARS: MAX_CHARS, SCOPE: SCOPE, create: create, shouldSend: shouldSend,
-    cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, showImproveRow: showImproveRow, errorCode: errorCode, shouldRecordError: shouldRecordError
+    cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, stateFromSignin: stateFromSignin, showImproveRow: showImproveRow, errorCode: errorCode, shouldRecordError: shouldRecordError
   };
 });

@@ -766,6 +766,9 @@ async function useSigninText_(text) {
     setSessionToken(res.sessionToken);
     localStorage.removeItem("accessCode");
     errorEl.textContent = "";
+    // The "Help me improve the app" choice made on the setup page comes along with the sign-in: this phone keeps it and does not ask again.
+    const carried = PerfShare.stateFromSignin(link.share, perfShareState_(), perfIsOwnerCopy_());
+    if (carried) perfShareSave_(carried);
     // Best effort: the sign-in text should not stay on the clipboard once it has done its job.
     if (isStandaloneApp_()) { try { await navigator.clipboard.writeText(""); } catch (err) { /* not allowed: harmless */ } }
     await init();

@@ -37,9 +37,24 @@
     return URL_RE.test(url) || (!!allowLocal && LOCAL_RE.test(url));
   }
 
-  function make(url, code) {
+  // The person's "Help me improve the app" choice, made on the setup page, travels with the sign-in so the app does not ask the same
+  // thing again: { on: boolean, label: first name (≤30 letters/digits/space/- ' .), scope: the consent version the setup page showed }.
+  var LABEL_RE = /^[\p{L}\p{N} '._\-]{0,30}$/u;
+  function cleanShare(s) {
+    if (!s || typeof s !== "object") return null;
+    var scope = Number(s.scope);
+    if (typeof s.on !== "boolean" || !(scope >= 1 && scope <= 99) || Math.floor(scope) !== scope) return null;
+    var label = typeof s.label === "string" ? s.label.trim() : "";
+    if (!LABEL_RE.test(label)) label = "";
+    return { on: s.on, label: label, scope: scope };
+  }
+
+  function make(url, code, share) {
     if (!isValidUrl(url, true) || !CODE_RE.test(String(code))) throw new Error("not a valid sign-in");
-    return PREFIX + enc(JSON.stringify({ u: url, c: code }));
+    var o = { u: url, c: code };
+    var sh = cleanShare(share);
+    if (sh) o.s = { o: sh.on ? 1 : 0, l: sh.label, v: sh.scope };
+    return PREFIX + enc(JSON.stringify(o));
   }
 
   function tryParse(text, allowLocal) {
@@ -48,7 +63,10 @@
     try {
       var o = JSON.parse(dec(m[1]));
       if (!o || !isValidUrl(o.u, allowLocal) || !CODE_RE.test(String(o.c))) return null;
-      return { url: o.u, code: String(o.c) };
+      var out = { url: o.u, code: String(o.c) };
+      var sh = o.s && cleanShare({ on: o.s.o === 1, label: o.s.l, scope: o.s.v });
+      if (sh) out.share = sh;   // absent when the setup page did not carry a choice (older page, owner's tests): the app then asks itself
+      return out;
     } catch (e) {
       return null;
     }
