@@ -751,6 +751,16 @@ button.primary:disabled {
   opacity: 0.5;
 }
 
+button.primary.danger {
+  background: var(--expense);
+}
+
+#erase-confirm-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+}
+
 .edit-mode-banner {
   background: #fff4d6;
   border: 1px solid #f0d38a;

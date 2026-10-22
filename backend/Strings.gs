@@ -25,6 +25,8 @@ var REQUEST_LANG_ = null;   // set by doPost for the duration of one request
 var BACKEND_STRINGS_ = {
   // ---- err ----
   // ---- optional abilities (Features.gs) ----
+  "erase.ownerCopy": { en: "This option is only for copies of the app made by the installer.", es: "Esta opción es solo para las copias de la app hechas con el instalador." },
+  "erase.notConfirmed": { en: "Deleting everything needs your confirmation first.", es: "Para borrar todo primero hay que confirmarlo." },
   "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet. Turn it on in More → Extra features.", es: "La lectura de tus correos del banco aún no está activada en esta app. Actívala en Más → Funciones extra." },
   "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu celular y vuelve a intentarlo." },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
