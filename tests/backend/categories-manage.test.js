@@ -94,3 +94,37 @@ test("'Other' and non-expense/income categories can't be deleted or hidden", () 
   assert.match(JSON.stringify(post(rt, "setCategoryHidden", { id: other.id, hidden: true })), /built-in category can't be edited, hidden or deleted/);
   assert.match(JSON.stringify(post(rt, "deleteCategory", { id: "nope" })), /not found/);
 });
+
+const addEntry = (rt, id, catId) => rt.run(`appendRowObject('Entries', { id: '${id}', type: 'expense', date: '2026-01-05', amount: 10, currency: 'PEN', category_id: ${JSON.stringify(catId)}, description: 'x', paid_by: 'me', status: 'confirmed', source: 'manual' });`);
+
+test("getCategoryCounts counts the entries of each category", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const c = post(rt, "saveCategory", { type: "expense", name: "Counted" }).data;
+  for (let i = 0; i < 3; i++) addEntry(rt, `cnt-${i}`, c.id);
+  assert.equal(post(rt, "getCategoryCounts").data.counts[c.id], 3);
+});
+
+test("deleting a category in use with reassign_to moves entries and budgets, then deletes it", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const from = post(rt, "saveCategory", { type: "expense", name: "Old one" }).data;
+  const to = post(rt, "saveCategory", { type: "expense", name: "New one" }).data;
+  addEntry(rt, "mv-1", from.id);
+  rt.run(`appendRowObject('Budgets', { id: 'mv-b', category_id: ${JSON.stringify(from.id + "," + to.id)}, amount: 100, currency: 'PEN', period_type: 'monthly' });`);
+  const res = post(rt, "deleteCategory", { id: from.id, reassign_to: to.id });
+  assert.equal(res.data && res.data.deleted, true, JSON.stringify(res));
+  assert.equal(res.data.moved, 1);
+  assert.equal(rt.rows("Entries").find((e) => e.id === "mv-1").category_id, to.id);
+  assert.equal(rt.rows("Budgets").find((b) => b.id === "mv-b").category_id, to.id, "merged without a duplicate id");
+  assert.ok(!rt.rows("Categories").some((r) => r.id === from.id));
+});
+
+test("reassigning to a category of the other type, or to itself, is refused and nothing changes", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const from = post(rt, "saveCategory", { type: "expense", name: "Stays" }).data;
+  const inc = post(rt, "saveCategory", { type: "income", name: "Wrong type" }).data;
+  addEntry(rt, "mv-2", from.id);
+  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: from.id, reassign_to: inc.id })), /same type/);
+  assert.match(JSON.stringify(post(rt, "deleteCategory", { id: from.id, reassign_to: from.id })), /not found/);
+  assert.ok(rt.rows("Categories").some((r) => r.id === from.id));
+  assert.equal(rt.rows("Entries").find((e) => e.id === "mv-2").category_id, from.id);
+});

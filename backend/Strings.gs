@@ -58,6 +58,7 @@ var BACKEND_STRINGS_ = {
   "err.catIcon": { en: "Pick an emoji for the icon.", es: "Elige un emoji para el ícono." },
   "err.catColor": { en: "Pick one of the colors.", es: "Elige uno de los colores." },
   "err.catExists": { en: "You already have a category called \"{name}\".", es: "Ya tienes una categoría llamada \"{name}\"." },
+  "err.catReassignType": { en: "Move them to a category of the same type (expense or income).", es: "Muévelos a una categoría del mismo tipo (gasto o ingreso)." },
   "err.catNotFound": { en: "Category not found.", es: "No se encontró la categoría." },
   "err.catProtected": { en: "This built-in category can't be edited, hidden or deleted.", es: "Esta categoría viene incluida en la app y no se puede editar, ocultar ni eliminar." },
   "err.catInUse": { en: { one: "This category can't be deleted: {n} entry uses it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name.", other: "This category can't be deleted: {n} entries use it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name." }, es: { one: "No se puede eliminar esta categoría: {n} movimiento la usa. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre.", other: "No se puede eliminar esta categoría: {n} movimientos la usan. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre." } },

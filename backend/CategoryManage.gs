@@ -102,18 +102,54 @@ function managedCategoryRow_(id) {
   return cat;
 }
 
-// Delete a category nobody uses (an unused one holds no history). One in use is refused
-// with a count and the owner hides it instead. Its learned e-mail keywords go with it.
+// How many entries each category holds, for the Categories screen ("12 entries").
+// Counts every entry row, pending ones included — the same rows a delete would move.
+function getCategoryCounts() {
+  var counts = {};
+  getAllRows('Entries').forEach(function (e) {
+    var id = String(e.category_id || '');
+    if (id) counts[id] = (counts[id] || 0) + 1;
+  });
+  return { counts: counts };
+}
+
+// Delete a category. Unused: just removed. In use: refused with a count unless
+// `reassign_to` names another category of the same type, in which case everything that
+// pointed at it (entries, programmed items, budgets) moves there first. Its learned
+// e-mail keywords and manual projection overrides go with it (an override is a number
+// typed for that one category, so it has nowhere to move to).
 function deleteCategory(payload) {
   var id = String((payload && payload.id) || '');
   var cat = managedCategoryRow_(id);
   var used = categoryUsage_(id);
-  if (used > 0) throw new Error(tr_('err.catInUse', { n: used }));
+  var target = null;
+  if (used > 0) {
+    var targetId = String((payload && payload.reassign_to) || '');
+    if (!targetId) throw new Error(tr_('err.catInUse', { n: used }));
+    target = getAllRows('Categories').find(function (c) { return String(c.id) === targetId; });
+    if (!target || targetId === id) throw new Error(tr_('err.catNotFound'));
+    if (target.type !== cat.type) throw new Error(tr_('err.catReassignType'));
+  }
+  var moved = 0;
+  if (target) {
+    var swap = function (v) { return String(v) === id ? target.id : v; };
+    moved = rewriteColumn_('Entries', 'category_id', swap, false).changed;
+    rewriteColumn_('Recurring Expenses', 'category_id', swap, false);
+    rewriteColumn_('Categories', 'parent_id', function (v) { return String(v) === id ? '' : v; }, false);
+    rewriteColumn_('Budgets', 'category_id', function (v) {
+      var ids = parseBudgetCategoryIds_(v);
+      if (ids === null || ids.indexOf(id) === -1) return v;
+      var out = [];
+      ids.forEach(function (x) { x = x === id ? String(target.id) : x; if (out.indexOf(x) === -1) out.push(x); });
+      return out.join(',');
+    }, false);
+    deleteRowsWhere_('Projection Overrides', function (r) { return String(r.category_id) === id; });
+  }
   deleteRowsWhere_('Category Keywords', function (r) { return String(r.category_name) === String(cat.name); });
   deleteRowsWhere_('Categories', function (r) { return String(r.id) === id; });
   if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
   bumpStructureVersion_();
-  return { id: id, deleted: true };
+  return { id: id, deleted: true, moved: moved };
 }
 
 // Hide / show. A hidden category keeps its row (past records still show its name and icon)

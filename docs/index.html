@@ -1892,9 +1892,14 @@
       <button type="button" class="primary" id="cat-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="cat-cancel-btn" data-i18n="common.cancel">Cancel</button>
       <div id="cat-manage" hidden>
-        <p class="hint" data-i18n="categories.hideHint">Delete only works for a category nothing uses. Hide keeps past records intact but removes the category from every list you pick from.</p>
+        <p class="hint" data-i18n="categories.hideHint">Hide keeps past records intact but removes the category from every list you pick from. Delete removes it for good; if entries use it, you choose where they move.</p>
         <button type="button" class="cancel-edit-btn" id="cat-hide-btn" data-i18n="categories.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="cat-delete-btn" data-i18n="categories.delete">Delete</button>
+        <div id="cat-reassign" hidden>
+          <p class="hint" id="cat-reassign-hint"></p>
+          <select id="cat-reassign-select"></select>
+          <button type="button" class="delete-entry-btn" id="cat-reassign-btn" data-i18n="categories.moveAndDelete">Move and delete</button>
+        </div>
       </div>
     </div>
   </div>
