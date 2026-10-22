@@ -286,7 +286,12 @@ function applyStatementDecisions(payload) {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
       var feeCat = catByName['expense:Bank fees'];
-      if (!feeCat) throw new Error(tr_('sa.catMissingFees'));
+      if (!feeCat) {
+        // A new account has no "Bank fees" category (only the owner's copy got it, from a one-off migration): make it the first
+        // time a fee needs it, like "Refunds". A dry run writes nothing, so it only borrows a placeholder id.
+        feeCat = dryRun ? 'bank-fees-to-be-created' : ensureBankFeesCategory_().id;
+        catByName['expense:Bank fees'] = feeCat;
+      }
       var madeFee = newEntry({ type: 'expense', date: f.l.date, amount: Math.abs(f.l.amount), currency: f.l.currency, category_id: feeCat,
         description: stmtFeeDescription_(f.l.description), payment_method_id: requirePm(f).id, status: 'confirmed', external_id: 'stmt-' + f.key });
       if (madeFee) report.created.fees++;
@@ -655,6 +660,16 @@ function getEntriesNear(payload) {
   });
 }
 
+
+/** The expense category "Bank fees" (ITF tax, card insurance…); created on first use when the account does not have it. */
+function ensureBankFeesCategory_() {
+  var found = getAllRows('Categories').filter(function (c) { return c.type === 'expense' && (c.name === 'Bank fees' || c.key === 'bank_fees'); })[0];
+  if (found) return found;
+  var row = { id: Utilities.getUuid(), name: 'Bank fees', type: 'expense', icon: '🧾',
+    color: CATEGORY_COLOR_PALETTE[getAllRows('Categories').length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'bank_fees' };
+  appendRowObject('Categories', row);
+  return row;
+}
 
 /** The income category "Refunds" (money coming back for a purchase); created on first use. */
 function ensureRefundsCategory_() {
