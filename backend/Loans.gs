@@ -283,6 +283,18 @@ function createLoan_(fields) {
   return loan;
 }
 
+/**
+ * Deletes `count` rows starting at sheet row `row`, never leaving the sheet with nothing below its frozen header: Google
+ * refuses that ("You can't delete all non-frozen rows"), which is what happens on a sheet with no spare blank rows when the
+ * rows being removed are all it has — the only entry of a new account, or an Undo of a first import (found 2026-10-22 on the
+ * owner's spare). A blank row at the bottom keeps the sheet legal; the last real row is still the last real one.
+ */
+function deleteSheetRows_(sheet, row, count) {
+  var total = sheet.getMaxRows();
+  if (total - count <= sheet.getFrozenRows()) sheet.insertRowAfter(total);
+  sheet.deleteRows(row, count);
+}
+
 // Generic "delete every row matching predicate" for a sheet with a header
 // row — walks bottom-up so earlier row indexes stay valid as matching
 // rows are removed further down.
@@ -312,7 +324,7 @@ function deleteRowsWhere_(sheetName, predicate) {
   while (k < rowNumbers.length) {
     var top = rowNumbers[k], bottom = top, count = 1;
     while (k + count < rowNumbers.length && rowNumbers[k + count] === bottom - 1) { bottom--; count++; }
-    sheet.deleteRows(bottom, count);
+    deleteSheetRows_(sheet, bottom, count);
     k += count;
   }
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
@@ -436,7 +448,7 @@ function deleteLoan(loanId) {
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loanId);
-  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
 }
 
 // ---- Settlements / repayments (Phase 5.4, consolidated 2026-09-17) ----
@@ -1217,7 +1229,7 @@ function deleteSettlement(id) {
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, id);
-  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
 
   updateLoanStatusFromSettlements_(existing.loan_id);
   recalculateRepaymentTransferEntry_(existing.transfer_entry_id);

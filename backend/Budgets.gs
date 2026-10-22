@@ -630,7 +630,7 @@ function deleteBudget(id) {
   var sheet = getSheet('Budgets');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, id);
-  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
 
   // Its alert history is meaningless once the budget is gone.
   var logSheet = getSheet('Budget Alert Log');
@@ -640,7 +640,7 @@ function deleteBudget(id) {
   if (lastRow > 1) {
     var data = logSheet.getRange(2, 1, lastRow - 1, logHeaders.length).getValues();
     for (var i = data.length - 1; i >= 0; i--) {
-      if (data[i][budgetIdCol] === id) logSheet.deleteRow(i + 2);
+      if (data[i][budgetIdCol] === id) deleteSheetRows_(logSheet, i + 2, 1);
     }
   }
   return { done: true };

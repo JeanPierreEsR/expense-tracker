@@ -1014,7 +1014,7 @@ function deleteRecurringExpense(id) {
   var sheet = getSheet('Recurring Expenses');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, id);
-  if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
   ensureRecurringExpenseSplitsSheet_();
   deleteRowsWhere_('Recurring Expense Splits', function (row) { return row.recurring_expense_id === id; });
   ensureRecurringSkipsSheet_();

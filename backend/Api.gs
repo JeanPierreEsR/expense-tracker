@@ -176,7 +176,7 @@ function routeAction(action, payload) {
       var payorSheet = getSheet('Payors');
       var payorHeaders = getHeaders(payorSheet);
       var payorRowIndex = findRowIndexById(payorSheet, payorHeaders, payload.id);
-      if (payorRowIndex !== -1) { payorSheet.deleteRow(payorRowIndex); bumpStructureVersion_(); }
+      if (payorRowIndex !== -1) { deleteSheetRows_(payorSheet, payorRowIndex, 1); bumpStructureVersion_(); }
       return { done: true };
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
@@ -1294,7 +1294,7 @@ function deletePaymentMethod(payload) {
   var settings = getSettingsMap();
   if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
   deleteRowsWhere_('Account Opening Balances', function (row) { return String(row.payment_method_id) === id; });
-  sheet.deleteRow(rowIndex);
+  deleteSheetRows_(sheet, rowIndex, 1);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
   bumpStructureVersion_();
   return { id: id, deleted: true };
@@ -1406,7 +1406,7 @@ function mergeDuplicatePaymentMethods() {
   for (var r = pmLastRow; r >= 2; r--) {
     var rowId = pmSheet.getRange(r, idCol + 1).getValue();
     if (idsToDelete[rowId]) {
-      pmSheet.deleteRow(r);
+      deleteSheetRows_(pmSheet, r, 1);
       bumpStructureVersion_();
       rowsDeleted++;
     }
