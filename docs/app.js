@@ -10793,6 +10793,7 @@ function resetSettlementForm_() {
   document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
   document.getElementById("settlement-date").value = todayLocalISO();
   document.getElementById("settlement-payment-method").value = "";
+  document.getElementById("settlement-description").value = "";
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
   pendingOverpay = null;
@@ -10912,6 +10913,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const amount = parseFloat(document.getElementById("settlement-amount").value);
   const date = document.getElementById("settlement-date").value;
   const paymentMethodId = document.getElementById("settlement-payment-method").value;
+  const description = document.getElementById("settlement-description").value.trim();
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
@@ -10942,7 +10944,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       amount,
       currency,
       date,
-      payment_method_id: paymentMethodId
+      payment_method_id: paymentMethodId,
+      description
     });
 
     refreshEntriesInBackground_();
