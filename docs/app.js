@@ -4788,25 +4788,75 @@ function collapseDrilldownExpand_() {
   document.getElementById("drilldown-modal-inner").classList.remove("expanded");
 }
 
-(function setupDrilldownDragToExpand() {
-  const header = document.getElementById("drilldown-header");
-  const inner = document.getElementById("drilldown-modal-inner");
-  let startY = 0;
-  let tracking = false;
+// ---- Pop-up sheets: lock the page behind them + drag them by the header ----
+// While any sheet (drill-down, loan detail, pickers...) is open, the screen
+// underneath must not scroll: touches that would scroll the page are
+// cancelled unless they happen inside something in the sheet that can
+// itself scroll. Dragging a sheet's header moves it with the finger; let go
+// low and it closes, drag up and it fills the screen, and from full-screen
+// a drag down returns it to normal size.
+function openSheetBackdrops_() {
+  return Array.from(document.querySelectorAll(".currency-modal-backdrop")).filter((b) => !b.hidden);
+}
 
-  header.addEventListener("touchstart", (e) => {
+function syncSheetScrollLock_() {
+  document.body.classList.toggle("sheet-open", openSheetBackdrops_().length > 0);
+}
+
+(function setupSheetScrollLock() {
+  new MutationObserver(syncSheetScrollLock_).observe(document.body, {
+    subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"]
+  });
+  let lastY = 0;
+  document.addEventListener("touchstart", (e) => { lastY = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (!document.body.classList.contains("sheet-open")) return;
+    const dy = e.touches[0].clientY - lastY;
+    lastY = e.touches[0].clientY;
+    for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+      if (el.closest && !el.closest(".currency-modal")) break;
+      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) {
+        const atTop = el.scrollTop <= 0;
+        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+        if ((dy > 0 && !atTop) || (dy < 0 && !atBottom)) return;
+      }
+    }
+    if (e.cancelable) e.preventDefault();
+  }, { passive: false });
+})();
+
+(function setupSheetDrag() {
+  let sheet = null, startY = 0, dy = 0;
+  document.addEventListener("touchstart", (e) => {
+    const header = e.target.closest && e.target.closest(".currency-modal-header");
+    if (!header || e.target.closest("button, a, input, select")) return;
+    sheet = header.closest(".currency-modal");
     startY = e.touches[0].clientY;
-    tracking = true;
+    dy = 0;
+    if (sheet) sheet.style.transition = "none";
   }, { passive: true });
-
-  header.addEventListener("touchend", (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dy = e.changedTouches[0].clientY - startY;
-    const expanded = inner.classList.contains("expanded");
-    if (!expanded && dy < -40) expandDrilldown_();
-    else if (expanded && dy > 40) collapseDrilldownExpand_();
+  document.addEventListener("touchmove", (e) => {
+    if (!sheet) return;
+    dy = e.touches[0].clientY - startY;
+    // Only follow the finger downward; "up" is handled on release.
+    sheet.style.transform = dy > 0 ? "translateY(" + dy + "px)" : "";
   }, { passive: true });
+  function end() {
+    if (!sheet) return;
+    const el = sheet;
+    sheet = null;
+    el.style.transition = "";
+    el.style.transform = "";
+    const expanded = el.classList.contains("expanded");
+    if (dy < -40 && !expanded) el.classList.add("expanded");
+    else if (dy > 40 && expanded) el.classList.remove("expanded");
+    else if (dy > 100) {
+      const close = el.querySelector(".currency-modal-close");
+      if (close) close.click();
+    }
+  }
+  document.addEventListener("touchend", end, { passive: true });
+  document.addEventListener("touchcancel", end, { passive: true });
 })();
 
 // ---- Budget drill-down's ⋮ menu (modify / delete this budget) ----

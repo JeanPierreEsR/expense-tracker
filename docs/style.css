@@ -1020,7 +1020,12 @@ button.primary.danger {
   transition: max-height 0.22s ease;
 }
 
-#drilldown-modal-inner.expanded {
+body.sheet-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.currency-modal.expanded {
   max-height: 100vh;
   max-height: 100dvh;
   height: 100dvh;
@@ -1034,6 +1039,23 @@ button.primary.danger {
   align-items: center;
   font-weight: 600;
   margin-bottom: 12px;
+  position: relative;
+  /* Room above the title for the grab bar below. */
+  margin-top: 8px;
+}
+
+/* The grey "you can drag me" bar at the top of every sheet. It is part of
+   the header, so touching it drags the sheet like the rest of the header. */
+.currency-modal-header::before {
+  content: "";
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  width: 40px;
+  height: 5px;
+  margin-left: -20px;
+  border-radius: 3px;
+  background: var(--border);
 }
 
 .currency-modal-close {
