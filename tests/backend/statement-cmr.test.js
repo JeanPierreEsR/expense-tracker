@@ -6,9 +6,10 @@ const SP = require("../../docs/statement-parsers.js");
 const at = (str, x0) => ({ str, x0, x1: x0 + str.length * 5 });
 const row = (...cells) => ({ text: cells.map((c) => c.str).join(" "), cells });
 
-function cmr({ totalDue = "S/ 100.00", prev = "100.00", card = "CMR VISA SIGNATURE" } = {}) {
+function cmr({ totalDue = "S/ 100.00", prev = "100.00", card = "CMR VISA SIGNATURE", holder = "LOPEZ QUISPE ANA" } = {}) {
   return [
-    row(at("Ana Lo*", 400)),
+    row(at("statement-file|99999999|999999999999.pdf", 1)),
+    row(at(holder, 489)),
     row(at("Estado de Cuenta", 100)),
     row(at(card, 100), at("LIMA/15001", 600)),
     row(at("Nº de Tarjeta", 30), at("4557-88**-****-1234", 200)),
@@ -72,8 +73,8 @@ test("CMR: a total that does not add up is rejected", () => {
 
 test("CMR: the cycle's year comes from the payment day (a January payment day after a December close)", () => {
   const rows = cmr();
-  rows[4] = row(at("Periodo de facturación", 300), at("27/11 al 26/12", 460));
-  rows[5] = row(at("Último día de pago", 300), at("14/01/2027", 500));
+  rows[5] = row(at("Periodo de facturación", 300), at("27/11 al 26/12", 460));
+  rows[6] = row(at("Último día de pago", 300), at("14/01/2027", 500));
   const r = SP.parseStatement(rows);
   assert.deepEqual(r.period, { start: "2026-11-27", end: "2026-12-26" });
 });
@@ -85,10 +86,15 @@ test("CMR: other CMR card names are read the same way", () => {
 
 test("CMR without a readable card number is reported, not guessed", () => {
   const rows = cmr();
-  rows[3] = row(at("Nº de Tarjeta", 30));
+  rows[4] = row(at("Nº de Tarjeta", 30));
   assert.equal(SP.parseStatement(rows).ok, false);
 });
 
 test("the other readers are not confused by the CMR layout", () => {
   assert.equal(SP.detectKind([row(at("Estado de Cuenta de Ahorros", 10)), row(at("FECHA PROC", 10))]), "bcp");
+});
+
+test("CMR: the holder is the lone line above \"Estado de Cuenta\" (the file-name line and the card line are not names)", () => {
+  assert.equal(SP.parseStatement(cmr()).holder, "LOPEZ QUISPE ANA");
+  assert.equal(SP.parseStatement(cmr({ holder: "Ana Lo*" })).holder, "", "an unrecognised line is never guessed");
 });
