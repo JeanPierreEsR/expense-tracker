@@ -19,8 +19,9 @@ const channelScript = (() => {
 })();
 
 // Runs the switch the way a browser would; returns what it did.
-function runSwitch({ href, stableOn = true, meta = "live", stored = "" }) {
+function runSwitch({ href, stableOn = true, meta = "live", stored = "", api = "" }) {
   const store = stored ? { etChannel: stored } : {};
+  if (api) store.apiUrl = api;
   const u = new URL(href);
   const out = { replaced: null, stopped: false, store };
   const ctx = {
@@ -60,6 +61,18 @@ test("the owner's flag keeps a device on live; ?channel=live sets it and ?channe
   const forget = runSwitch({ href: LIVE + "?channel=stable", stored: "live" });
   assert.equal(forget.store.etChannel, undefined);
   assert.ok(forget.replaced.startsWith(LIVE + "stable/"), "a device that forgot the flag sees what friends see");
+});
+
+test("the owner's devices are recognised by their backend address, so a Home-Screen icon (its own storage) needs no flag", () => {
+  const app = fs.readFileSync(path.join(ROOT, "docs", "app.js"), "utf8");
+  const owner = /const OWNER_API_URL = "([^"]+)";/.exec(app)[1];
+  assert.ok(channelScript.includes(`"${owner}"`), "index.html's OWNER_API is the same address as OWNER_API_URL in app.js");
+  assert.equal(runSwitch({ href: LIVE, api: owner }).replaced, null, "owner's phone stays on live, no flag needed");
+  const friend = runSwitch({ href: LIVE, api: "https://script.google.com/macros/s/AKfycbFRIENDSOWN/exec" });
+  assert.equal(friend.replaced, LIVE + "stable/", "a friend's own address goes to stable");
+  assert.equal(runSwitch({ href: LIVE }).replaced, LIVE + "stable/", "a new phone with no address goes to stable");
+  const preview = runSwitch({ href: LIVE + "?channel=stable", api: owner });
+  assert.ok(preview.replaced && preview.replaced.startsWith(LIVE + "stable/"), "?channel=stable lets the owner preview what friends see");
 });
 
 test("stable/ itself and the local test harness are never redirected", () => {
