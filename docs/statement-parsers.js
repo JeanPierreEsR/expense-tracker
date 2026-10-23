@@ -122,6 +122,9 @@
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
     if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
+    // Some SIP PDFs are a scan: the headings above are part of the picture and
+    // only the movements carry real text.
+    if (/SALDO MES ANTERIOR/i.test(all) && /DETALLE DE MOVIMIENTO DEL MES/i.test(all) && /TIT\/ADIC/i.test(all)) return 'sip';
     return null;
   }
 
@@ -506,9 +509,13 @@
   function parseSip(rows) {
     var errors = [];
     var all = rows.map(function (r) { return r.text; }).join('\n');
-    var l4 = all.match(/\*{4,}(\d{4})/);
+    var l4 = all.match(/\*{4,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
     if (!l4 || !pm) return fail('sip', [msg('sp.noCardCycle')]);
+    // The scanned layout prints a payment as "- 318.86" (space after the minus).
+    rows.forEach(function (r) {
+      r.cells.forEach(function (c) { c.str = c.str.replace(/^-\s+(?=[\d,]+\.\d{2}$)/, '-'); });
+    });
     var lines = [];
     var prev = null, opening = null;
     var charges = 0, credits = 0;
