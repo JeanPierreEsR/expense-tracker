@@ -358,7 +358,7 @@
   // Friends' copies only (the owner's own banks are built in). The PDF and its password never leave the phone: this works on the rows the reader
   // already extracted (docs/statement-sample.js turns every digit into 9 and nothing else; the screen says so). No preview step (owner, 2026-10-23).
   // The owner's backend (StatementSamples.gs) turns digits into 9 a second time and keeps the text in the Sheet tab "Statement Samples".
-  const ss_ = { rows: null, kind: "unrecognised", sending: false, sender: "" };
+  const ss_ = { rows: null, kind: "unrecognised", sending: false, sender: "", onSent: null };
   const ssEl_ = (id) => $(id);
   function ssMsg_(t) { ssEl_("ss-msg").textContent = t || ""; }
   function ssStep_(n) { [1, 2].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
@@ -368,11 +368,19 @@
     btn.type = "button";
     btn.className = "add-inline";
     btn.textContent = tr("stmtSample.offer");
-    btn.addEventListener("click", () => openSampleModal(rows, kind, sender));
+    // Once sent, the card stops saying "layout not recognized" and says the statement is with JP (a friend saw the old verdict and thought nothing had gone out).
+    const onSent = () => {
+      const verdict = body.querySelector(".stmt-verdict");
+      if (verdict) { verdict.className = "stmt-verdict good"; verdict.textContent = tr("stmtSample.sentVerdict"); }
+      const hint = body.querySelector(".hint");
+      if (hint) hint.textContent = tr("stmtSample.sentHint");
+      btn.remove();
+    };
+    btn.addEventListener("click", () => openSampleModal(rows, kind, sender, onSent));
     body.appendChild(btn);
   }
-  function openSampleModal(rows, kind, sender) {
-    Object.assign(ss_, { rows, kind, sending: false, sender: sender || "" });
+  function openSampleModal(rows, kind, sender, onSent) {
+    Object.assign(ss_, { rows, kind, sending: false, sender: sender || "", onSent: onSent || null });
     const backdrop = ssEl_("statement-sample-backdrop");
     I18n.applyStatic(backdrop);
     ssEl_("ss-bank").value = "";
@@ -407,6 +415,7 @@
       if (json && json.ok) {
         // The sender address is the key to the "your bank is ready" message (same list as for bank e-mail samples).
         if (ss_.sender && typeof BankSample !== "undefined" && typeof bankSentSave_ === "function") bankSentSave_(BankSample.rememberSender(bankSentList_(), ss_.sender, Date.now()));
+        if (ss_.onSent) ss_.onSent();
         ssStep_(2);
         return;
       }
