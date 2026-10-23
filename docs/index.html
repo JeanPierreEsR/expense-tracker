@@ -9,7 +9,7 @@
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
   (function () {
-    var STABLE_ON = false;   // friends are sent to stable/ only when this is true — flipped by a deliberate ship, on the owner's go
+    var STABLE_ON = true;   // friends are sent to stable/ only when this is true — turned on 2026-10-23 on the owner's go; back to false = one quick ship
     var inStable = (document.querySelector('meta[name="app-channel"]') || {}).content === "stable";
     var root = new URL(inStable ? "../" : "./", location.href);
     // An address on the main site (setup/, vendor/) that also works from stable/.
