@@ -187,6 +187,42 @@ test("a refund of a charge that is already an entry (same month) cancels it in t
   assert.ok(a);
 });
 
+test("'See what it added': the entries of ONE upload can be listed, and its details say what else it did", () => {
+  const { rt, a, b, card, stmt } = accounts();
+  const one = [stmt(a, [
+    { date: "2019-03-02", description: "ABONO SUELDO", amount: 3000.13, currency: "PEN" },
+    { date: "2019-03-05", description: "COMPRA BODEGA", amount: -23.47, currency: "PEN" },
+    { date: "2019-03-10", description: "I-BANC TRANSFERENCIA", amount: -800, currency: "PEN" },
+    { date: "2019-03-12", description: "IMPUESTO ITF", amount: -0.5, currency: "PEN" }
+  ])];
+  const resOne = save(rt, one, plan(rt, one).actions, false);
+  const two = [stmt(b, [{ date: "2019-03-07", description: "COMPRA OTRA", amount: -9.99, currency: "PEN" }])];
+  const resTwo = save(rt, two, plan(rt, two).actions, false);
+
+  const listed = run(rt, `listEntries({ importBatchId: ${JSON.stringify(resOne.batchId)} })`);
+  assert.equal(listed.length, 3, "salary, purchase and fee — the waiting transfer is not an entry");
+  assert.ok(listed.every((e) => e.import_batch_id === resOne.batchId), "nothing from the other upload");
+  assert.equal(run(rt, `listEntries({ importBatchId: ${JSON.stringify(resTwo.batchId)} })`).length, 1);
+
+  const d = run(rt, `getStatementBatchDetails({ batchId: ${JSON.stringify(resOne.batchId)} })`);
+  assert.equal(d.statements.length, 1);
+  assert.match(d.statements[0].label, new RegExp(a.last_4));
+  assert.equal(d.statements[0].lines_total, 4);
+  assert.equal(d.waiting.length, 1, "the unpaired transfer is listed as set aside");
+  assert.equal(d.waiting[0].amount, -800);
+  assert.equal(d.outcomes.waiting, 1);
+  assert.equal(d.changedEntries, 0);
+  assert.ok(card);
+});
+
+test("an upload that only remembered lines lists no entries", () => {
+  const { rt, a, stmt } = accounts();
+  const s = [stmt(a, [{ date: "2019-03-10", description: "I-BANC TRANSFERENCIA", amount: -800, currency: "PEN" }])];
+  const res = save(rt, s, plan(rt, s).actions, false);
+  assert.equal(run(rt, `listEntries({ importBatchId: ${JSON.stringify(res.batchId)} })`).length, 0);
+  assert.equal(run(rt, `getStatementBatchDetails({ batchId: ${JSON.stringify(res.batchId)} })`).waiting.length, 1);
+});
+
 test("lines already remembered as waiting are not offered to be remembered again", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [{ date: "2019-03-10", description: "I-BANC TRANSFERENCIA", amount: -800, currency: "PEN" }]);

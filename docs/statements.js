@@ -761,6 +761,7 @@
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${rateNeedsHtml(res.rateNeeds)}
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button></div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       $("statement-history").innerHTML = "";
@@ -1206,6 +1207,7 @@
         tr("stmt.savedUpdated", { n: res.changed }), tr("stmt.savedRemembered", { n: res.linesRemembered }), tr("stmt.savedRecorded", { n: res.statementsRecorded })];
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(tr("stmt.saved"))}</p>
         <p class="hint">${escapeHtml(savedParts.join(", "))}.</p>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button></div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.savedPressReview"))}</p>`;
       review = null;
@@ -1226,10 +1228,85 @@
   // The review queue, entry list, "Programmed this month" card and balances live
   // in app.js and only reload when their own screen asks; reload them now so
   // what a save/undo just did shows up without restarting the app.
-  function refreshOtherScreens() {
+  async function refreshOtherScreens() {
+    // A save or an undo can create categories on the server ("Bank fees", "Refunds", "Investments"); the phone only knows the ones
+    // it loaded at start, so entries in a new one would show as "(unknown category)" until the app is reloaded. Load them again first.
+    try { if (typeof loadMeta === "function") await loadMeta(); } catch (e) { /* the lists still refresh */ }
     ["refreshReviewQueue", "refreshEntryList", "refreshExpectedRecurring", "refreshBalances"].forEach((n) => {
       try { if (typeof window[n] === "function") { const r = window[n](); if (r && r.catch) r.catch(() => {}); } } catch (e) { /* best effort */ }
     });
+  }
+
+  // ---- "See what it added": the entries one upload created, grouped, each one opening the normal entry screen ----
+
+  let addedBatch = null;
+
+  function addedGroupOf(e) {
+    const cat = typeof findCategory === "function" ? findCategory(e.category_id) : null;
+    const key = cat ? String(cat.key || "") : "";   // the key, not the name: the name can be shown in Spanish
+    if (e.type === "investment") return "investments";
+    if (e.type === "transfer") return e.payment_method_id && e.to_payment_method_id ? "transfers" : "openTransfers";
+    if (e.type === "income") return key === "refunds" ? "refundIncome" : "income";
+    if (Number(e.amount) < 0) return "refunds";
+    return key === "bank_fees" ? "fees" : "spending";
+  }
+
+  const ADDED_ORDER = ["spending", "income", "refunds", "refundIncome", "transfers", "openTransfers", "investments", "fees"];
+
+  async function loadAdded() {
+    const body = $("statement-added-body");
+    const [entries, details] = await Promise.all([
+      callApi("listEntries", { importBatchId: addedBatch }),
+      callApi("getStatementBatchDetails", { batchId: addedBatch })
+    ]);
+    if (addedBatch === null) return;   // closed while loading
+    // An upload can have created a category this phone has not loaded yet (Refunds, Bank fees): load them before naming groups.
+    if (entries.some((e) => e.category_id && typeof findCategory === "function" && !findCategory(e.category_id))) { try { await loadMeta(); } catch (err) { /* groups fall back to plain income/spending */ } }
+    const groups = {};
+    entries.forEach((e) => { (groups[addedGroupOf(e)] = groups[addedGroupOf(e)] || []).push(e); });
+    const money = (list) => {
+      const by = {};
+      list.forEach((e) => { by[e.currency] = (by[e.currency] || 0) + Math.abs(Number(e.amount)); });
+      return Object.keys(by).sort().map((cur) => fmtMoney(cur, Math.round(by[cur] * 100) / 100)).join(" + ");
+    };
+    const stmts = details.statements.map((s) => `<div class="stmt-row-sub">${escapeHtml(tr("added.statementLine", { label: s.label, from: fmtDate(s.period_start), to: fmtDate(s.period_end, true), n: s.lines_total }))}</div>`).join("");
+    const summary = entries.length
+      ? `<p class="stmt-verdict good">${escapeHtml(tr("added.total", { n: entries.length }))}</p>`
+      : `<p class="stmt-verdict warn">${escapeHtml(tr("added.none"))}</p>`;
+    body.innerHTML = `${summary}${details.statements.length ? `<details class="stmt-group"><summary>${escapeHtml(tr("added.statements", { n: details.statements.length }))}</summary>${stmts}</details>` : ""}<div id="added-groups"></div>`;
+    const box = body.querySelector("#added-groups");
+    ADDED_ORDER.filter((k) => groups[k]).forEach((k) => {
+      const det = document.createElement("details");
+      det.className = "stmt-group";
+      det.open = k === "spending" || ADDED_ORDER.filter((x) => groups[x]).length <= 2;
+      det.innerHTML = `<summary>${escapeHtml(tr("added.group." + k))} <span class="stmt-count">${groups[k].length}</span> · ${escapeHtml(money(groups[k]))}</summary><div class="added-list"></div>`;
+      box.appendChild(det);
+      renderEntriesInto_(det.querySelector(".added-list"), groups[k]);   // the app's own entry rows: tap one to open it
+    });
+    const extra = [];
+    if (details.waiting.length) {
+      extra.push(`<details class="stmt-group"><summary>${escapeHtml(tr("added.waiting", { n: details.waiting.length }))}</summary><p class="hint">${escapeHtml(tr("added.waitingHint"))}</p>${details.waiting.map((w) => lineRow({ date: w.date, description: w.description, amount: w.amount, currency: w.currency }, escapeHtml(w.account))).join("")}</details>`);
+    }
+    if (details.changedEntries) extra.push(`<p class="hint">${escapeHtml(tr("added.changed", { n: details.changedEntries }))}</p>`);
+    body.insertAdjacentHTML("beforeend", extra.join(""));
+  }
+
+  async function openAdded(batchId) {
+    const backdrop = $("statement-added-backdrop");
+    addedBatch = batchId;
+    $("statement-added-body").innerHTML = loadingHtml(tr("common.loading"));
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+    // After an entry is edited or deleted in its pop-up, the app asks the open sheet to reload itself.
+    currentDrilldown = { refetch: () => loadAdded().catch(() => {}) };
+    try { await loadAdded(); }
+    catch (err) { $("statement-added-body").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; }
+  }
+
+  function closeAdded() {
+    $("statement-added-backdrop").hidden = true;
+    addedBatch = null;
+    currentDrilldown = null;
   }
 
   async function undoBatch(batchId, trigger) {
@@ -1271,7 +1348,7 @@
       box.innerHTML = batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
-        <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-undo-progress"></div></div>
+        <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr("added.button"))}</button></div><div class="stmt-undo-progress"></div></div>
         <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
@@ -1369,6 +1446,9 @@
     if (review && e.target.dataset && e.target.dataset.gkey) review.open.set(e.target.dataset.gkey, e.target.open);
   }, true);
   $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
+  $("statement-added-close").addEventListener("click", closeAdded);
+  // The same button sits in Recent uploads and in the "saved" message after a save.
+  document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".stmt-added-btn"); if (b) openAdded(b.dataset.batch); });
   $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });
   $("statement-password-ok").addEventListener("click", () => closeStatementPassword($("statement-password-input").value));
   $("statement-password-cancel").addEventListener("click", () => closeStatementPassword(null));

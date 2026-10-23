@@ -292,6 +292,7 @@ function routeAction(action, payload) {
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();
+    case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
@@ -749,6 +750,10 @@ function listEntries(payload) {
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
   }
+  // The entries one statement upload created ("See what it added" on the Statements screen).
+  if (payload && payload.importBatchId) {
+    entries = entries.filter(function (e) { return e.import_batch_id === payload.importBatchId; });
+  }
   if (payload && payload.tagId) {
     var entryIdsWithTag = {};
     getAllRows('Entry Tags').forEach(function (et) {
@@ -769,7 +774,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.tripId || payload.paymentMethodId);
+    payload.tagId || payload.tripId || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.

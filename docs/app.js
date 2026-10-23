@@ -2483,7 +2483,8 @@ function entryHeadline_(entry) {
 
 function categoryName(id) {
   const c = findCategory(id);
-  return c ? c.name : tr("entry.unknownCategory");
+  // No category chosen (a history import adds entries without one) is not an error: say so plainly.
+  return c ? c.name : tr(id ? "entry.unknownCategory" : "entry.uncategorized");
 }
 
 function paidByLabel(entryOrPaidBy) {

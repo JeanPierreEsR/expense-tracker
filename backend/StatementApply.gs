@@ -694,6 +694,35 @@ function resolveStatementGap(payload) {
   return { done: true };
 }
 
+/**
+ * What one upload did besides the entries it created (those come from listEntries with `importBatchId`): the statements it read,
+ * how its lines were decided, the lines it set aside and remembered (waiting for their other statement), and how many existing
+ * entries it changed. Read-only. payload: { batchId }.
+ */
+function getStatementBatchDetails(payload) {
+  var batchId = payload && payload.batchId;
+  if (!batchId) throw new Error('batchId required');
+  ensureStatementLinesSheet_();
+  ensureStatementChangesSheet_();
+  ensureStatementUploadsSheet_();
+  var pms = getAllRows('Payment Methods');
+  var statements = getAllRows('Statement Uploads').filter(function (u) { return u.batch_id === batchId; }).map(function (u) {
+    return { label: u.account_label || u.account_key, period_start: String(u.period_start), period_end: String(u.period_end), file_name: u.file_name || '', lines_total: Number(u.lines_total) || 0, processed_at: String(u.processed_at) };
+  });
+  var outcomes = {}, waiting = [];
+  getAllRows('Statement Lines').forEach(function (r) {
+    if (r.batch_id !== batchId) return;
+    outcomes[r.outcome] = (outcomes[r.outcome] || 0) + 1;
+    if (r.outcome === 'waiting') {
+      var pm = stmtPmForKey_(pms, r.account_key);
+      waiting.push({ date: String(r.date), description: r.description, amount: Number(r.amount), currency: r.currency, account: pm ? pm.nickname : r.account_key });
+    }
+  });
+  waiting.sort(function (x, y) { return x.date < y.date ? -1 : 1; });
+  var changed = getAllRows('Statement Changes').filter(function (c) { return c.batch_id === batchId && c.sheet === 'Entries'; }).length;
+  return { statements: statements, outcomes: outcomes, waiting: waiting, changedEntries: changed };
+}
+
 /** The most recent uploads that can still be undone. */
 function listStatementBatches() {
   ensureStatementChangesSheet_();
