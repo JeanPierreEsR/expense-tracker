@@ -294,7 +294,7 @@ function routeAction(action, payload) {
     case 'planStatementHistory': return planStatementHistory(payload);
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
-    case 'listStatementBatches': return listStatementBatches();
+    case 'listStatementBatches': return listStatementBatches(payload);
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'getOwnerNames': return getOwnerNames();
     case 'saveOwnerNames': return saveOwnerNames(payload);

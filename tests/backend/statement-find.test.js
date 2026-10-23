@@ -95,3 +95,15 @@ test("without the Gmail extra the search is refused", () => {
   rt.run("PropertiesService.getScriptProperties().setProperty('FEATURES', 'base')");
   assert.throws(() => rt.run("findStatementEmails({ months: 12 })"), /not turned on/i);
 });
+
+test("the recent-uploads list shows 5 by default and more when the screen asks", () => {
+  const { rt } = freshApp({ entries: 20 });
+  rt.run(`ensureStatementUploadsSheet_(); appendRowsBulk_('Statement Uploads', ${JSON.stringify(
+    Array.from({ length: 23 }, (_, i) => ({ id: "u" + i, source: "upload", batch_id: "b" + i, processed_at: "2026-01-" + String(i + 1).padStart(2, "0") + "T10:00:00", account_label: "Acct " + i, account_key: "k" + i }))
+  )})`);
+  const list = (payload) => JSON.parse(JSON.stringify(rt.run(`listStatementBatches(${JSON.stringify(payload)})`)));
+  assert.equal(list(undefined).length, 5);
+  assert.equal(list({ limit: 15 }).length, 15);
+  assert.equal(list({ limit: 25 }).length, 23);
+  assert.equal(list({ limit: 15 })[0].batchId, "b22");   // newest first
+});

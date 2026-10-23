@@ -1701,6 +1701,7 @@
     "added.waiting": { en: "Lines set aside and remembered ({n})", es: "Líneas dejadas aparte y recordadas ({n})" },
     "added.waitingHint": { en: "Not added: they look like transfers or card payments whose other statement wasn't here. They pair up when you add it.", es: "No se agregaron: parecen transferencias o pagos de tarjeta cuyo otro estado de cuenta no estaba. Se emparejan cuando lo agregues." },
     "added.changed": { en: "It also changed {n} entries you already had (for example, filling in an account).", es: "También modificó {n} movimientos que ya tenías (por ejemplo, completar una cuenta)." },
+    "stmt.showMore": { en: "Show more", es: "Mostrar más" },
     "stmt.noUploads": { en: "No uploads yet.", es: "Aún no hay cargas." },
     "stmt.confirmDismiss": { en: "Dismiss this statement? It disappears from the inbox (it is not deleted from your email).", es: "¿Quitar este estado de cuenta? Desaparece de la bandeja (no se elimina de tu correo)." },
     "stmt.dismissFailed": { en: "Couldn't dismiss: {error}", es: "No se pudo quitar: {error}" },

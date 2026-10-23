@@ -66,6 +66,7 @@
 
   function showStatementsScreen() {
     sessionPasswords = [];
+    batchesShown = BATCHES_FIRST;
     $("statement-find-card").hidden = !(typeof meta !== "undefined" && meta && meta.capabilities && meta.capabilities.bankEmails !== false);
     document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-statements"; });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -1178,15 +1179,21 @@
     }
   }
 
+  // Five uploads at first; "Show more" adds ten each tap (a long history would make the list endless). Back to five when the screen is opened.
+  const BATCHES_FIRST = 5, BATCHES_STEP = 10;
+  let batchesShown = BATCHES_FIRST;
+
   async function refreshStatementBatches() {
     const box = $("statement-batches");
     try {
-      const batches = await callApi("listStatementBatches", {});
-      box.innerHTML = batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
+      const batches = await callApi("listStatementBatches", { limit: batchesShown });
+      const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
+        ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
+      box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
         <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr("added.button"))}</button></div><div class="stmt-undo-progress"></div></div>
-        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`;
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`) + more;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
     }
@@ -1197,6 +1204,11 @@
 
   // ---- wiring ----
 
+  $("statement-batches").addEventListener("click", (e) => {
+    if (!e.target.closest("#statement-batches-more")) return;
+    batchesShown += BATCHES_STEP;
+    refreshStatementBatches();
+  });
   $("more-statements-btn").addEventListener("click", showStatementsScreen);
   $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showScreen("more"); });
   $("statement-file-input").addEventListener("change", (e) => {
