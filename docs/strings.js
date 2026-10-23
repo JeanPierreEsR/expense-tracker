@@ -1779,6 +1779,10 @@
     "sp.noPeriodCurrencyAccount": { en: "Could not read the period / currency / account.", es: "No se pudo leer el periodo, la moneda ni la cuenta." },
     "sp.noCardCycle": { en: "Could not read the card number / billing cycle.", es: "No se pudo leer el número de tarjeta ni el ciclo de facturación." },
     "sp.ahorramasNoBalance": { en: "AhorraMás statements have no opening or running balance, so the reading could not be checked against totals.", es: "Los estados de AhorraMás no traen saldo inicial ni saldos corridos, así que la lectura no se pudo comprobar contra totales." },
+    "sp.bcpNoColumns": { en: "Could not find the Soles / Dólares columns.", es: "No se encontraron las columnas Soles / Dólares." },
+    "sp.bcpNoBalance": { en: "\"SALDO ANTERIOR\" (previous balance) not found.", es: "No se encontró \"SALDO ANTERIOR\" (saldo anterior)." },
+    "sp.bcpNoTotal": { en: "\"MONTO TOTAL FACTURADO\" not found.", es: "No se encontró \"MONTO TOTAL FACTURADO\"." },
+    "sp.bcpTotal": { en: "Previous balance + the lines add up to {a}, but “MONTO TOTAL FACTURADO” says {b} ({cur}).", es: "Saldo anterior + las líneas suman {a}, pero “MONTO TOTAL FACTURADO” dice {b} ({cur})." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };
 
