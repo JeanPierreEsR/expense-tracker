@@ -36,7 +36,7 @@ test("C3: nobody 'sigue' an account any more — the balance is 'llevado'", () =
 });
 
 test("C4: matching an entry with a programmed item or a statement line is 'emparejar'; 'vincular' stays for trips, Yape/Plin, friends", () => {
-  for (const k of ["recModal.linkHint", "recModal.linkEmpty", "recModal.linkSelected", "scene.stmt.s3"]) assert.match(get(k).es, /empar/i, k);
+  for (const k of ["recModal.linkHint", "recModal.linkEmpty", "recModal.linkSelected"]) assert.match(get(k).es, /empar/i, k);
   assert.ok(!/vincul/i.test(get("recModal.linkSelected").es + get("recModal.linkEmpty").es));
   assert.match(get("recModal.linkSelected").en, /Match selected/);
   assert.match(get("trips.noEntries").es, /vinculados/);

@@ -376,5 +376,10 @@ function planStatementHistory(payload) {
   var analysis = analyzeStatements(payload);
   var platforms = getAllRows('Payment Methods').filter(function (pm) { return pm.type === 'investment'; }).map(function (pm) { return { id: pm.id, name: pm.nickname }; });
   var plan = stmtHistoryPlan_(analysis, platforms);
-  return { actions: plan.actions, summary: plan.summary };
+  // Balances: the same checks the old line-by-line comparison showed, with the account's name, so the phone can offer to set them.
+  var checks = (analysis.balance_checks || []).map(function (c) {
+    var st = (analysis.statements || [])[c.stmt];
+    return Object.assign({}, c, { accountName: st && st.account ? st.account.nickname : '' });
+  });
+  return { actions: plan.actions, summary: plan.summary, balance_checks: checks };
 }
