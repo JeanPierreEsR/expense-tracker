@@ -74,9 +74,11 @@ function getSampleEmail(p) {
   var sender = bankSampleSender_(p && p.sender);
   var id = String((p && p.id) || '');
   if (!sender || !/^[A-Za-z0-9_-]{2,64}$/.test(id)) throw codedError_('sample_bad_sender', tr_('err.bankSampleBadSender'));
+  // only mail from the address the person named: this screen is not a general e-mail reader. The check is "was it in the
+  // list this screen showed" (the same search), not a read of the From header, which Gmail may write in another form.
+  var listed = gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 }).some(function (x) { return x.getId() === id; });
+  if (!listed) throw codedError_('sample_wrong_sender', tr_('err.bankSampleWrongSender'));
   var m = gmailGetMessage_(id);
-  // only mail from the address the person named: this screen is not a general e-mail reader
-  if (String(m.getFrom() || '').toLowerCase().indexOf(sender) < 0) throw codedError_('sample_wrong_sender', tr_('err.bankSampleWrongSender'));
   return {
     subject: String(m.getSubject() || '').substring(0, BANK_SAMPLE_MAX_SUBJECT_),
     body: String(m.getPlainBody() || '').substring(0, 20000)

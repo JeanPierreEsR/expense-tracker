@@ -126,6 +126,16 @@
     return String(s).toLowerCase().replace(/(^|\s)(\S)/g, function (m, a, b) { return a + b.toUpperCase(); });
   }
 
+  // The SIP "(C) DEUDA TOTAL" row: SALDO INICIAL, CONSUMOS E INTERESES, PAGOS Y OTROS, DEUDA TOTAL.
+  function sipSummary(rows) {
+    var summary = null;
+    rows.forEach(function (r) {
+      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
+    });
+    return summary;
+  }
+
   function detectKind(rows) {
     var all = rows.map(function (r) { return r.text; }).join('\n');
     if (/DETALLE DE MOVIMIENTOS/.test(all) && /EMPEZASTE/i.test(all)) return 'savings';
@@ -135,6 +145,11 @@
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
     if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
+    // Some SIP PDFs are a scan: the headings above are part of the picture and
+    // only the movements carry real text.
+    // Since the bank's name is not in the text, also require its closing
+    // "(C)" row: four amounts where opening + purchases − payments = total debt.
+    if (/SALDO MES ANTERIOR/i.test(all) && /DETALLE DE MOVIMIENTO DEL MES/i.test(all) && /TIT\/ADIC/i.test(all) && sipSummary(rows)) return 'sip';
     return null;
   }
 
@@ -532,9 +547,14 @@
   function parseSip(rows) {
     var errors = [];
     var all = rows.map(function (r) { return r.text; }).join('\n');
-    var l4 = all.match(/\*{4,}(\d{4})/);
+    var l4 = all.match(/\*{4,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    var named = /TARJETA DE CR[ÉE]DITO SIP/i.test(all);
     if (!l4 || !pm) return fail('sip', [msg('sp.noCardCycle')]);
+    // The scanned layout prints a payment as "- 318.86" (space after the minus).
+    rows.forEach(function (r) {
+      r.cells.forEach(function (c) { c.str = c.str.replace(/^-\s+(?=[\d,]+\.\d{2}$)/, '-'); });
+    });
     var lines = [];
     var prev = null, opening = null;
     var charges = 0, credits = 0;
@@ -563,11 +583,7 @@
     });
 
     // The "(C) DEUDA TOTAL" line: SALDO INICIAL, + CONSUMOS E INTERESES, − PAGOS Y OTROS, = DEUDA TOTAL.
-    var summary = null;
-    rows.forEach(function (r) {
-      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
-      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
-    });
+    var summary = sipSummary(rows);
     if (prev === null) errors.push(msg('sp.prevMissing'));
     if (!summary) errors.push(msg('sp.summaryMissing'));
     else {
@@ -577,6 +593,7 @@
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
+      warnings: named ? [] : [msg('sp.sipByLayout')],
       account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
       period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
       balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
@@ -706,17 +723,42 @@
     };
   }
 
-  function parseStatement(rows) {
-    var kind = detectKind(rows);
-    if (kind === 'savings') return parseSavings(rows);
-    if (kind === 'visa') return parseVisa(rows);
-    if (kind === 'diners') return parseDiners(rows);
-    if (kind === 'bcp') return parseBcp(rows);
-    if (kind === 'bcpcard') return parseBcpCard(rows);
-    if (kind === 'ahorramas') return parseAhorramas(rows);
-    if (kind === 'sip') return parseSip(rows);
-    return fail(null, [msg('sp.notRecognized')]);
+  // ---- who the statement belongs to ----
+  // Every layout prints its holder near the top; the app uses it to learn the person's own name (backend/OwnerNames.gs). Returns
+  // the name as printed (CAPITALS, any word order) or '' — an unrecognised line is never guessed. Ahorra Más only greets by first
+  // name ("¡HOLA, …!"), which is not enough, so it gives nothing.
+  var NAME_WORDS = '[A-ZÁÉÍÓÚÜÑ]{2,}(?: [A-ZÁÉÍÓÚÜÑ]{2,}){1,4}';
+  function holderOf(kind, rows) {
+    var texts = rows.slice(0, 16).map(function (r) { return String(r.text || '').trim(); });
+    function first(re) {
+      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m) return m[1]; }
+      return '';
+    }
+    var name = '';
+    if (kind === 'savings') {
+      var at = texts.findIndex(function (t) { return /^DNI\b/.test(t); });
+      if (at > 0 && new RegExp('^' + NAME_WORDS + '$').test(texts[at - 1])) name = texts[at - 1];
+    } else if (kind === 'bcp') name = first(new RegExp('^(' + NAME_WORDS + ') CODIGO DE CUENTA\\b'));
+    else if (kind === 'diners') name = first(new RegExp('^(' + NAME_WORDS + ') \\d{2}/\\d{2}/\\d{4}\\b'));
+    else if (kind === 'visa') name = first(new RegExp('^(' + NAME_WORDS + ')$'));
+    else if (kind === 'sip') name = first(new RegExp('^(' + NAME_WORDS + ') \\(A\\)'));
+    return name;
   }
 
-  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind };
+  function parseStatement(rows) {
+    var kind = detectKind(rows);
+    var res;
+    if (kind === 'savings') res = parseSavings(rows);
+    else if (kind === 'visa') res = parseVisa(rows);
+    else if (kind === 'diners') res = parseDiners(rows);
+    else if (kind === 'bcp') res = parseBcp(rows);
+    else if (kind === 'bcpcard') res = parseBcpCard(rows);
+    else if (kind === 'ahorramas') res = parseAhorramas(rows);
+    else if (kind === 'sip') res = parseSip(rows);
+    else return fail(null, [msg('sp.notRecognized')]);
+    if (res && res.ok) res.holder = holderOf(kind, rows);
+    return res;
+  }
+
+  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf };
 });

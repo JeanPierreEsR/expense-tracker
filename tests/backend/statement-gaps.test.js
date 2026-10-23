@@ -4,9 +4,11 @@
 // entries, totals or balances.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp } = require("./helpers");
+const { freshApp, today } = require("./helpers");
 
-const D = "2026-08-31";
+// The statement ends today: the seeded entries are spread up to today, so a fixed date let a random entry land AFTER it
+// and change the balance (found 2026-10-23: an entry dated 2026-09-01 made the test fail).
+const D = today();
 
 function setup() {
   const { rt, data } = freshApp({ entries: 100 });
@@ -54,10 +56,12 @@ test("any amount is kept, even a cent; zero and a missing figure make no note", 
 });
 
 test("a gap note does not change the balance the app shows", () => {
-  const { pm, rt, apply } = setup();
-  apply({ gap: 55.5, app_balance: 944.5 });
-  const bal = rt.api("listPaymentMethodBalances").find((b) => b.id === pm.id).balances.find((x) => x.currency === "PEN").amount;
-  assert.equal(bal, 1000);
+  // The made-up entries are dated from the clock, so some may fall after the statement date and the balance is not always exactly 1000:
+  // compare with the same balance set WITHOUT a gap note (a second fresh app) instead (found 2026-10-23, when this failed with 930.16 for no reason of its own).
+  const balanceOf = ({ pm, rt }) => rt.api("listPaymentMethodBalances").find((b) => b.id === pm.id).balances.find((x) => x.currency === "PEN").amount;
+  const plain = setup(); plain.apply({});
+  const noted = setup(); noted.apply({ gap: 55.5, app_balance: 944.5 });
+  assert.equal(balanceOf(noted), balanceOf(plain));
 });
 
 test("a dry run saves nothing but reports the gap it would note", () => {

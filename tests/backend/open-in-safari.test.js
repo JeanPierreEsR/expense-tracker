@@ -55,7 +55,7 @@ test("if the app is still in front a moment later the fallback is shown; if Safa
 
 test("the Update and Extra features buttons both use it, and both have the copy fallback on screen", () => {
   assert.match(src, /update-open-btn"\)\.addEventListener\("click", \(\) => \{\s*openInSafari_\(updatePageUrl_\(\)/);
-  assert.match(src, /extras-open-btn"\)\.addEventListener\("click", \(\) => \{\s*openInSafari_\(new URL\("setup\/"/);
+  assert.match(src, /extras-open-btn"\)\.addEventListener\("click", \(\) => \{\s*openInSafari_\(siteUrl_\("setup\/"/);
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "index.html"), "utf8");
   for (const id of ["update-open-btn", "update-copy-btn", "update-stuck", "extras-open-btn", "extras-copy-btn"]) assert.ok(html.includes(`id="${id}"`), id);
 });
