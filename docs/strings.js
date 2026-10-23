@@ -921,6 +921,7 @@
     "update.hintSafari": { en: "Tap “Open the update page” and follow the steps.", es: "Toca “Abrir la página de actualización” y sigue los pasos." },
     "update.copy": { en: "Copy update link", es: "Copiar enlace de actualización" },
     "update.open": { en: "Open the update page", es: "Abrir la página de actualización" },
+    "update.laterHint": { en: "Not now? Tap Close. You can update any time from More → Update my app, and your app keeps working the way it is until then.", es: "¿Ahora no? Toca Cerrar. Puedes actualizar cuando quieras desde Más → Actualizar mi app, y tu app sigue funcionando como está hasta entonces." },
     "update.copied": { en: "Link copied. Open Safari, paste it in the address bar and follow the steps.", es: "Enlace copiado. Abre Safari, pégalo en la barra de direcciones y sigue los pasos." },
     "update.copyManual": { en: "Copy this link, open Safari and paste it:", es: "Copia este enlace, abre Safari y pégalo:" },
     "update.needed": { en: "Your app needs an update to do this. Open More → Update available.", es: "Tu app necesita una actualización para hacer esto. Abre Más → Actualización disponible." },
