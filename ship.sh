@@ -132,7 +132,7 @@ else
   fi
   G merge-base --is-ancestor "refs/heads/$BRANCH" HEAD && die "Branch '$BRANCH' has nothing new — it is already in main."
   # The friends' frozen screens (docs/stable/) change ONLY through ./ship.sh --promote, never through a chat's branch.
-  if G diff --name-only "$(G merge-base HEAD "refs/heads/$BRANCH")" "refs/heads/$BRANCH" | grep -q '^docs/stable/'; then
+  if G diff --name-only "$(G merge-base HEAD "refs/heads/$BRANCH")" "refs/heads/$BRANCH" | grep -qE '^docs/stable(-[0-9a-f]+)?/'; then
     die "Branch '$BRANCH' changes docs/stable/ (the friends' frozen screens). Only  ./ship.sh --promote  may do that. Remove those changes from the branch."
   fi
 fi
@@ -169,7 +169,7 @@ grep -E "^ℹ (pass|fail)" "$LOG2" | sed 's/^/  (new e-mail reader) /'
 
 # ------------------------------------------------------ 4. version bump
 CHANGED="$(G diff --name-only origin/main HEAD)"
-if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -v '^docs/stable/' | grep -qv 'version.json'; then
+if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -vE '^docs/stable(-[0-9a-f]+)?/' | grep -qv 'version.json'; then
   OLD="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$W/docs/version.json")"
   NEW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Release number (MAJOR.MINOR.PATCH): none recorded yet → this ship is 0.9.0.

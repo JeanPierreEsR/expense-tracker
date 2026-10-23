@@ -19,13 +19,14 @@ const channelScript = (() => {
 })();
 
 // Runs the switch the way a browser would; returns what it did.
-function runSwitch({ href, stableOn = true, meta = "live", stored = "", api = "" }) {
+function runSwitch({ href, stableOn = true, meta = "live", metas = {}, stored = "", api = "", have = "" }) {
   const store = stored ? { etChannel: stored } : {};
+  if (have) store.etBackendRef = have;
   if (api) store.apiUrl = api;
   const u = new URL(href);
   const out = { replaced: null, stopped: false, store };
   const ctx = {
-    document: { querySelector: () => ({ content: meta }) },
+    document: { querySelector: (sel) => { const n = /name="([^"]+)"/.exec(sel); return n && n[1] in metas ? { content: metas[n[1]] } : n && n[1] !== "app-channel" ? null : { content: meta }; } },
     localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } },
     location: { href, search: u.search, hash: u.hash, hostname: u.hostname, replace: (x) => { out.replaced = x; } },
     URL,
@@ -221,4 +222,63 @@ test("promote refuses to run from a chat's own worktree", () => {
   git(r.work, "worktree", "add", "-q", "-b", "chat", wt, "main");
   const res = promote(wt);
   assert.ok(!res.ok && /ONLY from the main folder/.test(res.out), res.out);
+});
+
+// ------------------------------------------------------------ paired screens
+const PAIR = { "app-channel": "stable", "app-pin": "bbbbbbb1234", "app-pairs": "aaaaaaa,ccccccc" };
+const STABLE_URL = LIVE + "stable/index.html?x=1#h";
+
+test("paired screens: a friend whose backend is an older kept one is sent to that pair's folder, keeping ?query and #hash", () => {
+  const r = runSwitch({ href: STABLE_URL, metas: PAIR, have: "aaaaaaa99999" });
+  assert.equal(r.replaced, LIVE + "stable-aaaaaaa/?x=1#h");
+});
+
+test("paired screens: no redirect when the backend matches this copy, is unknown, is not a kept pair, or this copy is itself a kept one", () => {
+  assert.equal(runSwitch({ href: STABLE_URL, metas: PAIR, have: "bbbbbbb0000" }).replaced, null);
+  assert.equal(runSwitch({ href: STABLE_URL, metas: PAIR }).replaced, null);
+  assert.equal(runSwitch({ href: STABLE_URL, metas: PAIR, have: "ddddddd" }).replaced, null);
+  assert.equal(runSwitch({ href: LIVE + "stable-aaaaaaa/", metas: { ...PAIR, "app-archived": "20261101T000000Z", "app-pairs": "" }, have: "ccccccc" }).replaced, null);
+});
+
+test("paired screens: the live copy and a copy without the tags never redirect that way", () => {
+  assert.equal(runSwitch({ href: LIVE, stableOn: false, have: "aaaaaaa" }).replaced, null);
+  assert.equal(runSwitch({ href: STABLE_URL, metas: { "app-channel": "stable" }, have: "aaaaaaa" }).replaced, null);
+});
+
+test("paired screens: the app remembers its backend version, a kept older copy moves on once its backend is updated, and the update sheet opens once per version", () => {
+  const app = fs.readFileSync(path.join(ROOT, "docs", "app.js"), "utf8");
+  assert.match(app, /function syncPairWithBackend_\(\)/);
+  assert.match(app, /localStorage\.setItem\("etBackendRef", caps\.backendRef\)/);
+  assert.match(app, /m\("app-archived"\)/);
+  assert.match(app, /meta = prefetchedMeta \|\| await callApi\("getMeta", \{\}\);\n  syncPairWithBackend_\(\);/);
+  assert.match(app, /function promptBackendUpdateOnce_\(latest\)/);
+  assert.match(app, /etUpdatePrompted/);
+});
+
+test("promote keeps the old screens as stable-<pin>/ when the pin moves, lists them in stable/, and drops one that becomes current again (rollback)", () => {
+  const r = makeRepo();
+  assert.ok(promote(r.work, "0.1.0").ok);
+  assert.ok(fs.readdirSync(path.join(r.work, "docs")).every((d) => !d.startsWith("stable-")), "first promote: nothing to keep");
+  const up = promote(r.work, "0.1.1");
+  assert.ok(up.ok, up.out);
+  const old7 = r.backendOne.slice(0, 7), new7 = r.backendTwo.slice(0, 7);
+  const kept = fs.readFileSync(path.join(r.work, "docs", `stable-${old7}`, "index.html"), "utf8");
+  assert.match(kept, /content="0\.1\.0"/, "the kept copy is the old release's screens");
+  assert.match(kept, new RegExp(`name="app-pin" content="${r.backendOne}"`));
+  assert.match(kept, /name="app-archived" content="\d{8}T\d{6}Z"/);
+  assert.ok(!/app-pairs/.test(kept));
+  const cur = fs.readFileSync(path.join(r.work, "docs", "stable", "index.html"), "utf8");
+  assert.match(cur, new RegExp(`name="app-pin" content="${r.backendTwo}"`));
+  assert.match(cur, new RegExp(`name="app-pairs" content="${old7}"`));
+  assert.ok(!fs.existsSync(path.join(r.work, "docs", `stable-${new7}`)));
+  assert.equal(git(r.work, "status", "--porcelain"), "", "everything is committed");
+  const back = promote(r.work, "0.1.0");
+  assert.ok(back.ok, back.out);
+  assert.ok(!fs.existsSync(path.join(r.work, "docs", `stable-${old7}`)), "the pin is current again: its kept copy is gone");
+  assert.ok(fs.existsSync(path.join(r.work, "docs", `stable-${new7}`)), "the release rolled back from is kept for friends already on it");
+});
+
+test("a normal ship refuses a branch that changes a kept stable-<pin>/ copy", () => {
+  const sh = fs.readFileSync(path.join(ROOT, "ship.sh"), "utf8");
+  assert.match(sh, /\^docs\/stable\(-\[0-9a-f\]\+\)\?\//);
 });

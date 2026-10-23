@@ -864,6 +864,7 @@ function refreshTelegramFields_() {
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  syncPairWithBackend_();
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
@@ -5789,7 +5790,34 @@ async function latestBackendRef_() {
 async function checkBackendUpdateNow_(caps) {
   const latest = await latestBackendRef_();
   // A copy made before backend versions were stamped has none: it is offered the update too.
-  if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
+  if (latest) {
+    updateChecked_ = true;
+    const behind = !caps.backendRef || caps.backendRef !== latest;
+    setUpdateAvailable_(behind);
+    if (behind) promptBackendUpdateOnce_(latest);
+  }
+}
+// The update sheet opens by itself ONCE per new backend version (a promote that moved the pin); "Close" = later, and the More row stays. It never lands on top of
+// the welcome screens or another pop-up; it is tried again at the next check instead.
+function promptBackendUpdateOnce_(latest) {
+  let seen = ""; try { seen = localStorage.getItem("etUpdatePrompted") || ""; } catch (e) { /* no storage: asks once per open */ }
+  if (seen === latest) return;
+  const welcome = document.getElementById("welcome-overlay");
+  if ((welcome && !welcome.hidden) || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
+  try { localStorage.setItem("etUpdatePrompted", latest); } catch (e) { /* ignore */ }
+  openUpdateModal_();
+}
+// Paired screens: remember which backend this phone is on (the channel script at the top of index.html reads it to pick the matching screens), and a frozen
+// older copy (stable-<version>/) whose backend has since been updated moves on to the current stable/ copy, which sends it to the right pair.
+function syncPairWithBackend_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (caps.perfLog !== false || !caps.backendRef) return;
+  try { localStorage.setItem("etBackendRef", caps.backendRef); } catch (e) { /* ignore */ }
+  const m = (n) => ((document.querySelector('meta[name="' + n + '"]') || {}).content || "");
+  if (m("app-archived") && m("app-pin") && caps.backendRef.slice(0, 7) !== m("app-pin").slice(0, 7)) {
+    saveEntryDraftNow_();
+    location.replace(siteUrl_("stable/") + location.search + location.hash);
+  }
 }
 // An app kept alive in the background is checked again when it comes back to the front, so a promote reaches it without a full relaunch.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateChecked_ = false; checkBackendUpdate_(); } });

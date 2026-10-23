@@ -15,7 +15,8 @@
 # Steps (stops at the first problem):
 #   1. guards: main folder only, on main, no loose changes, nothing unpublished, one ship at a time
 #   2. checks the chosen release can run from stable/ and passes the backend tests (both e-mail readers)
-#   3. copies its screens into docs/stable/ (not setup/, setup-test/, vendor/) and marks them "stable"
+#   3. copies its screens into docs/stable/ (not setup/, setup-test/, vendor/) and marks them "stable"; if the backend pin moves, the screens
+#      friends had until now are first kept as docs/stable-<pin>/ ("paired screens": a friend whose backend is not updated yet keeps the screens tested with it)
 #   4. sets docs/setup/pin.json to the last commit that changed backend/ at that release
 #   5. commits, pushes, tags stable-vX.Y.Z and adds a line to ../FRIENDS_VERSIONS.md
 set -euo pipefail
@@ -48,6 +49,39 @@ cleanup() {
   if [ -n "$LOCK" ]; then rm -rf "$LOCK"; fi
 }
 trap cleanup EXIT
+
+# Paired screens helpers.
+# set_metas FILE PIN PAIRS ARCHIVED_AT — writes the app-pin / app-pairs / app-archived tags right after the app-channel tag of an index.html
+# (PAIRS = comma list of kept older pins, first 7 letters each; ARCHIVED_AT empty = this is the current stable/ copy, not a kept older one).
+set_metas() {
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
+import re, sys
+f, pin, pairs, arch = sys.argv[1:5]
+s = open(f).read()
+s = re.sub(r'[ \t]*<meta name="app-(pin|pairs|archived)"[^>]*>\n?', '', s)
+tags = '<meta name="app-pin" content="%s">' % pin
+if arch: tags += '<meta name="app-archived" content="%s">' % arch
+elif pairs: tags += '<meta name="app-pairs" content="%s">' % pairs
+s, n = re.subn(r'(<meta name="app-channel" content="stable">)', lambda m: m.group(1) + tags, s, count=1)
+if n != 1: sys.exit("no app-channel tag")
+open(f, 'w').write(s)
+PY
+}
+# kept_pairs ROOT KEEP — prunes the older kept copies down to the newest KEEP (by when they were kept) and prints the rest as a comma list.
+kept_pairs() {
+  python3 - "$1" "$2" <<'PY'
+import glob, os, re, shutil, sys
+root, keep = sys.argv[1], int(sys.argv[2])
+found = []
+for d in glob.glob(os.path.join(root, 'docs', 'stable-*')):
+    try: m = re.search(r'name="app-archived" content="([^"]*)"', open(os.path.join(d, 'index.html')).read())
+    except OSError: m = None
+    found.append((m.group(1) if m else '', d))
+found.sort(reverse=True)
+for _, d in found[keep:]: shutil.rmtree(d)
+print(','.join(os.path.basename(d)[len('stable-'):] for _, d in found[:keep]))
+PY
+}
 
 # ---------------------------------------------------------------- 1. guards
 git fetch -q origin || die "Could not reach GitHub (git fetch failed). Check the internet and try again."
@@ -117,17 +151,31 @@ if [ -z "$RESUME" ]; then
 
   # ------------------------------------------------- 3. copy the screens
   say "Copying release $REL's screens into docs/stable/…"
+  # Paired screens: when the backend pin moves, the screens friends had until now stay available as stable-<first 7 of the old pin>/, so a friend whose
+  # backend is not updated yet keeps running the screens that were tested with it (at most KEEP such copies; the oldest go).
+  PAIRS_KEEP=3
+  if [ -n "$OLDPIN" ] && [ "$OLDPIN" != "$PIN" ] && [ -f "$W/docs/stable/index.html" ]; then
+    A="$W/docs/stable-$(echo "$OLDPIN" | cut -c1-7)"
+    say "The backend pin moves, so the screens friends have now are kept as $(basename "$A")/ for friends who have not updated."
+    rm -rf "$A"; mkdir -p "$A"; rsync -a "$W/docs/stable/" "$A/"
+    set_metas "$A/index.html" "$OLDPIN" "" "$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  rm -rf "$W/docs/stable-$(echo "$PIN" | cut -c1-7)"   # the copy for the pin being promoted is stable/ itself
   rm -rf "$W/docs/stable"; mkdir -p "$W/docs/stable"
-  rsync -a --exclude='/setup/' --exclude='/setup-test/' --exclude='/vendor/' --exclude='/stable/' "$SRC/docs/" "$W/docs/stable/"
+  rsync -a --exclude='/setup/' --exclude='/setup-test/' --exclude='/vendor/' --exclude='/stable/' --exclude='/stable-*/' "$SRC/docs/" "$W/docs/stable/"
   sed -i '' -E 's/(<meta name="app-channel" content=")[^"]*"/\1stable"/' "$W/docs/stable/index.html"
   grep -q '<meta name="app-channel" content="stable">' "$W/docs/stable/index.html" || die "Could not mark stable/index.html as the stable copy — nothing was published."
   [ -f "$W/docs/stable/version.json" ] && [ -f "$W/docs/stable/app.js" ] || die "The copy in stable/ is incomplete — nothing was published."
+  PAIRS="$(kept_pairs "$W" "$PAIRS_KEEP")"
+  set_metas "$W/docs/stable/index.html" "$PIN" "$PAIRS" ""
 
   # ------------------------------------------------- 4. the matching backend
   printf '{ "pin": "%s" }\n' "$PIN" > "$W/docs/setup/pin.json"
 
-  G add -A docs/stable docs/setup/pin.json
-  if [ -z "$(G status --porcelain docs/stable docs/setup/pin.json)" ]; then
+  PATHS=(docs/stable docs/setup/pin.json)
+  for d in "$W"/docs/stable-*/; do [ -d "$d" ] && PATHS+=("docs/$(basename "$d")"); done
+  G add -A -- "${PATHS[@]}"
+  if [ -z "$(G status --porcelain -- "${PATHS[@]}")" ]; then
     say "Nothing to change: friends already have release $REL with this backend."
     exit 0
   fi

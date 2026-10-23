@@ -31,6 +31,18 @@
     if (!inStable && (preview || (STABLE_ON && !local && flag !== "live"))) {
       location.replace(new URL("stable/", root).href + location.search + location.hash);
     }
+    // Paired screens (specs/review-telegram-email.md § Paired screens): a friend whose own backend is older than the one this copy was tested with keeps the
+    // screens that were tested with THEIR backend (stable-<first 7 letters of the backend version>/, kept by promote.sh) until they tap "Update my app".
+    // app-pin = this copy's backend version, app-pairs = the older ones kept; etBackendRef = the friend's own backend version (written by app.js after getMeta).
+    if (inStable) {
+      try {
+        var meta = function (n) { var m = document.querySelector('meta[name="' + n + '"]'); return (m && m.content) || ""; };
+        var mine = meta("app-pin").slice(0, 7), have = (localStorage.getItem("etBackendRef") || "").slice(0, 7);
+        if (mine && have && have !== mine && !meta("app-archived") && ("," + meta("app-pairs") + ",").indexOf("," + have + ",") >= 0) {
+          location.replace(new URL("stable-" + have + "/", root).href + location.search + location.hash);
+        }
+      } catch (e) { /* no storage: stays on this copy */ }
+    }
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
@@ -2015,6 +2027,7 @@
       <p class="hint" id="update-modal-hint"></p>
       <button type="button" class="primary" id="update-open-btn" data-i18n="update.open">Open the update page</button>
       <button type="button" class="add-inline" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
+      <p class="hint" data-i18n="update.laterHint">Not now? Tap Close. You can update any time from More → Update my app, and your app keeps working the way it is until then.</p>
       <p class="hint" id="update-stuck" hidden data-i18n="app.safariStuck">Safari did not open? Tap the copy button, open Safari yourself and paste the link in the address bar.</p>
       <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
       <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
