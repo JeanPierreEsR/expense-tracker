@@ -594,7 +594,7 @@
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
-      warnings: named ? [] : [msg('sp.sipByLayout')],
+      warnings: named ? [] : [msg('sp.sipByLayout', { last4: l4[1] })],
       account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
       period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
       balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
