@@ -1102,6 +1102,7 @@
         <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. A name is trusted once two different accounts or banks show it. You can correct the list here.</p>
         <div id="owner-names-list"></div>
         <p class="hint" id="owner-names-waiting"></p>
+        <div class="stmt-loading" id="owner-names-status" role="status" aria-live="polite" hidden><span class="stmt-spinner" aria-hidden="true"></span><span data-i18n="ownerNames.saving">Saving…</span></div>
         <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
         <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
         <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
