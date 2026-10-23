@@ -740,8 +740,9 @@ function getStatementBatchDetails(payload) {
   return { statements: statements, outcomes: outcomes, waiting: waiting, changedEntries: changed };
 }
 
-/** The most recent uploads that can still be undone. */
-function listStatementBatches() {
+/** The most recent uploads that can still be undone (5 by default; the screen asks for more with payload.limit). */
+function listStatementBatches(payload) {
+  var limit = Math.max(1, Math.min(200, Math.floor(Number((payload || {}).limit) || 5)));
   ensureStatementChangesSheet_();
   ensureStatementUploadsSheet_();
   var byBatch = {};
@@ -756,7 +757,7 @@ function listStatementBatches() {
   getAllRows('Statement Changes').forEach(function (c) { if (c.sheet === 'Entries' && byBatch[c.batch_id]) changed[c.batch_id] = (changed[c.batch_id] || 0) + 1; });
   return Object.keys(byBatch).map(function (k) {
     var b = byBatch[k]; b.entriesCreated = created[k] || 0; b.entriesChanged = changed[k] || 0; return b;
-  }).sort(function (x, y) { return x.processed_at < y.processed_at ? 1 : -1; }).slice(0, 5);
+  }).sort(function (x, y) { return x.processed_at < y.processed_at ? 1 : -1; }).slice(0, limit);
 }
 
 /**
