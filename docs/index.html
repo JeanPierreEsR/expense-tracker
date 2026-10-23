@@ -15,11 +15,15 @@
     // An address on the main site (setup/, vendor/) that also works from stable/.
     window.etSiteUrl = function (path) { return new URL(path, root).href; };
     var KEY = "etChannel", flag = "";
+    var OWNER_API = "https://script.google.com/macros/s/AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g/exec";   // must equal OWNER_API_URL in app.js (a test checks)
     try {
       var q = /[?&]channel=(live|stable)\b/.exec(location.search);   // ?channel=live remembers "this device is the owner's"; ?channel=stable forgets it
       if (q && q[1] === "live") localStorage.setItem(KEY, "live");
       else if (q) localStorage.removeItem(KEY);
       flag = localStorage.getItem(KEY) || "";
+      // The owner's own devices are recognised by the backend address they use (the same one as OWNER_API_URL in app.js; a Home-Screen icon has its OWN
+      // storage, so a ?channel=live opened in Safari never reaches it). A friend's copy has an address of its own.
+      if (!flag && !(q && q[1] === "stable") && localStorage.getItem("apiUrl") === OWNER_API) flag = "live";
     } catch (e) { /* storage blocked: treated as a friend's device */ }
     var local = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.localhost)$/.test(location.hostname);
     if (STABLE_ON && !inStable && !local && flag !== "live") {
