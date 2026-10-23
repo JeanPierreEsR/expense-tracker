@@ -1303,6 +1303,7 @@
     "categories.saveFailed": { en: "Couldn't save: {error}", es: "No se pudo guardar: {error}" },
     "categories.empty": { en: "No categories yet.", es: "Aún no hay categorías." },
     "accounts.hiddenTag": { en: "Hidden", es: "Oculta" },
+    "accounts.group.hidden": { en: "Hidden accounts", es: "Cuentas ocultas" },
     "accounts.delete": { en: "Delete", es: "Eliminar" },
     "accounts.hide": { en: "Hide", es: "Ocultar" },
     "accounts.show": { en: "Show again", es: "Mostrar de nuevo" },

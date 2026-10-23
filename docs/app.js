@@ -7389,6 +7389,7 @@ async function refreshExchangeRates() {
 // last 4 digits — the app never asks for a full number.
 
 const PM_TYPES_ = ["credit", "debit", "cash", "transfer", "wallet"];
+let accountsHiddenOpen_ = false; // the "Hidden accounts" group on the accounts screen starts collapsed
 let pmModalState = null; // { id } while the window is open; id is null when adding
 
 function showAccountsScreen() {
@@ -7408,16 +7409,10 @@ function renderAccountsList_() {
   fillBankNote_(document.getElementById("accounts-bank-note"), rows.filter((pm) => pm.type === "credit" || pm.type === "debit").map((pm) => bankName(pm.bank_id)));
   // Three groups (owner, 2026-10-19): bank accounts + credit cards, wallets + cash + transfer, investment platforms.
   const groupOf = (pm) => (pm.type === "investment" ? "platform" : pm.type === "credit" || pm.type === "debit" ? "bank" : "wallet");
-  ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => groupOf(pm) === g).forEach((pm, i) => {
-    if (i === 0) {
-      const head = document.createElement("h3");
-      head.className = "accounts-group-title";
-      head.textContent = tr(`accounts.group.${g}`);
-      list.appendChild(head);
-    }
+  const addRow_ = (pm, parent) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "");
-    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id), pmHidden_(pm) ? tr("accounts.hiddenTag") : ""].filter(Boolean).join(" · ");
+    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
@@ -7426,8 +7421,32 @@ function renderAccountsList_() {
       <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
     `;
     row.addEventListener("click", () => openPmModal_(pm));
-    list.appendChild(row);
+    parent.appendChild(row);
+  };
+  ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => !pmHidden_(pm) && groupOf(pm) === g).forEach((pm, i) => {
+    if (i === 0) {
+      const head = document.createElement("h3");
+      head.className = "accounts-group-title";
+      head.textContent = tr(`accounts.group.${g}`);
+      list.appendChild(head);
+    }
+    addRow_(pm, list);
   }));
+  // Hidden accounts live in their own collapsed group at the bottom (owner, 2026-10-23).
+  const hiddenRows = rows.filter(pmHidden_);
+  if (hiddenRows.length) {
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "accounts-group-title accounts-hidden-toggle";
+    const box = document.createElement("div");
+    box.hidden = !accountsHiddenOpen_;
+    const paint = () => { head.textContent = `${accountsHiddenOpen_ ? "▾" : "▸"} ${tr("accounts.group.hidden")} (${hiddenRows.length})`; };
+    head.addEventListener("click", () => { accountsHiddenOpen_ = !accountsHiddenOpen_; box.hidden = !accountsHiddenOpen_; paint(); });
+    paint();
+    hiddenRows.forEach((pm) => addRow_(pm, box));
+    list.appendChild(head);
+    list.appendChild(box);
+  }
 }
 
 function fillPmBankOptions_(selectedId) {
