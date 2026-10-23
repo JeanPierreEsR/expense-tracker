@@ -6004,13 +6004,17 @@ async function checkBankReady_() {
 }
 document.getElementById("bank-ready-ok").addEventListener("click", () => { document.getElementById("bank-ready-backdrop").hidden = true; });
 const bsEl_ = (id) => document.getElementById(id);
-// Step 1 shows its messages (a missing address, "Looking…", no e-mails found) right under the address box. The shared line at the very
-// bottom of the sheet is below the screen on a phone, so a warning there looked like "the button does nothing".
+// Every step shows its message at the TOP of that step (step 1: right under the address box). A line at the very bottom of the
+// sheet is below the screen on a phone (a long list of e-mails pushes it out of sight), so a warning there looked like "nothing happens".
 function bsMsg_(text) {
-  const first = !bsEl_("bs-step-1").hidden;
-  bsEl_("bs-msg-1").textContent = first ? text || "" : "";
-  bsEl_("bs-msg").textContent = first ? "" : text || "";
+  [1, 2, 3].forEach((i) => { bsEl_("bs-msg-" + i).textContent = ""; });
+  const step = [1, 2, 3, 4].find((i) => !bsEl_("bs-step-" + i).hidden) || 1;
+  const box = bsEl_("bs-msg-" + Math.min(step, 3));
+  box.textContent = text || "";
+  if (text && step > 1) box.scrollIntoView({ block: "nearest" });
 }
+// A reason the server gave in words ("e-mail reading is off…") is shown as it is; anything else gets the generic sentence.
+const bsReason_ = (e, fallbackKey) => (e && e.code && String(e.code).indexOf("sample_") === 0 && e.message ? e.message : tr(fallbackKey));
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
 function openBankSampleModal_() {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
@@ -6067,7 +6071,7 @@ bsEl_("bs-find").addEventListener("click", async () => {
           const got = await callApi("getSampleEmail", { id: m.id, sender });
           Object.assign(bs_, { raw: got.body || "", subject: got.subject || m.subject || "", how: "picked" });
           bsShowPreview_();
-        } catch (e) { bsMsg_(tr("bankSample.openFailed")); }
+        } catch (e) { bsMsg_(bsReason_(e, "bankSample.openFailed")); }
       });
       box.appendChild(b);
     });

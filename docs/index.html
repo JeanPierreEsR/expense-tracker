@@ -1360,6 +1360,7 @@
           <p class="hint" data-i18n="bankSample.statementHint">Is it a bank statement the app cannot read? Open More → Statements, choose the PDF, and you will find the button to send it.</p>
         </div>
         <div id="bs-step-2" hidden>
+          <p class="hint" id="bs-msg-2" role="status" style="color:#d64545;font-weight:600;"></p>
           <div id="bs-pick">
             <p class="hint" data-i18n="bankSample.pickTitle">Pick an email that shows a transaction (a purchase, a transfer…)</p>
             <div id="bs-list" class="more-list"></div>
@@ -1372,6 +1373,7 @@
           <button type="button" class="cancel-edit-btn" id="bs-back-2"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-3" hidden>
+          <p class="hint" id="bs-msg-3" role="status" style="color:#d64545;font-weight:600;"></p>
           <p class="hint"><strong data-i18n="bankSample.previewTitle">This is exactly what JP will receive</strong></p>
           <p class="hint"><span data-i18n="bankSample.subjectLine">Subject:</span> <span id="bs-subject"></span></p>
           <textarea id="bs-preview" rows="10" spellcheck="false"></textarea>
@@ -1393,7 +1395,6 @@
           <p class="hint" data-i18n="bankSample.doneBody">I received it. I will let you know when your bank is added. Each kind of email helps (a purchase, a transfer, a deposit…), so send another if you can.</p>
           <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another email</button>
         </div>
-        <p class="hint" id="bs-msg" role="status"></p>
       </div>
     </div>
   </div>
