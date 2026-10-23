@@ -341,9 +341,26 @@
   function resultCardShell(fileName) {
     const card = document.createElement("div");
     card.className = "stmt-result";
-    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body">${loadingHtml(tr("stmt.reading"))}</div>`;
+    card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body">${loadingHtml(tr("stmt.reading"))}</div>
+      <button type="button" class="stmt-result-remove">${escapeHtml(tr("stmt.removeFile"))}</button>`;
+    card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, fileName));
     $("statement-results").prepend(card);
     return card.querySelector(".stmt-result-body");
+  }
+
+  // Takes one file out of this session's list (it is only on the phone; the PDF itself is never kept).
+  function removeResultCard(card, fileName) {
+    const had = usable.some((u) => u.file === fileName);
+    card.remove();
+    if (!had) return;
+    usable = usable.filter((u) => u.file !== fileName);
+    // The review's statement/line numbers refer to the list — any change makes an open review stale.
+    const hadReview = !!review;
+    review = null;
+    historyPlan = null;
+    $("statement-history").innerHTML = "";
+    $("statement-review").innerHTML = hadReview ? `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>` : "";
+    updateReviewButton();
   }
 
   function coverageNotes(result) {
