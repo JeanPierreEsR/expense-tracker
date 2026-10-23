@@ -1840,6 +1840,9 @@
     "sp.bcpNoBalance": { en: "\"SALDO ANTERIOR\" (previous balance) not found.", es: "No se encontró \"SALDO ANTERIOR\" (saldo anterior)." },
     "sp.bcpNoTotal": { en: "\"MONTO TOTAL FACTURADO\" not found.", es: "No se encontró \"MONTO TOTAL FACTURADO\"." },
     "sp.bcpTotal": { en: "Previous balance + the lines add up to {a}, but “MONTO TOTAL FACTURADO” says {b} ({cur}).", es: "Saldo anterior + las líneas suman {a}, pero “MONTO TOTAL FACTURADO” dice {b} ({cur})." },
+    "sp.cmrNoPrev": { en: "\"Total Facturado Mes Anterior\" (previous balance) not found.", es: "No se encontró \"Total Facturado Mes Anterior\" (saldo anterior)." },
+    "sp.cmrNoTotal": { en: "\"Pago total del mes\" not found.", es: "No se encontró \"Pago total del mes\"." },
+    "sp.cmrTotal": { en: "Previous balance + the lines add up to {a}, but “Pago total del mes” says {b}.", es: "Saldo anterior + las líneas suman {a}, pero “Pago total del mes” dice {b}." },
     "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture). It was recognized as a SIP card statement by its layout and totals — please check it is your SIP card.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen). Se reconoció como estado de tarjeta SIP por su formato y totales; por favor confirma que es tu tarjeta SIP." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };

@@ -141,6 +141,7 @@
     if (/DETALLE DE MOVIMIENTOS/.test(all) && /EMPEZASTE/i.test(all)) return 'savings';
     if (isInterbankCard(all)) return 'visa';
     if (/Estado de Cuenta Tarjeta/i.test(all) && /Ciclo de Facturaci[óo]n/i.test(all) && /MONTO TOTAL FACTURADO/i.test(all)) return 'bcpcard';
+    if (/Listado de movimientos/i.test(all) && /Total Facturado Mes Anterior/i.test(all) && /\bCMR\b|Falabella/i.test(all)) return 'cmr';
     if (/PERIODO FACTURADO DEL/i.test(all)) return 'diners';
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
@@ -723,6 +724,71 @@
     };
   }
 
+  // ---- CMR Falabella credit cards (Banco Falabella; soles only; "Estado de Cuenta" with a "Listado de movimientos") ----
+
+  // CMR prints a credit as "-123.45" (minus BEFORE the number) and some header amounts as "S/ 1,234.50". Returns the DEBT or null.
+  function cmrAmount(str) {
+    var m = String(str).replace(/^S\/\s*/, '').match(/^(-?)([\d,]+\.\d{2})$/);
+    return m ? (m[1] ? -num(m[2]) : num(m[2])) : null;
+  }
+
+  function parseCmr(rows) {
+    var errors = [];
+    var cardName = '', last4 = null, due = null, cyc = null, totalDue = null, prev = 0, havePrev = false;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      var nm = !cardName && cells.map(function (c) { return c.str.match(/^CMR\s+([A-ZÁÉÍÓÚ ]+)$/); }).find(Boolean);
+      if (nm) cardName = nm[1].trim();
+      // "Nº de Tarjeta   1234-56**-****-7890": the value is the cell after the label
+      cells.forEach(function (c, i) {
+        if (!last4 && /^N[º°o]\.? de Tarjeta$/i.test(c.str) && cells[i + 1]) { var m = cells[i + 1].str.match(/(\d{4})\D*$/); if (m) last4 = m[1]; }
+        if (!cyc && /^Periodo de facturaci[óo]n$/i.test(c.str) && cells[i + 1]) cyc = cells[i + 1].str.match(/(\d{2})\/(\d{2})\s+al\s+(\d{2})\/(\d{2})/);
+        if (!due && /^[ÚU]ltimo d[íi]a de pago$/i.test(c.str) && cells[i + 1]) due = cells[i + 1].str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (totalDue === null && /^Pago total del mes$/i.test(c.str) && cells[i + 1]) totalDue = cmrAmount(cells[i + 1].str);
+      });
+    });
+    if (!last4 || !cyc || !due) return fail('cmr', [msg('sp.noCardCycle')]);
+    // The cycle is printed as "dd/mm al dd/mm" with no year; the payment day (full date) comes after the cycle's end.
+    var endM = +cyc[4], endY = endM <= +due[2] ? +due[3] : +due[3] - 1;
+    var startM = +cyc[2], startY = startM <= endM ? endY : endY - 1;
+    var start = iso(startY, startM, +cyc[1]), end = iso(endY, endM, +cyc[3]);
+
+    var dateRe = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    var lines = [], sum = 0;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      if (/Total Facturado Mes Anterior/i.test(r.text)) {
+        var pa = cells.map(function (c) { return cmrAmount(c.str); }).filter(function (v) { return v !== null; });
+        prev = pa.length ? pa[pa.length - 1] : 0;   // all dashes when nothing was owed
+        havePrev = true;
+        return;
+      }
+      // Movement: "dd/mm/yyyy (transaction)  dd/mm/yyyy (processed)  DESCRIPTION  Peru  …  amount"; the right-most amount is the row's TOTAL
+      var d1 = cells[0] && cells[0].str.match(dateRe), d2 = cells[1] && cells[1].str.match(dateRe);
+      if (!d1 || !d2) return;
+      var amts = cells.slice(2).filter(function (c) { return cmrAmount(c.str) !== null; });
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: r.text })); return; }
+      var printed = cmrAmount(amts[amts.length - 1].str);
+      var desc = cells.slice(2).filter(function (c) { return cmrAmount(c.str) === null && !/^\d+\/\d+$/.test(c.str) && !/^(Peru|Perú)$/i.test(c.str); })
+        .map(function (c) { return c.str; }).join(' ');
+      var section = /^Pago\b/i.test(desc) ? 'payments' : /^Devoluci/i.test(desc) ? 'refunds'
+        : /^(Itf|Seg\b|Seguro|Inter[eé]s|Comisi|Cuota de membres|Membres)/i.test(desc) ? 'fees' : 'purchases';
+      sum = round2(sum + printed);
+      if (printed !== 0) lines.push({ date: iso(+d1[3], +d1[2], +d1[1]), description: desc, amount: round2(-printed), currency: 'PEN', section: section });
+    });
+
+    if (!havePrev) errors.push(msg('sp.cmrNoPrev'));
+    if (totalDue === null) errors.push(msg('sp.cmrNoTotal'));
+    else if (havePrev && round2(prev + sum) !== round2(totalDue)) errors.push(msg('sp.cmrTotal', { a: round2(prev + sum).toFixed(2), b: totalDue.toFixed(2) }));
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'cmr', bank: 'CMR Falabella',
+      account: { last4: last4, label: 'CMR' + (cardName ? ' ' + titleCase(cardName) : ' card') },
+      period: { start: start, end: end },
+      balances: { PEN: { opening: round2(-prev) || 0, closing: totalDue === null ? null : (round2(-totalDue) || 0) } },   // "|| 0": never -0
+      lines: lines
+    };
+  }
+
   // ---- who the statement belongs to ----
   // Every layout prints its holder near the top; the app uses it to learn the person's own name (backend/OwnerNames.gs). Returns
   // the name as printed (CAPITALS, any word order) or '' — an unrecognised line is never guessed. Ahorra Más only greets by first
@@ -753,6 +819,7 @@
     else if (kind === 'diners') res = parseDiners(rows);
     else if (kind === 'bcp') res = parseBcp(rows);
     else if (kind === 'bcpcard') res = parseBcpCard(rows);
+    else if (kind === 'cmr') res = parseCmr(rows);
     else if (kind === 'ahorramas') res = parseAhorramas(rows);
     else if (kind === 'sip') res = parseSip(rows);
     else return fail(null, [msg('sp.notRecognized')]);
