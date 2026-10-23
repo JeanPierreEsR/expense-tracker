@@ -967,19 +967,19 @@
             const thisIsOut = l.amount < 0;
             items.push({ ...base, kind: "pair", outIsThis: thisIsOut, fromEarlier: true,
               partner: { date: pw.date, description: pw.description, amount: pw.amount, currency: pw.currency }, partnerAcct: pw.account,
-              choices: [["record", tr("stmt.choice.record")]],
+              choices: [["record", tr("stmt.choice.recordTransfer")]],
               build: () => (thisIsOut
                 ? { type: "record_transfer", out: { stmt: si, line: li }, in: { stored: pw.lineKey } }
                 : { type: "record_transfer", out: { stored: pw.lineKey }, in: { stmt: si, line: li } }) });
           } else if (l.amount < 0) {
             items.push({ ...base, kind: "pair", outIsThis: true, partner: sts[pw.statement].lines[pw.line], partnerAcct: acct(pw.statement),
-              choices: [["record", tr("stmt.choice.record")]],
+              choices: [["record", tr("stmt.choice.recordTransfer")]],
               build: () => ({ type: "record_transfer", out: { stmt: si, line: li }, in: { stmt: pw.statement, line: pw.line } }) });
           }
           return;
         }
         if (l.guess === "fee") {
-          items.push({ ...base, kind: "fee", choices: [["record", tr("stmt.choice.record")]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
+          items.push({ ...base, kind: "fee", choices: [["record", tr("stmt.choice.recordFee")]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
           return;
         }
         if (l.possible) {

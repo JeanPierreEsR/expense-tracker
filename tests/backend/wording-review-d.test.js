@@ -69,7 +69,8 @@ test("C20: installer — no 'optional - recommended', no 'prioritize', clearer p
 });
 
 test("C21: the statements buttons, trips labels, loans and rates read as proposed", () => {
-  assert.match(get("stmt.choice.record").en, /Save as new entry/);
+  assert.match(get("stmt.choice.recordTransfer").en, /Add as transfer/);
+  assert.match(get("stmt.choice.recordFee").en, /Add as bank fee/);   // the button names the TYPE of entry it makes, like "Add as expense"
   assert.match(get("stmt.choice.leaveWaiting").es, /Esperar el otro estado de cuenta/);
   assert.match(get("stmt.choice.refundIncome").en, /Record as refund/);
   assert.match(get("stmt.dismiss").en, /Remove from the list/);

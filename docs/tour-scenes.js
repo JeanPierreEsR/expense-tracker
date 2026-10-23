@@ -1087,7 +1087,7 @@
       const pair = h("div", "ts-sl", null, gPair);
       h("div", "ts-spair", tr("scene.savings") + " → " + tr("accounts.type.credit") + " · " + money(300).replace("−", ""), pair);
       h("div", "ts-hint", fmtMd(-2) + " “CARD PAYMENT” / " + fmtMd(-2) + " “PAYMENT RECEIVED”", pair);
-      p.pairChip = chips(pair, [tr("stmt.choice.record")])[0];
+      p.pairChip = chips(pair, [tr("stmt.choice.recordTransfer")])[0];
       // purchases not in the app: Add, Match…, Ignore
       const gBuy = group("purchase", tr("stmt.group.purchase"), 3, tr("stmt.group.purchaseHint"));
       p.addItem = line(gBuy, -3, "CAFE LUNA", -48, tr("scene.savings") + " — " + tr("stmt.itemNoSuggestion"));

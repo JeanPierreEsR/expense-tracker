@@ -6876,13 +6876,37 @@ function renderOwnerNames_(res) {
     ? res.names.map((n, i) => `<div class="more-list-item" style="cursor:default"><span>${escapeHtml(n)}</span><button type="button" class="add-inline" data-owner-name-remove="${i}" aria-label="${escapeHtml(tr("ownerNames.remove", { name: n }))}">✕</button></div>`).join("")
     : `<p class="hint">${escapeHtml(tr("ownerNames.none"))}</p>`;
   list.dataset.names = JSON.stringify(res.names);
-  ownerNamesEl_("owner-names-waiting").textContent = res.pending.length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
+  list.dataset.pending = JSON.stringify(res.pending || []);
+  ownerNamesEl_("owner-names-waiting").textContent = (res.pending || []).length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
 }
-async function saveOwnerNames_(names) {
-  const err = ownerNamesEl_("owner-names-error");
-  err.textContent = "";
-  try { renderOwnerNames_(await callApi("saveOwnerNames", { names })); return true; }
-  catch (e) { err.textContent = e.message; return false; }
+// A name looks like a person's: 2–5 words of letters (the server checks the same rule; this only saves a round trip).
+function ownerNameLooksReal_(name) {
+  const w = String(name).trim().split(/\s+/);
+  return /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .-]+$/.test(name) && w.length >= 2 && w.length <= 5 && w.every((x) => x.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "").length >= 2);
+}
+// The list changes on screen AT ONCE; the save runs in the background (one at a time, in order) with a small spinner, and the
+// list goes back to what the server has only if the save fails.
+let ownerNamesSaves_ = Promise.resolve(), ownerNamesOpen_ = 0;
+function saveOwnerNames_(names) {
+  const list = ownerNamesEl_("owner-names-list"), status = ownerNamesEl_("owner-names-status");
+  const before = { names: JSON.parse(list.dataset.names || "[]"), pending: JSON.parse(list.dataset.pending || "[]") };
+  ownerNamesEl_("owner-names-error").textContent = "";
+  renderOwnerNames_({ names, pending: before.pending });
+  ownerNamesOpen_++;
+  status.hidden = false;
+  ownerNamesSaves_ = ownerNamesSaves_.then(async () => {
+    try {
+      const res = await callApi("saveOwnerNames", { names });
+      if (ownerNamesOpen_ === 1) renderOwnerNames_(res);   // the last save in the queue: show what the server really has
+    } catch (e) {
+      ownerNamesEl_("owner-names-error").textContent = e.message;
+      if (ownerNamesOpen_ === 1) renderOwnerNames_(before);
+    } finally {
+      ownerNamesOpen_--;
+      if (!ownerNamesOpen_) status.hidden = true;
+    }
+  });
+  return ownerNamesSaves_;
 }
 async function openOwnerNamesModal_() {
   ownerNamesEl_("owner-names-error").textContent = "";
@@ -6896,19 +6920,21 @@ async function openOwnerNamesModal_() {
 document.getElementById("more-owner-names-btn").addEventListener("click", openOwnerNamesModal_);
 ownerNamesEl_("owner-names-close").addEventListener("click", () => { ownerNamesEl_("owner-names-backdrop").hidden = true; });
 ownerNamesEl_("owner-names-backdrop").addEventListener("click", (e) => { if (e.target.id === "owner-names-backdrop") e.target.hidden = true; });
-ownerNamesEl_("owner-names-add-btn").addEventListener("click", async () => {
+ownerNamesEl_("owner-names-add-btn").addEventListener("click", () => {
   const input = ownerNamesEl_("owner-names-input");
   const name = input.value.trim();
   if (!name) return;
+  if (!ownerNameLooksReal_(name)) { ownerNamesEl_("owner-names-error").textContent = tr("ownerNames.badName", { name }); return; }
   const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
-  if (await saveOwnerNames_(names.concat([name]))) input.value = "";
+  input.value = "";
+  saveOwnerNames_(names.concat([name]));
 });
-ownerNamesEl_("owner-names-list").addEventListener("click", async (e) => {
+ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-owner-name-remove]");
   if (!btn) return;
   const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
   names.splice(Number(btn.dataset.ownerNameRemove), 1);
-  await saveOwnerNames_(names);
+  saveOwnerNames_(names);
 });
 
 // Release number at the bottom of the More tab.
