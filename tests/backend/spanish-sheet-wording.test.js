@@ -16,8 +16,7 @@ test("the Spanish installer never calls the person's file a 'hoja'", () => {
 });
 
 test("the Spanish installer names it 'archivo de Google Sheets', with the right gender around it", () => {
-  assert.match(spanish, /Creamos un <b>archivo de Google Sheets privado<\/b>/);
-  assert.match(spanish, /para que pueda usar ese archivo/);
+  assert.match(spanish, /Crear tu <b>archivo privado de Google Sheets<\/b>/);
   assert.match(spanish, /cree el archivo de Google Sheets donde se guardan tus gastos/);
   assert.match(spanish, /use <b>solo su propio archivo de Google Sheets<\/b>/);
   assert.match(spanish, /tu archivo de Google Sheets y tus datos se quedan donde están/);

@@ -72,7 +72,28 @@
   .step input[type=text] { font:inherit; font-size:18px; width:100%; box-sizing:border-box; padding:12px; margin:4px 0 8px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); }
   #shareCard label.small { display:block; color:var(--muted); }
   button.danger { background:var(--bad); }
-  body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1) { display:none !important; }
+  .linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-size:16px; font-weight:600; text-decoration:underline; padding:4px 0; margin:0; width:auto; min-height:0; display:inline; }
+  .callout .linkbtn { color:inherit; }
+  #moreOverlay { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.5); display:flex; align-items:flex-end; justify-content:center; }
+  #moreOverlay[hidden] { display:none; }
+  #moreSheet { background:var(--card); color:var(--fg); width:100%; max-width:560px; max-height:85vh; overflow:auto; border-radius:18px 18px 0 0; padding:18px 16px 24px; box-sizing:border-box; }
+  #moreSheet p, #moreSheet li { color:var(--fg); font-size:17px; }
+  #tracker ol { list-style:none; margin:6px 0 0; padding:0; }
+  #tracker li { display:flex; align-items:center; gap:12px; padding:8px 0; font-size:18px; color:var(--muted); }
+  #tracker .dot { flex:none; width:28px; height:28px; border-radius:50%; border:2px solid var(--line); box-sizing:border-box; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; color:transparent; }
+  #tracker li.now { color:var(--fg); font-weight:700; }
+  #tracker li.now .dot { border-color:var(--accent); background:radial-gradient(circle, var(--accent) 0 5px, transparent 6px); }
+  #tracker li.done { color:var(--ok); }
+  #tracker li.done .dot { background:var(--ok); border-color:var(--ok); color:#fff; animation:pop .35s ease; }
+  @media (prefers-color-scheme: dark) { #tracker li.done .dot { color:#06240f; } }
+  .step.complete { border-color:var(--ok); }
+  .step.complete > h3::before { content:"✓ "; color:var(--ok); }
+  #sheetNote { margin-top:12px; padding:10px 12px; border:1px dashed var(--line); border-radius:10px; background:transparent; color:var(--muted); font-size:15px; }
+  #sheetNote b { display:block; font-size:14px; text-transform:uppercase; letter-spacing:.03em; margin-bottom:2px; }
+  #sheetNote p { margin:2px 0; font-size:15px; }
+  @keyframes pop { 0% { transform:scale(.4); } 70% { transform:scale(1.2); } 100% { transform:scale(1); } }
+  @media (prefers-reduced-motion: reduce) { #tracker li.done .dot { animation:none; } }
+  body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../signin-link.js"></script>
@@ -94,15 +115,25 @@
 
   <div class="callout" id="privateTip">
     <h3 data-t="privateTitle"></h3>
-    <div data-t="privateBody"></div>
+    <div><span data-t="privateShort"></span> <button class="linkbtn" data-more="privateBody"></button></div>
     <button id="btnCopyPrivate" data-t="copyPageBtn"></button>
   </div>
 
-  <div class="callout" data-t="accountTip"></div>
+  <div class="callout"><span data-t="accountTip"></span> <button class="linkbtn" data-more="accountTipMore"></button></div>
 
   <div class="step" id="overview">
     <h3 data-t="whatTitle"></h3>
     <ol data-t="what"></ol>
+  </div>
+
+  <div class="step" id="tracker" aria-live="polite">
+    <h3 data-t="stepsTitle"></h3>
+    <ol>
+      <li id="trSheet"><span class="dot">✓</span><span data-t="trSheet"></span></li>
+      <li id="trApp"><span class="dot">✓</span><span data-t="trApp"></span></li>
+      <li id="trAllow"><span class="dot">✓</span><span data-t="trAllow"></span></li>
+      <li id="trOpen"><span class="dot">✓</span><span data-t="trOpen"></span></li>
+    </ol>
   </div>
 
   <div class="step" id="removeCard" hidden>
@@ -131,9 +162,9 @@
 
   <div class="step" id="choices">
     <h3 data-t="choicesTitle"></h3>
-    <p id="choicesIntroP" data-t="choicesIntro"></p>
-    <label class="opt"><input type="checkbox" id="optAwake"><span data-t="optAwakeLabel"></span></label>
-    <label class="opt"><input type="checkbox" id="optGmail"><span data-t="optGmailLabel"></span></label>
+    <p id="choicesIntroP"><span data-t="choicesIntro"></span> <button class="linkbtn" data-more="choicesIntroMore"></button></p>
+    <label class="opt"><input type="checkbox" id="optAwake"><span><span data-t="optAwakeLabel"></span> <button type="button" class="linkbtn" data-more="optAwakeMore"></button></span></label>
+    <label class="opt"><input type="checkbox" id="optGmail"><span><span data-t="optGmailLabel"></span> <button type="button" class="linkbtn" data-more="optGmailMore"></button></span></label>
     <p class="small" id="choicesSummary"></p>
     <div id="sAdd"></div>
     <button id="btnAdd" data-t="addBtn" hidden></button>
@@ -150,7 +181,7 @@
 
   <div class="step" id="shareCard">
     <h3 data-t="shareTitle"></h3>
-    <p data-t="shareBody"></p>
+    <p><span data-t="shareShort"></span> <button class="linkbtn" data-more="shareBody"></button></p>
     <label class="opt"><input type="checkbox" id="optShare" checked><span data-t="optShareLabel"></span></label>
     <label class="small" for="shareName" data-t="shareNameLabel"></label>
     <input type="text" id="shareName" maxlength="30" autocomplete="off">
@@ -160,17 +191,22 @@
     </details>
   </div>
 
-  <div class="step">
+  <div class="step" id="card1">
     <h3 data-t="createTitle"></h3>
-    <div class="ask" data-t="createAsk"></div>
+    <div class="ask"><span data-t="createAsk"></span> <button class="linkbtn" data-more="createAskMore"></button></div>
     <p class="small" id="acct"></p>
     <div id="s1"></div>
     <button id="btnInstall" data-t="createBtn"></button>
+    <div id="sheetNote" role="note" hidden>
+      <b>ⓘ <span data-t="sheetNoteTitle"></span></b>
+      <p data-t="sheetNoteBody"></p>
+      <p data-t="sheetNoteWait"></p>
+    </div>
   </div>
 
-  <div class="step">
+  <div class="step" id="card2">
     <h3 data-t="approveTitle"></h3>
-    <div class="ask" data-t="approveAsk"></div>
+    <div class="ask"><span data-t="approveAsk"></span> <button class="linkbtn" data-more="approveAskMore"></button></div>
     <div id="approveExtras" class="ask" hidden></div>
     <div id="s2"></div>
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
@@ -192,6 +228,7 @@
     <ol id="log"></ol>
   </details>
 </main>
+<div id="moreOverlay" hidden><div id="moreSheet" role="dialog" aria-modal="true"><div id="moreBody"></div><button class="secondary" id="moreClose"></button></div></div>
 
 <script>
 const CLIENT_ID = '827461318220-df4c2aa4epf6uptbvqntbh16r7l8b2n4.apps.googleusercontent.com';
@@ -230,6 +267,18 @@ const LANG = langChoice || (((navigator.languages && navigator.languages[0]) || 
 document.documentElement.lang = LANG;
 const T = {
   en: {
+    moreLink: 'More info',
+    moreClose: 'Close',
+    privateShort: 'Avoids Google sign-in mix-ups.',
+    stepsTitle: 'Your steps',
+    trSheet: 'Create my Google Sheet',
+    trApp: 'Set up my app',
+    trSwitch: 'Turn on Google’s setting',
+    trAllow: 'Allow permissions',
+    trOpen: 'Open my app',
+    sheetNoteTitle: 'Just so you know — nothing to do here',
+    sheetNoteBody: 'Your data will live in the Google Sheet “Expense Tracker” being created in your Google Drive. Please don’t delete or rename it.',
+    sheetNoteWait: 'Just wait: the progress is at the top of the page.',
     title: 'Set up your Expense Tracker app',
     inAppWarn: 'It looks like this page was opened inside another app (WhatsApp, Facebook, Instagram…). Google may refuse to sign you in here. Tap the <b>•••</b> or Share button and choose <b>Open in Safari</b>.',
     ready: 'Ready. Tap “Set up my app” to begin.',
@@ -239,11 +288,12 @@ const T = {
     stepSetup: 'Step 1 of 2',
     stepAllow: 'Step 2 of 2',
     stepOptional: 'Optional step',
-    privateTitle: 'Before you start: open this page in a Private tab',
+    privateTitle: 'Tip: use a Private tab',
     privateBody: '<p style="color:inherit">This is the surest way to set up without problems. Many phones are signed in to several Google accounts, and Google’s approval screen gets confused by that. A Private tab starts with no accounts, so you sign in with only the one you choose.</p><ol><li>Tap <b>Copy this page’s address</b> below.</li><li>In Safari tap the tabs icon (two squares), then <b>Private</b>, then the <b>+</b>.</li><li>Paste the address in the bar and open it. This page appears again: carry on from there.</li></ol><p style="color:inherit" class="small">Already in a Private tab? Then you are all set: go on with the steps below.</p>',
-    accountTip: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so use that one. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails). No Gmail, because your bank writes to Outlook, iCloud or Yahoo? Create a free Gmail and forward to it; the app explains how.',
+    accountTip: '<b>Which Google account?</b> The Gmail that <b>receives your bank emails</b>.',
+    accountTipMore: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so use that one. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails). No Gmail, because your bank writes to Outlook, iCloud or Yahoo? Create a free Gmail and forward to it; the app explains how.',
     whatTitle: 'What will happen (about 3 minutes)',
-    what: '<li>We create a <b>private Google Sheet</b> in your own Google account. Your expenses are saved there, in your account.</li><li>We prepare <b>your app</b> so it can use that sheet.</li><li>Google will show you some screens asking you to allow things. <b>Before each one, this page tells you exactly what to tap.</b></li>',
+    what: '<li>Create your <b>private Google Sheet</b></li><li>Prepare <b>your app</b></li><li>Allow a few things on Google’s screens (we tell you what to tap)</li>',
     switchTitle: 'First: turn on one Google setting',
     switchIntro: 'Google asks for this once, so this page can set up your app in your account.',
     switchSteps: '<li>Tap the blue button. A Google page opens.</li><li>Find <b>Google Apps Script API</b> in the list and tap its switch so it says <b>On</b>.</li><li>Come back to this page. It continues by itself.</li>',
@@ -252,9 +302,12 @@ const T = {
     switchNotYet: 'Not on yet (checked {t}). Checking again every 20 seconds…',
     switchGaveUp: 'Still off after 5 minutes. Check the setting is on for this same Google account, then tap “Set up my app” again.',
     choicesTitle: 'Optional extras',
-    choicesIntro: 'Your app already does the essentials: you record your expenses and see where your money goes. These two extras make it better. <b>We recommend both</b>, but they are optional — check the ones you want.',
-    optAwakeLabel: '<b>Open faster (recommended)</b> — your app opens quickly every time, instead of making you wait a few seconds the first time each day.',
-    optGmailLabel: '<b>Add bank transactions automatically (recommended)</b> — your app reads the emails your bank sends you and adds each payment for you, so you don’t type them. Nothing counts until you confirm it. It can only read emails, never send or delete them.',
+    choicesIntro: 'Two optional extras. <b>We recommend both.</b>',
+    choicesIntroMore: 'Your app already does the essentials: you record your expenses and see where your money goes. These two extras make it better. <b>We recommend both</b>, but they are optional — check the ones you want.',
+    optAwakeLabel: '<b>Open faster</b> (recommended)',
+    optAwakeMore: '<b>Open faster (recommended)</b> — your app opens quickly every time, instead of making you wait a few seconds the first time each day.',
+    optGmailLabel: '<b>Add bank transactions automatically</b> (recommended)',
+    optGmailMore: '<b>Add bank transactions automatically (recommended)</b> — your app reads the emails your bank sends you and adds each payment for you, so you don’t type them. Nothing counts until you confirm it. It can only read emails, never send or delete them.',
     choicesSummaryOne: 'No extras chosen. You can continue without them.',
     choicesSummaryMany: 'Later, Google will ask you to confirm these extras. It only takes a moment.',
     choicesLocked: 'Your choices: {list}.',
@@ -268,13 +321,15 @@ const T = {
     // This card is the ONE place the person decides about sharing: the choice travels with the sign-in to the app (signin-link.js), which then does not ask again.
     // Its list of counts must say the same as the app's own pop-up (strings.js perfShare.body): tests/backend/signin-consent.test.js checks it.
     shareBody: 'I’m JP, who made this app. It is in beta, and your help makes it better. If you leave the box below checked, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. While you set up, this page also tells me which step you reached and how many seconds it took. It never sends your Google account, email, expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can change this at any time in the app, under More → Privacy. It would be greatly appreciated. — JP',
+    shareShort: 'Share small counts (speed, problems) to help improve the app. Never your account, email or spending.',
     optShareLabel: '<b>Share how the app is doing</b> (speed, problems, screens I use)',
     shareNameLabel: 'Your first name (optional), so JP knows who to help',
     sharePlaceholder: 'e.g. Ana',
     shareWhatSummary: 'Exactly what is sent',
     shareWhat: '<ul><li>Once the app is set up, the small counts described above (speed; which action failed, with a short code; what you did with each bank email, never its content; how many times you open each screen), through the app itself.</li><li>While you set up, the name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or email, your access code, or anything about your spending.</p>',
     createTitle: '1. Set up my app',
-    createAsk: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, check <b>Select all</b> (if Google is in Spanish: <b>Seleccionar todo</b>), then tap <b>Continue</b> (if Google is in Spanish: <b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (if Google is in Spanish: <b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” (in Spanish: “Volver a un sitio seguro”)): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
+    createAsk: '<b>On Google’s screen:</b> check <b>Select all</b>, then tap <b>Continue</b>.',
+    createAskMore: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, check <b>Select all</b> (if Google is in Spanish: <b>Seleccionar todo</b>), then tap <b>Continue</b> (if Google is in Spanish: <b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (if Google is in Spanish: <b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” (in Spanish: “Volver a un sitio seguro”)): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
     relinkBtn: 'Sign in again on this phone',
@@ -284,7 +339,8 @@ const T = {
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
-    approveAsk: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker</b> (if Google is in Spanish: <b>Ir a Expense Tracker</b>), then <b>Allow</b> (if Google is in Spanish: <b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
+    approveAsk: '<b>Google will open a screen.</b> Tap <b>Advanced</b>, then <b>Go to Expense Tracker</b>, then <b>Allow</b>. Then tap the green <b>Continue</b>.',
+    approveAskMore: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker</b> (if Google is in Spanish: <b>Ir a Expense Tracker</b>), then <b>Allow</b> (if Google is in Spanish: <b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     stepUpdate: 'Update',
     stepRemove: 'Delete',
@@ -359,6 +415,18 @@ const T = {
     p_switchWait: 'Waiting for the Google setting…'
   },
   es: {
+    moreLink: 'Más información',
+    moreClose: 'Cerrar',
+    privateShort: 'Evita confusiones con el inicio de sesión de Google.',
+    stepsTitle: 'Tus pasos',
+    trSheet: 'Crear mi archivo de Google Sheets',
+    trApp: 'Preparar mi app',
+    trSwitch: 'Activar el ajuste de Google',
+    trAllow: 'Permitir los permisos',
+    trOpen: 'Abrir mi app',
+    sheetNoteTitle: 'Solo para que sepas — aquí no hay nada que hacer',
+    sheetNoteBody: 'Tus datos vivirán en el archivo de Google Sheets “Expense Tracker” que se está creando en tu Google Drive. Por favor no lo borres ni le cambies el nombre.',
+    sheetNoteWait: 'Solo espera: el avance está arriba en la página.',
     title: 'Configura tu app Expense Tracker',
     inAppWarn: 'Parece que abriste esta página dentro de otra app (WhatsApp, Facebook, Instagram…). Google puede negarse a iniciar sesión aquí. Toca el botón <b>•••</b> o Compartir y elige <b>Abrir en Safari</b>.',
     ready: 'Lista. Toca “Configurar mi app” para empezar.',
@@ -368,11 +436,12 @@ const T = {
     stepSetup: 'Paso 1 de 2',
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
-    privateTitle: 'Antes de empezar: abre esta página en una pestaña privada',
+    privateTitle: 'Consejo: usa una pestaña privada',
     privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulars tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
-    accountTip: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
+    accountTip: '<b>¿Con qué cuenta de Google?</b> El Gmail que <b>recibe los correos de tu banco</b>.',
+    accountTipMore: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
     whatTitle: 'Qué va a pasar (unos 3 minutos)',
-    what: '<li>Creamos un <b>archivo de Google Sheets privado</b> en tu propia cuenta de Google. Tus gastos se guardan ahí, en tu cuenta.</li><li>Preparamos <b>tu app</b> para que pueda usar ese archivo.</li><li>Google te mostrará algunas pantallas pidiéndote permitir cosas. <b>Antes de cada una, esta página te dice exactamente qué tocar.</b></li>',
+    what: '<li>Crear tu <b>archivo privado de Google Sheets</b></li><li>Preparar <b>tu app</b></li><li>Permitir algunas cosas en las pantallas de Google (te decimos qué tocar)</li>',
     switchTitle: 'Primero: activa un ajuste de Google',
     switchIntro: 'Google lo pide una sola vez, para que esta página pueda preparar tu app en tu cuenta.',
     switchSteps: '<li>Toca el botón azul. Se abre una página de Google.</li><li>Busca <b>API de Google Apps Script</b> en la lista y toca su interruptor hasta que diga <b>Activado</b>.</li><li>Vuelve a esta página. Continúa sola.</li>',
@@ -381,9 +450,12 @@ const T = {
     switchNotYet: 'Aún no está activado (revisado {t}). Reviso de nuevo cada 20 segundos…',
     switchGaveUp: 'Sigue desactivado después de 5 minutos. Revisa que esté activado en esta misma cuenta de Google y toca “Configurar mi app” otra vez.',
     choicesTitle: 'Extras opcionales',
-    choicesIntro: 'Tu app ya hace lo esencial: registras tus gastos y ves a dónde va tu dinero. Estos dos extras la mejoran. <b>Te recomendamos ambos</b>, pero son opcionales — marca los que quieras.',
-    optAwakeLabel: '<b>Abrir más rápido (recomendado)</b> — tu app abre rápido siempre, en vez de hacerte esperar unos segundos la primera vez cada día.',
-    optGmailLabel: '<b>Agregar mis movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
+    choicesIntro: 'Dos extras opcionales. <b>Te recomendamos ambos.</b>',
+    choicesIntroMore: 'Tu app ya hace lo esencial: registras tus gastos y ves a dónde va tu dinero. Estos dos extras la mejoran. <b>Te recomendamos ambos</b>, pero son opcionales — marca los que quieras.',
+    optAwakeLabel: '<b>Abrir más rápido</b> (recomendado)',
+    optAwakeMore: '<b>Abrir más rápido (recomendado)</b> — tu app abre rápido siempre, en vez de hacerte esperar unos segundos la primera vez cada día.',
+    optGmailLabel: '<b>Agregar movimientos del banco automáticamente</b> (recomendado)',
+    optGmailMore: '<b>Agregar mis movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
     choicesSummaryOne: 'Sin extras. Puedes continuar sin ellos.',
     choicesSummaryMany: 'Más adelante, Google te pedirá confirmar estos extras. Solo toma un momento.',
     choicesLocked: 'Tus elecciones: {list}.',
@@ -395,13 +467,15 @@ const T = {
     approveExtraGmail: '<b>leer</b> tu correo — nunca puede enviar, cambiar ni borrar uno; revisar con regularidad si hay correos nuevos del banco (un pequeño temporizador corre en segundo plano)',
     shareTitle: 'Ayúdame a mejorar la app',
     shareBody: 'Soy JP, quien hizo esta app. Está en beta, y tu ayuda la mejora. Si dejas marcada la casilla de abajo, tu celular me envía solo conteos pequeños: qué tan rápido funcionó cada acción; qué acción falló, con un código corto; si cada correo del banco se confirmó tal como llegó, se cambió o se descartó, y qué campo cambiaste (nunca lo que dice); y cuántas veces abres cada pantalla. Mientras la configuras, esta página también me avisa a qué paso llegaste y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos, montos, nombres, cuentas ni nada de lo que escribes, así que no afecta tu privacidad y no hace más lenta la app. Puedes cambiarlo cuando quieras en la app, en Más → Privacidad. Te lo voy a agradecer mucho. — JP',
+    shareShort: 'Comparte conteos pequeños (velocidad, problemas) para mejorar la app. Nunca tu cuenta, correo ni gastos.',
     optShareLabel: '<b>Compartir cómo le va a la app</b> (velocidad, problemas, pantallas que uso)',
     shareNameLabel: 'Tu nombre (opcional), para que JP sepa a quién ayudar',
     sharePlaceholder: 'p. ej. Ana',
     shareWhatSummary: 'Exactamente qué se envía',
     shareWhat: '<ul><li>Cuando la app ya está configurada, los conteos pequeños descritos arriba (velocidad; qué acción falló, con un código corto; qué hiciste con cada correo del banco, nunca su contenido; cuántas veces abres cada pantalla), a través de la app misma.</li><li>Mientras la configuras, el nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu archivo, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de celular (por ejemplo iPhone) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu código de acceso, ni nada sobre tus gastos.</p>',
     createTitle: '1. Configurar mi app',
-    createAsk: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree el archivo de Google Sheets donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (si Google está en inglés: <b>Select all</b>) y toca <b>Continuar</b> (si Google está en inglés: <b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (si Google está en inglés: <b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” (en inglés: “Back to safety”)): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
+    createAsk: '<b>En la pantalla de Google:</b> marca <b>Seleccionar todo</b> y toca <b>Continuar</b>.',
+    createAskMore: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree el archivo de Google Sheets donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (si Google está en inglés: <b>Select all</b>) y toca <b>Continuar</b> (si Google está en inglés: <b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (si Google está en inglés: <b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” (en inglés: “Back to safety”)): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
     relinkBtn: 'Iniciar sesión otra vez en este celular',
@@ -411,7 +485,8 @@ const T = {
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su archivo',
-    approveAsk: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker</b> (si Google está en inglés: <b>Go to Expense Tracker</b>) y luego <b>Permitir</b> (si Google está en inglés: <b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
+    approveAsk: '<b>Google abrirá una pantalla.</b> Toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker</b> y luego <b>Permitir</b>. Después toca el botón verde <b>Continuar</b>.',
+    approveAskMore: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker</b> (si Google está en inglés: <b>Go to Expense Tracker</b>) y luego <b>Permitir</b> (si Google está en inglés: <b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     stepUpdate: 'Actualizar',
     stepRemove: 'Borrar',
@@ -489,6 +564,14 @@ const T = {
 const WANT_REMOVE = /(^|[#&?])remove\b/.test(location.hash + location.search);   // the app's "Delete everything" opens this page that way
 if (WANT_REMOVE) { document.body.classList.add('removing'); document.querySelector('h1').setAttribute('data-t', 'rmPageTitle'); }
 document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
+// "More info": the long explanation lives behind a tap, in a sheet of its own, so the page itself stays short.
+document.querySelectorAll('[data-more]').forEach((b) => {
+  b.textContent = T.moreLink;
+  b.addEventListener('click', (ev) => { ev.preventDefault(); document.getElementById('moreBody').innerHTML = T[b.getAttribute('data-more')]; document.getElementById('moreOverlay').hidden = false; });
+});
+document.getElementById('moreClose').textContent = T.moreClose;
+document.getElementById('moreClose').addEventListener('click', () => { document.getElementById('moreOverlay').hidden = true; });
+document.getElementById('moreOverlay').addEventListener('click', (ev) => { if (ev.target === document.getElementById('moreOverlay')) document.getElementById('moreOverlay').hidden = true; });
 document.querySelectorAll('[data-lang]').forEach((a) => a.addEventListener('click', (ev) => {
   ev.preventDefault();
   try { localStorage.setItem('setupLang', a.getAttribute('data-lang')); } catch (e) {}
@@ -892,6 +975,7 @@ function webUrlOf(dep) {
 // ---------- step 1: install ----------
 async function install() {
   const start = Date.now();
+  $('sheetNote').hidden = false;   // non-actionable note, read while the Sheet is created (hidden again by render() when the run ends)
   progress(T.p_google, 3);
   await restoreIfNeeded();
   accountReady = showAccount();
@@ -1354,8 +1438,26 @@ function doneBtn(id, done) {
   b.classList.toggle('donebtn', !!done);
   b.textContent = done ? T.createdBtn : T[b.dataset.t];
 }
+// The list of steps at the top: a tick for each one already done, a dot on the one the person is on.
+function renderTracker() {
+  $('tracker').hidden = WANT_REMOVE || WANT_UPDATE;
+  $('overview').hidden = !!state.spreadsheetId;   // "what will happen" is only for the start; the step list takes over
+  const done = { trSheet: !!state.spreadsheetId, trApp: !!state.webAppUrl, trAllow: !!state.permissionDone, trOpen: false };
+  $('trApp').querySelector('[data-t]').textContent = apiRetryTimer ? T.trSwitch : T.trApp;
+  let now = true;
+  Object.keys(done).forEach((id) => {
+    const li = $(id);
+    li.classList.toggle('done', done[id]);
+    li.classList.toggle('now', now && !done[id]);
+    if (!done[id]) now = false;
+  });
+  $('card1').classList.toggle('complete', !!state.webAppUrl);
+  $('card2').classList.toggle('complete', !!state.permissionDone);
+}
 function render(failed) {
   renderChoices();
+  renderTracker();
+  if (!busy) $('sheetNote').hidden = true;   // the "don't delete your Sheet" note is only for the minute the Sheet is being made
   if (state.webAppUrl) $('switchCard').hidden = !apiRetryTimer;
   if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
   if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);
