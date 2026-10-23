@@ -4893,30 +4893,56 @@ function syncSheetScrollLock_() {
 })();
 
 (function setupSheetDrag() {
-  let sheet = null, startY = 0, dy = 0;
+  let sheet = null, startY = 0, dy = 0, startH = 0;
+  const maxH = () => window.innerHeight;
   document.addEventListener("touchstart", (e) => {
     const header = e.target.closest && e.target.closest(".currency-modal-header");
     if (!header || e.target.closest("button, a, input, select")) return;
     sheet = header.closest(".currency-modal");
     startY = e.touches[0].clientY;
     dy = 0;
-    if (sheet) sheet.style.transition = "none";
+    if (sheet) {
+      clearTimeout(sheet._dragTimer);
+      sheet.style.transition = "none";
+      startH = sheet.getBoundingClientRect().height;
+    }
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!sheet) return;
     dy = e.touches[0].clientY - startY;
-    // Only follow the finger downward; "up" is handled on release.
-    sheet.style.transform = dy > 0 ? "translateY(" + dy + "px)" : "";
+    if (dy > 0) {
+      // Down: the whole sheet follows the finger (and closes if let go low).
+      sheet.style.transform = "translateY(" + dy + "px)";
+    } else if (!sheet.classList.contains("expanded")) {
+      // Up: the sheet grows with the finger, from its current height to full screen.
+      const h = Math.min(startH - dy, maxH());
+      sheet.style.transform = "";
+      sheet.style.maxHeight = "none";
+      sheet.style.height = h + "px";
+    }
   }, { passive: true });
   function end() {
     if (!sheet) return;
     const el = sheet;
     sheet = null;
-    el.style.transition = "";
-    el.style.transform = "";
     const expanded = el.classList.contains("expanded");
-    if (dy < -40 && !expanded) el.classList.add("expanded");
-    else if (dy > 40 && expanded) el.classList.remove("expanded");
+    const grew = el.style.height !== "";
+    el.style.transform = "";
+    if (grew) {
+      // Settle the grown sheet: finish to full screen, or spring back.
+      const goFull = dy < -40;
+      el.style.transition = "height 0.2s ease";
+      el.style.height = (goFull ? maxH() : startH) + "px";
+      el._dragTimer = setTimeout(() => {
+        el.style.transition = "";
+        el.style.height = "";
+        el.style.maxHeight = "";
+        if (goFull) el.classList.add("expanded");
+      }, 210);
+      return;
+    }
+    el.style.transition = "";
+    if (dy > 40 && expanded) el.classList.remove("expanded");
     else if (dy > 100) {
       const close = el.querySelector(".currency-modal-close");
       if (close) close.click();
