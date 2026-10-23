@@ -115,9 +115,10 @@ test("Yape and Plin links: saved per currency, changeable, and the app finds the
   // change the link later (Yape: BCP only; Plin: any bank but BCP)
   const second = save(rt, [acct("s2", "BCP", "debit_pen"), acct("sc", "Scotiabank", "debit_usd")], {}, "es").accounts;
   const sid = Object.fromEntries(second.map((a) => [a.cid, a.id]));
-  rt.api("saveRailLinks", { yape_pen: sid.s2, plin_usd: sid.sc });
+  rt.api("saveRailLinks", { yape_pen: sid.s2, plin_usd: sid.sc });   // Plin exists only in soles: plin_usd is never written
   assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods')).id`), sid.s2);
-  assert.equal(rt.run(`railAccount_('plin', 'USD', getAllRows('Payment Methods')).id`), sid.sc);
+  assert.ok(!rt.api("getMeta").settings.plin_usd);
+  assert.equal(rt.run(`railAccount_('plin', 'USD', getAllRows('Payment Methods'))`), null);
   rt.api("saveRailLinks", { yape_pen: "" });
   assert.equal(rt.run(`railAccount_('yape', 'PEN', getAllRows('Payment Methods'))`), null, "unlinked and no legacy-named account: none");
   assert.throws(() => rt.api("saveRailLinks", { yape_pen: "not-an-account" }), /not found|No se encontr/i);
@@ -141,19 +142,23 @@ test("Yape works only with BCP accounts and Plin only with other banks (never BC
   assert.equal(r2.accounts.length, 2);
 });
 
-test("Plin can also use a credit card, of any bank (BCP included); Yape never uses a card", () => {
+test("Only Interbank credit cards can use Plin; no other card uses Yape or Plin", () => {
   const rt = friendCopy();
-  const r = save(rt, [acct("c1", "Interbank", "credit"), acct("c2", "BCP", "credit"), acct("b", "BCP", "debit_pen")], {}, "es");
+  const r = save(rt, [acct("c1", "Interbank", "credit"), acct("c2", "BCP", "credit"), acct("c3", "Scotiabank", "credit"), acct("b", "BCP", "debit_pen")], {}, "es");
   const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
-  rt.api("saveRailLinks", { plin_pen: id.c1, plin_usd: id.c2 });
-  const s = rt.api("getMeta").settings;
-  assert.equal(s.plin_pen, id.c1); assert.equal(s.plin_usd, id.c2);
+  rt.api("saveRailLinks", { plin_pen: id.c1 });
+  assert.equal(rt.api("getMeta").settings.plin_pen, id.c1);
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.c2 }));
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.c3 }));
   assert.throws(() => rt.api("saveRailLinks", { yape_pen: id.c2 }), /solo funciona con cuentas BCP|only works with BCP/);
   assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/, "a BCP DEBIT account still cannot");
-  // the welcome step saves a card link too
+  // the welcome step saves an Interbank card link too, and drops any other card's
   const rt2 = friendCopy();
-  const r2 = save(rt2, [acct("k", "Scotiabank", "credit")], { plin_pen: "k" }, "es");
+  const r2 = save(rt2, [acct("k", "Interbank", "credit")], { plin_pen: "k" }, "es");
   assert.equal(rt2.api("getMeta").settings.plin_pen, r2.accounts[0].id);
+  const rt3 = friendCopy();
+  save(rt3, [acct("k", "Scotiabank", "credit")], { plin_pen: "k" }, "es");
+  assert.ok(!rt3.api("getMeta").settings.plin_pen);
 });
 
 test("a Yape e-mail goes to the account the person linked", () => {
@@ -174,7 +179,7 @@ test("the owner's copy: Yape -> BCP soles/dolares and Plin -> IBK soles/dolares 
   const ids = { bs: mk("BCP soles", "BCP"), bd: mk("BCP dolares", "BCP"), is: mk("IBK soles", "Interbank"), id: mk("IBK dolares", "Interbank") };
   rt.run("setSetting_('rail_defaults', ''); ");
   const s = rt.api("getMeta").settings;
-  assert.equal(s.yape_pen, ids.bs); assert.equal(s.yape_usd, ids.bd); assert.equal(s.plin_pen, ids.is); assert.equal(s.plin_usd, ids.id);
+  assert.equal(s.yape_pen, ids.bs); assert.equal(s.yape_usd, ids.bd); assert.equal(s.plin_pen, ids.is); assert.ok(!s.plin_usd, "Plin has no dollar link");
   // a link the owner changes is not overwritten
   rt.api("saveRailLinks", { yape_pen: ids.bd });
   rt.api("getMeta");
@@ -250,4 +255,14 @@ test("editing the last 4 of an automatic name that shows them updates the name",
   rt.api("savePaymentMethod", { id: a.id, nickname: a.nickname, type: "debit", bank_id: a.bank_id, last_4: "2222" });
   assert.equal(rt.rows("Payment Methods").find((p) => p.id === a.id).nickname, "BCP soles (2222)");
   assert.equal(rt.rows("Payment Methods").find((p) => p.id === a.id).alias_auto, "yes");
+});
+
+test("Plin cannot be added as an account (new or renamed); an existing row keeps working", () => {
+  const rt = friendCopy();
+  assert.throws(() => rt.api("savePaymentMethod", { nickname: "Plin", type: "wallet" }), /Plin no es una cuenta|Plin isn't an account/);
+  assert.throws(() => rt.api("savePaymentMethod", { nickname: " plin ", type: "debit" }), /Plin no es una cuenta|Plin isn't an account/);
+  const other = rt.api("savePaymentMethod", { nickname: "Algo", type: "wallet" });
+  assert.throws(() => rt.api("savePaymentMethod", { id: other.id, nickname: "PLIN", type: "wallet" }), /Plin/);
+  // Yape as a separate account is allowed here (the app only asks the person first)
+  assert.ok(rt.api("savePaymentMethod", { nickname: "Yape", type: "wallet" }).id);
 });

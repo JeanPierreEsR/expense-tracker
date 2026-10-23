@@ -49,7 +49,8 @@ var ACCOUNT_ALIAS_WORDS_ = {
   en: { debit_pen: 'soles', debit_usd: 'dollars', credit: 'credit', sueldo: 'salary' },
   es: { debit_pen: 'soles', debit_usd: 'dólares', credit: 'crédito', sueldo: 'sueldo' }
 };
-var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen', 'plin_usd'];
+// Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
+var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
 
 function sortedBankList_(list) {
   return list.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'es'); });
@@ -121,7 +122,7 @@ function cleanLast4_(v) {
 /**
  * The accounts typed in the welcome questions, saved in one go (after the person pressed the final button).
  * payload: { batch, lang, accounts: [{ cid, bank, kind, alias, last4, showLast4 }],
- *            links: { yape_pen, yape_usd, plin_pen, plin_usd }  // each = a cid or ''
+ *            links: { yape_pen, yape_usd, plin_pen }  // each = a cid or ''
  * `batch` makes a retry harmless: a batch already saved is not saved twice.
  */
 function saveOnboardingAccounts(payload) {
@@ -193,14 +194,15 @@ function saveOnboardingPlatforms(payload) {
   return { already: false, platforms: created };
 }
 
-// Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but a CREDIT CARD
-// can pay through Plin whatever its bank (owner, 2026-10-19: Interbank lets him Plin with his card; he asked to offer every bank's cards).
+// Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but an INTERBANK CREDIT CARD
+// can pay through Plin (owner, 2026-10-19; narrowed 2026-10-23: only Interbank cards, no other card offers Yape or Plin).
 function railAllowsAccount_(rail, pm) {
   var banks = getAllRows('Banks');
   var bank = banks.find(function (b) { return String(b.id) === String(pm.bank_id); });
   var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
   if (rail === 'yape') return isBcp && pm.type !== 'credit';
-  return pm.type === 'credit' || !isBcp;
+  if (pm.type === 'credit') return !!bank && String(bank.name).trim().toLowerCase() === 'interbank';
+  return !isBcp;
 }
 
 // Yape and Plin ride on an account (a different one per currency); more → Accounts & cards changes it any time.
@@ -245,7 +247,7 @@ function ensureRailDefaults_() {
   var s = getSettingsMap();
   if (s.rail_defaults) return;
   var pms = getAllRows('Payment Methods');
-  var wanted = { yape_pen: BCP_ACCOUNTS.PEN, yape_usd: BCP_ACCOUNTS.USD, plin_pen: PLIN_ACCOUNTS.PEN, plin_usd: PLIN_ACCOUNTS.USD };
+  var wanted = { yape_pen: BCP_ACCOUNTS.PEN, yape_usd: BCP_ACCOUNTS.USD, plin_pen: PLIN_ACCOUNTS.PEN };
   Object.keys(wanted).forEach(function (key) {
     if (s[key]) return;
     var pm = pms.find(function (p) { return plainNickname_(p.nickname) === plainNickname_(wanted[key]); });
