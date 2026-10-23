@@ -558,16 +558,41 @@
     };
   }
 
-  function parseStatement(rows) {
-    var kind = detectKind(rows);
-    if (kind === 'savings') return parseSavings(rows);
-    if (kind === 'visa') return parseVisa(rows);
-    if (kind === 'diners') return parseDiners(rows);
-    if (kind === 'bcp') return parseBcp(rows);
-    if (kind === 'ahorramas') return parseAhorramas(rows);
-    if (kind === 'sip') return parseSip(rows);
-    return fail(null, [msg('sp.notRecognized')]);
+  // ---- who the statement belongs to ----
+  // Every layout prints its holder near the top; the app uses it to learn the person's own name (backend/OwnerNames.gs). Returns
+  // the name as printed (CAPITALS, any word order) or '' — an unrecognised line is never guessed. Ahorra Más only greets by first
+  // name ("¡HOLA, …!"), which is not enough, so it gives nothing.
+  var NAME_WORDS = '[A-ZÁÉÍÓÚÜÑ]{2,}(?: [A-ZÁÉÍÓÚÜÑ]{2,}){1,4}';
+  function holderOf(kind, rows) {
+    var texts = rows.slice(0, 16).map(function (r) { return String(r.text || '').trim(); });
+    function first(re) {
+      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m) return m[1]; }
+      return '';
+    }
+    var name = '';
+    if (kind === 'savings') {
+      var at = texts.findIndex(function (t) { return /^DNI\b/.test(t); });
+      if (at > 0 && new RegExp('^' + NAME_WORDS + '$').test(texts[at - 1])) name = texts[at - 1];
+    } else if (kind === 'bcp') name = first(new RegExp('^(' + NAME_WORDS + ') CODIGO DE CUENTA\\b'));
+    else if (kind === 'diners') name = first(new RegExp('^(' + NAME_WORDS + ') \\d{2}/\\d{2}/\\d{4}\\b'));
+    else if (kind === 'visa') name = first(new RegExp('^(' + NAME_WORDS + ')$'));
+    else if (kind === 'sip') name = first(new RegExp('^(' + NAME_WORDS + ') \\(A\\)'));
+    return name;
   }
 
-  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind };
+  function parseStatement(rows) {
+    var kind = detectKind(rows);
+    var res;
+    if (kind === 'savings') res = parseSavings(rows);
+    else if (kind === 'visa') res = parseVisa(rows);
+    else if (kind === 'diners') res = parseDiners(rows);
+    else if (kind === 'bcp') res = parseBcp(rows);
+    else if (kind === 'ahorramas') res = parseAhorramas(rows);
+    else if (kind === 'sip') res = parseSip(rows);
+    else return fail(null, [msg('sp.notRecognized')]);
+    if (res && res.ok) res.holder = holderOf(kind, rows);
+    return res;
+  }
+
+  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf };
 });

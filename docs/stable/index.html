@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.24.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="0.25.2"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="stable"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
   (function () {
-    var STABLE_ON = false;   // friends are sent to stable/ only when this is true — flipped by a deliberate ship, on the owner's go
+    var STABLE_ON = true;   // friends are sent to stable/ only when this is true — turned on 2026-10-23 on the owner's go; back to false = one quick ship
     var inStable = (document.querySelector('meta[name="app-channel"]') || {}).content === "stable";
     var root = new URL(inStable ? "../" : "./", location.href);
     // An address on the main site (setup/, vendor/) that also works from stable/.
@@ -26,13 +26,15 @@
       if (!flag && !(q && q[1] === "stable") && localStorage.getItem("apiUrl") === OWNER_API) flag = "live";
     } catch (e) { /* storage blocked: treated as a friend's device */ }
     var local = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.localhost)$/.test(location.hostname);
-    if (STABLE_ON && !inStable && !local && flag !== "live") {
+    // ?channel=stable is also an explicit "show me what friends see": it goes to stable/ even while the switch is off (and on localhost), for the owner's own test.
+    var preview = !!(q && q[1] === "stable");
+    if (!inStable && (preview || (STABLE_ON && !local && flag !== "live"))) {
       location.replace(new URL("stable/", root).href + location.search + location.hash);
     }
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-23T16:04:20Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-23T16:38:17Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -452,6 +454,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-main-currency-btn">
             <span data-i18n="more.mainCurrency">💱 Main currency</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-owner-names-btn">
+            <span data-i18n="more.ownerNames">👤 My names</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-statements-btn">
@@ -1082,6 +1088,24 @@
           <button type="button" class="primary" id="main-currency-apply-btn" data-i18n="mainCur.apply">Switch main currency</button>
           <button type="button" class="add-inline" id="main-currency-cancel-btn" data-i18n="common.cancel">Cancel</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="owner-names-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="ownerNames.title">My names</span>
+        <button type="button" id="owner-names-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. A name is trusted once two different accounts or banks show it. You can correct the list here.</p>
+        <div id="owner-names-list"></div>
+        <p class="hint" id="owner-names-waiting"></p>
+        <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
+        <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
+        <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
       </div>
     </div>
   </div>
@@ -2021,6 +2045,16 @@
     </div>
   </div>
 
+  <div id="statement-added-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="added.title">What this upload added</span>
+        <button type="button" id="statement-added-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="drilldown-scroll-area" id="statement-added-body"></div>
+    </div>
+  </div>
+
   <div id="statement-exchange-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header"><span id="statement-exchange-title"></span></div>
@@ -2053,17 +2087,17 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="i18n.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="tour-scenes.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="signin-link.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="bank-sample.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="perf-share.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="receipt-parse.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="bill-split.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="app.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="statement-sample.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="statement-parsers.js?v=2026-10-23T16:04:20Z"></script>
-  <script src="statements.js?v=2026-10-23T16:04:20Z"></script>
+  <script src="strings.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="i18n.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="tour-scenes.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="signin-link.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="bank-sample.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="perf-share.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="receipt-parse.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="bill-split.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="app.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="statement-sample.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="statement-parsers.js?v=2026-10-23T16:38:17Z"></script>
+  <script src="statements.js?v=2026-10-23T16:38:17Z"></script>
 </body>
 </html>
