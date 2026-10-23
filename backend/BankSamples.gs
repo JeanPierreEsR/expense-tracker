@@ -99,6 +99,12 @@ function listSupportedSenders() {
     seen[sender] = true;
     out.push({ sender: sender, bank: String(r.bank || '') });
   });
+  // Built-in statement senders count too: a friend who sent a STATEMENT sample waits for the same "your bank is ready" message.
+  STATEMENT_SENDERS_.forEach(function (s) {
+    if (seen[s.address]) return;
+    seen[s.address] = true;
+    out.push({ sender: s.address, bank: String(s.label || '') });
+  });
   return out;
 }
 

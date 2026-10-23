@@ -219,7 +219,11 @@ function buildGmail() {
         .filter((t) => t.messages.some((m) => m.getDate().getTime() >= cutoff))
         .slice(start, start + max);
     },
-    getMessageById: () => unsupported("GmailApp.getMessageById")
+    getMessageById(id) {
+      const m = threads.flatMap((t) => t.messages).find((x) => x.getId() === id);
+      if (!m) throw new Error("No message with id " + id);
+      return m;
+    }
   };
 
   // Test helper: add an email (own thread unless threadWith is given).

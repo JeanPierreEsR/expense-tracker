@@ -27,6 +27,26 @@ var STATEMENT_SENDERS_ = [
   { address: 'no-reply@operaciones.agora.pe', label: 'AhorraMás', bank: 'sip', creditOnly: false }
 ];
 
+// Banks learned on this copy: when a statement found by "Find statements in Gmail" is read successfully, its sender address is
+// remembered here so the 15-minute scan and later searches know that bank too, with no code change. (The built-in list above is the
+// owner's side of the same flow: when a reader for a new bank ships, its sender address is added there so EVERY copy knows it.)
+var STATEMENT_LEARNED_COLUMNS_ = ['address', 'label', 'bank_keyword', 'added_at'];
+
+function ensureStatementSendersSheet_() {
+  ensureStatementSheet_('Statement Senders', STATEMENT_LEARNED_COLUMNS_, ['address', 'added_at']);
+}
+
+/** Built-in senders plus the ones this copy learned. */
+function statementSenders_() {
+  ensureStatementSendersSheet_();
+  var learned = getAllRows('Statement Senders').map(function (r) {
+    return { address: String(r.address).toLowerCase(), label: String(r.label), bank: String(r.bank_keyword), creditOnly: false };
+  });
+  return STATEMENT_SENDERS_.concat(learned.filter(function (l) {
+    return !STATEMENT_SENDERS_.some(function (b) { return b.address === l.address; });
+  }));
+}
+
 function ensureStatementInboxSheet_() {
   ensureStatementSheet_('Statement Inbox', STATEMENT_INBOX_COLUMNS_, ['message_id', 'received', 'created_at']);
 }
@@ -61,7 +81,7 @@ function stmtSelfSentBank_(fileName, subject, body) {
   if (byWord) return byWord;
   // A forwarded bank email still quotes the original sender's address ("De: … <address>").
   var lower = String(body || '').toLowerCase();
-  return STATEMENT_SENDERS_.filter(function (s) { return lower.indexOf(s.address) >= 0; })[0] || null;
+  return statementSenders_().filter(function (s) { return lower.indexOf(s.address) >= 0; })[0] || null;
 }
 
 /** True when the message's sender is among its own recipients (a mail he sent to himself). */
@@ -85,11 +105,12 @@ function scanStatementInbox_() {
       bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
       status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
   }
-  gmailSearchMessages_('from:(' + STATEMENT_SENDERS_.map(function (s) { return s.address; }).join(' OR ') + ')' + window, { max: 150 }).forEach(function (m) {
+  var senders = statementSenders_();
+  gmailSearchMessages_('from:(' + senders.map(function (s) { return s.address; }).join(' OR ') + ')' + window, { max: 150 }).forEach(function (m) {
     var id = m.getId();
     if (seenMessage[id]) return;
     var from = String(m.getFrom()).toLowerCase();
-    var sender = STATEMENT_SENDERS_.filter(function (s) { return from.indexOf(s.address) >= 0; })[0];
+    var sender = senders.filter(function (s) { return from.indexOf(s.address) >= 0; })[0];
     if (!sender) return;
     m.getAttachments({ includeInlineImages: false }).forEach(function (a) {
       if (stmtIsStatementAttachment_(a.getName())) note(m, sender, a, false);
@@ -155,7 +176,7 @@ function updateRowFields_(sheetName, id, fields) {
 
 /** Which accounts a statement email is about (Payment Methods of that bank). */
 function stmtInboxAccounts_(item, pms, banksById) {
-  var sender = STATEMENT_SENDERS_.filter(function (s) { return s.address === item.sender_key; })[0] || {};
+  var sender = statementSenders_().filter(function (s) { return s.address === item.sender_key; })[0] || {};
   return pms.filter(function (pm) {
     var bank = String((banksById[pm.bank_id] || {}).name || '').toLowerCase();
     if (bank.indexOf(item.bank_keyword) < 0) return false;
@@ -181,7 +202,7 @@ function listStatementInbox() {
   var items = rows.map(function (r) {
     var last = stmtLastProcessedFor_(stmtInboxAccounts_(r, pms, banksById), uploads);
     return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: r.attachment_name, size_kb: Number(r.size_kb),
-      status: r.status, last_processed: last, probably_processed: r.status === 'new' && !!last && String(r.received) <= last };
+      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && !!last && String(r.received) <= last };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
   return { items: items.filter(function (i) { return i.status === 'new'; }).concat(items.filter(function (i) { return i.status === 'processed'; }).slice(0, 8)) };

@@ -23,9 +23,10 @@
   let coverage = null;       // last listStatementCoverage result
   let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
-  // The password that last opened a statement, tried silently on the next ones (banks usually use one password for every
-  // file) so a dozen statements need typing it once. Memory only: forgotten when this screen is left, never stored.
-  let sessionPassword = null;
+  // Passwords that opened a statement, newest first. Each file tries them silently one by one before asking (banks usually use one
+  // password for every file, and a person with two banks has two), so a dozen statements need typing it once. Memory only: forgotten
+  // when this screen is left, never stored.
+  let sessionPasswords = [];
 
   // ---- helpers ----
 
@@ -64,7 +65,8 @@
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
   function showStatementsScreen() {
-    sessionPassword = null;
+    sessionPasswords = [];
+    $("statement-find-card").hidden = !(typeof meta !== "undefined" && meta && meta.capabilities && meta.capabilities.bankEmails !== false);
     document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-statements"; });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.screen === "more");
@@ -103,13 +105,15 @@
   }
 
   // Fetches one inbox statement from Gmail and reads it (asks its password). Throws on failure.
-  async function fetchAndReadInboxItem(id) {
+  async function fetchAndReadInboxItem(id, sender) {
     const att = await callApi("getStatementAttachment", { id });
     const bin = atob(att.base64);
     const bytes = new Uint8Array(bin.length);
     for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
     const file = new File([bytes], att.name, { type: "application/pdf" });
     file.inboxId = id;
+    const item = inbox.find((i) => i.id === id);
+    file.senderAddress = sender !== undefined ? sender : ((item && item.sender) || "");
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
     await readStatementFile(file);
   }
@@ -143,6 +147,81 @@
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
     if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
+
+  // ---- find statements in Gmail (on demand: pick a period, tick what to read) ----
+
+  let found = [];   // last findStatementEmails result's items
+
+  async function findStatements() {
+    const btn = $("statement-find-btn"), out = $("statement-find-results");
+    btn.disabled = true;
+    out.innerHTML = loadingHtml(tr("find.searching"));
+    try { found = (await callApi("findStatementEmails", { months: Number($("statement-find-months").value) })).items; }
+    catch (err) { out.innerHTML = `<p class="hint">${escapeHtml(tr("find.failed", { error: err && err.message ? err.message : err }))}</p>`; btn.disabled = false; return; }
+    btn.disabled = false;
+    renderFound();
+  }
+
+  function renderFound() {
+    const out = $("statement-find-results");
+    if (!found.length) { out.innerHTML = `<p class="hint">${escapeHtml(tr("find.none"))}</p>`; return; }
+    const groups = [];
+    found.forEach((f, i) => {
+      let g = groups.find((x) => x.sender === f.sender);
+      if (!g) { g = { sender: f.sender, name: f.bank || f.sender_name || f.sender, known: f.known, items: [] }; groups.push(g); }
+      g.items.push(Object.assign({ i }, f));
+    });
+    // Known banks first: those are the ones the app can read for sure.
+    groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p>` + groups.map((g) => {
+      const rows = g.items.map((f) => `<label class="stmt-find-row" style="display:flex;gap:8px;align-items:flex-start;padding:4px 0">
+        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" ${g.known && f.status !== "processed" ? "checked" : ""}>
+        <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
+      return `<div class="stmt-row"><div class="stmt-row-main">
+        <div class="stmt-row-title">${escapeHtml(g.name)}</div>
+        <div class="stmt-row-sub">${escapeHtml(g.sender)} · ${escapeHtml(tr(g.known ? "find.known" : "find.unknown"))}</div>${rows}</div></div>`;
+    }).join("") + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-read"></button></div>`;
+    updateFindReadButton();
+  }
+
+  function pickedFound() {
+    return Array.from(document.querySelectorAll(".stmt-find-pick:checked")).map((el) => found[Number(el.dataset.i)]).filter(Boolean);
+  }
+
+  function updateFindReadButton() {
+    const btn = $("statement-find-read");
+    if (!btn || btn.dataset.busy) return;
+    const n = pickedFound().length;
+    btn.textContent = n ? tr("find.read", { n }) : tr("find.readNone");
+    btn.disabled = !n;
+  }
+
+  // Ticked statements go into the inbox (so they are marked processed afterwards like any other), then are opened one after another:
+  // the password that opened the first is tried silently on the rest.
+  async function readPickedFound() {
+    const picks = pickedFound(), btn = $("statement-find-read");
+    if (!picks.length) return;
+    btn.dataset.busy = "1"; btn.disabled = true; setBusy(btn, tr("find.adding"));
+    let added;
+    try { added = await callApi("addStatementsToInbox", { items: picks.map((p) => ({ message_id: p.message_id, attachment_name: p.attachment_name })) }); }
+    catch (err) { delete btn.dataset.busy; updateFindReadButton(); alert(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    await refreshStatementInbox();
+    if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
+    const failed = [];
+    for (let n = 0; n < added.ids.length; n++) {
+      setBusy(btn, tr("stmt.openingN", { i: n + 1, n: added.ids.length }));
+      try { await fetchAndReadInboxItem(added.ids[n], (added.senders || {})[added.ids[n]] || ""); }
+      catch (err) { failed.push(`${picks[n] ? picks[n].attachment_name : ""}: ${err && err.message ? err.message : err}`); }
+    }
+    delete btn.dataset.busy;
+    updateFindReadButton();
+    $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
+  }
+
+  $("statement-find-btn").addEventListener("click", findStatements);
+  $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
+  $("statement-find-results").addEventListener("click", (e) => { if (e.target.id === "statement-find-read") readPickedFound(); });
 
   // ---- gaps (notes saved when a balance is set from a statement) ----
 
@@ -279,21 +358,21 @@
   // Friends' copies only (the owner's own banks are built in). The PDF and its password never leave the phone: this works on the rows the reader
   // already extracted (docs/statement-sample.js turns every digit into 9 and nothing else; the screen says so). No preview step (owner, 2026-10-23).
   // The owner's backend (StatementSamples.gs) turns digits into 9 a second time and keeps the text in the Sheet tab "Statement Samples".
-  const ss_ = { rows: null, kind: "unrecognised", sending: false };
+  const ss_ = { rows: null, kind: "unrecognised", sending: false, sender: "" };
   const ssEl_ = (id) => $(id);
   function ssMsg_(t) { ssEl_("ss-msg").textContent = t || ""; }
   function ssStep_(n) { [1, 2].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
-  function offerSample(body, rows, kind) {
+  function offerSample(body, rows, kind, sender) {
     if (!rows || !rows.length || perfIsOwnerCopy_()) return;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "add-inline";
     btn.textContent = tr("stmtSample.offer");
-    btn.addEventListener("click", () => openSampleModal(rows, kind));
+    btn.addEventListener("click", () => openSampleModal(rows, kind, sender));
     body.appendChild(btn);
   }
-  function openSampleModal(rows, kind) {
-    Object.assign(ss_, { rows, kind, sending: false });
+  function openSampleModal(rows, kind, sender) {
+    Object.assign(ss_, { rows, kind, sending: false, sender: sender || "" });
     const backdrop = ssEl_("statement-sample-backdrop");
     I18n.applyStatic(backdrop);
     ssEl_("ss-bank").value = "";
@@ -320,12 +399,17 @@
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "reportStatementSample", payload: {
           install: perfInstallId_(), label: PerfShare.cleanLabel(ssEl_("ss-name").value), bank: PerfShare.cleanLabel(ssEl_("ss-bank").value),
-          kind: ss_.kind, text: StatementSample.rowsToText(ss_.rows), language: I18n.getLang(), app: appRelease_()
+          kind: ss_.kind, text: (ss_.sender ? "E-mail sender: " + ss_.sender + "\n" : "") + StatementSample.rowsToText(ss_.rows), language: I18n.getLang(), app: appRelease_()
         } }),
         signal: controller.signal
       });
       const json = await res.json();
-      if (json && json.ok) { ssStep_(2); return; }
+      if (json && json.ok) {
+        // The sender address is the key to the "your bank is ready" message (same list as for bank e-mail samples).
+        if (ss_.sender && typeof BankSample !== "undefined" && typeof bankSentSave_ === "function") bankSentSave_(BankSample.rememberSender(bankSentList_(), ss_.sender, Date.now()));
+        ssStep_(2);
+        return;
+      }
       ssMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
     } catch (e) {
       ssMsg_(tr("bankSample.sendFailed"));
@@ -384,10 +468,11 @@
     return notes;
   }
 
-  function renderResult(body, result, rows) {
+  function renderResult(body, result, rows, file) {
+    const sender = (file && file.senderAddress) || "";
     if (!result.kind) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p>`;
-      offerSample(body, rows, "unrecognised");
+      offerSample(body, rows, "unrecognised", sender);
       return;
     }
     let verdict;
@@ -415,31 +500,35 @@
       ${balances}
       ${errors ? `<ul class="stmt-errors">${errors}</ul>` : ""}
       ${lines ? `<details class="stmt-lines"><summary>${escapeHtml(tr("stmt.showLines", { n: (result.lines || []).length }))}</summary>${lines}</details>` : ""}`;
-    if (!result.ok) offerSample(body, rows, "unverified");   // a layout we know but cannot make add up: the owner wants to see it too
+    if (!result.ok) offerSample(body, rows, "unverified", sender);   // a layout we know but cannot make add up: the owner wants to see it too
   }
 
   async function readStatementFile(file) {
     const body = resultCardShell(file.name);
     let cancelled = false;
-    let triedSession = false, asked = false, typed = null;
+    let nextTry = 0, lastTried = null, asked = false, typed = null;
     try {
       const pdfjs = await loadPdfjs();
       const data = new Uint8Array(await file.arrayBuffer());
       const rows = await StatementParsers.readPdfRows(pdfjs, data, {
         onPassword: async (reason) => {
-          // First ask of this file: the password that opened the last one, without bothering the person.
-          if (!triedSession && sessionPassword !== null) { triedSession = true; return sessionPassword; }
-          // The silent try failing is not the person's mistake, so the first prompt reads "protected", not "didn't work".
-          const pw = await askStatementPassword(file.name, triedSession && !asked ? 1 : reason);
+          // First: every password that already opened a statement this visit, silently, before bothering the person.
+          if (nextTry < sessionPasswords.length) { lastTried = sessionPasswords[nextTry++]; return lastTried; }
+          // The silent tries failing are not the person's mistake, so the first prompt reads "protected", not "didn't work".
+          const pw = await askStatementPassword(file.name, sessionPasswords.length && !asked ? 1 : reason);
           asked = true;
           if (pw === null) cancelled = true; else typed = pw;
           return pw;
         }
       });
-      if (typed !== null) sessionPassword = typed;   // it opened the file, so it is worth trying on the next one
+      // The one that opened this file goes to the front: it is the likeliest for the next file.
+      const opened = typed !== null ? typed : lastTried;
+      if (opened !== null) sessionPasswords = [opened].concat(sessionPasswords.filter((p) => p !== opened));
       const result = StatementParsers.parseStatement(rows);
-      renderResult(body, result, rows);
+      renderResult(body, result, rows, file);
       if (result.kind && result.ok) {
+        // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
+        if (file.inboxId) callApi("rememberStatementSender", { id: file.inboxId }).catch(() => {});
         // A re-read of the same file replaces its earlier reading.
         usable = usable.filter((u) => u.file !== file.name);
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
@@ -1109,7 +1198,7 @@
   // ---- wiring ----
 
   $("more-statements-btn").addEventListener("click", showStatementsScreen);
-  $("statements-back-btn").addEventListener("click", () => { sessionPassword = null; showScreen("more"); });
+  $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showScreen("more"); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);

@@ -718,6 +718,22 @@
         <div id="statement-gaps-list"></div>
       </div>
 
+      <div class="card" id="statement-find-card" hidden>
+        <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
+        <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
+        <div class="stmt-choices" style="padding-left:0;align-items:center">
+          <label for="statement-find-months" data-i18n="find.period">Look back</label>
+          <select id="statement-find-months">
+            <option value="3" data-i18n="find.m3">3 months</option>
+            <option value="6" data-i18n="find.m6">6 months</option>
+            <option value="12" selected data-i18n="find.m12">12 months</option>
+            <option value="24" data-i18n="find.m24">24 months</option>
+          </select>
+          <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+        </div>
+        <div id="statement-find-results"></div>
+      </div>
+
       <div class="card" id="statement-inbox-card">
         <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
         <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
