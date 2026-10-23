@@ -32,6 +32,22 @@ test("summary counts per kind in display order, totals only when asked", () => {
   assert.equal(run(false)[1].totals, undefined);
 });
 
+test("emails the app cannot read are counted once per wording, not per email, with no body text", () => {
+  const { rt } = freshApp({ small: true });
+  const sender = "notificaciones@notificacionesbcp.com.pe";
+  const strange = (op) => rt.svc.gmail.addEmail({ from: sender, subject: "Aviso especial 123", body: "Texto sin formato conocido, secreto " + op, daysAgo: 0 });
+  strange("a"); strange("b");
+  rt.run("processEmails()");
+  const unread = rt.api("getManualGaps").unread;
+  assert.equal(unread.length, 1);
+  assert.equal(unread[0].kind, "no_rule");
+  assert.equal(unread[0].count, 2);
+  assert.equal(unread[0].subject, "aviso especial #");
+  assert.ok(!JSON.stringify(unread).includes("secreto"));
+  rt.run("processEmails()");   // already handled: not counted again
+  assert.equal(rt.api("getManualGaps").unread[0].count, 2);
+});
+
 test("getManualGaps: owner sees the manual share, friends' copies only the list", () => {
   const { rt } = freshApp({ small: true });
   const owner = rt.api("getManualGaps");

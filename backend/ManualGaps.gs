@@ -111,7 +111,51 @@ function getManualGaps(payload) {
   });
 
   var ctx = { emailBanks: getEmailInfo_().banks };
-  var out = { windowDays: GAP_WINDOW_DAYS_, kinds: gapSummarize_(items, ctx, owner), owner: owner };
+  var out = { windowDays: GAP_WINDOW_DAYS_, kinds: gapSummarize_(items, ctx, owner), owner: owner, unread: listUnreadEmails_(from) };
   if (owner) out.manualShare = { manual: manualEntries, total: totalEntries };
   return out;
+}
+
+// ---- Bank emails the app could not read (tab "Unread Emails") ----
+// One row per (sender, subject shape, kind) with a running count, never one per email: no amounts, no names, no body text.
+// kind 'no_rule' = a known bank sender whose email matches none of our rules; 'unreadable' = a rule matched but the fields
+// could not be read (the bank probably changed its wording).
+
+var UNREAD_COLUMNS_ = ['id', 'sender', 'subject', 'kind', 'count', 'first_seen', 'last_seen'];
+// Off during the one-off back-check, which re-reads old mail and would count it twice.
+var UNREAD_LOGGING_ = true;
+
+function ensureUnreadEmailsSheet_() {
+  ensureStatementSheet_('Unread Emails', UNREAD_COLUMNS_, ['id', 'first_seen', 'last_seen']);
+}
+
+// "Realizaste un consumo 123" -> "realizaste un consumo #": the wording of the email, without the numbers that vary.
+function unreadSubjectShape_(subject) {
+  return String(subject || '').toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+function logUnreadEmail_(sender, subject, kind, dateStr) {
+  if (!UNREAD_LOGGING_) return;
+  try {
+    ensureUnreadEmailsSheet_();
+    var shape = unreadSubjectShape_(subject);
+    var id = [String(sender).toLowerCase(), shape, kind].join('|');
+    var row = getAllRows('Unread Emails').filter(function (r) { return String(r.id) === id; })[0];
+    if (row) {
+      updateRowFields_('Unread Emails', id, { count: Number(row.count || 0) + 1, last_seen: dateStr });
+    } else {
+      appendRowObject('Unread Emails', { id: id, sender: String(sender).toLowerCase(), subject: shape, kind: kind, count: 1, first_seen: dateStr, last_seen: dateStr });
+    }
+  } catch (err) {
+    console.error('logUnreadEmail_: ' + err);   // a logging problem must never stop the email run
+  }
+}
+
+function listUnreadEmails_(fromIso) {
+  ensureUnreadEmailsSheet_();
+  return getAllRows('Unread Emails')
+    .filter(function (r) { return String(r.last_seen) >= fromIso; })
+    .sort(function (a, b) { return Number(b.count) - Number(a.count); })
+    .slice(0, 20)
+    .map(function (r) { return { sender: String(r.sender), subject: String(r.subject), kind: String(r.kind), count: Number(r.count), last: String(r.last_seen) }; });
 }
