@@ -145,3 +145,14 @@ test("BCP card without a readable card number is reported, not guessed", () => {
 test("the BCP savings reader is not confused with the card layout", () => {
   assert.equal(SP.detectKind([row("Estado de Cuenta de Ahorros"), row("FECHA PROC")]), "bcp");
 });
+
+test("BCP card: the holder is the first cell of the \"Número de tarjeta\" row; anything that is not a name gives nothing", () => {
+  const withName = (name) => {
+    const rows = bcp("VISA");
+    rows[2] = row(at(name, 20), at("Número de tarjeta", 200), at("Del", 300), at("Al", 340));
+    return SP.parseStatement(rows);
+  };
+  assert.equal(withName("ANA LOPEZ").holder, "ANA LOPEZ");
+  assert.equal(withName("Ana Lo*").holder, "");
+  assert.equal(withName("CALLE FALSA 123").holder, "");
+});
