@@ -71,6 +71,12 @@ function saveCategory(payload) {
   withWriteBatch_(function () {
     ['name', 'icon', 'color'].forEach(function (k) { setCellByRow_(sheet, headers, rowIndex, k, edited[k]); });
   });
+  // Learned e-mail keywords point at a category by its stored name: follow a rename.
+  if (edited.name !== existing.name) {
+    rewriteColumn_('Category Keywords', 'category_name', function (v) {
+      return String(v) === String(existing.name) ? edited.name : v;
+    }, false);
+  }
   if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
   bumpStructureVersion_();
   return { id: id, name: edited.name, type: existing.type, icon: edited.icon, color: edited.color };

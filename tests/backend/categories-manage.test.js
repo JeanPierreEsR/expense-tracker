@@ -20,6 +20,16 @@ test("a new category keeps its emoji and color, has no key, and shows up in getM
   assert.ok(meta.categories.some((c) => c.id === res.data.id && c.name === "Pet care"));
 });
 
+test("renaming a category carries its learned e-mail keywords along", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const made = post(rt, "saveCategory", { type: "expense", name: "Pet care", icon: "🐶" }).data;
+  post(rt, "addCategoryKeyword", { keyword: "petshop", category_name: "Pet care" });
+  const res = post(rt, "saveCategory", { id: made.id, name: "Pets", icon: "🐱" });
+  assert.ok(res.data && res.data.name === "Pets", JSON.stringify(res));
+  const kw = rt.rows("Category Keywords").find((r) => r.keyword === "petshop");
+  assert.equal(kw && kw.category_name, "Pets");
+});
+
 test("a missing emoji or color gets a default; a letter instead of an emoji and a bad color are refused", () => {
   const { rt } = freshApp({ entries: 50 });
   const ok = post(rt, "saveCategory", { type: "income", name: "Side gigs" }).data;
