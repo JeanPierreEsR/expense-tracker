@@ -109,11 +109,44 @@ function stmtPlatformGuess_(description, platforms) {
   return hit ? hit.id : '';
 }
 
+/**
+ * Which charge does a refund on a card reverse, and is it the same month? Looks at (1) charges already in the app that the analysis
+ * found (`l.reversal.candidates`) and (2) charges on the same account in the statements being uploaded now: same currency and
+ * amount, up to 45 days before. Best = a shared word in the wording, then the closest date. Returns { offset: boolean, entryId? }:
+ * offset (a negative expense) only when that charge is in the refund's own month; otherwise the refund is income in "Refunds".
+ */
+function stmtRefundDecision_(sts, st, si, li, l, usedCharges) {
+  var month = String(l.date).substring(0, 7);
+  var words = significantWords_(String(l.description || '').replace(/^\s*REV\.?\s*/i, ''));
+  // 1) a charge that is already an entry
+  var existing = ((l.reversal && l.reversal.candidates) || []).filter(function (c) { return String(c.entry.date).substring(0, 7) === month; })[0];
+  if (existing) return { offset: true, entryId: existing.entry.id };
+  // 2) a charge in these statements
+  var best = null;
+  var lo = covAddDays_(l.date, -45);
+  sts.forEach(function (st2, sj) {
+    if (!st2.account || st2.account.id !== st.account.id) return;
+    st2.lines.forEach(function (m, mj) {
+      if (m.status === 'handled' || !(m.amount < 0) || m.currency !== l.currency || Math.abs(Math.abs(m.amount) - l.amount) >= 0.005) return;
+      if (m.date > l.date || m.date < lo || usedCharges[sj + ':' + mj]) return;
+      var shared = significantWords_(m.description || '').some(function (w) { return words.indexOf(w) >= 0; }) ? 1 : 0;
+      var gap = Math.round((new Date(l.date + 'T00:00:00Z') - new Date(m.date + 'T00:00:00Z')) / 86400000);
+      if (!best || shared > best.shared || (shared === best.shared && gap < best.gap)) best = { key: sj + ':' + mj, shared: shared, gap: gap, month: String(m.date).substring(0, 7) };
+    });
+  });
+  if (best) {
+    usedCharges[best.key] = true;
+    return { offset: best.month === month };
+  }
+  return { offset: false };
+}
+
 function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
   var aside = [];
-  var counts = { expenses: 0, income: 0, refunds: 0, transfers: 0, fees: 0, linked: 0, completed: 0 };
+  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0 };
+  var usedCharges = {};   // a charge is reversed by one refund only
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
   function setAside(si, li, st, l, reason) {
     // Money arriving on a credit card that looks like a payment is the card being paid — never income, so no "count as
@@ -197,7 +230,18 @@ function stmtHistoryPlan_(analysis, platforms) {
       if (l.date && (first === null || l.date < first)) first = l.date;
       if (l.date && (last === null || l.date > last)) last = l.date;
       if (l.amount > 0) {
-        if (l.reversal) { actions.push({ type: 'add_history_reversal', stmt: si, line: li }); counts.refunds++; }
+        if (l.reversal) {
+          // The owner's refund rule (the line-by-line comparison's): a refund in the SAME month as the charge it reverses cancels
+          // it (a negative expense); in any other month — or when no matching charge is found — it is income in "Refunds".
+          var rf = stmtRefundDecision_(sts, st, si, li, l, usedCharges);
+          if (rf.offset) {
+            actions.push(rf.entryId ? { type: 'add_history_reversal', stmt: si, line: li, entryId: rf.entryId } : { type: 'add_history_reversal', stmt: si, line: li });
+            counts.refunds++;
+          } else {
+            actions.push({ type: 'add_history_refund', stmt: si, line: li });
+            counts.refundIncome++;
+          }
+        }
         else {
           actions.push({ type: 'add_history_income', stmt: si, line: li }); counts.income++;
           imported.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname, kind: 'imported' });
@@ -223,7 +267,7 @@ function stmtHistoryPlan_(analysis, platforms) {
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       from: first, to: last,
-      importable: counts.expenses + counts.income + counts.refunds + counts.transfers + counts.fees
+      importable: counts.expenses + counts.income + counts.refunds + counts.refundIncome + counts.transfers + counts.fees
     }
   };
 }

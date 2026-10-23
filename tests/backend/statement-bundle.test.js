@@ -128,6 +128,65 @@ test("money arriving on a credit card is never offered as an investment", () => 
   assert.equal(plan(rt, [s]).summary.aside[0].optInInvestment, null);
 });
 
+// The owner's refund rule (the line-by-line comparison's): a refund in the SAME month as the charge it reverses cancels it (a negative
+// expense); in any other month, or with no matching charge, it is income in "Refunds". Fill my history used to make every refund a
+// negative expense (found 2026-10-23).
+const refundsOf = (rt) => made(rt).filter((e) => e.type === "income" || Number(e.amount) < 0);
+
+test("a refund in the month AFTER its charge is income in Refunds, not a negative expense", () => {
+  const { rt, card, stmt } = accounts();
+  const s = stmt(card, [
+    { date: "2019-03-31", description: "INKAFARMA WEB", amount: -36.3, currency: "PEN" },
+    { date: "2019-04-02", description: "REV.INKAFARMA WEB", amount: 36.3, currency: "PEN" }
+  ], "visa");
+  const p = plan(rt, [s]);
+  assert.equal(p.summary.counts.refundIncome, 1);
+  assert.equal(p.summary.counts.refunds, 0);
+  const res = save(rt, [s], p.actions, false);
+  assert.equal(res.created.income, 1);
+  const refund = made(rt).find((e) => e.type === "income");
+  assert.equal(Number(refund.amount), 36.3);
+  assert.equal(refund.status, "confirmed");
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'income' && c.name === 'Refunds'; })[0]");
+  assert.equal(refund.category_id, cat.id, "filed under Refunds");
+  assert.ok(!made(rt).some((e) => Number(e.amount) < 0), "and no negative expense");
+});
+
+test("a refund with no matching charge is income in Refunds too", () => {
+  const { rt, card, stmt } = accounts();
+  const s = stmt(card, [{ date: "2019-03-18", description: "REV.TIENDA LEJANA", amount: 20, currency: "PEN" }], "visa");
+  const p = plan(rt, [s]);
+  assert.equal(p.summary.counts.refundIncome, 1);
+  assert.equal(p.summary.counts.income, 0, "not counted as ordinary income");
+});
+
+test("one charge is reversed by one refund only; a second identical refund is income", () => {
+  const { rt, card, stmt } = accounts();
+  const s = stmt(card, [
+    { date: "2019-03-10", description: "PARKING APP", amount: -17, currency: "PEN" },
+    { date: "2019-03-12", description: "REV.PARKING APP", amount: 17, currency: "PEN" },
+    { date: "2019-03-13", description: "REV.PARKING APP", amount: 17, currency: "PEN" }
+  ], "visa");
+  const c = plan(rt, [s]).summary.counts;
+  assert.equal(c.refunds, 1);
+  assert.equal(c.refundIncome, 1);
+});
+
+test("a refund of a charge that is already an entry (same month) cancels it in that charge's category", () => {
+  const { rt, card, stmt, a } = accounts();
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.type === 'expense'; })[0]");
+  rt.run(`appendRowObject('Entries', { id: 'mine-2', type: 'expense', date: '2019-03-05', amount: 44.4, currency: 'PEN', category_id: ${JSON.stringify(cat.id)}, description: 'Pharmacy', payment_method_id: ${JSON.stringify(card.id)}, paid_by: 'me', status: 'confirmed', source: 'manual', created_at: '2019-03-05T10:00:00' })`);
+  const s = stmt(card, [{ date: "2019-03-20", description: "REV.PHARMACY", amount: 44.4, currency: "PEN" }], "visa");
+  const p = plan(rt, [s]);
+  assert.equal(p.summary.counts.refunds, 1);
+  assert.equal(p.actions.find((x) => x.type === "add_history_reversal").entryId, "mine-2");
+  save(rt, [s], p.actions, false);
+  const neg = made(rt).find((e) => Number(e.amount) < 0);
+  assert.equal(neg.category_id, cat.id, "the month nets to zero in the original category");
+  assert.equal(Number(neg.amount), -44.4);
+  assert.ok(a);
+});
+
 test("lines already remembered as waiting are not offered to be remembered again", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [{ date: "2019-03-10", description: "I-BANC TRANSFERENCIA", amount: -800, currency: "PEN" }]);

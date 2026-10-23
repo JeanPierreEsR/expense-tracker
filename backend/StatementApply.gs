@@ -28,6 +28,7 @@
  *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
  *                    become two one-sided transfers (confirmed) — never spending or income
+ *   add_history_refund { stmt, line }     a refund that does NOT cancel a charge of its own month: confirmed income in "Refunds"
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
  *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
  *                    batch once and can undo it in one step (StatementHistory.gs builds these)
@@ -352,12 +353,27 @@ function applyStatementDecisions(payload) {
       var hx = line(a); useLine(hx);
       var isRev = a.type === 'add_history_reversal';
       if (isRev ? hx.l.amount <= 0 : hx.l.amount >= 0) throw new Error(tr_(isRev ? 'sa.reversalIn' : 'sa.purchaseOut'));
-      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: '', payment_method_id: requirePm(hx).id,
+      // A refund that cancels a charge already in the app takes that charge's category, so the month nets to zero in its category.
+      var revFor = isRev && a.entryId ? values[rowById[String(a.entryId)]] : null;
+      if (isRev && a.entryId && revFor === undefined) throw new Error(tr_('sa.chargeNotFound'));
+      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : '', payment_method_id: requirePm(hx).id,
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
       if (madeH) { if (isRev) report.created.reversals++; else report.created.purchases++; }
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_refund') {
+      // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
+      var rfd = line(a); useLine(rfd);
+      if (rfd.l.amount <= 0) throw new Error(tr_('sa.reversalIn'));
+      var rfCat = catByName['income:Refunds'] || (dryRun ? 'refunds-to-be-created' : ensureRefundsCategory_().id);
+      catByName['income:Refunds'] = rfCat;
+      var madeRf = newEntry({ type: 'income', date: rfd.l.date, amount: rfd.l.amount, currency: rfd.l.currency, category_id: rfCat,
+        description: tr_('desc.reversal', { text: stmtCleanDescription_(String(rfd.l.description).replace(/^\s*REV\.?\s*/i, '')) }),
+        payment_method_id: requirePm(rfd).id, status: 'confirmed', external_id: 'stmt-' + rfd.key,
+        merchant: stmtMerchantKey_(String(rfd.l.description).replace(/^\s*REV\.?\s*/i, '')) });
+      if (madeRf) report.created.income++;
+      remember(rfd, 'added', madeRf ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_income') {
       var hi = line(a); useLine(hi);
       if (hi.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));

@@ -545,7 +545,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, transfers: 0, legs: 0, investments: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -553,6 +553,7 @@
         c.spent[l.currency] = Math.round(((c.spent[l.currency] || 0) + Math.abs(l.amount)) * 100) / 100;
       } else if (a.type === "add_history_income") c.income++;
       else if (a.type === "add_history_reversal") c.refunds++;
+      else if (a.type === "add_history_refund") c.refundIncome++;
       else if (a.type === "record_transfer") c.transfers++;
       else if (a.type === "record_transfer_leg") c.legs++;
       else if (a.type === "add_history_investment") c.investments++;
@@ -560,7 +561,7 @@
       else if (a.type === "record_fee") c.fees++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
-    c.entries = c.expenses + c.income + c.refunds + c.transfers + c.legs + c.investments + 2 * c.exchanges + c.fees;
+    c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + 2 * c.exchanges + c.fees;
     return c;
   }
 
@@ -694,6 +695,7 @@
     if (c.expenses) lines.push(tr("hist.sum.expenses", { n: c.expenses, total: moneyTotals(c.spent) }));
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
     if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
+    if (c.refundIncome) lines.push(tr("hist.sum.refundIncome", { n: c.refundIncome }));
     if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
     if (c.legs) lines.push(tr("hist.sum.legs", { n: c.legs }));
     if (c.investments) lines.push(tr("hist.sum.investments", { n: c.investments }));
