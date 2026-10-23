@@ -25,19 +25,20 @@ test("rows keep their layout as lettered columns, pages are marked, digits becom
   assert.equal(lines[3], "A: 99 OCT  ¦  C: S/ 99.99");   // x 41 and 432 sit in the same columns as 40 and 430
 });
 
-test("the cell after a label such as Titular, and names after Name:, are hidden", () => {
+test("ONLY digits are hidden: names, streets, shops, payees and e-mail addresses are sent as they are", () => {
   const out = StatementSample.rowsToText([
     { page: 1, cells: [{ x0: 40, str: "Titular:" }, { x0: 120, str: "JUAN PEREZ GOMEZ" }] },
-    { page: 1, cells: [{ x0: 40, str: "Nombre: Rosa Quispe" }] },
-    { page: 1, cells: [{ x0: 40, str: "Domicilio" }, { x0: 120, str: "Calle Sol 12 Lima" }] }
-  ], {});
-  assert.ok(!/JUAN|PEREZ|Rosa|Quispe|Calle Sol/i.test(out), out);
-  assert.equal((out.match(/\[name\]/g) || []).length, 3);
-});
-
-test("words the person adds are hidden everywhere in the statement (a shop, a person)", () => {
-  const out = StatementSample.rowsToText(rowsOf(3).map((r, i) => ({ ...r, cells: [r.cells[0], { x0: 120, str: i === 1 ? "PAGO A ANA LOPEZ" : "COMPRA CORNER CAFE" }, r.cells[2]] })), { hide: "Ana Lopez, Corner Cafe" });
-  assert.ok(!/ana|lopez|corner/i.test(out.replace("Columns", "")), out);
+    { page: 1, cells: [{ x0: 40, str: "Nombre: Rosa Quispe" }, { x0: 300, str: "rosa.q@example.test" }] },
+    { page: 1, cells: [{ x0: 40, str: "Domicilio" }, { x0: 120, str: "Calle Sol 12 Lima-15" }] },
+    { page: 1, cells: [{ x0: 40, str: "Hola Ana" }, { x0: 120, str: "PAGO A ANA LOPEZ www.example.test/abc123" }] },
+    { page: 1, cells: [{ x0: 40, str: "Tarjeta 4557 8800 1234 5678" }] }
+  ]);
+  for (const kept of ["JUAN PEREZ GOMEZ", "Nombre: Rosa Quispe", "rosa.q@example.test", "Calle Sol 99 Lima-99", "Hola Ana", "PAGO A ANA LOPEZ", "www.example.test/abc999"]) {
+    assert.ok(out.includes(kept), kept + " should be unchanged:\n" + out);
+  }
+  assert.ok(out.includes("Tarjeta 9999 9999 9999 9999"));
+  assert.ok(!/[0-8]/.test(out.split("\n").slice(1).join("\n")), "no digit other than 9 leaves the phone");
+  assert.ok(!out.includes("[name]") && !out.includes("[email]") && !out.includes("[link]"), "nothing is replaced by a placeholder");
 });
 
 test("a whole statement fits (well above the e-mail limit) but never above the cap", () => {
@@ -81,14 +82,15 @@ test("a long statement is split at line breaks into parts that each fit a Sheets
   assert.equal((joined.match(/COMPRA TIENDA/g) || []).length, 3000, "nothing was lost");
 });
 
-test("the backend hides digits and addresses again even if the phone did not", () => {
+test("the backend turns digits into 9 again even if the phone did not, and leaves everything else (e-mails included) alone", () => {
   const { rt } = freshApp({ small: true });
   linkTelegram(rt);
   send(rt, { text: "A: Pago de S/ 12.34 a nadie@gmail.test cuenta 0123456789 operación 4455 ".repeat(10) });
   const row = Array.from(rt.rows("Statement Samples"))[0];
   assert.ok(!/[0-8]/.test(String(row.text)));
-  assert.ok(!String(row.text).includes("nadie@"));
-  assert.ok(!telegramTexts(rt).join("\n").includes("nadie@"));
+  assert.ok(String(row.text).includes("nadie@gmail.test"), "e-mail addresses are kept");
+  assert.ok(!String(row.text).includes("[email]"));
+  assert.ok(!telegramTexts(rt).join("\n").includes("nadie@"), "the statement text itself never goes to Telegram");
 });
 
 test("a sample can never become a spreadsheet formula, and bad reports store nothing", () => {

@@ -51,7 +51,7 @@ test("rows, buttons and labels that name the recipient say JP", () => {
   assert.deepEqual(text("feedback.title"), { en: "Send feedback to JP", es: "Enviar comentarios a JP" });
   assert.deepEqual(text("feedback.send"), { en: "Send to JP", es: "Enviar a JP" });
   assert.deepEqual(text("bankSample.send"), { en: "Send to JP", es: "Enviar a JP" });
-  for (const k of ["bankSample.previewTitle", "stmtSample.previewTitle", "feedback.previewTitle"]) {
+  for (const k of ["bankSample.previewTitle", "feedback.previewTitle"]) {
     assert.equal(text(k).en, "This is exactly what JP will receive", k);
     assert.equal(text(k).es, "Esto es exactamente lo que recibirá JP", k);
   }

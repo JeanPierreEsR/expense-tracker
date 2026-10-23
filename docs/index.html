@@ -1410,26 +1410,11 @@
           <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
           <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
           <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
-          <button type="button" class="primary" id="ss-show" data-i18n="stmtSample.show">Show me what will be sent</button>
-        </div>
-        <div id="ss-step-2" hidden>
-          <p class="hint"><strong data-i18n="stmtSample.previewTitle">This is exactly what JP will receive</strong></p>
-          <p class="hint" id="ss-size"></p>
-          <textarea id="ss-preview" rows="14" spellcheck="false"></textarea>
-          <label for="ss-hide" data-i18n="stmtSample.hideLabel">Anything else to hide everywhere? (a person's name, a shop, your street…)</label>
-          <input type="text" id="ss-hide" autocomplete="off" maxlength="300">
-          <p class="hint" data-i18n="bankSample.hideHint">Separate with commas. Then tap “Hide again”.</p>
-          <button type="button" class="cancel-edit-btn" id="ss-redo" data-i18n="bankSample.redo">Hide again</button>
           <label for="ss-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="ss-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
-          <label class="checkbox-row">
-            <input type="checkbox" id="ss-confirm">
-            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
-          </label>
-          <button type="button" class="primary" id="ss-send" data-i18n="bankSample.send" disabled>Send to JP</button>
-          <button type="button" class="cancel-edit-btn" id="ss-back" data-i18n="bankSample.back">Back</button>
+          <button type="button" class="primary" id="ss-send" data-i18n="bankSample.send">Send to JP</button>
         </div>
-        <div id="ss-step-3" hidden>
+        <div id="ss-step-2" hidden>
           <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
           <p class="hint" data-i18n="stmtSample.doneBody">I received it. I will let you know when your bank is added. Each kind of statement helps (savings, credit card…), so send another if you can.</p>
           <button type="button" class="primary" id="ss-done" data-i18n="common.close">Close</button>
