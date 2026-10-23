@@ -496,6 +496,7 @@
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
+      historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
@@ -528,21 +529,21 @@
   function historyActions() {
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
-    const taken = {}, takenOut = {};
+    const taken = {}, takenOut = {}, takenInc = {};
     p.chosen.forEach((mode, i) => { taken[lineKey(aside[i])] = true; });
-    const outs = p.summary.peopleOut || [];
+    const outs = p.summary.peopleOut || [], incs = p.summary.incomeLines || [];
     p.outMode.forEach((mode, j) => { takenOut[lineKey(outs[j])] = true; });
+    p.incMode.forEach((mode, k) => { takenInc[lineKey(incs[k])] = true; });
     const kept = p.actions.filter((a) => {
       if (a.stmt === undefined) return true;                 // a transfer pair carries out/in instead of stmt/line
       const k = lineKey(a);
-      return !linked[k] && !(a.type === "wait" && taken[k]) && !(a.type === "add_history_expense" && takenOut[k]);
+      return !linked[k] && !(a.type === "wait" && taken[k]) && !(a.type === "add_history_expense" && takenOut[k]) && !(a.type === "add_history_income" && takenInc[k]);
     });
     const optIns = [];
-    // A payment you made to a person is spending unless you sent it to Needs review or left it out.
-    p.outMode.forEach((mode, j) => {
-      const action = mode === "review" ? outs[j].optInReview : outs[j].optInLeave;
-      if (action && !linked[lineKey(action)]) optIns.push(action);
-    });
+    // The action each choice stands for on a line that is counted by default (a payment you made to a person, or income).
+    const choiceAction = (line, mode) => (mode === "transfer" ? line.optInTransfer : mode === "investment" ? line.optInInvestment : mode === "review" ? line.optInReview : line.optInLeave);
+    p.outMode.forEach((mode, j) => { const action = choiceAction(outs[j], mode); if (action && !linked[lineKey(action)]) optIns.push(action); });
+    p.incMode.forEach((mode, k) => { const action = choiceAction(incs[k], mode); if (action && !linked[lineKey(action)]) optIns.push(action); });
     p.chosen.forEach((mode, i) => {
       let action = mode === "transfer" ? aside[i].optInTransfer : mode === "investment" ? aside[i].optInInvestment : mode === "review" ? aside[i].optInReview : aside[i].optIn;
       if (action && mode === "investment") action = { ...action, platformId: platformOf(i) };
@@ -671,7 +672,8 @@
       const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
       const buttonsFor = (m, mi) => (m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : "")
         + modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))
-        + (m.optInInvestment ? modeButton(`data-aside="${mi}" data-mode="investment"`, chosen.get(mi) === "investment", invLabel) : "");
+        + (m.optInInvestment ? modeButton(`data-aside="${mi}" data-mode="investment"`, chosen.get(mi) === "investment", invLabel) : "")
+        + (m.optInReview ? modeButton(`data-aside="${mi}" data-mode="review"`, chosen.get(mi) === "review", tr("hist.people.review")) : "");
       if (a.group) {
         if (rendered[a.group]) return "";
         rendered[a.group] = true;
@@ -739,19 +741,21 @@
       const bulk = (dir, mode, label, idx, state) => modeButton(`data-pbulk="${escapeHtml(g.key)}" data-dir="${dir}" data-mode="${mode}"`, idx.length > 0 && idx.every(state), label);
       const outBulk = g.out.length
         ? bulk("out", "review", tr("hist.people.allOutReview", { n: g.out.length }), g.out, (j) => p.outMode.get(j) === "review")
+          + bulk("out", "transfer", tr("hist.people.allOutTransfer", { n: g.out.length }), g.out, (j) => p.outMode.get(j) === "transfer")
           + bulk("out", "leave", tr("hist.people.allOutLeave", { n: g.out.length }), g.out, (j) => p.outMode.get(j) === "leave") : "";
       const inBulk = g.inn.length
         ? bulk("in", "cash", tr("hist.people.allInIncome", { n: g.inn.length }), g.inn, (i) => p.chosen.get(i) === "cash")
+          + bulk("in", "transfer", tr("hist.people.allInTransfer", { n: g.inn.length }), g.inn, (i) => p.chosen.get(i) === "transfer")
           + bulk("in", "review", tr("hist.people.allInReview", { n: g.inn.length }), g.inn, (i) => p.chosen.get(i) === "review") : "";
       const outRows = g.out.map((j) => {
         const o = outs[j], m = p.outMode.get(j);
         return lineRow({ date: o.date, description: o.description, amount: o.amount, currency: o.currency },
-          `${escapeHtml(o.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-pout="${j}" data-mode="spending"`, !m, tr("hist.people.spending"))}${modeButton(`data-pout="${j}" data-mode="review"`, m === "review", tr("hist.people.review"))}${modeButton(`data-pout="${j}" data-mode="leave"`, m === "leave", tr("hist.people.leave"))}</div>`);
+          `${escapeHtml(o.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-pout="${j}" data-mode="spending"`, !m, tr("hist.people.spending"))}${modeButton(`data-pout="${j}" data-mode="transfer"`, m === "transfer", tr("hist.aside.addTransfer"))}${modeButton(`data-pout="${j}" data-mode="investment"`, m === "investment", tr("hist.aside.addInvestment"))}${modeButton(`data-pout="${j}" data-mode="review"`, m === "review", tr("hist.people.review"))}${modeButton(`data-pout="${j}" data-mode="leave"`, m === "leave", tr("hist.people.leave"))}</div>`);
       }).join("");
       const inRows = g.inn.map((i) => {
         const a = aside[i], m = p.chosen.get(i);
         return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency },
-          `${escapeHtml(a.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-aside="${i}" data-mode="cash"`, m === "cash", tr("hist.aside.addIncome"))}${modeButton(`data-aside="${i}" data-mode="review"`, m === "review", tr("hist.people.review"))}</div>`);
+          `${escapeHtml(a.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-aside="${i}" data-mode="cash"`, m === "cash", tr("hist.aside.addIncome"))}${modeButton(`data-aside="${i}" data-mode="transfer"`, m === "transfer", tr("hist.aside.addTransfer"))}${modeButton(`data-aside="${i}" data-mode="investment"`, m === "investment", tr("hist.aside.addWithdrawal"))}${modeButton(`data-aside="${i}" data-mode="review"`, m === "review", tr("hist.people.review"))}</div>${m === "investment" ? platformSelect(`data-pidx="${i}"`, platformOf(i)) : ""}`);
       }).join("");
       const name = g.name || tr("hist.people.other");
       return `<details class="stmt-group" data-ppkey="${escapeHtml(g.key)}" ${p.openPeople.has(g.key) ? "open" : ""}><summary>${escapeHtml(name)} <span class="stmt-count">${g.out.length + g.inn.length}</span></summary>
@@ -760,6 +764,20 @@
     }).join("");
     return `<details class="stmt-group" id="statement-history-people" ${p.peopleOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.people.title", { n: nLines }))}</summary>
       <p class="hint">${escapeHtml(tr("hist.people.hint"))}</p>${rows}</details>`;
+  }
+
+  // ---- "Income lines": income that is counted by default (a salary…) can be classified in any other way too ----
+
+  function incomeHtml() {
+    const p = historyPlan, incs = p.summary.incomeLines || [];
+    if (!incs.length) return "";
+    const rows = incs.map((l, k) => {
+      const m = p.incMode.get(k);
+      return lineRow({ date: l.date, description: l.description, amount: l.amount, currency: l.currency },
+        `${escapeHtml(l.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-pinc="${k}" data-mode="income"`, !m, tr("hist.income.income"))}${modeButton(`data-pinc="${k}" data-mode="transfer"`, m === "transfer", tr("hist.aside.addTransfer"))}${modeButton(`data-pinc="${k}" data-mode="investment"`, m === "investment", tr("hist.aside.addWithdrawal"))}${modeButton(`data-pinc="${k}" data-mode="review"`, m === "review", tr("hist.people.review"))}${modeButton(`data-pinc="${k}" data-mode="leave"`, m === "leave", tr("hist.people.leave"))}</div>`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-income" ${p.incomeOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.income.title", { n: incs.length }))}</summary>
+      <p class="hint">${escapeHtml(tr("hist.income.hint"))}</p>${rows}</details>`;
   }
 
   function renderHistoryPlan() {
@@ -785,7 +803,7 @@
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
     if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length) {
       out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
       return;
@@ -1335,6 +1353,16 @@
     return key === "bank_fees" ? "fees" : "spending";
   }
 
+  // The sign a pending entry reads with: money in is +, money out is −. A transfer with only its "To" filled came in; an investment stored
+  // negative is a withdrawal (money back).
+  function pendingSigned(e) {
+    const a = Math.abs(Number(e.amount));
+    if (e.type === "income") return a;
+    if (e.type === "transfer") return e.to_payment_method_id && !e.payment_method_id ? a : -a;
+    if (e.type === "investment") return Number(e.amount) < 0 ? a : -a;
+    return -a;
+  }
+
   const ADDED_ORDER = ["pending", "spending", "income", "refunds", "refundIncome", "transfers", "openTransfers", "investments", "fees"];
 
   async function loadAdded() {
@@ -1368,7 +1396,7 @@
       if (k === "pending") {
         // Not opened here: they are finished in Needs review (Confirm, or Mark as repayment / Convert to loan, or pick a platform).
         det.querySelector(".added-list").innerHTML = `<p class="hint">${escapeHtml(tr("added.pendingHint"))}</p>`
-          + groups[k].map((e) => lineRow({ date: e.date, description: e.description, amount: e.type === "income" ? Number(e.amount) : -Math.abs(Number(e.amount)), currency: e.currency }, escapeHtml(tr("added.pendingType." + e.type)))).join("")
+          + groups[k].map((e) => lineRow({ date: e.date, description: e.description, amount: pendingSigned(e), currency: e.currency }, escapeHtml(tr("added.pendingType." + e.type)))).join("")
           + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>`;
       } else {
         renderEntriesInto_(det.querySelector(".added-list"), groups[k]);   // the app's own entry rows: tap one to open it
@@ -1464,7 +1492,7 @@
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
-    const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]");
+    const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]"), pinc = e.target.closest("[data-pinc]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
     if (one) {
@@ -1474,6 +1502,9 @@
       // A payment YOU made to a person: spending (the default, no entry in the map), or sent to Needs review, or left out.
       const j = Number(pout.dataset.pout), mode = pout.dataset.mode;
       if (mode === "spending" || historyPlan.outMode.get(j) === mode) historyPlan.outMode.delete(j); else historyPlan.outMode.set(j, mode);
+    } else if (pinc) {
+      const k = Number(pinc.dataset.pinc), mode = pinc.dataset.mode;
+      if (mode === "income" || historyPlan.incMode.get(k) === mode) historyPlan.incMode.delete(k); else historyPlan.incMode.set(k, mode);
     } else if (pbulk) {
       // All of one person's lines in one direction: all on, or (when all already were) all back to the default.
       const key = pbulk.dataset.pbulk, dir = pbulk.dataset.dir, mode = pbulk.dataset.mode;
@@ -1516,6 +1547,7 @@
     if (!historyPlan) return;
     if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
     if (e.target.id === "statement-history-people") historyPlan.peopleOpen = e.target.open;
+    if (e.target.id === "statement-history-income") historyPlan.incomeOpen = e.target.open;
     if (e.target.dataset && e.target.dataset.ppkey !== undefined) {
       if (e.target.open) historyPlan.openPeople.add(e.target.dataset.ppkey); else historyPlan.openPeople.delete(e.target.dataset.ppkey);
     }

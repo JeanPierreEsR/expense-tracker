@@ -252,6 +252,50 @@ test("wallet payments are grouped by person: what you paid and what they paid yo
   assert.equal(p.summary.aside.filter((x) => x.reason === "person" && x.group).length, 0, "people are grouped by person, not by similar amounts");
 });
 
+test("a bank transfer or another wallet with a PERSON'S name is a payment with a person; banks, companies and generic wording are not", () => {
+  const { rt } = accounts();
+  const who = (d) => run(rt, `stmtPersonLine_({ description: ${JSON.stringify(d)} })`);
+  // people
+  assert.equal(who("TRANSF ANDRE").name, "Andre");
+  assert.equal(who("TRANSFERENCIA A JUAN PEREZ").name, "Juan Perez");
+  assert.equal(who("TRANSFERENCIA A MARIA DE LA CRUZ").name, "Maria De La Cruz");
+  assert.equal(who("SIP SOFIA DUA").name, "Sofia Dua", "another wallet with a name");
+  assert.equal(who("FALABELLA JUAN PEREZ").name, "Juan Perez");
+  assert.equal(who("Yape Patricio De").name, "Patricio De");
+  assert.equal(who("Yape USD").key, "", "a strong wallet line is a payment with a person even with no name");
+  // not people: banks, companies, own accounts, generic words, purchases
+  ["TRANSF.BCO.INTERBA", "Transf. Inter. Recibida", "Transf. Inter. Enviada", "TRANSFER BPI", "TRAN.CTAS.TERC.BM", "TRANSF.BCO.SIP",
+    "Transf. entre mis cuentas", "DE INVERSIONES ALT", "ABONO SUELDO", "AGORA SHOP COMPANIA FO", "PAGO DEUDA TOT APP", "COMPRA BODEGA LA ESQUINA",
+    "TRANSFERENCIA A OTRA CUENTA 0001", "Pago de Tarjeta de Crédito", "I-BANC"].forEach((d) => assert.equal(who(d), null, d + " is not a person"));
+});
+
+test("unpaired bank transfers with a name go to Payments with people, not to 'waiting'; every choice is offered", () => {
+  const { rt, a, stmt } = accounts();
+  const s = stmt(a, [
+    { date: "2019-03-02", description: "TRANSF ANDRE", amount: 267, currency: "PEN" },
+    { date: "2019-03-03", description: "TRANSF PEDRO RUIZ", amount: -80, currency: "PEN" },
+    { date: "2019-03-04", description: "ABONO SUELDO", amount: 3000, currency: "PEN" },
+    { date: "2019-03-05", description: "TRANSF.BCO.INTERBA", amount: -500, currency: "PEN" }
+  ]);
+  const p = plan(rt, [s]);
+  const inc = p.summary.aside.find((x) => x.reason === "person");
+  assert.equal(inc.personName, "Andre");
+  assert.equal(p.summary.peopleOut.length, 1);
+  assert.equal(p.summary.peopleOut[0].personName, "Pedro Ruiz");
+  assert.equal(p.summary.counts.expenses, 1, "what you paid a person is spending by default");
+  assert.equal(p.summary.aside.filter((x) => x.reason === "waiting").length, 1, "the bank-to-bank transfer still waits for its other statement");
+  // every classification is on offer for every kind of line
+  const types = (o) => ["optInTransfer", "optInInvestment", "optInReview"].map((k) => o[k] && o[k].type);
+  assert.deepEqual(types(inc), ["record_transfer_leg", "add_history_investment", "add_history_pending"], "money from a person");
+  assert.deepEqual(types(p.summary.peopleOut[0]), ["record_transfer_leg", "add_history_investment", "add_history_pending"], "money to a person");
+  assert.equal(p.summary.peopleOut[0].optInLeave.type, "ignore");
+  const salary = p.summary.incomeLines[0];
+  assert.equal(salary.description, "ABONO SUELDO", "income imported by default can be reclassified too");
+  assert.deepEqual(types(salary), ["record_transfer_leg", "add_history_investment", "add_history_pending"]);
+  const waiting = p.summary.aside.find((x) => x.reason === "waiting");
+  assert.equal(waiting.optInReview.type, "add_history_pending", "a waiting line can go to Needs review too");
+});
+
 test("Send to Needs review: a pending expense or income, not in the totals, listed with the upload", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [
