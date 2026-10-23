@@ -40,7 +40,12 @@ const TYPE_LABELS = {
 // defaults for a sheet's first paint; this always overrides them once a
 // sheet is actually opened.
 let topModalZIndex = 250;
+const WELCOME_OVERLAY_Z_ = 300;   // .welcome-overlay in style.css
 function bringModalToFront_(backdropEl) {
+  // A pop-up opened while the welcome screens are up (the bank-e-mail info at the end of step 3, "teach the app my bank" from step 2)
+  // must sit ABOVE them: at 251 it opened behind the welcome overlay and the person saw a blank screen (found 2026-10-23, two friends).
+  const welcome = document.getElementById("welcome-overlay");
+  if (welcome && !welcome.hidden && topModalZIndex <= WELCOME_OVERLAY_Z_) topModalZIndex = WELCOME_OVERLAY_Z_ + 100;
   topModalZIndex += 1;
   backdropEl.style.zIndex = topModalZIndex;
 }
