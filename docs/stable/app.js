@@ -5725,7 +5725,7 @@ function closePerfShareModal_() {
 function siteUrl_(path) { return window.etSiteUrl ? window.etSiteUrl(path) : new URL(path, location.href).href; }
 // ---- Updating a friend's copy of the backend (stage 4c) ----
 // A copy made by the installer carries the backend version it was built from (capabilities.backendRef = the last commit that changed backend/).
-// Once a day the app asks GitHub for the newest one (docs/setup/pin.json says whether everyone is held at a pinned commit); when they differ,
+// On every open and every return to the front the app reads docs/setup/pin.json (see latestBackendRef_ below) for the newest one; when they differ,
 // More shows "Update available" and the More tab gets a dot. The update itself is done by the setup page (it has the person's Google sign-in).
 // The owner's own copy is updated by ship.sh, so it never asks (capabilities.perfLog is true there).
 const UPDATE_CHECK_KEY = "etBackendUpdate";
@@ -5740,21 +5740,33 @@ async function checkBackendUpdate_() {
   updateChecking_ = true;
   try { await checkBackendUpdateNow_(caps); } finally { updateChecking_ = false; }
 }
+// The newest backend version this friend should have. docs/setup/pin.json (our own site: free, no request limit) is read on EVERY check and says which commit
+// everyone is held at; the commit that last changed backend/ at that pin is asked from GitHub (anonymous: ~60 requests an hour) only when the pin is new to this
+// phone, because the answer for a given pin never changes. Not pinned ("" = follow main): that answer can change any time, so it is re-asked every 12 hours.
+// (Before 2026-10-23 EVERY answer was remembered for 12 hours, so a promote took up to half a day to reach a phone that had just checked.)
+async function latestBackendRef_() {
+  let pin = null;   // null = our own site did not answer
+  try { pin = String(((await (await fetch(siteUrl_("setup/pin.json"), { cache: "no-store" })).json()) || {}).pin || ""); } catch (e) { /* offline or a hiccup */ }
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY)); } catch (e) { /* no memory of an earlier check */ }
+  const fresh = !!(c && c.at && Date.now() - c.at < 12 * 3600 * 1000);
+  if (c && c.latest && (pin === null ? fresh : (c.pin === pin && (pin !== "" || fresh)))) return c.latest;
+  if (pin === null) return "";
+  try {
+    const r = await fetch("https://api.github.com/repos/JeanPierreEsR/expense-tracker/commits?path=backend&sha=" + encodeURIComponent(pin || "main") + "&per_page=1");
+    if (!r.ok) return "";   // GitHub says no (busy, offline): try again next time, never bother the person
+    const latest = ((await r.json())[0] || {}).sha || "";
+    if (latest) localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify({ at: Date.now(), latest, pin }));
+    return latest;
+  } catch (e) { return ""; }
+}
 async function checkBackendUpdateNow_(caps) {
-  let latest = "";
-  try { const c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY)); if (c && Date.now() - c.at < 12 * 3600 * 1000) latest = c.latest || ""; } catch (e) { /* no memory of an earlier check */ }
-  if (!latest) {
-    try {
-      const pin = String(((await (await fetch(siteUrl_("setup/pin.json"), { cache: "no-store" })).json()) || {}).pin || "");
-      const r = await fetch("https://api.github.com/repos/JeanPierreEsR/expense-tracker/commits?path=backend&sha=" + encodeURIComponent(pin || "main") + "&per_page=1");
-      if (!r.ok) return;   // GitHub says no (busy, offline): try again next time, never bother the person
-      latest = ((await r.json())[0] || {}).sha || "";
-      if (latest) localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify({ at: Date.now(), latest }));
-    } catch (e) { return; }
-  }
+  const latest = await latestBackendRef_();
   // A copy made before backend versions were stamped has none: it is offered the update too.
   if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
 }
+// An app kept alive in the background is checked again when it comes back to the front, so a promote reaches it without a full relaunch.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateChecked_ = false; checkBackendUpdate_(); } });
 function updatePageUrl_() { return siteUrl_("setup/#update"); }
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
