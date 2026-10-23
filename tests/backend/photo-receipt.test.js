@@ -50,7 +50,7 @@ test("yape received: normal 'S/ 18.00' reading still wins", () => {
 
 // ---- "¡Yapeaste!" (sent) image; income when the name on it is the owner's ----
 const YAPEASTE = [
-  "¡Yapeaste!", "", "S/ 6.50", "", "Mia Dua*", "08 oct. 2026 | 3:10 p.m.", "almuerzo del menu", "",
+  "¡Yapeaste!", "", "S/ 6.50", "", "Eva Ram*", "08 oct. 2026 | 3:10 p.m.", "almuerzo del menu", "",
   "CÓDIGO DE SEGURIDAD", "6 1 2", "DATOS DE LA TRANSACCIÓN", "Nro. de celular *** *** 278", "Destino Yape",
   "Nro. de operación 00987654"
 ].join("\n");
@@ -62,8 +62,8 @@ test("yapeaste image: expense to the named person, with the typed message, on th
   assert.equal(r.type, "expense");
   assert.equal(r.amount, 6.5);
   assert.equal(r.currency, "PEN");
-  assert.equal(r.counterparty, "Mia Dua*");
-  assert.equal(r.description, "Yape a Mia Dua* — almuerzo del menu");
+  assert.equal(r.counterparty, "Eva Ram*");
+  assert.equal(r.description, "Yape a Eva Ram* — almuerzo del menu");
   assert.equal(r.externalId, "00987654");
   assert.equal(r.date, "2026-10-08");
   assert.equal(r.time, "15:10:00");
@@ -77,7 +77,7 @@ test("owner name matching: masked surname prefix, accents, several variants; a l
   assert.equal(m("Ana Per*", "Pedro Lopez, Ana Perez"), true, "any variant may match");
   assert.equal(m("Ana Per*", "Pedro Lopez"), false);
   assert.equal(m("Ana*", "Ana Perez"), false, "a single word is not enough");
-  assert.equal(m("Mia Dua*", "Ana Perez"), false);
+  assert.equal(m("Eva Ram*", "Ana Perez"), false);
   assert.equal(m("Ana Per*", ""), false);
   assert.equal(m("Ánä Pér*", "Ana Perez"), true);
 });
@@ -105,7 +105,7 @@ test("yapeaste image to someone else becomes a pending expense", () => {
 
 test("yapeaste image whose name is the owner's becomes a pending INCOME, and says so", () => {
   const { rt } = freshApp({ small: true });
-  const e = processYapeaste(rt, "Pedro Lopez, Mia Duarte", YAPEASTE);
+  const e = processYapeaste(rt, "Pedro Lopez, Eva Ramos", YAPEASTE);
   assert.equal(e.type, "income");
   assert.equal(e.status, "pending");
   assert.equal(e.paid_by, "");
@@ -130,15 +130,15 @@ test("the same yapeaste image sent twice is only recorded once", () => {
 // What Tesseract really produced for such a screen (several passes joined): the big amount
 // read as "S14" or lost, noise lines before the name, a stray icon letter before the message.
 const YAPEASTE_NOISY = [
-  "INONES", "", "jYapeaste!", "", "Si A", "", "Mia Dua*", "© 08 oct. 2026 | © 3:10 p.m.", "", "B almuerzo del menu", "",
+  "INONES", "", "jYapeaste!", "", "Si A", "", "Eva Ram*", "© 08 oct. 2026 | © 3:10 p.m.", "", "B almuerzo del menu", "",
   "CODIGO DE SEGURIDAD", "DATOS DE LA TRANSACCION", "Nro. de operacién 00987654",
-  "", "iYapeaste!", "S 6", "Mia Dua*"
+  "", "iYapeaste!", "S 6", "Eva Ram*"
 ].join("\n").replace("S 6", "S/ 6.50".replace("/ ", "1").replace(".50", ".50"));
 
 test("noisy Tesseract text: the masked name beats noise lines, the stray icon letter is dropped, 'S1' + amount is read", () => {
   const { rt } = freshApp({ small: true });
   const r = parse(rt, YAPEASTE_NOISY);
-  assert.equal(r.counterparty, "Mia Dua*");
+  assert.equal(r.counterparty, "Eva Ram*");
   assert.equal(r.note, "almuerzo del menu");
   assert.equal(r.amount, 6.5);
 });

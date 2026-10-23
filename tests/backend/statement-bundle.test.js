@@ -263,6 +263,16 @@ test("a bank transfer or another wallet with a PERSON'S name is a payment with a
   assert.equal(who("FALABELLA JUAN PEREZ").name, "Juan Perez");
   assert.equal(who("Yape Marco Vega").name, "Marco Vega");
   assert.equal(who("Yape USD").key, "", "a strong wallet line is a payment with a person even with no name");
+  // English wording
+  assert.equal(who("TRANSFER TO JOHN SMITH").name, "John Smith");
+  assert.equal(who("Transfer from Jane Doe").name, "Jane Doe");
+  assert.equal(who("ZELLE PAYMENT TO JOHN SMITH").name, "John Smith", "Zelle is a wallet between people");
+  assert.equal(who("VENMO JANE DOE").name, "Jane Doe");
+  assert.equal(who("PAYPAL JOHN SMITH").name, "John Smith", "PayPal also carries merchants, so it needs a name-like remainder");
+  assert.equal(who("SENT TO MARIA GARCIA").name, "Maria Garcia");
+  assert.equal(who("RECEIVED FROM LUIS PEREZ").name, "Luis Perez");
+  ["PAYMENT THANK YOU", "ONLINE TRANSFER TO SAVINGS", "WIRE TRANSFER FROM ACME INC", "ACH DEPOSIT PAYROLL", "ATM WITHDRAWAL", "PAYPAL *SPOTIFY",
+    "TRANSFER TO CHECKING ACCOUNT", "AUTOPAY CREDIT CARD"].forEach((d) => assert.equal(who(d), null, d + " is not a person"));
   // not people: banks, companies, own accounts, generic words, purchases
   ["TRANSF.BCO.INTERBA", "Transf. Inter. Recibida", "Transf. Inter. Enviada", "TRANSFER BPI", "TRAN.CTAS.TERC.BM", "TRANSF.BCO.SIP",
     "Transf. entre mis cuentas", "DE INVERSIONES ALT", "ABONO SUELDO", "AGORA SHOP COMPANIA FO", "PAGO DEUDA TOT APP", "COMPRA BODEGA LA ESQUINA",

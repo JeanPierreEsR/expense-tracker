@@ -22,22 +22,28 @@
 // ("TRANSF MARCO"). Strong wallets (Yape, Plin, Lukita, Tunki, Ligo): the line is a payment with a person even when no name can be read.
 // Other wallets and banks that carry names (SIP, Banco Falabella, Bim, Agora…) and plain bank transfers count only when what is left
 // after the wording looks like a PERSON'S name — not a company, a bank or a service.
-var STMT_WALLET_RE = /\b(YAPE|PLIN|LUKITA|TUNKI|LIGO)\b/i;
-var STMT_WALLET2_RE = /\b(BIM|AGORA|SIP|FALABELLA|DAVIPLATA|CMR)\b/i;
+// English wording works too ("Transfer to Jane Doe", "Zelle payment to…", "Venmo…", "PayPal…", "Sent to…", "Received from…").
+var STMT_WALLET_RE = /\b(YAPE|PLIN|LUKITA|TUNKI|LIGO|ZELLE|VENMO)\b/i;
+var STMT_WALLET2_RE = /\b(BIM|AGORA|SIP|FALABELLA|DAVIPLATA|CMR|PAYPAL|CASH ?APP)\b/i;
 // Only words that say "a transfer": "ABONO SUELDO" or "DE INVERSIONES" are too generic to read a person out of.
-var STMT_TRANSFER_PREFIX_RE = /^\s*(TRANSF(ERENCIA)?|TRANSFER|TRF|TRAN|ENVIO|PAGO A)\b[.\s:\-]*/i;
+var STMT_TRANSFER_PREFIX_RE = /^\s*(TRANSF(ERENCIA)?|TRANSFER|TRF|TRAN|ENVIO|PAGO A|PAYMENT (TO|FROM)|SENT TO|RECEIVED FROM|WIRE|ONLINE TRANSFER|MOBILE TRANSFER|ACH|INCOMING|OUTGOING)\b[.\s:\-]*/i;
 // Words that say the rest of the line is NOT a person.
 var STMT_NOT_A_NAME_ = ['BCO', 'BANCO', 'INTERBA', 'INTERBANK', 'INTERBANCARIA', 'INTER', 'INTERNACIONAL', 'BCP', 'BBVA', 'SCOTIA', 'SCOTIABANK', 'BPI',
   'SIP', 'FALABELLA', 'CMAC', 'CAJA', 'RECIBIDA', 'ENVIADA', 'ENTRE', 'MIS', 'CUENTAS', 'CTAS', 'TERC', 'TERCEROS', 'BM', 'IBANC', 'INVERSIONES', 'INVERSION',
   'SAC', 'SRL', 'EIRL', 'SA', 'INC', 'LLC', 'CORP', 'COMPANIA', 'CIA', 'EMPRESA', 'SERVICIOS', 'SERVICIO', 'GRUPO', 'PERU', 'LIMA', 'TARJETA', 'CREDITO',
   'DEUDA', 'TOT', 'APP', 'PAGO', 'PAGOS', 'PPA', 'PRVNG', 'SHOP', 'STORE', 'MARKET', 'TIENDA', 'RESTAURANTE', 'FARMACIA', 'GYM', 'CLUB', 'AGORA', 'BIM',
   'CUENTA', 'OTRA', 'OTRO', 'PROPIA', 'PROPIO', 'MISMO', 'TITULAR', 'SUELDO', 'PLANILLA', 'HABERES', 'INTERES', 'INTERESES', 'COMISION', 'RETIRO', 'DEPOSITO',
-  'EFECTIVO', 'AHORRO', 'AHORROS', 'CORRIENTE', 'CTA', 'COBRO', 'REEMBOLSO', 'DEVOLUCION', 'PLAZO', 'OPERACION', 'MOVIL', 'DIGITAL', 'WEB', 'ONLINE', 'BANCA', 'INTERNET'];
+  'EFECTIVO', 'AHORRO', 'AHORROS', 'CORRIENTE', 'CTA', 'COBRO', 'REEMBOLSO', 'DEVOLUCION', 'PLAZO', 'OPERACION', 'MOVIL', 'DIGITAL', 'WEB', 'ONLINE', 'BANCA', 'INTERNET',
+  // English
+  'THANK', 'YOU', 'PAYMENT', 'DEPOSIT', 'WITHDRAWAL', 'ATM', 'INTEREST', 'SALARY', 'PAYROLL', 'ACCOUNT', 'SAVINGS', 'CHECKING', 'CARD', 'CREDIT', 'DEBIT',
+  'FEE', 'FEES', 'BANK', 'LTD', 'CO', 'COMPANY', 'CHARGE', 'REFUND', 'REVERSAL', 'MOBILE', 'INTERNATIONAL', 'SERVICE', 'RESTAURANT', 'PHARMACY', 'GROUP',
+  'TRANSFER', 'BALANCE', 'AUTOPAY', 'AUTO', 'PMT', 'ACH', 'DIRECT', 'DEP', 'CHECK', 'CHK', 'WIRE', 'STATEMENT', 'ONLINE', 'MORTGAGE', 'LOAN', 'RENT', 'UTILITY'];
 function stmtWalletLine_(l) { return STMT_WALLET_RE.test(String(l.description || '')); }
 
 function stmtNameTokens_(description) {
   var t = String(description || '').replace(/\*/g, ' ');
-  t = t.replace(STMT_TRANSFER_PREFIX_RE, ' ').replace(/^\s*(A|DE|DEL)\s+/i, ' ').replace(/\b(ABONO|ABON|TRANSF(ERENCIA)?)\b/ig, ' ').replace(STMT_WALLET_RE, ' ').replace(STMT_WALLET2_RE, ' ')
+  t = t.replace(STMT_TRANSFER_PREFIX_RE, ' ').replace(STMT_WALLET_RE, ' ').replace(STMT_WALLET2_RE, ' ')
+    .replace(/^(\s*(A|DE|DEL|TO|FROM|TRANSFER|WIRE|PAYMENT|ONLINE|MOBILE|ACH|INCOMING|OUTGOING|SENT|RECEIVED)\b)+/i, ' ').replace(/\b(ABONO|ABON|TRANSF(ERENCIA)?)\b/ig, ' ').replace(STMT_WALLET_RE, ' ').replace(STMT_WALLET2_RE, ' ')
     .replace(/\b(USD|PEN|SOLES|DOLARES)\b/ig, ' ');
   return t.replace(/[-.:_0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -49,6 +55,7 @@ function stmtPersonLine_(l) {
   var d = String(l.description || '');
   if (STMT_WALLET_RE.test(d)) return stmtPersonName_(d);
   if (!STMT_WALLET2_RE.test(d) && !STMT_TRANSFER_PREFIX_RE.test(d)) return null;
+  if (STMT_WALLET2_RE.test(d) && /\b(PAYPAL|CASH ?APP)\s*\*/i.test(d)) return null;   // "PAYPAL *SPOTIFY": the card descriptor of a purchase, not a person
   var rest = stmtNameTokens_(d);
   var tokens = rest ? rest.split(' ') : [];
   if (tokens.length < 1 || tokens.length > 4 || rest.length > 32) return null;
