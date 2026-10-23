@@ -454,6 +454,10 @@
             <span data-i18n="more.mainCurrency">💱 Main currency</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-owner-names-btn">
+            <span data-i18n="more.ownerNames">👤 My names</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-statements-btn">
             <span data-i18n="more.statements">🏦 Statements</span>
             <span class="more-list-chevron">›</span>
@@ -1082,6 +1086,24 @@
           <button type="button" class="primary" id="main-currency-apply-btn" data-i18n="mainCur.apply">Switch main currency</button>
           <button type="button" class="add-inline" id="main-currency-cancel-btn" data-i18n="common.cancel">Cancel</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="owner-names-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="ownerNames.title">My names</span>
+        <button type="button" id="owner-names-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. A name is trusted once two different accounts or banks show it. You can correct the list here.</p>
+        <div id="owner-names-list"></div>
+        <p class="hint" id="owner-names-waiting"></p>
+        <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
+        <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
+        <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
       </div>
     </div>
   </div>
@@ -2018,6 +2040,16 @@
       <p class="hint" id="update-stuck" hidden data-i18n="app.safariStuck">Safari did not open? Tap the copy button, open Safari yourself and paste the link in the address bar.</p>
       <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
       <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
+    </div>
+  </div>
+
+  <div id="statement-added-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="added.title">What this upload added</span>
+        <button type="button" id="statement-added-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="drilldown-scroll-area" id="statement-added-body"></div>
     </div>
   </div>
 

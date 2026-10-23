@@ -144,15 +144,18 @@ function photoIsOwnerName_(maskedName, ownerNames) {
   var m = photoNameTokens_(maskedName);
   if (m.length < 2) return false;
   return String(ownerNames || '').split(',').some(function (variant) {
-    var v = photoNameTokens_(variant), at = 0;
+    var v = photoNameTokens_(variant), used = {};
     if (v.length < 2) return false;
+    // In any order (a bank statement prints the surnames first, Yape the given name first); each word of the masked name
+    // is a different word of the owner's name.
     for (var j = 0; j < m.length; j++) {
       var last = j === m.length - 1, found = -1;
-      for (var k = at; k < v.length; k++) {
+      for (var k = 0; k < v.length; k++) {
+        if (used[k]) continue;
         if (last ? v[k].indexOf(m[j]) === 0 : v[k] === m[j]) { found = k; break; }
       }
       if (found < 0) return false;
-      at = found + 1;
+      used[found] = true;
     }
     return true;
   });

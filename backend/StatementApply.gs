@@ -22,10 +22,14 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   add_history_pending { stmt, line }     "Send to Needs review": a PENDING expense (money out) or income (money in), no category
+ *   add_history_investment { stmt, line, platformId? }   money into an investment platform (positive) or out of one (a withdrawal:
+ *                    NEGATIVE amount), confirmed, filed under "Investments"; the platform is optional
  *   record_transfer_leg { stmt, line }      ONE side of a transfer whose other end is not in the app: money out has From = this
  *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
  *                    become two one-sided transfers (confirmed) — never spending or income
+ *   add_history_refund { stmt, line }     a refund that does NOT cancel a charge of its own month: confirmed income in "Refunds"
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
  *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
  *                    batch once and can undo it in one step (StatementHistory.gs builds these)
@@ -296,9 +300,39 @@ function applyStatementDecisions(payload) {
       var madeTL = newEntry({ type: 'transfer', date: tl.l.date, amount: Math.abs(tl.l.amount), currency: tl.l.currency, category_id: tCat,
         description: tr_('desc.transferLeg', { text: stmtCleanDescription_(tl.l.description) }),
         payment_method_id: tOut ? requirePm(tl).id : '', to_payment_method_id: tOut ? '' : requirePm(tl).id,
-        status: 'confirmed', external_id: 'stmt-' + tl.key });
+        status: 'pending', external_id: 'stmt-' + tl.key });   // pending: something is missing (the other end); confirmed when its statement completes it
       if (madeTL) report.created.transfers++;
       remember(tl, 'recorded', madeTL ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_pending') {
+      // "Send to Needs review": a PENDING expense (money you paid out) or income (money that came in) with no category. In Needs review it
+      // has Confirm / Discard and, for a payment with a person, Split, Mark as repayment and Convert to loan.
+      var pd = line(a); useLine(pd);
+      if (!(Math.abs(pd.l.amount) > 0)) throw new Error(tr_('sa.notPending'));
+      var pdOut = pd.l.amount < 0;
+      var madePd = newEntry({ type: pdOut ? 'expense' : 'income', date: pd.l.date, amount: Math.abs(pd.l.amount), currency: pd.l.currency, category_id: '',
+        description: stmtCleanDescription_(pd.l.description), payment_method_id: requirePm(pd).id, status: 'pending', external_id: 'stmt-' + pd.key,
+        merchant: pdOut ? stmtMerchantKey_(pd.l.description) : '' });
+      if (madePd) report.created.pending = (report.created.pending || 0) + 1;
+      remember(pd, 'added', madePd ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_investment') {
+      // Money put into an investment platform (From = this account, amount positive) or taken out of one (a "withdrawal": the
+      // same kind of entry with a NEGATIVE amount — see Investments.gs). Investments carry no category in the app; they are
+      // quietly filed under "Investments". The platform is optional.
+      var iv = line(a); useLine(iv);
+      if (!(Math.abs(iv.l.amount) > 0)) throw new Error(tr_('sa.notInvestment'));
+      var platformId = '';
+      if (a.platformId) {
+        var plat = pmsById[a.platformId];
+        if (!plat || plat.type !== 'investment') throw new Error(tr_('sa.unknownPlatform'));
+        platformId = plat.id;
+      }
+      var invCat = catByName['investment:Investments'] || (dryRun ? 'investments-to-be-created' : defaultInvestmentCategoryId_());
+      catByName['investment:Investments'] = invCat;
+      var madeIv = newEntry({ type: 'investment', date: iv.l.date, amount: iv.l.amount < 0 ? Math.abs(iv.l.amount) : -iv.l.amount, currency: iv.l.currency,
+        category_id: invCat, description: stmtCleanDescription_(iv.l.description), payment_method_id: requirePm(iv).id, to_payment_method_id: platformId,
+        status: platformId ? 'confirmed' : 'pending', external_id: 'stmt-' + iv.key });   // no platform yet: pending, the review row asks for one
+      if (madeIv) report.created.investments = (report.created.investments || 0) + 1;
+      remember(iv, 'added', madeIv ? creations[creations.length - 1].id : '');
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
@@ -331,16 +365,33 @@ function applyStatementDecisions(payload) {
       var hx = line(a); useLine(hx);
       var isRev = a.type === 'add_history_reversal';
       if (isRev ? hx.l.amount <= 0 : hx.l.amount >= 0) throw new Error(tr_(isRev ? 'sa.reversalIn' : 'sa.purchaseOut'));
-      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: '', payment_method_id: requirePm(hx).id,
+      // A refund that cancels a charge already in the app takes that charge's category, so the month nets to zero in its category.
+      var revFor = isRev && a.entryId ? values[rowById[String(a.entryId)]] : null;
+      if (isRev && a.entryId && revFor === undefined) throw new Error(tr_('sa.chargeNotFound'));
+      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : '', payment_method_id: requirePm(hx).id,
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
       if (madeH) { if (isRev) report.created.reversals++; else report.created.purchases++; }
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_refund') {
+      // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
+      var rfd = line(a); useLine(rfd);
+      if (rfd.l.amount <= 0) throw new Error(tr_('sa.reversalIn'));
+      var rfCat = catByName['income:Refunds'] || (dryRun ? 'refunds-to-be-created' : ensureRefundsCategory_().id);
+      catByName['income:Refunds'] = rfCat;
+      var madeRf = newEntry({ type: 'income', date: rfd.l.date, amount: rfd.l.amount, currency: rfd.l.currency, category_id: rfCat,
+        description: tr_('desc.reversal', { text: stmtCleanDescription_(String(rfd.l.description).replace(/^\s*REV\.?\s*/i, '')) }),
+        payment_method_id: requirePm(rfd).id, status: 'confirmed', external_id: 'stmt-' + rfd.key,
+        merchant: stmtMerchantKey_(String(rfd.l.description).replace(/^\s*REV\.?\s*/i, '')) });
+      if (madeRf) report.created.income++;
+      remember(rfd, 'added', madeRf ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_income') {
       var hi = line(a); useLine(hi);
       if (hi.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: '',
+      // Interest earned has a known home (the line-by-line comparison files it there too); every other income stays uncategorized.
+      var interestCat = /INTER[EÉ]S/i.test(hi.l.description) ? (catByName['income:Savings return'] || '') : '';
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: interestCat,
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) report.created.income++;
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
@@ -392,6 +443,8 @@ function applyStatementDecisions(payload) {
       var field = a.side === 'to' ? 'to_payment_method_id' : 'payment_method_id';
       if (values[j][col[field]]) throw new Error(tr_('sa.endFilled'));
       setCell(a.entryId, field, requirePm(c).id);
+      // Both ends are known now, and the line is on the second statement: nothing is missing any more, so it is confirmed.
+      if (String(values[j][col.status]) === 'pending') setCell(a.entryId, 'status', 'confirmed');
       remember(c, 'completed', a.entryId);
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
@@ -434,6 +487,7 @@ function applyStatementDecisions(payload) {
   report.linesRemembered = outcomes.length;
   report.batchEntries = creations.slice(0, 20).map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
   report.batchEntriesTotal = creations.length;
+  report.pendingCount = creations.filter(function (e) { return e.status === 'pending'; }).length;   // how many wait in Needs review
   report.rateNeeds = stmtRateNeeds_(creations);
 
   if (dryRun) return report;
@@ -655,6 +709,35 @@ function resolveStatementGap(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'resolved_at', resolved ? nowTimestamp_().substring(0, 10) : '');
   if (payload.note !== undefined) setCellByRow_(sheet, headers, rowIndex, 'note', String(payload.note || '').trim().slice(0, 300));
   return { done: true };
+}
+
+/**
+ * What one upload did besides the entries it created (those come from listEntries with `importBatchId`): the statements it read,
+ * how its lines were decided, the lines it set aside and remembered (waiting for their other statement), and how many existing
+ * entries it changed. Read-only. payload: { batchId }.
+ */
+function getStatementBatchDetails(payload) {
+  var batchId = payload && payload.batchId;
+  if (!batchId) throw new Error('batchId required');
+  ensureStatementLinesSheet_();
+  ensureStatementChangesSheet_();
+  ensureStatementUploadsSheet_();
+  var pms = getAllRows('Payment Methods');
+  var statements = getAllRows('Statement Uploads').filter(function (u) { return u.batch_id === batchId; }).map(function (u) {
+    return { label: u.account_label || u.account_key, period_start: String(u.period_start), period_end: String(u.period_end), file_name: u.file_name || '', lines_total: Number(u.lines_total) || 0, processed_at: String(u.processed_at) };
+  });
+  var outcomes = {}, waiting = [];
+  getAllRows('Statement Lines').forEach(function (r) {
+    if (r.batch_id !== batchId) return;
+    outcomes[r.outcome] = (outcomes[r.outcome] || 0) + 1;
+    if (r.outcome === 'waiting') {
+      var pm = stmtPmForKey_(pms, r.account_key);
+      waiting.push({ date: String(r.date), description: r.description, amount: Number(r.amount), currency: r.currency, account: pm ? pm.nickname : r.account_key });
+    }
+  });
+  waiting.sort(function (x, y) { return x.date < y.date ? -1 : 1; });
+  var changed = getAllRows('Statement Changes').filter(function (c) { return c.batch_id === batchId && c.sheet === 'Entries'; }).length;
+  return { statements: statements, outcomes: outcomes, waiting: waiting, changedEntries: changed };
 }
 
 /** The most recent uploads that can still be undone. */

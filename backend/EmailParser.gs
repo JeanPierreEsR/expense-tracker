@@ -22,13 +22,11 @@
  *   via Yape/Plin in Peru), a gift, or a friend. Never guessed.
  */
 
-// Exact full-name match only (not just the surname) — the owner
-// transfers to family members who share the surname "Espinoza".
-var OWNER_FULL_NAME = 'jean pierre espinoza rest';
-
+// The person's own name is learned, not typed (OwnerNames.gs): the recipient is "me" only when ALL the words of one of their
+// names are in it — not just the surname, since people transfer to relatives who share it.
 function isOwnAccount_(name) {
   if (!name) return false;
-  return name.toLowerCase().indexOf(OWNER_FULL_NAME) !== -1;
+  return isOwnFullName_(name);
 }
 
 function extractAmount_(text) {
@@ -655,6 +653,7 @@ function loadProcessedEmailIds_() {
 function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   var subject = message.getSubject();
   var body = message.getPlainBody();
+  learnOwnNameFromMail_(message, sender);
   var tz = Session.getScriptTimeZone();
   var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
   // The email's own timestamp, not "now" — automation runs on a delay

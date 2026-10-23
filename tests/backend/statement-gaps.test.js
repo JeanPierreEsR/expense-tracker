@@ -4,9 +4,11 @@
 // entries, totals or balances.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp } = require("./helpers");
+const { freshApp, today } = require("./helpers");
 
-const D = "2026-08-31";
+// The statement ends today: the seeded entries are spread up to today, so a fixed date let a random entry land AFTER it
+// and change the balance (found 2026-10-23: an entry dated 2026-09-01 made the test fail).
+const D = today();
 
 function setup() {
   const { rt, data } = freshApp({ entries: 100 });
