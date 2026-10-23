@@ -18,10 +18,28 @@
  * Nothing in this file writes to the Sheet.
  */
 
-// Money that came in from a person by Yape or Plin ("Yape Ana Lo*", "PLIN-ANA"). Usually a friend paying their share, which
-// is never income (principle 2), so it is set aside rather than imported — the person can still opt a line in.
+// A payment through a wallet to or from a person ("Yape Ana Lo*", "PLIN-ANA", "ABON PLIN-ANA"). Wallets: Yape, Plin, Lukita, Tunki, Ligo.
+var STMT_WALLET_RE = /\b(YAPE|PLIN|LUKITA|TUNKI|LIGO)\b/i;
+function stmtWalletLine_(l) { return STMT_WALLET_RE.test(String(l.description || '')); }
+
+// Money that came in from a person is usually a friend paying their share, which is never income (principle 2): it is set aside
+// rather than imported, and the person decides in the "Payments with people" group.
 function stmtFromPerson_(l) {
-  return l.amount > 0 && /\b(YAPE|PLIN)\b/i.test(String(l.description || ''));
+  return l.amount > 0 && stmtWalletLine_(l);
+}
+
+/**
+ * Who a wallet line is with, read from its wording: "Yape Sofia Dua" → "Sofia Dua", "PLIN-ANDREA" → "Andrea", "ABON PLIN-RAFAEL G" →
+ * "Rafael G". Returns { key, name }; a line with no name in it ("Yape USD") gets key '' (shown as "other wallet payments").
+ * Rule-based: a bank that cuts a name short makes a different person.
+ */
+function stmtPersonName_(description) {
+  var t = String(description || '').replace(/\*/g, ' ');
+  t = t.replace(/\b(ABONO|ABON|TRANSF(ERENCIA)?)\b/ig, ' ').replace(STMT_WALLET_RE, ' ').replace(/\b(USD|PEN|SOLES|DOLARES)\b/ig, ' ');
+  t = t.replace(/[-.:_0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t.length < 2) return { key: '', name: '' };
+  var key = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return { key: key, name: stmtTitleCase_(t) };
 }
 
 /**
@@ -34,6 +52,7 @@ function stmtGroupAside_(aside) {
   var buckets = {};
   aside.forEach(function (a) {
     a.group = null;
+    if (a.reason === 'person') return;   // people are grouped by person, in their own group
     var words = String(a.description || '').toUpperCase().replace(/[0-9*._\-]+/g, ' ').replace(/\s+/g, ' ').trim();
     var k = [a.account, a.currency, a.amount > 0 ? 'in' : 'out', words].join('|');
     (buckets[k] = buckets[k] || []).push(a);
@@ -161,6 +180,11 @@ function stmtHistoryPlan_(analysis, platforms) {
       // Money into (or out of) an investment platform. Never for the card being paid.
       optInInvestment: cardPaid ? null : { type: 'add_history_investment', stmt: si, line: li, platformId: stmtPlatformGuess_(l.description, platforms) } };
     // A line held back because it looks like an entry already in the app: say which one, so the person can judge.
+    if (reason === 'person') {
+      var who = stmtPersonName_(l.description);
+      row.person = who.key; row.personName = who.name;
+      row.optInReview = { type: 'add_history_pending', stmt: si, line: li };   // a pending income in Needs review
+    }
     if (reason === 'possible' && l.possible && l.possible.entry) {
       var pe = l.possible.entry;
       row.maybe = { date: pe.date, description: pe.description, amount: pe.amount, currency: pe.currency, account: pe.account };
@@ -171,6 +195,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   var unknownAccounts = {};
   var first = null, last = null;
   var imported = [];   // lines the plan turns into an expense or an income, for the exchange picker
+  var peopleOut = [];  // payments YOU made through a wallet: spending by default, the person can send one to Needs review or leave it out
 
   sts.forEach(function (st, si) {
     if (!st.account) unknownAccounts[st.key] = true;
@@ -249,6 +274,13 @@ function stmtHistoryPlan_(analysis, platforms) {
       } else {
         actions.push({ type: 'add_history_expense', stmt: si, line: li });
         imported.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname, kind: 'imported' });
+        if (stmtWalletLine_(l)) {
+          var whoOut = stmtPersonName_(l.description);
+          peopleOut.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+            person: whoOut.key, personName: whoOut.name,
+            optInReview: { type: 'add_history_pending', stmt: si, line: li },    // a pending expense: Split / Mark as repayment / Convert to loan
+            optInLeave: { type: 'ignore', stmt: si, line: li } });                // not counted, and remembered so it is not offered again
+        }
         counts.expenses++;
         spent[l.currency] = Math.round(((spent[l.currency] || 0) + Math.abs(l.amount)) * 100) / 100;
       }
@@ -263,7 +295,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, peopleOut: peopleOut, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       from: first, to: last,

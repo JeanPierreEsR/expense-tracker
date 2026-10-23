@@ -22,6 +22,7 @@
  *   add_purchase     { stmt, line, category?, description? }   new expense (pending)
  *   cancel_charge    { stmt, line, entryId }   a reversal on a card: adds a pending NEGATIVE expense (same category) that cancels the charge
  *   add_income       { stmt, line, category?, description? }   new income (pending) — e.g. interest earned
+ *   add_history_pending { stmt, line }     "Send to Needs review": a PENDING expense (money out) or income (money in), no category
  *   add_history_investment { stmt, line, platformId? }   money into an investment platform (positive) or out of one (a withdrawal:
  *                    NEGATIVE amount), confirmed, filed under "Investments"; the platform is optional
  *   record_transfer_leg { stmt, line }      ONE side of a transfer whose other end is not in the app: money out has From = this
@@ -299,9 +300,20 @@ function applyStatementDecisions(payload) {
       var madeTL = newEntry({ type: 'transfer', date: tl.l.date, amount: Math.abs(tl.l.amount), currency: tl.l.currency, category_id: tCat,
         description: tr_('desc.transferLeg', { text: stmtCleanDescription_(tl.l.description) }),
         payment_method_id: tOut ? requirePm(tl).id : '', to_payment_method_id: tOut ? '' : requirePm(tl).id,
-        status: 'confirmed', external_id: 'stmt-' + tl.key });
+        status: 'pending', external_id: 'stmt-' + tl.key });   // pending: something is missing (the other end); confirmed when its statement completes it
       if (madeTL) report.created.transfers++;
       remember(tl, 'recorded', madeTL ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_pending') {
+      // "Send to Needs review": a PENDING expense (money you paid out) or income (money that came in) with no category. In Needs review it
+      // has Confirm / Discard and, for a payment with a person, Split, Mark as repayment and Convert to loan.
+      var pd = line(a); useLine(pd);
+      if (!(Math.abs(pd.l.amount) > 0)) throw new Error(tr_('sa.notPending'));
+      var pdOut = pd.l.amount < 0;
+      var madePd = newEntry({ type: pdOut ? 'expense' : 'income', date: pd.l.date, amount: Math.abs(pd.l.amount), currency: pd.l.currency, category_id: '',
+        description: stmtCleanDescription_(pd.l.description), payment_method_id: requirePm(pd).id, status: 'pending', external_id: 'stmt-' + pd.key,
+        merchant: pdOut ? stmtMerchantKey_(pd.l.description) : '' });
+      if (madePd) report.created.pending = (report.created.pending || 0) + 1;
+      remember(pd, 'added', madePd ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_investment') {
       // Money put into an investment platform (From = this account, amount positive) or taken out of one (a "withdrawal": the
       // same kind of entry with a NEGATIVE amount — see Investments.gs). Investments carry no category in the app; they are
@@ -318,7 +330,7 @@ function applyStatementDecisions(payload) {
       catByName['investment:Investments'] = invCat;
       var madeIv = newEntry({ type: 'investment', date: iv.l.date, amount: iv.l.amount < 0 ? Math.abs(iv.l.amount) : -iv.l.amount, currency: iv.l.currency,
         category_id: invCat, description: stmtCleanDescription_(iv.l.description), payment_method_id: requirePm(iv).id, to_payment_method_id: platformId,
-        status: 'confirmed', external_id: 'stmt-' + iv.key });
+        status: platformId ? 'confirmed' : 'pending', external_id: 'stmt-' + iv.key });   // no platform yet: pending, the review row asks for one
       if (madeIv) report.created.investments = (report.created.investments || 0) + 1;
       remember(iv, 'added', madeIv ? creations[creations.length - 1].id : '');
     } else if (a.type === 'record_fee') {
@@ -377,7 +389,9 @@ function applyStatementDecisions(payload) {
     } else if (a.type === 'add_history_income') {
       var hi = line(a); useLine(hi);
       if (hi.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: '',
+      // Interest earned has a known home (the line-by-line comparison files it there too); every other income stays uncategorized.
+      var interestCat = /INTER[EÉ]S/i.test(hi.l.description) ? (catByName['income:Savings return'] || '') : '';
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: interestCat,
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) report.created.income++;
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
@@ -429,6 +443,8 @@ function applyStatementDecisions(payload) {
       var field = a.side === 'to' ? 'to_payment_method_id' : 'payment_method_id';
       if (values[j][col[field]]) throw new Error(tr_('sa.endFilled'));
       setCell(a.entryId, field, requirePm(c).id);
+      // Both ends are known now, and the line is on the second statement: nothing is missing any more, so it is confirmed.
+      if (String(values[j][col.status]) === 'pending') setCell(a.entryId, 'status', 'confirmed');
       remember(c, 'completed', a.entryId);
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
@@ -471,6 +487,7 @@ function applyStatementDecisions(payload) {
   report.linesRemembered = outcomes.length;
   report.batchEntries = creations.slice(0, 20).map(function (e) { return { type: e.type, date: e.date, amount: e.amount, currency: e.currency, description: e.description, status: e.status }; });
   report.batchEntriesTotal = creations.length;
+  report.pendingCount = creations.filter(function (e) { return e.status === 'pending'; }).length;   // how many wait in Needs review
   report.rateNeeds = stmtRateNeeds_(creations);
 
   if (dryRun) return report;

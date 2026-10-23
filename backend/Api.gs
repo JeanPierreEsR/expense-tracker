@@ -716,7 +716,9 @@ function compareEntriesRecency_(a, b) {
 }
 
 function listEntries(payload) {
-  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  // An upload's own list ("See what it added") also shows what it sent to Needs review (pending); every other list is confirmed only.
+  var withPending = !!(payload && payload.importBatchId);
+  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed' || (withPending && e.status === 'pending'); });
   if (payload && payload.startDate) {
     entries = entries.filter(function (e) { return e.date >= payload.startDate; });
   }

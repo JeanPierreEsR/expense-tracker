@@ -54,7 +54,7 @@ test("a set-aside outflow can be counted as ONE SIDE of a transfer, and the othe
   assert.equal(res.created.transfers, 1);
   const e = made(rt)[0];
   assert.equal(e.type, "transfer");
-  assert.equal(e.status, "confirmed");
+  assert.equal(e.status, "pending", "something is missing (the other end), so it waits in Needs review");
   assert.equal(e.payment_method_id, a.id, "From = this account");
   assert.equal(e.to_payment_method_id, "", "To is left empty");
   assert.equal(Number(e.amount), 800);
@@ -63,6 +63,11 @@ test("a set-aside outflow can be counted as ONE SIDE of a transfer, and the othe
   const p2 = plan(rt, [inn]);
   assert.ok(p2.actions.some((x) => x.type === "complete_transfer" && x.entryId === e.id && x.side === "to"), "completes the transfer");
   assert.equal(p2.summary.counts.income, 0);
+  // Saving it completes the transfer AND confirms it: both ends are known and it is on two statements.
+  save(rt, [inn], p2.actions, false);
+  const done = run(rt, `getAllRows('Entries').filter(function (x) { return x.id === ${JSON.stringify(e.id)}; })[0]`);
+  assert.equal(done.to_payment_method_id, b.id);
+  assert.equal(done.status, "confirmed", "confirmed automatically once the other statement completes it");
 });
 
 test("money arriving on a card that looks like a payment cannot be income but can be a transfer into the card", () => {
@@ -221,6 +226,93 @@ test("an upload that only remembered lines lists no entries", () => {
   const res = save(rt, s, plan(rt, s).actions, false);
   assert.equal(run(rt, `listEntries({ importBatchId: ${JSON.stringify(res.batchId)} })`).length, 0);
   assert.equal(run(rt, `getStatementBatchDetails({ batchId: ${JSON.stringify(res.batchId)} })`).waiting.length, 1);
+});
+
+// ---- Round 4: the "Payments with people" group, "Send to Needs review", pending when something is missing ----
+
+test("wallet payments are grouped by person: what you paid and what they paid you", () => {
+  const { rt, a, stmt } = accounts();
+  const s = stmt(a, [
+    { date: "2019-03-02", description: "Yape Sofia Dua", amount: -50, currency: "PEN" },
+    { date: "2019-03-09", description: "Yape Sofia Dua", amount: 50, currency: "PEN" },
+    { date: "2019-03-03", description: "PLIN-ANDREA", amount: -20, currency: "PEN" },
+    { date: "2019-03-04", description: "ABON PLIN-RAFAEL G", amount: 78, currency: "PEN" },
+    { date: "2019-03-05", description: "Yape USD", amount: 205, currency: "PEN" },
+    { date: "2019-03-06", description: "LUKITA JUAN PEREZ", amount: -15, currency: "PEN" },
+    { date: "2019-03-07", description: "COMPRA BODEGA", amount: -9, currency: "PEN" }
+  ]);
+  const p = plan(rt, [s]);
+  const out = p.summary.peopleOut;
+  assert.deepEqual(out.map((o) => o.personName).sort(), ["Andrea", "Juan Perez", "Sofia Dua"], "names read from the wording");
+  assert.equal(p.summary.counts.expenses, 4, "payments you made are spending by default (the bodega too)");
+  const incoming = p.summary.aside.filter((x) => x.reason === "person");
+  assert.deepEqual(incoming.map((x) => x.personName).sort(), ["", "Rafael G", "Sofia Dua"], "'Yape USD' names nobody");
+  assert.ok(incoming.every((x) => x.optInReview && x.optInReview.type === "add_history_pending"));
+  assert.ok(out.every((o) => o.optInReview.type === "add_history_pending" && o.optInLeave.type === "ignore"));
+  assert.equal(p.summary.aside.filter((x) => x.reason === "person" && x.group).length, 0, "people are grouped by person, not by similar amounts");
+});
+
+test("Send to Needs review: a pending expense or income, not in the totals, listed with the upload", () => {
+  const { rt, a, stmt } = accounts();
+  const s = stmt(a, [
+    { date: "2019-03-02", description: "Yape Sofia Dua", amount: -50, currency: "PEN" },
+    { date: "2019-03-09", description: "Yape Sofia Dua", amount: 50, currency: "PEN" }
+  ]);
+  const actions = [{ type: "add_history_pending", stmt: 0, line: 0 }, { type: "add_history_pending", stmt: 0, line: 1 }];
+  const res = save(rt, [s], actions, false);
+  assert.equal(res.pendingCount, 2);
+  const rows = made(rt);
+  const exp = rows.find((e) => e.type === "expense"), inc = rows.find((e) => e.type === "income");
+  assert.equal(exp.status, "pending"); assert.equal(Number(exp.amount), 50); assert.equal(exp.category_id, "");
+  assert.equal(inc.status, "pending"); assert.equal(Number(inc.amount), 50);
+  const sum = run(rt, "getPeriodSummary({ startDate: '2019-03-01', endDate: '2019-03-31' })");
+  assert.equal(sum.totals.expense, 0, "pending is not counted until confirmed");
+  assert.equal(sum.totals.income, 0);
+  const listed = run(rt, `listEntries({ importBatchId: ${JSON.stringify(res.batchId)} })`);
+  assert.equal(listed.length, 2, "the upload's own list includes what waits in Needs review");
+  assert.ok(run(rt, "listEntries({ startDate: '2019-03-01', endDate: '2019-03-31' })").every((e) => e.status === "confirmed"), "other lists stay confirmed-only");
+  run(rt, `undoStatementBatch(${JSON.stringify({ batchId: res.batchId })})`);
+  assert.equal(made(rt).length, 0, "Undo removes pending entries too");
+});
+
+test("leaving a payment out skips it and remembers that, so it is not offered again", () => {
+  const { rt, a, stmt } = accounts();
+  const s = stmt(a, [{ date: "2019-03-02", description: "Yape-Capital", amount: -50, currency: "PEN" }]);
+  const p = plan(rt, [s]);
+  const o = p.summary.peopleOut[0];
+  const actions = p.actions.filter((x) => !(x.type === "add_history_expense" && x.stmt === o.stmt && x.line === o.line)).concat([o.optInLeave]);
+  save(rt, [s], actions, false);
+  assert.equal(made(rt).length, 0);
+  const again = plan(rt, [s]);
+  assert.equal(again.summary.peopleOut.length, 0);
+  assert.equal(again.summary.leftOut.handled, 1);
+});
+
+test("interest earned is filed under Savings return; other income stays uncategorized", () => {
+  const { rt, a, stmt } = accounts();
+  const cat = run(rt, "(function () { var c = getAllRows('Categories').filter(function (x) { return x.type === 'income' && x.name === 'Savings return'; })[0]; return c || null; })()");
+  assert.ok(cat, "the account has a Savings return category");
+  const s = stmt(a, [
+    { date: "2019-03-31", description: "Pago de intereses", amount: 17.86, currency: "PEN" },
+    { date: "2019-03-02", description: "ABONO SUELDO", amount: 3000.13, currency: "PEN" }
+  ]);
+  save(rt, [s], plan(rt, [s]).actions, false);
+  const rows = made(rt);
+  assert.equal(rows.find((e) => Number(e.amount) === 17.86).category_id, cat.id);
+  assert.equal(rows.find((e) => Number(e.amount) === 3000.13).category_id, "");
+});
+
+test("an investment with no platform waits in Needs review; with a platform it is confirmed", () => {
+  const { rt, a, stmt } = accounts();
+  const hapi = run(rt, "savePaymentMethod({ nickname: 'Hapi', type: 'investment' })");
+  const s = stmt(a, [
+    { date: "2019-03-10", description: "ENVIO UNO", amount: -500, currency: "PEN" },
+    { date: "2019-03-11", description: "ENVIO DOS", amount: -300, currency: "PEN" }
+  ]);
+  save(rt, [s], [{ type: "add_history_investment", stmt: 0, line: 0 }, { type: "add_history_investment", stmt: 0, line: 1, platformId: hapi.id }], false);
+  const rows = made(rt);
+  assert.equal(rows.find((e) => Number(e.amount) === 500).status, "pending");
+  assert.equal(rows.find((e) => Number(e.amount) === 300).status, "confirmed");
 });
 
 test("lines already remembered as waiting are not offered to be remembered again", () => {

@@ -496,6 +496,8 @@
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
+      historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
+      historyPlan.openPeople = new Set();  // people whose lines are showing
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
       historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
@@ -526,16 +528,23 @@
   function historyActions() {
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
-    const taken = {};
+    const taken = {}, takenOut = {};
     p.chosen.forEach((mode, i) => { taken[lineKey(aside[i])] = true; });
+    const outs = p.summary.peopleOut || [];
+    p.outMode.forEach((mode, j) => { takenOut[lineKey(outs[j])] = true; });
     const kept = p.actions.filter((a) => {
       if (a.stmt === undefined) return true;                 // a transfer pair carries out/in instead of stmt/line
       const k = lineKey(a);
-      return !linked[k] && !(a.type === "wait" && taken[k]);
+      return !linked[k] && !(a.type === "wait" && taken[k]) && !(a.type === "add_history_expense" && takenOut[k]);
     });
     const optIns = [];
+    // A payment you made to a person is spending unless you sent it to Needs review or left it out.
+    p.outMode.forEach((mode, j) => {
+      const action = mode === "review" ? outs[j].optInReview : outs[j].optInLeave;
+      if (action && !linked[lineKey(action)]) optIns.push(action);
+    });
     p.chosen.forEach((mode, i) => {
-      let action = mode === "transfer" ? aside[i].optInTransfer : mode === "investment" ? aside[i].optInInvestment : aside[i].optIn;
+      let action = mode === "transfer" ? aside[i].optInTransfer : mode === "investment" ? aside[i].optInInvestment : mode === "review" ? aside[i].optInReview : aside[i].optIn;
       if (action && mode === "investment") action = { ...action, platformId: platformOf(i) };
       if (action && !linked[lineKey(action)]) optIns.push(action);
     });
@@ -545,7 +554,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -556,12 +565,15 @@
       else if (a.type === "add_history_refund") c.refundIncome++;
       else if (a.type === "record_transfer") c.transfers++;
       else if (a.type === "record_transfer_leg") c.legs++;
-      else if (a.type === "add_history_investment") c.investments++;
+      else if (a.type === "add_history_investment") { c.investments++; if (!a.platformId) c.pendingInvestments++; }
+      else if (a.type === "add_history_pending") c.pending++;
+      else if (a.type === "ignore") c.left++;
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
-    c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + 2 * c.exchanges + c.fees;
+    c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
+    c.reviewTotal = c.legs + c.pending + c.pendingInvestments;   // entries that will wait in Needs review for the person to finish
     return c;
   }
 
@@ -648,9 +660,11 @@
 
   function asideHtml() {
     const p = historyPlan, aside = p.summary.aside || [], chosen = p.chosen;
-    if (!aside.length) return "";
+    const shown = aside.filter((a) => a.reason !== "person");   // people have their own group above
+    if (!shown.length) return "";
     const rendered = {};
     const rows = aside.map((a, i) => {
+      if (a.reason === "person") return "";
       const inflow = a.amount > 0;
       const cashLabel = tr(inflow ? "hist.aside.addIncome" : "hist.aside.addExpense");
       const invLabel = tr(inflow ? "hist.aside.addWithdrawal" : "hist.aside.addInvestment");
@@ -683,8 +697,69 @@
       const buttons = `<div class="stmt-choices" style="padding-left:0">${buttonsFor(a, i)}</div>${chosen.get(i) === "investment" ? platformSelect(`data-pidx="${i}"`, platformOf(i)) : ""}`;
       return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency }, `${escapeHtml(a.account)}${maybe}${buttons}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-aside" ${p.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: aside.length }))}</summary>
+    return `<details class="stmt-group" id="statement-history-aside" ${p.asideOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.aside.title", { n: shown.length }))}</summary>
       <p class="hint">${escapeHtml(tr("hist.aside.hint"))}</p>${rows}</details>`;
+  }
+
+  // ---- "Payments with people": wallet payments (Yape, Plin…) grouped by person ----
+  // What YOU paid is spending by default (it can be sent to Needs review or left out); what THEY paid you is not counted by default
+  // (it can be counted as income or sent to Needs review). Opening a person shows each line with its own buttons, and a person has
+  // bulk buttons for all of their lines in one direction.
+
+  function sumLabel(list) {
+    const by = {};
+    list.forEach((x) => { by[x.currency] = (by[x.currency] || 0) + Math.abs(Number(x.amount)); });
+    return Object.keys(by).sort().map((cur) => fmtMoney(cur, Math.round(by[cur] * 100) / 100)).join(" + ");
+  }
+
+  function peopleGroups() {
+    const p = historyPlan, aside = p.summary.aside || [], outs = p.summary.peopleOut || [];
+    const map = new Map();
+    const get = (key, name) => { if (!map.has(key)) map.set(key, { key, name, out: [], inn: [] }); return map.get(key); };
+    outs.forEach((o, j) => get(o.person, o.personName).out.push(j));
+    aside.forEach((a, i) => { if (a.reason === "person") get(a.person, a.personName).inn.push(i); });
+    const groups = Array.from(map.values());
+    groups.forEach((g) => {
+      g.total = g.out.reduce((t, j) => t + Math.abs(outs[j].amount), 0) + g.inn.reduce((t, i) => t + Math.abs(aside[i].amount), 0);
+    });
+    groups.sort((x, y) => (x.key === "" ? 1 : 0) - (y.key === "" ? 1 : 0) || y.total - x.total);   // "other wallet payments" last
+    return groups;
+  }
+
+  function peopleHtml() {
+    const p = historyPlan, aside = p.summary.aside || [], outs = p.summary.peopleOut || [];
+    const groups = peopleGroups();
+    if (!groups.length) return "";
+    const nLines = groups.reduce((t, g) => t + g.out.length + g.inn.length, 0);
+    const rows = groups.map((g) => {
+      const outLines = g.out.map((j) => outs[j]), inLines = g.inn.map((i) => aside[i]);
+      const parts = [];
+      if (g.out.length) parts.push(tr("hist.people.sumOut", { n: g.out.length, amount: sumLabel(outLines) }));
+      if (g.inn.length) parts.push(tr("hist.people.sumIn", { n: g.inn.length, amount: sumLabel(inLines) }));
+      const bulk = (dir, mode, label, idx, state) => modeButton(`data-pbulk="${escapeHtml(g.key)}" data-dir="${dir}" data-mode="${mode}"`, idx.length > 0 && idx.every(state), label);
+      const outBulk = g.out.length
+        ? bulk("out", "review", tr("hist.people.allOutReview", { n: g.out.length }), g.out, (j) => p.outMode.get(j) === "review")
+          + bulk("out", "leave", tr("hist.people.allOutLeave", { n: g.out.length }), g.out, (j) => p.outMode.get(j) === "leave") : "";
+      const inBulk = g.inn.length
+        ? bulk("in", "cash", tr("hist.people.allInIncome", { n: g.inn.length }), g.inn, (i) => p.chosen.get(i) === "cash")
+          + bulk("in", "review", tr("hist.people.allInReview", { n: g.inn.length }), g.inn, (i) => p.chosen.get(i) === "review") : "";
+      const outRows = g.out.map((j) => {
+        const o = outs[j], m = p.outMode.get(j);
+        return lineRow({ date: o.date, description: o.description, amount: o.amount, currency: o.currency },
+          `${escapeHtml(o.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-pout="${j}" data-mode="spending"`, !m, tr("hist.people.spending"))}${modeButton(`data-pout="${j}" data-mode="review"`, m === "review", tr("hist.people.review"))}${modeButton(`data-pout="${j}" data-mode="leave"`, m === "leave", tr("hist.people.leave"))}</div>`);
+      }).join("");
+      const inRows = g.inn.map((i) => {
+        const a = aside[i], m = p.chosen.get(i);
+        return lineRow({ date: a.date, description: a.description, amount: a.amount, currency: a.currency },
+          `${escapeHtml(a.account)}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-aside="${i}" data-mode="cash"`, m === "cash", tr("hist.aside.addIncome"))}${modeButton(`data-aside="${i}" data-mode="review"`, m === "review", tr("hist.people.review"))}</div>`);
+      }).join("");
+      const name = g.name || tr("hist.people.other");
+      return `<details class="stmt-group" data-ppkey="${escapeHtml(g.key)}" ${p.openPeople.has(g.key) ? "open" : ""}><summary>${escapeHtml(name)} <span class="stmt-count">${g.out.length + g.inn.length}</span></summary>
+        <p class="hint">${escapeHtml(parts.join(" · "))}</p>
+        <div class="stmt-choices" style="padding-left:0">${outBulk}${inBulk}</div>${outRows}${inRows}</details>`;
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-people" ${p.peopleOpen ? "open" : ""}><summary>${escapeHtml(tr("hist.people.title", { n: nLines }))}</summary>
+      <p class="hint">${escapeHtml(tr("hist.people.hint"))}</p>${rows}</details>`;
   }
 
   function renderHistoryPlan() {
@@ -701,15 +776,17 @@
     if (c.investments) lines.push(tr("hist.sum.investments", { n: c.investments }));
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
+    if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
+    if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     const notes = [];
-    if (left.fromPeople) notes.push(tr("hist.left.people", { n: left.fromPeople }));
+    if (c.reviewTotal) notes.push(tr("hist.sum.pendingTotal", { n: c.reviewTotal }));
     if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
     if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
-    if (!actions.length && !(summary.aside || []).length) {
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
+    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length) {
       out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
       return;
     }
@@ -758,9 +835,15 @@
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));
       lastBatchId = res.batchId;
-      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0);
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0);
+      // Say what did NOT happen too: entries waiting for the person in Needs review, and lines that were not added.
+      const used = new Set(historyActions().filter((a) => a.type !== "wait" && a.stmt !== undefined).map(lineKey));
+      const notAdded = (historyPlan.summary.aside || []).filter((a) => !used.has(lineKey(a))).length + historyCounts().left;
+      const waiting = res.pendingCount || 0;
+      const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
+        + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
-        ${rateNeedsHtml(res.rateNeeds)}
+        ${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button></div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
@@ -1242,6 +1325,7 @@
   let addedBatch = null;
 
   function addedGroupOf(e) {
+    if (e.status === "pending") return "pending";   // not counted yet: it waits for the person in Needs review
     const cat = typeof findCategory === "function" ? findCategory(e.category_id) : null;
     const key = cat ? String(cat.key || "") : "";   // the key, not the name: the name can be shown in Spanish
     if (e.type === "investment") return "investments";
@@ -1251,7 +1335,7 @@
     return key === "bank_fees" ? "fees" : "spending";
   }
 
-  const ADDED_ORDER = ["spending", "income", "refunds", "refundIncome", "transfers", "openTransfers", "investments", "fees"];
+  const ADDED_ORDER = ["pending", "spending", "income", "refunds", "refundIncome", "transfers", "openTransfers", "investments", "fees"];
 
   async function loadAdded() {
     const body = $("statement-added-body");
@@ -1278,10 +1362,17 @@
     ADDED_ORDER.filter((k) => groups[k]).forEach((k) => {
       const det = document.createElement("details");
       det.className = "stmt-group";
-      det.open = k === "spending" || ADDED_ORDER.filter((x) => groups[x]).length <= 2;
+      det.open = k === "pending" || k === "spending" || ADDED_ORDER.filter((x) => groups[x]).length <= 2;
       det.innerHTML = `<summary>${escapeHtml(tr("added.group." + k))} <span class="stmt-count">${groups[k].length}</span> · ${escapeHtml(money(groups[k]))}</summary><div class="added-list"></div>`;
       box.appendChild(det);
-      renderEntriesInto_(det.querySelector(".added-list"), groups[k]);   // the app's own entry rows: tap one to open it
+      if (k === "pending") {
+        // Not opened here: they are finished in Needs review (Confirm, or Mark as repayment / Convert to loan, or pick a platform).
+        det.querySelector(".added-list").innerHTML = `<p class="hint">${escapeHtml(tr("added.pendingHint"))}</p>`
+          + groups[k].map((e) => lineRow({ date: e.date, description: e.description, amount: e.type === "income" ? Number(e.amount) : -Math.abs(Number(e.amount)), currency: e.currency }, escapeHtml(tr("added.pendingType." + e.type)))).join("")
+          + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>`;
+      } else {
+        renderEntriesInto_(det.querySelector(".added-list"), groups[k]);   // the app's own entry rows: tap one to open it
+      }
     });
     const extra = [];
     if (details.waiting.length) {
@@ -1373,11 +1464,27 @@
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
+    const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
     if (one) {
       const i = Number(one.dataset.aside), mode = one.dataset.mode;
       if (historyPlan.chosen.get(i) === mode) historyPlan.chosen.delete(i); else historyPlan.chosen.set(i, mode);
+    } else if (pout) {
+      // A payment YOU made to a person: spending (the default, no entry in the map), or sent to Needs review, or left out.
+      const j = Number(pout.dataset.pout), mode = pout.dataset.mode;
+      if (mode === "spending" || historyPlan.outMode.get(j) === mode) historyPlan.outMode.delete(j); else historyPlan.outMode.set(j, mode);
+    } else if (pbulk) {
+      // All of one person's lines in one direction: all on, or (when all already were) all back to the default.
+      const key = pbulk.dataset.pbulk, dir = pbulk.dataset.dir, mode = pbulk.dataset.mode;
+      const g = peopleGroups().find((x) => x.key === key);
+      if (g && dir === "out") {
+        const allOn = g.out.every((j) => historyPlan.outMode.get(j) === mode);
+        g.out.forEach((j) => { if (allOn) historyPlan.outMode.delete(j); else historyPlan.outMode.set(j, mode); });
+      } else if (g) {
+        const allOn = g.inn.every((i) => historyPlan.chosen.get(i) === mode);
+        g.inn.forEach((i) => { if (allOn) historyPlan.chosen.delete(i); else historyPlan.chosen.set(i, mode); });
+      }
     } else if (grp) {
       // One tap for a run of similar lines: all on in that way, or (when all already were) all off.
       const mode = grp.dataset.mode;
@@ -1408,6 +1515,10 @@
   $("statement-history").addEventListener("toggle", (e) => {
     if (!historyPlan) return;
     if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
+    if (e.target.id === "statement-history-people") historyPlan.peopleOpen = e.target.open;
+    if (e.target.dataset && e.target.dataset.ppkey !== undefined) {
+      if (e.target.open) historyPlan.openPeople.add(e.target.dataset.ppkey); else historyPlan.openPeople.delete(e.target.dataset.ppkey);
+    }
     if (e.target.id === "statement-history-xch") historyPlan.xchOpen = e.target.open;
     if (e.target.dataset && e.target.dataset.gopen) {
       const g = Number(e.target.dataset.gopen);
@@ -1447,6 +1558,14 @@
   }, true);
   $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
   $("statement-added-close").addEventListener("click", closeAdded);
+  // "Go to Needs review": the card at the top of the Entries tab, where pending entries are finished.
+  document.addEventListener("click", (e) => {
+    if (!(e.target.closest && e.target.closest(".stmt-goreview-btn"))) return;
+    closeAdded();
+    const tab = document.querySelector('.nav-btn[data-screen="entries"]');
+    if (tab) tab.click();
+    setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 400);
+  });
   // The same button sits in Recent uploads and in the "saved" message after a save.
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".stmt-added-btn"); if (b) openAdded(b.dataset.batch); });
   $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });

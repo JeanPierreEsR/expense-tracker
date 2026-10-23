@@ -218,6 +218,7 @@ var BACKEND_STRINGS_ = {
   "sa.unknownExpenseCat": { en: "Unknown expense category", es: "Categoría de gasto desconocida" },
   "sa.incomeIn": { en: "Income must be money coming in", es: "Un ingreso debe ser dinero que entra" },
   "sa.unknownIncomeCat": { en: "Unknown income category", es: "Categoría de ingreso desconocida" },
+  "sa.notPending": { en: "A line sent to Needs review needs an amount", es: "Una línea enviada a Por revisar necesita un monto" },
   "sa.notInvestment": { en: "An investment line needs an amount", es: "Una línea de inversión necesita un monto" },
   "sa.unknownPlatform": { en: "That is not an investment platform", es: "Esa no es una plataforma de inversión" },
   "sa.notTransferLeg": { en: "A transfer line needs an amount", es: "Una línea de transferencia necesita un monto" },
