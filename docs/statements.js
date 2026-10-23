@@ -396,7 +396,8 @@
     else if (result.verified === false) verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.verdictWarn"))}</p>`;
     else verdict = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.verdictGood"))}</p>`;
 
-    const notes = coverageNotes(result).map(([cls, msg]) => `<p class="stmt-note ${cls}">${msg}</p>`).join("");
+    const warnNotes = (result.warnings || []).map((w) => `<p class="stmt-note warn">${escapeHtml(w)}</p>`).join("");
+    const notes = warnNotes + coverageNotes(result).map(([cls, msg]) => `<p class="stmt-note ${cls}">${msg}</p>`).join("");
     const period = result.period && result.period.end ? `${fmtDate(result.period.start, true)} – ${fmtDate(result.period.end, true)}` : "—";
     const balances = Object.entries(result.balances || {}).map(([cur, b]) => {
       const rows = [];

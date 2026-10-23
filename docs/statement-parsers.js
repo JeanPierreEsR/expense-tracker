@@ -114,6 +114,16 @@
 
   function dedupeSum(map, cur, v) { map[cur] = round2((map[cur] || 0) + v); }
 
+  // The SIP "(C) DEUDA TOTAL" row: SALDO INICIAL, CONSUMOS E INTERESES, PAGOS Y OTROS, DEUDA TOTAL.
+  function sipSummary(rows) {
+    var summary = null;
+    rows.forEach(function (r) {
+      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
+    });
+    return summary;
+  }
+
   function detectKind(rows) {
     var all = rows.map(function (r) { return r.text; }).join('\n');
     if (/DETALLE DE MOVIMIENTOS/.test(all) && /EMPEZASTE/i.test(all)) return 'savings';
@@ -124,7 +134,9 @@
     if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
     // Some SIP PDFs are a scan: the headings above are part of the picture and
     // only the movements carry real text.
-    if (/SALDO MES ANTERIOR/i.test(all) && /DETALLE DE MOVIMIENTO DEL MES/i.test(all) && /TIT\/ADIC/i.test(all)) return 'sip';
+    // Since the bank's name is not in the text, also require its closing
+    // "(C)" row: four amounts where opening + purchases − payments = total debt.
+    if (/SALDO MES ANTERIOR/i.test(all) && /DETALLE DE MOVIMIENTO DEL MES/i.test(all) && /TIT\/ADIC/i.test(all) && sipSummary(rows)) return 'sip';
     return null;
   }
 
@@ -511,6 +523,7 @@
     var all = rows.map(function (r) { return r.text; }).join('\n');
     var l4 = all.match(/\*{4,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    var named = /TARJETA DE CR[ÉE]DITO SIP/i.test(all);
     if (!l4 || !pm) return fail('sip', [msg('sp.noCardCycle')]);
     // The scanned layout prints a payment as "- 318.86" (space after the minus).
     rows.forEach(function (r) {
@@ -544,11 +557,7 @@
     });
 
     // The "(C) DEUDA TOTAL" line: SALDO INICIAL, + CONSUMOS E INTERESES, − PAGOS Y OTROS, = DEUDA TOTAL.
-    var summary = null;
-    rows.forEach(function (r) {
-      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
-      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
-    });
+    var summary = sipSummary(rows);
     if (prev === null) errors.push(msg('sp.prevMissing'));
     if (!summary) errors.push(msg('sp.summaryMissing'));
     else {
@@ -558,6 +567,7 @@
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
+      warnings: named ? [] : [msg('sp.sipByLayout')],
       account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
       period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
       balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
