@@ -4008,7 +4008,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -7280,6 +7280,47 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 });
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
+
+// ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
+
+async function showNotautoScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-notauto"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  const list = document.getElementById("notauto-list");
+  list.textContent = "…";
+  try {
+    renderNotauto_(await callApi("getManualGaps", {}));
+  } catch (err) {
+    list.textContent = err.message || String(err);
+  }
+}
+
+function renderNotauto_(data) {
+  const kinds = data.kinds || [];
+  document.getElementById("notauto-empty").hidden = kinds.length > 0;
+  const share = document.getElementById("notauto-share");
+  share.hidden = !(data.owner && data.manualShare && data.manualShare.total);
+  if (!share.hidden) {
+    share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
+  }
+  document.getElementById("notauto-list").innerHTML = kinds.map((k) => {
+    const totals = data.owner && k.totals
+      ? Object.keys(k.totals).map((cur) => `${escapeHtml(cur)} ${moneyFmt(k.totals[cur])}`).join(" · ")
+      : "";
+    const meta = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
+      + (totals ? " · " + totals : "");
+    return `<div class="more-list-item" style="display:block;">
+      <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+    </div>`;
+  }).join("");
+}
+
+document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
+document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Performance log screen (More tab) ----
 

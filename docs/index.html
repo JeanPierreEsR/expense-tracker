@@ -490,6 +490,10 @@
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-notauto-btn">
+            <span data-i18n="more.notauto">✋ Not captured automatically</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-privacy-btn" hidden>
             <span data-i18n="more.privacy">🔒 Privacy</span>
             <span class="more-list-chevron">›</span>
@@ -663,6 +667,19 @@
           <button type="button" class="add-inline" id="perf-copy-btn" data-i18n="perf.copy">Copy report</button>
           <button type="button" class="add-inline" id="perf-clear-btn" data-i18n="perf.clear">Clear</button>
         </div>
+      </div>
+    </div>
+
+    <div id="screen-notauto" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="notauto-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="notauto.title">Not captured automatically</h2>
+        <p class="hint" data-i18n="notauto.hint">Some money movements never reach the app by themselves — no bank email exists for them. This is what you added by hand, by receipt photo, or that only a statement revealed in the last 90 days.</p>
+        <div id="notauto-share" class="hint" hidden></div>
+        <div id="notauto-list"></div>
+        <p class="hint" id="notauto-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
       </div>
     </div>
 
