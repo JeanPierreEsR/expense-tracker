@@ -228,9 +228,10 @@
     if (!pdfjsPromise) {
       pdfjsPromise = new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = `vendor/pdfjs/pdf.min.js?v=${APP_VERSION}`;
+        const site = (p) => (window.etSiteUrl ? window.etSiteUrl(p) : p);   // vendor/ lives on the main site, one folder up from stable/
+        s.src = `${site("vendor/pdfjs/pdf.min.js")}?v=${APP_VERSION}`;
         s.onload = () => {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = `vendor/pdfjs/pdf.worker.min.js?v=${APP_VERSION}`;
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = `${site("vendor/pdfjs/pdf.worker.min.js")}?v=${APP_VERSION}`;
           resolve(window.pdfjsLib);
         };
         s.onerror = () => { pdfjsPromise = null; reject(new Error(tr("stmt.pdfLoadFailed"))); };
