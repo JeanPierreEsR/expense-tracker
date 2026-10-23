@@ -67,6 +67,7 @@
   function showStatementsScreen() {
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
+    findFirstUse = null;   // decided again once the coverage list is in
     $("statement-find-card").hidden = !(typeof meta !== "undefined" && meta && meta.capabilities && meta.capabilities.bankEmails !== false);
     document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-statements"; });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -153,6 +154,28 @@
 
   let found = [];   // last findStatementEmails result's items
 
+  // Find statements is a catch-up tool: it is used once to bring in history (and again for a new bank or a gap), while new statements
+  // arrive in the Inbox by themselves. So it is OPEN at the top ("Start here") only while no statement was ever processed, and otherwise
+  // a one-line link at the bottom that opens it. Decided once per visit (when the coverage list first arrives), so the card never jumps
+  // while the person is working.
+  let findFirstUse = null;
+  function placeFindCard() {
+    if (findFirstUse !== null || !coverage || !coverage.accounts.length) return;
+    findFirstUse = coverage.accounts.every((a) => !a.last);
+    const card = $("statement-find-card");
+    if (findFirstUse) $("statement-coverage-list").closest(".card").after(card);
+    else $("screen-statements").appendChild(card);
+    $("statement-find-start").hidden = !findFirstUse;
+    $("statement-find-body").hidden = !findFirstUse;
+    $("statement-find-toggle").hidden = findFirstUse;
+    renderCoverage();   // the "look for older ones" links depend on this decision
+  }
+  function openFindCard() {
+    $("statement-find-body").hidden = false;
+    $("statement-find-toggle").hidden = true;
+    $("statement-find-card").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   async function findStatements() {
     const btn = $("statement-find-btn"), out = $("statement-find-results");
     btn.disabled = true;
@@ -221,6 +244,8 @@
   }
 
   $("statement-find-btn").addEventListener("click", findStatements);
+  $("statement-find-toggle").addEventListener("click", openFindCard);
+  $("statement-coverage-list").addEventListener("click", (e) => { if (e.target.closest(".stmt-older-link")) openFindCard(); });
   $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
   $("statement-find-results").addEventListener("click", (e) => { if (e.target.id === "statement-find-read") readPickedFound(); });
 
@@ -281,6 +306,7 @@
       return;
     }
     renderCoverage();
+    placeFindCard();
   }
 
   function renderCoverage() {
@@ -301,6 +327,7 @@
           <div class="stmt-row-title">${escapeHtml(a.label)}</div>
           <div class="stmt-row-sub">${escapeHtml(last)}</div>
           ${next ? `<div class="stmt-row-sub">${escapeHtml(next)}</div>` : ""}
+          ${a.status === "never" && findFirstUse === false && !$("statement-find-card").hidden ? `<button type="button" class="add-inline stmt-older-link">${escapeHtml(tr("find.olderLink"))}</button>` : ""}
           ${a.open_gaps ? `<div class="stmt-row-sub" style="color:#8a5300">${escapeHtml(tr("gaps.coverageOpen", { n: a.open_gaps }))}</div>` : ""}
         </div>
         <span class="stmt-chip ${a.status}">${a.inbox_waiting ? escapeHtml(tr("stmt.inInbox", { n: a.inbox_waiting })) : `${icon} ${escapeHtml(text)}`}</span>
