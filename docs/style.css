@@ -2150,6 +2150,7 @@ body.income-revealed .sens-mask { display: none; }
   padding: 12px;
   margin-top: 12px;
 }
+.stmt-result-remove { display: block; margin: 10px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.85rem; text-decoration: underline; }
 .stmt-result-name { font-weight: 600; font-size: 0.85rem; word-break: break-all; margin-bottom: 6px; }
 .stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.9rem; }
 .stmt-verdict.good { color: #1e6b32; }

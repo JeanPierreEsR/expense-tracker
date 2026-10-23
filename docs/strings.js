@@ -1457,6 +1457,7 @@
     "stmt.period": { en: "Period", es: "Periodo" },
     "stmt.linesRead": { en: "Lines read", es: "Líneas leídas" },
     "stmt.showLines": { en: "Show the {n} lines", es: "Mostrar las {n} líneas" },
+    "stmt.removeFile": { en: "✕ Remove this file", es: "✕ Quitar este archivo" },
     "stmt.skippedNoPw": { en: "Skipped — no password entered.", es: "Omitido: no se ingresó contraseña." },
     "stmt.readFailed": { en: "✗ Couldn't read this file", es: "✗ No se pudo leer este archivo" },
     "stmt.comparing": { en: "Comparing with your entries…", es: "Comparando con tus movimientos…" },
@@ -1840,7 +1841,7 @@
     "sp.cmrNoPrev": { en: "\"Total Facturado Mes Anterior\" (previous balance) not found.", es: "No se encontró \"Total Facturado Mes Anterior\" (saldo anterior)." },
     "sp.cmrNoTotal": { en: "\"Pago total del mes\" not found.", es: "No se encontró \"Pago total del mes\"." },
     "sp.cmrTotal": { en: "Previous balance + the lines add up to {a}, but “Pago total del mes” says {b}.", es: "Saldo anterior + las líneas suman {a}, pero “Pago total del mes” dice {b}." },
-    "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture). It was recognized as a SIP card statement by its layout and totals — please check it is your SIP card.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen). Se reconoció como estado de tarjeta SIP por su formato y totales; por favor confirma que es tu tarjeta SIP." },
+    "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture), so it was recognized as a SIP card statement by its layout and totals. It shows the card ending in {last4}. If that is not your SIP card, tap “Remove this file” below.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen), así que se reconoció como estado de tarjeta SIP por su formato y totales. Muestra la tarjeta que termina en {last4}. Si no es tu tarjeta SIP, toca “Quitar este archivo” abajo." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };
 

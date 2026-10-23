@@ -594,7 +594,7 @@
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
-      warnings: named ? [] : [msg('sp.sipByLayout')],
+      warnings: named ? [] : [msg('sp.sipByLayout', { last4: l4[1] })],
       account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
       period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
       balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
@@ -808,6 +808,16 @@
     else if (kind === 'diners') name = first(new RegExp('^(' + NAME_WORDS + ') \\d{2}/\\d{2}/\\d{4}\\b'));
     else if (kind === 'visa') name = first(new RegExp('^(' + NAME_WORDS + ')$'));
     else if (kind === 'sip') name = first(new RegExp('^(' + NAME_WORDS + ') \\(A\\)'));
+    else if (kind === 'bcpcard') {
+      // the holder is the first cell of the row that carries the "Número de tarjeta" heading
+      var nameRe = new RegExp('^' + NAME_WORDS + '$');
+      var hr = rows.slice(0, 16).find(function (r) { return r.cells.some(function (c) { return /^N[úu]mero de tarjeta$/i.test(c.str); }); });
+      if (hr && hr.cells[0] && nameRe.test(hr.cells[0].str.trim())) name = hr.cells[0].str.trim();
+    } else if (kind === 'cmr') {
+      // the holder is the only text on a line above "Estado de Cuenta" (the first line is the file name)
+      var stop = texts.findIndex(function (t) { return /^Estado de Cuenta$/i.test(t); });
+      for (var i = 1; i < stop && !name; i++) if (new RegExp('^' + NAME_WORDS + '$').test(texts[i])) name = texts[i];
+    }
     return name;
   }
 
