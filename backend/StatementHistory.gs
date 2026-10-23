@@ -18,8 +18,8 @@
  * Nothing in this file writes to the Sheet.
  */
 
-// A payment with a person: through a wallet ("Yape Ana Lo*", "PLIN-ANA", "ABON PLIN-ANA") or a bank transfer with a person's name in it
-// ("TRANSF ANDRE"). Strong wallets (Yape, Plin, Lukita, Tunki, Ligo): the line is a payment with a person even when no name can be read.
+// A payment with a person: through a wallet ("Yape Ana Lopez", "PLIN-CARLA", "ABON PLIN-LUIS M") or a bank transfer with a person's name in it
+// ("TRANSF MARCO"). Strong wallets (Yape, Plin, Lukita, Tunki, Ligo): the line is a payment with a person even when no name can be read.
 // Other wallets and banks that carry names (SIP, Banco Falabella, Bim, Agora…) and plain bank transfers count only when what is left
 // after the wording looks like a PERSON'S name — not a company, a bank or a service.
 var STMT_WALLET_RE = /\b(YAPE|PLIN|LUKITA|TUNKI|LIGO)\b/i;
@@ -70,8 +70,8 @@ function stmtFromPerson_(l) {
 }
 
 /**
- * Who a wallet line is with, read from its wording: "Yape Sofia Dua" → "Sofia Dua", "PLIN-ANDREA" → "Andrea", "ABON PLIN-RAFAEL G" →
- * "Rafael G". Returns { key, name }; a line with no name in it ("Yape USD") gets key '' (shown as "other wallet payments").
+ * Who a wallet line is with, read from its wording: "Yape Ana Lopez" → "Ana Lopez", "PLIN-CARLA" → "Carla", "ABON PLIN-LUIS M" →
+ * "Luis M". Returns { key, name }; a line with no name in it ("Yape USD") gets key '' (shown as "other wallet payments").
  * Rule-based: a bank that cuts a name short makes a different person.
  */
 function stmtPersonName_(description) {

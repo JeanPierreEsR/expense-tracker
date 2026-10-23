@@ -233,20 +233,20 @@ test("an upload that only remembered lines lists no entries", () => {
 test("wallet payments are grouped by person: what you paid and what they paid you", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [
-    { date: "2019-03-02", description: "Yape Sofia Dua", amount: -50, currency: "PEN" },
-    { date: "2019-03-09", description: "Yape Sofia Dua", amount: 50, currency: "PEN" },
-    { date: "2019-03-03", description: "PLIN-ANDREA", amount: -20, currency: "PEN" },
-    { date: "2019-03-04", description: "ABON PLIN-RAFAEL G", amount: 78, currency: "PEN" },
+    { date: "2019-03-02", description: "Yape Ana Lopez", amount: -50, currency: "PEN" },
+    { date: "2019-03-09", description: "Yape Ana Lopez", amount: 50, currency: "PEN" },
+    { date: "2019-03-03", description: "PLIN-CARLA", amount: -20, currency: "PEN" },
+    { date: "2019-03-04", description: "ABON PLIN-LUIS M", amount: 78, currency: "PEN" },
     { date: "2019-03-05", description: "Yape USD", amount: 205, currency: "PEN" },
     { date: "2019-03-06", description: "LUKITA JUAN PEREZ", amount: -15, currency: "PEN" },
     { date: "2019-03-07", description: "COMPRA BODEGA", amount: -9, currency: "PEN" }
   ]);
   const p = plan(rt, [s]);
   const out = p.summary.peopleOut;
-  assert.deepEqual(out.map((o) => o.personName).sort(), ["Andrea", "Juan Perez", "Sofia Dua"], "names read from the wording");
+  assert.deepEqual(out.map((o) => o.personName).sort(), ["Ana Lopez", "Carla", "Juan Perez"], "names read from the wording");
   assert.equal(p.summary.counts.expenses, 4, "payments you made are spending by default (the bodega too)");
   const incoming = p.summary.aside.filter((x) => x.reason === "person");
-  assert.deepEqual(incoming.map((x) => x.personName).sort(), ["", "Rafael G", "Sofia Dua"], "'Yape USD' names nobody");
+  assert.deepEqual(incoming.map((x) => x.personName).sort(), ["", "Ana Lopez", "Luis M"], "'Yape USD' names nobody");
   assert.ok(incoming.every((x) => x.optInReview && x.optInReview.type === "add_history_pending"));
   assert.ok(out.every((o) => o.optInReview.type === "add_history_pending" && o.optInLeave.type === "ignore"));
   assert.equal(p.summary.aside.filter((x) => x.reason === "person" && x.group).length, 0, "people are grouped by person, not by similar amounts");
@@ -256,12 +256,12 @@ test("a bank transfer or another wallet with a PERSON'S name is a payment with a
   const { rt } = accounts();
   const who = (d) => run(rt, `stmtPersonLine_({ description: ${JSON.stringify(d)} })`);
   // people
-  assert.equal(who("TRANSF ANDRE").name, "Andre");
+  assert.equal(who("TRANSF MARCO").name, "Marco");
   assert.equal(who("TRANSFERENCIA A JUAN PEREZ").name, "Juan Perez");
   assert.equal(who("TRANSFERENCIA A MARIA DE LA CRUZ").name, "Maria De La Cruz");
-  assert.equal(who("SIP SOFIA DUA").name, "Sofia Dua", "another wallet with a name");
+  assert.equal(who("SIP ANA LOPEZ").name, "Ana Lopez", "another wallet with a name");
   assert.equal(who("FALABELLA JUAN PEREZ").name, "Juan Perez");
-  assert.equal(who("Yape Patricio De").name, "Patricio De");
+  assert.equal(who("Yape Marco Vega").name, "Marco Vega");
   assert.equal(who("Yape USD").key, "", "a strong wallet line is a payment with a person even with no name");
   // not people: banks, companies, own accounts, generic words, purchases
   ["TRANSF.BCO.INTERBA", "Transf. Inter. Recibida", "Transf. Inter. Enviada", "TRANSFER BPI", "TRAN.CTAS.TERC.BM", "TRANSF.BCO.SIP",
@@ -272,14 +272,14 @@ test("a bank transfer or another wallet with a PERSON'S name is a payment with a
 test("unpaired bank transfers with a name go to Payments with people, not to 'waiting'; every choice is offered", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [
-    { date: "2019-03-02", description: "TRANSF ANDRE", amount: 267, currency: "PEN" },
+    { date: "2019-03-02", description: "TRANSF MARCO", amount: 267, currency: "PEN" },
     { date: "2019-03-03", description: "TRANSF PEDRO RUIZ", amount: -80, currency: "PEN" },
     { date: "2019-03-04", description: "ABONO SUELDO", amount: 3000, currency: "PEN" },
     { date: "2019-03-05", description: "TRANSF.BCO.INTERBA", amount: -500, currency: "PEN" }
   ]);
   const p = plan(rt, [s]);
   const inc = p.summary.aside.find((x) => x.reason === "person");
-  assert.equal(inc.personName, "Andre");
+  assert.equal(inc.personName, "Marco");
   assert.equal(p.summary.peopleOut.length, 1);
   assert.equal(p.summary.peopleOut[0].personName, "Pedro Ruiz");
   assert.equal(p.summary.counts.expenses, 1, "what you paid a person is spending by default");
@@ -299,8 +299,8 @@ test("unpaired bank transfers with a name go to Payments with people, not to 'wa
 test("Send to Needs review: a pending expense or income, not in the totals, listed with the upload", () => {
   const { rt, a, stmt } = accounts();
   const s = stmt(a, [
-    { date: "2019-03-02", description: "Yape Sofia Dua", amount: -50, currency: "PEN" },
-    { date: "2019-03-09", description: "Yape Sofia Dua", amount: 50, currency: "PEN" }
+    { date: "2019-03-02", description: "Yape Ana Lopez", amount: -50, currency: "PEN" },
+    { date: "2019-03-09", description: "Yape Ana Lopez", amount: 50, currency: "PEN" }
   ]);
   const actions = [{ type: "add_history_pending", stmt: 0, line: 0 }, { type: "add_history_pending", stmt: 0, line: 1 }];
   const res = save(rt, [s], actions, false);
@@ -321,7 +321,7 @@ test("Send to Needs review: a pending expense or income, not in the totals, list
 
 test("leaving a payment out skips it and remembers that, so it is not offered again", () => {
   const { rt, a, stmt } = accounts();
-  const s = stmt(a, [{ date: "2019-03-02", description: "Yape-Capital", amount: -50, currency: "PEN" }]);
+  const s = stmt(a, [{ date: "2019-03-02", description: "Yape-Bodega Sol", amount: -50, currency: "PEN" }]);
   const p = plan(rt, [s]);
   const o = p.summary.peopleOut[0];
   const actions = p.actions.filter((x) => !(x.type === "add_history_expense" && x.stmt === o.stmt && x.line === o.line)).concat([o.optInLeave]);
