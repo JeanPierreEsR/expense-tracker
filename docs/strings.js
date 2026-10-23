@@ -1837,7 +1837,7 @@
     "sp.noPeriodCurrencyAccount": { en: "Could not read the period / currency / account.", es: "No se pudo leer el periodo, la moneda ni la cuenta." },
     "sp.noCardCycle": { en: "Could not read the card number / billing cycle.", es: "No se pudo leer el número de tarjeta ni el ciclo de facturación." },
     "sp.ahorramasNoBalance": { en: "AhorraMás statements have no opening or running balance, so the reading could not be checked against totals.", es: "Los estados de AhorraMás no traen saldo inicial ni saldos corridos, así que la lectura no se pudo comprobar contra totales." },
-    "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture). It was recognised as a SIP card statement by its layout and totals — please check it is your SIP card.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen). Se reconoció como estado de tarjeta SIP por su formato y totales; por favor confirma que es tu tarjeta SIP." },
+    "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture). It was recognized as a SIP card statement by its layout and totals — please check it is your SIP card.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen). Se reconoció como estado de tarjeta SIP por su formato y totales; por favor confirma que es tu tarjeta SIP." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };
 
