@@ -429,13 +429,9 @@
         // A re-read of the same file replaces its earlier reading.
         usable = usable.filter((u) => u.file !== file.name);
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
-        // The review's statement/line numbers refer to THIS list — any change makes an open review stale.
-        const hadReview = !!review;
-        review = null;
+        // The plan's statement/line numbers refer to THIS list — any change makes an open plan stale.
         historyPlan = null;
         $("statement-history").innerHTML = "";
-        // Only a comparison that was open needs telling that it is out of date; to someone who has not compared anything it is noise.
-        $("statement-review").innerHTML = hadReview ? `<p class="hint">${escapeHtml(tr("stmt.changedPressReview"))}</p>` : "";
         updateReviewButton();
       }
     } catch (err) {
@@ -452,10 +448,8 @@
   // ---- review (read-only) ----
 
   function updateReviewButton() {
-    const card = $("statement-review-card");
-    card.hidden = usable.length === 0;
-    $("statement-review-btn").textContent = tr("stmt.reviewButton", { n: usable.length });
-    $("statement-review-hint").textContent = tr("stmt.reviewHint");
+    $("statement-review-card").hidden = usable.length === 0;
+    $("statement-history-btn").textContent = tr("hist.button", { n: usable.length });
   }
 
   // What the server is sent for an analysis (never the file): each statement's account key, period, balances and lines.
@@ -491,6 +485,11 @@
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
       historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
       historyPlan.asideOpen = false;
+      // A line that looks like an entry already in the app goes to Needs review by default (the person decides there whether it is
+      // a duplicate); tapping the button again leaves it out instead.
+      (historyPlan.summary.aside || []).forEach((a, i) => { if (a.reason === "possible" && a.optInReview) historyPlan.chosen.set(i, "review"); });
+      historyPlan.bal = new Set();         // balance checks (index into historyPlan.checks) the person wants set from the statement
+      historyPlan.checks = balanceChecks(historyPlan.balance_checks || []);
       renderHistoryPlan();
     } catch (err) {
       historyPlan = null;
@@ -499,6 +498,27 @@
       btn.disabled = false;
     }
   }
+
+  // ---- balances: what each account's balance would become, from the statements read ----
+  // One statement per account and currency can set the balance: the NEWEST one (an older one would be replaced by it at once, and the
+  // gap it reports is measured from the balance on file, so two together would count the same difference twice). The older ones only
+  // show whether the app agreed with the bank on their date.
+  function balanceChecks(checks) {
+    const newest = {};
+    checks.forEach((c) => {
+      const k = accountKeyOf(usable[c.stmt].result) + "|" + c.currency;
+      if (!newest[k] || c.end > newest[k].end) newest[k] = c;
+    });
+    return checks.map((c) => ({ ...c, newest: newest[accountKeyOf(usable[c.stmt].result) + "|" + c.currency] === c }));
+  }
+
+  function balanceAction(c) {
+    return c.direction === "forward" && typeof c.unexplained === "number"
+      ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd }
+      : { type: "set_balance", stmt: c.stmt, currency: c.currency };
+  }
+
+  function settableChecks() { return historyPlan.checks.map((c, i) => ({ c, i })).filter(({ c }) => c.canSet && c.newest); }
 
   function moneyTotals(spent) {
     return Object.keys(spent).sort().map((cur) => fmtMoney(cur, spent[cur])).join(" + ");
@@ -538,12 +558,13 @@
       if (action && !linked[lineKey(action)]) optIns.push(action);
     });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
-    return kept.concat(optIns, exchanges);
+    const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(c));   // after the entries, as the apply expects
+    return kept.concat(optIns, exchanges, balances);
   }
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, spent: {} };
+    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -559,6 +580,7 @@
       else if (a.type === "ignore") c.left++;
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
+      else if (a.type === "set_balance") c.balances++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
     c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
@@ -768,6 +790,52 @@
       <p class="hint">${escapeHtml(tr("hist.income.hint"))}</p>${rows}</details>`;
   }
 
+  function acctOfCheck(c) {
+    const r = usable[c.stmt].result;
+    return c.accountName || accountKeyOf(r);
+  }
+
+  // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
+  function balanceRowHtml(c, i) {
+    const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
+    let verdict = "";
+    if (c.direction === "untracked") {
+      verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+    } else {
+      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
+      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
+      if (c.diff === 0) {
+        verdict = `<p class="stmt-note ok">${escapeHtml(tr("stmt.balMatches"))}</p>`;
+      } else if (c.direction === "forward") {
+        const parts = [];
+        if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
+        if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
+        verdict = c.unexplained === 0
+          ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
+          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
+      } else if (c.direction === "backward") {
+        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
+      } else {
+        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+      }
+      if (c.canSet && c.newest && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
+    }
+    let choice = "";
+    if (c.canSet && !c.newest) choice = `<p class="hint">${escapeHtml(tr("bal.olderHere"))}</p>`;
+    else if (c.canSet) choice = `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-bal="${i}"`, historyPlan.bal.has(i), tr(c.direction === "untracked" ? "stmt.choice.startTracking" : "stmt.choice.setBalance"))}</div>`;
+    return `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(acctOfCheck(c))} · ${escapeHtml(c.currency)}</div>${lines.join("")}${verdict}${choice}</div>`;
+  }
+
+  function balancesHtml() {
+    const p = historyPlan, checks = p.checks || [];
+    if (!checks.length) return "";
+    const can = settableChecks();
+    const allOn = can.length > 0 && can.every(({ i }) => p.bal.has(i));
+    const all = can.length > 1 ? `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-balall="1"`, allOn, tr("bal.setAll", { n: can.length }))}</div>` : "";
+    return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}</summary>
+      <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i)).join("")}</details>`;
+  }
+
   function renderHistoryPlan() {
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
@@ -785,21 +853,22 @@
     if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
+    if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
     const notes = [];
     if (c.reviewTotal) notes.push(tr("hist.sum.pendingTotal", { n: c.reviewTotal }));
     if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
     if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "");
-    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length) {
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "") + balancesHtml();
+    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
       return;
     }
     if (!c.entries) {
-      // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later.
-      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}
-        ${historyActions().length ? `<button type="button" class="stmt-choice" id="statement-history-save">${escapeHtml(tr("hist.remember"))}</button>` : ""}`;
+      // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
+      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
+        ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
@@ -854,8 +923,6 @@
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       $("statement-history").innerHTML = "";
-      review = null;
-      $("statement-review").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
@@ -868,23 +935,6 @@
     }
   }
 
-  async function runReview() {
-    const btn = $("statement-review-btn");
-    const out = $("statement-review");
-    btn.disabled = true;
-    $("statement-review-status").innerHTML = "";
-    out.innerHTML = loadingHtml(tr("stmt.comparing"));
-    try {
-      const analysis = await callApi("analyzeStatements", { statements: statementsForAnalysis() });
-      review = null;
-      renderReview(analysis);
-    } catch (err) {
-      out.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.compareFailed"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
   function lineRow(l, sub) {
     return `<div class="stmt-line2">
       <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
@@ -892,431 +942,10 @@
     </div>`;
   }
 
-  function entryText(e) {
-    // A transfer has two ends; anything else has the one account it was paid with.
-    const where = e.type === "transfer"
-      ? `${e.account ? escapeHtml(e.account) : "?"} → ${e.to_account ? escapeHtml(e.to_account) : "?"}`
-      : (e.account ? escapeHtml(e.account) : escapeHtml(tr("stmt.noAccount")));
-    return `${escapeHtml(fmtDate(e.date))} · ${escapeHtml(e.description || tr("review.noDescription"))} · ${escapeHtml(fmtMoney(e.currency, e.amount))}${e.category ? " · " + escapeHtml(e.category) : ""} · ${where}`;
-  }
-
-  // ---- interactive review (milestone 3) ----
-  //
-  // The review builds one "item" per decision the owner can make. Each item has
-  // choices (buttons); nothing is written until Save, which sends every chosen
-  // action as ONE batch that can be undone in one step.
-
-  let review = null;      // { analysis, items, sel, cat, matchEntry, open }
-  let lastBatchId = null; // the upload just saved (for Undo)
-
-  function group(title, items, hint, open, key) {
-    if (!items.length) return "";
-    const isOpen = review && review.open.has(key) ? review.open.get(key) : open;
-    return `<details class="stmt-group" data-gkey="${escapeHtml(key)}" ${isOpen ? "open" : ""}><summary>${escapeHtml(title)} <span class="stmt-count">${items.length}</span></summary>${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}${items.join("")}</details>`;
-  }
-
-  // The word the server stored for a line that was handled before, in the current language.
-  function outcomeLabel_(outcome) {
-    return ["added", "completed", "matched", "recorded", "reversed", "waiting", "ignored"].includes(outcome) ? tr("stmt.outcome." + outcome) : outcome;
-  }
-
-  function isPeoplePayment(l) { return /^(YAPE|PLIN)\b/i.test(String(l.description || "").trim()) || /^(YAPE|PLIN)[-.]/i.test(String(l.description || "")); }
-
-  function buildItems(analysis) {
-    const sts = analysis.statements;
-    const acct = (si) => (sts[si].account ? sts[si].account.nickname : tr("stmt.unknownAccount", { key: sts[si].key }));
-    const items = [];
-    sts.forEach((st, si) => {
-      st.lines.forEach((l, li) => {
-        const where = acct(si);
-        const id = `${si}:${li}`;
-        const base = { id, si, li, line: l, where };
-        if (l.status === "handled") { items.push({ ...base, kind: "handled" }); return; }
-        if (l.status === "completes") {
-          items.push({ ...base, kind: "completes", choices: [["complete", tr("stmt.choice.complete")]],
-            build: () => ({ type: "complete_transfer", stmt: si, line: li, entryId: l.completesTransfer.entry.id, side: l.completesTransfer.side }) });
-          return;
-        }
-        if (l.status === "matched") {
-          if (l.entryHadNoAccount) {
-            items.push({ ...base, kind: "assign", choices: [["assign", tr("stmt.choice.assign")]],
-              build: () => ({ type: "assign_account", stmt: si, line: li, entryId: l.entry.id }) });
-          } else {
-            items.push({ ...base, kind: "matched", auto: () => ({ type: "link", stmt: si, line: li, entryId: l.entry.id }) });
-          }
-          return;
-        }
-        if (l.pairedWith) {
-          const pw = l.pairedWith;
-          if (pw.stored) {
-            // The other half was left "waiting" in an earlier upload.
-            const thisIsOut = l.amount < 0;
-            items.push({ ...base, kind: "pair", outIsThis: thisIsOut, fromEarlier: true,
-              partner: { date: pw.date, description: pw.description, amount: pw.amount, currency: pw.currency }, partnerAcct: pw.account,
-              choices: [["record", tr("stmt.choice.recordTransfer")]],
-              build: () => (thisIsOut
-                ? { type: "record_transfer", out: { stmt: si, line: li }, in: { stored: pw.lineKey } }
-                : { type: "record_transfer", out: { stored: pw.lineKey }, in: { stmt: si, line: li } }) });
-          } else if (l.amount < 0) {
-            items.push({ ...base, kind: "pair", outIsThis: true, partner: sts[pw.statement].lines[pw.line], partnerAcct: acct(pw.statement),
-              choices: [["record", tr("stmt.choice.recordTransfer")]],
-              build: () => ({ type: "record_transfer", out: { stmt: si, line: li }, in: { stmt: pw.statement, line: pw.line } }) });
-          }
-          return;
-        }
-        if (l.guess === "fee") {
-          items.push({ ...base, kind: "fee", choices: [["record", tr("stmt.choice.recordFee")]], build: () => ({ type: "record_fee", stmt: si, line: li }) });
-          return;
-        }
-        if (l.possible) {
-          items.push({ ...base, kind: "possible", choices: [["match", tr("stmt.choice.yesSame")]],
-            build: () => ({ type: "match", stmt: si, line: li, entryId: l.possible.entry.id, overwriteAccount: true }) });
-          return;
-        }
-        if (l.waiting) {
-          // It may really be an ordinary purchase (or income) the app mistook for a transfer: let the owner add it as one.
-          const asIncome = l.amount > 0;
-          items.push({ ...base, kind: "waiting",
-            choices: [["wait", tr("stmt.choice.leaveWaiting")], ["add", tr(asIncome ? "stmt.choice.addIncome" : "stmt.choice.addExpense")], ["ignore", tr("stmt.choice.ignore")]],
-            build: (choice, r) => {
-              if (choice === "add") {
-                const category = r.cat.get(id) !== undefined ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "");
-                return { type: asIncome ? "add_income" : "add_purchase", stmt: si, line: li, category };
-              }
-              return { type: choice === "wait" ? "wait" : "ignore", stmt: si, line: li };
-            } });
-          return;
-        }
-        if (l.reversal) {
-          const rv = l.reversal;
-          const target = rv.candidates.find((c) => c.sameMonth) || rv.candidates[0] || null;
-          const choices = [];
-          if (rv.candidates.length) choices.push(["cancel", tr("stmt.choice.cancelCharge")]);
-          choices.push(["refund", tr("stmt.choice.refundIncome")], ["ignore", tr("stmt.choice.ignore")]);
-          items.push({ ...base, kind: "reversal", choices, suggested: target && target.sameMonth ? "cancel" : "refund",
-            build: (choice, r) => {
-              if (choice === "cancel") return { type: "cancel_charge", stmt: si, line: li, entryId: r.cancelEntry.get(id) || target.entry.id };
-              if (choice === "refund") return { type: "add_income", stmt: si, line: li, category: rv.refundCategoryId, description: tr("stmt.refundPrefix") + l.description.replace(/^\s*REV\.?\s*/i, "") };
-              return { type: "ignore", stmt: si, line: li };
-            } });
-          return;
-        }
-        if (l.guess === "income") {
-          items.push({ ...base, kind: "income", choices: [["add", tr("stmt.choice.addIncome")], ["match", tr("stmt.choice.match")], ["ignore", tr("stmt.choice.ignore")]],
-            build: (choice, r) => {
-              if (choice === "add") return { type: "add_income", stmt: si, line: li, category: r.cat.has(id) ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
-              if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
-              return { type: "ignore", stmt: si, line: li };
-            } });
-          return;
-        }
-        // a purchase not in the app
-        items.push({ ...base, kind: "purchase", choices: [["add", tr("stmt.choice.add")], ["match", tr("stmt.choice.match")], ["ignore", tr("stmt.choice.ignore")]],
-          build: (choice, r) => {
-            if (choice === "add") return { type: "add_purchase", stmt: si, line: li, category: r.cat.get(id) !== undefined ? r.cat.get(id) : ((l.suggestion && l.suggestion.categoryId) || "") };
-            if (choice === "match") return { type: "match", stmt: si, line: li, entryId: r.matchEntry.get(id) };
-            return { type: "ignore", stmt: si, line: li };
-          } });
-      });
-    });
-    (analysis.balance_checks || []).forEach((c) => {
-      items.push({ id: `bal:${c.stmt}:${c.currency}`, kind: "balance", check: c, where: acct(c.stmt),
-        choices: c.canSet ? [["set", c.direction === "untracked" ? tr("stmt.choice.startTracking") : tr("stmt.choice.setBalance")]] : null,
-        build: () => (c.direction === "forward" && typeof c.unexplained === "number" ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd } : { type: "set_balance", stmt: c.stmt, currency: c.currency }) });
-    });
-    return items;
-  }
-
   function signed(cur, n) {
     return `${cur} ${n >= 0 ? "+" : "−"}${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
-  function balanceHtml(it) {
-    const c = it.check, chosen = review.sel.get(it.id);
-    const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
-    let verdict = "";
-    if (c.direction === "untracked") {
-      verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
-    } else {
-      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
-      lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
-      if (c.diff === 0) {
-        verdict = `<p class="stmt-note ok">${escapeHtml(tr("stmt.balMatches"))}</p>`;
-      } else if (c.direction === "forward") {
-        const parts = [];
-        if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
-        if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
-        verdict = c.unexplained === 0
-          ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
-          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
-      } else if (c.direction === "backward") {
-        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
-      } else {
-        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
-      }
-      if (c.canSet) verdict += `<p class="hint">${escapeHtml(tr("stmt.balCanSet", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
-      if (c.canSet && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
-    }
-    const btn = it.choices ? `<div class="stmt-choices" style="padding-left:0">${it.choices.map(([k, label]) =>
-      `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}</div>` : "";
-    return `<div class="stmt-line2"><div class="stmt-pair-title">${escapeHtml(it.where)} · ${escapeHtml(c.currency)}</div>${lines.join("")}${verdict}${btn}</div>`;
-  }
-
-  function itemHtml(it) {
-    if (it.kind === "balance") return balanceHtml(it);
-    const l = it.line, where = escapeHtml(it.where);
-    const chosen = review.sel.get(it.id);
-    let sub = "";
-    if (it.kind === "completes") {
-      const fill = l.completesTransfer.side === "to" ? tr("stmt.fillTo") : tr("stmt.fillFrom");
-      sub = tr("stmt.itemCompletes", { where, fill, entry: entryText(l.completesTransfer.entry) });
-    } else if (it.kind === "assign") {
-      sub = `${where} → ${entryText(l.entry)}`;
-    } else if (it.kind === "fee") {
-      sub = where;
-    } else if (it.kind === "possible") {
-      const why = l.possible.shareOf ? tr("stmt.possibleShare", { n: l.possible.shareOf }) : tr("stmt.possibleOther");
-      sub = tr("stmt.itemPossible", { where, why, entry: entryText(l.possible.entry) });
-    } else if (it.kind === "waiting") {
-      sub = tr("stmt.itemWaiting", { where });
-      if (l.suggestion) sub += " — " + tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) });
-    } else if (it.kind === "reversal") {
-      const rv = l.reversal;
-      sub = tr("stmt.itemReversal", { where });
-      if (!rv.candidates.length) sub += tr("stmt.reversalNoCharge");
-      else if (chosen === "cancel") {
-        const cur = review.cancelEntry.get(it.id) || (rv.candidates.find((c) => c.sameMonth) || rv.candidates[0]).entry.id;
-        sub += tr("stmt.reversalCancels", { entry: entryText(rv.candidates.find((c) => c.entry.id === cur).entry) });
-      } else if (chosen === "refund") sub += tr("stmt.reversalRefund");
-      else sub += tr("stmt.reversalBest", { entry: entryText(rv.candidates[0].entry), earlier: rv.candidates[0].sameMonth ? "" : tr("stmt.earlierMonth") });
-    } else if (it.kind === "income") {
-      sub = `${where}${l.suggestion ? " — " + tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) }) : ""}`;
-      if (chosen === "match" && review.matchEntry.has(it.id)) sub += tr("stmt.matchedTo", { text: escapeHtml(review.matchEntryText.get(it.id) || "") });
-    } else if (it.kind === "purchase") {
-      sub = `${where} — ${l.suggestion ? tr("stmt.itemSuggestedShort", { cat: escapeHtml(l.suggestion.categoryName), reason: escapeHtml(l.suggestion.reason) }) : tr("stmt.itemNoSuggestion")}`;
-      if (chosen === "match" && review.matchEntry.has(it.id)) sub += tr("stmt.matchedTo", { text: escapeHtml(review.matchEntryText.get(it.id) || "") });
-    } else if (it.kind === "handled") {
-      const h = l.handled;
-      sub = tr("stmt.itemHandled", { where, outcome: escapeHtml(outcomeLabel_(h.outcome)), entry: h.entry ? ": " + entryText(h.entry) : "" });
-    } else if (it.kind === "matched") {
-      sub = `${where} → ${entryText(l.entry)}${l.viaTotal ? escapeHtml(tr("stmt.viaTotal")) : ""}`;
-    }
-    let head;
-    if (it.kind === "pair") {
-      const fromAcct = it.outIsThis ? it.where : it.partnerAcct, toAcct = it.outIsThis ? it.partnerAcct : it.where;
-      head = `<div class="stmt-pair-title">${escapeHtml(fromAcct)} → ${escapeHtml(toAcct)} · ${escapeHtml(fmtMoney(l.currency, Math.abs(l.amount)))}</div><div class="stmt-line-sub" style="padding-left:0">${escapeHtml(fmtDate(l.date))} “${escapeHtml(l.description)}” / ${escapeHtml(fmtDate(it.partner.date))} “${escapeHtml(it.partner.description)}”${it.fromEarlier ? escapeHtml(tr("stmt.otherHalf")) : ""}</div>`;
-    } else {
-      head = `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}`;
-    }
-    let controls = "";
-    if (it.choices) {
-      controls = `<div class="stmt-choices">${it.choices.map(([k, label]) =>
-        `<button type="button" class="stmt-choice ${chosen === k ? "on" : ""}" data-item="${escapeHtml(it.id)}" data-choice="${k}">${chosen === k ? "✓ " : ""}${escapeHtml(label)}</button>`).join("")}`;
-      if ((it.kind === "purchase" || it.kind === "income" || it.kind === "waiting") && chosen === "add") {
-        const cur = review.cat.has(it.id) ? review.cat.get(it.id) : ((l.suggestion && l.suggestion.categoryId) || "");
-        const cats = l.amount > 0 ? (review.analysis.income_categories || []) : review.analysis.categories;
-        controls += `<select class="stmt-cat" data-item="${escapeHtml(it.id)}"><option value="">${escapeHtml(tr("stmt.noCategory"))}</option>${cats.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
-      }
-      if (it.kind === "reversal" && chosen === "cancel" && l.reversal.candidates.length > 1) {
-        const cur = review.cancelEntry.get(it.id) || (l.reversal.candidates.find((c) => c.sameMonth) || l.reversal.candidates[0]).entry.id;
-        controls += `<select class="stmt-cancel" data-item="${escapeHtml(it.id)}">${l.reversal.candidates.map((c) => `<option value="${escapeHtml(c.entry.id)}" ${c.entry.id === cur ? "selected" : ""}>${escapeHtml(entryPlain(c.entry))} (${escapeHtml(statusLabel_(c.entry.status))})</option>`).join("")}</select>`;
-      }
-      controls += "</div>";
-    }
-    return `<div class="stmt-line2">${head}${controls}</div>`;
-  }
-
-  function selectedActions() {
-    const actions = [];
-    review.items.forEach((it) => {
-      const choice = review.sel.get(it.id);
-      if (choice && it.build) {
-        if (choice === "match" && (it.kind === "purchase" || it.kind === "income") && !review.matchEntry.get(it.id)) return; // no entry picked yet
-        actions.push(it.build(choice, review));
-      } else if (it.auto) actions.push(it.auto());
-    });
-    return actions;
-  }
-
-  function summarize(actions) {
-    const n = (t) => actions.filter((a) => a.type === t).length;
-    const parts = [];
-    if (n("record_transfer")) parts.push(tr("stmt.sum.transfer", { n: n("record_transfer") }));
-    if (n("record_fee")) parts.push(tr("stmt.sum.fee", { n: n("record_fee") }));
-    if (n("cancel_charge")) parts.push(tr("stmt.sum.cancel", { n: n("cancel_charge") }));
-    if (n("add_income")) parts.push(tr("stmt.sum.income", { n: n("add_income") }));
-    if (n("add_purchase")) parts.push(tr("stmt.sum.purchase", { n: n("add_purchase") }));
-    if (n("complete_transfer")) parts.push(tr("stmt.sum.complete", { n: n("complete_transfer") }));
-    if (n("assign_account")) parts.push(tr("stmt.sum.assign", { n: n("assign_account") }));
-    const matched = actions.filter((a) => a.type === "match").length;
-    if (matched) parts.push(tr("stmt.sum.match", { n: matched }));
-    if (n("set_balance")) parts.push(tr("stmt.sum.balance", { n: n("set_balance") }));
-    if (n("ignore")) parts.push(tr("stmt.sum.ignore", { n: n("ignore") }));
-    if (n("wait")) parts.push(tr("stmt.sum.wait", { n: n("wait") }));
-    return parts;
-  }
-
-  function renderReview(analysis) {
-    if (!review || review.analysis !== analysis) {
-      review = { analysis, items: buildItems(analysis), sel: new Map(), cat: new Map(), cancelEntry: new Map(), matchEntry: new Map(), matchEntryText: new Map(), open: new Map() };
-    }
-    const out = $("statement-review");
-    const by = (kind) => review.items.filter((i) => i.kind === kind);
-    const html = (kind) => by(kind).map(itemHtml);
-    const c = analysis.counts;
-    const actions = selectedActions();
-    const chosenCount = actions.filter((a) => a.type !== "link").length;
-    const summary = summarize(actions);
-    out.innerHTML = `
-      <p class="stmt-verdict good">${escapeHtml(tr("stmt.counts", { lines: c.lines, inApp: c.matched + c.completes, handled: c.handled, notYet: c.unregistered }))}</p>
-      <div class="stmt-quick">
-        <button type="button" class="stmt-choice" id="stmt-apply-suggested">${escapeHtml(tr("stmt.applySuggested"))}</button>
-        <button type="button" class="stmt-choice" id="stmt-ignore-income">${escapeHtml(tr("stmt.ignoreIncome"))}</button>
-        <button type="button" class="stmt-choice" id="stmt-ignore-people">${escapeHtml(tr("stmt.ignorePeople"))}</button>
-      </div>
-      <p class="hint">${escapeHtml(tr("stmt.quickHint"))}</p>
-      ${group(tr("stmt.group.balance"), html("balance"), tr("stmt.group.balanceHint"), true, "balance")}
-      ${group(tr("stmt.group.pair"), html("pair"), tr("stmt.group.pairHint"), true, "pair")}
-      ${group(tr("stmt.group.completes"), html("completes"), tr("stmt.group.completesHint"), true, "completes")}
-      ${group(tr("stmt.group.fee"), html("fee"), tr("stmt.group.feeHint"), true, "fee")}
-      ${group(tr("stmt.group.purchase"), html("purchase"), tr("stmt.group.purchaseHint"), true, "purchase")}
-      ${group(tr("stmt.group.possible"), html("possible"), "", true, "possible")}
-      ${group(tr("stmt.group.waiting"), html("waiting"), tr("stmt.group.waitingHint"), true, "waiting")}
-      ${group(tr("stmt.group.assign"), html("assign"), tr("stmt.group.assignHint"), false, "assign")}
-      ${group(tr("stmt.group.reversal"), html("reversal"), tr("stmt.group.reversalHint"), true, "reversal")}
-      ${group(tr("stmt.group.income"), html("income"), tr("stmt.group.incomeHint"), true, "income")}
-      ${group(tr("stmt.group.handled"), html("handled"), "", false, "handled")}
-      ${group(tr("stmt.group.matched"), html("matched"), "", false, "matched")}
-      <div class="stmt-savebar">
-        <div class="stmt-save-summary">${summary.length ? escapeHtml(summary.join(" · ")) : escapeHtml(tr("stmt.nothingSelected"))}</div>
-        <button type="button" class="primary" id="stmt-save-btn">${escapeHtml(chosenCount ? tr("stmt.saveN", { n: chosenCount }) : tr("stmt.markProcessed"))}</button>
-      </div>`;
-  }
-
-  function rerender() { if (review) renderReview(review.analysis); }
-
-  function toggleChoice(itemId, choice) {
-    const it = review.items.find((i) => i.id === itemId);
-    if (!it) return;
-    if (review.sel.get(itemId) === choice) { review.sel.delete(itemId); rerender(); return; }
-    if ((it.kind === "purchase" || it.kind === "income") && choice === "match") {
-      pickEntryFor(it).then((e) => {
-        if (!e) return;
-        review.matchEntry.set(itemId, e.id);
-        review.matchEntryText.set(itemId, entryPlain(e));
-        review.sel.set(itemId, "match");
-        rerender();
-      });
-      return;
-    }
-    review.sel.set(itemId, choice);
-    rerender();
-  }
-
-  function entryPlain(e) {
-    return `${fmtDate(e.date)} · ${e.description || tr("review.noDescription")} · ${fmtMoney(e.currency, e.amount)}`;
-  }
-
-  // "Match…" — pick which existing entry this statement line is.
-  function pickEntryFor(it) {
-    return new Promise(async (resolve) => {
-      const backdrop = $("statement-match-backdrop");
-      const list = $("statement-match-list");
-      $("statement-match-title").textContent = `${fmtDate(it.line.date)} · ${it.line.description} · ${fmtMoney(it.line.currency, it.line.amount)}`;
-      list.innerHTML = loadingHtml(tr("stmt.lookingForEntries"));
-      bringModalToFront_(backdrop);
-      backdrop.hidden = false;
-      const close = (val) => { backdrop.hidden = true; list.onclick = null; $("statement-match-cancel").onclick = null; resolve(val); };
-      $("statement-match-cancel").onclick = () => close(null);
-      let entries = [];
-      try {
-        entries = await callApi("getEntriesNear", {
-          date: it.line.date, amount: it.line.amount, currency: it.line.currency,
-          description: it.line.description, kind: it.kind
-        });
-      }
-      catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
-      if (!entries.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.noEntriesMonth"))}</p>`; return; }
-      // Backend order: the 10 most similar first (is_top), then everything else by date.
-      const heading = (t) => `<p class="hint" style="margin:8px 0 4px;font-weight:600;">${t}</p>`;
-      const topCount = entries.filter((e) => e.is_top).length;
-      list.innerHTML = (topCount ? heading(escapeHtml(tr("paid.mostSimilar"))) : "") + entries.map((e, i) =>
-        (topCount && i === topCount && entries.length > topCount ? heading(escapeHtml(tr("paid.allMonth"))) : "") +
-        `<button type="button" class="stmt-match-row" data-i="${i}">${entryText(e)}</button>`).join("");
-      list.onclick = (ev) => { const b = ev.target.closest(".stmt-match-row"); if (b) close(entries[Number(b.dataset.i)]); };
-    });
-  }
-
-  function applySuggested() {
-    review.items.forEach((it) => {
-      if (["pair", "completes", "fee", "assign"].includes(it.kind)) review.sel.set(it.id, it.choices[0][0]);
-      else if (it.kind === "reversal") review.sel.set(it.id, it.suggested);
-    });
-    rerender();
-  }
-  // Interest is the one kind of income worth registering — leave those for the owner to decide.
-  function ignoreIncome() { review.items.filter((i) => i.kind === "income" && !i.line.suggestion).forEach((it) => review.sel.set(it.id, "ignore")); rerender(); }
-  function ignorePeople() {
-    review.items.filter((i) => i.kind === "purchase" && isPeoplePayment(i.line) && Math.abs(i.line.amount) < 50).forEach((it) => review.sel.set(it.id, "ignore"));
-    rerender();
-  }
-
-  function buildSavePayload(dryRun) {
-    return {
-      dryRun,
-      filename: `Statements ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
-      statements: usable.map(({ file, result }) => ({
-        key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
-        verified: !!(result.ok && result.verified !== false), balances: result.balances,
-        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
-      })),
-      inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
-      actions: selectedActions()
-    };
-  }
-
-  async function saveReview() {
-    const btn = $("stmt-save-btn");
-    const status = $("statement-review-status");
-    const actions = selectedActions();
-    const parts = summarize(actions);
-    const msg = (parts.length ? tr("stmt.confirmWill") + "\n • " + parts.join("\n • ") : tr("stmt.confirmOnly")) +
-      "\n\n" + tr("stmt.confirmUndoable");
-    if (!confirm(msg)) return;
-    btn.disabled = true;
-    status.innerHTML = loadingHtml(tr("stmt.saving"));
-    try {
-      const check = await callApi("applyStatementDecisions", buildSavePayload(true)); // validates first, writes nothing
-      if (check.warnings && check.warnings.length) status.innerHTML = `<p class="stmt-note warn">${escapeHtml(check.warnings.join(" "))}</p>`;
-      const res = await callApi("applyStatementDecisions", buildSavePayload(false));
-      lastBatchId = res.batchId;
-      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0);
-      const savedParts = [
-        tr("stmt.savedCreated", { n: made, t: res.created.transfers, f: res.created.fees, p: res.created.purchases, i: res.created.income || 0, r: res.created.reversals || 0 }),
-        tr("stmt.savedUpdated", { n: res.changed }), tr("stmt.savedRemembered", { n: res.linesRemembered }), tr("stmt.savedRecorded", { n: res.statementsRecorded })];
-      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(tr("stmt.saved"))}</p>
-        <p class="hint">${escapeHtml(savedParts.join(", "))}.</p>
-        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button></div>
-        <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
-      $("statement-review").innerHTML = `<p class="hint">${escapeHtml(tr("stmt.savedPressReview"))}</p>`;
-      review = null;
-      historyPlan = null;
-      $("statement-history").innerHTML = "";
-      coverage = null;
-      refreshStatementCoverage();
-      refreshStatementGaps();
-      refreshStatementBatches();
-      refreshStatementInbox();
-      refreshOtherScreens();
-    } catch (err) {
-      status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
-      btn.disabled = false;
-    }
-  }
-
-  // The review queue, entry list, "Programmed this month" card and balances live
-  // in app.js and only reload when their own screen asks; reload them now so
-  // what a save/undo just did shows up without restarting the app.
   async function refreshOtherScreens() {
     // A save or an undo can create categories on the server ("Bank fees", "Refunds", "Investments"); the phone only knows the ones
     // it loaded at start, so entries in a new one would show as "(unknown category)" until the app is reloaded. Load them again first.
@@ -1429,10 +1058,8 @@
       const r = await callApi("undoStatementBatch", { batchId });
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>`;
       lastBatchId = null;
-      review = null;
       historyPlan = null;
       $("statement-history").innerHTML = "";
-      $("statement-review").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
@@ -1463,7 +1090,7 @@
   }
 
   // exposed for testing in the browser
-  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, renderReview, runReview, saveReview, runHistoryPlan, saveHistory, selectedActions: () => selectedActions(), applySuggested, setCoverage: (c) => { coverage = c; }, setUsable: (u) => { usable = u; historyPlan = null; updateReviewButton(); } };
+  window.__statements = { handleStatementFiles, readStatementFile, renderCoverage, runHistoryPlan, saveHistory, setCoverage: (c) => { coverage = c; }, setUsable: (u) => { usable = u; historyPlan = null; updateReviewButton(); } };
 
   // ---- wiring ----
 
@@ -1474,16 +1101,24 @@
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
   });
-  $("statement-review-btn").addEventListener("click", runReview);
   $("statement-history-btn").addEventListener("click", runHistoryPlan);
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
     const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]"), pinc = e.target.closest("[data-pinc]");
+    const bal = e.target.closest("[data-bal]"), balAll = e.target.closest("[data-balall]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
-    if (one) {
+    if (bal) {
+      const i = Number(bal.dataset.bal);
+      if (historyPlan.bal.has(i)) historyPlan.bal.delete(i); else historyPlan.bal.add(i);
+      historyPlan.balOpen = true;
+    } else if (balAll) {
+      const can = settableChecks(), allOn = can.every(({ i }) => historyPlan.bal.has(i));
+      can.forEach(({ i }) => { if (allOn) historyPlan.bal.delete(i); else historyPlan.bal.add(i); });
+      historyPlan.balOpen = true;
+    } else if (one) {
       const i = Number(one.dataset.aside), mode = one.dataset.mode;
       if (historyPlan.chosen.get(i) === mode) historyPlan.chosen.delete(i); else historyPlan.chosen.set(i, mode);
     } else if (pout) {
@@ -1534,6 +1169,7 @@
   $("statement-history").addEventListener("toggle", (e) => {
     if (!historyPlan) return;
     if (e.target.id === "statement-history-aside") historyPlan.asideOpen = e.target.open;
+    if (e.target.id === "statement-history-balances") historyPlan.balOpen = e.target.open;
     if (e.target.id === "statement-history-people") historyPlan.peopleOpen = e.target.open;
     if (e.target.id === "statement-history-income") historyPlan.incomeOpen = e.target.open;
     if (e.target.dataset && e.target.dataset.ppkey !== undefined) {
@@ -1558,24 +1194,6 @@
     const b = e.target.closest(".stmt-gap-toggle");
     if (b) toggleGap(b.dataset.id, !!b.dataset.open, b);
   });
-  $("statement-review").addEventListener("click", (e) => {
-    if (!review) return;
-    const t = e.target;
-    const btn = t.closest("button");
-    if (!btn) return;
-    if (btn.id === "stmt-apply-suggested") applySuggested();
-    else if (btn.id === "stmt-ignore-income") ignoreIncome();
-    else if (btn.id === "stmt-ignore-people") ignorePeople();
-    else if (btn.id === "stmt-save-btn") saveReview();
-    else if (btn.classList.contains("stmt-choice") && btn.dataset.item) toggleChoice(btn.dataset.item, btn.dataset.choice);
-  });
-  $("statement-review").addEventListener("change", (e) => {
-    if (e.target.classList && e.target.classList.contains("stmt-cat") && review) review.cat.set(e.target.dataset.item, e.target.value);
-    if (e.target.classList && e.target.classList.contains("stmt-cancel") && review) { review.cancelEntry.set(e.target.dataset.item, e.target.value); rerender(); }
-  });
-  $("statement-review").addEventListener("toggle", (e) => {
-    if (review && e.target.dataset && e.target.dataset.gkey) review.open.set(e.target.dataset.gkey, e.target.open);
-  }, true);
   $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
   $("statement-added-close").addEventListener("click", closeAdded);
   // "Go to Needs review": the card at the top of the Entries tab, where pending entries are finished.

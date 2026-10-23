@@ -336,3 +336,33 @@ test("a waiting line can be opted in: it replaces the wait action, nothing is co
   assert.equal(res.created.income, 1);
   assert.equal(res.linesRemembered, 1, "the line is remembered once, as added");
 });
+
+test("the plan carries the balance checks, with the account's name, and nothing sets a balance by itself", () => {
+  const { rt, savings, savingsStmt, cardStmt } = setup();
+  const p = plan(rt, [savingsStmt, cardStmt]);
+  assert.ok(Array.isArray(p.balance_checks) && p.balance_checks.length >= 1, "one check per statement and currency");
+  const c = p.balance_checks.find((x) => x.stmt === 0 && x.currency === "PEN");
+  assert.ok(c, "the savings statement has a check");
+  assert.equal(c.accountName, savings.nickname);
+  assert.equal(c.closing, 1000);
+  assert.ok(!p.actions.some((a) => a.type === "set_balance"));
+});
+
+test("a balance chosen on the plan is set with the batch, and Undo restores it", () => {
+  const { rt, savingsStmt, cardStmt } = setup();
+  const stmts = [savingsStmt, cardStmt];
+  const p = plan(rt, stmts);
+  const c = p.balance_checks.find((x) => x.stmt === 0 && x.currency === "PEN");
+  assert.ok(c.canSet);
+  const openings = () => run(rt, "getAllRows('Account Opening Balances').map(function (r) { return r.id + ':' + r.amount + ':' + r.date; }).sort()");
+  const before = openings();
+  const action = c.direction === "forward" && typeof c.unexplained === "number"
+    ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd }
+    : { type: "set_balance", stmt: c.stmt, currency: c.currency };
+  const res = save(rt, stmts, p.actions.concat([action]), false);
+  assert.equal(res.balancesSet.length, 1);
+  assert.equal(res.balancesSet[0].amount, 1000);
+  assert.notDeepEqual(openings(), before);
+  run(rt, `undoStatementBatch(${JSON.stringify({ batchId: res.batchId })})`);
+  assert.deepEqual(openings(), before);
+});
