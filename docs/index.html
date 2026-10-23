@@ -26,7 +26,9 @@
       if (!flag && !(q && q[1] === "stable") && localStorage.getItem("apiUrl") === OWNER_API) flag = "live";
     } catch (e) { /* storage blocked: treated as a friend's device */ }
     var local = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.localhost)$/.test(location.hostname);
-    if (STABLE_ON && !inStable && !local && flag !== "live") {
+    // ?channel=stable is also an explicit "show me what friends see": it goes to stable/ even while the switch is off (and on localhost), for the owner's own test.
+    var preview = !!(q && q[1] === "stable");
+    if (!inStable && (preview || (STABLE_ON && !local && flag !== "live"))) {
       location.replace(new URL("stable/", root).href + location.search + location.hash);
     }
   })();

@@ -75,6 +75,17 @@ test("the owner's devices are recognised by their backend address, so a Home-Scr
   assert.ok(preview.replaced && preview.replaced.startsWith(LIVE + "stable/"), "?channel=stable lets the owner preview what friends see");
 });
 
+test("?channel=stable is an explicit preview: it goes to stable/ even while the switch is OFF, on any device, and ?channel=live never does", () => {
+  const off = runSwitch({ href: LIVE + "?channel=stable", stableOn: false });
+  assert.equal(off.replaced, LIVE + "stable/?channel=stable");
+  const owner = fs.readFileSync(path.join(ROOT, "docs", "app.js"), "utf8").match(/const OWNER_API_URL = "([^"]+)";/)[1];
+  assert.ok(runSwitch({ href: LIVE + "?channel=stable", stableOn: false, api: owner }).replaced, "also for the owner's own device");
+  assert.ok(runSwitch({ href: "http://localhost:4180/?channel=stable", stableOn: false }).replaced, "also on the test harness");
+  assert.equal(runSwitch({ href: LIVE + "?channel=live", stableOn: false }).replaced, null);
+  assert.equal(runSwitch({ href: LIVE, stableOn: false }).replaced, null, "no link, switch off: nothing moves");
+  assert.equal(runSwitch({ href: LIVE + "stable/?channel=stable", stableOn: false, meta: "stable" }).replaced, null, "no loop inside stable/");
+});
+
 test("stable/ itself and the local test harness are never redirected", () => {
   assert.equal(runSwitch({ href: LIVE + "stable/", meta: "stable" }).replaced, null);
   for (const host of ["http://localhost:4180/", "http://127.0.0.1:4180/", "http://[::1]:4180/", "http://app.localhost:4180/"]) {
