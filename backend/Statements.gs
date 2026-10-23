@@ -290,6 +290,9 @@ function analyzeStatements(payload) {
   var T0 = Date.now(), timing = {};
   function tick(name) { timing[name] = Date.now() - T0; }
   var stmts = payload.statements || [];
+  // The holder printed at the top of each statement teaches the app who the person is (OwnerNames.gs): the name is
+  // confirmed once two different accounts show it, and takes effect in this very analysis.
+  learnOwnNames_(stmts.filter(function (s) { return s.holder; }).map(function (s) { return { name: s.holder, source: 'stmt:' + s.key }; }));
   var pms = getAllRows('Payment Methods');
   var pmsById = rowsById_(pms);
   var catsById = rowsById_(getAllRows('Categories'));

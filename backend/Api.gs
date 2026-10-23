@@ -293,6 +293,8 @@ function routeAction(action, payload) {
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches();
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
+    case 'getOwnerNames': return getOwnerNames();
+    case 'saveOwnerNames': return saveOwnerNames(payload);
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);

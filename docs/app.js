@@ -6832,6 +6832,49 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   window.location.reload();
 });
 
+// ---- My names (More → My names): the person's own names, learned from statements and bank e-mails (backend/OwnerNames.gs) ----
+const ownerNamesEl_ = (id) => document.getElementById(id);
+function renderOwnerNames_(res) {
+  const list = ownerNamesEl_("owner-names-list");
+  list.innerHTML = res.names.length
+    ? res.names.map((n, i) => `<div class="more-list-item" style="cursor:default"><span>${escapeHtml(n)}</span><button type="button" class="add-inline" data-owner-name-remove="${i}" aria-label="${escapeHtml(tr("ownerNames.remove", { name: n }))}">✕</button></div>`).join("")
+    : `<p class="hint">${escapeHtml(tr("ownerNames.none"))}</p>`;
+  list.dataset.names = JSON.stringify(res.names);
+  ownerNamesEl_("owner-names-waiting").textContent = res.pending.length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
+}
+async function saveOwnerNames_(names) {
+  const err = ownerNamesEl_("owner-names-error");
+  err.textContent = "";
+  try { renderOwnerNames_(await callApi("saveOwnerNames", { names })); return true; }
+  catch (e) { err.textContent = e.message; return false; }
+}
+async function openOwnerNamesModal_() {
+  ownerNamesEl_("owner-names-error").textContent = "";
+  ownerNamesEl_("owner-names-input").value = "";
+  ownerNamesEl_("owner-names-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(ownerNamesEl_("owner-names-backdrop"));
+  ownerNamesEl_("owner-names-backdrop").hidden = false;
+  try { renderOwnerNames_(await callApi("getOwnerNames", {})); }
+  catch (e) { ownerNamesEl_("owner-names-list").innerHTML = ""; ownerNamesEl_("owner-names-error").textContent = e.message; }
+}
+document.getElementById("more-owner-names-btn").addEventListener("click", openOwnerNamesModal_);
+ownerNamesEl_("owner-names-close").addEventListener("click", () => { ownerNamesEl_("owner-names-backdrop").hidden = true; });
+ownerNamesEl_("owner-names-backdrop").addEventListener("click", (e) => { if (e.target.id === "owner-names-backdrop") e.target.hidden = true; });
+ownerNamesEl_("owner-names-add-btn").addEventListener("click", async () => {
+  const input = ownerNamesEl_("owner-names-input");
+  const name = input.value.trim();
+  if (!name) return;
+  const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
+  if (await saveOwnerNames_(names.concat([name]))) input.value = "";
+});
+ownerNamesEl_("owner-names-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-owner-name-remove]");
+  if (!btn) return;
+  const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
+  names.splice(Number(btn.dataset.ownerNameRemove), 1);
+  await saveOwnerNames_(names);
+});
+
 // Release number at the bottom of the More tab.
 (function showAppVersion() {
   const el = document.getElementById("more-app-version");

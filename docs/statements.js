@@ -476,6 +476,7 @@
     return usable.map(({ result }) => ({
       key: accountKeyOf(result),
       kind: result.kind,
+      holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
       verified: !!(result.ok && result.verified !== false),

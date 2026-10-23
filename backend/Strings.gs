@@ -251,6 +251,7 @@ var BACKEND_STRINGS_ = {
   "label.friendFallback": { en: "a friend", es: "un amigo" },
 
   // ---- desc ----
+  "ownerNames.badName": { en: "\"{name}\" does not look like a full name — write at least two words, letters only.", es: "\"{name}\" no parece un nombre completo — escribe al menos dos palabras, solo letras." },
   "desc.loanTo": { en: "Loan to {name}", es: "Préstamo a {name}" },
   "desc.loanFrom": { en: "Loan from {name}", es: "Préstamo de {name}" },
   "desc.repaymentFrom": { en: "Repayment from {name}", es: "Repago de {name}" },

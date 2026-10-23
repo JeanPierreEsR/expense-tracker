@@ -57,6 +57,8 @@ function stmtPersonLine_(l) {
   if (!STMT_WALLET2_RE.test(d) && !STMT_TRANSFER_PREFIX_RE.test(d)) return null;
   if (STMT_WALLET2_RE.test(d) && /\b(PAYPAL|CASH ?APP)\s*\*/i.test(d)) return null;   // "PAYPAL *SPOTIFY": the card descriptor of a purchase, not a person
   var rest = stmtNameTokens_(d);
+  // The person's OWN name ("TRANSF EVA" on their own statement) is money moving between their accounts, never a person (OwnerNames.gs).
+  if (isOwnNameText_(rest)) return null;
   var tokens = rest ? rest.split(' ') : [];
   if (tokens.length < 1 || tokens.length > 4 || rest.length > 32) return null;
   var ok = tokens.every(function (tk) {
