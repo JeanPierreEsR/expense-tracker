@@ -1241,6 +1241,11 @@ function savePaymentMethod(payload) {
     return String(pm.id) !== id && String(pm.nickname).trim().toLowerCase() === nickname.toLowerCase();
   });
   if (taken) throw new Error(tr_('err.pmNameTaken'));
+  // Plin is not an account (owner, 2026-10-23): it is linked from the bank account behind it. Only a new or renamed row is refused.
+  if (plainNickname_(nickname) === 'plin') {
+    var current = id && getAllRows('Payment Methods').find(function (p) { return String(p.id) === id; });
+    if (!current || plainNickname_(current.nickname) !== 'plin') throw new Error(tr_('err.pmPlin'));
+  }
 
   var sheet = getSheet('Payment Methods');
   var headers = getHeaders(sheet);
