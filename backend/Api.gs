@@ -285,6 +285,9 @@ function routeAction(action, payload) {
     case 'listStatementCoverage': return listStatementCoverage();
     case 'listStatementInbox': return listStatementInbox();
     case 'getStatementAttachment': return getStatementAttachment(payload);
+    case 'findStatementEmails': return findStatementEmails(payload);
+    case 'addStatementsToInbox': return addStatementsToInbox(payload);
+    case 'rememberStatementSender': return rememberStatementSender(payload);
     case 'dismissStatement': return dismissStatement(payload);
     case 'admin_scanStatementInbox': return scanStatementInbox_();
     case 'analyzeStatements': return analyzeStatements(payload);
