@@ -275,14 +275,14 @@
     if (resolve) resolve(value);
   }
 
-  // ---- "Send this statement": a statement the app cannot read goes to the owner as TEXT, with the private details hidden ----
+  // ---- "Send this statement": a statement the app cannot read goes to the owner as TEXT, with every digit turned into a 9 ----
   // Friends' copies only (the owner's own banks are built in). The PDF and its password never leave the phone: this works on the rows the reader
-  // already extracted (docs/statement-sample.js hides what it can, the person reads the whole text, and only then is it sent). The owner's backend
-  // (StatementSamples.gs) hides digits and addresses a second time and keeps the text in the Sheet tab "Statement Samples".
+  // already extracted (docs/statement-sample.js turns every digit into 9 and nothing else; the screen says so). No preview step (owner, 2026-10-23).
+  // The owner's backend (StatementSamples.gs) turns digits into 9 a second time and keeps the text in the Sheet tab "Statement Samples".
   const ss_ = { rows: null, kind: "unrecognised", sending: false };
   const ssEl_ = (id) => $(id);
   function ssMsg_(t) { ssEl_("ss-msg").textContent = t || ""; }
-  function ssStep_(n) { [1, 2, 3].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
+  function ssStep_(n) { [1, 2].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
   function offerSample(body, rows, kind) {
     if (!rows || !rows.length || perfIsOwnerCopy_()) return;
     const btn = document.createElement("button");
@@ -297,32 +297,17 @@
     const backdrop = ssEl_("statement-sample-backdrop");
     I18n.applyStatic(backdrop);
     ssEl_("ss-bank").value = "";
-    ssEl_("ss-hide").value = "";
     ssEl_("ss-name").value = perfShareState_().label || "";
+    ssEl_("ss-send").disabled = false;
     ssStep_(1);
     bringModalToFront_(backdrop);
     backdrop.hidden = false;
   }
-  function ssRedo() {
-    const hide = ssEl_("ss-hide").value + "," + ssEl_("ss-name").value;   // the person's own first name is always hidden
-    const text = StatementSample.rowsToText(ss_.rows, { hide });
-    ssEl_("ss-preview").value = text;
-    ssEl_("ss-size").textContent = tr("stmtSample.size", { chars: text.length.toLocaleString("en-US"), lines: text.split("\n").length.toLocaleString("en-US") });
-  }
-  ssEl_("ss-show").addEventListener("click", () => {
-    if (!PerfShare.cleanLabel(ssEl_("ss-bank").value)) { ssMsg_(tr("stmtSample.bankMissing")); return; }
-    ssEl_("ss-confirm").checked = false;
-    ssEl_("ss-send").disabled = true;
-    ssRedo();
-    ssStep_(2);
-  });
-  ssEl_("ss-redo").addEventListener("click", ssRedo);
-  ssEl_("ss-confirm").addEventListener("change", () => { ssEl_("ss-send").disabled = !ssEl_("ss-confirm").checked || ss_.sending; });
-  ssEl_("ss-back").addEventListener("click", () => ssStep_(1));
   ssEl_("ss-close").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
   ssEl_("ss-done").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
   ssEl_("ss-send").addEventListener("click", async () => {
-    if (ss_.sending || !ssEl_("ss-confirm").checked) return;
+    if (ss_.sending) return;
+    if (!PerfShare.cleanLabel(ssEl_("ss-bank").value)) { ssMsg_(tr("stmtSample.bankMissing")); return; }
     ss_.sending = true;
     ssEl_("ss-send").disabled = true;
     ssMsg_(tr("bankSample.sending"));
@@ -335,19 +320,19 @@
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "reportStatementSample", payload: {
           install: perfInstallId_(), label: PerfShare.cleanLabel(ssEl_("ss-name").value), bank: PerfShare.cleanLabel(ssEl_("ss-bank").value),
-          kind: ss_.kind, text: ssEl_("ss-preview").value, language: I18n.getLang(), app: appRelease_()
+          kind: ss_.kind, text: StatementSample.rowsToText(ss_.rows), language: I18n.getLang(), app: appRelease_()
         } }),
         signal: controller.signal
       });
       const json = await res.json();
-      if (json && json.ok) { ssStep_(3); return; }
+      if (json && json.ok) { ssStep_(2); return; }
       ssMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
     } catch (e) {
       ssMsg_(tr("bankSample.sendFailed"));
     } finally {
       clearTimeout(timer);
       ss_.sending = false;
-      ssEl_("ss-send").disabled = !ssEl_("ss-confirm").checked;
+      ssEl_("ss-send").disabled = false;
     }
   });
 

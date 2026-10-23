@@ -2,8 +2,9 @@
  * "Send this statement": bank STATEMENTS the app cannot read yet, sent to the owner so a statement reader can be written by hand
  * (friends & family rollout; the sibling of BankSamples.gs, which does the same for bank e-mails).
  *
- * The phone reads the PDF itself (pdf.js, docs/statements.js), turns its rows into text, hides the private details and shows the
- * person exactly what would leave (docs/statement-sample.js). Only that TEXT is sent: never the PDF, never its password.
+ * The phone reads the PDF itself (pdf.js, docs/statements.js), turns its rows into text and turns every digit into a 9
+ * (docs/statement-sample.js); the screen tells the person that everything else is sent as it is. Only that TEXT is sent: never the
+ * PDF, never its password.
  *
  *   reportStatementSample_(p)  OWNER'S COPY, no sign-in (a friend's phone is not signed in to it; same door as reportBankSample):
  *                              stores the already-redacted text in the Sheet tab "Statement Samples" (a statement is LONG, so it is
@@ -11,8 +12,7 @@
  *                              and sends the owner a short heads-up on Telegram (size and where to read it, not the text itself).
  *                              A friend's own copy refuses it.
  *
- * Nothing here trusts the phone: every field's shape is checked, every digit but 9 becomes 9 again, every e-mail address becomes
- * [email], control characters go, and size / per-phone-per-day / row counts are capped. The tab is written only here.
+ * Nothing here trusts the phone: every field's shape is checked, every digit but 9 becomes 9 again, control characters go, and size / per-phone-per-day / row counts are capped. The tab is written only here.
  */
 
 var STATEMENT_SAMPLES_SHEET_ = 'Statement Samples';
@@ -37,6 +37,16 @@ function ensureStatementSamplesSheet_() {
   return sheet;
 }
 
+// Same promise as the phone's screen: digits become 9, nothing else is changed (e-mail addresses and names stay — owner, 2026-10-23).
+// Control characters go and the size is capped. Not bankSampleScrub_: that one also replaces e-mail addresses, which e-mail samples need.
+function statementSampleScrub_(text, maxChars) {
+  var s = String(text === undefined || text === null ? '' : text)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/[0-8]/g, '9');
+  return s.length > maxChars ? s.substring(0, maxChars) : s;
+}
+
 // Cuts a long text into parts at line breaks (a part never ends in the middle of a row).
 function statementSampleParts_(text) {
   var parts = [];
@@ -58,7 +68,7 @@ function reportStatementSample_(p) {
   if (!/^[0-9a-f-]{16,36}$/.test(install)) throw codedError_('sample_bad_report', 'Not a statement sample.');
   var bank = perfLabel_(p.bank);
   if (!bank) throw codedError_('sample_bad_report', 'Not a statement sample.');
-  var text = bankSampleScrub_(p.text, '', STATEMENT_SAMPLE_MAX_TEXT_).trim();
+  var text = statementSampleScrub_(p.text, STATEMENT_SAMPLE_MAX_TEXT_).trim();
   if (text.length < STATEMENT_SAMPLE_MIN_TEXT_) throw codedError_('sample_bad_report', 'Not a statement sample.');
   var label = perfLabel_(p.label) || '(no name)';
   var language = p.language === 'es' ? 'es' : 'en';
