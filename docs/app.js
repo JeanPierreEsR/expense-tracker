@@ -6320,10 +6320,10 @@ function renderWelcomeAccounts_() {
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
 // Which wallet checkboxes an account offers (owner, 2026-10-23): Yape only on a BCP debit account (soles, and optionally dollars);
-// Plin only in soles, on another bank's debit account or on any credit card. `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
+// Plin only in soles, on another bank's debit account or on an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
 // credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
 function walletSlots_(bankName, type, kind) {
-  if (type === "credit") return ["plin_pen"];
+  if (type === "credit") return String(bankName || "").trim().toLowerCase() === "interbank" ? ["plin_pen"] : [];
   if (type !== "debit") return [];
   const usd = kind === "debit_usd", pen = kind === "debit_pen" || kind === "sueldo";
   if (isBcp_(bankName)) return usd ? ["yape_usd"] : pen ? ["yape_pen"] : ["yape_pen", "yape_usd"];

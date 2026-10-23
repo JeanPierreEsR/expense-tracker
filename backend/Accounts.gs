@@ -194,14 +194,15 @@ function saveOnboardingPlatforms(payload) {
   return { already: false, platforms: created };
 }
 
-// Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but a CREDIT CARD
-// can pay through Plin whatever its bank (owner, 2026-10-19: Interbank lets him Plin with his card; he asked to offer every bank's cards).
+// Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but an INTERBANK CREDIT CARD
+// can pay through Plin (owner, 2026-10-19; narrowed 2026-10-23: only Interbank cards, no other card offers Yape or Plin).
 function railAllowsAccount_(rail, pm) {
   var banks = getAllRows('Banks');
   var bank = banks.find(function (b) { return String(b.id) === String(pm.bank_id); });
   var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
   if (rail === 'yape') return isBcp && pm.type !== 'credit';
-  return pm.type === 'credit' || !isBcp;
+  if (pm.type === 'credit') return !!bank && String(bank.name).trim().toLowerCase() === 'interbank';
+  return !isBcp;
 }
 
 // Yape and Plin ride on an account (a different one per currency); more → Accounts & cards changes it any time.
