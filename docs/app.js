@@ -5719,6 +5719,9 @@ function closePerfShareModal_() {
   perfShareDone_ = null;
   if (next) next();
 }
+// An address on the main site (setup/, vendor/): from the friends' stable/ copy these are one folder up, so never build them from location.href.
+// window.etSiteUrl is defined by the channel script at the top of index.html; the fallback is the old behaviour.
+function siteUrl_(path) { return window.etSiteUrl ? window.etSiteUrl(path) : new URL(path, location.href).href; }
 // ---- Updating a friend's copy of the backend (stage 4c) ----
 // A copy made by the installer carries the backend version it was built from (capabilities.backendRef = the last commit that changed backend/).
 // Once a day the app asks GitHub for the newest one (docs/setup/pin.json says whether everyone is held at a pinned commit); when they differ,
@@ -5741,7 +5744,7 @@ async function checkBackendUpdateNow_(caps) {
   try { const c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY)); if (c && Date.now() - c.at < 12 * 3600 * 1000) latest = c.latest || ""; } catch (e) { /* no memory of an earlier check */ }
   if (!latest) {
     try {
-      const pin = String(((await (await fetch("setup/pin.json", { cache: "no-store" })).json()) || {}).pin || "");
+      const pin = String(((await (await fetch(siteUrl_("setup/pin.json"), { cache: "no-store" })).json()) || {}).pin || "");
       const r = await fetch("https://api.github.com/repos/JeanPierreEsR/expense-tracker/commits?path=backend&sha=" + encodeURIComponent(pin || "main") + "&per_page=1");
       if (!r.ok) return;   // GitHub says no (busy, offline): try again next time, never bother the person
       latest = ((await r.json())[0] || {}).sha || "";
@@ -5751,7 +5754,7 @@ async function checkBackendUpdateNow_(caps) {
   // A copy made before backend versions were stamped has none: it is offered the update too.
   if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
 }
-function updatePageUrl_() { return new URL("setup/#update", location.href).href; }
+function updatePageUrl_() { return siteUrl_("setup/#update"); }
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
 // address starts with "x-safari-" (x-safari-https://…), so that is what the buttons below use from the Home Screen app.
@@ -5817,7 +5820,7 @@ document.getElementById("privacy-change-btn").addEventListener("click", () => {
 // back its own Google permission (backend/EraseAll.gs). It cannot delete the Sheet or itself (no Drive permission), so step 2
 // hands over to the setup page ("#remove"), which has Drive access to the files it made and deletes them.
 let appErased_ = false;
-function removePageUrl_() { return new URL("setup/#remove", location.href).href; }
+function removePageUrl_() { return siteUrl_("setup/#remove"); }
 function eraseEl_(id) { return document.getElementById(id); }
 function eraseWordOk_() { return eraseEl_("erase-confirm-input").value.trim().toLowerCase() === tr("erase.word").toLowerCase(); }
 document.getElementById("more-erase-btn").addEventListener("click", () => {
@@ -6138,11 +6141,11 @@ document.getElementById("more-extras-btn").addEventListener("click", () => {
 document.getElementById("extras-modal-close").addEventListener("click", () => { document.getElementById("extras-modal-backdrop").hidden = true; });
 document.getElementById("extras-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "extras-modal-backdrop") e.target.hidden = true; });
 document.getElementById("extras-open-btn").addEventListener("click", () => {
-  openInSafari_(new URL("setup/", location.href).href, () => { document.getElementById("extras-copy-msg").textContent = tr("app.safariStuck"); });
+  openInSafari_(siteUrl_("setup/"),() => { document.getElementById("extras-copy-msg").textContent = tr("app.safariStuck"); });
 });
 document.getElementById("extras-copy-btn").addEventListener("click", async () => {
   const msg = document.getElementById("extras-copy-msg");
-  try { await navigator.clipboard.writeText(new URL("setup/", location.href).href); msg.textContent = tr("extras.copied"); }
+  try { await navigator.clipboard.writeText(siteUrl_("setup/")); msg.textContent = tr("extras.copied"); }
   catch (e) { msg.textContent = tr("extras.copyFailed"); }
 });
 
@@ -12363,7 +12366,7 @@ function loadTesseract_() {
   if (!tesseractLoading_) {
     tesseractLoading_ = new Promise((resolve, reject) => {
       const el = document.createElement("script");
-      el.src = "vendor/tesseract/tesseract.min.js";
+      el.src = siteUrl_("vendor/tesseract/tesseract.min.js");
       el.onload = resolve;
       el.onerror = () => { tesseractLoading_ = null; reject(new Error(tr("photo.loadFailed"))); };
       document.head.appendChild(el);
@@ -12525,7 +12528,7 @@ function mergeReceiptPasses_(lines1, lines2) {
 
 async function recognizeReceiptText_(canvas, onProgress) {
   await loadTesseract_();
-  const base = new URL("vendor/tesseract/", location.href).href;
+  const base = siteUrl_("vendor/tesseract/");
   const worker = await Tesseract.createWorker("spa", 1, {
     workerPath: base + "worker.min.js",
     corePath: base,

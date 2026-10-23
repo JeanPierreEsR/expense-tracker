@@ -12,6 +12,7 @@
 #       --major = big milestone (0.10.0 → 1.0.0); --release sets it exactly.
 #       Only ships that change docs/ get a new number. The very first one is 0.9.0.
 #   ./ship.sh                      finish an interrupted ship (merged but not pushed)
+#   ./ship.sh --promote [release]  send a tested release to the FRIENDS (see promote.sh); never from a chat's branch
 # Preview (safe from ANYWHERE — works in a throwaway copy, touches nothing):
 #   ./ship.sh [<branch>] "commit message" --dry-run
 #
@@ -27,6 +28,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
+
+# ./ship.sh --promote [release]  sends a tested release to the friends (their frozen screens + matching backend pin): see promote.sh.
+if [ "${1:-}" = "--promote" ]; then shift; exec "$HERE/promote.sh" "$@"; fi
 
 DRY=""; POS=(); KIND="patch"; SETREL=""; EXPECT_REL=""
 for a in "$@"; do
@@ -127,6 +131,10 @@ else
     fi
   fi
   G merge-base --is-ancestor "refs/heads/$BRANCH" HEAD && die "Branch '$BRANCH' has nothing new — it is already in main."
+  # The friends' frozen screens (docs/stable/) change ONLY through ./ship.sh --promote, never through a chat's branch.
+  if G diff --name-only "$(G merge-base HEAD "refs/heads/$BRANCH")" "refs/heads/$BRANCH" | grep -q '^docs/stable/'; then
+    die "Branch '$BRANCH' changes docs/stable/ (the friends' frozen screens). Only  ./ship.sh --promote  may do that. Remove those changes from the branch."
+  fi
 fi
 
 # ----------------------------------------------------------------- 2. merge
@@ -161,7 +169,7 @@ grep -E "^ℹ (pass|fail)" "$LOG2" | sed 's/^/  (new e-mail reader) /'
 
 # ------------------------------------------------------ 4. version bump
 CHANGED="$(G diff --name-only origin/main HEAD)"
-if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -qv 'version.json'; then
+if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -v '^docs/stable/' | grep -qv 'version.json'; then
   OLD="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$W/docs/version.json")"
   NEW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Release number (MAJOR.MINOR.PATCH): none recorded yet → this ship is 0.9.0.

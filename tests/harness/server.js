@@ -90,6 +90,7 @@ http.createServer((req, res) => {
     return;
   }
   let file = path.join(DOCS, url === "/" ? "index.html" : url);
+  if (file.startsWith(DOCS) && fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");   // /stable/ and /setup/ open their index.html, like GitHub Pages
   if (!file.startsWith(DOCS) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end("not found"); return; }
   let buf = fs.readFileSync(file);
   if (path.basename(file) === "app.js") {

@@ -18,7 +18,7 @@ test("the More row sits after Sign out, is hidden by default and is hidden on th
 test("the app asks the backend with confirm:true only after the typed word matches, then hands over to the setup page", () => {
   assert.match(app, /callApi\("eraseEverything", \{ confirm: true \}\)/);
   assert.match(app, /if \(!eraseWordOk_\(\)\) return;/);
-  assert.match(app, /new URL\("setup\/#remove"/);
+  assert.match(app, /siteUrl_\("setup\/#remove"/);
 });
 
 test("the setup page's remove mode finds only the apps it made (etSetup / setupTest) and removes its own permission", () => {

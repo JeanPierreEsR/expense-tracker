@@ -4,6 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="app-release" content="0.23.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <script>
+  // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
+  // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
+  (function () {
+    var STABLE_ON = false;   // friends are sent to stable/ only when this is true — flipped by a deliberate ship, on the owner's go
+    var inStable = (document.querySelector('meta[name="app-channel"]') || {}).content === "stable";
+    var root = new URL(inStable ? "../" : "./", location.href);
+    // An address on the main site (setup/, vendor/) that also works from stable/.
+    window.etSiteUrl = function (path) { return new URL(path, root).href; };
+    var KEY = "etChannel", flag = "";
+    try {
+      var q = /[?&]channel=(live|stable)\b/.exec(location.search);   // ?channel=live remembers "this device is the owner's"; ?channel=stable forgets it
+      if (q && q[1] === "live") localStorage.setItem(KEY, "live");
+      else if (q) localStorage.removeItem(KEY);
+      flag = localStorage.getItem(KEY) || "";
+    } catch (e) { /* storage blocked: treated as a friend's device */ }
+    var local = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.localhost)$/.test(location.hostname);
+    if (STABLE_ON && !inStable && !local && flag !== "live") {
+      location.replace(new URL("stable/", root).href + location.search + location.hash);
+    }
+  })();
+  </script>
   <title data-i18n="app.title">Expense Tracker</title>
   <link rel="stylesheet" href="style.css?v=2026-10-23T15:45:59Z">
   <link rel="manifest" href="manifest.json">
