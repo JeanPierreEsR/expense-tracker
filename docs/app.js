@@ -6173,7 +6173,7 @@ function startWelcome_(preview) {
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
-    accounts: [], customBanks: [], links: {}, linksTouched: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
+    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-accounts").hidden = true;
@@ -6243,7 +6243,7 @@ document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListe
 // Nothing is saved until the last button of step 2: Back keeps everything typed in both steps. The server builds the
 // final names (backend/Accounts.gs); the previews here follow the same rule.
 const WA_KINDS = ["debit_pen", "debit_usd", "credit", "sueldo"];
-const WA_RAILS = ["yape_pen", "yape_usd", "plin_pen", "plin_usd"];
+const WA_RAILS = ["yape_pen", "yape_usd", "plin_pen"];
 const waEl_ = (id) => document.getElementById(id);
 function waCatalog_() { return (meta && meta.bankCatalog) || { main: [], other: [], words: { en: {}, es: {} } }; }
 function waShort_(bankName) {
@@ -6312,7 +6312,6 @@ function renderWelcomeAccounts_() {
   const custom = welcome_.customBanks.filter((n) => !known.has(n.toLowerCase())).map((n) => ({ name: n, short: n }));
   fill("wa-main-banks", waBanksOfList_(cat.main));
   fill("wa-other-banks", waBanksOfList_(cat.other.concat(custom)));
-  renderWaRails_();
   fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank));
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
   waEl_("wa-error").textContent = "";
@@ -6320,42 +6319,32 @@ function renderWelcomeAccounts_() {
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
-// Credit cards are two-currency, so a card fits both Plin slots, whatever its bank (Plin can pay with a card). Debit accounts come first.
-function waCandidates_(key) {
-  const soles = key.endsWith("_pen"), yape = key.startsWith("yape");
-  const debit = welcome_.accounts.filter((a) => (soles ? a.kind === "debit_pen" || a.kind === "sueldo" : a.kind === "debit_usd") && (yape ? isBcp_(a.bank) : !isBcp_(a.bank)));
-  const cards = yape ? [] : welcome_.accounts.filter((a) => a.kind === "credit");
-  return debit.concat(cards);
+// Which wallet checkboxes an account offers (owner, 2026-10-23): Yape only on a BCP debit account (soles, and optionally dollars);
+// Plin only in soles, on another bank's debit account or on any credit card. `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
+// credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
+function walletSlots_(bankName, type, kind) {
+  if (type === "credit") return ["plin_pen"];
+  if (type !== "debit") return [];
+  const usd = kind === "debit_usd", pen = kind === "debit_pen" || kind === "sueldo";
+  if (isBcp_(bankName)) return usd ? ["yape_usd"] : pen ? ["yape_pen"] : ["yape_pen", "yape_usd"];
+  return usd ? [] : ["plin_pen"];
 }
-function renderWaRails_() {
-  const box = waEl_("wa-rails");
+// Tick boxes for `slots`. `ticked` is an array of keys; `onToggle(key, checked)` may return false to refuse (the box is put back).
+function renderWalletBoxes_(box, slots, ticked, onToggle) {
   box.innerHTML = "";
-  const names = waDisplayNames_();
-  WA_RAILS.forEach((key) => {
-    const cands = waCandidates_(key);
-    // Linked by default: until the person decides, the first account that fits (Yape: a BCP account; Plin: another bank's) is selected.
-    // (A debit account wins over a credit card; this is re-decided on every render until the person chooses.)
-    if (!(key in welcome_.linksTouched) && cands.length) welcome_.links[key] = (cands.find((a) => a.kind !== "credit") || cands[0]).cid;
-    if (welcome_.links[key] && !cands.some((a) => a.cid === welcome_.links[key])) welcome_.links[key] = "";
-    const wrap = document.createElement("div");
-    wrap.className = "wa-rail";
-    const label = document.createElement("label");
-    label.textContent = tr(`wa.rail.${key}`);
-    const sel = document.createElement("select");
-    const none = document.createElement("option"); none.value = ""; none.textContent = tr("wa.unlinked"); sel.appendChild(none);
-    cands.forEach((a) => { const o = document.createElement("option"); o.value = a.cid; o.textContent = names[a.cid]; sel.appendChild(o); });
-    sel.value = welcome_.links[key] || "";
-    sel.disabled = !cands.length;
-    sel.addEventListener("change", () => { welcome_.links[key] = sel.value; welcome_.linksTouched[key] = true; });
-    wrap.appendChild(label); wrap.appendChild(sel);
-    if (!cands.length) {
-      const hint = document.createElement("p"); hint.className = "hint";
-      hint.textContent = tr(key.startsWith("yape") ? "wa.railNeeds.yape" : "wa.railNeeds.plin", { currency: tr(key.endsWith("_pen") ? "wa.soles" : "wa.dollars") });
-      wrap.appendChild(hint);
-    }
-    box.appendChild(wrap);
+  slots.forEach((key) => {
+    const row = document.createElement("label");
+    row.className = "checkbox-row";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = ticked.includes(key);
+    const span = document.createElement("span");
+    span.textContent = tr(`wa.rail.${key}`) + (key === "yape_usd" ? ` ${tr("wallets.optional")}` : "");
+    cb.addEventListener("change", () => { if (onToggle(key, cb.checked) === false) cb.checked = !cb.checked; });
+    row.appendChild(cb); row.appendChild(span);
+    box.appendChild(row);
   });
 }
+const isWelcomeCredit_ = (kind) => kind === "credit";
+function waSlots_(bank, kind) { return walletSlots_(bank, isWelcomeCredit_(kind) ? "credit" : "debit", kind); }
 
 function renderWaBank_() {
   const bank = welcome_.bankOpen;
@@ -6374,7 +6363,7 @@ function renderWaBank_() {
     const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = tr(`wa.kind.${a.kind}`);
     left.appendChild(nm); left.appendChild(sub);
     left.style.cursor = "pointer";
-    left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 }; renderWaBank_(); });
+    left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4, wallets: WA_RAILS.filter((k) => welcome_.links[k] === a.cid) }; renderWaBank_(); });
     const rm = document.createElement("button"); rm.type = "button"; rm.className = "wa-link"; rm.textContent = tr("wa.remove");
     rm.addEventListener("click", () => { welcome_.accounts = welcome_.accounts.filter((x) => x.cid !== a.cid); welcome_.form = null; renderWaBank_(); });
     row.appendChild(left); row.appendChild(rm);
@@ -6392,12 +6381,27 @@ function renderWaBank_() {
     b.addEventListener("click", () => { f.kind = k; renderWaBank_(); });
     kinds.appendChild(b);
   });
+  renderWaWallets_();
   waEl_("wa-alias").value = f.alias;
   waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
   waEl_("wa-last4").value = f.last4;
   waEl_("wa-show4").checked = !!f.showLast4;
   waEl_("wa-form-error").textContent = "";
   waUpdatePreview_();
+}
+function renderWaWallets_() {
+  const f = welcome_.form;
+  const slots = waSlots_(welcome_.bankOpen, f.kind);
+  f.wallets = (f.wallets || []).filter((k) => slots.includes(k));
+  waEl_("wa-wallets").hidden = !slots.length;
+  const names = waDisplayNames_();
+  renderWalletBoxes_(waEl_("wa-wallet-boxes"), slots, f.wallets, (key, on) => {
+    if (!on) { f.wallets = f.wallets.filter((k) => k !== key); return; }
+    const holder = welcome_.links[key];
+    const other = holder && holder !== f.cid && welcome_.accounts.find((a) => a.cid === holder);
+    if (other && !confirm(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: names[other.cid] }))) return false;
+    f.wallets.push(key);
+  });
 }
 function waUpdatePreview_() {
   const f = welcome_.form; if (!f) return;
@@ -6407,14 +6411,20 @@ function waUpdatePreview_() {
 waEl_("wa-alias").addEventListener("input", (e) => { welcome_.form.alias = e.target.value; waUpdatePreview_(); });
 waEl_("wa-last4").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); welcome_.form.last4 = e.target.value; waUpdatePreview_(); });
 waEl_("wa-show4").addEventListener("change", (e) => { welcome_.form.showLast4 = e.target.checked; waUpdatePreview_(); });
-waEl_("wa-add-account-btn").addEventListener("click", () => { welcome_.form = { cid: null, kind: "debit_pen", alias: "", last4: "", showLast4: false }; renderWaBank_(); });
+waEl_("wa-add-account-btn").addEventListener("click", () => { welcome_.form = { cid: null, kind: "debit_pen", alias: "", last4: "", showLast4: false, wallets: [] }; renderWaBank_(); });
 waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form = null; renderWaBank_(); });
 waEl_("wa-save-account-btn").addEventListener("click", () => {
   const f = welcome_.form;
   if (f.last4 && !/^\d{4}$/.test(f.last4)) { waEl_("wa-form-error").textContent = tr("wa.errLast4"); return; }
   const data = { bank: welcome_.bankOpen, kind: f.kind, alias: (f.alias || "").trim(), last4: f.last4 || "", showLast4: !!f.showLast4 && !!f.last4 };
-  if (f.cid) Object.assign(welcome_.accounts.find((a) => a.cid === f.cid), data);
-  else welcome_.accounts.push({ cid: "a" + Date.now() + Math.floor(Math.random() * 1000), ...data });
+  let cid = f.cid;
+  if (cid) Object.assign(welcome_.accounts.find((a) => a.cid === cid), data);
+  else { cid = "a" + Date.now() + Math.floor(Math.random() * 1000); welcome_.accounts.push({ cid, ...data }); }
+  const slots = waSlots_(welcome_.bankOpen, f.kind);
+  WA_RAILS.forEach((k) => {
+    if (slots.includes(k) && f.wallets.includes(k)) welcome_.links[k] = cid;
+    else if (welcome_.links[k] === cid) welcome_.links[k] = "";
+  });
   welcome_.form = null;
   renderWaBank_();
 });
@@ -6434,8 +6444,10 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeSt
 
 // The end of step 2: check the Yape / Plin links, then on to step 3 (nothing is saved yet).
 function waNext_() {
-  const missing = WA_RAILS.filter((k) => waCandidates_(k).length && !welcome_.links[k]);
-  if (welcome_.accounts.length && missing.length && !confirm(tr("wa.railsConfirm"))) return;
+  // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
+  const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
+  const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
+  if (canLink && !linked && !confirm(tr("wallets.confirm"))) return;
   showWelcomeStep_(3);
 }
 
@@ -7242,45 +7254,6 @@ function showAccountsScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderAccountsList_();
-  renderRailsCard_();
-}
-
-// Yape and Plin ride on a bank account, one per currency (Settings yape_pen, yape_usd, plin_pen, plin_usd). Changing a
-// choice is saved at once.
-function renderRailsCard_() {
-  const box = document.getElementById("rails-card-selects");
-  box.innerHTML = "";
-  document.getElementById("rails-card-status").textContent = "";
-  const settings = (meta && meta.settings) || {};
-  ["yape_pen", "yape_usd", "plin_pen", "plin_usd"].forEach((key) => {
-    const soles = key.endsWith("_pen");
-    const wrap = document.createElement("div");
-    wrap.className = "wa-rail";
-    const label = document.createElement("label");
-    label.textContent = tr(`wa.rail.${key}`);
-    const sel = document.createElement("select");
-    const none = document.createElement("option"); none.value = ""; none.textContent = tr("wa.unlinked"); sel.appendChild(none);
-    const yape = key.startsWith("yape");
-    const bankOf = (pm) => { const b = (meta.banks || []).find((x) => x.id === pm.bank_id); return b ? b.name : ""; };
-    // Yape: BCP accounts only. Plin: any bank but BCP. A link already saved stays listed even if it breaks that rule.
-    // Plin may also use any credit card (two-currency), so cards are listed in both of its slots.
-    meta.paymentMethods
-      .filter((pm) => String(settings[key] || "") === String(pm.id) || (!yape && pm.type === "credit" && !pmHidden_(pm)) || (pm.type === "debit" && !pmHidden_(pm) && (yape ? isBcp_(bankOf(pm)) : !isBcp_(bankOf(pm))) &&
-        (!pm.alias_kind || (soles ? pm.alias_kind === "debit_pen" || pm.alias_kind === "sueldo" : pm.alias_kind === "debit_usd"))))
-      .sort((a, b) => a.nickname.localeCompare(b.nickname))
-      .forEach((pm) => { const o = document.createElement("option"); o.value = pm.id; o.textContent = pm.nickname; sel.appendChild(o); });
-    sel.value = settings[key] || "";
-    sel.addEventListener("change", async () => {
-      const status = document.getElementById("rails-card-status");
-      try {
-        await callApi("saveRailLinks", { [key]: sel.value });
-        meta.settings[key] = sel.value;
-        status.textContent = tr("wa.saved");
-      } catch (err) { status.textContent = err.message; }
-    });
-    wrap.appendChild(label); wrap.appendChild(sel);
-    box.appendChild(wrap);
-  });
 }
 
 function renderAccountsList_() {
@@ -7335,7 +7308,9 @@ function fillPmBankOptions_(selectedId) {
 }
 
 function openPmModal_(pm) {
-  pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "" };
+  const linked = (meta && meta.settings) || {};
+  pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
+    wallets: pm ? ["yape_pen", "yape_usd", "plin_pen"].filter((k) => String(linked[k] || "") === String(pm.id)) : [], kind: pm ? pm.alias_kind || "" : "" };
   document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
@@ -7350,11 +7325,12 @@ function openPmModal_(pm) {
   typeSel.value = pm ? pm.type : "credit";
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
-  typeSel.onchange = walletWarn;
+  typeSel.onchange = () => { walletWarn(); renderPmWallets_(); };
   walletWarn();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
   fillPmBankOptions_(pmModalState.lastBank);
+  renderPmWallets_();
   document.getElementById("pm-form-error").textContent = "";
   // Delete / Hide only exist for an account that is already saved.
   document.getElementById("pm-manage").hidden = !pm;
@@ -7365,6 +7341,27 @@ function openPmModal_(pm) {
   if (!pm) document.getElementById("pm-nickname").focus();
 }
 
+// Wallet boxes of the account window: which of Yape / Plin ride on this account (Settings yape_pen, yape_usd, plin_pen).
+// Saved together with the account, so a new account can be ticked before it has an id.
+function pmBankName_() {
+  const b = (meta.banks || []).find((x) => x.id === document.getElementById("pm-bank").value);
+  return b ? b.name : "";
+}
+function pmWalletSlots_() { return walletSlots_(pmBankName_(), document.getElementById("pm-type").value, pmModalState.kind); }
+function renderPmWallets_() {
+  if (!pmModalState) return;
+  const slots = pmWalletSlots_();
+  document.getElementById("pm-wallets").hidden = !slots.length;
+  const settings = (meta && meta.settings) || {};
+  renderWalletBoxes_(document.getElementById("pm-wallet-boxes"), slots, pmModalState.wallets, (key, on) => {
+    if (!on) { pmModalState.wallets = pmModalState.wallets.filter((k) => k !== key); return; }
+    const holder = String(settings[key] || "");
+    const other = holder && holder !== String(pmModalState.id) && meta.paymentMethods.find((p) => String(p.id) === holder);
+    if (other && !confirm(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: other.nickname }))) return false;
+    pmModalState.wallets.push(key);
+  });
+}
+
 function closePmModal_() {
   document.getElementById("pm-modal-backdrop").hidden = true;
   pmModalState = null;
@@ -7372,7 +7369,7 @@ function closePmModal_() {
 
 document.getElementById("pm-bank").addEventListener("change", async (e) => {
   if (!pmModalState) return;
-  if (e.target.value !== "__add__") { pmModalState.lastBank = e.target.value; return; }
+  if (e.target.value !== "__add__") { pmModalState.lastBank = e.target.value; renderPmWallets_(); return; }
   const name = prompt(tr("accounts.bankPrompt"));
   if (!name || !name.trim()) { e.target.value = pmModalState.lastBank; return; }
   try {
@@ -7380,6 +7377,7 @@ document.getElementById("pm-bank").addEventListener("change", async (e) => {
     if (!meta.banks.some((b) => b.id === bank.id)) meta.banks.push(bank);
     pmModalState.lastBank = bank.id;
     fillPmBankOptions_(bank.id);
+    renderPmWallets_();
   } catch (err) {
     document.getElementById("pm-form-error").textContent = err.message;
     e.target.value = pmModalState.lastBank;
@@ -7399,6 +7397,12 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const last4 = document.getElementById("pm-last4").value.trim();
   if (!nickname) { errorEl.textContent = tr("accounts.errName"); return; }
   if (last4 && !/^\d{4}$/.test(last4)) { errorEl.textContent = tr("accounts.errLast4"); return; }
+  // Plin and Yape are wallets that ride on a bank account (owner, 2026-10-23): Plin is never an account, Yape alone asks first.
+  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  const before = pmModalState.id && meta.paymentMethods.find((p) => p.id === pmModalState.id);
+  const renamed = !before || plain(before.nickname) !== plain(nickname);
+  if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
+  if (renamed && plain(nickname) === "yape" && !confirm(tr("wallets.yapeAlone"))) return;
   const saveBtn = document.getElementById("pm-save-btn");
   saveBtn.disabled = true;
   try {
@@ -7412,6 +7416,13 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
     const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
     if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
     else meta.paymentMethods.push(saved);
+    // Wallet links: ticked slots point at this account; slots it no longer offers (or that were unticked) are released.
+    const slots = pmWalletSlots_(), settings = meta.settings || (meta.settings = {}), links = {};
+    ["yape_pen", "yape_usd", "plin_pen"].forEach((k) => {
+      if (slots.includes(k) && pmModalState.wallets.includes(k)) { if (String(settings[k] || "") !== String(saved.id)) links[k] = saved.id; }
+      else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
+    });
+    if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
     // Rebuild the entry form's pickers without losing what's already chosen there.
     const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
     populatePaymentMethodOptions();
@@ -7452,7 +7463,6 @@ document.getElementById("pm-hide-btn").addEventListener("click", async () => {
     refreshAccountPickers_();
     closePmModal_();
     renderAccountsList_();
-    renderRailsCard_();
   } catch (err) { errorEl.textContent = err.message; }
 });
 
@@ -7468,7 +7478,6 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     refreshAccountPickers_();
     closePmModal_();
     renderAccountsList_();
-    renderRailsCard_();
   } catch (err) { errorEl.textContent = err.message; }   // in use: the message says so and points to Hide
 });
 

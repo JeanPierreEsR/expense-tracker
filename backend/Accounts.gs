@@ -49,7 +49,8 @@ var ACCOUNT_ALIAS_WORDS_ = {
   en: { debit_pen: 'soles', debit_usd: 'dollars', credit: 'credit', sueldo: 'salary' },
   es: { debit_pen: 'soles', debit_usd: 'dólares', credit: 'crédito', sueldo: 'sueldo' }
 };
-var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen', 'plin_usd'];
+// Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
+var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
 
 function sortedBankList_(list) {
   return list.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'es'); });
@@ -121,7 +122,7 @@ function cleanLast4_(v) {
 /**
  * The accounts typed in the welcome questions, saved in one go (after the person pressed the final button).
  * payload: { batch, lang, accounts: [{ cid, bank, kind, alias, last4, showLast4 }],
- *            links: { yape_pen, yape_usd, plin_pen, plin_usd }  // each = a cid or ''
+ *            links: { yape_pen, yape_usd, plin_pen }  // each = a cid or ''
  * `batch` makes a retry harmless: a batch already saved is not saved twice.
  */
 function saveOnboardingAccounts(payload) {
@@ -245,7 +246,7 @@ function ensureRailDefaults_() {
   var s = getSettingsMap();
   if (s.rail_defaults) return;
   var pms = getAllRows('Payment Methods');
-  var wanted = { yape_pen: BCP_ACCOUNTS.PEN, yape_usd: BCP_ACCOUNTS.USD, plin_pen: PLIN_ACCOUNTS.PEN, plin_usd: PLIN_ACCOUNTS.USD };
+  var wanted = { yape_pen: BCP_ACCOUNTS.PEN, yape_usd: BCP_ACCOUNTS.USD, plin_pen: PLIN_ACCOUNTS.PEN };
   Object.keys(wanted).forEach(function (key) {
     if (s[key]) return;
     var pm = pms.find(function (p) { return plainNickname_(p.nickname) === plainNickname_(wanted[key]); });
