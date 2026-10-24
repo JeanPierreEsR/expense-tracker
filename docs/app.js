@@ -2450,7 +2450,19 @@ function formatAmount(amount, currency) {
 // underneath — for PEN that's the only extra line; for a foreign currency
 // it's a second line below the owner's-share-in-that-currency line, same
 // pattern generalized from what a plain USD split looks like.
+// One leg of a currency exchange: a one-sided transfer whose description says so (see backend CurrencyExchange.gs).
+// "in" = money arrived (has a To account, no From), "out" = money left.
+function exchangeLegSide_(entry) {
+  if (!entry || entry.type !== "transfer" || (entry.link && entry.link.friend)) return "";
+  if (!/^(Currency exchange|Cambio de moneda)/i.test(String(entry.description || ""))) return "";
+  return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
+}
+
 function renderEntryAmountHtml(entry) {
+  if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
+    const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
+    return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  }
   // A withdrawal is stored negative; it reads as money coming BACK, so it
   // shows as a positive green figure with a leading +, like income.
   if (entry.type === "investment" && Number(entry.amount) < 0) {
@@ -2512,6 +2524,9 @@ function entryHeadline_(entry) {
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
+  }
+  if (exchangeLegSide_(entry)) {   // grey transfer dot, named for what it is instead of "Between Accounts"
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: paidByLabel(entry) };
   }
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
