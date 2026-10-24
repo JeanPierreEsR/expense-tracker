@@ -164,6 +164,16 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- Exchange house: one confirmation names BOTH sides of the exchange (CurrencyExchange.gs) ----
+  // The sender is the exact address the e-mails really come from (a look-alike of a webmail domain, so it is matched whole, never by domain);
+  // the rule also needs the "Enviaste" and "Recibirás" lines, so a spoofed or unrelated mail from that address matches nothing.
+  // No `bank`: it is not an account the person holds, so More → Bank emails does not list it.
+  {
+    sender: 'no-reply@gmai.com', house: 'Cambio Mundial', exchange: true,
+    label: 'Cambio de moneda (Cambio Mundial): confirmación de operación',
+    match: function (subject, body) { return /confirmaci[oó]n de operaci[oó]n/i.test(subject) && /Enviaste:/i.test(body) && /Recibir[aá]s:/i.test(body); },
+    extract: function () { return null; }   // two legs, not one entry: processExchangeEmail_ reads it
+  },
   // ---- Apple (subscription / App Store receipts) ----
   // The receipt itself names the card ("Visa •••• 3052"), so unlike most
   // rules the Payment Method is resolved by last4, not guessed. The order id
@@ -630,12 +640,30 @@ function processEmails(opts) {
   var guessCtx = buildGuessContext_();
 
   var senders = opts.senders || uniqueSenders_();
+  EXCHANGE_HOUSES_MEMO_ = null;   // learned from the entries as they are NOW (CurrencyExchange.gs)
   // Per-email memory (the "Processed Emails" tab): the one-off back-check
   // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
   UNREAD_LOGGING_ = tracking;
   var handled = tracking ? loadProcessedEmailIds_() : {};
+  // A back-check re-reads old mail, which overlaps entries typed or imported long ago under other reference numbers
+  // (EmailCoverage.gs): such an e-mail is listed in the result, not created. `includeOverlaps: true` turns that off.
+  BACKCHECK_OVERLAPS_ = (!tracking && !opts.includeOverlaps) ? buildEntryOverlapIndex_() : null;
+  if (BACKCHECK_OVERLAPS_) { results.overlaps = 0; results.mayAlreadyBeIn = []; }
 
+  try {
+    processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx);
+  } finally {
+    BACKCHECK_OVERLAPS_ = null;
+  }
+
+  Logger.log('processEmails: ' + JSON.stringify(results));
+  return results;
+}
+
+var BACKCHECK_OVERLAPS_ = null;   // set only while a back-check runs
+
+function processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   senders.forEach(function (sender) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + (opts.days || 3) + 'd').forEach(function (message) {
       var messageId = String(message.getId());
@@ -652,9 +680,6 @@ function processEmails(opts) {
       }
     });
   });
-
-  Logger.log('processEmails: ' + JSON.stringify(results));
-  return results;
 }
 
 // ---- Per-email memory (sheet "Processed Emails") ----
@@ -710,6 +735,17 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
 
+  if (rule.exchange) {
+    // An exchange house's confirmation: up to two legs, matched against what a bank e-mail already made (CurrencyExchange.gs).
+    if (processExchangeEmail_(rule, message, sender, dateStr, createdAt, results, existingExternalIds) === -1) {
+      logUnreadEmail_(sender, subject, 'unreadable', dateStr);
+      results.skipped++;
+      results.unparsed++;
+      results.unparsedSubjects.push(String(subject || '').slice(0, 60));
+    }
+    return;
+  }
+
   var fields = rule.extract(subject, body);
   if (!fields) {
     logUnreadEmail_(sender, subject, 'unreadable', dateStr);
@@ -722,9 +758,28 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     return;
   }
 
+  // A payment to an exchange house is one leg of a currency exchange, not spending (CurrencyExchange.gs): it lands as a
+  // one-sided transfer, and the review card offers "Currency exchange" to add the leg that arrived.
+  if (fields.type === 'expense' && fields.description && exchangeHouseIn_(fields.description)) {
+    fields.description = tr_('desc.exchangeHouse', { name: fields.description });
+    fields.type = 'transfer';
+    fields.merchant = '';
+    fields.exchangeLeg = true;
+  }
+
   var externalId = computeEmailExternalId_(sender, dateStr, fields, message.getId());
 
   if (existingExternalIds[externalId]) { results.duplicates++; return; }
+  if (BACKCHECK_OVERLAPS_) {
+    var twin = takeOverlap_(BACKCHECK_OVERLAPS_, fields.currency, fields.amount, dateStr);
+    if (twin) {
+      results.overlaps++;
+      if (results.mayAlreadyBeIn.length < 200) {
+        results.mayAlreadyBeIn.push({ date: dateStr, amount: fields.amount, currency: fields.currency, description: String(fields.description || '').slice(0, 40), matches: twin.source + ' ' + twin.type });
+      }
+      return;
+    }
+  }
   existingExternalIds[externalId] = true;
 
   var bank = banks.find(function (b) { return b.name === rule.bank; });
@@ -742,6 +797,17 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
   if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
     paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
+  }
+
+  // The exchange house's own confirmation may already have made this "left" leg (it names both sides): then this e-mail only
+  // tells which account paid, and a second leg would count the exchange twice.
+  if (fields.exchangeLeg) {
+    var leftTwin = findExchangeLegTwin_(getAllRows('Entries'), 'out', fields.currency, fields.amount, dateStr, exchangeCodeKey_(fields.externalId), 'bank');
+    if (leftTwin) {
+      if (paymentMethod && !leftTwin.payment_method_id) updateRowFields_('Entries', leftTwin.id, { payment_method_id: paymentMethod.id });
+      results.duplicates++;
+      return;
+    }
   }
 
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);

@@ -204,7 +204,7 @@ function buildGmail() {
     createLabel(n) { const l = mkLabel(n); labels.set(n, l); return l; },
     search(query, start = 0, max = 500) {
       // from:addr, from:me (the test user), or from:(a OR b)
-      const fromRaw = (/from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
+      const fromRaw = (/(?:^|\s)from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
       const froms = fromRaw ? fromRaw.replace(/[()]/g, "").split(/\s+OR\s+/).map((f) => (f === "me" ? "test@example.com" : f)) : null;
       const needAttachment = /has:attachment/.test(query);
       const notLabel = (/-label:(\S+)/.exec(query) || [])[1];
@@ -256,7 +256,7 @@ function buildGmail() {
   const b64u = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const allMessages = () => threads.flatMap((t) => t.messages.map((m) => ({ m, t })));
   function matchesQuery(m, query) {
-    const fromRaw = (/from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
+    const fromRaw = (/(?:^|\s)from:(\([^)]*\)|\S+)/.exec(query) || [])[1];
     const froms = fromRaw ? fromRaw.replace(/[()]/g, "").split(/\s+OR\s+/).map((f) => (f === "me" ? "test@example.com" : f)) : null;
     const days = (/newer_than:(\d+)d/.exec(query) || [])[1];
     const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
