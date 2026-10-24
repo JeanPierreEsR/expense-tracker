@@ -54,31 +54,31 @@ test("only a layout's shape is stored: an oversized one is refused", () => {
 function importSetup() {
   const { rt } = freshApp({ entries: 20 });
   rt.run(`appendRowObject('Payment Methods', { id: 'pm-app', nickname: 'App Wallet', type: 'debit', bank_id: '', last_4: '', currency: 'PEN' });`);
-  for (const [id, name, type, hidden] of [["c-food", "Food & Drink", "expense", ""], ["c-tr", "Transport", "expense", ""], ["c-old", "Old stuff", "expense", "yes"], ["c-sal", "Salário", "income", ""]]) {
+  for (const [id, name, type, hidden] of [["c-food", "Food & Drink", "expense", ""], ["c-tr", "Zoo trips", "expense", ""], ["c-old", "Old stuff", "expense", "yes"], ["c-sal", "Salário", "income", ""]]) {
     rt.run(`appendRowObject('Categories', { id: '${id}', name: '${name}', type: '${type}', icon: '', color: '#ccc', parent_id: '', hidden: '${hidden}' });`);
   }
   const lines = [
     { date: "2019-04-01", description: "Pinkberry", amount: -12.5, currency: "PEN", category: "food & drink" },
-    { date: "2019-04-02", description: "Public transport", amount: -3, currency: "PEN", category: "TRANSPORT" },
+    { date: "2019-04-02", description: "Public transport", amount: -3, currency: "PEN", category: "ZOO TRIPS" },
     { date: "2019-04-03", description: "Mystery", amount: -9, currency: "PEN", category: "Gadgets" },
     { date: "2019-04-04", description: "Hidden one", amount: -4, currency: "PEN", category: "Old stuff" },
     { date: "2019-04-05", description: "No category", amount: -7, currency: "PEN" },
     { date: "2019-04-06", description: "Pay day", amount: 2000, currency: "PEN", category: "salario" },
-    { date: "2019-04-07", description: "Wrong type", amount: 50, currency: "PEN", category: "Transport" }   // an income line named like an expense category
+    { date: "2019-04-07", description: "Wrong type", amount: 50, currency: "PEN", category: "Zoo trips" }   // an income line named like an expense category
   ];
   const stmt = { key: "ACCT-pm-app", kind: "csv", holder: "", verified: false, balances: {}, file_name: "app.csv", period: { start: "2019-04-01", end: "2019-04-07" }, lines };
   return { rt, stmt };
 }
 const made = (rt) => run(rt, "getAllRows('Entries').filter(function (e) { return String(e.external_id).indexOf('stmt-') === 0; })");
 
-test("a line's category is used when the app has one of that name (any case or accent, right type); otherwise it waits for Tidy my history", () => {
+test("a line's category is used when the app has one of that name (any case or accent, right type) when no mapping is given; otherwise it waits for Tidy my history", () => {
   const { rt, stmt } = importSetup();
   const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
   const dry = run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: true, filename: "app.csv", statements: [stmt], actions: p.actions })})`);
   assert.equal(made(rt).length, 0, "a dry run writes nothing");
-  assert.equal(dry.categoriesFiled, 3, "Food & Drink, Transport, Salário");
+  assert.equal(dry.categoriesFiled, 3, "Food & Drink, Zoo trips, Salário");
   assert.equal(dry.categoriesMissed, 3, "Gadgets, the hidden category, and the income line named like an expense category");
-  assert.deepEqual([...dry.categoryMissedNames].sort(), ["Gadgets", "Old stuff", "Transport"]);
+  assert.deepEqual([...dry.categoryMissedNames].sort(), ["Gadgets", "Old stuff", "Zoo trips"]);
   run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "app.csv", statements: [stmt], actions: p.actions })})`);
   const byDesc = Object.fromEntries(made(rt).map((e) => [e.description, e.category_id]));
   assert.equal(byDesc["Pinkberry"], "c-food");

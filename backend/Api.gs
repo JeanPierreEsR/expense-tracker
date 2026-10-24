@@ -347,6 +347,7 @@ function routeAction(action, payload) {
     case 'admin_resetProjectionOverridesSheet': return adminResetProjectionOverridesSheet();
     case 'admin_debugProjectionOverrides': return adminDebugProjectionOverrides();
     case 'admin_debugBudgetAlertLog': return adminDebugBudgetAlertLog();
+    case 'suggestCategoryMap': return suggestCategoryMap(payload);
     case 'getStatementFormat': return getStatementFormat(payload);
     case 'saveStatementFormat': return saveStatementFormat(payload);
     case 'deleteStatementFormat': return deleteStatementFormat(payload);

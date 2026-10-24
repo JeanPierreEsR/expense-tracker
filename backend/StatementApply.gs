@@ -185,16 +185,29 @@ function applyStatementDecisions(payload) {
   var cats = getAllRows('Categories');
   var catsById = rowsById_(cats);
   cats.forEach(function (c) { catByName[c.type + ':' + c.name] = c.id; });
-  // A spreadsheet line may carry the category its source app gave it (Spendee's "Category name"): it is used when a category of
-  // that type with the same name (ignoring case and accents) exists; a name the app does not have leaves the entry uncategorized
-  // (it waits in Tidy my history) and is counted so the person is told.
-  var catByNorm = {};
-  cats.forEach(function (c) { if (String(c.hidden || '') !== 'yes') catByNorm[c.type + ':' + searchNormalize_(c.name).replace(/\s+/g, ' ').trim()] = c.id; });
+  // A spreadsheet line may carry the category its source app gave it (Spendee's "Category name"). The person's mapping
+  // (payload.categoryMap, key "type:normalized name" -> an existing category id, "create", or "" = leave it) decides what the line
+  // becomes; a name with no mapping falls back to a category of the same name, else the entry stays uncategorized (it waits in
+  // Tidy my history). New categories are only created in the write phase below, after everything has been validated, and each one
+  // is recorded so Undo can remove it again (backend/StatementCategories.gs).
+  var categoryMap = (payload && payload.categoryMap) || {};
+  var nameIndex = categoryNameIndex_(cats, false);
+  var nameIndexAll = categoryNameIndex_(cats, true);
+  var newCategories = {};   // placeholder id -> { name, type }
   var categoryMissedNames = {};
   function lineCategory(type, text) {
     var t = String(text || '').replace(/\s+/g, ' ').trim();
     if (!t) return { id: '', text: '' };
-    return { id: catByNorm[type + ':' + searchNormalize_(t)] || '', text: t };
+    var k = type + ':' + catNameNorm_(t);
+    var choice = categoryMap[k];
+    if (choice === '') return { id: '', text: t };                                   // the person chose to leave it
+    if (choice && choice !== 'create' && catsById[choice] && catsById[choice].type === type) return { id: choice, text: t };
+    if (nameIndex[k]) return { id: nameIndex[k], text: t };
+    if (choice === undefined) return { id: '', text: t };                            // no mapping given: the old behaviour
+    if (nameIndexAll[k]) return { id: nameIndexAll[k], text: t };                    // a hidden category of that name: use it, do not clash
+    var ph = 'new-category:' + k;
+    if (!newCategories[ph]) newCategories[ph] = { name: t.slice(0, 40), type: type };   // the spelling of the first line that names it
+    return { id: ph, text: t };
   }
   function countLineCategory(lc) {
     if (!lc.text) return;
@@ -517,6 +530,7 @@ function applyStatementDecisions(payload) {
   report.rateNeeds = stmtRateNeeds_(creations);
 
   report.categoryMissedNames = Object.keys(categoryMissedNames).slice(0, 10);
+  report.categoriesCreatedNames = Object.keys(newCategories).map(function (ph) { return newCategories[ph].name; });
   if (dryRun) return report;
 
   // ---- writes ----
@@ -524,6 +538,17 @@ function applyStatementDecisions(payload) {
   ensureStatementChangesSheet_();
   report.batchId = batchId;
   ensureImportBatchRow_(batchId, payload.filename || 'Statement upload', creations.length);
+  // The categories the person asked to create, now that nothing else can fail. Each is recorded for Undo.
+  var createdCategoryIds = {};
+  Object.keys(newCategories).forEach(function (ph) {
+    var nc = newCategories[ph], row = null;
+    try { row = saveCategory({ name: nc.name, type: nc.type }); } catch (err) { row = null; }   // a name that clashes after trimming: leave those lines uncategorized
+    if (!row) return;
+    createdCategoryIds[ph] = row.id;
+    changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Categories', row_id: row.id, field: '__created__', old_value: '', new_value: '', created_at: now });
+  });
+  creations.forEach(function (e) { if (String(e.category_id).indexOf('new-category:') === 0) e.category_id = createdCategoryIds[e.category_id] || ''; });
+  report.categoriesCreatedNames = Object.keys(createdCategoryIds).map(function (ph) { return newCategories[ph].name; });
   appendRowsBulk_('Entries', creations);
   if (payload.inboxIds && payload.inboxIds.length) markStatementInboxProcessed_(payload.inboxIds);
   Object.keys(colChanged).forEach(function (f) {
@@ -645,6 +670,15 @@ function undoStatementBatch(payload) {
   // bookkeeping first, and a cut-short Undo left the entries behind with no way back (found 2026-10-22).
   res.deletedEntries = getAllRows('Entries').filter(function (e) { return e.import_batch_id === batchId; }).length;
   deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
+
+  // Categories this upload created: removed again unless something else (an entry the person filed there since, a budget…) uses them.
+  var createdCategoryIds = changes.filter(function (c) { return c.sheet === 'Categories' && c.field === '__created__'; }).map(function (c) { return c.row_id; });
+  createdCategoryIds.forEach(function (id) {
+    if (categoryUsage_(id) !== 0) { res.categoriesKept = (res.categoriesKept || 0) + 1; return; }
+    deleteRowsWhere_('Categories', function (row) { return String(row.id) === String(id); });
+    res.categoriesRemoved = (res.categoriesRemoved || 0) + 1;
+  });
+  if (createdCategoryIds.length) bumpStructureVersion_();
 
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   var createdBalanceIds = {};
