@@ -82,6 +82,7 @@ function recordCurrencyExchange(payload) {
   // Checked before anything is saved, so a refusal never leaves one leg behind.
   if (pending && !(pendingLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
   ensureEntriesToPaymentMethodColumn_();
+  ensureEntriesExchangeColumn_();
 
   var result = { out: null, in: null };
   [['out', out], ['in', inn]].forEach(function (pair) {
@@ -95,12 +96,15 @@ function recordCurrencyExchange(payload) {
     if (pending && side === pendingLeg) {
       // Turned in place so its e-mail reference stays: a later back-check must not make it again.
       fields.status = 'confirmed';
+      fields.exchange = '1';
       fields.merchant = '';
       fields.trip_id = '';
       updateRowFields_('Entries', pending.id, fields);
       result[side] = getEntryById_(pending.id);
     } else {
       result[side] = createEntry(fields);
+      updateRowFields_('Entries', result[side].id, { exchange: '1' });
+      result[side] = getEntryById_(result[side].id);
     }
   });
   EXCHANGE_HOUSES_MEMO_ = null;   // this exchange may have named a new house
@@ -199,6 +203,7 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
   var transferCat = getAllRows('Categories').find(function (c) { return c.type === 'transfer'; });
   var description = tr_('desc.exchangeHouse', { name: rule.house });
   ensureEntriesToPaymentMethodColumn_();
+  ensureEntriesExchangeColumn_();
   var made = 0;
 
   [['out', parsed.out], ['in', parsed.in]].forEach(function (pair) {
@@ -211,7 +216,7 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
       results.duplicates++;
       // A bank e-mail that read as a plain pending expense becomes the leg itself, so it is not left behind as spending.
       if (twin.type === 'expense') {
-        updateRowFields_('Entries', twin.id, { type: 'transfer', category_id: transferCat ? transferCat.id : '', description: description, merchant: '', to_payment_method_id: '' });
+        updateRowFields_('Entries', twin.id, { type: 'transfer', category_id: transferCat ? transferCat.id : '', description: description, merchant: '', to_payment_method_id: '', exchange: '1' });
       }
       return;
     }
@@ -220,7 +225,7 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
       id: Utilities.getUuid(), type: 'transfer', date: dateStr, amount: leg.amount, currency: leg.currency,
       category_id: transferCat ? transferCat.id : '', description: description,
       payment_method_id: side === 'out' ? account : '', to_payment_method_id: side === 'in' ? account : '',
-      paid_by: 'me', status: 'pending', source: 'email', external_id: externalId, import_batch_id: '', created_at: createdAt, merchant: ''
+      paid_by: 'me', status: 'pending', source: 'email', external_id: externalId, import_batch_id: '', created_at: createdAt, merchant: '', exchange: '1'
     };
     appendRowObject('Entries', entry);
     entries.push(entry);

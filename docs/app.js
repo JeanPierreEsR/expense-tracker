@@ -2454,7 +2454,8 @@ function formatAmount(amount, currency) {
 // "in" = money arrived (has a To account, no From), "out" = money left.
 function exchangeLegSide_(entry) {
   if (!entry || entry.type !== "transfer" || (entry.link && entry.link.friend)) return "";
-  if (!/^(Currency exchange|Cambio de moneda)/i.test(String(entry.description || ""))) return "";
+  // The marker is set when a leg is saved as a "Currency exchange"; statement-made legs have none, so their description counts too.
+  if (entry.exchange !== "1" && !/^(Currency exchange|Cambio de moneda)/i.test(String(entry.description || ""))) return "";
   return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
 }
 
