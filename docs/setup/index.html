@@ -78,14 +78,14 @@
   #moreOverlay[hidden] { display:none; }
   #moreSheet { background:var(--card); color:var(--fg); width:100%; max-width:560px; max-height:85vh; overflow:auto; border-radius:18px 18px 0 0; padding:18px 16px 24px; box-sizing:border-box; }
   #moreSheet p, #moreSheet li { color:var(--fg); font-size:17px; }
+  /* A plain list, not circles: round marks looked like buttons or radio choices (owner, 2026-10-24). */
   #tracker ol { list-style:none; margin:6px 0 0; padding:0; }
-  #tracker li { display:flex; align-items:center; gap:12px; padding:8px 0; font-size:18px; color:var(--muted); }
-  #tracker .dot { flex:none; width:28px; height:28px; border-radius:50%; border:2px solid var(--line); box-sizing:border-box; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; color:transparent; }
+  #tracker li { display:flex; align-items:baseline; gap:10px; padding:6px 0; font-size:18px; color:var(--muted); cursor:default; }
+  #tracker .dot { flex:none; width:1.4em; font-size:21px; line-height:1; text-align:center; font-weight:700; color:var(--muted); }
   #tracker li.now { color:var(--fg); font-weight:700; }
-  #tracker li.now .dot { border-color:var(--accent); background:radial-gradient(circle, var(--accent) 0 5px, transparent 6px); }
+  #tracker li.now .dot { color:var(--accent); }
   #tracker li.done { color:var(--ok); }
-  #tracker li.done .dot { background:var(--ok); border-color:var(--ok); color:#fff; animation:pop .35s ease; }
-  @media (prefers-color-scheme: dark) { #tracker li.done .dot { color:#06240f; } }
+  #tracker li.done .dot { color:var(--ok); animation:pop .35s ease; }
   .step.complete { border-color:var(--ok); }
   .step.complete > h3::before { content:"✓ "; color:var(--ok); }
   #sheetNote { margin-top:12px; padding:10px 12px; border:1px dashed var(--line); border-radius:10px; background:transparent; color:var(--muted); font-size:15px; }
@@ -1685,6 +1685,7 @@ function renderTracker() {
     const li = $(id);
     li.classList.toggle('done', done[id]);
     li.classList.toggle('now', now && !done[id]);
+    li.querySelector('.dot').textContent = done[id] ? '✓' : (now ? '▸' : '·');
     if (!done[id]) now = false;
   });
   $('card1').classList.toggle('complete', !!state.webAppUrl);
