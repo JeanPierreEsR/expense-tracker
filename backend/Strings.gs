@@ -236,6 +236,7 @@ var BACKEND_STRINGS_ = {
   "sa.unverifiedBalance": { en: "A statement that could not be verified cannot set a balance", es: "Un estado de cuenta que no se pudo verificar no puede fijar un saldo" },
   "sa.noEnd": { en: "This statement has no end date", es: "Este estado de cuenta no tiene fecha de fin" },
   "sa.entryNotFound": { en: "Entry not found: {id}", es: "No se encontró el movimiento: {id}" },
+  "stmt.noAccountName": { en: "No account", es: "Sin cuenta" },
   "sa.noAccount": { en: "No account is set up for statement {key}", es: "No hay una cuenta configurada para el estado de cuenta {key}" },
   "sa.noClosing": { en: "This statement has no closing balance in {cur}", es: "Este estado de cuenta no tiene saldo final en {cur}" },
   "sa.balanceNotOlder": { en: "The balance registered on {date} is not older than this statement, so it stays", es: "El saldo registrado el {date} no es más antiguo que este estado de cuenta, así que se mantiene" },
