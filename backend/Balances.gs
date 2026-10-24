@@ -37,6 +37,11 @@ function ensureColumn_(sheetName, header) {
   }
 }
 
+// Entries.exchange = "1" on each leg of a currency exchange (the "Currency exchange" type of transfer).
+function ensureEntriesExchangeColumn_() {
+  ensureColumn_('Entries', 'exchange');
+}
+
 function ensureEntriesToPaymentMethodColumn_() {
   ensureColumn_('Entries', 'to_payment_method_id');
 }

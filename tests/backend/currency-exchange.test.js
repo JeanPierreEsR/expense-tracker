@@ -45,3 +45,13 @@ test("an exchange works the other way too: dollars leave one account, soles arri
   assert.equal(of(a.id, "USD"), 1500);
   assert.equal(of(b.id, "PEN"), 1950);
 });
+
+test("both legs of a saved exchange carry the exchange marker and listEntries returns it", () => {
+  const { rt } = freshApp();
+  const a = rt.api("addPaymentMethod", { nickname: "Marker A", type: "debit" });
+  const b = rt.api("addPaymentMethod", { nickname: "Marker B", type: "debit" });
+  rt.api("recordCurrencyExchange", { date: today(), out: { payment_method_id: a.id, amount: 100, currency: "USD" }, in: { payment_method_id: b.id, amount: 370, currency: "PEN" }, house: "Some House" });
+  const legs = rt.api("listEntries", { limit: 10 }).filter((e) => e.exchange === "1");
+  assert.equal(legs.length, 2);
+  assert.ok(rt.api("listEntries", { limit: 50 }).every((e) => e.exchange === "1" || !/Some House/.test(e.description)));
+});

@@ -839,6 +839,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     entry.payment_method_id = '';
   }
 
+  if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }
   appendRowObject('Entries', entry);
   autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;

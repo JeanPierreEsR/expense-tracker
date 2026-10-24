@@ -962,6 +962,7 @@ function buildSearchIndexRows_(entries) {
       link: lk.transferLinks[e.id] || undefined,
       tagIds: tagIdsByEntry[e.id] || [],
       trip_id: e.trip_id || '',
+      exchange: e.exchange ? '1' : '',
       _s: entrySearchText_(e, lk)
     };
   });
