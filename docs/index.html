@@ -259,11 +259,20 @@
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
       </div>
 
+      <div class="card first-steps" id="first-steps-card" hidden>
+        <div class="first-steps-head">
+          <h2 data-i18n="firstSteps.title">Getting started</h2>
+          <button type="button" class="add-inline" id="first-steps-hide" data-i18n="firstSteps.hide">Hide</button>
+        </div>
+        <ul class="first-steps-list" id="first-steps-list"></ul>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
         <h2><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</h2>
         <p class="hint" data-i18n="review.intro">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
+        <p class="hint" data-i18n="review.learns">Confirm a category once and the app suggests it next time for the same store.</p>
         <div id="review-list"></div>
       </div>
 
@@ -1554,22 +1563,38 @@
         <p id="bm-address" style="font-weight:700;word-break:break-all;margin:6px 0;"></p>
         <button type="button" class="add-inline" id="bm-copy-btn" data-i18n="bankMail.copy">Copy address</button>
         <p class="hint" id="bm-msg" role="status"></p>
-        <p class="hint" data-i18n="bankMail.priority">This is the account you signed in with when you set up the app. It should be the Gmail that receives most of your bank emails.</p>
-        <h3 data-i18n="bankMail.otherTitle">Do your banks write to more than one address?</h3>
-        <ol class="bm-steps">
-          <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
-          <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
-        </ol>
-        <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
-        <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
-        <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
-        <ul class="bm-steps">
-          <li data-i18n="bankMail.o1">Outlook / Hotmail: open Outlook on the web, then Settings, Mail, Forwarding. Turn on forwarding and enter the address above. Free. A work or school account may not allow it.</li>
-          <li data-i18n="bankMail.o2">iCloud: open iCloud.com, then Mail, the gear icon, Settings, General, and check Forward my email to. Enter the address above. Free.</li>
-          <li data-i18n="bankMail.o3">Yahoo: automatic forwarding is only offered with the paid Yahoo Mail Plus. If you do not pay for it, change the email your bank uses (best option above) instead.</li>
-        </ul>
-        <p class="hint" data-i18n="bankMail.o4">Forwarding sends everything to this Gmail, not only bank emails. That is fine: the app only looks at emails from your bank.</p>
-        <p class="hint" id="bm-banks"></p>
+        <div class="ts-stage bm-stage" id="bm-scene" role="img" data-i18n-aria-label="bankMail.animLabel" aria-label="A bank email arrives and shows up in Needs review" hidden></div>
+        <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
+        <p class="hint" data-i18n="bankMail.alertsLead">The app only knows what your bank emails you. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
+        <div id="bm-alerts" class="bm-alerts"></div>
+        <p class="hint" data-i18n="bankMail.try">Try it: pay something small with your card, or send a Yape of S/ 10 or more. It should show up in “Needs review” within about 15 minutes.</p>
+        <details class="bm-more">
+          <summary data-i18n="bankMail.notCoveredTitle">What emails do not cover</summary>
+          <ul class="bm-steps">
+            <li data-i18n="bankMail.nc1">Money you receive (a Yape, a transfer): banks send no email for it. Add it by hand with the + button.</li>
+            <li data-i18n="bankMail.nc2">Cash: add it by hand with the + button.</li>
+            <li data-i18n="bankMail.nc3">Anything under the minimum amount of your bank's alerts.</li>
+          </ul>
+          <p class="hint" data-i18n="bankMail.nc4">Once a month, load your statement in More, Statements: the app finds whatever is missing.</p>
+        </details>
+        <details class="bm-more">
+          <summary data-i18n="bankMail.addrTitle">Do your bank emails arrive at another address?</summary>
+          <p class="hint" data-i18n="bankMail.priority">This is the account you signed in with when you set up the app. It should be the Gmail that receives most of your bank emails.</p>
+          <h3 data-i18n="bankMail.otherTitle">Do your banks write to more than one address?</h3>
+          <ol class="bm-steps">
+            <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
+            <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
+          </ol>
+          <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+          <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
+          <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
+          <ul class="bm-steps">
+            <li data-i18n="bankMail.o1">Outlook / Hotmail: open Outlook on the web, then Settings, Mail, Forwarding. Turn on forwarding and enter the address above. Free. A work or school account may not allow it.</li>
+            <li data-i18n="bankMail.o2">iCloud: open iCloud.com, then Mail, the gear icon, Settings, General, and check Forward my email to. Enter the address above. Free.</li>
+            <li data-i18n="bankMail.o3">Yahoo: automatic forwarding is only offered with the paid Yahoo Mail Plus. If you do not pay for it, change the email your bank uses (best option above) instead.</li>
+          </ul>
+          <p class="hint" data-i18n="bankMail.o4">Forwarding sends everything to this Gmail, not only bank emails. That is fine: the app only looks at emails from your bank.</p>
+        </details>
         <p class="hint" data-i18n="bankMail.review">Everything it finds waits in your review list until you confirm it.</p>
         <button type="button" class="primary" id="bm-done-btn" data-i18n="bankMail.gotIt" hidden>Got it</button>
       </div>

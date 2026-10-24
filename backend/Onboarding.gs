@@ -7,6 +7,7 @@
  *   date_format         'dmy' | 'mdy' | 'ymd' (read by Telegram.gs userDateOrder_ for typed dates)
  *   favorite_currencies 'PEN,USD,EUR'        (the app's quick currency chips, in order; soles always first)
  *   onboarded           'yes'                (stops the app from asking again; see getCapabilities_)
+ *   onboarded_at        epoch milliseconds   (when it was first answered; getEmailInfo_().since)
  * default_currency    'PEN' | 'USD' | …    the MAIN (home) currency, first chosen here; changeable later (HomeCurrency.gs)
  *   rate_base           same code            the BASE currency exchange rates are stored against: the first main currency, never changes
  */
@@ -40,6 +41,7 @@ function saveOnboarding(payload) {
   setSetting_('favorite_currencies', list.join(','));
   result.currencies = list;
 
+  if (firstAnswer) setSetting_('onboarded_at', String(new Date().getTime()));   // epoch ms: lets the app say "no bank e-mail yet" after a few days
   setSetting_('onboarded', 'yes');
   return result;
 }

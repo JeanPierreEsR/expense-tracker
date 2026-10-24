@@ -6059,7 +6059,53 @@ function refreshExtrasRow_() {
   maybeAskPerfShare_();
   checkBackendUpdate_();
   checkBankReady_();
+  renderFirstSteps_();
 }
+
+// ---- Home "Getting started" card (a friend's copy only; specs/home-tab.md § Getting started) ----
+// Three things, each ticked by itself: accounts added, the first bank e-mail received (the proof that the bank alerts are on), and an
+// optional first statement. It disappears when everything is ticked, or when the person taps Hide (remembered on this phone only).
+function fsFlag_(key) { try { return localStorage.getItem(key) === "1"; } catch (e) { return false; } }
+function fsSetFlag_(key) { try { localStorage.setItem(key, "1"); } catch (e) { /* the card just stays */ } }
+function renderFirstSteps_() {
+  const card = document.getElementById("first-steps-card");
+  if (!card) return;
+  const caps = (meta && meta.capabilities) || {};
+  if (!meta || perfIsOwnerCopy_() || fsFlag_("etFirstStepsHidden")) { card.hidden = true; return; }
+  const info = meta.emailInfo || {};
+  const since = Number(info.since) || 0;
+  const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
+  const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
+  if (caps.bankEmails) {
+    const got = Object.keys(info.seen || {}).length > 0;
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late: days >= 3, hint: days >= 3 ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
+  }
+  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
+  if (steps.every((st) => st.done)) { card.hidden = true; return; }
+  const list = document.getElementById("first-steps-list");
+  list.innerHTML = "";
+  steps.forEach((st) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "first-step" + (st.done ? " done" : "") + (st.late && !st.done ? " late" : "");
+    const mark = document.createElement("span");
+    mark.className = "first-step-mark";
+    mark.textContent = st.done ? "✓" : "○";
+    const body = document.createElement("span");
+    body.className = "first-step-body";
+    const title = document.createElement("b");
+    title.textContent = st.text;
+    body.appendChild(title);
+    if (st.hint && !st.done) { const h = document.createElement("span"); h.className = "hint"; h.textContent = st.hint; body.appendChild(h); }
+    btn.appendChild(mark); btn.appendChild(body);
+    if (!st.done) btn.addEventListener("click", st.go);
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+  card.hidden = false;
+}
+document.getElementById("first-steps-hide").addEventListener("click", () => { fsSetFlag_("etFirstStepsHidden"); renderFirstSteps_(); });
 
 // ---- "Help me improve the app" pop-up (a friend's copy only) ----
 // Asked once per phone: at the end of the welcome questions for a new app, or at the next open for an app that was
@@ -7355,6 +7401,50 @@ document.getElementById("devices-modal-close").addEventListener("click", () => {
 const bmEl_ = (id) => document.getElementById(id);
 let bm_ = { onClose: null };
 
+// Which bank-alert tip each bank gets (the rest share the generic one: the steps differ bank by bank and are not drawn).
+const BM_TIP_KEYS_ = { Yape: "bankMail.tip.Yape", Interbank: "bankMail.tip.Interbank" };
+
+// The banks the person has an account at (Yape counts once it is linked to an account): only those get a "no email yet" warning.
+function bmBanksInUse_() {
+  const used = new Set();
+  const banks = (meta && meta.banks) || [], pms = (meta && meta.paymentMethods) || [];
+  banks.forEach((b) => { if (pms.some((pm) => pm.bank_id === b.id)) used.add(String(b.name || "").toLowerCase()); });
+  const st = (meta && meta.settings) || {};
+  if (st.yape_pen || st.yape_usd) used.add("yape");
+  return used;
+}
+
+// One tap-to-open row per bank the app can read: its name, whether an e-mail from it has arrived, and the alert steps.
+function renderBankAlerts_() {
+  const box = bmEl_("bm-alerts");
+  box.innerHTML = "";
+  const info = (meta && meta.emailInfo) || {};
+  const seen = info.seen || {};
+  const used = bmBanksInUse_();
+  const inUse = (b) => used.has(b.toLowerCase());
+  (info.banks || []).slice().sort((a, b) => (inUse(b) ? 1 : 0) - (inUse(a) ? 1 : 0)).forEach((bank) => {
+    const row = document.createElement("details");
+    row.className = "bm-bank";
+    const sum = document.createElement("summary");
+    const name = document.createElement("b");
+    name.textContent = bank;
+    sum.appendChild(name);
+    if (inUse(bank)) {
+      const st = document.createElement("span");
+      const day = seen[bank];
+      st.className = "bm-status " + (day ? "ok" : "wait");
+      st.textContent = day ? tr("bankMail.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("bankMail.notSeen");
+      sum.appendChild(st);
+    }
+    row.appendChild(sum);
+    const tip = document.createElement("p");
+    tip.className = "hint";
+    tip.textContent = tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic");
+    row.appendChild(tip);
+    box.appendChild(row);
+  });
+}
+
 function openBankMailModal_(opts) {
   opts = opts || {};
   bm_.onClose = opts.onClose || null;
@@ -7364,14 +7454,16 @@ function openBankMailModal_(opts) {
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
-  bmEl_("bm-banks").textContent = (info.banks || []).length ? tr("bankMail.supported", { banks: info.banks.join(", ") }) : "";
+  renderBankAlerts_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  if (typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
 }
 
 function closeBankMailModal_() {
   bmEl_("bank-mail-modal-backdrop").hidden = true;
+  if (typeof TourScenes !== "undefined") TourScenes.stop();
   const done = bm_.onClose;
   bm_.onClose = null;
   if (done) done();
