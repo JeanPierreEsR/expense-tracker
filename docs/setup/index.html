@@ -163,6 +163,7 @@
   @keyframes tap { 50% { transform:scale(.7); } }
   @media (prefers-reduced-motion: reduce) { .msc, .msc .sc, .mock .finger, .msc .sw, .msc .sw::after { transition:none; } .mock .finger.press { animation:none; } }
   body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
+  body.updating main >:not(#updateCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../signin-link.js"></script>
@@ -398,10 +399,13 @@ const T = {
     sheetNoteBody: 'Your data will live in the Google Sheet “Expense Tracker” being created in your Google Drive. Please don’t delete or rename it.',
     sheetNoteWait: 'Just wait: the progress is at the top of the page.',
     title: 'Set up your Expense Tracker app',
+    updPageTitle: 'Update your Expense Tracker app',
     inAppWarn: 'It looks like this page was opened inside another app (WhatsApp, Facebook, Instagram…). Google may refuse to sign you in here. Tap the <b>•••</b> or Share button and choose <b>Open in Safari</b>.',
     ready: 'Ready. Tap “Set up my app” to begin.',
     rmReady: 'Ready. Tap the red button to finish deleting.',
+    updReady: 'Ready. Tap “Update my app” to begin.',
     allDone: '✓ Your app is ready.',
+    allDoneUpdate: '✓ Your app is up to date. Close it and open it again from its icon on your Home Screen.',
     keepOpen: 'Please keep this screen open and your phone unlocked until it finishes.',
     stepSetup: 'Step 1 of 2',
     stepAllow: 'Step 2 of 2',
@@ -590,10 +594,13 @@ const T = {
     sheetNoteBody: 'Tus datos vivirán en el archivo de Google Sheets “Expense Tracker” que se está creando en tu Google Drive. Por favor no lo borres ni le cambies el nombre.',
     sheetNoteWait: 'Solo espera: el avance está arriba en la página.',
     title: 'Configura tu app Expense Tracker',
+    updPageTitle: 'Actualiza tu app Expense Tracker',
     inAppWarn: 'Parece que abriste esta página dentro de otra app (WhatsApp, Facebook, Instagram…). Google puede negarse a iniciar sesión aquí. Toca el botón <b>•••</b> o Compartir y elige <b>Abrir en Safari</b>.',
     ready: 'Lista. Toca “Configurar mi app” para empezar.',
     rmReady: 'Listo. Toca el botón rojo para terminar de borrar.',
+    updReady: 'Lista. Toca “Actualizar mi app” para empezar.',
     allDone: '✓ Tu app está lista.',
+    allDoneUpdate: '✓ Tu app está al día. Ciérrala y ábrela de nuevo desde su ícono en la pantalla de inicio.',
     keepOpen: 'Por favor deja esta pantalla abierta y el celular desbloqueado hasta que termine.',
     stepSetup: 'Paso 1 de 2',
     stepAllow: 'Paso 2 de 2',
@@ -722,6 +729,10 @@ const T = {
 }[LANG];
 const WANT_REMOVE = /(^|[#&?])remove\b/.test(location.hash + location.search);   // the app's "Delete everything" opens this page that way
 if (WANT_REMOVE) { document.body.classList.add('removing'); document.querySelector('h1').setAttribute('data-t', 'rmPageTitle'); }
+const WANT_UPDATE = /(^|[#&?])update\b/.test(location.hash + location.search);   // the app's "Update available" button opens this page that way
+// An update asks Google for nothing new and touches nothing the install cards cover, so none of them belong on screen here —
+// same trick as "removing" above (owner, 2026-10-24: the update page looked identical to a fresh install and confused people).
+if (WANT_UPDATE) { document.body.classList.add('updating'); document.querySelector('h1').setAttribute('data-t', 'updPageTitle'); }
 document.querySelectorAll('[data-t]').forEach((el) => { el.innerHTML = T[el.getAttribute('data-t')]; });
 // "More info": the long explanation lives behind a tap, in a sheet of its own, so the page itself stays short.
 document.querySelectorAll('[data-more]').forEach((b) => {
@@ -1589,6 +1600,7 @@ async function versionCount() {
 }
 // "Update my app": the same permissions, so Google asks for nothing new. Works from any phone signed in to the person's Google account:
 // the app is found again in Drive (restoreIfNeeded) and its own sign-in code is left alone.
+let updateJustDone = false;   // true once an update finishes here: switches the top banner to the "close and reopen" wording (render(), below)
 async function updateMyApp() {
   progress(T.p_google, 5, T.stepUpdate);
   await restoreIfNeeded(true);
@@ -1600,6 +1612,7 @@ async function updateMyApp() {
   if (n >= 190) throw new Error(T.versionCap);
   await update(false, !state.accessCode);
   say('sUpd', T.updDone);
+  updateJustDone = true;
 }
 
 // "Delete everything", step 2 (step 1 is backend/EraseAll.gs, done from the app): permanently deletes every app this page made in the
@@ -1808,13 +1821,12 @@ function render(failed) {
   }
   if (!busy && !failed && !apiRetryTimer && !WANT_REMOVE) {   // the delete page writes its own status (removeEverything)
     if (state.pending) setTop('wait', T.stepAdd, T.p_wait);
-    else if (state.permissionDone) setTop('ok', '', T.allDone, 100);
+    else if (state.permissionDone) setTop('ok', '', (WANT_UPDATE && updateJustDone) ? T.allDoneUpdate : T.allDone, 100);
     else if (state.pending || state.webAppUrl) setTop('wait', state.pending ? T.stepAdd : T.stepAllow, T.p_wait);
     else setTop('idle', '', T.ready, 0);
   }
   if (!busy && approvalTarget()) watchForApproval();
 }
-const WANT_UPDATE = /(^|[#&?])update\b/.test(location.hash + location.search);   // the app's "Update available" button opens this page that way
 let busy = false;
 async function run(boxId, fn, btnId, step) {
   if (busy) return;
@@ -1910,6 +1922,7 @@ if (WANT_UPDATE) setTimeout(() => { try { $('updateCard').scrollIntoView({ block
 log('Ready (' + LANG + ').' + (state.webAppUrl ? ' Resuming an earlier test.' : ''));
 handleReturn();
 if (WANT_REMOVE) setTop('idle', '', T.rmReady, 0);
+if (WANT_UPDATE) setTop('idle', '', T.updReady, 0);
 </script>
 </body>
 </html>
