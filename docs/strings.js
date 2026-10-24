@@ -241,7 +241,6 @@
     "home.paceLegendPrev": { en: "Last month", es: "Mes pasado" },
     "home.budgetTitle": { en: "Monthly budget", es: "Presupuesto mensual" },
     "home.budgetOf": { en: "of {total}", es: "de {total}" },
-    "home.invested": { en: "Invested", es: "Invertido" },
     "home.budgetLeft": { en: "{amount} left", es: "Quedan {amount}" },
     "home.budgetOver": { en: "{amount} over", es: "Te pasaste por {amount}" },
     "home.budgetDays": { en: "Days left: {n}", es: "Días restantes: {n}" },

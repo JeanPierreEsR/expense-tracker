@@ -4170,7 +4170,7 @@ function homeMainCard_(g) {
     <div class="home-four">
       <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("home.invested"))}</span><b>${homeShort_(m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
     </div>`;
 
