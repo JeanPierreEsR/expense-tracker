@@ -405,3 +405,44 @@ test("amounts are rounded to the cent the same way for money out and money in (a
   const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
   assert.deepEqual(r.lines.map((l) => l.amount), [-100.13, 100.13], "an expense and an income of the same size come out the same size");
 });
+
+// ---- a Type column: apps that write unsigned amounts, and the only way a line becomes a transfer ----
+
+test("with unsigned amounts, the Type column says which way the money went", () => {
+  const rows = ST.parseCsv("Date,Account,Type,Category,Amount,Note\n2019-05-02,Cash,Expense,Food,12.50,Lunch\n2019-05-03,Cash,Income,Salary,2000,Pay\n2019-05-04,Cash,Gasto,Food,8,Cafe\n");
+  const m = ST.guessMapping(rows);
+  assert.equal(m.type, 2);
+  const r = ST.applyMapping(rows, { ...m, currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => l.amount), [-12.5, 2000, -8]);
+});
+
+test("with signed amounts the sign wins and the Type column is not needed", () => {
+  const rows = ST.parseCsv("Date,Type,Amount,Note\n2019-05-02,Expense,-12.50,Lunch\n2019-05-03,Income,2000,Pay\n");
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => l.amount), [-12.5, 2000]);
+});
+
+test("a line is a transfer only when the file says so (a Type or a category that is plainly 'Transfer'), never from its note", () => {
+  const rows = ST.parseCsv("Date,Account,Type,Category,Amount,Note\n" +
+    "2019-05-02,Cash,Transfer,Transfer,-100,To savings\n" +
+    "2019-05-02,Savings,Transfer,Transfer,100,From cash\n" +
+    "2019-05-03,Cash,Expense,Bills,-45,transferencia del vehículo\n" +
+    "2019-05-04,Cash,Expense,Transferencia,-30,x\n");
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => !!l.transfer), [true, true, false, true], "the note that says 'transferencia' is just a note");
+});
+
+test("a transfer with unsigned amounts has no direction, so it is left out and counted", () => {
+  const rows = ST.parseCsv("Date,Type,Amount,Note\n2019-05-02,Expense,12,Lunch\n2019-05-02,Transfer,100,Move\n");
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
+  assert.equal(r.lines.length, 1);
+  assert.deepEqual(r.skipped, [{ row: 3, reason: "transfer" }]);
+});
+
+test("Type words: only plain ones count", () => {
+  assert.equal(ST.typeKind("Transferencia"), "transfer");
+  assert.equal(ST.typeKind(" EXPENSE "), "expense");
+  assert.equal(ST.typeKind("Ingreso"), "income");
+  assert.equal(ST.typeKind("Pago de tarjeta"), "");
+  assert.equal(ST.typeKind(""), "");
+});

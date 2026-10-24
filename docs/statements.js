@@ -641,7 +641,7 @@
     const known = StatementTable.recognize(guess.headers);
     const fromSource = saved && saved.found ? saved.mapping : (known ? known.mapping : null);
     if (fromSource) {
-      ["date", "description", "amount", "out", "in", "currency", "account", "category"].forEach((f) => {
+      ["date", "description", "amount", "out", "in", "currency", "account", "category", "type"].forEach((f) => {
         if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
       });
       ["dateOrder", "decimal", "sign", "currencyFixed", "source"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
@@ -694,6 +694,7 @@
         <p class="hint">${escapeHtml(tr("table.appExportHint"))}</p>
         ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
         ${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}
+        ${sel("type", tr("table.colType"), colOptions(state.m.type, true))}
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
         ${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}
@@ -771,7 +772,9 @@
       box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(lines.length ? tr("table.previewLines", { n: lines.length, from: fmtDate(dates[0], true), to: fmtDate(dates[dates.length - 1], true) }) : "—")}</span><span></span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
-        ${r.skipped.length ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.length }))}</p>` : ""}
+        ${r.skipped.some((x) => x.reason !== "transfer") ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.filter((x) => x.reason !== "transfer").length }))}</p>` : ""}
+        ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
+        ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${categoryNote(lines)}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
@@ -797,6 +800,7 @@
       else if (cls === "in") state.m.in = Number(v);
       else if (cls === "currency") state.m.currency = Number(v);
       else if (cls === "acol") { state.m.account = Number(v); renderValues(); syncControlsFromState(); }
+      else if (cls === "type") state.m.type = Number(v);
       else if (cls === "cat") { state.m.category = Number(v); if (!appTouched && state.m.category >= 0) { state.m.source = "app"; $q("app").checked = true; } }
       else if (cls === "app") { appTouched = true; state.m.source = e.target.checked ? "app" : ""; }
       else if (cls === "order") state.m.dateOrder = v;
@@ -851,7 +855,7 @@
       const label = typed || state.label || (byAccount.size === 1 ? pmById([...byAccount.keys()][0]).nickname : "") || "";
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
       callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave,
-        mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category,
+        mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       // A re-read of the same file replaces its earlier reading.
       usable = usable.filter((u) => (u.group || u.file) !== file.name);
@@ -865,7 +869,7 @@
     renderValues();
     syncControlsFromState();
     setVal("out", state.m.out); setVal("in", state.m.in); setVal("amount", state.m.amount); setVal("desc", state.m.description); setVal("date", state.m.date); setVal("currency", state.m.currency);
-    setVal("acol", state.m.account); setVal("cat", state.m.category);
+    setVal("acol", state.m.account); setVal("cat", state.m.category); setVal("type", state.m.type);
     if (state.accountId && !remembered) applyAccountGuess();
     syncControlsFromState();
     renderPreview();
@@ -893,7 +897,7 @@
       period: result.period,
       balances: result.balances,
       verified: !!(result.ok && result.verified !== false),
-      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category }))
+      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
     }));
   }
 
@@ -1333,7 +1337,7 @@
       statements: usable.map(({ file, result }) => ({
         key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
         verified: !!(result.ok && result.verified !== false), balances: result.balances,
-        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category }))
+        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
       actions: historyActions()

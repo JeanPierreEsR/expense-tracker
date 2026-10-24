@@ -133,3 +133,35 @@ test("an app's export lines never pair with a bank statement's lines as one tran
   const p = plan(rt, [appStmt("app"), bank]);
   assert.equal(p.summary.counts.transfers, 0, "the app's 'pago tarjeta credito' is an expense it recorded, not the other half of the bank's line");
 });
+
+// ---- explicit transfers in an app's export ----
+
+test("lines the file marks as transfers pair across accounts into ONE transfer; every other line stays an expense or income", () => {
+  const { rt } = setup();
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-two', nickname: 'App Savings', type: 'debit', bank_id: '', last_4: '', currency: 'PEN' });`);
+  const cash = { key: "ACCT-pm-csv", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "a.csv", period: { start: "2019-05-02", end: "2019-05-04" }, lines: [
+    { date: "2019-05-02", description: "To savings", amount: -100, currency: "PEN", transfer: true },
+    { date: "2019-05-03", description: "transferencia vehicular", amount: -45, currency: "PEN" },
+    { date: "2019-05-04", description: "Lunch", amount: -12, currency: "PEN" }] };
+  const sav = { key: "ACCT-pm-two", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "a.csv", period: { start: "2019-05-02", end: "2019-05-02" }, lines: [
+    { date: "2019-05-02", description: "From cash", amount: 100, currency: "PEN", transfer: true }] };
+  const p = plan(rt, [cash, sav]);
+  assert.equal(p.summary.counts.transfers, 1, "the two marked lines are one transfer");
+  assert.equal(p.summary.counts.expenses, 2, "the 'transferencia' note and the lunch are expenses");
+  save(rt, [cash, sav], p.actions, false);
+  const rows = made(rt);
+  assert.equal(rows.filter((e) => e.type === "transfer").length, 1);
+  assert.equal(rows.filter((e) => e.type === "expense").length, 2);
+});
+
+test("a marked transfer whose other side is not in the file waits for it, and is never spending", () => {
+  const { rt } = setup();
+  const only = { key: "ACCT-pm-csv", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "a.csv", period: { start: "2019-05-02", end: "2019-05-03" }, lines: [
+    { date: "2019-05-02", description: "To savings", amount: -100, currency: "PEN", transfer: true },
+    { date: "2019-05-03", description: "Lunch", amount: -12, currency: "PEN" }] };
+  const p = plan(rt, [only]);
+  assert.equal(p.summary.counts.expenses, 1, "only the lunch");
+  assert.equal(p.summary.leftOut.waiting, 1);
+  assert.equal(p.summary.aside.length, 1);
+  assert.equal(p.summary.aside[0].description, "To savings");
+});

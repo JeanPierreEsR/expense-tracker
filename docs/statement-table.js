@@ -537,6 +537,7 @@
     description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
     account: /^(wallet|cartera|billetera|account|account name|cuenta|nombre de la cuenta|nombre de cuenta)$/,
     category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
+    type: /^(type|tipo|transaction type|tipo de transaccion|tipo de movimiento|income\/expense|ingreso\/gasto|entry type)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
     amountLoose: /monto|importe|amount/,
     out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out/,
@@ -559,7 +560,7 @@
     for (var c = 0; c < width; c++) headers.push(hr >= 0 ? cellText(rows[hr][c]) : '');
     var h = headers.map(norm);
     function find(re, used) { for (var i = 0; i < h.length; i++) if (h[i] && re.test(h[i]) && used.indexOf(i) < 0) return i; return -1; }
-    var used = [], m = { headerRow: hr, hasHeader: hr >= 0, headers: headers, date: -1, description: -1, amount: -1, out: -1, in: -1, currency: -1, account: -1, category: -1 };
+    var used = [], m = { headerRow: hr, hasHeader: hr >= 0, headers: headers, date: -1, description: -1, amount: -1, out: -1, in: -1, currency: -1, account: -1, category: -1, type: -1 };
     m.date = find(HEADER_WORDS.date, used); if (m.date < 0) m.date = find(HEADER_WORDS.dateLoose, used);
     if (m.date >= 0) used.push(m.date);
     m.currency = find(HEADER_WORDS.currency, used); if (m.currency >= 0) used.push(m.currency);
@@ -570,6 +571,7 @@
     if (m.out >= 0 && m.in >= 0) { used.push(m.out, m.in); }
     else { m.out = -1; m.in = -1; }
     if (m.out < 0) { m.amount = find(HEADER_WORDS.amount, used); if (m.amount < 0) m.amount = find(HEADER_WORDS.amountLoose, used); if (m.amount >= 0) used.push(m.amount); }
+    m.type = find(HEADER_WORDS.type, used); if (m.type >= 0) used.push(m.type);
     m.description = find(HEADER_WORDS.description, used); if (m.description >= 0) used.push(m.description);
 
     // No usable words in the header (or no header at all): decide from the values.
@@ -581,7 +583,7 @@
     if (m.out < 0 && m.amount < 0) {
       var numericCols = [];
       for (var a = 0; a < width; a++) {
-        if (a === m.date || a === m.currency || a === m.account || a === m.category) continue;
+        if (a === m.date || a === m.currency || a === m.account || a === m.category || a === m.type) continue;
         var vals = columnValues(rows, first, a);
         if (vals.length && vals.filter(looksNumeric).length >= vals.length * 0.8) numericCols.push(a);
       }
@@ -591,7 +593,7 @@
     if (m.description < 0) {
       var longest = -1, longestLen = 0;
       for (var t = 0; t < width; t++) {
-        if (t === m.date || t === m.amount || t === m.out || t === m.in || t === m.currency || t === m.account || t === m.category) continue;
+        if (t === m.date || t === m.amount || t === m.out || t === m.in || t === m.currency || t === m.account || t === m.category || t === m.type) continue;
         var tv = columnValues(rows, first, t), avg = tv.length ? tv.reduce(function (s, v) { return s + cellText(v).length; }, 0) / tv.length : 0;
         if (tv.filter(function (v) { return !looksNumeric(v) && !dateParts(v); }).length >= tv.length * 0.6 && avg > longestLen) { longest = t; longestLen = avg; }
       }
@@ -613,6 +615,19 @@
     return m;
   }
 
+  // What a Type column (or a category called "Transfer") says about a line: 'expense', 'income', 'transfer' or '' (unknown).
+  // Only a plain statement of it counts — a line is a transfer ONLY when the file says so, never from the wording of a note.
+  var TYPE_WORDS = {
+    transfer: /^(transfer|transfers|transferencia|transferencias|traspaso|traspasos|transfer between accounts|transferencia entre cuentas)$/,
+    expense: /^(expense|expenses|gasto|gastos|egreso|egresos|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
+    income: /^(income|ingreso|ingresos|credit|credito|deposit|deposito|entrada|inflow|abono)$/
+  };
+  function typeKind(value) {
+    var t = norm(value);
+    if (!t) return '';
+    return ['transfer', 'expense', 'income'].filter(function (k) { return TYPE_WORDS[k].test(t); })[0] || '';
+  }
+
   // To the cent, the same way for money out and money in: a half cent goes away from zero (JavaScript's own Math.round sends -2.5 to -2, so
   // expenses would lose a cent at every tie while income did not — found on a real export with 124 such amounts). The tiny extra absorbs
   // binary noise (1.005 is stored as 1.00499999…).
@@ -624,6 +639,10 @@
   function applyMapping(rows, m, opts) {
     var tz = opts && opts.timeZone;
     var lines = [], skipped = [], start = m.headerRow >= 0 ? m.headerRow + 1 : 0;
+    // Do the amounts carry their own sign (money out is negative)? If so the sign wins; if not (every amount positive), a Type column
+    // says which way the money went.
+    var signed = false;
+    if (m.amount >= 0) for (var q = start; q < rows.length && !signed; q++) { var pv = parseAmount(rows[q][m.amount], m.decimal); if (pv < 0) signed = true; }
     for (var i = start; i < rows.length; i++) {
       var r = rows[i];
       var date = m.date >= 0 ? toIsoDate(r[m.date], m.dateOrder, tz) : '';
@@ -638,11 +657,18 @@
         amount = isNaN(v) ? NaN : (m.sign === 'positive' ? -v : v);
       }
       if (isNaN(amount) || Math.abs(amount) < 0.005) { skipped.push({ row: i + 1, reason: 'amount' }); continue; }
+      var kind = m.type >= 0 ? typeKind(r[m.type]) : '';
+      var catText = m.category >= 0 ? cellText(r[m.category]) : '';
+      var isTransfer = kind === 'transfer' || (m.category >= 0 && typeKind(catText) === 'transfer');
+      if (m.out < 0 && m.in < 0 && !signed && (kind === 'expense' || kind === 'income')) amount = (kind === 'expense' ? -1 : 1) * Math.abs(amount);
+      // A transfer with unsigned amounts has no direction: the file does not say which account it left, so it is left out and counted.
+      if (isTransfer && !signed && m.out < 0 && m.in < 0) { skipped.push({ row: i + 1, reason: 'transfer' }); continue; }
       var description = m.description >= 0 ? cellText(r[m.description]).replace(/\s+/g, ' ').trim() : '';
       var category = m.category >= 0 ? cellText(r[m.category]).replace(/\s+/g, ' ').trim() : '';
       var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || m.currencyFixed || 'PEN';
       var line = { date: date, description: description || category || '—', amount: roundCents(amount), currency: currency };
       if (category) line.category = category;
+      if (isTransfer) line.transfer = true;
       if (m.account >= 0) line.account = cellText(r[m.account]).replace(/\s+/g, ' ').trim();
       lines.push(line);
     }
@@ -668,7 +694,7 @@
   // person confirms once is remembered on the server under its own tag (backend/StatementFormats.gs).
   var KNOWN_FORMATS = [
     { id: 'spendee', name: 'Spendee export', requires: ['date', 'wallet', 'category name', 'amount', 'currency'],
-      columns: { date: 'date', description: 'note', amount: 'amount', currency: 'currency', account: 'wallet', category: 'category name' },
+      columns: { date: 'date', description: 'note', amount: 'amount', currency: 'currency', account: 'wallet', category: 'category name', type: 'type' },
       sign: 'negative', decimal: '.', dateOrder: 'dmy', source: 'app' }
   ];
 
@@ -700,6 +726,6 @@
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
-    roundCents: roundCents, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    roundCents: roundCents, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

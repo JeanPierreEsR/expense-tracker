@@ -86,6 +86,7 @@ function stmtLooksLikeTransfer_(description) {
 
 function stmtClassifyLine_(line) {
   // A line from an app's export (Spendee…) is something the person recorded themselves: its wording says nothing about fees or card payments.
+  if (line.transferMark) return 'payment';   // explicitly a transfer: it pairs with its other leg, or waits for it
   if (line.appLine) return line.amount > 0 ? 'income' : 'expense';
   var d = String(line.description || '').toUpperCase();
   if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
@@ -266,7 +267,8 @@ function matchStatements_(statements, entries, opts) {
       if (a.key === b.key || a.pmId === b.pmId || a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
       var dd = Math.abs(stmtDayNumber_(a.l.date) - stmtDayNumber_(b.l.date));
       if (dd > STMT_PAIR_WINDOW_DAYS) return;
-      if (!STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
+      // Both sides marked as transfers by the file itself pair like worded ones; one marked side alone does not.
+      if (!(a.l.transferMark && b.l.transferMark) && !STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
       edges[ai].push({ bi: bi, dd: dd });
     });
     edges[ai].sort(function (x, y) { return x.dd - y.dd; });

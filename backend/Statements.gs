@@ -340,7 +340,8 @@ function analyzeStatements(payload) {
       lines: (s.lines || []).map(function (l, i) {
         var flags = {};
         if (handledRows[lineKeys[idx][i]]) flags.handled = true;
-        if (s.source === 'app') flags.appLine = true;   // an app's export: no bank-wording rules (see stmtClassifyLine_)
+        if (l.transfer) flags.transferMark = true;       // the file itself says this line is a transfer (a Type column): the only thing that makes an app line one
+        else if (s.source === 'app') flags.appLine = true;   // an app's export: no bank-wording rules (see stmtClassifyLine_)
         return Object.keys(flags).length ? Object.assign({}, l, flags) : l;
       }) };
   });
@@ -438,7 +439,7 @@ function analyzeStatements(payload) {
         }
         // Looks like money moving between accounts but no partner line and no open
         // transfer to complete: its other statement simply isn't here (yet).
-        if (!r.pairedWith && !o.possible && r.guess !== 'fee' && s.source !== 'app' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
+        if (!r.pairedWith && !o.possible && r.guess !== 'fee' && (s.source !== 'app' || l.transfer) && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
           o.waiting = true;
           counts.waiting++;
           // It may really be an ordinary purchase: offer a category in case the owner adds it as an expense.
