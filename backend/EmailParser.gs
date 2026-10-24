@@ -575,7 +575,27 @@ function getEmailInfo_() {
   }
   var seen = {};
   EMAIL_RULES.forEach(function (r) { if (r.bank) seen[r.bank] = true; });
-  return { address: address, banks: Object.keys(seen) };
+  var settings = getSettingsMap();
+  // `seen`: the day of the newest e-mail read for each bank ({} until the first one arrives); `since`: when the welcome questions were
+  // answered (epoch milliseconds, '' on older copies). The app uses both to tick each bank and to say "no e-mail from X yet".
+  return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || '') };
+}
+
+// Settings `bank_mail_seen` = JSON {bank: 'yyyy-mm-dd'}: the day of the newest e-mail that became an entry, per bank. It is JSON on
+// purpose: a bare date in a Settings cell would be turned into a date by Sheets (see the text-date trap in the specs).
+function bankMailSeenMap_(settings) {
+  try {
+    var map = JSON.parse(String((settings || getSettingsMap()).bank_mail_seen || '{}'));
+    return (map && typeof map === 'object') ? map : {};
+  } catch (err) { return {}; }
+}
+
+function noteBankMailSeen_(bank, dateStr) {
+  if (!bank || !dateStr) return;
+  var map = bankMailSeenMap_();
+  if (map[bank] && String(map[bank]) >= String(dateStr)) return;   // only a newer day changes anything (each change bumps the sheet cache)
+  map[bank] = String(dateStr);
+  setSetting_('bank_mail_seen', JSON.stringify(map));
 }
 
 function uniqueSenders_() {
@@ -756,6 +776,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   appendRowObject('Entries', entry);
   autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;
+  try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }   // More → Bank emails ticks this bank
 
   var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
   // The entry is already saved as pending, so a failed Telegram send must

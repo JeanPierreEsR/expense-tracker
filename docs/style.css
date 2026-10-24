@@ -2865,3 +2865,38 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 16px 0 2px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
 .day-head:first-child { margin-top: 2px; }
 .day-head .day-total { font-variant-numeric: tabular-nums; }
+
+/* Home "Getting started" card */
+.first-steps-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.first-steps-head h2 { margin: 0; }
+.first-steps-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.first-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 10px 0; font: inherit; color: inherit; cursor: pointer; }
+.first-step.done { cursor: default; color: var(--muted); }
+.first-step.done b { font-weight: 500; text-decoration: line-through; }
+.first-step-mark { width: 22px; flex: none; text-align: center; font-weight: 700; color: var(--muted); }
+.first-step.done .first-step-mark { color: #2e9e5b; }
+.first-step-body { display: flex; flex-direction: column; gap: 2px; }
+.first-step-body .hint { margin: 0; }
+.first-step.late .hint { color: #b26a00; font-weight: 600; }
+
+/* More → Bank emails: short sheet, one tap-to-open row per bank, long text behind "details" (tour-scenes.js SCENES.bankalerts draws the animation) */
+.bm-stage { margin-top: 4px; margin-bottom: 4px; }
+.bm-stage .ts-phone { height: auto; min-height: 0; padding-bottom: 10px; }
+.ts-mail { display: flex; align-items: center; gap: 8px; }
+.ts-mail-who { flex: 1; min-width: 0; }
+.ts-mail-icon { font-size: 18px; }
+.ts-arrow { text-align: center; color: var(--muted); font-size: 16px; line-height: 1.2; padding: 2px 0; }
+.bm-alerts { margin: 4px 0 8px; }
+.bm-bank { border-top: 1px solid var(--border); padding: 8px 0; }
+.bm-bank:last-child { border-bottom: 1px solid var(--border); }
+.bm-bank summary { display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.bm-bank summary::-webkit-details-marker { display: none; }
+.bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
+.bm-bank[open] summary::after { transform: rotate(90deg); }
+.bm-bank summary b { flex: 1; }
+.bm-status { font-size: 0.8rem; color: var(--muted); }
+.bm-status.ok { color: #2e9e5b; font-weight: 600; }
+.bm-status.wait { color: #b26a00; font-weight: 600; }
+.bm-bank .hint { margin: 6px 0 0; }
+.bm-more { margin: 10px 0; }
+.bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
