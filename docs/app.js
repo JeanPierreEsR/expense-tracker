@@ -2037,7 +2037,9 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
 // A brief, non-error confirmation in the same spot #form-error normally
 // shows validation problems — reused rather than a new toast system, just
 // recolored and auto-cleared so it doesn't linger like a real error would.
+let lastFormNotice_ = "";   // what the sheet closes with, so the notice isn't lost with the form
 function showFormNotice_(text) {
+  lastFormNotice_ = text;
   const el = document.getElementById("form-error");
   el.style.color = "var(--income)";
   el.textContent = text;
@@ -2056,6 +2058,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
+  lastFormNotice_ = "";
   submitBtn.disabled = true;
   // Captured before anything below runs — the editingEntryId/
   // confirmingPendingId branches null it out themselves (exitEditMode)
@@ -2363,6 +2366,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
+    // A brand-new entry made in the sheet: the sheet closes, a short toast says it
+    // landed (or what became of it: a Programmed item, a repayment…), and whatever
+    // is showing behind it refreshes.
+    if (newEntrySheetOpen_) {
+      closeNewEntrySheet_();
+      showToast_(lastFormNotice_ || tr("entry.savedToast"));
+      afterNewEntrySaved_();
+    }
     if (splitSaveFailed) {
       alert(tr("entry.splitSaveFailed"));
     } else if (billSaveFailed) {
@@ -2565,7 +2576,8 @@ function buildEntryRow_(entry) {
     // applyQueuedEditOverlay_ — so editing and saving again, even
     // unchanged, naturally retries it.
     if (blockedWhileSavingEdit_(entry.id)) return;
-    startEditEntry(entry);
+    currentDrilldown = null;   // nothing underneath to refresh: the list re-renders itself
+    openEditPopup(entry);
   });
   return row;
 }
@@ -2654,8 +2666,44 @@ function renderEntryListFromCache_() {
     return;
   }
 
-  entries.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
+  // Grouped by day, newest first (the server already sends them in that order),
+  // each day headed by its name and what it came to: income minus expenses, the
+  // owner's share in the main currency. Transfers and investments don't count.
+  const sameDay = [];
+  const flushDay = () => {
+    if (!sameDay.length) return;
+    const head = document.createElement("div");
+    head.className = "day-head";
+    let net = 0;
+    sameDay.forEach((e) => {
+      const pen = e.own_share_pen != null ? Number(e.own_share_pen) : (e.amount_pen != null ? Number(e.amount_pen) : null);
+      if (pen == null) return;
+      if (e.type === "expense") net -= pen;
+      else if (e.type === "income") net += pen;
+    });
+    const total = Math.abs(net) < 0.005 ? "" : `${net < 0 ? "−" : "+"}${formatPen(Math.abs(net))}`;
+    head.innerHTML = `<span>${escapeHtml(dayHeadLabel_(sameDay[0].date))}</span><span class="day-total">${total}</span>`;
+    list.appendChild(head);
+    sameDay.forEach((e) => list.appendChild(buildEntryRow_(e)));
+    sameDay.length = 0;
+  };
+  entries.forEach((entry) => {
+    if (sameDay.length && sameDay[0].date !== entry.date) flushDay();
+    sameDay.push(entry);
+  });
+  flushDay();
   setLoadMoreButton_(list, lastRenderedHasMore_);
+}
+
+// "Today", "Yesterday", otherwise the date written out in the current language.
+function dayHeadLabel_(isoDate) {
+  const today = todayLocalISO();
+  if (isoDate === today) return tr("home.today");
+  const y = new Date(today + "T00:00:00");
+  y.setDate(y.getDate() - 1);
+  const yesterday = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+  if (isoDate === yesterday) return tr("home.yesterday");
+  return I18n.fmtDateMedium(new Date(isoDate + "T00:00:00"));
 }
 
 // ---- Entries-tab search: instant, as-you-type ----
@@ -3030,6 +3078,7 @@ function syncCancelNewEntryButton_() {
     entryDateTouched_ = false;
     resetToFreshEntryScreen_();   // also clears the unsaved draft
     document.getElementById("form-error").textContent = "";
+    if (newEntrySheetOpen_) closeNewEntrySheet_();
   });
 })();
 
@@ -3194,6 +3243,9 @@ function resetToFreshEntryScreen_() {
 }
 
 function cancelEdit() {
+  // The ✕ of the new-entry sheet: just close it. Whatever was typed stays as the
+  // unsaved draft (saveEntryDraftNow_), ready for the next time the + is tapped.
+  if (newEntrySheetOpen_) { closeNewEntrySheet_(); return; }
   exitEditMode();
   if (editingViaPopup) {
     resetEntryFormFields_();
@@ -3256,8 +3308,7 @@ function openEditPopup(entry) {
 
 function closeEditPopup() {
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
-  const screenEntries = document.getElementById("screen-entries");
-  screenEntries.insertBefore(document.getElementById("entry-card"), screenEntries.firstChild);
+  document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
   editingViaPopup = false;
 }
 
@@ -3588,6 +3639,7 @@ async function flushEntryEdit_(id) {
         commitEditToLastRendered_(edit);
         unqueueEntryEdit_(id);
         renderEntryListFromCache_();
+        refreshHomeGlance_(true);   // the totals at the top of Home now include this edit
         break;
       }
       // else: replaced mid-flight — loop again and send the newer one.
@@ -3634,7 +3686,8 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
   showScreen("entries");
   const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === failed[0].id);
   if (entry) {
-    startEditEntry(entry);
+    currentDrilldown = null;
+    openEditPopup(entry);
   } else {
     alert(tr("entry.notInList"));
   }
@@ -3922,6 +3975,287 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   });
 }
 
+// ---- New-entry sheet + the round "+" button ----
+// The entry form no longer sits on a screen: it lives in #entry-card-home and is moved
+// into the slide-up pop-up (the same one used to edit an entry) when the "+" is tapped.
+// Moving the node keeps every listener, so saving, splits, tags, repayments, the draft
+// and the rest behave exactly as before. specs/home-tab.md.
+
+let newEntrySheetOpen_ = false;
+
+function openNewEntrySheet_() {
+  if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
+  const backdrop = document.getElementById("edit-entry-modal-backdrop");
+  document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
+  document.getElementById("edit-entry-modal-title").textContent = tr("entry.newTitle");
+  document.getElementById("edit-entry-modal-inner").classList.add("new-entry-sheet");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  newEntrySheetOpen_ = true;
+  restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+}
+
+function closeNewEntrySheet_() {
+  saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  document.getElementById("edit-entry-modal-backdrop").hidden = true;
+  document.getElementById("edit-entry-modal-inner").classList.remove("new-entry-sheet");
+  document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
+  newEntrySheetOpen_ = false;
+}
+
+let appToastTimer_ = null;
+function showToast_(text) {
+  const el = document.getElementById("app-toast");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(appToastTimer_);
+  appToastTimer_ = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+// What has to refresh behind the sheet once a new entry has been saved.
+function afterNewEntrySaved_() {
+  if (!document.getElementById("screen-overview").hidden) {
+    refreshOverview().catch(() => {});
+    refreshBalances().catch(() => {});
+  }
+  refreshHomeGlance_(true);
+}
+
+// The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
+function syncFab_() {
+  const fab = document.getElementById("fab-new-entry");
+  const nav = document.getElementById("bottom-nav");
+  const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
+  const name = visible ? visible.id.replace(/^screen-/, "") : "";
+  fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
+  if (!fab.hidden) fab.style.bottom = (nav.offsetHeight + 14) + "px";
+}
+
+(function setupFab_() {
+  document.getElementById("fab-new-entry").addEventListener("click", openNewEntrySheet_);
+  const watch = new MutationObserver(syncFab_);
+  document.querySelectorAll(".screen, #bottom-nav").forEach((el) => watch.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+  window.addEventListener("resize", syncFab_);
+  syncFab_();
+})();
+
+// ---- Home: the quick glance at the top (swipeable cards) ----
+// One request (getHomeGlance), painted first from the phone's last copy so the top of Home
+// is never an empty wait, then refreshed in the background. Cards, in order: a trip or event
+// running today (one each), the month (big number, the four totals, six months of bars), the
+// spending pace against last month, the monthly budgets. A card with nothing to say isn't
+// shown; with a single card there is no swiping and no dots.
+
+const HOME_GLANCE_CACHE_KEY = "homeGlance_v1";
+const HOME_GLANCE_FRESH_MS = 60 * 1000;
+let homeGlance_ = null;
+let homeGlanceAt_ = 0;
+let homeGlanceBusy_ = null;
+let homeSelectedMonth_ = null;   // 'yyyy-mm' picked by tapping a bar; null = this month
+
+function paintHomeGlanceFromCache_() {
+  if (homeGlance_) return;
+  try {
+    const c = JSON.parse(localStorage.getItem(HOME_GLANCE_CACHE_KEY) || "null");
+    if (c && c.data && c.today === todayLocalISO()) {
+      homeGlance_ = c.data;
+      renderHomeGlance_();
+    }
+  } catch (err) { /* no saved copy: the fetch below fills it */ }
+}
+
+function kickHomeGlance_() {
+  paintHomeGlanceFromCache_();
+  // A little after the app opens, so it never competes with the start-up requests.
+  setTimeout(() => refreshHomeGlance_(false), 2500);
+}
+
+function refreshHomeGlance_(force) {
+  if (homeGlanceBusy_) return homeGlanceBusy_;
+  if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
+  homeGlanceBusy_ = callApi("getHomeGlance", {})
+    .then((data) => {
+      homeGlance_ = data;
+      homeGlanceAt_ = Date.now();
+      try { localStorage.setItem(HOME_GLANCE_CACHE_KEY, JSON.stringify({ today: todayLocalISO(), data })); } catch (err) { /* only a convenience */ }
+      renderHomeGlance_();
+    })
+    .catch(() => { /* a bonus, never an error: keep whatever is showing */ })
+    .finally(() => { homeGlanceBusy_ = null; });
+  return homeGlanceBusy_;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
+});
+
+// Whole numbers with thousands separators, for the four small boxes.
+function homeShort_(n) {
+  const v = Math.round(Math.abs(Number(n)));
+  return v.toLocaleString("en-US");
+}
+
+function homeCardEl_(cls, html) {
+  const el = document.createElement("div");
+  el.className = "home-card " + cls;
+  el.innerHTML = html;
+  return el;
+}
+
+function homeMainCard_(g) {
+  const months = g.months;
+  let idx = months.findIndex((m) => m.month === homeSelectedMonth_);
+  if (idx < 0) idx = months.length - 1;
+  const m = months[idx];
+  const isCurrent = idx === months.length - 1;
+  const [y, mo] = m.month.split("-").map(Number);
+  const label = isCurrent
+    ? tr("home.spentThisMonth")
+    : tr("home.spentIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
+
+  // This month is compared with the same day of last month (a half month against a whole one would
+  // always look like a saving); an earlier month, with the month before it.
+  let base = null;
+  if (isCurrent) {
+    const p = g.pace.prev;
+    base = p.length ? p[Math.min(g.pace.curDay, p.length) - 1] : null;
+  } else if (idx > 0) {
+    base = months[idx - 1].expense;
+  }
+  let delta = "";
+  if (base != null && base > 0.005) {
+    const pct = Math.round(((m.expense - base) / base) * 100);
+    const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
+    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr("home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
+  }
+
+  const net = m.net;
+  const four = `
+    <div class="home-four">
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("home.invested"))}</span><b>${homeShort_(m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
+    </div>`;
+
+  const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
+  const bars = months.map((x, i) => {
+    const mi = Number(x.month.split("-")[1]) - 1;
+    const h = (v) => Math.max(2, Math.round((v / top) * 84));
+    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}">
+      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span>${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
+  }).join("");
+
+  const el = homeCardEl_("home-card-main", `
+    <div class="home-card-label">${escapeHtml(label)}</div>
+    <div class="home-big">${escapeHtml(formatPen(m.expense))}</div>
+    ${delta}
+    ${four}
+    <div class="home-bars">${bars}</div>
+    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span></div>`);
+  el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
+    homeSelectedMonth_ = b.dataset.month;
+    renderHomeGlance_();
+  }));
+  return el;
+}
+
+function homePaceCard_(g) {
+  const p = g.pace;
+  const nowTotal = p.cur.length ? p.cur[p.cur.length - 1] : 0;
+  const thenTotal = p.prev.length ? p.prev[Math.min(p.curDay, p.prev.length) - 1] : 0;
+  if (!nowTotal && !p.prev[p.prev.length - 1]) return null;
+  const days = Math.max(p.curDays, p.prevDays);
+  const top = Math.max(1, nowTotal, p.prev[p.prev.length - 1] || 0);
+  const W = 300, H = 110, pad = 6;
+  const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
+  const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
+  const last = p.cur.length - 1;
+  const [dx, dy] = last >= 0 ? pt(last, p.cur[last]).split(",") : [0, 0];
+  return homeCardEl_("home-card-pace", `
+    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))}</div>
+    <svg class="home-line-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(p.prev)}"/>
+      <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(p.cur)}"/>
+      ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}
+    </svg>
+    <div class="home-pace-lines">
+      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
+      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
+    </div>`);
+}
+
+function homeBudgetCard_(g) {
+  const b = g.budget;
+  if (!b || !(b.totalPen > 0)) return null;
+  const pct = (b.spentPen / b.totalPen) * 100;
+  const left = b.totalPen - b.spentPen;
+  const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
+  const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
+  const facts = [
+    left >= 0 ? tr("home.budgetLeft", { amount: formatPen(left) }) : tr("home.budgetOver", { amount: formatPen(-left) }),
+    tr("home.budgetDays", { n: daysLeft })
+  ];
+  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
+  return homeCardEl_("home-card-budget", `
+    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))}</div>
+    <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
+    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
+    <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
+    <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
+}
+
+function homeTripCard_(t) {
+  const emoji = t.emoji || (t.kind === "event" ? "🎉" : "✈️");
+  const pct = t.budget ? (t.spent / t.budget) * 100 : null;
+  const el = homeCardEl_("home-card-trip", `
+    <div class="home-trip-head">
+      <span class="home-trip-emoji">${escapeHtml(emoji)}</span>
+      <div><div class="home-trip-name">${escapeHtml(t.name)}</div>
+      <div class="home-card-label">${escapeHtml(tr("home.tripDay", { day: t.day, days: t.days }))}</div></div>
+    </div>
+    <div class="home-card-label" style="margin-top:12px">${escapeHtml(tr("home.tripSpent"))}</div>
+    <div class="home-big">${escapeHtml(formatAmount(t.spent, t.currency))}</div>
+    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatAmount(t.budget, t.currency) }))}</div>` : ""}
+    ${pct == null ? "" : `<div class="home-meter"><div class="home-meter-fill ${pct >= 100 ? "over" : pct >= 85 ? "warn" : ""}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>`}`);
+  el.addEventListener("click", () => showTripDetail_(t.id));
+  return el;
+}
+
+function renderHomeGlance_() {
+  const box = document.getElementById("home-glance");
+  const track = document.getElementById("home-glance-track");
+  const dots = document.getElementById("home-glance-dots");
+  if (!homeGlance_) { box.hidden = true; return; }
+  const g = homeGlance_;
+  const cards = (g.trips || []).map(homeTripCard_);   // a trip happening now comes first
+  cards.push(homeMainCard_(g));
+  const pace = homePaceCard_(g);
+  if (pace) cards.push(pace);
+  const budget = homeBudgetCard_(g);
+  if (budget) cards.push(budget);
+
+  const keep = track.scrollLeft;
+  track.replaceChildren(...cards);
+  track.scrollLeft = keep;   // tapping a bar must not jump the swipe position back
+  box.classList.toggle("has-many", cards.length > 1);
+  dots.hidden = cards.length < 2;
+  dots.innerHTML = cards.map(() => "<span></span>").join("");
+  syncHomeDots_();
+  box.hidden = false;
+}
+
+function syncHomeDots_() {
+  const track = document.getElementById("home-glance-track");
+  const spans = document.querySelectorAll("#home-glance-dots span");
+  if (!spans.length || !track.children.length) return;
+  const step = track.children[0].getBoundingClientRect().width + 10;
+  const on = Math.min(spans.length - 1, Math.round(track.scrollLeft / Math.max(1, step)));
+  spans.forEach((s, i) => s.classList.toggle("on", i === on));
+}
+document.getElementById("home-glance-track").addEventListener("scroll", () => requestAnimationFrame(syncHomeDots_), { passive: true });
+
 // ---- Screens / bottom nav ----
 
 const FALLBACK_PALETTE = ["#C9E4F7", "#F7C6D9", "#D9F2D9", "#FFE0B2", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0"];
@@ -3946,6 +4280,9 @@ function showScreen(name) {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
+  if (name === "entries") {
+    refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+  }
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
@@ -5391,6 +5728,7 @@ async function init() {
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
+    kickHomeGlance_();
     perfRecordStartup_("init:cachedPaint", performance.now() - initStart);
     perfRecordStartup_("open→usable", performance.now());
   } else {
@@ -5505,6 +5843,7 @@ async function init() {
       document.getElementById("loading-screen").hidden = true;
       document.getElementById("app").hidden = false;
       document.getElementById("bottom-nav").hidden = false;
+      kickHomeGlance_();
     }
     if (paintedFromCache) {
       // The real open→usable moment was already recorded above, right

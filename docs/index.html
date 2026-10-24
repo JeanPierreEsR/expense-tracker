@@ -116,6 +116,10 @@
         <div id="search-results"></div>
       </div>
 
+      <!-- The new-entry form's home while no sheet is open. It is moved into the
+           pop-up (#edit-entry-modal-body) for a new entry, an edit or a review
+           confirmation, and back here when that closes. -->
+      <div id="entry-card-home" hidden>
       <div class="card" id="entry-card">
         <div class="type-tabs" id="entry-type-tabs">
           <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
@@ -247,6 +251,12 @@
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
         </form>
+      </div>
+      </div>
+
+      <div class="home-glance" id="home-glance" hidden>
+        <div class="home-glance-track" id="home-glance-track"></div>
+        <div class="home-glance-dots" id="home-glance-dots" hidden></div>
       </div>
 
       <p class="hint review-check-status" id="review-check-status" hidden></p>
@@ -784,7 +794,7 @@
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button type="button" class="nav-btn active" data-screen="entries">
-      <span class="nav-icon">📝</span><span data-i18n="nav.entries">Entries</span>
+      <span class="nav-icon">🏠</span><span data-i18n="nav.home">Home</span>
     </button>
     <button type="button" class="nav-btn" data-screen="overview">
       <span class="nav-icon">📊</span><span data-i18n="nav.overview">Overview</span>
@@ -802,6 +812,10 @@
       <span class="nav-icon">⋯</span><span data-i18n="nav.more">More</span>
     </button>
   </nav>
+
+  <!-- The round "+" for a new entry: only on Home and Overview (syncFab_ in app.js). -->
+  <button type="button" id="fab-new-entry" class="fab" hidden data-i18n-aria-label="fab.new" aria-label="New entry">+</button>
+  <div id="app-toast" class="app-toast" role="status" hidden></div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
@@ -1620,7 +1634,7 @@
   </div>
 
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal" id="edit-entry-modal-inner">
       <div class="currency-modal-header">
         <span id="edit-entry-modal-title" data-i18n="entry.editTitle">Edit transaction</span>
         <button type="button" id="edit-entry-modal-close" class="currency-modal-close">✕</button>

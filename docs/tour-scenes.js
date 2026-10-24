@@ -113,11 +113,12 @@
     return { box: b, value: v };
   }
 
-  // The Entries tab: type tabs, a category grid, and (after a category is tapped) the entry form.
+  // The new-entry sheet (opened by the green +): type tabs, a category grid, and (after a category is tapped) the
+  // entry form. Saving closes the sheet, so showForm(p, false) leaves Home with the new entry on top of the list.
   function entriesPhone(stage, ctx, type, form) {
     const tr = ctx.tr;
     const phone = h("div", "ts-phone", null, stage);
-    h("div", "ts-bar", tr("nav.entries"), phone);
+    const bar = h("div", "ts-bar", tr("entry.newTitle"), phone);
     const tabs = {};
     const tabRow = h("div", "ts-types", null, phone);
     ["expense", "income", "investment", "transfer"].forEach((t) => { tabs[t] = h("span", "ts-pill" + (t === type ? " on " + t : ""), tr("type." + t), tabRow); });
@@ -130,7 +131,8 @@
       return tiles;
     };
     let tiles = fillGrid(type);
-    const recent = h("div", "ts-list", null, gridView);
+    const recent = h("div", "ts-list", null, phone);   // Home's list: shown once the sheet has closed
+    recent.hidden = true;
     h("div", "ts-list-title", tr("entries.recent"), recent);
     const rows = h("div", "ts-rows", null, recent);
     const addRow = (name, amt, enter, dot) => {
@@ -147,10 +149,20 @@
     addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48));
     const formView = h("div", "ts-view ts-form", null, phone);
     formView.hidden = true;
-    return { phone, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
+    return { phone, bar, tabRow, recent, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
   }
   const typeOn = (p, t) => Object.keys(p.tabs).forEach((k) => { p.tabs[k].className = "ts-pill" + (k === t ? " on " + t : ""); });
-  const showForm = (p, on) => { p.gridView.hidden = on; p.formView.hidden = !on; };
+  const showForm = (p, on) => {
+    p.gridView.hidden = on;
+    p.formView.hidden = !on;
+    if (on) return;
+    // Saved: the sheet closes and Home is what is left, the new entry at the top of its list.
+    p.gridView.hidden = true;
+    p.formView.hidden = true;
+    p.tabRow.hidden = true;
+    p.recent.hidden = false;
+    p.bar.textContent = p.ctx.tr("nav.home");
+  };
   const typing = (el, parts) => parts.map((txt, i) => (inst) => { el.textContent = txt; });
 
   // ---- add an expense or income: type tab -> category -> the form's fields -> Save entry ----
@@ -830,7 +842,7 @@
     build(stage, ctx) {
       const tr = ctx.tr, cur = ctx.home;
       const phone = h("div", "ts-phone ts-billp", null, stage);
-      h("div", "ts-bar", tr("nav.entries"), phone);
+      h("div", "ts-bar", tr("entry.newTitle"), phone);
       const p = { ctx, phone, finger: makeFinger(stage), tipPct: "", total: "", sel: {}, shown: false };
       p.fmt = (cents) => cur + " " + ctx.money(cents / 100);
       // the expense form, behind the sheet
@@ -1417,7 +1429,7 @@
     build(stage, ctx) {
       const tr = ctx.tr;
       const phone = h("div", "ts-phone", null, stage);
-      h("div", "ts-bar", tr("nav.entries"), phone);
+      h("div", "ts-bar", tr("nav.home"), phone);
       const p = { phone, finger: makeFinger(stage), ctx };
       p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
       h("b", null, tr("review.title") + " (1)", p.card);
