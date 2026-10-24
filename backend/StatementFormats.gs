@@ -14,13 +14,23 @@
  */
 
 var STATEMENT_FORMATS_SHEET_ = 'Statement Formats';
-var STATEMENT_FORMATS_HEADERS_ = ['id', 'signature', 'label', 'mapping_json', 'accounts_json', 'uses', 'created_at', 'updated_at'];
+var STATEMENT_FORMATS_HEADERS_ = ['id', 'signature', 'label', 'mapping_json', 'accounts_json', 'uses', 'created_at', 'updated_at', 'categories_json'];
 var STATEMENT_FORMAT_MAX_JSON_ = 6000;
+var STATEMENT_FORMAT_MAX_CATEGORIES_JSON_ = 20000;   // an app can have a hundred category names
 
 function ensureStatementFormatsSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(STATEMENT_FORMATS_SHEET_);
-  if (sheet) return sheet;
+  if (sheet) {
+    // A tab made before the category mapping existed gets its new column the first time it is needed (same self-heal as other tabs).
+    var headers = getHeaders(sheet);
+    if (headers.indexOf('categories_json') === -1) {
+      sheet.getRange(1, headers.length + 1).setValue('categories_json').setFontWeight('bold');
+      sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+      if (ROWS_MEMO_) delete ROWS_MEMO_[STATEMENT_FORMATS_SHEET_];
+    }
+    return sheet;
+  }
   sheet = ss.insertSheet(STATEMENT_FORMATS_SHEET_);
   var header = sheet.getRange(1, 1, 1, STATEMENT_FORMATS_HEADERS_.length);
   header.setValues([STATEMENT_FORMATS_HEADERS_]);
@@ -51,7 +61,12 @@ function getStatementFormat(payload) {
   getAllRows('Payment Methods').forEach(function (pm) { pmIds[pm.id] = true; });
   var accounts = parseJsonSafe_(row.accounts_json, {});
   Object.keys(accounts).forEach(function (k) { if (!pmIds[accounts[k]]) delete accounts[k]; });
-  return { found: true, label: row.label || '', mapping: parseJsonSafe_(row.mapping_json, {}), accounts: accounts, uses: Number(row.uses) || 0 };
+  // The same for a category that was deleted since: that name is decided again (an id that is gone means nothing).
+  var catIds = {};
+  getAllRows('Categories').forEach(function (c) { catIds[c.id] = true; });
+  var categories = parseJsonSafe_(row.categories_json, {});
+  Object.keys(categories).forEach(function (k) { if (k.charAt(0) !== '~' && typeof categories[k] === 'string' && categories[k] !== '' && categories[k] !== 'create' && !catIds[categories[k]]) delete categories[k]; });   // keys starting with ~ are notes about a row (rename / name), not category ids
+  return { found: true, label: row.label || '', mapping: parseJsonSafe_(row.mapping_json, {}), accounts: accounts, categories: categories, uses: Number(row.uses) || 0 };
 }
 
 /**
@@ -63,7 +78,8 @@ function saveStatementFormat(payload) {
   if (!signature) throw new Error(tr_('sf.noSignature'));
   var mapping = JSON.stringify(payload.mapping || {});
   var accounts = JSON.stringify(payload.accounts || {});
-  if (mapping.length > STATEMENT_FORMAT_MAX_JSON_ || accounts.length > STATEMENT_FORMAT_MAX_JSON_) throw new Error(tr_('sf.tooBig'));
+  var categories = JSON.stringify(payload.categories || {});
+  if (mapping.length > STATEMENT_FORMAT_MAX_JSON_ || accounts.length > STATEMENT_FORMAT_MAX_JSON_ || categories.length > STATEMENT_FORMAT_MAX_CATEGORIES_JSON_) throw new Error(tr_('sf.tooBig'));
   var label = String(payload.label || '').replace(/\s+/g, ' ').trim().slice(0, 60);
   var sheet = ensureStatementFormatsSheet_();
   var now = nowTimestamp_();
@@ -71,12 +87,12 @@ function saveStatementFormat(payload) {
   if (row) {
     var headers = getHeaders(sheet);
     var idx = findRowIndexById(sheet, headers, row.id);
-    var fields = { label: label || row.label || '', mapping_json: mapping, accounts_json: accounts, uses: (Number(row.uses) || 0) + 1, updated_at: now };
+    var fields = { label: label || row.label || '', mapping_json: mapping, accounts_json: accounts, categories_json: categories, uses: (Number(row.uses) || 0) + 1, updated_at: now };
     Object.keys(fields).forEach(function (f) { setCellByRow_(sheet, headers, idx, f, fields[f]); });
     return { saved: true, label: fields.label };
   }
   appendRowObject(STATEMENT_FORMATS_SHEET_, { id: Utilities.getUuid(), signature: signature, label: label, mapping_json: mapping,
-    accounts_json: accounts, uses: 1, created_at: now, updated_at: now });
+    accounts_json: accounts, categories_json: categories, uses: 1, created_at: now, updated_at: now });
   return { saved: true, label: label };
 }
 

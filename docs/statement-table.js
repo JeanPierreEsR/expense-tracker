@@ -628,6 +628,12 @@
     return ['transfer', 'expense', 'income'].filter(function (k) { return TYPE_WORDS[k].test(t); })[0] || '';
   }
 
+  // The same normal form of a category name the server uses (backend/StatementCategories.gs catNameNorm_): case, accents and "&" ignored.
+  function catNorm(text) {
+    return String(text === undefined || text === null ? '' : text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   // To the cent, the same way for money out and money in: a half cent goes away from zero (JavaScript's own Math.round sends -2.5 to -2, so
   // expenses would lose a cent at every tie while income did not — found on a real export with 124 such amounts). The tiny extra absorbs
   // binary noise (1.005 is stored as 1.00499999…).
@@ -726,6 +732,6 @@
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
-    roundCents: roundCents, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });
