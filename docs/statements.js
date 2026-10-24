@@ -669,9 +669,16 @@
       state.source = "known"; state.label = known.name;
     }
     const remembered = state.source !== "new";
-    // An app's export (every line is something the person recorded) is told from a bank's by the layout, or by carrying a category column.
-    let appTouched = remembered;
-    if (!state.m.source && state.m.category >= 0) state.m.source = "app";
+    // Statements reads a bank's files and Import data reads another app's: an app's export is told from a bank's by its layout
+    // (known or saved as one) or by carrying a category column. Each screen refuses the other's files.
+    const looksLikeApp = state.source === "known" || state.m.source === "app" || state.m.category >= 0;
+    if (screenMode !== "import" && looksLikeApp) {
+      body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedBank"))}</p>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openImport"))}</button></div>`;
+      body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("import"); window.scrollTo(0, 0); });
+      return;
+    }
+    state.m.source = screenMode === "import" ? "app" : "";   // the screen decides: an import is always an app's export, a statement never
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
       const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
@@ -705,10 +712,8 @@
       <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
       <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
         <label>${escapeHtml(tr("table.layoutName"))}</label><input type="text" class="tm-name" maxlength="60" placeholder="${escapeHtml(tr("table.layoutNameHint"))}" value="${escapeHtml(state.label)}">
-        <label class="tm-app-label" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" class="tm-app"${state.m.source === "app" ? " checked" : ""} style="margin-top:4px"><span>${escapeHtml(tr("table.appExport"))}</span></label>
-        <p class="hint">${escapeHtml(tr("table.appExportHint"))}</p>
         ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
-        ${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}
+        <div${screenMode === "import" ? "" : " hidden"}>${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}</div>
         ${sel("type", tr("table.colType"), colOptions(state.m.type, true))}
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
@@ -904,7 +909,8 @@
         use.disabled = true;
         return;
       }
-      use.disabled = multi() ? (undecided > 0 || !lines.length) : !pm();
+      const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
+      use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : !pm());
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
@@ -915,6 +921,7 @@
         ${r.skipped.some((x) => x.reason !== "transfer") ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.filter((x) => x.reason !== "transfer").length }))}</p>` : ""}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
+        ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
@@ -948,8 +955,7 @@
         return;
       }
       else if (cls === "cname") { const row = e.target.closest(".tm-cat-row"); state.catNames[row.dataset.key] = e.target.value; refreshCategoryRow(row); return; }
-      else if (cls === "cat") { state.m.category = Number(v); if (!appTouched && state.m.category >= 0) { state.m.source = "app"; $q("app").checked = true; } }
-      else if (cls === "app") { appTouched = true; state.m.source = e.target.checked ? "app" : ""; }
+      else if (cls === "cat") state.m.category = Number(v);
       else if (cls === "order") state.m.dateOrder = v;
       else if (cls === "decimal") state.m.decimal = v;
       else if (cls === "mode") {
@@ -1032,7 +1038,16 @@
 
   async function handleStatementFiles(files) {
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    for (const f of Array.from(files)) await (isTableFile(f) ? readTableFile(f) : readStatementFile(f)); // one at a time: easy on a phone's memory
+    for (const f of Array.from(files)) {   // one at a time: easy on a phone's memory
+      if (screenMode === "import" && !isTableFile(f)) {
+        const body = resultCardShell(f.name);
+        body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
+          <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openStatements"))}</button></div>`;
+        body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
+        continue;
+      }
+      await (isTableFile(f) ? readTableFile(f) : readStatementFile(f));
+    }
   }
 
   // ---- review (read-only) ----
