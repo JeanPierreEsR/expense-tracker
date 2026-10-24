@@ -578,11 +578,26 @@ function confirmEntryWithLearning_(entryId) {
 
 // For More → Bank emails and the "this bank can't be read yet" notes: the address whose inbox is read (empty when e-mail
 // reading is off or Google won't say) and the names of the banks that have a parsing rule.
-function getEmailInfo_() {
+// The address whose inbox is read. A friend's copy asks Google for a short list of permissions that does not include "see your
+// own address", so Session.getEffectiveUser().getEmail() comes back EMPTY there; the read-only Gmail permission it does have can
+// name the mailbox (the same getProfile call the installer already makes). Remembered once found: it never changes for a copy.
+function mailboxAddress_() {
+  var props = PropertiesService.getScriptProperties();
+  var saved = props.getProperty('MAILBOX_ADDRESS');
+  if (saved) return saved;
   var address = '';
-  if (featureOn_('gmail')) {
+  if (gmailUsesReadonly_()) {
+    try { address = String(Gmail.Users.getProfile('me').emailAddress || ''); } catch (err) { address = ''; }
+  }
+  if (!address) {
     try { address = String(Session.getEffectiveUser().getEmail() || ''); } catch (err) { address = ''; }
   }
+  if (address) props.setProperty('MAILBOX_ADDRESS', address);
+  return address;
+}
+
+function getEmailInfo_() {
+  var address = featureOn_('gmail') ? mailboxAddress_() : '';
   var seen = {};
   EMAIL_RULES.forEach(function (r) { if (r.bank) seen[r.bank] = true; });
   var settings = getSettingsMap();

@@ -19,6 +19,25 @@ test("without e-mail reading turned on there is no address to show", () => {
   assert.equal(rt.api("getMeta").emailInfo.address, "");
 });
 
+test("a friend's copy shows the mailbox it reads, taken from the read-only Gmail permission", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail");   // an installer copy: no "see your own address" permission (getEffectiveUser throws)
+  assert.equal(rt.api("getMeta").emailInfo.address, "test@example.com");
+});
+
+test("the mailbox address is remembered once found", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail");
+  rt.api("getMeta");
+  assert.equal(rt.svc.props.get("MAILBOX_ADDRESS"), "test@example.com");
+});
+
+test("an old-style copy that cannot name its address says nothing instead of failing", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(rt.api("getMeta").emailInfo.address, "");
+  assert.equal(rt.svc.props.get("MAILBOX_ADDRESS") || "", "");
+});
+
 // ---- "Has an e-mail from this bank arrived yet?" (More → Bank emails ticks each bank; the Home first-steps card uses it too) ----
 const { bcpEmail } = require("./helpers");
 const runMail = (rt) => rt.run("processEmails()");
