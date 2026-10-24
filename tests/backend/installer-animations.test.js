@@ -27,10 +27,17 @@ test("each of the three cards has its drawing, started by the page itself", () =
   assert.ok(!/animShow|data-anim-open/.test(html), "no 'Show me how' button any more");
 });
 
-test("holding the drawing pauses it, and it loops by itself", () => {
-  assert.ok(/addEventListener\('pointerdown', \(\) => hold\(true\)\)/.test(html));
-  assert.ok(/'pointerup', 'pointercancel', 'pointerleave'/.test(html));
+test("a tap moves to the next step, holding pauses it, and it loops by itself", () => {
+  assert.ok(/addEventListener\('pointerdown'/.test(html) && /st\.next\(\)/.test(html), "tap = next step");
+  assert.ok(/hold\(true\)/.test(html) && /\['pointercancel', 'pointerleave'\]/.test(html), "hold = pause");
   assert.ok(/st\.t >= st\.total\) \{ st\.restart\(\)/.test(html), "restarts at the end");
+});
+
+test("the Google setting drawing has the extra step: tap the API row in Settings, THEN the switch", () => {
+  const api = html.slice(html.indexOf("  api: () => ({"), html.indexOf("  signin: () => ({"));
+  const order = [...api.matchAll(/cap: '(c_api\d)'/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ["c_api1", "c_api2", "c_api3", "c_api4"]);
+  assert.ok(/screen: 'a1', cap: 'c_api2', tap: '#t2'/.test(api) && /screen: 'a1b', cap: 'c_api3', tap: '#t3', sw: '#t3'/.test(api));
 });
 
 test("no caption tells the person to tap an 'Allow' / 'Permitir' button", () => {

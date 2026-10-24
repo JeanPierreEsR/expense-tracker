@@ -146,6 +146,8 @@
   .msc .sw { position:relative; width:36px; height:14px; border-radius:7px; background:#bdc1c6; transition:background .3s; flex:none; margin-right:4px; }
   .msc .sw::after { content:""; position:absolute; top:-3px; left:-2px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.45); transition:left .3s, background .3s; }
   .msc .sw.on { background:#8ab4f8; } .msc .sw.on::after { left:18px; background:#1a73e8; }
+  .msc .listrow { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:14px 10px; border-bottom:1px solid #eee; font-size:15px; color:#202124; }
+  .msc .listrow.sel { background:#e8f0fe; font-weight:600; }
   .msc .apiinfo { display:flex; gap:10px; margin-top:14px; font-size:12px; color:#3c4043; }
   .msc .apiinfo ul { margin:6px 0 0; padding-left:16px; }
   .msc .apiinfo li { margin:3px 0; }
@@ -339,7 +341,7 @@ const T = {
     moreLink: 'More info',
     moreClose: 'Close',
     animNext: 'Next ›',
-    animHold: 'Hold the drawing to pause it. It is a drawing of what Google shows; its words may look a little different on your phone.',
+    animHold: 'Tap the drawing for the next step; hold it to pause. It is a drawing of what Google shows; its words may look a little different on your phone.',
     g_signin: 'Sign in with Google',
     g_account: 'Choose an account',
     g_unverified: 'Google hasn’t verified this app',
@@ -370,8 +372,10 @@ const T = {
     g_on: 'On',
     g_off: 'Off',
     c_api1: '1. Tap the blue button. A Google page opens.',
-    c_api2: '2. Find “Google Apps Script API” and tap its switch so it says “On”.',
-    c_api3: '3. Come back to this page. It continues by itself.',
+    c_api2: '2. On Google’s Settings page, tap “Google Apps Script API”.',
+    c_api3: '3. Tap its switch so it says “On”.',
+    c_api4: '4. Come back to this page. It continues by itself.',
+    g_settings: 'Settings',
     c_acct: '1. Google asks you to sign in. Tap your account.',
     c_unver: '2. Google says it hasn’t verified the app. That’s normal: tap the small “Continue” on the left. Never the big blue button.',
     c_all: '3. Check “Select all”.',
@@ -529,7 +533,7 @@ const T = {
     moreLink: 'Más información',
     moreClose: 'Cerrar',
     animNext: 'Siguiente ›',
-    animHold: 'Mantén presionado el dibujo para pausarlo. Es un dibujo de lo que muestra Google; sus palabras pueden verse un poco distintas en tu celular.',
+    animHold: 'Toca el dibujo para ir al paso siguiente; mantenlo presionado para pausar. Es un dibujo de lo que muestra Google; sus palabras pueden verse un poco distintas en tu celular.',
     g_signin: 'Iniciar sesión con Google',
     g_account: 'Selecciona una cuenta',
     g_unverified: 'Google no ha verificado esta aplicación',
@@ -560,8 +564,10 @@ const T = {
     g_on: 'Activado',
     g_off: 'Desactivado',
     c_api1: '1. Toca el botón azul. Se abre una página de Google.',
-    c_api2: '2. Busca “API de Google Apps Script” y toca su interruptor hasta que diga “Activado”.',
-    c_api3: '3. Vuelve a esta página. Continúa sola.',
+    c_api2: '2. En la página de Configuración de Google, toca “API de Google Apps Script”.',
+    c_api3: '3. Toca su interruptor hasta que diga “Activado”.',
+    c_api4: '4. Vuelve a esta página. Continúa sola.',
+    g_settings: 'Configuración',
     c_acct: '1. Google te pide iniciar sesión. Toca tu cuenta.',
     c_unver: '2. Google dice que no verificó la app. Es normal: toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
     c_all: '3. Marca “Seleccionar todo”.',
@@ -753,15 +759,20 @@ const ANIMS = {
     screens: {
       a0: '<div class="sc ourpage"><h4>' + T.title + '</h4><div class="ourbox"><b>' + T.switchTitle + '</b><br>' + T.switchIntro + '</div><span class="ourbtn" id="t1">' + T.switchBtn + '</span></div>',
       a1: '<div class="sc"><div class="top"><span class="ham">☰</span><span class="logo"><i></i>Apps Script</span><span class="search">🔍 ' + T.g_search + '</span><span class="av2">A</span></div>' +
+        '<h4 style="margin-top:16px">' + T.g_settings + '</h4>' +
+        '<div class="listrow sel" id="t2"><span>' + T.g_apiTitle + '</span><span>›</span></div>' +
+        '<div class="listrow"><i class="sk m" style="flex:1;margin:4px 0"></i><span>›</span></div><div class="listrow"><i class="sk s" style="margin:4px 0"></i><span>›</span></div></div>',
+      a1b: '<div class="sc"><div class="top"><span class="ham">☰</span><span class="logo"><i></i>Apps Script</span><span class="search">🔍 ' + T.g_search + '</span><span class="av2">A</span></div>' +
         '<div class="crumb"><span>←</span><span>' + T.g_apiTitle + '</span></div>' +
-        '<div class="band"><span id="apilabel">' + T.g_off + '</span><span class="sw" id="t2"></span></div>' +
+        '<div class="band"><span id="apilabel">' + T.g_off + '</span><span class="sw" id="t3"></span></div>' +
         '<div class="apiinfo"><span>ⓘ</span><div>' + T.g_apiInfo + '<ul><li>' + T.g_apiB1 + '</li><li>' + T.g_apiB2 + '</li><li>' + T.g_apiB3 + '</li></ul></div></div></div>',
       a2: '<div class="sc ourpage"><h4>' + T.title + '</h4><div class="ourbox"><b>' + T.switchTitle + '</b><br>' + T.switchWaiting + '</div><div class="ourstatus"><b>' + T.p_switchWait + '</b></div>' + sk(1) + '</div>'
     },
     frames: [
       { screen: 'a0', cap: 'c_api1', tap: '#t1' },
-      { screen: 'a1', cap: 'c_api2', tap: '#t2', sw: '#t2' },
-      { screen: 'a2', cap: 'c_api3' }
+      { screen: 'a1', cap: 'c_api2', tap: '#t2' },
+      { screen: 'a1b', cap: 'c_api3', tap: '#t3', sw: '#t3' },
+      { screen: 'a2', cap: 'c_api4' }
     ]
   }),
   signin: () => ({
@@ -836,14 +847,18 @@ function mountAnim(box) {
     if (cur.sw) { m.querySelector(cur.sw).classList.add('on'); const l = m.querySelector('#apilabel'); if (l) l.textContent = T.g_on; }
   }
   // the timeline: [time, action]; every step lasts long enough to read its caption
-  const ev = []; let at = 0;
+  const ev = [], starts = []; let at = 0;
   def.frames.forEach((f, i) => {
+    starts.push(at);
     ev.push([at, () => showFrame(i)]);
     if (f.tap) { ev.push([at + 250, place]); ev.push([at + 1200, press]); }
     at += Math.max(3000, 1200 + T[f.cap].length * 50);
   });
   const st = { t: 0, i: 0, ev, total: at + 600, held: false, visible: false, box,
-    restart() { st.t = 0; st.i = 0; build(); } };
+    restart() { st.t = 0; st.i = 0; build(); },
+    jump(ms) { st.t = ms; while (st.i < st.ev.length && st.ev[st.i][0] <= ms) st.ev[st.i++][1](); },
+    // a tap moves on to the next step (after the last one, back to the first)
+    next() { const k = starts.findIndex((x) => x > st.t); if (k < 0) { st.restart(); st.jump(0); } else st.jump(starts[k]); } };
   build(); showFrame(0);
   if (REDUCED_MOTION) {
     // no autoplay: the person steps through with a button
@@ -852,9 +867,12 @@ function mountAnim(box) {
     btn.addEventListener('click', () => { k = (k + 1) % def.frames.length; if (k === 0) build(); showFrame(k); place(); press(); });
     return;
   }
+  // a quick tap = next step; pressing and holding (a third of a second) = pause until let go
   const hold = (on) => { st.held = on; box.classList.toggle('paused', on); };
-  mock.addEventListener('pointerdown', () => hold(true));
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach((e) => mock.addEventListener(e, () => hold(false)));
+  let holdTimer = null;
+  mock.addEventListener('pointerdown', () => { clearTimeout(holdTimer); holdTimer = setTimeout(() => { holdTimer = null; hold(true); }, 350); });
+  mock.addEventListener('pointerup', () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; st.next(); } else hold(false); });
+  ['pointercancel', 'pointerleave'].forEach((e) => mock.addEventListener(e, () => { clearTimeout(holdTimer); holdTimer = null; hold(false); }));
   box.addEventListener('contextmenu', (e) => e.preventDefault());
   if ('IntersectionObserver' in window) new IntersectionObserver((es) => { st.visible = es[es.length - 1].isIntersecting; }, { threshold: 0.4 }).observe(box);
   else st.visible = true;
