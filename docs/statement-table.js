@@ -613,6 +613,11 @@
     return m;
   }
 
+  // To the cent, the same way for money out and money in: a half cent goes away from zero (JavaScript's own Math.round sends -2.5 to -2, so
+  // expenses would lose a cent at every tie while income did not — found on a real export with 124 such amounts). The tiny extra absorbs
+  // binary noise (1.005 is stored as 1.00499999…).
+  function roundCents(n) { return (n < 0 ? -1 : 1) * Math.round(Math.abs(n) * 100 + 1e-7) / 100; }
+
   // Turns the rows into lines with the mapping the person confirmed.
   // m.currencyFixed is used when there is no currency column (or its cell is empty / unknown).
   // Returns { lines: [{ date, description, amount, currency }], skipped: [{ row, reason }], period: { start, end } }.
@@ -636,7 +641,7 @@
       var description = m.description >= 0 ? cellText(r[m.description]).replace(/\s+/g, ' ').trim() : '';
       var category = m.category >= 0 ? cellText(r[m.category]).replace(/\s+/g, ' ').trim() : '';
       var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || m.currencyFixed || 'PEN';
-      var line = { date: date, description: description || category || '—', amount: Math.round(amount * 100) / 100, currency: currency };
+      var line = { date: date, description: description || category || '—', amount: roundCents(amount), currency: currency };
       if (category) line.category = category;
       if (m.account >= 0) line.account = cellText(r[m.account]).replace(/\s+/g, ' ').trim();
       lines.push(line);
@@ -664,7 +669,7 @@
   var KNOWN_FORMATS = [
     { id: 'spendee', name: 'Spendee export', requires: ['date', 'wallet', 'category name', 'amount', 'currency'],
       columns: { date: 'date', description: 'note', amount: 'amount', currency: 'currency', account: 'wallet', category: 'category name' },
-      sign: 'negative', decimal: '.', dateOrder: 'dmy' }
+      sign: 'negative', decimal: '.', dateOrder: 'dmy', source: 'app' }
   ];
 
   // { id, name, mapping } for a known layout, else null. `mapping` has the same fields guessMapping makes.
@@ -673,7 +678,7 @@
     for (var k = 0; k < KNOWN_FORMATS.length; k++) {
       var f = KNOWN_FORMATS[k];
       if (!f.requires.every(function (w) { return h.indexOf(w) >= 0; })) continue;
-      var m = { out: -1, in: -1, sign: f.sign, decimal: f.decimal, dateOrder: f.dateOrder };
+      var m = { out: -1, in: -1, sign: f.sign, decimal: f.decimal, dateOrder: f.dateOrder, source: f.source || '' };
       Object.keys(f.columns).forEach(function (field) { m[field] = h.indexOf(f.columns[field]); });
       return { id: f.id, name: f.name, mapping: m };
     }
@@ -695,6 +700,6 @@
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
-    parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    roundCents: roundCents, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

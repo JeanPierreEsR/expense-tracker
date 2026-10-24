@@ -391,3 +391,17 @@ test("a file without a header row is fingerprinted by the shape of its columns",
   assert.notEqual(ST.signature(ma, a), ST.signature(mb, b));
   assert.equal(ST.signature(ST.guessMapping(ST.parseCsv("Fecha,Descripción,Monto\n05/03/2019,X,-1\n"))), "fecha|descripcion|monto");
 });
+
+test("amounts are rounded to the cent the same way for money out and money in (a half cent goes away from zero)", () => {
+  assert.equal(ST.roundCents(-2.675), -2.68);
+  assert.equal(ST.roundCents(2.675), 2.68);
+  assert.equal(ST.roundCents(-100.125), -100.13);
+  assert.equal(ST.roundCents(100.125), 100.13);
+  assert.equal(ST.roundCents(-1.005), -1.01, "binary noise must not decide the cent");
+  assert.equal(ST.roundCents(1.005), 1.01);
+  assert.equal(ST.roundCents(-12.5), -12.5);
+  assert.equal(ST.roundCents(-669.8368), -669.84);
+  const rows = ST.parseCsv("Fecha,Descripción,Monto\n05/03/2019,A,-100.125\n06/03/2019,B,100.125\n");
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => l.amount), [-100.13, 100.13], "an expense and an income of the same size come out the same size");
+});

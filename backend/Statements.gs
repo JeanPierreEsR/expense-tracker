@@ -337,7 +337,12 @@ function analyzeStatements(payload) {
   var matcherInput = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
     return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind,
-      lines: (s.lines || []).map(function (l, i) { return handledRows[lineKeys[idx][i]] ? Object.assign({}, l, { handled: true }) : l; }) };
+      lines: (s.lines || []).map(function (l, i) {
+        var flags = {};
+        if (handledRows[lineKeys[idx][i]]) flags.handled = true;
+        if (s.source === 'app') flags.appLine = true;   // an app's export: no bank-wording rules (see stmtClassifyLine_)
+        return Object.keys(flags).length ? Object.assign({}, l, flags) : l;
+      }) };
   });
   // Lines the owner left "waiting" in an EARLIER upload can pair with lines in this one.
   var currentKeys = {};
@@ -427,13 +432,13 @@ function analyzeStatements(payload) {
           // Interest earned is the one kind of income worth registering.
           if (savingsReturn && /INTER[EÉ]S/i.test(l.description)) {
             o.suggestion = { categoryId: savingsReturn.id, categoryName: categoryLabel_(savingsReturn), reason: tr_('guess.interest') };
-          } else if (pm && pm.type === 'credit') {
+          } else if (pm && pm.type === 'credit' && s.source !== 'app') {
             o.reversal = stmtReversalCandidates_(l, pm, allEntries, reversedIds, refundsCat);
           }
         }
         // Looks like money moving between accounts but no partner line and no open
         // transfer to complete: its other statement simply isn't here (yet).
-        if (!r.pairedWith && !o.possible && r.guess !== 'fee' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
+        if (!r.pairedWith && !o.possible && r.guess !== 'fee' && s.source !== 'app' && (r.guess === 'payment' || stmtLooksLikeTransfer_(l.description))) {
           o.waiting = true;
           counts.waiting++;
           // It may really be an ordinary purchase: offer a category in case the owner adds it as an expense.
@@ -452,7 +457,7 @@ function analyzeStatements(payload) {
       return o;
     });
     return {
-      key: s.key, kind: s.kind, period: s.period,
+      key: s.key, kind: s.kind, source: s.source || '', period: s.period,
       account: pm ? { id: pm.id, nickname: pm.nickname, type: pm.type } : null,
       lines: lines
     };

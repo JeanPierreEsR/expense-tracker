@@ -82,3 +82,54 @@ test("a card account without digits: purchases stay purchases, a payment receive
   assert.equal(p.summary.counts.expenses, 1, "the MercadoPago charge is a purchase");
   assert.equal(p.summary.counts.income, 0, "money arriving on a card is never income");
 });
+
+// ---- an app's export (Spendee…): every line is something the person recorded, whatever words its note holds ----
+
+const NOTES = [
+  { date: "2019-05-02", description: "De l’assurance Diners (payé les 24)", amount: -45.9, currency: "PEN" },
+  { date: "2019-05-03", description: "pago portera edificio", amount: -120, currency: "PEN" },
+  { date: "2019-05-04", description: "transferencia vehicular trámites", amount: -219.9, currency: "PEN" },
+  { date: "2019-05-05", description: "Yape Ana Lo", amount: -15, currency: "PEN" },
+  { date: "2019-05-06", description: "Dad", amount: 100, currency: "PEN" },
+  { date: "2019-05-07", description: "REV. Cinema", amount: 30, currency: "PEN" },
+  { date: "2019-05-08", description: "ITF", amount: -0.5, currency: "PEN" },
+  { date: "2019-05-09", description: "pago tarjeta credito", amount: -200, currency: "PEN" }
+];
+function appStmt(source, key = "ACCT-pm-csv") {
+  return { key, kind: "csv", source, holder: "", verified: false, balances: {}, file_name: "x.csv", period: { start: "2019-05-02", end: "2019-05-09" }, lines: NOTES };
+}
+
+test("the same notes are set aside as bank wording on a bank file, but all counted when the file is an app's export", () => {
+  const { rt } = setup();
+  const bank = plan(rt, [appStmt("")]);
+  assert.ok(bank.summary.leftOut.waiting + bank.summary.leftOut.fromPeople > 0 || bank.summary.counts.fees > 0, "a bank file reads the wording");
+  const app = plan(rt, [appStmt("app")]);
+  assert.equal(app.summary.counts.expenses, 6, "every outgoing line is an expense");
+  assert.equal(app.summary.counts.income, 2, "Dad and the refund-looking line are plain income");
+  assert.equal(app.summary.counts.fees, 0);
+  assert.equal(app.summary.counts.refunds + app.summary.counts.refundIncome, 0);
+  assert.equal(app.summary.leftOut.waiting, 0);
+  assert.equal(app.summary.leftOut.fromPeople, 0);
+  assert.equal(app.summary.aside.length, 0, "nothing is set aside");
+  assert.equal(app.summary.peopleOut.length, 0, "no 'payments with people' group");
+  save(rt, [appStmt("app")], app.actions, false);
+  assert.equal(made(rt).length, 8);
+});
+
+test("an app's export is still checked against entries already in the app, so nothing is added twice", () => {
+  const { rt } = setup();
+  const app = plan(rt, [appStmt("app")]);
+  save(rt, [appStmt("app")], app.actions, false);
+  const again = plan(rt, [appStmt("app")]);
+  assert.equal(again.summary.counts.expenses + again.summary.counts.income, 0);
+  assert.equal(made(rt).length, 8);
+});
+
+test("an app's export lines never pair with a bank statement's lines as one transfer", () => {
+  const { rt } = setup();
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-bank', nickname: 'Other Bank Card', type: 'debit', bank_id: '', last_4: '', currency: 'PEN' });`);
+  const bankLine = { date: "2019-05-09", description: "PAGO TARJETA DE CREDITO", amount: 200, currency: "PEN" };
+  const bank = { key: "ACCT-pm-bank", kind: "csv", source: "", holder: "", verified: false, balances: {}, file_name: "b.csv", period: { start: "2019-05-09", end: "2019-05-09" }, lines: [bankLine] };
+  const p = plan(rt, [appStmt("app"), bank]);
+  assert.equal(p.summary.counts.transfers, 0, "the app's 'pago tarjeta credito' is an expense it recorded, not the other half of the bank's line");
+});

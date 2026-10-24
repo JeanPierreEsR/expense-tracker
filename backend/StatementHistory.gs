@@ -302,7 +302,8 @@ function stmtHistoryPlan_(analysis, platforms) {
       // A charge on a credit card is never money moving between the person's own accounts (card payments arrive as credits),
       // so "MDOPAGO*…" or "…PAGO…" in a merchant's name is just a purchase.
       var cardCharge = st.account.type === 'credit' && l.amount < 0 && l.section !== 'payments';
-      var personLine = stmtPersonLine_(l);
+      // Words like "Yape" or a person's name mean something on a bank line, nothing in an app export's own notes.
+      var personLine = st.source === 'app' ? null : stmtPersonLine_(l);
       // Money from a person: their own group, whether it looks like a transfer or not.
       if (personLine && l.amount > 0 && !l.reversal) {
         leftOut.fromPeople++;

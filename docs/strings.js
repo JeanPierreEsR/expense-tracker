@@ -1788,6 +1788,8 @@
     "table.forget": { en: "Forget this layout", es: "Olvidar este formato" },
     "table.layoutName": { en: "Name of this layout", es: "Nombre de este formato" },
     "table.layoutNameHint": { en: "For example: My bank's CSV", es: "Por ejemplo: CSV de mi banco" },
+    "table.appExport": { en: "This is an app's export: every line is something I recorded myself", es: "Esto es la exportación de una app: cada línea es algo que registré yo" },
+    "table.appExportHint": { en: "Turns off the bank-wording checks (transfers, card payments, fees, payments to people), so every line counts as an expense or an income. Leave it off for a bank's file.", es: "Apaga las revisiones por el texto del banco (transferencias, pagos de tarjeta, comisiones, pagos a personas), así que cada línea cuenta como gasto o ingreso. Déjalo apagado para el archivo de un banco." },
     "table.colAccount": { en: "Account column", es: "Columna de la cuenta" },
     "table.colCategory": { en: "Category column", es: "Columna de la categoría" },
     "table.accountsHint": { en: "This file holds more than one account. Say which of your accounts each name belongs to.", es: "Este archivo tiene más de una cuenta. Indica a cuál de tus cuentas corresponde cada nombre." },

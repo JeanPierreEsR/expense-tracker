@@ -85,6 +85,8 @@ function stmtLooksLikeTransfer_(description) {
 }
 
 function stmtClassifyLine_(line) {
+  // A line from an app's export (Spendee…) is something the person recorded themselves: its wording says nothing about fees or card payments.
+  if (line.appLine) return line.amount > 0 ? 'income' : 'expense';
   var d = String(line.description || '').toUpperCase();
   if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
   if (line.section === 'fees') return 'fee';
@@ -210,7 +212,7 @@ function matchStatements_(statements, entries, opts) {
   var open = [];
   statements.forEach(function (st) {
     st.lines.forEach(function (l, i) {
-      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee' && !l.handled) open.push({ key: st.key, pmId: st.pmId, i: i, l: l });
+      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee' && !l.handled && !l.appLine) open.push({ key: st.key, pmId: st.pmId, i: i, l: l });
     });
   });
   // A transfer recorded with ONE side blank (its other statement wasn't there
@@ -226,7 +228,7 @@ function matchStatements_(statements, entries, opts) {
     var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
-      if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored) return;
+      if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored || l.appLine) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
       entries.forEach(function (e) {

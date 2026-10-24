@@ -644,7 +644,7 @@
       ["date", "description", "amount", "out", "in", "currency", "account", "category"].forEach((f) => {
         if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
       });
-      ["dateOrder", "decimal", "sign", "currencyFixed"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
+      ["dateOrder", "decimal", "sign", "currencyFixed", "source"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
     }
     if (saved && saved.found) {
       state.source = "saved"; state.label = saved.label || ""; state.uses = saved.uses || 0;
@@ -654,6 +654,9 @@
       state.source = "known"; state.label = known.name;
     }
     const remembered = state.source !== "new";
+    // An app's export (every line is something the person recorded) is told from a bank's by the layout, or by carrying a category column.
+    let appTouched = remembered;
+    if (!state.m.source && state.m.category >= 0) state.m.source = "app";
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
       const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
@@ -687,6 +690,8 @@
       <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
       <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
         <label>${escapeHtml(tr("table.layoutName"))}</label><input type="text" class="tm-name" maxlength="60" placeholder="${escapeHtml(tr("table.layoutNameHint"))}" value="${escapeHtml(state.label)}">
+        <label class="tm-app-label" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" class="tm-app"${state.m.source === "app" ? " checked" : ""} style="margin-top:4px"><span>${escapeHtml(tr("table.appExport"))}</span></label>
+        <p class="hint">${escapeHtml(tr("table.appExportHint"))}</p>
         ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
         ${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
@@ -792,7 +797,8 @@
       else if (cls === "in") state.m.in = Number(v);
       else if (cls === "currency") state.m.currency = Number(v);
       else if (cls === "acol") { state.m.account = Number(v); renderValues(); syncControlsFromState(); }
-      else if (cls === "cat") state.m.category = Number(v);
+      else if (cls === "cat") { state.m.category = Number(v); if (!appTouched && state.m.category >= 0) { state.m.source = "app"; $q("app").checked = true; } }
+      else if (cls === "app") { appTouched = true; state.m.source = e.target.checked ? "app" : ""; }
       else if (cls === "order") state.m.dateOrder = v;
       else if (cls === "decimal") state.m.decimal = v;
       else if (cls === "mode") {
@@ -838,7 +844,7 @@
         const accountKey = tableAccountKey(a);
         results.push({ name: byAccount.size > 1 ? `${file.name} · ${a.nickname}` : file.name,
           result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [] } });
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "" } });
       });
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
@@ -846,7 +852,7 @@
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
       callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave,
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category,
-          dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed } }).catch(() => {});
+          dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       // A re-read of the same file replaces its earlier reading.
       usable = usable.filter((u) => (u.group || u.file) !== file.name);
       results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
@@ -882,6 +888,7 @@
     return usable.map(({ result }) => ({
       key: accountKeyOf(result),
       kind: result.kind,
+      source: result.source || "",   // "app" = an app's export: no bank-wording rules on the server
       holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
@@ -1324,7 +1331,7 @@
       dryRun,
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
       statements: usable.map(({ file, result }) => ({
-        key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
+        key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
         verified: !!(result.ok && result.verified !== false), balances: result.balances,
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category }))
       })),
