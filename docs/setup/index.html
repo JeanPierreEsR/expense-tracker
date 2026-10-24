@@ -1301,12 +1301,16 @@ async function removeEverything() {
   const files = res.files || [];
   log('Found ' + files.length + ' app(s) to delete.');
   let failed = null;
+  // A 404 means the file is already gone or this page cannot see it (found 2026-10-23 on the spare account: the bound script
+  // answered 404 and the whole delete was reported as failed). Nothing more can be done for it, so it is not a failure.
+  const gone = (e) => /^404\b/.test(String(e && e.message));
   const drop = async (id) => {
     try { await google_('DELETE', 'https://www.googleapis.com/drive/v3/files/' + id); }
     catch (e) {
+      if (gone(e)) { log('Already gone or not reachable (' + e.message + ') — skipping.'); return; }
       log('Permanent delete refused (' + e.message + ') — moving it to the trash instead.', 'bad');
       try { await google_('PATCH', 'https://www.googleapis.com/drive/v3/files/' + id, { trashed: true }); }
-      catch (e2) { failed = failed || e2; }
+      catch (e2) { if (!gone(e2)) failed = failed || e2; }
     }
   };
   for (let i = 0; i < files.length; i++) {
