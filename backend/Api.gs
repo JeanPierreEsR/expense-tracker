@@ -354,7 +354,13 @@ function routeAction(action, payload) {
     case 'deleteStatementFormat': return deleteStatementFormat(payload);
     case 'listPendingEntries': return listPendingEntries();
     case 'listSupportedSenders': return listSupportedSenders();
-    case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
+    case 'confirmEntry': {
+      confirmEntryWithLearning_(payload.id);
+      // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
+      var followed = null;
+      try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
+      return followed ? { done: true, follow: followed } : { done: true };
+    }
     case 'discardEntry': return discardEntryWithRepayments_(payload.id);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'updateEntry': return updateEntryFromApp_(payload);

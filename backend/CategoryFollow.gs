@@ -20,6 +20,12 @@
  *   - A new entry saved without a category gets the same guess
  *     (guessCategoryForNewEntry_).
  *
+ * "Similar descriptions" (2026-10-24): when a place has no history of its own, the guess
+ * also looks at places that start with the same brand word — "WONG SAN ISIDRO" and
+ * "Wong Miraflores" are one family (familyTokens_). A family needs at least two
+ * categorized entries that agree (>= 80%); a place that has history of its own, even a
+ * split one, is never overridden by its family.
+ *
  * The matching key is the entry's `merchant` (what imports and emails store)
  * or, when it has none (manual and Spendee entries), its description
  * normalized the same way — so "Rappi" typed by hand lines up with the bank's
@@ -28,6 +34,30 @@
 
 var FOLLOW_MIN_SHARE = 0.8;      // same as MERCHANT_MIN_SHARE (category guessing)
 var FOLLOW_SAMPLES = 3;          // sample lines shown per group in Tidy my history
+var FOLLOW_SIMILAR_MIN = 2;      // a family of similar places needs this many categorized entries before it guesses
+
+// Words a bank puts in front of the place ("COMPRA WONG SURCO", "PAGO EN LA BODEGA"): skipped to find the brand.
+var FOLLOW_SKIP_WORDS_ = ['compra', 'compras', 'consumo', 'pago', 'pagos', 'pos', 'tarjeta', 'purchase', 'payment', 'en', 'de', 'del', 'la', 'el', 'los', 'las', 'the', 'at'];
+// First words that name a way of moving money, not a place: "YAPE JUAN" says nothing about the category, so such keys have no family.
+var FOLLOW_CHANNEL_WORDS_ = ['yape', 'plin', 'transferencia', 'transf', 'retiro', 'deposito', 'abono', 'cargo', 'comision', 'envio', 'recarga',
+  'servicio', 'pagar', 'transfer', 'withdrawal', 'deposit', 'interes', 'intereses'];
+
+/**
+ * The words a place is filed under in its family, most specific first: the first two brand words glued together
+ * ("plaza vea" -> "plazavea", which also catches a bank that writes "PLAZAVEA") and the first brand word alone.
+ * Nothing for a key whose brand word is a way of paying, has a digit or has fewer than 3 letters.
+ */
+function familyTokens_(key) {
+  var t = String(key || '').split(' ').filter(Boolean);
+  while (t.length && FOLLOW_SKIP_WORDS_.indexOf(t[0]) !== -1) t.shift();
+  if (!t.length) return [];
+  var first = t[0];
+  if (first.length < 3 || /\d/.test(first) || FOLLOW_CHANNEL_WORDS_.indexOf(first) !== -1) return [];
+  var out = [];
+  if (t.length > 1) out.push(first + t[1]);
+  out.push(first);
+  return out;
+}
 
 function followKey_(e) {
   var key = e.merchant ? String(e.merchant) : normalizeMerchant_(e.description);
@@ -43,22 +73,57 @@ function followKey_(e) {
 function scanFollow_() {
   var expenseCatIds = {};
   getAllRows('Categories').forEach(function (c) { if (c.type === 'expense') expenseCatIds[c.id] = true; });
-  var groups = {};
+  var groups = {}, families = {};
+  function famOf(tok) { return families[tok] || (families[tok] = { key: tok, counts: {}, total: 0, blanks: [], keys: {} }); }
   getAllRows('Entries').forEach(function (e) {
     if (e.type !== 'expense') return;
     var key = followKey_(e);
     if (!key) return;
     var g = groups[key] || (groups[key] = { key: key, counts: {}, total: 0, blanks: [] });
+    var toks = familyTokens_(key);
     if (expenseCatIds[e.category_id]) {
       if (e.status === 'confirmed' || e.source === 'import') {
         g.counts[e.category_id] = (g.counts[e.category_id] || 0) + 1;
         g.total++;
+        toks.forEach(function (t) { var f = famOf(t); f.counts[e.category_id] = (f.counts[e.category_id] || 0) + 1; f.total++; f.keys[key] = true; });
       }
     } else if (!e.category_id && e.status === 'confirmed') {
       g.blanks.push(e);
+      toks.forEach(function (t) { famOf(t).blanks.push(e); });
     }
   });
-  return { expenseCatIds: expenseCatIds, groups: groups };
+  return { expenseCatIds: expenseCatIds, groups: groups, families: families };
+}
+
+/**
+ * The family a key belongs to for guessing: the most specific one with categorized entries of OTHER places, or null.
+ * (A family that exists but disagrees is still returned — the caller must not fall back to a broader one.)
+ */
+function familyFor_(scan, key) {
+  var toks = familyTokens_(key);
+  for (var i = 0; i < toks.length; i++) {
+    var f = scan.families[toks[i]];
+    // A family made only of this very place (the two glued words of "wong miraflores") says nothing about similar ones.
+    if (f && f.total && Object.keys(f.keys).some(function (k) { return k !== key; })) return f;
+  }
+  return null;
+}
+
+/**
+ * What to file an expense of this key under: { categoryId, n, total, similar } or null.
+ * The place's own history wins (one earlier choice is enough, and if it is split nothing is guessed);
+ * with none, the family of similar places decides (two or more agreeing entries).
+ */
+function categorySuggestion_(scan, key) {
+  var g = scan.groups[key];
+  if (g && g.total) {
+    var own = followSuggestion_(g);
+    return own ? { categoryId: own.categoryId, n: own.n, total: own.total, similar: false } : null;
+  }
+  var f = familyFor_(scan, key);
+  if (!f || f.total < FOLLOW_SIMILAR_MIN) return null;
+  var fs = followSuggestion_(f);
+  return fs ? { categoryId: fs.categoryId, n: fs.n, total: fs.total, similar: true, via: f.key } : null;
 }
 
 // The category most of this key's categorized entries share, or null when they disagree.
@@ -141,13 +206,30 @@ function categoryFollowAfterEdit_(entryId) {
   var scan = scanFollow_();
   if (!scan.expenseCatIds[e.category_id]) return null;
   var g = scan.groups[key];
-  if (!g || !g.blanks.length) return null;
   var s = followSuggestion_(g);
-  if (!s || s.categoryId !== e.category_id) return null;   // the merchant is split between categories: leave it alone
-  var ids = bulkSetEntryCategories_(g.blanks.map(function (b) { return { id: b.id, categoryId: e.category_id, expect: '' }; }));
+  var plan = [], seen = {}, similarCount = 0;
+  // The same place: its blanks follow when the place is not split between categories.
+  if (g && g.blanks.length && s && s.categoryId === e.category_id) {
+    g.blanks.forEach(function (b) { seen[b.id] = true; plan.push({ id: b.id, categoryId: e.category_id, expect: '' }); });
+  }
+  // Similar places: blanks of the same family follow when the family agrees on this category (counting the one just chosen).
+  var f = familyFor_(scan, key);
+  var fs = f && f.total >= FOLLOW_SIMILAR_MIN ? followSuggestion_(f) : null;
+  if (fs && fs.categoryId === e.category_id) {
+    f.blanks.forEach(function (b) {
+      if (seen[b.id] || followKey_(b) === key) return;   // a split place of its own is left alone
+      seen[b.id] = true;
+      plan.push({ id: b.id, categoryId: e.category_id, expect: '' });
+    });
+  }
+  if (!plan.length) return null;
+  var ids = bulkSetEntryCategories_(plan);
   if (!ids.length) return null;
+  var done = {};
+  ids.forEach(function (id) { done[id] = true; });
+  plan.forEach(function (p) { if (done[p.id] && !(g && g.blanks.some(function (b) { return b.id === p.id; }))) similarCount++; });
   return {
-    count: ids.length, categoryId: e.category_id, categoryName: categoryNameForMessage_(e.category_id),
+    count: ids.length, similarCount: similarCount, categoryId: e.category_id, categoryName: categoryNameForMessage_(e.category_id),
     ids: ids, annualIds: annualForTravelMoves_(ids, e.category_id)
   };
 }
@@ -213,11 +295,11 @@ function listTidyGroups(payload) {
       if (d) labels[d] = (labels[d] || 0) + 1;
     });
     var label = Object.keys(labels).sort(function (a, b) { return labels[b] - labels[a]; })[0] || key;
-    var s = followSuggestion_(g);
+    var s = categorySuggestion_(scan, key);
     out.push({
       key: key, label: label, count: sorted.length, totalMain: Math.round(total * 100) / 100,
       firstDate: sorted[sorted.length - 1].date, lastDate: sorted[0].date,
-      suggestion: s ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId), n: s.n, total: s.total } : null,
+      suggestion: s ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId), n: s.n, total: s.total, similar: !!s.similar } : null,
       samples: sorted.slice(0, FOLLOW_SAMPLES).map(function (e) {
         return { id: e.id, date: e.date, description: e.description || '', amount: Number(e.amount), currency: e.currency };
       })
@@ -261,15 +343,13 @@ function applyTidyGroups(payload) {
 }
 
 /**
- * A new expense saved with no category: the category this merchant (or
- * description) has history for, or ''. Needs only one earlier entry — the
- * person chose it themselves — but the merchant must not be split.
+ * A new expense saved with no category: the category this merchant (or description) has history for,
+ * else the one its similar places agree on, or ''. `scan` (optional) lets an import reuse one read.
  */
-function guessCategoryForNewEntry_(entry) {
+function guessCategoryForNewEntry_(entry, scan) {
   if (entry.type !== 'expense' || entry.category_id) return '';
   var key = followKey_(entry);
   if (!key) return '';
-  var g = scanFollow_().groups[key];
-  var s = followSuggestion_(g);
+  var s = categorySuggestion_(scan || scanFollow_(), key);
   return s ? s.categoryId : '';
 }

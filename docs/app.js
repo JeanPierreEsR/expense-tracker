@@ -2234,11 +2234,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           trip_id: tripId
         }
       });
-      await callApi("confirmEntry", { id: confirmingPendingId });
+      const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
       if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
         await callApi("saveEntrySplits", { entryId: confirmingPendingId, splits: splits || [] });
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
+      if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -3471,11 +3472,13 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
-    await callApi("confirmEntry", { id: a.id });
-  } else {
-    await callApi("discardEntry", { id: a.id });
+    const res = await callApi("confirmEntry", { id: a.id });
+    unqueueReviewAction_(a.id);
+    return res && res.follow ? res.follow : null;
   }
+  await callApi("discardEntry", { id: a.id });
   unqueueReviewAction_(a.id);
+  return null;
 }
 
 // Safe to call anytime, including at the top of every refresh — an
@@ -3483,7 +3486,8 @@ async function applyReviewAction_(a) {
 async function flushQueuedReviewActions_() {
   for (const a of getQueuedReviewActions_()) {
     try {
-      await applyReviewAction_(a);
+      const followed = await applyReviewAction_(a);
+      if (followed) onCategoryFollowed_(followed);
     } catch (err) {
       // Still unreachable — leave it queued, the next flush retries it.
     }
@@ -3935,9 +3939,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
       try {
-        await applyReviewAction_({ id: entry.id, action: "confirm", fields });
+        const followed = await applyReviewAction_({ id: entry.id, action: "confirm", fields });
         refreshEntryList();
         refreshExpectedRecurring();
+        if (followed) onCategoryFollowed_(followed);
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
@@ -7945,7 +7950,7 @@ document.getElementById("app-undo-btn").addEventListener("click", async () => {
 function onCategoryFollowed_(follow) {
   refreshEntryList().catch(() => {});
   refreshHomeGlance_(true);
-  showUndoToast_(tr("follow.done", { n: follow.count, category: follow.categoryName }), async () => {
+  showUndoToast_(tr(follow.similarCount ? "follow.doneSimilar" : "follow.done", { n: follow.count, category: follow.categoryName }), async () => {
     await callApi("undoCategoryFollow", { changes: [{ categoryId: follow.categoryId, ids: follow.ids }], annualIds: follow.annualIds });
     showToast_(tr("tidy.undone"));
     refreshEntryList().catch(() => {});
@@ -8015,7 +8020,7 @@ function renderTidy_() {
         <span class="tidy-group-total">${escapeHtml(data.main)} ${moneyFmt(g.totalMain)}</span>
       </div>
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
-        ${sug ? `<br>${escapeHtml(tr("tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
+        ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
       <div class="tidy-group-row">
         <select class="tidy-select">${tidyCategoryOptions_(sug ? sug.categoryId : "")}</select>
         <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>

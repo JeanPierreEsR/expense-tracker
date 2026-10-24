@@ -1496,6 +1496,7 @@
       const waiting = res.pendingCount || 0;
       const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
+        + (res.categoriesGuessed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedGuessed", { n: res.categoriesGuessed }))}</p>` : "")
         + (res.categoriesFiled ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategories", { n: res.categoriesFiled }))}</p>` : "")
         + ((res.categoriesRenamed || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesRenamed", { n: res.categoriesRenamed.length, names: res.categoriesRenamed.map((r) => `${r.from} → ${r.to}`).join(", ") }))}</p>` : "")
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")

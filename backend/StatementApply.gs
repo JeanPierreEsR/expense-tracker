@@ -211,6 +211,14 @@ function applyStatementDecisions(payload) {
     if (!newCategories[ph]) newCategories[ph] = { name: String(categoryNames[k] || t).replace(/\s+/g, ' ').trim().slice(0, 40) || t.slice(0, 40), type: type };   // the name the person chose, else the spelling of the first line that names it
     return { id: ph, text: t };
   }
+  // A bank's line carries no category: take the one the person already chose for the same place, or for similar places
+  // (CategoryFollow.gs). One read of the entries, made only when a line needs it, before this batch writes anything.
+  var guessScan = null;
+  function guessLineCategory(description) {
+    if (!guessScan) guessScan = scanFollow_();
+    var s = categorySuggestion_(guessScan, stmtMerchantKey_(description));
+    return s ? s.categoryId : '';
+  }
   function countLineCategory(lc) {
     if (!lc.text) return;
     if (lc.id) report.categoriesFiled = (report.categoriesFiled || 0) + 1;
@@ -408,6 +416,10 @@ function applyStatementDecisions(payload) {
       var revFor = isRev && a.entryId ? values[rowById[String(a.entryId)]] : null;
       if (isRev && a.entryId && revFor === undefined) throw new Error(tr_('sa.chargeNotFound'));
       var hxCat = isRev ? { id: '', text: '' } : lineCategory('expense', hx.l.category);
+      if (!isRev && !hxCat.text && !hxCat.id) {
+        var guessed = guessLineCategory(hx.l.description);
+        if (guessed) { hxCat = { id: guessed, text: '' }; report.categoriesGuessed = (report.categoriesGuessed || 0) + 1; }
+      }
       var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : hxCat.id, payment_method_id: requirePm(hx).id,
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
