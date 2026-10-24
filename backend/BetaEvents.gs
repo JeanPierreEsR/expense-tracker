@@ -28,7 +28,7 @@ var BETA_SETUP_NAMES_ = { tapped: 1, api_switch_needed: 1, sheet_created: 1, app
 
 // The screens of the app (docs/index.html, id="screen-…", hyphens as underscores) — the only names a "screen" count may carry.
 var BETA_SCREENS_ = { entries: 1, overview: 1, budgets: 1, projections: 1, loans: 1, more: 1, recurring: 1, accounts: 1,
-  categories: 1, trips: 1, trip_detail: 1, exchange_rates: 1, perf: 1, export: 1, statements: 1, notauto: 1 };
+  categories: 1, trips: 1, trip_detail: 1, exchange_rates: 1, perf: 1, export: 1, statements: 1, notauto: 1, tidy: 1 };
 var BETA_QUEUE_OUTCOMES_ = { confirmed: 1, edited: 1, discarded: 1 };
 var BETA_QUEUE_FIELDS_ = { category: 1, category_filled: 1, amount: 1, description: 1, account: 1 };
 // Where a pending entry came from when it is not a bank e-mail (or the e-mail's bank has no account in the app).

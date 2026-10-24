@@ -470,6 +470,10 @@
             <span data-i18n="more.categories">🏷️ Categories</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-tidy-btn">
+            <span data-i18n="more.tidy">🧹 Tidy my history</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
             <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
             <span class="more-list-chevron">›</span>
@@ -680,6 +684,21 @@
       </div>
     </div>
 
+    <div id="screen-tidy" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="tidy-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="tidy.title">Tidy my history</h2>
+        <p class="hint" data-i18n="tidy.hint">Entries added without a category, grouped by where the money went — the biggest first. Pick a category once and every entry in the group gets it. Nothing here changes a category you already chose.</p>
+        <p class="hint" id="tidy-summary" hidden></p>
+        <button type="button" class="add-inline" id="tidy-apply-all-btn" hidden></button>
+        <div id="tidy-list"></div>
+        <p class="hint" id="tidy-more" hidden></p>
+        <p class="hint" id="tidy-empty" hidden data-i18n="tidy.empty">Everything has a category. Nothing to tidy.</p>
+      </div>
+    </div>
+
     <div id="screen-notauto" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
@@ -838,6 +857,10 @@
   <!-- The round "+" for a new entry: only on Home and Overview (syncFab_ in app.js). -->
   <button type="button" id="fab-new-entry" class="fab" hidden data-i18n-aria-label="fab.new" aria-label="New entry">+</button>
   <div id="app-toast" class="app-toast" role="status" hidden></div>
+  <div id="app-undo-toast" class="app-toast app-undo-toast" role="status" hidden>
+    <span id="app-undo-text"></span>
+    <button type="button" id="app-undo-btn" class="app-undo-btn" data-i18n="tidy.undo">Undo</button>
+  </div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">

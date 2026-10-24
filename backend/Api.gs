@@ -122,7 +122,8 @@ var ONCE_ACTIONS_ = {
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
   // next to the first (the lock below makes it wait, then get the first one's answer).
-  applyStatementDecisions: 1, undoStatementBatch: 1
+  applyStatementDecisions: 1, undoStatementBatch: 1,
+  applyTidyGroups: 1   // a resend must not run a second copy next to the first
 };
 
 function routeActionOnce_(action, payload) {
@@ -351,7 +352,10 @@ function routeAction(action, payload) {
     case 'confirmEntry': confirmEntryWithLearning_(payload.id); return { done: true };
     case 'discardEntry': return discardEntryWithRepayments_(payload.id);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
-    case 'updateEntry': return updateEntryFields(payload.id, payload.fields);
+    case 'updateEntry': return updateEntryFromApp_(payload);
+    case 'undoCategoryFollow': return undoCategoryFollow(payload);
+    case 'listTidyGroups': return listTidyGroups(payload);
+    case 'applyTidyGroups': return applyTidyGroups(payload);
     case 'getEntry': return getEntryById_(payload.id);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
@@ -654,7 +658,15 @@ function createEntry(payload) {
     ensureEntriesTripColumn_();
     entry.trip_id = tripId;
   }
+  // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
+  // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
+  var guessedCategory = '';
+  if (entry.type === 'expense' && !entry.category_id) {
+    guessedCategory = guessCategoryForNewEntry_(entry);
+    if (guessedCategory) entry.category_id = guessedCategory;
+  }
   appendRowObject('Entries', entry);
+  if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
 
   if (payload.tag_ids && payload.tag_ids.length) {
     payload.tag_ids.forEach(function (tagId) {

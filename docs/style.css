@@ -2773,6 +2773,18 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   text-align: center;
 }
 .app-toast[hidden] { display: none; }
+.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; }
+.app-undo-btn { background: none; border: 0; color: #9ec5ff; font: inherit; font-weight: 600; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
+.tidy-group { padding: 12px 0; border-top: 1px solid var(--border); }
+.tidy-group:first-child { border-top: 0; }
+.tidy-group-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.tidy-group-name { font-weight: 600; overflow-wrap: anywhere; }
+.tidy-group-total { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tidy-group-meta { margin: 2px 0 8px; }
+.tidy-group-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tidy-group-row select { flex: 1 1 160px; min-width: 0; }
+.tidy-samples { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.85rem; color: var(--muted); }
+.tidy-samples li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 
 .home-glance { margin: 0 -16px 12px; }   /* full width, so the next card can peek in from the edge */
 .home-glance[hidden] { display: none; }
