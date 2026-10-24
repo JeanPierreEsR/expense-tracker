@@ -301,6 +301,7 @@ function analyzeStatements(payload) {
   var pmByKey = {};
   pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
   function pmFor(key) {
+    if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) return stmtPmForKey_(pms, key);
     if (String(key).indexOf('AHORRA-') === 0) {
       return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
     }

@@ -101,7 +101,15 @@ function stmtLineKeys_(accountKey, lines) {
   });
 }
 
+// A spreadsheet statement (CSV/Excel) names its account directly: the key is the account's last four digits when it has them,
+// otherwise ACCT-<payment method id> (docs/statement-table.js, statements.js). Same key everywhere a statement is looked up.
+var STMT_ACCT_KEY_PREFIX_ = 'ACCT-';
+
 function stmtPmForKey_(pms, key) {
+  if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) {
+    var id = String(key).substring(STMT_ACCT_KEY_PREFIX_.length);
+    return pms.find(function (pm) { return String(pm.id) === id; }) || null;
+  }
   if (String(key).indexOf('AHORRA-') === 0) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
@@ -522,7 +530,7 @@ function applyStatementDecisions(payload) {
     } else {
       var newId = Utilities.getUuid();
       newUploadRows.push(Object.assign({ id: newId, account_key: op.acctKey,
-        account_label: (accounts[op.si] ? accounts[op.si].nickname + ' …' + op.acctKey : op.acctKey),
+        account_label: (accounts[op.si] ? accounts[op.si].nickname + (String(op.acctKey).indexOf(STMT_ACCT_KEY_PREFIX_) === 0 ? '' : ' …' + op.acctKey) : op.acctKey),
         payment_method_id: accounts[op.si] ? accounts[op.si].id : '', kind: op.s.kind,
         period_start: (op.s.period || {}).start || '', period_end: op.s.period.end }, fields));
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Uploads', row_id: newId, field: '__created__',

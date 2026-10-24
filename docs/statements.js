@@ -58,6 +58,7 @@
   // or card number printed on it (a product without a number is keyed by its
   // currency) — the same key the backend's coverage list uses.
   function accountKeyOf(result) {
+    if (result.accountKey) return result.accountKey;   // a spreadsheet: the person named the account
     if (result.kind === "ahorramas") return `AHORRA-${Object.keys(result.balances)[0]}`;
     return String((result.account && result.account.last4) || "");
   }
@@ -486,6 +487,7 @@
     const acct = coverage.accounts.find((a) => a.key === accountKeyOf(result));
     const notes = [];
     if (!acct) {
+      if (result.kind === "csv") return notes;   // a spreadsheet is for an account the person picked, so it is always one of theirs
       notes.push(["warn", escapeHtml(tr("stmt.noteNotTracked", { key: accountKeyOf(result) || tr("stmt.noteUnknown") }))]);
       return notes;
     }
@@ -508,12 +510,13 @@
   function renderResult(body, result, rows, file) {
     const sender = (file && file.senderAddress) || "";
     if (!result.kind) {
-      body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p>`;
+      body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p><p class="hint">${escapeHtml(tr("table.tryExport"))}</p>`;
       offerSample(body, rows, "unrecognised", sender);
       return;
     }
     let verdict;
     if (!result.ok) verdict = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.verdictBad"))}</p>`;
+    else if (result.kind === "csv") verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("table.verdict"))}</p>`;
     else if (result.verified === false) verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.verdictWarn"))}</p>`;
     else verdict = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.verdictGood"))}</p>`;
 
@@ -580,9 +583,197 @@
     }
   }
 
+
+  // ---- spreadsheet statements: CSV / Excel (docs/statement-table.js) ----
+  // The person picks the account (the file has no digits to recognize it by) and confirms which column is which; the guess is made from
+  // the header words and the values, and what they confirm is remembered for the next file with the same headers (this device only).
+
+  const isTableFile = (f) => /\.(csv|tsv|txt|xlsx|xls)$/i.test(f.name) || /csv|spreadsheet|excel/i.test(f.type || "");
+  const TABLE_MEMORY_PREFIX = "stmtTableMap:";
+  function tableMemoryGet(sig) { try { return JSON.parse(localStorage.getItem(TABLE_MEMORY_PREFIX + sig) || "null"); } catch (e) { return null; } }
+  function tableMemorySet(sig, value) { try { localStorage.setItem(TABLE_MEMORY_PREFIX + sig, JSON.stringify(value)); } catch (e) { /* not remembered; nothing breaks */ } }
+
+  function tableErrorText(err) {
+    const code = err && err.message;
+    const key = { "xlsx-legacy": "table.errLegacy", "xlsx-not-zip": "table.errBroken", "xlsx-no-inflate": "table.errNoInflate", "xlsx-no-sheet": "table.errEmpty", "table-empty": "table.errEmpty" }[code];
+    return key ? tr(key) : (code || String(err));
+  }
+
+  // The account the statement's lines belong to: its last four digits when it has them, else its id (backend: stmtPmForKey_).
+  function tableAccountKey(pm) {
+    const last = String(pm.last_4 || "").trim();
+    return /^\d{1,4}$/.test(last) ? ("0000" + last).slice(-4) : "ACCT-" + pm.id;
+  }
+
+  function tableAccounts() {
+    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit" || pm.type === "wallet") && !pmHidden_(pm));
+  }
+
+  function columnLetter(i) { let s = "", n = i + 1; while (n > 0) { s = String.fromCharCode(65 + ((n - 1) % 26)) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+  async function readTableFile(file) {
+    const body = resultCardShell(file.name);
+    try {
+      const rows = await StatementTable.readTable(new Uint8Array(await file.arrayBuffer()), file.name);
+      if (rows.length < 2) throw new Error("table-empty");
+      renderTableMapping(body, rows, file);
+    } catch (err) {
+      body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tableErrorText(err))}</p>`;
+    }
+  }
+
+  function renderTableMapping(body, rows, file) {
+    const accounts = tableAccounts();
+    if (!accounts.length) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
+    const guess = StatementTable.guessMapping(rows, {});
+    const sig = StatementTable.signature(guess);
+    const saved = tableMemoryGet(sig);
+    const width = guess.headers.length;
+    const state = { m: { ...guess }, accountId: "" };
+    if (saved && saved.m) {
+      // Column positions only apply when the file has the same shape; the account is a convenience.
+      Object.assign(state.m, saved.m);
+      if (accounts.some((a) => a.id === saved.accountId)) state.accountId = saved.accountId;
+    }
+    if (!state.accountId) {
+      const fileDigits = (file.name.match(/\d{4}/g) || []);
+      const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
+      if (hit) state.accountId = hit.id;
+    }
+    const colName = (i) => {
+      const h = guess.headers[i];
+      return h ? tr("table.colNamed", { letter: columnLetter(i), name: h }) : tr("table.colBlank", { letter: columnLetter(i) });
+    };
+    const colOptions = (selected, allowNone) => (allowNone ? `<option value="-1">${escapeHtml(tr("table.none"))}</option>` : "") +
+      Array.from({ length: width }, (_, i) => `<option value="${i}"${i === selected ? " selected" : ""}>${escapeHtml(colName(i))}</option>`).join("");
+    const sel = (cls, label, inner) => `<label>${escapeHtml(label)}</label><select class="tm-${cls}">${inner}</select>`;
+    const currencyOptions = (selected) => CURRENCIES.map((c) => `<option value="${c.code}"${c.code === selected ? " selected" : ""}>${c.code}</option>`).join("");
+    const accountOptions = `<option value="">${escapeHtml(tr("table.pickAccount"))}</option>` +
+      accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === state.accountId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("");
+
+    body.innerHTML = `<p class="hint">${escapeHtml(tr("table.hint"))}</p>
+      ${sel("account", tr("table.account"), accountOptions)}
+      ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
+      ${sel("desc", tr("table.colDesc"), colOptions(state.m.description, true))}
+      ${sel("mode", tr("table.amounts"), `<option value="one">${escapeHtml(tr("table.amountOne"))}</option><option value="two">${escapeHtml(tr("table.amountTwo"))}</option>`)}
+      <div class="tm-one">${sel("amount", tr("table.colAmount"), colOptions(state.m.amount, true))}
+        ${sel("sign", tr("table.sign"), `<option value="negative">${escapeHtml(tr("table.signNeg"))}</option><option value="positive">${escapeHtml(tr("table.signPos"))}</option>`)}</div>
+      <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
+      <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
+        ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
+        ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
+        ${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}
+        ${sel("decimal", tr("table.decimal"), `<option value=".">1,234.56</option><option value=",">1.234,56</option>`)}
+      </details>
+      <div class="tm-preview"></div>
+      <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice tm-use">${escapeHtml(tr("table.use"))}</button></div>`;
+
+    const $q = (cls) => body.querySelector(".tm-" + cls);
+    const setVal = (cls, v) => { $q(cls).value = String(v); };
+    function syncControlsFromState() {
+      const two = state.m.out >= 0 && state.m.in >= 0;
+      setVal("mode", two ? "two" : "one");
+      body.querySelector(".tm-one").hidden = two;
+      body.querySelector(".tm-two").hidden = !two;
+      setVal("sign", state.m.sign || "negative");
+      setVal("order", state.m.dateOrder || "dmy");
+      setVal("decimal", state.m.decimal || ".");
+      setVal("fixed", state.m.currencyFixed || homeCur());
+    }
+    function pm() { return accounts.find((a) => a.id === state.accountId) || null; }
+    function currentMapping() {
+      const m = { ...state.m };
+      m.currencyFixed = $q("fixed").value;
+      return m;
+    }
+    function renderPreview() {
+      const m = currentMapping();
+      const r = StatementTable.applyMapping(rows, m);
+      const box = body.querySelector(".tm-preview");
+      const use = $q("use") || body.querySelector(".tm-use");
+      if (!r.lines.length) {
+        box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.noLines"))}</p>`;
+        use.disabled = true;
+        return;
+      }
+      use.disabled = !pm();
+      const totals = {};
+      r.lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
+      const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
+      box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(tr("table.previewLines", { n: r.lines.length, from: fmtDate(r.period.start, true), to: fmtDate(r.period.end, true) }))}</span><span></span></div>
+        <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
+        <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
+        ${r.skipped.length ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.length }))}</p>` : ""}
+        <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
+        ${r.lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+    }
+    function applyAccountGuess() {
+      // Re-guess the sign for the chosen account (a card's purchases are usually positive); only when nothing was remembered.
+      const a = pm();
+      if (a && !(saved && saved.m)) {
+        const g = StatementTable.guessMapping(rows, { isCard: a.type === "credit" });
+        state.m.sign = g.sign;
+      }
+    }
+    body.addEventListener("change", (e) => {
+      const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
+      if (!cls) return;
+      const v = e.target.value;
+      if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); }
+      else if (cls === "date") state.m.date = Number(v);
+      else if (cls === "desc") state.m.description = Number(v);
+      else if (cls === "amount") state.m.amount = Number(v);
+      else if (cls === "sign") state.m.sign = v;
+      else if (cls === "out") state.m.out = Number(v);
+      else if (cls === "in") state.m.in = Number(v);
+      else if (cls === "currency") state.m.currency = Number(v);
+      else if (cls === "order") state.m.dateOrder = v;
+      else if (cls === "decimal") state.m.decimal = v;
+      else if (cls === "mode") {
+        if (v === "two") {
+          // Money out starts at the amount column (or the guess); money in at the next numeric column that is not already taken.
+          const numeric = Array.from({ length: width }, (_, i) => i).filter((i) => {
+            const vals = rows.slice(guess.headerRow + 1).map((r) => r[i]).filter((x) => x !== "" && x !== undefined);
+            return vals.length && vals.filter((x) => !isNaN(StatementTable.parseAmount(x, state.m.decimal || "."))).length >= vals.length * 0.8;
+          }).filter((i) => i !== state.m.date);
+          const was = state.m.amount;
+          state.m.amount = -1;
+          if (state.m.out < 0) state.m.out = guess.out >= 0 ? guess.out : (was >= 0 ? was : (numeric[0] ?? 0));
+          if (state.m.in < 0) state.m.in = guess.in >= 0 ? guess.in : (numeric.find((i) => i !== state.m.out) ?? Math.min(width - 1, state.m.out + 1));
+        } else { state.m.out = -1; state.m.in = -1; if (state.m.amount < 0) state.m.amount = guess.amount >= 0 ? guess.amount : Math.min(width - 1, state.m.date + 2); }
+        syncControlsFromState();
+        setVal("out", state.m.out); setVal("in", state.m.in); setVal("amount", state.m.amount);
+      }
+      renderPreview();
+    });
+    body.querySelector(".tm-use").addEventListener("click", () => {
+      const a = pm();
+      if (!a) { body.querySelector(".tm-account").focus(); return; }
+      const m = currentMapping();
+      const r = StatementTable.applyMapping(rows, m);
+      if (!r.lines.length) return;
+      const accountKey = tableAccountKey(a);
+      const result = { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
+        period: r.period, balances: {}, lines: r.lines, warnings: [] };
+      tableMemorySet(sig, { m: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed }, accountId: a.id });
+      // A re-read of the same file replaces its earlier reading.
+      usable = usable.filter((u) => u.file !== file.name);
+      usable.push({ file: file.name, result, inboxId: "" });
+      historyPlan = null;
+      $("statement-history").innerHTML = "";
+      updateReviewButton();
+      renderResult(body, result, null, file);
+    });
+    if (!state.accountId) applyAccountGuess();
+    syncControlsFromState();
+    setVal("out", state.m.out); setVal("in", state.m.in); setVal("amount", state.m.amount); setVal("desc", state.m.description); setVal("date", state.m.date); setVal("currency", state.m.currency);
+    if (state.accountId) { const a = pm(); if (a && !(saved && saved.m)) { applyAccountGuess(); syncControlsFromState(); } }
+    renderPreview();
+  }
+
   async function handleStatementFiles(files) {
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    for (const f of Array.from(files)) await readStatementFile(f); // one at a time: easy on a phone's memory
+    for (const f of Array.from(files)) await (isTableFile(f) ? readTableFile(f) : readStatementFile(f)); // one at a time: easy on a phone's memory
   }
 
   // ---- review (read-only) ----
