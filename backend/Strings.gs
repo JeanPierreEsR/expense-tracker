@@ -217,6 +217,8 @@ var BACKEND_STRINGS_ = {
   "sa.catMissingFees": { en: "Category \"Bank fees\" is missing", es: "Falta la categoría \"Comisiones bancarias\"" },
   "sa.purchaseOut": { en: "A purchase must be money going out", es: "Una compra debe ser dinero que sale" },
   "sa.unknownExpenseCat": { en: "Unknown expense category", es: "Categoría de gasto desconocida" },
+  "sf.noSignature": { en: "That spreadsheet layout has no name to remember it by", es: "Esa hoja de cálculo no tiene un nombre con el cual recordarla" },
+  "sf.tooBig": { en: "That layout is too large to remember", es: "Ese formato es demasiado grande para recordarlo" },
   "sa.incomeIn": { en: "Income must be money coming in", es: "Un ingreso debe ser dinero que entra" },
   "sa.unknownIncomeCat": { en: "Unknown income category", es: "Categoría de ingreso desconocida" },
   "sa.notPending": { en: "A line sent to Needs review needs an amount", es: "Una línea enviada a Por revisar necesita un monto" },

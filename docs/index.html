@@ -821,7 +821,7 @@
         <p class="hint" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
         <label class="stmt-upload-btn">
           <span data-i18n="stmt.choose">Choose statement PDFs</span>
-          <input type="file" id="statement-file-input" accept="application/pdf,.pdf" multiple hidden>
+          <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
         </label>
         <div id="statement-results"></div>
       </div>
@@ -2186,6 +2186,7 @@
   <script src="bill-split.js?v=2026-10-24T05:48:42Z"></script>
   <script src="app.js?v=2026-10-24T05:48:42Z"></script>
   <script src="statement-sample.js?v=2026-10-24T05:48:42Z"></script>
+  <script src="statement-table.js?v=2026-10-24T05:48:42Z"></script>
   <script src="statement-parsers.js?v=2026-10-24T05:48:42Z"></script>
   <script src="statements.js?v=2026-10-24T05:48:42Z"></script>
 </body>

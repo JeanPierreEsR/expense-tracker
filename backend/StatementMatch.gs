@@ -85,6 +85,9 @@ function stmtLooksLikeTransfer_(description) {
 }
 
 function stmtClassifyLine_(line) {
+  // A line from an app's export (Spendee…) is something the person recorded themselves: its wording says nothing about fees or card payments.
+  if (line.transferMark) return 'payment';   // explicitly a transfer: it pairs with its other leg, or waits for it
+  if (line.appLine) return line.amount > 0 ? 'income' : 'expense';
   var d = String(line.description || '').toUpperCase();
   if (/^(IMPUESTO\s+)?ITF\b/.test(d) && Math.abs(line.amount) < STMT_FEE_MAX) return 'fee';
   if (line.section === 'fees') return 'fee';
@@ -210,7 +213,7 @@ function matchStatements_(statements, entries, opts) {
   var open = [];
   statements.forEach(function (st) {
     st.lines.forEach(function (l, i) {
-      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee' && !l.handled) open.push({ key: st.key, pmId: st.pmId, i: i, l: l });
+      if (perLine[st.key][i].status === 'unregistered' && perLine[st.key][i].guess !== 'fee' && !l.handled && !l.appLine) open.push({ key: st.key, pmId: st.pmId, i: i, l: l });
     });
   });
   // A transfer recorded with ONE side blank (its other statement wasn't there
@@ -226,7 +229,7 @@ function matchStatements_(statements, entries, opts) {
     var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
-      if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored) return;
+      if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored || l.appLine) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
       entries.forEach(function (e) {
@@ -264,7 +267,8 @@ function matchStatements_(statements, entries, opts) {
       if (a.key === b.key || a.pmId === b.pmId || a.l.currency !== b.l.currency || Math.abs(a.l.amount + b.l.amount) >= 0.005) return;
       var dd = Math.abs(stmtDayNumber_(a.l.date) - stmtDayNumber_(b.l.date));
       if (dd > STMT_PAIR_WINDOW_DAYS) return;
-      if (!STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
+      // Both sides marked as transfers by the file itself pair like worded ones; one marked side alone does not.
+      if (!(a.l.transferMark && b.l.transferMark) && !STMT_TRANSFER_HINT.test(a.l.description) && !STMT_TRANSFER_HINT.test(b.l.description)) return;
       edges[ai].push({ bi: bi, dd: dd });
     });
     edges[ai].sort(function (x, y) { return x.dd - y.dd; });
