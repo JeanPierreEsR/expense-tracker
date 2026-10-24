@@ -7274,9 +7274,17 @@ function buildTourSlide_(key, n, total) {
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
-  add("p", "welcome-body", body);
+  // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
+  let lead = "";
+  while (body && lead.length < 60) {
+    const m = body.match(/^.*?[.!?](\s+|$)/);
+    if (!m) { lead += body; body = ""; break; }
+    lead += m[0]; body = body.slice(m[0].length);
+  }
+  add("p", "welcome-body", lead.trim());
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
+  if (body.trim()) add("p", "welcome-body tour-more-text", body.trim());
   const items = TOUR_ITEMS[key] || [];
   if (items.length) {
     const ul = add("ul", "welcome-items");
