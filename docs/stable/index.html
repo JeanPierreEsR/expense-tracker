@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.39.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="064b614f8d4cb0bd72206184b1b0d91b74806cb7"><meta name="app-pairs" content="a40ff6f,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="0.41.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="cdc54b1b5542208193206c225cc9febc6b2d8001"><meta name="app-pairs" content="064b614,a40ff6f,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-24T17:11:31Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-24T18:01:39Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -472,7 +472,7 @@
             <span class="more-list-chevron">›</span>
           </button>
       </div>
-      <div class="card more-group">
+      <div class="card more-group more-group-az">
           <button type="button" class="more-list-item" id="more-accounts-btn">
             <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
@@ -483,10 +483,6 @@
           </button>
           <button type="button" class="more-list-item" id="more-categories-btn">
             <span data-i18n="more.categories">🏷️ Categories</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-tidy-btn">
-            <span data-i18n="more.tidy">🧹 Tidy my history</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
@@ -501,12 +497,22 @@
             <span data-i18n="more.ownerNames">👤 My names</span>
             <span class="more-list-chevron">›</span>
           </button>
+      </div>
+      <div class="card more-group more-group-az">
+          <button type="button" class="more-list-item" id="more-export-btn">
+            <span data-i18n="more.export">📤 Export data</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-import-btn">
+            <span data-i18n="more.import">📥 Import data</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-statements-btn">
             <span data-i18n="more.statements">🏦 Statements</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-export-btn">
-            <span data-i18n="more.export">📤 Export data</span>
+          <button type="button" class="more-list-item" id="more-tidy-btn">
+            <span data-i18n="more.tidy">🧹 Tidy my history</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -780,29 +786,33 @@
       </div>
     </div>
 
-    <div id="screen-statements" class="screen" hidden>
+    <div id="screen-statements" class="screen" data-mode="bank" hidden>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="statements-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="stmt.title">Statements</h2>
-        <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
-        <div id="statement-coverage-list"></div>
+        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.title">Statements</h2>
+        <p class="hint stmt-bank-only" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
+        <p class="hint stmt-bank-only"><button type="button" class="add-inline" id="statement-to-import-btn" data-i18n="stmt.toImport">Have an export from another app? Use Import data ›</button></p>
+        <div id="statement-coverage-list" class="stmt-bank-only"></div>
+        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
+        <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in Spendee or another app: export it as a CSV or Excel file with a category on every line, then pick the file here. Spendee's export is recognized by itself; for any other app you check the columns once and the app remembers them. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
+        <p class="hint stmt-import-only"><button type="button" class="add-inline" id="statement-to-bank-btn" data-i18n="imp.toBank">Reading your bank's statements instead? Open Statements ›</button></p>
       </div>
 
-      <div class="card" id="statement-gaps-card">
+      <div class="card stmt-bank-only" id="statement-gaps-card">
         <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
         <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>
         <div id="statement-gaps-list"></div>
       </div>
 
-      <div class="card" id="statement-inbox-card">
+      <div class="card stmt-bank-only" id="statement-inbox-card">
         <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
         <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
         <div id="statement-inbox-list"></div>
       </div>
 
-      <div class="card" id="statement-find-card" hidden>
+      <div class="card stmt-bank-only" id="statement-find-card" hidden>
         <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look for older statements in Gmail ›</button>
         <div id="statement-find-body">
         <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
@@ -823,18 +833,23 @@
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0;" data-i18n="stmt.read">Read a statement</h2>
-        <p class="hint" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
+        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.read">Read a statement</h2>
+        <p class="hint stmt-bank-only" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
+        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.read">Choose your file</h2>
+        <p class="hint stmt-import-only" data-i18n="imp.readHint">Pick one or more CSV or Excel files exported from the other app. Nothing is saved until you confirm at the end.</p>
         <label class="stmt-upload-btn">
-          <span data-i18n="stmt.choose">Choose statement PDFs</span>
+          <span class="stmt-bank-only" data-i18n="stmt.choose">Choose statement PDFs</span>
+          <span class="stmt-import-only" data-i18n="imp.choose">Choose export files (CSV or Excel)</span>
           <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
         </label>
         <div id="statement-results"></div>
       </div>
 
       <div class="card" id="statement-review-card" hidden>
-        <h2 style="margin-top:0;" data-i18n="hist.title">Read my statements</h2>
-        <p class="hint" data-i18n="hist.hint">One tap shows everything the statements contain: what is already in the app, what would be added, and what each account's balance would become. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
+        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="hist.title">Read my statements</h2>
+        <p class="hint stmt-bank-only" data-i18n="hist.hint">One tap shows everything the statements contain: what is already in the app, what would be added, and what each account's balance would become. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
+        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.histTitle">Check my import</h2>
+        <p class="hint stmt-import-only" data-i18n="imp.histHint">One tap shows what is already in the app, what would be added and which categories would be used. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
         <button type="button" class="primary" id="statement-history-btn" data-i18n="hist.button">📚 Read my statements</button>
         <div id="statement-history"></div>
         <div id="statement-review-status"></div>
@@ -2221,18 +2236,18 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="i18n.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="tour-scenes.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="signin-link.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="bank-sample.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="perf-share.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="receipt-parse.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="bill-split.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="app.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="statement-sample.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="statement-table.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="statement-parsers.js?v=2026-10-24T17:11:31Z"></script>
-  <script src="statements.js?v=2026-10-24T17:11:31Z"></script>
+  <script src="strings.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="i18n.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="tour-scenes.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="signin-link.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="bank-sample.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="perf-share.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="receipt-parse.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="bill-split.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="app.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="statement-sample.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="statement-table.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="statement-parsers.js?v=2026-10-24T18:01:39Z"></script>
+  <script src="statements.js?v=2026-10-24T18:01:39Z"></script>
 </body>
 </html>

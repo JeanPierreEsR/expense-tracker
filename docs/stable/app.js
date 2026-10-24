@@ -2450,7 +2450,20 @@ function formatAmount(amount, currency) {
 // underneath — for PEN that's the only extra line; for a foreign currency
 // it's a second line below the owner's-share-in-that-currency line, same
 // pattern generalized from what a plain USD split looks like.
+// One leg of a currency exchange: a one-sided transfer whose description says so (see backend CurrencyExchange.gs).
+// "in" = money arrived (has a To account, no From), "out" = money left.
+function exchangeLegSide_(entry) {
+  if (!entry || entry.type !== "transfer" || (entry.link && entry.link.friend)) return "";
+  // The marker is set when a leg is saved as a "Currency exchange"; statement-made legs have none, so their description counts too.
+  if (entry.exchange !== "1" && !/^(Currency exchange|Cambio de moneda)/i.test(String(entry.description || ""))) return "";
+  return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
+}
+
 function renderEntryAmountHtml(entry) {
+  if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
+    const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
+    return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  }
   // A withdrawal is stored negative; it reads as money coming BACK, so it
   // shows as a positive green figure with a leading +, like income.
   if (entry.type === "investment" && Number(entry.amount) < 0) {
@@ -2512,6 +2525,9 @@ function entryHeadline_(entry) {
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
+  }
+  if (exchangeLegSide_(entry)) {   // grey transfer dot, named for what it is instead of "Between Accounts"
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: paidByLabel(entry) };
   }
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
@@ -7274,9 +7290,17 @@ function buildTourSlide_(key, n, total) {
   let body = tr(`tour.${key}.body`);
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
-  add("p", "welcome-body", body);
+  // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
+  let lead = "";
+  while (body && lead.length < 60) {
+    const m = body.match(/^.*?[.!?](\s+|$)/);
+    if (!m) { lead += body; body = ""; break; }
+    lead += m[0]; body = body.slice(m[0].length);
+  }
+  add("p", "welcome-body", lead.trim());
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
+  if (body.trim()) add("p", "welcome-body tour-more-text", body.trim());
   const items = TOUR_ITEMS[key] || [];
   if (items.length) {
     const ul = add("ul", "welcome-items");
@@ -7593,6 +7617,27 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
   const el = document.getElementById("more-app-version");
   const v = appRelease_();
   if (el && v) el.textContent = tr("more.version", { v });
+})();
+
+// Two of the More tab's card groups (accounts/categories/rates… and
+// export/statements/tidy) are sorted A→Z by their CURRENT-language label
+// (leading emoji ignored), not by a fixed order — unlike the other groups,
+// which stay in a fixed order on purpose. The page always reloads on a
+// language change (see the picker below), so sorting once here, right after
+// i18n.js has filled in the text, is enough. See CHANGELOG.md § More tab:
+// statements group split out.
+(function sortMoreGroupsAz_() {
+  const labelOf = (btn) => {
+    const span = btn.querySelector("span[data-i18n]");
+    return (span ? span.textContent : "").replace(/^\S+\s*/, "");
+  };
+  document.querySelectorAll("#screen-more .more-group-az").forEach((group) => {
+    const buttons = Array.from(group.querySelectorAll(".more-list-item"));
+    buttons
+      .slice()
+      .sort((a, b) => labelOf(a).localeCompare(labelOf(b), I18n.getLang()))
+      .forEach((btn) => group.appendChild(btn));
+  });
 })();
 
 // Language picker (More tab). The choice is remembered on this phone; the app

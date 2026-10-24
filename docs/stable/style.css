@@ -2907,3 +2907,8 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .exchange-amount-row { display: flex; gap: 8px; margin-top: 6px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
+.tour-more-text { margin-top: 14px; }
+
+/* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
+#screen-statements[data-mode="import"] .stmt-bank-only,
+#screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
