@@ -1478,6 +1478,43 @@
     }
   };
 
+  // ---- More → Bank emails: the bank e-mails you about a payment → the app lists it under "Needs review". Only what the app really does:
+  //      the e-mail is read (nothing is invented about the bank's own screens) and the entry waits for the person's Confirm. ----
+  SCENES.bankalerts = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const p = { ctx };
+      p.mail = h("div", "ts-card ts-mail", null, phone); p.mail.hidden = true;
+      h("span", "ts-mail-icon", "✉️", p.mail);
+      const who = h("div", "ts-mail-who", null, p.mail);
+      h("b", null, ctx.bank || tr("bankMail.title"), who);
+      h("div", "ts-hint", "Cafe Luna", who);
+      h("b", null, ctx.home + " " + ctx.money(48), p.mail);
+      p.arrow = h("div", "ts-arrow", "↓", phone); p.arrow.hidden = true;
+      p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
+      h("b", null, tr("review.title") + " (1)", p.card);
+      const top = h("div", "ts-review-top", null, p.card);
+      const left = h("div", null, null, top);
+      h("b", null, "Cafe Luna", left);
+      h("div", "ts-hint", isoDay(0) + " · " + tr("type.expense").toLowerCase(), left);
+      h("b", null, ctx.home + " " + ctx.money(48), top);
+      const btns = h("div", "ts-two", null, p.card);
+      h("div", "ts-btn green grow", tr("review.confirm"), btns);
+      h("div", "ts-btn ghost grow", tr("review.discard"), btns);
+      return p;
+    },
+    timeline(p) {
+      return [
+        [500, () => { p.mail.hidden = false; p.mail.classList.add("pop"); }],
+        [1600, () => { p.arrow.hidden = false; }],
+        [2000, () => { p.card.hidden = false; p.card.classList.add("pop"); }],
+        [4200, () => {}]
+      ];
+    }
+  };
+
   // The STARTING picture of a scene, with no timers and no motion (owner: do not spoil the ending): used to show every card of the swipeable
   // tour already filled in, so nothing looks empty while a swipe is under way. (The card that is on screen plays its scene with play().)
   function preview(key, stage, ctx) {
