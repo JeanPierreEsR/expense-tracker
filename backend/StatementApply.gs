@@ -540,15 +540,13 @@ function applyStatementDecisions(payload) {
   ensureImportBatchRow_(batchId, payload.filename || 'Statement upload', creations.length);
   // The categories the person asked to create, now that nothing else can fail. Each is recorded for Undo.
   var createdCategoryIds = {};
-  Object.keys(newCategories).forEach(function (ph) {
-    var nc = newCategories[ph], row = null;
-    try { row = saveCategory({ name: nc.name, type: nc.type }); } catch (err) { row = null; }   // a name that clashes after trimming: leave those lines uncategorized
-    if (!row) return;
-    createdCategoryIds[ph] = row.id;
-    changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Categories', row_id: row.id, field: '__created__', old_value: '', new_value: '', created_at: now });
+  var placeholders = Object.keys(newCategories);
+  createCategoriesBulk_(placeholders.map(function (ph) { return newCategories[ph]; })).forEach(function (made, i) {
+    createdCategoryIds[placeholders[i]] = made.id;
+    if (made.created) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Categories', row_id: made.id, field: '__created__', old_value: '', new_value: '', created_at: now });
   });
   creations.forEach(function (e) { if (String(e.category_id).indexOf('new-category:') === 0) e.category_id = createdCategoryIds[e.category_id] || ''; });
-  report.categoriesCreatedNames = Object.keys(createdCategoryIds).map(function (ph) { return newCategories[ph].name; });
+  report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
   appendRowsBulk_('Entries', creations);
   if (payload.inboxIds && payload.inboxIds.length) markStatementInboxProcessed_(payload.inboxIds);
   Object.keys(colChanged).forEach(function (f) {
@@ -673,12 +671,15 @@ function undoStatementBatch(payload) {
 
   // Categories this upload created: removed again unless something else (an entry the person filed there since, a budget…) uses them.
   var createdCategoryIds = changes.filter(function (c) { return c.sheet === 'Categories' && c.field === '__created__'; }).map(function (c) { return c.row_id; });
-  createdCategoryIds.forEach(function (id) {
-    if (categoryUsage_(id) !== 0) { res.categoriesKept = (res.categoriesKept || 0) + 1; return; }
-    deleteRowsWhere_('Categories', function (row) { return String(row.id) === String(id); });
-    res.categoriesRemoved = (res.categoriesRemoved || 0) + 1;
-  });
-  if (createdCategoryIds.length) bumpStructureVersion_();
+  if (createdCategoryIds.length) {
+    var usage = categoryUsageMany_(createdCategoryIds), unused = {};
+    createdCategoryIds.forEach(function (id) {
+      if (usage[String(id)] !== 0) res.categoriesKept = (res.categoriesKept || 0) + 1;
+      else { unused[String(id)] = true; res.categoriesRemoved = (res.categoriesRemoved || 0) + 1; }
+    });
+    if (Object.keys(unused).length) deleteRowsWhere_('Categories', function (row) { return unused[String(row.id)]; });   // one call for all of them
+    bumpStructureVersion_();
+  }
 
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   var createdBalanceIds = {};

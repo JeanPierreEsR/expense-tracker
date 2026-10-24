@@ -129,3 +129,50 @@ function suggestCategoryMap(payload) {
   });
   return { items: items };
 }
+
+/**
+ * Creates the categories a save asked for, ALL in one go (one read of the Categories tab, one write): [{ name, type }] -> the same
+ * list with `id`. A name that already exists (even hidden) is reused instead of duplicated. Same row shape as saveCategory: top-level,
+ * default icon, a palette colour, no key. One sheet call each used to be three reads and a write per category — a file with thirty
+ * new names was ninety calls.
+ */
+function createCategoriesBulk_(specs) {
+  if (!specs.length) return [];
+  ensureCategoriesHiddenColumn_();
+  var cats = getAllRows('Categories');
+  var taken = categoryNameIndex_(cats, true);
+  var rows = [], out = [];
+  specs.forEach(function (s) {
+    var k = s.type + ':' + catNameNorm_(s.name);
+    if (taken[k] !== undefined) { out.push({ name: s.name, type: s.type, id: taken[k], created: false }); return; }
+    var id = Utilities.getUuid();
+    rows.push({ id: id, name: s.name, type: s.type, icon: CATEGORY_DEFAULT_ICON_, color: CATEGORY_COLOR_PALETTE[(cats.length + rows.length) % CATEGORY_COLOR_PALETTE.length],
+      parent_id: '', key: '', hidden: '' });
+    taken[k] = id;
+    out.push({ name: s.name, type: s.type, id: id, created: true });
+  });
+  if (rows.length) {
+    appendRowsBulk_('Categories', rows);
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
+    bumpStructureVersion_();
+  }
+  return out;
+}
+
+/** How many records point at each of these categories — categoryUsage_ for many ids with ONE read of each tab. { id: count } */
+function categoryUsageMany_(ids) {
+  var wanted = {}, counts = {};
+  ids.forEach(function (id) { wanted[String(id)] = true; counts[String(id)] = 0; });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  [['Entries', 'category_id'], ['Recurring Expenses', 'category_id'], ['Projection Overrides', 'category_id'], ['Categories', 'parent_id']].forEach(function (spec) {
+    if (!ss.getSheetByName(spec[0])) return;
+    getAllRows(spec[0]).forEach(function (r) { var v = String(r[spec[1]] || ''); if (wanted[v]) counts[v]++; });
+  });
+  if (ss.getSheetByName('Budgets')) {
+    getAllRows('Budgets').forEach(function (b) {
+      var list = parseBudgetCategoryIds_(b.category_id);
+      if (list !== null) list.forEach(function (id) { if (wanted[String(id)]) counts[String(id)]++; });
+    });
+  }
+  return counts;
+}

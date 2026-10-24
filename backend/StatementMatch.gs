@@ -27,6 +27,35 @@ function stmtWords_(text) {
     .replace(/[^a-z0-9]+/g, ' ').split(' ').filter(function (w) { return w.length >= 3; });
 }
 
+/**
+ * Entries bucketed by day, so a statement line only looks at the entries within a few days of it instead of at every entry
+ * (a file with thousands of lines against a Sheet with thousands of entries was tens of millions of comparisons: 43 s of
+ * computing on a 6,900-line Spendee export). `near(day, window)` gives the positions in `entries` of every entry whose day is
+ * within `window` days of `day`, in the entries' own order — so ties resolve exactly as when every entry was visited — and an
+ * entry whose date cannot be read is always included (it used to pass the date test too).
+ */
+function stmtEntryDayIndex_(entries) {
+  var days = [], byDay = {}, unreadable = [];
+  entries.forEach(function (e, i) {
+    var d = stmtDayNumber_(e.date);
+    days.push(d);
+    if (d !== d) { unreadable.push(i); return; }   // NaN
+    (byDay[d] || (byDay[d] = [])).push(i);
+  });
+  return {
+    days: days,
+    near: function (day, window) {
+      if (day !== day) return entries.map(function (e, i) { return i; });
+      var out = unreadable.slice();
+      for (var d = Math.floor(day - window); d <= Math.ceil(day + window); d++) {
+        var list = byDay[d];
+        if (list) for (var k = 0; k < list.length; k++) out.push(list[k]);
+      }
+      return out.sort(function (a, b) { return a - b; });
+    }
+  };
+}
+
 function stmtSimilarity_(a, b) {
   var wa = stmtWords_(a), wb = stmtWords_(b);
   var n = 0;
@@ -109,6 +138,8 @@ function matchStatements_(statements, entries, opts) {
   var loanTransferIds = opts.loanTransferIds || {};
   var used = {};
   var perLine = {};
+  var index = stmtEntryDayIndex_(entries);
+  function near(day, window) { return index.near(day, window); }
 
   statements.forEach(function (st) {
     var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
@@ -123,9 +154,10 @@ function matchStatements_(statements, entries, opts) {
     st.lines.forEach(function (l, li) {
       if (l.stored) return; // a line remembered from an earlier upload only takes part in pairing
       var ld = stmtDayNumber_(l.date);
-      entries.forEach(function (e) {
+      near(ld, windowDays).forEach(function (ei) {
+        var e = entries[ei];
         if (e.currency !== l.currency) return;
-        var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+        var dd = Math.abs(index.days[ei] - ld);
         if (dd > windowDays) return;
         var effects = stmtEntryEffects_(e, st.pmId);
         var ok = effects && effects.some(function (x) { return Math.abs(x - l.amount) < 0.005; });
@@ -168,7 +200,8 @@ function matchStatements_(statements, entries, opts) {
       if (r.status !== 'unregistered' || l.handled || l.stored) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
-      entries.forEach(function (e) {
+      near(ld, windowDays).forEach(function (ei) {
+        var e = entries[ei];
         if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency) return;
         // A transfer between two other accounts says nothing about this one —
         // this pass is for an income/expense logged under the wrong account.
@@ -177,7 +210,7 @@ function matchStatements_(statements, entries, opts) {
         // payment as a different line that merely shares the amount (found 2026-10-22: a PEN 10 card purchase was held back
         // because another upload had made a PEN 10 entry on another account).
         if (stmtFromStatement_(e)) return;
-        var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+        var dd = Math.abs(index.days[ei] - ld);
         if (dd > windowDays) return;
         var amt = Number(e.amount);
         var effects = [e.type === 'income' ? amt : -amt];
@@ -190,11 +223,12 @@ function matchStatements_(statements, entries, opts) {
       // the whole bill (90.00), the entry his third (30.00). An exact
       // multiple on the same date is a strong hint, never an auto-match.
       if (!r.possibleEntry && l.amount < 0) {
-        entries.forEach(function (e) {
+        near(ld, windowDays).forEach(function (ei) {
+          var e = entries[ei];
           if (used[stmtUsedKey_(e, st.pmId)] || e.currency !== l.currency || e.type !== 'expense') return;
           if (stmtFromStatement_(e)) return;
           if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
-          var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+          var dd = Math.abs(index.days[ei] - ld);
           if (dd > windowDays) return;
           if (Number(e.amount) < 10) return; // tiny amounts × N coincide too easily
           for (var n = 2; n <= 4; n++) {
@@ -232,7 +266,8 @@ function matchStatements_(statements, entries, opts) {
       if (r.status !== 'unregistered' || r.guess === 'fee' || l.handled || l.stored || l.appLine) return;
       var ld = stmtDayNumber_(l.date);
       var best = null;
-      entries.forEach(function (e) {
+      near(ld, STMT_PAIR_WINDOW_DAYS + 2).forEach(function (ei) {
+        var e = entries[ei];
         if (e.type !== 'transfer' || loanTransferIds[e.id] || openUsed[e.id] || e.currency !== l.currency) return;
         var from = e.payment_method_id || '', to = e.to_payment_method_id || '';
         if ((from && to) || (!from && !to)) return;                 // exactly one side must be blank
@@ -240,7 +275,7 @@ function matchStatements_(statements, entries, opts) {
         var side = from ? 'to' : 'from';
         if ((side === 'to') !== (l.amount > 0)) return;               // inflow completes To, outflow completes From
         if (Math.abs(Number(e.amount) - Math.abs(l.amount)) >= 0.005) return;
-        var dd = Math.abs(stmtDayNumber_(e.date) - ld);
+        var dd = Math.abs(index.days[ei] - ld);
         if (dd > STMT_PAIR_WINDOW_DAYS + 2) return;
         if (!best || dd < best.dd) best = { entryId: e.id, side: side, dd: dd };
       });
