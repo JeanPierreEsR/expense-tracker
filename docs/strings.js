@@ -1355,6 +1355,7 @@
     "notauto.unread.title": { en: "Bank emails I couldn't read", es: "Correos del banco que no pude leer" },
     "notauto.unread.hint": { en: "These emails arrived from your bank but the app didn't know their wording, so nothing was added. Only the sender and the wording of the subject are kept, never the amounts or names. Add these movements by hand, and tell JP about them.", es: "Estos correos llegaron de tu banco pero la app no conocía su formato, así que no se agregó nada. Solo se guarda el remitente y el formato del asunto, nunca los montos ni los nombres. Agrega estos movimientos a mano y avísale a JP." },
     "notauto.unread.count": { en: { one: "{n} email", other: "{n} emails" }, es: { one: "{n} correo", other: "{n} correos" } },
+    "notauto.unread.send": { en: "✉️ Send this to JP", es: "✉️ Enviar esto a JP" },
     "notauto.unread.no_rule": { en: "Not a kind of email the app knows yet.", es: "Un tipo de correo que la app aún no conoce." },
     "notauto.unread.unreadable": { en: "The app knows this email but couldn't read it — the bank may have changed its wording.", es: "La app conoce este correo pero no pudo leerlo; puede que el banco haya cambiado su formato." },
     "notauto.kind.plin_out_whatsapp": { en: "Plin sent from WhatsApp", es: "Plin enviado desde WhatsApp" },

@@ -6086,11 +6086,11 @@ function bsMsg_(text) {
 // A reason the server gave in words ("e-mail reading is off…") is shown as it is; anything else gets the generic sentence.
 const bsReason_ = (e, fallbackKey) => (e && e.code && String(e.code).indexOf("sample_") === 0 && e.message ? e.message : tr(fallbackKey));
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
-function openBankSampleModal_() {
+function openBankSampleModal_(opts) {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
   Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false });
   I18n.applyStatic(backdrop);
-  bsEl_("bs-sender").value = "";
+  bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
   bsEl_("bs-hide").value = "";
   bsEl_("bs-name").value = perfShareState_().label || "";
@@ -6168,7 +6168,7 @@ bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
-bsEl_("more-bank-sample-btn").addEventListener("click", openBankSampleModal_);
+bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
   if (bs_.sending || !bsEl_("bs-confirm").checked) return;
   bs_.sending = true;
@@ -7308,6 +7308,7 @@ function renderNotauto_(data) {
       <strong>${escapeHtml(u.subject || u.sender)}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
       <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.unread." + u.kind))}</div>
+      ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
     </div>`;
   }).join("");
   const share = document.getElementById("notauto-share");
@@ -7329,6 +7330,11 @@ function renderNotauto_(data) {
   }).join("");
 }
 
+// "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
+document.getElementById("notauto-unread-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".notauto-send");
+  if (btn) openBankSampleModal_({ sender: btn.dataset.sender });
+});
 document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
 document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));
 
