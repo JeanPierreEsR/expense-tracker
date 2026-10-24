@@ -6109,8 +6109,7 @@ function bsSenderOrWarn_() {
   return sender;
 }
 function bsShowPreview_() {
-  bsEl_("bs-confirm").checked = false;
-  bsEl_("bs-send").disabled = true;
+  bsEl_("bs-send").disabled = false;
   bsRedo_();
   bsStep_(3);
 }
@@ -6163,14 +6162,13 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   bsShowPreview_();
 });
 bsEl_("bs-redo").addEventListener("click", bsRedo_);
-bsEl_("bs-confirm").addEventListener("change", () => { bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked || bs_.sending; });
 bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
 bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
-  if (bs_.sending || !bsEl_("bs-confirm").checked) return;
+  if (bs_.sending) return;
   bs_.sending = true;
   bsEl_("bs-send").disabled = true;
   bsMsg_(tr("bankSample.sending"));
@@ -6196,7 +6194,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
   } finally {
     clearTimeout(timer);
     bs_.sending = false;
-    bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked;
+    bsEl_("bs-send").disabled = false;
   }
 });
 document.getElementById("more-extras-btn").addEventListener("click", () => {

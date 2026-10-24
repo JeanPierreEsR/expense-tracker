@@ -896,7 +896,6 @@
     "bankSample.hideHint": { en: "Separate with commas. Then tap “Hide again”.", es: "Sepáralos con comas. Luego toca “Ocultar de nuevo”." },
     "bankSample.redo": { en: "Hide again", es: "Ocultar de nuevo" },
     "bankSample.nameLabel": { en: "Your first name, so JP can tell you when your bank is ready", es: "Tu nombre, para que JP pueda avisarte cuando tu banco esté listo" },
-    "bankSample.confirm": { en: "I read it and nothing private is left", es: "Lo leí y no queda nada privado" },
     "bankSample.send": { en: "Send to JP", es: "Enviar a JP" },
     "bankSample.sending": { en: "Sending…", es: "Enviando…" },
     "bankSample.sendFailed": { en: "Could not send it. Check your connection and try again.", es: "No se pudo enviar. Revisa tu conexión e inténtalo de nuevo." },
