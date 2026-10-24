@@ -7619,6 +7619,27 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
   if (el && v) el.textContent = tr("more.version", { v });
 })();
 
+// Two of the More tab's card groups (accounts/categories/rates… and
+// export/statements/tidy) are sorted A→Z by their CURRENT-language label
+// (leading emoji ignored), not by a fixed order — unlike the other groups,
+// which stay in a fixed order on purpose. The page always reloads on a
+// language change (see the picker below), so sorting once here, right after
+// i18n.js has filled in the text, is enough. See CHANGELOG.md § More tab:
+// statements group split out.
+(function sortMoreGroupsAz_() {
+  const labelOf = (btn) => {
+    const span = btn.querySelector("span[data-i18n]");
+    return (span ? span.textContent : "").replace(/^\S+\s*/, "");
+  };
+  document.querySelectorAll("#screen-more .more-group-az").forEach((group) => {
+    const buttons = Array.from(group.querySelectorAll(".more-list-item"));
+    buttons
+      .slice()
+      .sort((a, b) => labelOf(a).localeCompare(labelOf(b), I18n.getLang()))
+      .forEach((btn) => group.appendChild(btn));
+  });
+})();
+
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.
 (function setupLanguagePicker() {
