@@ -2729,7 +2729,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .fab {
   position: fixed;
   right: 16px;
-  bottom: 84px;   /* syncFab_ sets the real value from the nav bar's height */
+  /* 14px above the bottom bar. Before the app measures the bar (syncFab_ sets --nav-h), the
+     estimate is the bar's usual 67px plus the iPhone's bottom safe area, so it is right on first open. */
+  bottom: calc(var(--nav-h, calc(67px + env(safe-area-inset-bottom, 0px))) + 14px);
   width: 58px;
   height: 58px;
   border-radius: 50%;

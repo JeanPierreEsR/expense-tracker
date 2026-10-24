@@ -4258,7 +4258,7 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
-  if (!fab.hidden) fab.style.bottom = (nav.offsetHeight + 14) + "px";
+  if (!fab.hidden && nav.offsetHeight) fab.style.setProperty("--nav-h", nav.offsetHeight + "px");
 }
 
 (function setupFab_() {
@@ -4266,6 +4266,12 @@ function syncFab_() {
   const watch = new MutationObserver(syncFab_);
   document.querySelectorAll(".screen, #bottom-nav").forEach((el) => watch.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
   window.addEventListener("resize", syncFab_);
+  // The bar's height can still change after the first measure (the iPhone's bottom safe area
+  // and the icon font arrive a moment after the app opens), which left the "+" too low on
+  // first open. Following the bar's own size keeps it exactly 14px above it, always.
+  if (window.ResizeObserver) new ResizeObserver(syncFab_).observe(document.getElementById("bottom-nav"));
+  window.addEventListener("load", syncFab_);
+  window.addEventListener("pageshow", syncFab_);
   syncFab_();
 })();
 
