@@ -187,6 +187,7 @@ function routeAction(action, payload) {
     case 'findRecurringLinkCandidates': return findRecurringLinkCandidates(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
+    case 'getManualGaps': return getManualGaps(payload);
     case 'listTrips': return listTrips();
     case 'getTripDetail': return getTripDetail(payload);
     case 'addTrip': return addTrip(payload);

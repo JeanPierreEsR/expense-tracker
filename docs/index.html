@@ -500,6 +500,10 @@
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-notauto-btn">
+            <span data-i18n="more.notauto">✋ Not captured automatically</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-privacy-btn" hidden>
             <span data-i18n="more.privacy">🔒 Privacy</span>
             <span class="more-list-chevron">›</span>
@@ -673,6 +677,24 @@
           <button type="button" class="add-inline" id="perf-copy-btn" data-i18n="perf.copy">Copy report</button>
           <button type="button" class="add-inline" id="perf-clear-btn" data-i18n="perf.clear">Clear</button>
         </div>
+      </div>
+    </div>
+
+    <div id="screen-notauto" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="notauto-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="notauto.title">Not captured automatically</h2>
+        <p class="hint" data-i18n="notauto.hint">Some money movements never reach the app by themselves — no bank email exists for them. This is what you added by hand, by receipt photo, or that only a statement revealed in the last 90 days.</p>
+        <div id="notauto-share" class="hint" hidden></div>
+        <div id="notauto-list"></div>
+        <div id="notauto-unread" hidden>
+          <h3 data-i18n="notauto.unread.title">Bank emails I couldn't read</h3>
+          <p class="hint" data-i18n="notauto.unread.hint">These emails arrived from your bank but the app didn't know their wording, so nothing was added. Only the sender and the wording of the subject are kept, never the amounts or names. Add these movements by hand, and tell JP about them.</p>
+          <div id="notauto-unread-list"></div>
+        </div>
+        <p class="hint" id="notauto-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
       </div>
     </div>
 
@@ -1467,11 +1489,7 @@
           <button type="button" class="cancel-edit-btn" id="bs-redo"data-i18n="bankSample.redo">Hide again</button>
           <label for="bs-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="bs-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
-          <label class="checkbox-row">
-            <input type="checkbox" id="bs-confirm">
-            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
-          </label>
-          <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send" disabled>Send to JP</button>
+          <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send">Send to JP</button>
           <button type="button" class="cancel-edit-btn" id="bs-back-3"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-4" hidden>

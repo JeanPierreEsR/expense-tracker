@@ -591,6 +591,7 @@ function processEmails(opts) {
   // Per-email memory (the "Processed Emails" tab): the one-off back-check
   // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
+  UNREAD_LOGGING_ = tracking;
   var handled = tracking ? loadProcessedEmailIds_() : {};
 
   senders.forEach(function (sender) {
@@ -664,10 +665,12 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
     .find(function (r) { return r.match(subject, body); });
 
+  if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
 
   var fields = rule.extract(subject, body);
   if (!fields) {
+    logUnreadEmail_(sender, subject, 'unreadable', dateStr);
     // The rule matched but the amount/details couldn't be read — most
     // likely the bank changed its wording. Counted separately so the
     // owner is told (see runAutomation) instead of it vanishing.

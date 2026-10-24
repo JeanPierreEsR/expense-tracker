@@ -4345,7 +4345,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -6425,11 +6425,11 @@ function bsMsg_(text) {
 // A reason the server gave in words ("e-mail reading is off…") is shown as it is; anything else gets the generic sentence.
 const bsReason_ = (e, fallbackKey) => (e && e.code && String(e.code).indexOf("sample_") === 0 && e.message ? e.message : tr(fallbackKey));
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
-function openBankSampleModal_() {
+function openBankSampleModal_(opts) {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
   Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false });
   I18n.applyStatic(backdrop);
-  bsEl_("bs-sender").value = "";
+  bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
   bsEl_("bs-hide").value = "";
   bsEl_("bs-name").value = perfShareState_().label || "";
@@ -6448,8 +6448,7 @@ function bsSenderOrWarn_() {
   return sender;
 }
 function bsShowPreview_() {
-  bsEl_("bs-confirm").checked = false;
-  bsEl_("bs-send").disabled = true;
+  bsEl_("bs-send").disabled = false;
   bsRedo_();
   bsStep_(3);
 }
@@ -6502,14 +6501,13 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   bsShowPreview_();
 });
 bsEl_("bs-redo").addEventListener("click", bsRedo_);
-bsEl_("bs-confirm").addEventListener("change", () => { bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked || bs_.sending; });
 bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
-bsEl_("more-bank-sample-btn").addEventListener("click", openBankSampleModal_);
+bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
-  if (bs_.sending || !bsEl_("bs-confirm").checked) return;
+  if (bs_.sending) return;
   bs_.sending = true;
   bsEl_("bs-send").disabled = true;
   bsMsg_(tr("bankSample.sending"));
@@ -6535,7 +6533,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
   } finally {
     clearTimeout(timer);
     bs_.sending = false;
-    bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked;
+    bsEl_("bs-send").disabled = false;
   }
 });
 document.getElementById("more-extras-btn").addEventListener("click", () => {
@@ -7619,6 +7617,63 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 });
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
+
+// ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
+
+async function showNotautoScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-notauto"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  const list = document.getElementById("notauto-list");
+  list.textContent = "…";
+  try {
+    renderNotauto_(await callApi("getManualGaps", {}));
+  } catch (err) {
+    list.textContent = err.message || String(err);
+  }
+}
+
+function renderNotauto_(data) {
+  const kinds = data.kinds || [];
+  const unread = data.unread || [];
+  document.getElementById("notauto-empty").hidden = kinds.length > 0 || unread.length > 0;
+  document.getElementById("notauto-unread").hidden = !unread.length;
+  document.getElementById("notauto-unread-list").innerHTML = unread.map((u) => {
+    const meta = tr("notauto.unread.count", { n: u.count }) + " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) });
+    return `<div class="more-list-item" style="display:block;">
+      <strong>${escapeHtml(u.subject || u.sender)}</strong>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.unread." + u.kind))}</div>
+      ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
+    </div>`;
+  }).join("");
+  const share = document.getElementById("notauto-share");
+  share.hidden = !(data.owner && data.manualShare && data.manualShare.total);
+  if (!share.hidden) {
+    share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
+  }
+  document.getElementById("notauto-list").innerHTML = kinds.map((k) => {
+    const totals = data.owner && k.totals
+      ? Object.keys(k.totals).map((cur) => `${escapeHtml(cur)} ${moneyFmt(k.totals[cur])}`).join(" · ")
+      : "";
+    const meta = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
+      + (totals ? " · " + totals : "");
+    return `<div class="more-list-item" style="display:block;">
+      <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+    </div>`;
+  }).join("");
+}
+
+// "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
+document.getElementById("notauto-unread-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".notauto-send");
+  if (btn) openBankSampleModal_({ sender: btn.dataset.sender });
+});
+document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
+document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Performance log screen (More tab) ----
 
