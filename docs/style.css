@@ -2903,3 +2903,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank .hint { margin: 6px 0 0; }
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+
+.exchange-amount-row { display: flex; gap: 8px; margin-top: 6px; min-width: 0; }
+.exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
+.exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }

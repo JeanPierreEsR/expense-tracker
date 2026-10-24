@@ -267,6 +267,17 @@ var BACKEND_STRINGS_ = {
   "desc.transferLeg": { en: "Transfer: {text}", es: "Transferencia: {text}" },
   "desc.exchangeOut": { en: "Currency exchange: {cur} sent", es: "Cambio de moneda: salida de {cur}" },
   "desc.exchangeIn": { en: "Currency exchange: {cur} received", es: "Cambio de moneda: entrada de {cur}" },
+  "desc.exchangeHouse": { en: "Currency exchange ({name})", es: "Cambio de moneda ({name})" },
+  "xch.sideOut": { en: "the money that left", es: "el dinero que salió" },
+  "xch.sideIn": { en: "the money that arrived", es: "el dinero que llegó" },
+  "xch.badDate": { en: "Pick the date of the exchange", es: "Elige la fecha del cambio" },
+  "xch.badAmount": { en: "Enter an amount for {side}", es: "Ingresa un monto para {side}" },
+  "xch.badCurrency": { en: "Pick a currency for {side}", es: "Elige una moneda para {side}" },
+  "xch.badAccount": { en: "Pick one of your accounts for {side}", es: "Elige una de tus cuentas para {side}" },
+  "xch.sameCurrency": { en: "An exchange needs two different currencies", es: "Un cambio de moneda necesita dos monedas distintas" },
+  "xch.needAccount": { en: "Pick at least one of your own accounts", es: "Elige al menos una de tus cuentas" },
+  "xch.notPending": { en: "That entry is no longer waiting for review", es: "Ese movimiento ya no está en revisión" },
+  "xch.pendingSide": { en: "The entry you are converting needs an account of yours on its side of the exchange", es: "El movimiento que conviertes necesita una cuenta tuya en su lado del cambio" },
   "desc.reversal": { en: "Refund: {text}", es: "Reembolso: {text}" },
 
   // ---- report ----
