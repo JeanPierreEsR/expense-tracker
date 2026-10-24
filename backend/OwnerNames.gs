@@ -67,6 +67,24 @@ function isOwnFullName_(name) {
   });
 }
 
+/**
+ * Like isOwnFullName_, but for a name whose LAST word is cut to an initial ("Eva Carla Ramos T." — BCP prints the second
+ * surname that way). The rest of the name must match one of the person's names, with exactly that one word missing and
+ * standing in for a word starting with the initial. Without a trailing initial it is just isOwnFullName_.
+ */
+function isOwnNameWithInitial_(name) {
+  if (isOwnFullName_(name)) return true;
+  var m = String(name || '').trim().match(/^(.*\S)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])\.?$/);
+  if (!m) return false;
+  var t = ownerNameTokens_(m[1]);
+  var initial = ownerNameTokens_(m[2] + m[2])[0].charAt(0);
+  if (t.length < 2) return false;
+  return ownerNameSets_().some(function (set) {
+    var missing = set.filter(function (w) { return t.indexOf(w) === -1; });
+    return missing.length === 1 && missing[0].charAt(0) === initial && t.length >= set.length - 1;
+  });
+}
+
 function ownerNameKey_(tokens) { return tokens.slice().sort().join(' '); }
 
 function ownerSeenRead_() {

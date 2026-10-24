@@ -142,6 +142,28 @@ var EMAIL_RULES = [
       };
     }
   },
+  // BCP to ANOTHER bank (e.g. to the owner's own Interbank account). Same shape as "a terceros", other
+  // labels: the amount is under "Monto enviado" (a commission line follows, so "Total cobrado" is the real
+  // debit), and "Desde" appears twice (intro sentence, then the data block), so the source account's last
+  // four digits are read from the line pair "Desde *Clasica*" / "**** 0005" only.
+  {
+    bank: 'BCP', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
+    label: 'Transferencia a otros bancos',
+    match: function (subject) { return /constancia de transferencia a otros bancos/i.test(subject); },
+    extract: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Total cobrado') || afterLabel_(body, 'Monto enviado') || body);
+      if (!amt) return null;
+      var recipient = afterLabel_(body, 'Enviado a');
+      var own = !!recipient && isOwnNameWithInitial_(recipient);
+      var from = body.match(/\n\s*\*?Desde\*?\s*\*?[^\n]*\n\s*\*{2,}\s*(\d{4})\b/);
+      return {
+        type: own ? 'transfer' : 'expense', needsReview: !own,
+        amount: amt.amount, currency: amt.currency, description: recipient,
+        last4: from ? from[1] : null,
+        externalId: afterLabel_(body, 'Número de operación')
+      };
+    }
+  },
   // ---- Apple (subscription / App Store receipts) ----
   // The receipt itself names the card ("Visa •••• 3052"), so unlike most
   // rules the Payment Method is resolved by last4, not guessed. The order id
