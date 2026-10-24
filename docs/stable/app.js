@@ -327,14 +327,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "exportData",
-  "applyStatementDecisions", "undoStatementBatch"   // long statement writes: a resend must not run a second copy beside the first
+  "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
+  "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
-const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000 };
+const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
+  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000 };   // a history of thousands of entries reads and rewrites whole columns
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -924,6 +926,15 @@ function pickableCategories_(list, keep) {
 function populateCategoryOptions() {
   const select = document.getElementById("category");
   select.innerHTML = "";
+  // Expense and income may be saved with no category (Tidy my history files them later); the select only shows
+  // when no category tile was picked, so a blank is always a choice. Transfers and investments keep theirs.
+  select.required = !ICON_PICKER_TYPES.includes(selectedType);
+  if (ICON_PICKER_TYPES.includes(selectedType)) {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = tr("entry.noCategoryYet");
+    select.appendChild(none);
+  }
   sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === selectedType)))
     .forEach((c) => {
       const opt = document.createElement("option");
@@ -953,6 +964,20 @@ function populateCategoryPicker() {
       tile.addEventListener("click", () => { showDetailForm(c); preselectAnnualForTravel_(c.id); });
       grid.appendChild(tile);
     });
+  if (selectedType === "expense") {
+    const later = document.createElement("button");
+    later.type = "button";
+    later.className = "category-tile";
+    later.innerHTML = `
+      <span class="category-tile-icon" style="background:#eee">⏭</span>
+      <span class="category-tile-name">${escapeHtml(tr("entry.categorizeLater"))}</span>
+    `;
+    later.addEventListener("click", () => {
+      showDetailForm(null);
+      document.getElementById("category").value = "";
+    });
+    grid.appendChild(later);
+  }
 }
 
 // Travel is Annual by default: picking a Travel category ticks the Annual chip
@@ -1145,7 +1170,7 @@ function populateToPaymentMethodOptions() {
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
   const anyPlatform = meta.paymentMethods.some((pm) => pm.type === "investment" && !pmHidden_(pm));
-  noneOpt.textContent = selectedType === "investment" ? tr(anyPlatform ? "form.pickPlatform" : "form.noPlatforms") : tr("form.noneAccount");
+  noneOpt.textContent = selectedType === "investment" ? tr(anyPlatform ? "form.pickPlatform" : "form.noPlatforms") : tr(selectedType === "transfer" ? "form.noneToOutside" : "form.noneAccount");
   select.appendChild(noneOpt);
   // An investment's "To" is a platform; a transfer's is a real account.
   const wantPlatforms = selectedType === "investment";
@@ -1240,7 +1265,6 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
-  document.getElementById("to-payment-method-hint-exchange").hidden = isInvestment;
   updateFromNoneOption_();
   // A transfer has no "Paid by": who it came from is the From account (or
   // None). Friends are handled by the loan/repayment kinds. Kept at "me" so
@@ -1296,7 +1320,8 @@ function transferKind_() {
 }
 
 function repaymentActive_() {
-  return transferKind_() !== "between";
+  const kind = transferKind_();
+  return kind === "repayment" || kind === "loan";   // "exchange" is its own form (below), not a debt
 }
 
 // The debt's direction (Loans.direction) for what's being saved.
@@ -1369,9 +1394,11 @@ function updateRepaymentUi_() {
   if (selectedType === "transfer") document.getElementById("category-select-field").hidden = available;
   const kindSelect = document.getElementById("transfer-kind");
   if (!available) kindSelect.value = "between";
+  syncExchangeKindOption_(kindSelect);
   const kind = transferKind_();
-  document.getElementById("repayment-detail").hidden = kind === "between";
-  if (kind === "between") return;
+  syncExchangeInline_();
+  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange";
+  if (kind === "between" || kind === "exchange") return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -2103,7 +2130,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!date) throw new Error(tr("error.dateRequired"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const isInvestmentEntry = selectedType === "investment";
-    if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error(tr("error.pickCategory"));
+    // The select (not a tile) is showing for income/expense = the category was left open on purpose.
+    const categoryMayBeBlank = ICON_PICKER_TYPES.includes(selectedType) && !document.getElementById("category-select-field").hidden;
+    if (!isRepayment && !isInvestmentEntry && !categoryId && !categoryMayBeBlank) throw new Error(tr("error.pickCategory"));
     // Investments send no category at all — the server files them under its default.
     const categoryField = isInvestmentEntry ? {} : { category_id: categoryId };
     if (selectedType === "transfer" && !isRepayment && !paymentMethodId && !toPaymentMethodId) {
@@ -2128,6 +2157,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
       (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
+    if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
 
     if (isRepayment) {
       const friendId = document.getElementById("repayment-friend").value;
@@ -2204,11 +2234,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           trip_id: tripId
         }
       });
-      await callApi("confirmEntry", { id: confirmingPendingId });
+      const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
       if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
         await callApi("saveEntrySplits", { entryId: confirmingPendingId, splits: splits || [] });
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
+      if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -2296,6 +2327,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         tag_ids: tagIds,
         trip_id: tripId
       });
+      if (created.guessed_category_name) {
+        lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
+      } else if (selectedType === "expense" && !created.category_id) {
+        lastFormNotice_ = tr("entry.savedNoCategory");
+      }
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
       // loan for the full amount (own_share = amount − 0 = the whole
@@ -3436,11 +3472,13 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
-    await callApi("confirmEntry", { id: a.id });
-  } else {
-    await callApi("discardEntry", { id: a.id });
+    const res = await callApi("confirmEntry", { id: a.id });
+    unqueueReviewAction_(a.id);
+    return res && res.follow ? res.follow : null;
   }
+  await callApi("discardEntry", { id: a.id });
   unqueueReviewAction_(a.id);
+  return null;
 }
 
 // Safe to call anytime, including at the top of every refresh — an
@@ -3448,7 +3486,8 @@ async function applyReviewAction_(a) {
 async function flushQueuedReviewActions_() {
   for (const a of getQueuedReviewActions_()) {
     try {
-      await applyReviewAction_(a);
+      const followed = await applyReviewAction_(a);
+      if (followed) onCategoryFollowed_(followed);
     } catch (err) {
       // Still unreachable — leave it queued, the next flush retries it.
     }
@@ -3613,13 +3652,15 @@ async function flushEntryEdit_(id) {
     // while an earlier failed attempt was still showing — the newer one
     // goes out next, instead of the stale one unqueuing itself as if it
     // had won.
+    let followed = null;
     for (;;) {
       const edit = findQueuedEdit_(id);
       if (!edit) break;
       markQueuedEditStatus_(id, "saving", null);
       renderEntryListFromCache_();
       try {
-        await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+        const saved = await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+        if (saved && saved.follow) followed = saved.follow;
         if (edit.splits !== null) {
           await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
         }
@@ -3644,6 +3685,7 @@ async function flushEntryEdit_(id) {
       }
       // else: replaced mid-flight — loop again and send the newer one.
     }
+    if (followed) onCategoryFollowed_(followed);
   } finally {
     entryEditFlushing_.delete(id);
   }
@@ -3826,11 +3868,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
-      ${entry.type === "expense" || entry.type === "income" ? `
+      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" ? `
       <div class="review-item-secondary-actions">
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
-        <button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
-        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
+        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
+        <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
       </div>` : ""}
     `;
 
@@ -3896,9 +3939,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
       try {
-        await applyReviewAction_({ id: entry.id, action: "confirm", fields });
+        const followed = await applyReviewAction_({ id: entry.id, action: "confirm", fields });
         refreshEntryList();
         refreshExpectedRecurring();
+        if (followed) onCategoryFollowed_(followed);
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
@@ -3929,7 +3973,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense" || entry.type === "income") {
+    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -3967,13 +4011,183 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       };
       const splitBtn = item.querySelector(".review-split-btn"); // expenses only
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
-      item.querySelector(".review-repay-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
-      item.querySelector(".review-loan-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
+      const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
+      if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
+      const loanBtn = item.querySelector(".review-loan-btn");
+      if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
+      // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
+      item.querySelector(".review-exchange-btn").addEventListener("click", withRowEdits((e) =>
+        openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
     list.appendChild(item);
   });
 }
+
+// ---- Currency exchange pop-up (backend/CurrencyExchange.gs) ----
+// Two one-sided transfers saved together, in either direction. Opened from the Transfer tab, or from a review card
+// (`entry`, `leg`: that pending entry becomes the leg that left ("out") or arrived ("in") and keeps its e-mail reference).
+var exchangeContext_;
+
+function exchangeAccountOptions_(selectedId) {
+  const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
+  return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
+    own.map((pm) => `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
+    `<option value="">${escapeHtml(tr("xch.outside"))}</option>`;
+}
+
+function exchangeCurrencyOptions_(selected) {
+  return CURRENCIES.map((c) => `<option value="${c.code}" ${c.code === selected ? "selected" : ""}>${c.flag} ${c.code}</option>`).join("");
+}
+
+function updateExchangeRateLine_() {
+  const el = document.getElementById("exchange-rate-line");
+  const a = parseFloat(document.getElementById("exchange-out-amount").value);
+  const b = parseFloat(document.getElementById("exchange-in-amount").value);
+  const ca = document.getElementById("exchange-out-currency").value;
+  const cb = document.getElementById("exchange-in-currency").value;
+  if (!(a > 0) || !(b > 0) || ca === cb) { el.hidden = true; return; }
+  // Quoted as 1 unit of the currency with the smaller amount, the way a rate is spoken (1 USD = 3.42 PEN).
+  const [from, to, rate] = a >= b ? [cb, ca, a / b] : [ca, cb, b / a];
+  el.textContent = tr("xch.rate", { from, to, rate: rate.toFixed(rate >= 100 ? 2 : 4) });
+  el.hidden = false;
+}
+
+// "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
+var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
+function syncExchangeKindOption_(kindSelect) {
+  if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
+  const has = !!kindSelect.querySelector('option[value="exchange"]');
+  const allowed = !editingEntryId;
+  if (!allowed && has) {
+    if (kindSelect.value === "exchange") kindSelect.value = "between";
+    exchangeKindOption_.remove();
+  } else if (allowed && !has) {
+    kindSelect.appendChild(exchangeKindOption_);
+  }
+}
+
+// While that choice is on, the exchange fields sit inside the sheet in place of the usual ones (no second pop-up); otherwise they wait in their pop-up.
+function exchangeFormIsInline_() {
+  return document.getElementById("exchange-form").parentElement.id === "exchange-inline-slot";
+}
+function syncExchangeInline_() {
+  const inline = repaymentAvailable_() && document.getElementById("transfer-kind").value === "exchange";
+  const form = document.getElementById("exchange-form");
+  const slot = document.getElementById("exchange-inline-slot");
+  document.getElementById("entry-standard-fields").hidden = inline;
+  document.getElementById("submit-btn").hidden = inline;
+  slot.hidden = !inline;
+  if (inline && !exchangeFormIsInline_()) {
+    exchangeContext_ = null;
+    slot.appendChild(form);
+    fillExchangeForm_({});
+  } else if (!inline && exchangeFormIsInline_()) {
+    document.getElementById("exchange-modal-body").appendChild(form);
+  }
+}
+
+function openExchangeModal_(opts) {
+  if (exchangeFormIsInline_()) {   // the sheet was showing it: put the choice back so the pop-up can hold the fields
+    document.getElementById("transfer-kind").value = "between";
+    updateRepaymentUi_();
+  }
+  fillExchangeForm_(opts);
+  const backdrop = document.getElementById("exchange-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function fillExchangeForm_(opts) {
+  opts = opts || {};
+  const entry = opts.entry || null;
+  const leg = opts.leg === "in" ? "in" : "out";
+  exchangeContext_ = entry ? { entry, leg } : null;
+  const home = homeCur();
+  const entryAccount = entry ? ((leg === "out" ? entry.payment_method_id : entry.to_payment_method_id) || entry.payment_method_id || "") : "";
+  const otherCur = (cur) => (cur !== "USD" ? "USD" : home !== "USD" ? home : "EUR");
+  const entryCur = entry ? entry.currency : home;
+  const outCur = leg === "out" ? entryCur : otherCur(entryCur);
+  const inCur = leg === "in" ? entryCur : otherCur(entryCur);
+
+  document.getElementById("exchange-date").value = entry ? entry.date : todayLocalISO();
+  document.getElementById("exchange-out-account").innerHTML = exchangeAccountOptions_(leg === "out" ? entryAccount : "");
+  document.getElementById("exchange-in-account").innerHTML = exchangeAccountOptions_(leg === "in" ? entryAccount : "");
+  document.getElementById("exchange-out-currency").innerHTML = exchangeCurrencyOptions_(outCur);
+  document.getElementById("exchange-in-currency").innerHTML = exchangeCurrencyOptions_(inCur);
+  document.getElementById("exchange-out-amount").value = entry && leg === "out" ? Math.abs(Number(entry.amount)) : "";
+  document.getElementById("exchange-in-amount").value = entry && leg === "in" ? Math.abs(Number(entry.amount)) : "";
+  // A "Currency exchange (name)" description already names the house; otherwise the e-mail's recipient text is the best guess.
+  const named = entry ? String(entry.description || "").match(/^(?:Currency exchange|Cambio de moneda) \((.+)\)\s*$/i) : null;
+  document.getElementById("exchange-house").value = named ? named[1] : (entry && entry.type === "expense" ? String(entry.description || "") : "");
+  const ctx = document.getElementById("exchange-context");
+  ctx.hidden = !entry;
+  if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
+  document.getElementById("exchange-form-error").textContent = "";
+  updateExchangeRateLine_();
+}
+
+function closeExchangeModal_() {
+  document.getElementById("exchange-modal-backdrop").hidden = true;
+  exchangeContext_ = null;
+}
+
+document.getElementById("exchange-modal-close").addEventListener("click", closeExchangeModal_);
+document.getElementById("exchange-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "exchange-modal-backdrop") closeExchangeModal_();
+});
+["exchange-out-amount", "exchange-in-amount"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", (e) => {
+    const clean = sanitizeAmountInputValue(e.target.value);
+    if (clean !== e.target.value) e.target.value = clean;
+    updateExchangeRateLine_();
+  });
+});
+["exchange-out-currency", "exchange-in-currency"].forEach((id) => document.getElementById(id).addEventListener("change", updateExchangeRateLine_));
+
+document.getElementById("exchange-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("exchange-form-error");
+  errorEl.textContent = "";
+  const date = document.getElementById("exchange-date").value;
+  const side = (which) => ({
+    payment_method_id: document.getElementById(`exchange-${which}-account`).value,
+    amount: parseFloat(document.getElementById(`exchange-${which}-amount`).value),
+    currency: document.getElementById(`exchange-${which}-currency`).value
+  });
+  const out = side("out"), inn = side("in");
+  if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  if (out.payment_method_id === "__pick__" || inn.payment_method_id === "__pick__") { errorEl.textContent = tr("xch.needAccount"); return; }
+  if (!(out.amount > 0) || !(inn.amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
+  if (out.currency === inn.currency) { errorEl.textContent = tr("xch.sameCurrency"); return; }
+  if (!out.payment_method_id && !inn.payment_method_id) { errorEl.textContent = tr("xch.needAccount"); return; }
+  const ctx = exchangeContext_;
+  if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
+
+  const saveBtn = document.getElementById("exchange-save-btn");
+  const wasInline = exchangeFormIsInline_();
+  saveBtn.disabled = true;
+  try {
+    await callApi("recordCurrencyExchange", {
+      date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
+      pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
+    });
+    if (wasInline) {
+      document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
+      updateRepaymentUi_();
+      if (newEntrySheetOpen_) closeNewEntrySheet_();
+    } else {
+      closeExchangeModal_();
+    }
+    showToast_(tr("xch.saved"));
+    refreshEntryList();
+    refreshReviewQueue().catch(() => {});
+    refreshBalances().catch(() => {});
+  } catch (err) {
+    errorEl.textContent = err.message || String(err);
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
 
 // ---- New-entry sheet + the round "+" button ----
 // The entry form no longer sits on a screen: it lives in #entry-card-home and is moved
@@ -4134,7 +4348,7 @@ function homeMainCard_(g) {
     <div class="home-four">
       <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("home.invested"))}</span><b>${homeShort_(m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
     </div>`;
 
@@ -4345,7 +4559,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -6059,7 +6273,53 @@ function refreshExtrasRow_() {
   maybeAskPerfShare_();
   checkBackendUpdate_();
   checkBankReady_();
+  renderFirstSteps_();
 }
+
+// ---- Home "Getting started" card (a friend's copy only; specs/home-tab.md § Getting started) ----
+// Three things, each ticked by itself: accounts added, the first bank e-mail received (the proof that the bank alerts are on), and an
+// optional first statement. It disappears when everything is ticked, or when the person taps Hide (remembered on this phone only).
+function fsFlag_(key) { try { return localStorage.getItem(key) === "1"; } catch (e) { return false; } }
+function fsSetFlag_(key) { try { localStorage.setItem(key, "1"); } catch (e) { /* the card just stays */ } }
+function renderFirstSteps_() {
+  const card = document.getElementById("first-steps-card");
+  if (!card) return;
+  const caps = (meta && meta.capabilities) || {};
+  if (!meta || perfIsOwnerCopy_() || fsFlag_("etFirstStepsHidden")) { card.hidden = true; return; }
+  const info = meta.emailInfo || {};
+  const since = Number(info.since) || 0;
+  const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
+  const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
+  if (caps.bankEmails) {
+    const got = Object.keys(info.seen || {}).length > 0;
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late: days >= 3, hint: days >= 3 ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
+  }
+  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
+  if (steps.every((st) => st.done)) { card.hidden = true; return; }
+  const list = document.getElementById("first-steps-list");
+  list.innerHTML = "";
+  steps.forEach((st) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "first-step" + (st.done ? " done" : "") + (st.late && !st.done ? " late" : "");
+    const mark = document.createElement("span");
+    mark.className = "first-step-mark";
+    mark.textContent = st.done ? "✓" : "○";
+    const body = document.createElement("span");
+    body.className = "first-step-body";
+    const title = document.createElement("b");
+    title.textContent = st.text;
+    body.appendChild(title);
+    if (st.hint && !st.done) { const h = document.createElement("span"); h.className = "hint"; h.textContent = st.hint; body.appendChild(h); }
+    btn.appendChild(mark); btn.appendChild(body);
+    if (!st.done) btn.addEventListener("click", st.go);
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+  card.hidden = false;
+}
+document.getElementById("first-steps-hide").addEventListener("click", () => { fsSetFlag_("etFirstStepsHidden"); renderFirstSteps_(); });
 
 // ---- "Help me improve the app" pop-up (a friend's copy only) ----
 // Asked once per phone: at the end of the welcome questions for a new app, or at the next open for an app that was
@@ -7355,6 +7615,50 @@ document.getElementById("devices-modal-close").addEventListener("click", () => {
 const bmEl_ = (id) => document.getElementById(id);
 let bm_ = { onClose: null };
 
+// Which bank-alert tip each bank gets (the rest share the generic one: the steps differ bank by bank and are not drawn).
+const BM_TIP_KEYS_ = { Yape: "bankMail.tip.Yape", Interbank: "bankMail.tip.Interbank" };
+
+// The banks the person has an account at (Yape counts once it is linked to an account): only those get a "no email yet" warning.
+function bmBanksInUse_() {
+  const used = new Set();
+  const banks = (meta && meta.banks) || [], pms = (meta && meta.paymentMethods) || [];
+  banks.forEach((b) => { if (pms.some((pm) => pm.bank_id === b.id)) used.add(String(b.name || "").toLowerCase()); });
+  const st = (meta && meta.settings) || {};
+  if (st.yape_pen || st.yape_usd) used.add("yape");
+  return used;
+}
+
+// One tap-to-open row per bank the app can read: its name, whether an e-mail from it has arrived, and the alert steps.
+function renderBankAlerts_() {
+  const box = bmEl_("bm-alerts");
+  box.innerHTML = "";
+  const info = (meta && meta.emailInfo) || {};
+  const seen = info.seen || {};
+  const used = bmBanksInUse_();
+  const inUse = (b) => used.has(b.toLowerCase());
+  (info.banks || []).slice().sort((a, b) => (inUse(b) ? 1 : 0) - (inUse(a) ? 1 : 0)).forEach((bank) => {
+    const row = document.createElement("details");
+    row.className = "bm-bank";
+    const sum = document.createElement("summary");
+    const name = document.createElement("b");
+    name.textContent = bank;
+    sum.appendChild(name);
+    if (inUse(bank)) {
+      const st = document.createElement("span");
+      const day = seen[bank];
+      st.className = "bm-status " + (day ? "ok" : "wait");
+      st.textContent = day ? tr("bankMail.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("bankMail.notSeen");
+      sum.appendChild(st);
+    }
+    row.appendChild(sum);
+    const tip = document.createElement("p");
+    tip.className = "hint";
+    tip.textContent = tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic");
+    row.appendChild(tip);
+    box.appendChild(row);
+  });
+}
+
 function openBankMailModal_(opts) {
   opts = opts || {};
   bm_.onClose = opts.onClose || null;
@@ -7364,14 +7668,16 @@ function openBankMailModal_(opts) {
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
-  bmEl_("bm-banks").textContent = (info.banks || []).length ? tr("bankMail.supported", { banks: info.banks.join(", ") }) : "";
+  renderBankAlerts_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  if (typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
 }
 
 function closeBankMailModal_() {
   bmEl_("bank-mail-modal-backdrop").hidden = true;
+  if (typeof TourScenes !== "undefined") TourScenes.stop();
   const done = bm_.onClose;
   bm_.onClose = null;
   if (done) done();
@@ -7617,6 +7923,163 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 });
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
+
+// ---- Categories that catch up later (backend/CategoryFollow.gs) ----
+
+let appUndoTimer_ = null;
+let appUndoAction_ = null;
+// A message with an Undo button, for something the app did for the person beyond what they tapped.
+function showUndoToast_(text, onUndo) {
+  const box = document.getElementById("app-undo-toast");
+  document.getElementById("app-undo-text").textContent = text;
+  appUndoAction_ = onUndo;
+  box.hidden = false;
+  clearTimeout(appUndoTimer_);
+  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoAction_ = null; }, 10000);
+}
+document.getElementById("app-undo-btn").addEventListener("click", async () => {
+  const action = appUndoAction_;
+  appUndoAction_ = null;
+  document.getElementById("app-undo-toast").hidden = true;
+  clearTimeout(appUndoTimer_);
+  if (!action) return;
+  try { await action(); } catch (err) { alert(err.message || String(err)); }
+});
+
+// An edit gave one entry a category and the server filled the other blanks of the same merchant (answer of updateEntry).
+function onCategoryFollowed_(follow) {
+  refreshEntryList().catch(() => {});
+  refreshHomeGlance_(true);
+  showUndoToast_(tr(follow.similarCount ? "follow.doneSimilar" : "follow.done", { n: follow.count, category: follow.categoryName }), async () => {
+    await callApi("undoCategoryFollow", { changes: [{ categoryId: follow.categoryId, ids: follow.ids }], annualIds: follow.annualIds });
+    showToast_(tr("tidy.undone"));
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+  });
+}
+
+const tidySkipped_ = new Set();   // groups the person skipped on this visit
+let tidyGroups_ = [];
+let tidyData_ = {};
+
+async function showTidyScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  tidySkipped_.clear();
+  const list = document.getElementById("tidy-list");
+  list.textContent = "…";
+  try {
+    await loadTidy_();
+  } catch (err) {
+    list.textContent = err.message || String(err);
+  }
+}
+
+async function loadTidy_() {
+  const data = await callApi("listTidyGroups", {});
+  tidyGroups_ = data.groups || [];
+  tidyData_ = data;
+  renderTidy_();
+}
+
+function tidyCategoryOptions_(selectedId) {
+  return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedId))
+      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+}
+
+function renderTidy_() {
+  const data = tidyData_;
+  const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
+  const list = document.getElementById("tidy-list");
+  const visibleEntries = groups.reduce((n, g) => n + g.count, 0);
+  document.getElementById("tidy-empty").hidden = (data.totalEntries || 0) > 0;
+  const summary = document.getElementById("tidy-summary");
+  summary.hidden = !(data.totalEntries > 0);
+  if (!summary.hidden) {
+    summary.textContent = groups.length
+      ? tr("tidy.summary", { n: data.groupCount > tidyGroups_.length ? data.totalEntries : visibleEntries, g: data.groupCount > tidyGroups_.length ? data.groupCount : groups.length })
+      : tr("tidy.allSkipped");
+  }
+  const withSuggestion = groups.filter((g) => g.suggestion);
+  const allBtn = document.getElementById("tidy-apply-all-btn");
+  allBtn.hidden = !withSuggestion.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: withSuggestion.length });
+  const more = document.getElementById("tidy-more");
+  more.hidden = !(data.groupCount > data.shown);
+  if (!more.hidden) more.textContent = tr("tidy.more", { shown: data.shown });
+  list.innerHTML = groups.map((g) => {
+    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+    const sug = g.suggestion;
+    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top">
+        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
+        <span class="tidy-group-total">${escapeHtml(data.main)} ${moneyFmt(g.totalMain)}</span>
+      </div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
+        ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select">${tidyCategoryOptions_(sug ? sug.categoryId : "")}</select>
+        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+        <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
+      </div>
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span><span>${formatAmount(e.amount, e.currency)}</span></li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+}
+
+// Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
+async function applyTidy_(items, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const res = await callApi("applyTidyGroups", { items });
+    if (!res.count) {
+      showToast_(tr("tidy.nothingApplied"));
+    } else {
+      showUndoToast_(tr("tidy.applied", { n: res.count }), async () => {
+        await callApi("undoCategoryFollow", { changes: res.changes, annualIds: res.annualIds });
+        showToast_(tr("tidy.undone"));
+        await loadTidy_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    }
+    await loadTidy_();
+  } catch (err) {
+    alert(err.message || String(err));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
+document.getElementById("tidy-list").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".tidy-group");
+  if (!row) return;
+  const key = row.dataset.key;
+  if (ev.target.closest(".tidy-lines")) {
+    const samples = row.querySelector(".tidy-samples");
+    samples.hidden = !samples.hidden;
+  } else if (ev.target.closest(".tidy-skip")) {
+    tidySkipped_.add(key);
+    renderTidy_();
+  } else if (ev.target.closest(".tidy-apply")) {
+    const categoryId = row.querySelector(".tidy-select").value;
+    if (!categoryId) { alert(tr("review.pickCategoryFirst")); return; }
+    applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
+  }
+});
+document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => {
+  const items = tidyGroups_.filter((g) => g.suggestion && !tidySkipped_.has(g.key)).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
+  if (items.length) applyTidy_(items, [ev.currentTarget]);
+});
+document.getElementById("more-tidy-btn").addEventListener("click", showTidyScreen);
+document.getElementById("tidy-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
 

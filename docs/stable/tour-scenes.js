@@ -118,11 +118,13 @@
   function entriesPhone(stage, ctx, type, form) {
     const tr = ctx.tr;
     const phone = h("div", "ts-phone", null, stage);
-    const bar = h("div", "ts-bar", tr("entry.newTitle"), phone);
+    const bar = h("div", "ts-bar", tr("nav.home"), phone);   // the scene starts on Home; the finger taps the + to open the sheet
     const tabs = {};
     const tabRow = h("div", "ts-types", null, phone);
+    tabRow.hidden = true;
     ["expense", "income", "investment", "transfer"].forEach((t) => { tabs[t] = h("span", "ts-pill" + (t === type ? " on " + t : ""), tr("type." + t), tabRow); });
     const gridView = h("div", "ts-view", null, phone);
+    gridView.hidden = true;
     const grid = h("div", "ts-grid", null, gridView);
     const fillGrid = (t) => {
       grid.innerHTML = "";
@@ -131,8 +133,7 @@
       return tiles;
     };
     let tiles = fillGrid(type);
-    const recent = h("div", "ts-list", null, phone);   // Home's list: shown once the sheet has closed
-    recent.hidden = true;
+    const recent = h("div", "ts-list", null, phone);   // Home's list: what is showing before the + is tapped and after the sheet closes
     h("div", "ts-list-title", tr("entries.recent"), recent);
     const rows = h("div", "ts-rows", null, recent);
     const addRow = (name, amt, enter, dot) => {
@@ -149,7 +150,8 @@
     addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48));
     const formView = h("div", "ts-view ts-form", null, phone);
     formView.hidden = true;
-    return { phone, bar, tabRow, recent, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
+    const fab = h("div", "ts-fab", "+", phone);
+    return { phone, bar, tabRow, recent, fab, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
   }
   const typeOn = (p, t) => Object.keys(p.tabs).forEach((k) => { p.tabs[k].className = "ts-pill" + (k === t ? " on " + t : ""); });
   const showForm = (p, on) => {
@@ -161,7 +163,16 @@
     p.formView.hidden = true;
     p.tabRow.hidden = true;
     p.recent.hidden = false;
+    p.fab.hidden = false;
     p.bar.textContent = p.ctx.tr("nav.home");
+  };
+  // The + was tapped: Home gives way to the new-entry sheet (title, type tabs, category grid).
+  const openSheet = (p) => {
+    p.fab.hidden = true;
+    p.recent.hidden = true;
+    p.tabRow.hidden = false;
+    p.gridView.hidden = false;
+    p.bar.textContent = p.ctx.tr("entry.newTitle");
   };
   const typing = (el, parts) => parts.map((txt, i) => (inst) => { el.textContent = txt; });
 
@@ -347,6 +358,18 @@
       ];
     }
   };
+
+  // The three scenes above begin on Home: the finger goes to the green + and taps it, the sheet opens, and only then
+  // does each scene's own timeline run (shifted by the lead-in). Its first step, which only parks the finger on the
+  // first thing to tap (instantly, at time 0), is dropped: the finger is already on the + and glides from there.
+  const PLUS_LEAD = 1700;
+  ["add", "invest", "transfer"].forEach((key) => {
+    const own = SCENES[key].timeline;
+    SCENES[key].timeline = (p, ctx) => [
+      [300, (i) => p.finger.to(p.fab, i)],
+      [1200, (i) => { p.finger.tap(i); openSheet(p); }]
+    ].concat(own(p, ctx).filter(([t]) => t > 0).map(([t, fn]) => [t + PLUS_LEAD, fn]));
+  });
 
   // ---- a More sub-screen: "‹ Back" and "+ Add", a title and its list; a sheet slides up for the form ----
   // The day as the app's date field shows it ("Oct 28, 2026" / "28 oct 2026"), for the one-calendar date fields.
@@ -1474,6 +1497,43 @@
         [4300, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
         [4600, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
         [5400, () => fg.hide()]
+      ];
+    }
+  };
+
+  // ---- More → Bank emails: the bank e-mails you about a payment → the app lists it under "Needs review". Only what the app really does:
+  //      the e-mail is read (nothing is invented about the bank's own screens) and the entry waits for the person's Confirm. ----
+  SCENES.bankalerts = {
+    hold: 1800,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const p = { ctx };
+      p.mail = h("div", "ts-card ts-mail", null, phone); p.mail.hidden = true;
+      h("span", "ts-mail-icon", "✉️", p.mail);
+      const who = h("div", "ts-mail-who", null, p.mail);
+      h("b", null, ctx.bank || tr("bankMail.title"), who);
+      h("div", "ts-hint", "Cafe Luna", who);
+      h("b", null, ctx.home + " " + ctx.money(48), p.mail);
+      p.arrow = h("div", "ts-arrow", "↓", phone); p.arrow.hidden = true;
+      p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
+      h("b", null, tr("review.title") + " (1)", p.card);
+      const top = h("div", "ts-review-top", null, p.card);
+      const left = h("div", null, null, top);
+      h("b", null, "Cafe Luna", left);
+      h("div", "ts-hint", isoDay(0) + " · " + tr("type.expense").toLowerCase(), left);
+      h("b", null, ctx.home + " " + ctx.money(48), top);
+      const btns = h("div", "ts-two", null, p.card);
+      h("div", "ts-btn green grow", tr("review.confirm"), btns);
+      h("div", "ts-btn ghost grow", tr("review.discard"), btns);
+      return p;
+    },
+    timeline(p) {
+      return [
+        [500, () => { p.mail.hidden = false; p.mail.classList.add("pop"); }],
+        [1600, () => { p.arrow.hidden = false; }],
+        [2000, () => { p.card.hidden = false; p.card.classList.add("pop"); }],
+        [4200, () => {}]
       ];
     }
   };
