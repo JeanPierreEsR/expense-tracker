@@ -93,6 +93,48 @@
   #sheetNote p { margin:2px 0; font-size:15px; }
   @keyframes pop { 0% { transform:scale(.4); } 70% { transform:scale(1.2); } 100% { transform:scale(1); } }
   @media (prefers-reduced-motion: reduce) { #tracker li.done .dot { animation:none; } }
+  .showhow { display:block; margin:8px 0 4px; font-size:17px; }
+  .anim { margin:10px 0; }
+  .anim .acap { min-height:3.2em; margin:10px 2px 4px; font-size:17px; color:var(--fg); }
+  .anim .actl button { margin-top:4px; }
+  .anim .note { font-size:13px; color:var(--muted); margin:6px 2px 0; }
+  /* the drawn phone: always light, like Google's own pages */
+  .mock { position:relative; width:250px; height:370px; margin:0 auto; border:6px solid #2b2b2b; border-radius:28px; background:#fff; overflow:hidden; color:#202124; font:13px/1.35 Roboto, Arial, sans-serif; text-align:left; }
+  .msc { position:absolute; inset:0; padding:22px 14px 0; box-sizing:border-box; opacity:0; pointer-events:none; transition:opacity .3s; overflow:hidden; background:#fff; }
+  .msc.on { opacity:1; }
+  .msc .sc { transition:transform .7s ease; padding-bottom:20px; }
+  .msc h4 { margin:8px 0 10px; font-size:19px; line-height:1.2; font-weight:400; color:#202124; }
+  .msc .sk { display:block; height:8px; border-radius:4px; background:#dadce0; margin:7px 0; }
+  .msc .sk.s { width:60%; } .msc .sk.m { width:80%; }
+  .msc .gl { font-size:20px; font-weight:700; color:#4285f4; }
+  .msc .acct { display:flex; gap:10px; align-items:center; border-top:1px solid #dadce0; border-bottom:1px solid #dadce0; padding:10px 4px; margin:8px 0; }
+  .msc .av { flex:none; width:28px; height:28px; border-radius:50%; background:#9aa0a6; color:#fff; text-align:center; line-height:28px; font-weight:700; }
+  .msc .warn { font-size:34px; color:#d93025; line-height:1; margin-top:8px; }
+  .msc .row { display:flex; justify-content:space-between; align-items:center; margin:16px 0 8px; gap:8px; }
+  .msc .lnk { color:#1a73e8; font-size:13px; padding:4px 2px; }
+  .msc .lnk.u { text-decoration:underline; font-size:12px; color:#3c4043; }
+  .msc .bigb { position:relative; background:#1a73e8; color:#fff; border-radius:4px; padding:8px 10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; }
+  .msc .nope { position:absolute; right:-6px; top:-9px; width:18px; height:18px; line-height:18px; text-align:center; border-radius:50%; background:#d93025; color:#fff; font-style:normal; font-size:12px; }
+  .msc .adv { display:none; }
+  .msc .adv.open { display:block; }
+  .msc .chkrow { display:flex; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid #eee; }
+  .msc .cb { flex:none; width:16px; height:16px; border:2px solid #5f6368; border-radius:3px; box-sizing:border-box; position:relative; }
+  .msc .cb.chk { background:#1a73e8; border-color:#1a73e8; }
+  .msc .cb.chk::after { content:"✓"; position:absolute; left:1px; top:-3px; color:#fff; font-size:13px; font-weight:700; }
+  .msc .btns { display:flex; gap:8px; margin:18px 0 8px; }
+  .msc .gb { flex:1; text-align:center; border:1px solid #dadce0; border-radius:18px; padding:7px 0; color:#1a73e8; font-weight:600; }
+  .msc .gbtn { margin-top:16px; display:inline-block; background:#188038; color:#fff; font-weight:700; border-radius:6px; padding:9px 14px; }
+  .msc .tbar { position:absolute; top:0; left:0; right:0; padding:4px 10px; background:#f1f3f4; font-size:10px; color:#5f6368; }
+  .msc .setrow { display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding:10px 6px; background:#e8f0fe; border-radius:6px; font-size:14px; font-weight:600; }
+  .msc .sw { position:relative; width:38px; height:18px; border-radius:9px; background:#9aa0a6; transition:background .3s; flex:none; }
+  .msc .sw::after { content:""; position:absolute; top:-2px; left:-2px; width:22px; height:22px; border-radius:50%; background:#fff; border:1px solid #bbb; box-sizing:border-box; transition:left .3s; }
+  .msc .sw.on { background:#8ab4f8; } .msc .sw.on::after { left:18px; background:#1a73e8; border-color:#1a73e8; }
+  .mock .finger { position:absolute; left:50%; top:60%; width:30px; height:30px; margin:-15px 0 0 -15px; border-radius:50%; background:rgba(40,40,40,.45); border:3px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.35); opacity:0; transition:left .8s ease, top .8s ease, opacity .3s; pointer-events:none; z-index:5; }
+  .mock .finger.show { opacity:1; }
+  .mock .finger.press { animation:tap .4s ease; }
+  .msc .hl { outline:3px solid #f9ab00; outline-offset:2px; border-radius:4px; }
+  @keyframes tap { 50% { transform:scale(.7); } }
+  @media (prefers-reduced-motion: reduce) { .msc, .msc .sc, .mock .finger, .msc .sw, .msc .sw::after { transition:none; } .mock .finger.press { animation:none; } }
   body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -175,6 +217,8 @@
     <h3 data-t="switchTitle"></h3>
     <p style="color:inherit" data-t="switchIntro"></p>
     <ol data-t="switchSteps"></ol>
+    <button class="linkbtn showhow" data-anim-open="api"></button>
+    <div class="anim" id="anim-api" hidden></div>
     <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
     <p id="apiWait" style="color:inherit;margin-top:10px"></p>
   </div>
@@ -194,6 +238,8 @@
   <div class="step" id="card1">
     <h3 data-t="createTitle"></h3>
     <div class="ask"><span data-t="createAsk"></span> <button class="linkbtn" data-more="createAskMore"></button></div>
+    <button class="linkbtn showhow" data-anim-open="signin"></button>
+    <div class="anim" id="anim-signin" hidden></div>
     <p class="small" id="acct"></p>
     <div id="s1"></div>
     <button id="btnInstall" data-t="createBtn"></button>
@@ -207,6 +253,8 @@
   <div class="step" id="card2">
     <h3 data-t="approveTitle"></h3>
     <div class="ask"><span data-t="approveAsk"></span> <button class="linkbtn" data-more="approveAskMore"></button></div>
+    <button class="linkbtn showhow" data-anim-open="approve"></button>
+    <div class="anim" id="anim-approve" hidden></div>
     <div id="approveExtras" class="ask" hidden></div>
     <div id="s2"></div>
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
@@ -269,6 +317,39 @@ const T = {
   en: {
     moreLink: 'More info',
     moreClose: 'Close',
+    animShow: '▶ Show me how',
+    animHide: 'Hide the drawing',
+    animAgain: '↻ Watch again',
+    animNext: 'Next ›',
+    animNote: 'A drawing of what Google shows. Its words may look a little different on your phone.',
+    g_account: 'Choose an account',
+    g_unverified: 'Google hasn’t verified this app',
+    g_continue: 'Continue',
+    g_back: 'Back to safety',
+    g_cancel: 'Cancel',
+    g_selectAll: 'Select all',
+    g_advanced: 'Advanced',
+    g_goTo: 'Go to Expense Tracker (unsafe)',
+    g_wants: 'Expense Tracker wants to access your Google Account',
+    g_allowed: '✓ Allowed.',
+    g_allowedBtn: 'Continue →',
+    g_apiTitle: 'Google Apps Script API',
+    g_on: 'On',
+    g_off: 'Off',
+    c_acct: '1. Tap your account.',
+    c_unver: '2. Google says it hasn’t verified the app. That’s normal: tap the small “Continue” on the left. Never the big blue button.',
+    c_all: '3. Check “Select all”.',
+    c_scroll: '4. Scroll down to the end.',
+    c_cont: '5. Tap “Continue”.',
+    c_adv: '1. A warning page appears. Tap the small “Advanced”.',
+    c_goto: '2. Tap the small “Go to Expense Tracker (unsafe)”. Never the big blue button.',
+    c_all2: '3. Check “Select all”.',
+    c_scroll2: '4. Scroll down to the end.',
+    c_cont2: '5. Tap “Continue”.',
+    c_green: '6. On the “Allowed” page, tap the green “Continue”. This page carries on by itself.',
+    c_api: '1. Tap the switch so it says “On”.',
+    c_apiBack: '2. Come back to this page. It continues by itself.',
+    c_done: 'Done. Tap “Watch again” if you want to see it once more.',
     privateShort: 'Avoids Google sign-in mix-ups.',
     stepsTitle: 'Your steps',
     trSheet: 'Create my Google Sheet',
@@ -328,7 +409,7 @@ const T = {
     shareWhatSummary: 'Exactly what is sent',
     shareWhat: '<ul><li>Once the app is set up, the small counts described above (speed; which action failed, with a short code; what you did with each bank email, never its content; how many times you open each screen), through the app itself.</li><li>While you set up, the name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or email, your access code, or anything about your spending.</p>',
     createTitle: '1. Set up my app',
-    createAsk: '<b>On Google’s screen:</b> check <b>Select all</b>, then tap <b>Continue</b>.',
+    createAsk: '<b>On Google’s screen:</b> check <b>Select all</b>, scroll down and tap <b>Continue</b>.',
     createAskMore: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, check <b>Select all</b> (if Google is in Spanish: <b>Seleccionar todo</b>), then tap <b>Continue</b> (if Google is in Spanish: <b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (if Google is in Spanish: <b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” (in Spanish: “Volver a un sitio seguro”)): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
@@ -339,8 +420,8 @@ const T = {
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
-    approveAsk: '<b>Google will open a screen.</b> Tap <b>Advanced</b>, then <b>Go to Expense Tracker</b>, then <b>Allow</b>. Then tap the green <b>Continue</b>.',
-    approveAskMore: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. If Google shows a warning page, tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker</b> (if Google is in Spanish: <b>Ir a Expense Tracker</b>), then <b>Allow</b> (if Google is in Spanish: <b>Permitir</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>Then tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
+    approveAsk: '<b>Google will open a warning page.</b> Tap <b>Advanced</b>, then <b>Go to Expense Tracker</b>. Then check <b>Select all</b>, scroll down and tap <b>Continue</b>. Back here, tap the green <b>Continue</b>.',
+    approveAskMore: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. Google first shows a warning page (“Google hasn’t verified this app”). Tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker (unsafe)</b> (if Google is in Spanish: <b>Ir a Expense Tracker (no seguro)</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>On the next screen check <b>Select all</b> (<b>Seleccionar todo</b>), scroll down to the end and tap <b>Continue</b> (<b>Continuar</b>). Then, on the “Allowed” page, tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     stepUpdate: 'Update',
     stepRemove: 'Delete',
@@ -417,6 +498,39 @@ const T = {
   es: {
     moreLink: 'Más información',
     moreClose: 'Cerrar',
+    animShow: '▶ Muéstrame cómo',
+    animHide: 'Ocultar el dibujo',
+    animAgain: '↻ Ver otra vez',
+    animNext: 'Siguiente ›',
+    animNote: 'Un dibujo de lo que muestra Google. Sus palabras pueden verse un poco distintas en tu celular.',
+    g_account: 'Selecciona una cuenta',
+    g_unverified: 'Google no ha verificado esta aplicación',
+    g_continue: 'Continuar',
+    g_back: 'Volver a un sitio seguro',
+    g_cancel: 'Cancelar',
+    g_selectAll: 'Seleccionar todo',
+    g_advanced: 'Configuración avanzada',
+    g_goTo: 'Ir a Expense Tracker (no seguro)',
+    g_wants: 'Expense Tracker quiere acceder a tu cuenta de Google',
+    g_allowed: '✓ Permitido.',
+    g_allowedBtn: 'Continuar →',
+    g_apiTitle: 'API de Google Apps Script',
+    g_on: 'Activado',
+    g_off: 'Desactivado',
+    c_acct: '1. Toca tu cuenta.',
+    c_unver: '2. Google dice que no verificó la app. Es normal: toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
+    c_all: '3. Marca “Seleccionar todo”.',
+    c_scroll: '4. Baja hasta el final.',
+    c_cont: '5. Toca “Continuar”.',
+    c_adv: '1. Aparece una página de advertencia. Toca “Configuración avanzada”, el enlace pequeño.',
+    c_goto: '2. Toca “Ir a Expense Tracker (no seguro)”, el enlace pequeño. Nunca el botón azul grande.',
+    c_all2: '3. Marca “Seleccionar todo”.',
+    c_scroll2: '4. Baja hasta el final.',
+    c_cont2: '5. Toca “Continuar”.',
+    c_green: '6. En la página “Permitido”, toca el botón verde “Continuar”. Esta página sigue sola.',
+    c_api: '1. Toca el interruptor hasta que diga “Activado”.',
+    c_apiBack: '2. Vuelve a esta página. Continúa sola.',
+    c_done: 'Listo. Toca “Ver otra vez” si quieres verlo de nuevo.',
     privateShort: 'Evita confusiones con el inicio de sesión de Google.',
     stepsTitle: 'Tus pasos',
     trSheet: 'Crear mi archivo de Google Sheets',
@@ -474,7 +588,7 @@ const T = {
     shareWhatSummary: 'Exactamente qué se envía',
     shareWhat: '<ul><li>Cuando la app ya está configurada, los conteos pequeños descritos arriba (velocidad; qué acción falló, con un código corto; qué hiciste con cada correo del banco, nunca su contenido; cuántas veces abres cada pantalla), a través de la app misma.</li><li>Mientras la configuras, el nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu archivo, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de celular (por ejemplo iPhone) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu código de acceso, ni nada sobre tus gastos.</p>',
     createTitle: '1. Configurar mi app',
-    createAsk: '<b>En la pantalla de Google:</b> marca <b>Seleccionar todo</b> y toca <b>Continuar</b>.',
+    createAsk: '<b>En la pantalla de Google:</b> marca <b>Seleccionar todo</b>, baja hasta el final y toca <b>Continuar</b>.',
     createAskMore: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree el archivo de Google Sheets donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (si Google está en inglés: <b>Select all</b>) y toca <b>Continuar</b> (si Google está en inglés: <b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (si Google está en inglés: <b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” (en inglés: “Back to safety”)): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
@@ -485,8 +599,8 @@ const T = {
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su archivo',
-    approveAsk: '<b>Google abrirá una pantalla.</b> Toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker</b> y luego <b>Permitir</b>. Después toca el botón verde <b>Continuar</b>.',
-    approveAskMore: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Si Google muestra una página de advertencia, toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>), luego el enlace pequeño <b>Ir a Expense Tracker</b> (si Google está en inglés: <b>Go to Expense Tracker</b>) y luego <b>Permitir</b> (si Google está en inglés: <b>Allow</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>Luego toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
+    approveAsk: '<b>Google abrirá una página de advertencia.</b> Toca <b>Configuración avanzada</b>, luego <b>Ir a Expense Tracker</b>. Después marca <b>Seleccionar todo</b>, baja hasta el final y toca <b>Continuar</b>. De vuelta aquí, toca el botón verde <b>Continuar</b>.',
+    approveAskMore: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Google muestra primero una página de advertencia (“Google no ha verificado esta aplicación”). Toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>) y luego el enlace pequeño <b>Ir a Expense Tracker (no seguro)</b> (si Google está en inglés: <b>Go to Expense Tracker (unsafe)</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>En la pantalla siguiente marca <b>Seleccionar todo</b> (<b>Select all</b>), baja hasta el final y toca <b>Continuar</b> (<b>Continue</b>). Luego, en la página “Permitido”, toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     stepUpdate: 'Actualizar',
     stepRemove: 'Borrar',
@@ -578,6 +692,124 @@ document.querySelectorAll('[data-lang]').forEach((a) => a.addEventListener('clic
   location.reload();
 }));
 if (/FBAN|FBAV|Instagram|MicroMessenger|TikTok|Line\//i.test(navigator.userAgent)) document.getElementById('inAppWarn').hidden = false;
+
+// ---------- "Show me how": short drawings of Google's own screens (owner, 2026-10-24) ----------
+// Drawn from a real recording of an install. They show only what Google really shows; permission lines are plain bars
+// (their exact words change with the extras chosen). The words on Google's buttons follow the page's language.
+const ANIM_SK = (n) => '<i class="sk m"></i><i class="sk"></i><i class="sk s"></i>'.repeat(n);
+const animPerms = (n) => '<div class="chkrow"><span class="cb" id="selall"></span><b>' + T.g_selectAll + '</b></div>' +
+  Array.from({ length: n }, () => '<div class="chkrow"><span class="cb"></span><i class="sk m" style="flex:1"></i></div>').join('');
+const animWarn = (extra) => '<div class="warn">⚠</div><h4>' + T.g_unverified + '</h4>' + ANIM_SK(1) + extra;
+const animBig = '<span class="bigb">' + T.g_back + '<i class="nope">✕</i></span>';
+const animPermScreen = (n) => '<div class="sc"><div class="gl">G</div><h4>' + T.g_wants + '</h4><div class="acct"><span class="av">A</span><span>ana@example.com</span></div>' +
+  animPerms(n) + ANIM_SK(3) + '<div class="btns"><span class="gb">' + T.g_cancel + '</span><span class="gb" id="tcont">' + T.g_continue + '</span></div></div>';
+const ANIMS = {
+  api: () => ({
+    screens: { a1: '<div class="tbar">script.google.com</div><div class="setrow"><span>' + T.g_apiTitle + '</span><span class="sw" id="t1"></span></div>' + ANIM_SK(2) },
+    frames: [
+      { screen: 'a1', cap: 'c_api', tap: '#t1', sw: '#t1' },
+      { screen: 'a1', cap: 'c_apiBack' }
+    ]
+  }),
+  signin: () => ({
+    screens: {
+      s1: '<div class="gl">G</div><h4>' + T.g_account + '</h4><div class="acct" id="t1"><span class="av">A</span><span><b>Ana</b><br>ana@example.com</span></div>' + ANIM_SK(1),
+      s2: animWarn('<div class="row"><span class="lnk u" id="t2">' + T.g_continue + '</span>' + animBig + '</div>'),
+      s3: animPermScreen(3)
+    },
+    frames: [
+      { screen: 's1', cap: 'c_acct', tap: '#t1' },
+      { screen: 's2', cap: 'c_unver', tap: '#t2' },
+      { screen: 's3', cap: 'c_all', tap: '#selall', chk: true },
+      { screen: 's3', cap: 'c_scroll', scroll: 190 },
+      { screen: 's3', cap: 'c_cont', tap: '#tcont' }
+    ]
+  }),
+  approve: () => ({
+    screens: {
+      c1: animWarn('<div class="row"><span class="lnk u" id="t1">' + T.g_advanced + '</span></div><div class="adv" id="adv">' + ANIM_SK(1) + '<div class="row">' + animBig + '</div><span class="lnk u" id="t2">' + T.g_goTo + '</span></div>'),
+      c2: animPermScreen(4),
+      c3: '<div class="gl">G</div><h4>' + T.g_allowed + '</h4>' + ANIM_SK(1) + '<span class="gbtn" id="t6">' + T.g_allowedBtn + '</span>'
+    },
+    frames: [
+      { screen: 'c1', cap: 'c_adv', tap: '#t1', open: '#adv' },
+      { screen: 'c1', cap: 'c_goto', tap: '#t2' },
+      { screen: 'c2', cap: 'c_all2', tap: '#selall', chk: true },
+      { screen: 'c2', cap: 'c_scroll2', scroll: 210 },
+      { screen: 'c2', cap: 'c_cont2', tap: '#tcont' },
+      { screen: 'c3', cap: 'c_green', tap: '#t6' }
+    ]
+  })
+};
+const REDUCED_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const animTimers = {};
+function stopAnim(name) { (animTimers[name] || []).forEach(clearTimeout); animTimers[name] = []; }
+function playAnim(name) {
+  const box = document.getElementById('anim-' + name);
+  const def = ANIMS[name]();
+  stopAnim(name);
+  box.innerHTML = '<div class="mock"><div class="mscreens"></div><div class="finger"></div></div><div class="acap" aria-live="polite"></div><div class="actl"><button type="button" class="secondary"></button></div><p class="note">' + T.animNote + '</p>';
+  const mock = box.querySelector('.mock'), finger = box.querySelector('.finger'), cap = box.querySelector('.acap'), btn = box.querySelector('.actl button');
+  const host = box.querySelector('.mscreens');
+  Object.keys(def.screens).forEach((id) => { const d = document.createElement('div'); d.className = 'msc'; d.dataset.s = id; d.innerHTML = '<div class="sc">' + def.screens[id] + '</div>'; host.appendChild(d); });
+  // permission screens already hold their own .sc: flatten the double wrapper
+  host.querySelectorAll('.msc > .sc > .sc').forEach((inner) => { const outer = inner.parentNode; outer.replaceWith(...[inner]); });
+  const screenEl = (id) => host.querySelector('[data-s="' + id + '"]') || host.querySelector('.msc');
+  let idx = -1;
+  const later = (fn, ms) => { animTimers[name].push(setTimeout(fn, ms)); };
+  function showFrame(i) {
+    const f = def.frames[i];
+    idx = i;
+    host.querySelectorAll('.msc').forEach((m) => m.classList.toggle('on', m.dataset.s === f.screen));
+    const m = host.querySelector('[data-s="' + f.screen + '"]');
+    const sc = m.querySelector('.sc') || m;
+    if (f.scroll != null) sc.style.transform = 'translateY(' + (-f.scroll) + 'px)';
+    else if (!sc.style.transform) sc.style.transform = 'translateY(0)';
+    cap.textContent = T[f.cap];
+    m.querySelectorAll('.hl').forEach((h) => h.classList.remove('hl'));
+    const tgt = f.tap ? m.querySelector(f.tap) : null;
+    const doTap = () => {
+      if (f.chk) m.querySelectorAll('.cb').forEach((c) => c.classList.add('chk'));
+      if (f.open) m.querySelector(f.open).classList.add('open');
+      if (f.sw) m.querySelector(f.sw).classList.add('on');
+    };
+    if (tgt) {
+      tgt.classList.add('hl');
+      const place = () => {
+        const r = tgt.getBoundingClientRect(), mr = mock.getBoundingClientRect();
+        finger.style.left = (r.left - mr.left + Math.min(r.width / 2, 60)) + 'px';
+        finger.style.top = (r.top - mr.top + r.height / 2) + 'px';
+        finger.classList.add('show');
+      };
+      later(place, 150);
+      if (REDUCED_MOTION) { later(doTap, 160); } else {
+        later(() => { finger.classList.remove('press'); void finger.offsetWidth; finger.classList.add('press'); doTap(); }, 1100);
+      }
+    } else { finger.classList.remove('show'); }
+    if (!REDUCED_MOTION) later(() => (i + 1 < def.frames.length ? showFrame(i + 1) : finish()), tgt ? 2900 : 2300);
+    else btn.textContent = i + 1 < def.frames.length ? T.animNext : T.animAgain;
+  }
+  function finish() { cap.textContent = T.c_done; finger.classList.remove('show'); btn.textContent = T.animAgain; idx = def.frames.length; }
+  btn.textContent = T.animAgain;
+  btn.style.display = REDUCED_MOTION ? '' : 'none';
+  btn.addEventListener('click', () => {
+    if (REDUCED_MOTION && idx + 1 < def.frames.length) { stopAnim(name); showFrame(idx + 1); } else playAnim(name);
+  });
+  showFrame(0);
+  if (!REDUCED_MOTION) {
+    // "Watch again" appears once the drawing has played to the end
+    const iv = setInterval(() => { if (idx >= def.frames.length) { btn.style.display = ''; clearInterval(iv); } if (!box.isConnected || box.hidden) clearInterval(iv); }, 400);
+    animTimers[name].push(iv);
+  }
+}
+document.querySelectorAll('[data-anim-open]').forEach((b) => {
+  const name = b.getAttribute('data-anim-open'), box = document.getElementById('anim-' + name);
+  b.textContent = T.animShow;
+  b.addEventListener('click', () => {
+    if (box.hidden) { box.hidden = false; b.textContent = T.animHide; playAnim(name); }
+    else { box.hidden = true; stopAnim(name); b.textContent = T.animShow; }
+  });
+});
 
 // ---------- small helpers ----------
 const $ = (id) => document.getElementById(id);
