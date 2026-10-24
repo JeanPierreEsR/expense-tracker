@@ -335,3 +335,59 @@ test("an '.xls' that is really a web page or tab-separated text is read as one",
   const tsv = await ST.readTable(bytes("Fecha\tDetalle\tMonto\n05/03/2019\tCOMPRA\t-1,00\n"), "export.xls");
   assert.deepEqual(tsv[1], ["05/03/2019", "COMPRA", "-1,00"]);
 });
+
+// ---- app exports: Spendee's layout (made-up lines, the real column names), dates with a time zone, accounts and categories ----
+
+const SPENDEE = 'Date,Wallet,Type,"Category name",Amount,Currency,Note,Labels,Author\n' +
+  '2026-09-12T03:10:00+00:00,Wallet,Expense,Transport,-12.50000000,PEN,"Public transport",,Ana Lo\n' +
+  '2026-09-12T15:00:00+00:00,Wallet,Expense,"Food & Drink",-8.25000000,PEN,Pinkberry,Kuchen,Ana Lo\n' +
+  '2026-09-13T01:00:00+00:00,Savings,Income,Salary,2000.00000000,PEN,,,Ana Lo\n' +
+  '2026-09-14T20:00:00+00:00,Savings,Expense,Gifts,-30.00000000,USD,,,Ana Lo\n';
+
+test("a date with a UTC offset becomes the day it was where the person lives", () => {
+  assert.equal(ST.toIsoDate("2026-09-12T03:10:00+00:00", "dmy", "America/Lima"), "2026-09-11", "03:10 UTC is the evening before in Lima");
+  assert.equal(ST.toIsoDate("2026-09-12T15:00:00+00:00", "dmy", "America/Lima"), "2026-09-12");
+  assert.equal(ST.toIsoDate("2026-09-12T23:30:00-05:00", "dmy", "America/Lima"), "2026-09-12");
+  assert.equal(ST.toIsoDate("2026-09-12T10:00:00Z", "dmy", "UTC"), "2026-09-12");
+  assert.equal(ST.toIsoDate("2026-09-12T10:00:00+0000", "dmy", "UTC"), "2026-09-12");
+  assert.equal(ST.toIsoDate("2026-09-12 10:00", "dmy", "UTC"), "2026-09-12", "no offset: the calendar day as written");
+});
+
+test("Spendee's layout is recognized by its header words, wherever the columns sit", () => {
+  const rows = ST.parseCsv(SPENDEE);
+  const known = ST.recognize(ST.guessMapping(rows).headers);
+  assert.equal(known.id, "spendee");
+  assert.equal(known.name, "Spendee export");
+  assert.deepEqual([known.mapping.date, known.mapping.account, known.mapping.category, known.mapping.amount, known.mapping.currency, known.mapping.description], [0, 1, 3, 4, 5, 6]);
+  const shuffled = ST.recognize(["Author", "Labels", "Note", "Currency", "Amount", "Category name", "Type", "Wallet", "Date"]);
+  assert.equal(shuffled.mapping.date, 8);
+  assert.equal(ST.recognize(["Fecha", "Descripción", "Monto"]), null);
+  assert.equal(ST.recognize(["Date", "Wallet", "Amount"]), null, "needs the whole set, not just a few shared words");
+});
+
+test("the plain guess already finds an app export's columns, so an unknown app needs no preset", () => {
+  const m = ST.guessMapping(ST.parseCsv(SPENDEE));
+  assert.deepEqual([m.date, m.account, m.category, m.amount, m.currency, m.description], [0, 1, 3, 4, 5, 6]);
+});
+
+test("lines keep their account value and category; an empty note falls back to the category; amounts are signed", () => {
+  const rows = ST.parseCsv(SPENDEE);
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" }, { timeZone: "America/Lima" });
+  assert.deepEqual(r.lines, [
+    { date: "2026-09-11", description: "Public transport", amount: -12.5, currency: "PEN", category: "Transport", account: "Wallet" },
+    { date: "2026-09-12", description: "Pinkberry", amount: -8.25, currency: "PEN", category: "Food & Drink", account: "Wallet" },
+    { date: "2026-09-12", description: "Salary", amount: 2000, currency: "PEN", category: "Salary", account: "Savings" },
+    { date: "2026-09-14", description: "Gifts", amount: -30, currency: "USD", category: "Gifts", account: "Savings" }
+  ]);
+  assert.deepEqual(ST.distinctValues(rows, ST.guessMapping(rows), 1), [{ value: "Wallet", count: 2 }, { value: "Savings", count: 2 }]);
+});
+
+test("a file without a header row is fingerprinted by the shape of its columns", () => {
+  const a = ST.parseCsv("05/03/2019,COMPRA BODEGA,-23.47\n06/03/2019,ABONO SUELDO,3000.13\n");
+  const b = ST.parseCsv("2019-03-05,Cafe,Visa,-4.50\n2019-03-06,Taxi,Visa,-9.00\n");
+  const ma = ST.guessMapping(a), mb = ST.guessMapping(b);
+  assert.equal(ST.signature(ma, a), "noheader:DTN");
+  assert.equal(ST.signature(mb, b), "noheader:DTTN");
+  assert.notEqual(ST.signature(ma, a), ST.signature(mb, b));
+  assert.equal(ST.signature(ST.guessMapping(ST.parseCsv("Fecha,Descripción,Monto\n05/03/2019,X,-1\n"))), "fecha|descripcion|monto");
+});

@@ -425,7 +425,7 @@
   function dateParts(value) {
     var s = String(value === undefined || value === null ? '' : value).trim();
     if (!s) return null;
-    s = s.replace(/[T ]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(am|pm|z)?$/i, '').trim();
+    s = s.replace(/[T ]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(am|pm|z|[+-]\d{2}:?\d{2})?$/i, '').trim();
     var m = /^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/.exec(s);
     if (m) return { order: 'ymd', y: +m[1], a: +m[2], b: +m[3] };
     m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/.exec(s);
@@ -450,7 +450,19 @@
     return mdy > dmy ? 'mdy' : 'dmy';
   }
 
-  function toIsoDate(value, order) {
+  var ISO_WITH_OFFSET = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})$/i;
+
+  // A date-and-time with a UTC offset ("2026-09-12T03:10:00+00:00", what Spendee writes) is a moment, not a calendar day: it becomes the
+  // day it was where the person lives (`timeZone`, default this device's) — 03:10 UTC is still the evening before in Lima.
+  function toIsoDate(value, order, timeZone) {
+    var iso = ISO_WITH_OFFSET.exec(String(value === undefined || value === null ? '' : value).trim());
+    if (iso) {
+      var off = iso[3].toUpperCase() === 'Z' ? 'Z' : iso[3].replace(/^([+-]\d{2})(\d{2})$/, '$1:$2');
+      var when = new Date(iso[1] + 'T' + (iso[2].length === 5 ? iso[2] + ':00' : iso[2]) + off);
+      if (isNaN(when.getTime())) return '';
+      var parts = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || undefined, year: 'numeric', month: '2-digit', day: '2-digit' }).format(when);
+      return /^\d{4}-\d{2}-\d{2}$/.test(parts) ? parts : '';
+    }
     var p = dateParts(value), y, mo, d;
     if (!p) return '';
     if (p.order === 'ymd') { y = p.y; mo = p.a; d = p.b; }
@@ -522,7 +534,9 @@
   var HEADER_WORDS = {
     date: /^(fecha( de)?( operacion| proceso| movimiento| consumo| transaccion| contable)?|f\.? ?(operacion|proceso|valor)|date|transaction date|posting date|booking date|dia)$/,
     dateLoose: /fecha|date/,
-    description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction/,
+    description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
+    account: /^(wallet|cartera|billetera|account|account name|cuenta|nombre de la cuenta|nombre de cuenta)$/,
+    category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
     amountLoose: /monto|importe|amount/,
     out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out/,
@@ -545,10 +559,12 @@
     for (var c = 0; c < width; c++) headers.push(hr >= 0 ? cellText(rows[hr][c]) : '');
     var h = headers.map(norm);
     function find(re, used) { for (var i = 0; i < h.length; i++) if (h[i] && re.test(h[i]) && used.indexOf(i) < 0) return i; return -1; }
-    var used = [], m = { headerRow: hr, hasHeader: hr >= 0, headers: headers, date: -1, description: -1, amount: -1, out: -1, in: -1, currency: -1 };
+    var used = [], m = { headerRow: hr, hasHeader: hr >= 0, headers: headers, date: -1, description: -1, amount: -1, out: -1, in: -1, currency: -1, account: -1, category: -1 };
     m.date = find(HEADER_WORDS.date, used); if (m.date < 0) m.date = find(HEADER_WORDS.dateLoose, used);
     if (m.date >= 0) used.push(m.date);
     m.currency = find(HEADER_WORDS.currency, used); if (m.currency >= 0) used.push(m.currency);
+    m.account = find(HEADER_WORDS.account, used); if (m.account >= 0) used.push(m.account);
+    m.category = find(HEADER_WORDS.category, used); if (m.category >= 0) used.push(m.category);
     m.out = find(HEADER_WORDS.out, used);
     m.in = find(HEADER_WORDS.in, used.concat(m.out >= 0 ? [m.out] : []));
     if (m.out >= 0 && m.in >= 0) { used.push(m.out, m.in); }
@@ -565,7 +581,7 @@
     if (m.out < 0 && m.amount < 0) {
       var numericCols = [];
       for (var a = 0; a < width; a++) {
-        if (a === m.date || a === m.currency) continue;
+        if (a === m.date || a === m.currency || a === m.account || a === m.category) continue;
         var vals = columnValues(rows, first, a);
         if (vals.length && vals.filter(looksNumeric).length >= vals.length * 0.8) numericCols.push(a);
       }
@@ -575,7 +591,7 @@
     if (m.description < 0) {
       var longest = -1, longestLen = 0;
       for (var t = 0; t < width; t++) {
-        if (t === m.date || t === m.amount || t === m.out || t === m.in || t === m.currency) continue;
+        if (t === m.date || t === m.amount || t === m.out || t === m.in || t === m.currency || t === m.account || t === m.category) continue;
         var tv = columnValues(rows, first, t), avg = tv.length ? tv.reduce(function (s, v) { return s + cellText(v).length; }, 0) / tv.length : 0;
         if (tv.filter(function (v) { return !looksNumeric(v) && !dateParts(v); }).length >= tv.length * 0.6 && avg > longestLen) { longest = t; longestLen = avg; }
       }
@@ -600,11 +616,12 @@
   // Turns the rows into lines with the mapping the person confirmed.
   // m.currencyFixed is used when there is no currency column (or its cell is empty / unknown).
   // Returns { lines: [{ date, description, amount, currency }], skipped: [{ row, reason }], period: { start, end } }.
-  function applyMapping(rows, m) {
+  function applyMapping(rows, m, opts) {
+    var tz = opts && opts.timeZone;
     var lines = [], skipped = [], start = m.headerRow >= 0 ? m.headerRow + 1 : 0;
     for (var i = start; i < rows.length; i++) {
       var r = rows[i];
-      var date = m.date >= 0 ? toIsoDate(r[m.date], m.dateOrder) : '';
+      var date = m.date >= 0 ? toIsoDate(r[m.date], m.dateOrder, tz) : '';
       if (!date) { skipped.push({ row: i + 1, reason: 'date' }); continue; }
       var amount = NaN;
       if (m.out >= 0 || m.in >= 0) {
@@ -617,21 +634,67 @@
       }
       if (isNaN(amount) || Math.abs(amount) < 0.005) { skipped.push({ row: i + 1, reason: 'amount' }); continue; }
       var description = m.description >= 0 ? cellText(r[m.description]).replace(/\s+/g, ' ').trim() : '';
+      var category = m.category >= 0 ? cellText(r[m.category]).replace(/\s+/g, ' ').trim() : '';
       var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || m.currencyFixed || 'PEN';
-      lines.push({ date: date, description: description || '—', amount: Math.round(amount * 100) / 100, currency: currency });
+      var line = { date: date, description: description || category || '—', amount: Math.round(amount * 100) / 100, currency: currency };
+      if (category) line.category = category;
+      if (m.account >= 0) line.account = cellText(r[m.account]).replace(/\s+/g, ' ').trim();
+      lines.push(line);
     }
     var dates = lines.map(function (l) { return l.date; }).sort();
     return { lines: lines, skipped: skipped, period: { start: dates[0] || '', end: dates[dates.length - 1] || '' } };
   }
 
-  // What identifies "the same bank file" next time: the header words (so the remembered mapping is found again).
-  function signature(m) {
-    return (m.hasHeader ? m.headers.map(norm).join('|') : 'noheader:' + m.headers.length).slice(0, 300);
+  // What identifies "the same layout" next time: the header words. A file without a header row is told apart by the SHAPE of its
+  // columns instead (date, number, text), so two banks' header-less files are not taken for one another.
+  function signature(m, rows) {
+    if (m.hasHeader) return m.headers.map(norm).join('|').slice(0, 300);
+    var shape = '';
+    for (var c = 0; c < m.headers.length; c++) {
+      var vals = rows ? columnValues(rows, 0, c).slice(0, 12) : [];
+      var d = vals.filter(function (v) { return dateParts(v); }).length, n = vals.filter(looksNumeric).length;
+      shape += !vals.length ? '-' : (d >= vals.length * 0.7 ? 'D' : (n >= vals.length * 0.7 ? 'N' : 'T'));
+    }
+    return 'noheader:' + shape;
+  }
+
+  // Layouts the app knows by name. A file whose header words include all of `requires` is that layout; its columns are found by header
+  // word, so extra or reordered columns do not matter. Only add a layout here after checking a real file of it. Anything else the
+  // person confirms once is remembered on the server under its own tag (backend/StatementFormats.gs).
+  var KNOWN_FORMATS = [
+    { id: 'spendee', name: 'Spendee export', requires: ['date', 'wallet', 'category name', 'amount', 'currency'],
+      columns: { date: 'date', description: 'note', amount: 'amount', currency: 'currency', account: 'wallet', category: 'category name' },
+      sign: 'negative', decimal: '.', dateOrder: 'dmy' }
+  ];
+
+  // { id, name, mapping } for a known layout, else null. `mapping` has the same fields guessMapping makes.
+  function recognize(headers) {
+    var h = headers.map(norm);
+    for (var k = 0; k < KNOWN_FORMATS.length; k++) {
+      var f = KNOWN_FORMATS[k];
+      if (!f.requires.every(function (w) { return h.indexOf(w) >= 0; })) continue;
+      var m = { out: -1, in: -1, sign: f.sign, decimal: f.decimal, dateOrder: f.dateOrder };
+      Object.keys(f.columns).forEach(function (field) { m[field] = h.indexOf(f.columns[field]); });
+      return { id: f.id, name: f.name, mapping: m };
+    }
+    return null;
+  }
+
+  // The different values in one column, most frequent first: [{ value, count }].
+  function distinctValues(rows, m, col) {
+    var counts = {}, order = [];
+    for (var i = (m.headerRow >= 0 ? m.headerRow + 1 : 0); i < rows.length; i++) {
+      var v = cellText(rows[i][col]).replace(/\s+/g, ' ').trim();
+      if (v === '') continue;
+      if (counts[v] === undefined) { counts[v] = 0; order.push(v); }
+      counts[v]++;
+    }
+    return order.map(function (v) { return { value: v, count: counts[v] }; }).sort(function (a, b) { return b.count - a.count; });
   }
 
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
-    findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature,
+    findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
     parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

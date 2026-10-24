@@ -472,10 +472,10 @@
 
   // Takes one file out of this session's list (it is only on the phone; the PDF itself is never kept).
   function removeResultCard(card, fileName) {
-    const had = usable.some((u) => u.file === fileName);
+    const had = usable.some((u) => (u.group || u.file) === fileName);
     card.remove();
     if (!had) return;
-    usable = usable.filter((u) => u.file !== fileName);
+    usable = usable.filter((u) => (u.group || u.file) !== fileName);
     // The plan's statement/line numbers refer to the list — any change makes an open plan stale.
     historyPlan = null;
     $("statement-history").innerHTML = "";
@@ -507,7 +507,7 @@
     return notes;
   }
 
-  function renderResult(body, result, rows, file) {
+  function renderResult(body, result, rows, file, title) {
     const sender = (file && file.senderAddress) || "";
     if (!result.kind) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.layoutUnknown"))}</p><p class="hint">${escapeHtml((result.errors || [tr("stmt.layoutUnsupported")])[0])}</p><p class="hint">${escapeHtml(tr("table.tryExport"))}</p>`;
@@ -530,11 +530,14 @@
       return rows.join("");
     }).join("");
     const errors = (result.errors || []).slice(0, 6).map((e) => `<li>${escapeHtml(e)}</li>`).join("");
-    const lines = (result.lines || []).map((l) =>
+    // A big spreadsheet can hold thousands of lines: the first ones are enough to judge a reading, and the page stays light.
+    const SHOW_LINES = 200;
+    const allLines = result.lines || [];
+    const lines = allLines.slice(0, SHOW_LINES).map((l) =>
       `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
-    ).join("");
+    ).join("") + (allLines.length > SHOW_LINES ? `<p class="hint">${escapeHtml(tr("table.moreLines", { n: allLines.length - SHOW_LINES }))}</p>` : "");
 
-    body.innerHTML = `${verdict}${notes}
+    body.innerHTML = `${title ? `<div class="stmt-result-name">${escapeHtml(title)}</div>` : ""}${verdict}${notes}
       <div class="stmt-kv"><span>${escapeHtml(tr("stmt.period"))}</span><span>${escapeHtml(period)}</span></div>
       <div class="stmt-kv"><span>${escapeHtml(tr("stmt.linesRead"))}</span><span>${(result.lines || []).length}</span></div>
       ${balances}
@@ -570,7 +573,7 @@
         // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
         if (file.inboxId) callApi("rememberStatementSender", { id: file.inboxId }).catch(() => {});
         // A re-read of the same file replaces its earlier reading.
-        usable = usable.filter((u) => u.file !== file.name);
+        usable = usable.filter((u) => (u.group || u.file) !== file.name);
         usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
         // The plan's statement/line numbers refer to THIS list — any change makes an open plan stale.
         historyPlan = null;
@@ -586,12 +589,14 @@
 
   // ---- spreadsheet statements: CSV / Excel (docs/statement-table.js) ----
   // The person picks the account (the file has no digits to recognize it by) and confirms which column is which; the guess is made from
-  // the header words and the values, and what they confirm is remembered for the next file with the same headers (this device only).
+  // the header words and the values. What they confirm is remembered IN THE SHEET (tab "Statement Formats", backend/StatementFormats.gs)
+  // under the file's header words and a name they can give it, so every later file with the same layout — a bank's CSV, a Spendee
+  // export — needs no questions, on any device. A file that holds several accounts (an app's "Wallet" column) asks which of the person's
+  // accounts each name is, and remembers that too.
 
   const isTableFile = (f) => /\.(csv|tsv|txt|xlsx|xls)$/i.test(f.name) || /csv|spreadsheet|excel/i.test(f.type || "");
-  const TABLE_MEMORY_PREFIX = "stmtTableMap:";
-  function tableMemoryGet(sig) { try { return JSON.parse(localStorage.getItem(TABLE_MEMORY_PREFIX + sig) || "null"); } catch (e) { return null; } }
-  function tableMemorySet(sig, value) { try { localStorage.setItem(TABLE_MEMORY_PREFIX + sig, JSON.stringify(value)); } catch (e) { /* not remembered; nothing breaks */ } }
+  const TABLE_BIG_FILE = 1500;   // lines: past this the screen warns that reading and saving take a while
+  const normName = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
   function tableErrorText(err) {
     const code = err && err.message;
@@ -616,30 +621,45 @@
     try {
       const rows = await StatementTable.readTable(new Uint8Array(await file.arrayBuffer()), file.name);
       if (rows.length < 2) throw new Error("table-empty");
-      renderTableMapping(body, rows, file);
+      await renderTableMapping(body, rows, file);
     } catch (err) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tableErrorText(err))}</p>`;
     }
   }
 
-  function renderTableMapping(body, rows, file) {
+  async function renderTableMapping(body, rows, file) {
     const accounts = tableAccounts();
     if (!accounts.length) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
     const guess = StatementTable.guessMapping(rows, {});
-    const sig = StatementTable.signature(guess);
-    const saved = tableMemoryGet(sig);
+    const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "" };
-    if (saved && saved.m) {
-      // Column positions only apply when the file has the same shape; the account is a convenience.
-      Object.assign(state.m, saved.m);
-      if (accounts.some((a) => a.id === saved.accountId)) state.accountId = saved.accountId;
+    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0 };
+
+    // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
+    let saved = null;
+    try { saved = await callApi("getStatementFormat", { signature: sig }); } catch (e) { /* offline or an older backend: just the guess */ }
+    const known = StatementTable.recognize(guess.headers);
+    const fromSource = saved && saved.found ? saved.mapping : (known ? known.mapping : null);
+    if (fromSource) {
+      ["date", "description", "amount", "out", "in", "currency", "account", "category"].forEach((f) => {
+        if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
+      });
+      ["dateOrder", "decimal", "sign", "currencyFixed"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
     }
+    if (saved && saved.found) {
+      state.source = "saved"; state.label = saved.label || ""; state.uses = saved.uses || 0;
+      state.map = { ...(saved.accounts || {}) };
+      if (state.map["*"] && accounts.some((a) => a.id === state.map["*"])) state.accountId = state.map["*"];
+    } else if (known) {
+      state.source = "known"; state.label = known.name;
+    }
+    const remembered = state.source !== "new";
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
       const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
       if (hit) state.accountId = hit.id;
     }
+
     const colName = (i) => {
       const h = guess.headers[i];
       return h ? tr("table.colNamed", { letter: columnLetter(i), name: h }) : tr("table.colBlank", { letter: columnLetter(i) });
@@ -648,11 +668,17 @@
       Array.from({ length: width }, (_, i) => `<option value="${i}"${i === selected ? " selected" : ""}>${escapeHtml(colName(i))}</option>`).join("");
     const sel = (cls, label, inner) => `<label>${escapeHtml(label)}</label><select class="tm-${cls}">${inner}</select>`;
     const currencyOptions = (selected) => CURRENCIES.map((c) => `<option value="${c.code}"${c.code === selected ? " selected" : ""}>${c.code}</option>`).join("");
-    const accountOptions = `<option value="">${escapeHtml(tr("table.pickAccount"))}</option>` +
-      accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === state.accountId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("");
+    const accountOptions = (selectedId, extra) => `<option value="">${escapeHtml(tr("table.pickAccount"))}</option>` + (extra || "") +
+      accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("");
 
-    body.innerHTML = `<p class="hint">${escapeHtml(tr("table.hint"))}</p>
-      ${sel("account", tr("table.account"), accountOptions)}
+    const banner = state.source === "known" ? tr("table.layoutKnown", { name: state.label })
+      : state.source === "saved" ? (state.label ? tr("table.layoutSaved", { name: state.label }) : tr("table.layoutSavedUnnamed"))
+      : tr("table.layoutNew");
+    body.innerHTML = `<div class="tm-root">
+      <p class="stmt-note ${remembered ? "ok" : "info"}">${escapeHtml(banner)}${state.source === "saved" ? ` <button type="button" class="add-inline tm-forget">${escapeHtml(tr("table.forget"))}</button>` : ""}</p>
+      <p class="hint">${escapeHtml(tr("table.hint"))}</p>
+      <div class="tm-single">${sel("account", tr("table.account"), accountOptions(state.accountId))}</div>
+      <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-values"></div></div>
       ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
       ${sel("desc", tr("table.colDesc"), colOptions(state.m.description, true))}
       ${sel("mode", tr("table.amounts"), `<option value="one">${escapeHtml(tr("table.amountOne"))}</option><option value="two">${escapeHtml(tr("table.amountTwo"))}</option>`)}
@@ -660,66 +686,104 @@
         ${sel("sign", tr("table.sign"), `<option value="negative">${escapeHtml(tr("table.signNeg"))}</option><option value="positive">${escapeHtml(tr("table.signPos"))}</option>`)}</div>
       <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
       <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
+        <label>${escapeHtml(tr("table.layoutName"))}</label><input type="text" class="tm-name" maxlength="60" placeholder="${escapeHtml(tr("table.layoutNameHint"))}" value="${escapeHtml(state.label)}">
+        ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
+        ${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
         ${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}
         ${sel("decimal", tr("table.decimal"), `<option value=".">1,234.56</option><option value=",">1.234,56</option>`)}
       </details>
       <div class="tm-preview"></div>
-      <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice tm-use">${escapeHtml(tr("table.use"))}</button></div>`;
+      <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice tm-use">${escapeHtml(tr("table.use"))}</button></div></div>`;
 
-    const $q = (cls) => body.querySelector(".tm-" + cls);
+    const root = body.querySelector(".tm-root");
+    const $q = (cls) => root.querySelector(".tm-" + cls);
     const setVal = (cls, v) => { $q(cls).value = String(v); };
+    const multi = () => state.m.account >= 0;
+    const pm = () => accounts.find((a) => a.id === state.accountId) || null;
+    const pmById = (id) => accounts.find((a) => a.id === id) || null;
+    const currentMapping = () => ({ ...state.m, currencyFixed: $q("fixed").value });
+
+    // A guessed account for a name in the file: the app account whose nickname equals it or contains it (or the other way round).
+    function guessAccountFor(value) {
+      const v = normName(value);
+      if (!v) return "";
+      const hit = accounts.find((a) => normName(a.nickname) === v) || accounts.find((a) => normName(a.nickname).includes(v) || v.includes(normName(a.nickname)));
+      return hit ? hit.id : "";
+    }
+    function renderValues() {
+      const box = root.querySelector(".tm-values");
+      if (!multi()) { box.innerHTML = ""; return; }
+      const values = StatementTable.distinctValues(rows, state.m, state.m.account);
+      values.forEach((v) => { if (state.map[v.value] === undefined || (state.map[v.value] !== "skip" && !pmById(state.map[v.value]))) { const g = guessAccountFor(v.value); if (g) state.map[v.value] = g; else delete state.map[v.value]; } });
+      box.innerHTML = values.map((v) => `<div class="tm-value" data-value="${escapeHtml(v.value)}"><label>${escapeHtml(tr("table.valueLines", { value: v.value, n: v.count }))}</label>
+        <select class="tm-vacct">${accountOptions(state.map[v.value], `<option value="skip"${state.map[v.value] === "skip" ? " selected" : ""}>${escapeHtml(tr("table.skipValue"))}</option>`)}</select></div>`).join("");
+    }
     function syncControlsFromState() {
       const two = state.m.out >= 0 && state.m.in >= 0;
       setVal("mode", two ? "two" : "one");
-      body.querySelector(".tm-one").hidden = two;
-      body.querySelector(".tm-two").hidden = !two;
+      root.querySelector(".tm-one").hidden = two;
+      root.querySelector(".tm-two").hidden = !two;
       setVal("sign", state.m.sign || "negative");
       setVal("order", state.m.dateOrder || "dmy");
       setVal("decimal", state.m.decimal || ".");
       setVal("fixed", state.m.currencyFixed || homeCur());
+      root.querySelector(".tm-single").hidden = multi();
+      root.querySelector(".tm-multi").hidden = !multi();
     }
-    function pm() { return accounts.find((a) => a.id === state.accountId) || null; }
-    function currentMapping() {
-      const m = { ...state.m };
-      m.currencyFixed = $q("fixed").value;
-      return m;
+    // The lines that will be used: for a multi-account file only the names the person assigned (or has not decided yet).
+    function usableLines(all) {
+      if (!multi()) return { lines: all, undecided: 0 };
+      const names = new Set(all.map((l) => l.account));
+      let undecided = 0;
+      names.forEach((n) => { if (!state.map[n]) undecided++; });
+      return { lines: all.filter((l) => state.map[l.account] && state.map[l.account] !== "skip"), undecided };
+    }
+    function categoryNote(lines) {
+      if (state.m.category < 0) return "";
+      const mine = new Set((meta.categories || []).filter((c) => (c.type === "expense" || c.type === "income") && String(c.hidden || "") !== "yes").map((c) => normName(c.name)));
+      const names = [...new Set(lines.map((l) => l.category).filter(Boolean))];
+      if (!names.length) return "";
+      return `<p class="hint">${escapeHtml(tr("table.catMatch", { matched: names.filter((n) => mine.has(normName(n))).length, total: names.length }))}</p>`;
     }
     function renderPreview() {
       const m = currentMapping();
       const r = StatementTable.applyMapping(rows, m);
-      const box = body.querySelector(".tm-preview");
-      const use = $q("use") || body.querySelector(".tm-use");
+      const { lines, undecided } = usableLines(r.lines);
+      const box = root.querySelector(".tm-preview");
+      const use = root.querySelector(".tm-use");
       if (!r.lines.length) {
         box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.noLines"))}</p>`;
         use.disabled = true;
         return;
       }
-      use.disabled = !pm();
+      use.disabled = multi() ? (undecided > 0 || !lines.length) : !pm();
       const totals = {};
-      r.lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
+      lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
-      box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(tr("table.previewLines", { n: r.lines.length, from: fmtDate(r.period.start, true), to: fmtDate(r.period.end, true) }))}</span><span></span></div>
+      const dates = lines.map((l) => l.date).sort();
+      box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(lines.length ? tr("table.previewLines", { n: lines.length, from: fmtDate(dates[0], true), to: fmtDate(dates[dates.length - 1], true) }) : "—")}</span><span></span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
         ${r.skipped.length ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.length }))}</p>` : ""}
+        ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
+        ${categoryNote(lines)}
+        ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
-        ${r.lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
     }
     function applyAccountGuess() {
-      // Re-guess the sign for the chosen account (a card's purchases are usually positive); only when nothing was remembered.
+      // A card's purchases are usually positive: re-guess the sign for the chosen account, but only for a layout nobody has confirmed.
       const a = pm();
-      if (a && !(saved && saved.m)) {
-        const g = StatementTable.guessMapping(rows, { isCard: a.type === "credit" });
-        state.m.sign = g.sign;
-      }
+      if (a && !remembered) state.m.sign = StatementTable.guessMapping(rows, { isCard: a.type === "credit" }).sign;
     }
-    body.addEventListener("change", (e) => {
+    root.addEventListener("change", (e) => {
       const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
       if (!cls) return;
       const v = e.target.value;
       if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); }
+      else if (cls === "vacct") { const val = e.target.closest(".tm-value").dataset.value; if (v) state.map[val] = v; else delete state.map[val]; }
       else if (cls === "date") state.m.date = Number(v);
       else if (cls === "desc") state.m.description = Number(v);
       else if (cls === "amount") state.m.amount = Number(v);
@@ -727,6 +791,8 @@
       else if (cls === "out") state.m.out = Number(v);
       else if (cls === "in") state.m.in = Number(v);
       else if (cls === "currency") state.m.currency = Number(v);
+      else if (cls === "acol") { state.m.account = Number(v); renderValues(); syncControlsFromState(); }
+      else if (cls === "cat") state.m.category = Number(v);
       else if (cls === "order") state.m.dateOrder = v;
       else if (cls === "decimal") state.m.decimal = v;
       else if (cls === "mode") {
@@ -746,28 +812,56 @@
       }
       renderPreview();
     });
-    body.querySelector(".tm-use").addEventListener("click", () => {
-      const a = pm();
-      if (!a) { body.querySelector(".tm-account").focus(); return; }
+    const forget = root.querySelector(".tm-forget");
+    if (forget) forget.addEventListener("click", async () => {
+      forget.disabled = true;
+      try { await callApi("deleteStatementFormat", { signature: sig }); } catch (e) { /* it stays remembered; nothing else breaks */ }
+      await renderTableMapping(body, rows, file);
+    });
+    root.querySelector(".tm-use").addEventListener("click", async () => {
       const m = currentMapping();
-      const r = StatementTable.applyMapping(rows, m);
-      if (!r.lines.length) return;
-      const accountKey = tableAccountKey(a);
-      const result = { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-        period: r.period, balances: {}, lines: r.lines, warnings: [] };
-      tableMemorySet(sig, { m: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed }, accountId: a.id });
+      const { lines } = usableLines(StatementTable.applyMapping(rows, m).lines);
+      if (!lines.length) return;
+      // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
+      const byAccount = new Map();
+      lines.forEach((l) => {
+        const id = multi() ? state.map[l.account] : state.accountId;
+        if (!id || !pmById(id)) return;
+        if (!byAccount.has(id)) byAccount.set(id, []);
+        byAccount.get(id).push(l);
+      });
+      if (!byAccount.size) { if (!multi()) root.querySelector(".tm-account").focus(); return; }
+      const results = [];
+      byAccount.forEach((accLines, id) => {
+        const a = pmById(id);
+        const dates = accLines.map((l) => l.date).sort();
+        const accountKey = tableAccountKey(a);
+        results.push({ name: byAccount.size > 1 ? `${file.name} · ${a.nickname}` : file.name,
+          result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [] } });
+      });
+      // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
+      const typed = $q("name").value.trim();
+      const label = typed || state.label || (byAccount.size === 1 ? pmById([...byAccount.keys()][0]).nickname : "") || "";
+      const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
+      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave,
+        mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category,
+          dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed } }).catch(() => {});
       // A re-read of the same file replaces its earlier reading.
-      usable = usable.filter((u) => u.file !== file.name);
-      usable.push({ file: file.name, result, inboxId: "" });
+      usable = usable.filter((u) => (u.group || u.file) !== file.name);
+      results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
       historyPlan = null;
       $("statement-history").innerHTML = "";
       updateReviewButton();
-      renderResult(body, result, null, file);
+      body.innerHTML = results.map(() => `<div class="tm-result"></div>`).join("");
+      results.forEach((r, i) => renderResult(body.children[i], r.result, null, file, byAccount.size > 1 ? r.name : ""));
     });
-    if (!state.accountId) applyAccountGuess();
+    renderValues();
     syncControlsFromState();
     setVal("out", state.m.out); setVal("in", state.m.in); setVal("amount", state.m.amount); setVal("desc", state.m.description); setVal("date", state.m.date); setVal("currency", state.m.currency);
-    if (state.accountId) { const a = pm(); if (a && !(saved && saved.m)) { applyAccountGuess(); syncControlsFromState(); } }
+    setVal("acol", state.m.account); setVal("cat", state.m.category);
+    if (state.accountId && !remembered) applyAccountGuess();
+    syncControlsFromState();
     renderPreview();
   }
 
@@ -792,7 +886,7 @@
       period: result.period,
       balances: result.balances,
       verified: !!(result.ok && result.verified !== false),
-      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+      lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category }))
     }));
   }
 
@@ -1205,7 +1299,7 @@
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
     out.innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
-      ${range}<p class="hint">${escapeHtml(tr("hist.noCategory"))}</p>${noteHtml}
+      ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
 
@@ -1232,7 +1326,7 @@
       statements: usable.map(({ file, result }) => ({
         key: accountKeyOf(result), kind: result.kind, period: result.period, file_name: file,
         verified: !!(result.ok && result.verified !== false), balances: result.balances,
-        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section }))
+        lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
       actions: historyActions()
@@ -1247,7 +1341,9 @@
       const notAdded = (historyPlan.summary.aside || []).filter((a) => !used.has(lineKey(a))).length + historyCounts().left;
       const waiting = res.pendingCount || 0;
       const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
-        + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "");
+        + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
+        + (res.categoriesFiled ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategories", { n: res.categoriesFiled }))}</p>` : "")
+        + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>

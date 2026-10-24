@@ -185,6 +185,22 @@ function applyStatementDecisions(payload) {
   var cats = getAllRows('Categories');
   var catsById = rowsById_(cats);
   cats.forEach(function (c) { catByName[c.type + ':' + c.name] = c.id; });
+  // A spreadsheet line may carry the category its source app gave it (Spendee's "Category name"): it is used when a category of
+  // that type with the same name (ignoring case and accents) exists; a name the app does not have leaves the entry uncategorized
+  // (it waits in Tidy my history) and is counted so the person is told.
+  var catByNorm = {};
+  cats.forEach(function (c) { if (String(c.hidden || '') !== 'yes') catByNorm[c.type + ':' + searchNormalize_(c.name).replace(/\s+/g, ' ').trim()] = c.id; });
+  var categoryMissedNames = {};
+  function lineCategory(type, text) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t) return { id: '', text: '' };
+    return { id: catByNorm[type + ':' + searchNormalize_(t)] || '', text: t };
+  }
+  function countLineCategory(lc) {
+    if (!lc.text) return;
+    if (lc.id) report.categoriesFiled = (report.categoriesFiled || 0) + 1;
+    else { report.categoriesMissed = (report.categoriesMissed || 0) + 1; categoryMissedNames[lc.text] = true; }
+  }
 
   // Lines, keys, accounts.
   var keys = [], accounts = [];
@@ -376,11 +392,12 @@ function applyStatementDecisions(payload) {
       // A refund that cancels a charge already in the app takes that charge's category, so the month nets to zero in its category.
       var revFor = isRev && a.entryId ? values[rowById[String(a.entryId)]] : null;
       if (isRev && a.entryId && revFor === undefined) throw new Error(tr_('sa.chargeNotFound'));
-      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : '', payment_method_id: requirePm(hx).id,
+      var hxCat = isRev ? { id: '', text: '' } : lineCategory('expense', hx.l.category);
+      var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : hxCat.id, payment_method_id: requirePm(hx).id,
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
-      if (madeH) { if (isRev) report.created.reversals++; else report.created.purchases++; }
+      if (madeH) { if (isRev) report.created.reversals++; else { report.created.purchases++; countLineCategory(hxCat); } }
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_refund') {
       // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
@@ -399,9 +416,10 @@ function applyStatementDecisions(payload) {
       if (hi.l.amount <= 0) throw new Error(tr_('sa.incomeIn'));
       // Interest earned has a known home (the line-by-line comparison files it there too); every other income stays uncategorized.
       var interestCat = /INTER[EÉ]S/i.test(hi.l.description) ? (catByName['income:Savings return'] || '') : '';
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: interestCat,
+      var hiCat = lineCategory('income', hi.l.category);
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat,
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
-      if (madeHI) report.created.income++;
+      if (madeHI) { report.created.income++; countLineCategory(hiCat); }
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {
       var inc = line(a); useLine(inc);
@@ -498,6 +516,7 @@ function applyStatementDecisions(payload) {
   report.pendingCount = creations.filter(function (e) { return e.status === 'pending'; }).length;   // how many wait in Needs review
   report.rateNeeds = stmtRateNeeds_(creations);
 
+  report.categoryMissedNames = Object.keys(categoryMissedNames).slice(0, 10);
   if (dryRun) return report;
 
   // ---- writes ----

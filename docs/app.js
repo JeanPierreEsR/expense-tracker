@@ -330,11 +330,13 @@ const ONCE_ACTIONS = new Set([
   "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "exportData",
-  "applyStatementDecisions", "undoStatementBatch"   // long statement writes: a resend must not run a second copy beside the first
+  "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
+  "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
-const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000 };
+const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
+  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000 };   // a history of thousands of entries reads and rewrites whole columns
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
