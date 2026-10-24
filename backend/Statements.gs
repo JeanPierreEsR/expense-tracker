@@ -190,7 +190,7 @@ function listStatementCoverage() {
     accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
   });
   uploads.forEach(function (u) {
-    if (!u.account_key) return;
+    if (!u.account_key || covKey_(u.account_key) === STMT_NO_ACCOUNT_KEY_) return;   // an import saved with no account is not an account to keep up to date
     var uk = covKey_(u.account_key);
     if (!accounts[uk]) accounts[uk] = { key: uk, label: u.account_label || uk, lag: 1 };
   });
@@ -301,6 +301,9 @@ function analyzeStatements(payload) {
   var pmByKey = {};
   pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
   function pmFor(key) {
+    // An import with no account: a stand-in with a made-up id that no entry carries (so only account-less entries can match it,
+    // and nothing pairs with it as a transfer); the apply step writes '' (see stmtPmForKey_).
+    if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: 'unknown:' + STMT_NO_ACCOUNT_KEY_, nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
     if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) return stmtPmForKey_(pms, key);
     if (String(key).indexOf('AHORRA-') === 0) {
       return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;

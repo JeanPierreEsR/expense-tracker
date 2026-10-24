@@ -60,6 +60,7 @@
     "entry.investmentCategory": { en: "Investment — {category}", es: "Inversión — {category}" },
     "entry.receivedAt": { en: "received in {account}", es: "recibido en {account}" },
     "entry.fromAccount": { en: "from {account}", es: "desde {account}" },
+    "entry.confirmNoAccount": { en: "No account or card is picked. Save this entry without one? You can add it later by editing the entry.", es: "No elegiste una cuenta o tarjeta. ¿Guardar este movimiento sin una? Puedes añadirla después editando el movimiento." },
     "entry.noAccount": { en: "no account set", es: "sin cuenta asignada" },
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
     "entry.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
@@ -333,6 +334,7 @@
     // ---- form ----
     "form.pickPlatform": { en: "Pick a platform…", es: "Elige una plataforma…" },
     "form.noneAccount": { en: "None", es: "Ninguna" },
+    "form.noAccountChoice": { en: "No account", es: "Sin cuenta" },
     "form.noneFromOutside": { en: "Someone else's account", es: "Cuenta de otra persona" },
     "form.noneToOutside": { en: "Someone else's account", es: "Cuenta de otra persona" },
 
@@ -909,6 +911,10 @@
     "imp.histTitle": { en: "Check my import", es: "Revisar mi importación" },
     "imp.histHint": { en: "One tap shows what is already in the app, what would be added and which categories would be used. Nothing is saved until you tap the final button, and you can undo it in one step.", es: "Con un toque ves lo que ya está en la app, lo que se agregaría y qué categorías se usarían. No se guarda nada hasta que toques el botón final, y puedes deshacerlo en un solo paso." },
     "imp.histButton": { en: "📚 Check my import", es: "📚 Revisar mi importación" },
+    "imp.account": { en: "Which account or card is this file for? (optional)", es: "¿De qué cuenta o tarjeta es este archivo? (opcional)" },
+    "imp.noAccountOption": { en: "No account", es: "Sin cuenta" },
+    "imp.noAccountWarn": { en: "No account or card picked: these entries will be saved without one. You can pick an account or card above now, or add it later by editing an entry.", es: "No elegiste una cuenta o tarjeta: estos movimientos se guardarán sin cuenta. Puedes elegir una arriba ahora, o añadirla después editando un movimiento." },
+    "imp.noAccountsInfo": { en: "You have not set up any accounts or cards yet, and that is fine: these entries will be saved without one. You can add them later in More → Accounts, cards & platforms.", es: "Todavía no tienes cuentas ni tarjetas configuradas, y no pasa nada: estos movimientos se guardarán sin cuenta. Puedes añadirlas después en Más → Cuentas, tarjetas y plataformas." },
     "imp.tableHint": { en: "This is a spreadsheet exported from another app. Tell the app which column is which — it already guessed below. The file is read on this device and never uploaded.", es: "Esta es una hoja de cálculo exportada de otra app. Dile a la app qué columna es cuál; abajo ya hizo una suposición. El archivo se lee en este dispositivo y nunca se sube." },
     "imp.tableVerdict": { en: "⚠ Read from a spreadsheet — look at the lines and the categories before saving.", es: "⚠ Leído de una hoja de cálculo: revisa las líneas y las categorías antes de guardar." },
     "imp.blockedBank": { en: "This file looks like an export from another app, not a bank statement. Statements only reads your bank's files. To bring in another app's data, use Import data.", es: "Este archivo parece una exportación de otra app, no un estado de cuenta. Estados de cuenta solo lee archivos de tu banco. Para traer los datos de otra app, usa Importar datos." },

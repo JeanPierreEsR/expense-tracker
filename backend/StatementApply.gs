@@ -105,7 +105,13 @@ function stmtLineKeys_(accountKey, lines) {
 // otherwise ACCT-<payment method id> (docs/statement-table.js, statements.js). Same key everywhere a statement is looked up.
 var STMT_ACCT_KEY_PREFIX_ = 'ACCT-';
 
+// An import (another app's export) can be saved with NO account: the person has none set up yet, or did not want to pick one. Its
+// statement carries this key; every entry it makes has an empty payment_method_id (like the Spendee import's), and the account can be
+// set later from the entry. Resolves to a stand-in whose id is '' so the entries come out account-less.
+var STMT_NO_ACCOUNT_KEY_ = 'NOACCOUNT';
+
 function stmtPmForKey_(pms, key) {
+  if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: '', nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
   if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) {
     var id = String(key).substring(STMT_ACCT_KEY_PREFIX_.length);
     return pms.find(function (pm) { return String(pm.id) === id; }) || null;
@@ -482,7 +488,8 @@ function applyStatementDecisions(payload) {
       if (a.type !== 'link') {
         var pm = requirePm(m);
         var curFrom = values[i][col.payment_method_id], curTo = values[i][col.to_payment_method_id];
-        if (!curFrom && !curTo) setCell(a.entryId, 'payment_method_id', pm.id);
+        if (pm.noAccount) { /* an import with no account assigns nothing to an entry */ }
+        else if (!curFrom && !curTo) setCell(a.entryId, 'payment_method_id', pm.id);
         else if (a.type === 'match' && a.overwriteAccount && !curTo && curFrom !== pm.id) setCell(a.entryId, 'payment_method_id', pm.id);
         if (a.type === 'match' && !values[i][col.merchant] && stmtMerchantKey_(m.l.description)) setCell(a.entryId, 'merchant', stmtMerchantKey_(m.l.description));
         if (a.type === 'match' && !values[i][col.external_id]) setCell(a.entryId, 'external_id', 'stmt-' + m.key);
@@ -606,7 +613,7 @@ function applyStatementDecisions(payload) {
     } else {
       var newId = Utilities.getUuid();
       newUploadRows.push(Object.assign({ id: newId, account_key: op.acctKey,
-        account_label: (accounts[op.si] ? accounts[op.si].nickname + (String(op.acctKey).indexOf(STMT_ACCT_KEY_PREFIX_) === 0 ? '' : ' …' + op.acctKey) : op.acctKey),
+        account_label: (accounts[op.si] ? accounts[op.si].nickname + (accounts[op.si].noAccount || String(op.acctKey).indexOf(STMT_ACCT_KEY_PREFIX_) === 0 ? '' : ' …' + op.acctKey) : op.acctKey),
         payment_method_id: accounts[op.si] ? accounts[op.si].id : '', kind: op.s.kind,
         period_start: (op.s.period || {}).start || '', period_end: op.s.period.end }, fields));
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Uploads', row_id: newId, field: '__created__',
