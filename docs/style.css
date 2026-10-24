@@ -2306,6 +2306,7 @@ body.income-revealed .sens-mask { display: none; }
 .ts-phone { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 8px 12px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); font-size: 12px; overflow: hidden; min-height: 300px; }
 .ts-bar { text-align: center; font-weight: 700; font-size: 13px; padding: 4px 0 8px; }
 .ts-types { display: flex; gap: 6px; margin-bottom: 8px; }
+.ts-types[hidden] { display: none; }
 .ts-pill { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
 .ts-pill.on { background: var(--expense); color: #fff; }
 .ts-field { display: flex; align-items: baseline; gap: 6px; padding: 9px 10px; border: 2px solid var(--border); border-radius: 10px; margin-bottom: 8px; transition: border-color .25s, box-shadow .25s; }
@@ -2719,3 +2720,136 @@ body.income-revealed .sens-mask { display: none; }
 /* "Update available" (a friend's copy): a dot on the More tab */
 .nav-btn { position: relative; }
 body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: absolute; top: 6px; left: calc(50% + 8px); width: 9px; height: 9px; border-radius: 50%; background: var(--expense); }
+
+/* ---- Home tab: round "+" button, new-entry sheet, quick glance, entries by day ---- */
+
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;   /* syncFab_ sets the real value from the nav bar's height */
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: none;
+  background: #3dba84;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 1;
+  padding: 0 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(30, 120, 80, 0.38);
+  cursor: pointer;
+  z-index: 160;   /* above the nav bar (150), below every pop-up (250+) */
+  -webkit-tap-highlight-color: transparent;
+}
+.fab:active { transform: scale(0.94); }
+.fab[hidden] { display: none; }
+
+/* The new-entry sheet is the existing pop-up, made taller (like Spendee's slide-up). */
+#edit-entry-modal-inner.new-entry-sheet {
+  max-height: 94vh;
+  max-height: 94dvh;
+  height: 94dvh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px 22px 0 0;
+}
+
+.app-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 150px;
+  max-width: min(88vw, 420px);
+  background: rgba(29, 29, 31, 0.92);
+  color: #fff;
+  font-size: 0.9rem;
+  padding: 10px 16px;
+  border-radius: 14px;
+  z-index: 400;
+  text-align: center;
+}
+.app-toast[hidden] { display: none; }
+
+.home-glance { margin: 0 -16px 12px; }   /* full width, so the next card can peek in from the edge */
+.home-glance[hidden] { display: none; }
+.home-glance-track {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  align-items: flex-start;   /* a short card (a trip) keeps its own height instead of stretching to the tallest */
+  padding: 2px 16px 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.home-glance-track::-webkit-scrollbar { display: none; }
+.home-card {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  scroll-snap-align: center;
+  background: var(--card);
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  min-width: 0;
+}
+.home-glance.has-many .home-card { flex-basis: 92%; }
+.home-glance-dots { display: flex; justify-content: center; gap: 6px; margin-top: 4px; }
+.home-glance-dots[hidden] { display: none; }
+.home-glance-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.home-glance-dots span.on { background: var(--muted); }
+
+.home-card-label { color: var(--muted); font-size: 0.85rem; }
+.home-big { font-size: 1.9rem; font-weight: 700; margin: 2px 0; letter-spacing: -0.5px; }
+.home-delta { font-size: 0.85rem; color: var(--muted); }
+.home-delta.good { color: var(--income); }
+.home-delta.bad { color: var(--expense); }
+
+.home-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 10px; }
+.home-four-box { background: var(--bg); border-radius: 12px; padding: 7px 6px; min-width: 0; display: flex; flex-direction: column; }
+.home-four-box span { display: block; font-size: 0.62rem; line-height: 1.15; color: var(--muted); }   /* "Lo que queda" wraps to two lines */
+.home-four-box b { display: block; font-size: 0.78rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-four-box b.income { color: var(--income); }
+.home-four-box b.expense { color: var(--expense); }
+
+.home-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; }
+.home-bar-col {
+  background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0;
+  color: var(--muted); font-size: 0.68rem;
+}
+.home-bar-pair { height: 84px; display: flex; align-items: flex-end; gap: 3px; opacity: 0.45; }
+.home-bar { width: 9px; border-radius: 4px 4px 2px 2px; min-height: 2px; }
+.home-bar.income { background: var(--income); }
+.home-bar.expense { background: var(--expense); }
+.home-bar-col.on { color: var(--text); font-weight: 600; }
+.home-bar-col.on .home-bar-pair { opacity: 1; }
+.home-legend { display: flex; gap: 12px; justify-content: center; margin-top: 8px; font-size: 0.72rem; color: var(--muted); }
+.home-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+.home-line-svg { width: 100%; height: 110px; margin-top: 8px; display: block; }
+.home-line-svg .prev { stroke: #c4c4cc; }
+.home-line-svg .cur { stroke: var(--accent); }
+.home-line-svg .dot { fill: var(--accent); }
+.home-pace-lines { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; margin-top: 6px; }
+.home-pace-lines div { min-width: 0; }
+.home-pace-lines b { display: block; font-size: 0.95rem; }
+
+.home-meter { height: 12px; background: var(--bg); border-radius: 6px; overflow: hidden; margin: 10px 0 8px; }
+.home-meter-fill { height: 100%; border-radius: 6px; background: var(--income); }
+.home-meter-fill.warn { background: #e8a33d; }
+.home-meter-fill.over { background: var(--expense); }
+.home-meter-facts { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--muted); flex-wrap: wrap; }
+
+.home-card-trip { background: linear-gradient(135deg, #eaf6f0, #ffffff); cursor: pointer; }
+.home-trip-head { display: flex; align-items: center; gap: 10px; }
+.home-trip-emoji { font-size: 1.8rem; }
+.home-trip-name { font-weight: 700; font-size: 1.05rem; }
+
+.day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 16px 0 2px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.day-head:first-child { margin-top: 2px; }
+.day-head .day-total { font-variant-numeric: tabular-nums; }
