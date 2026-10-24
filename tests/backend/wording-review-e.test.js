@@ -41,11 +41,11 @@ test("B2: the place for detected entries is always “Needs review” / “Por r
   assert.match(get("banner.saveFailed").en, /tap to see/);
 });
 
-test("B6: the transfer 'To' hint is one idea, and the currency-exchange case has its own short hint (hidden together for investments)", () => {
+test("B6: the transfer 'To' hint is one idea, and the currency-exchange case is a button to its own form (hidden for investments and while editing)", () => {
   assert.ok(get("transfer.toHint").en.length < 220, "short");
   assert.ok(!/exchange/i.test(get("transfer.toHint").en));
-  assert.match(get("transfer.toHintExchange").en, /currency exchange/);
-  assert.match(index, /id="to-payment-method-hint-exchange" data-i18n="transfer.toHintExchange"/);
+  assert.match(get("xch.openFromTransfer").en, /currency exchange/i);
+  assert.match(index, /id="to-payment-method-hint-exchange" data-i18n="xch.openFromTransfer"/);
   assert.match(app, /to-payment-method-hint-exchange"\)\.hidden = isInvestment/);
 });
 

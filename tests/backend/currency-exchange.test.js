@@ -25,3 +25,23 @@ test("an exchange recorded as two one-sided transfers moves each balance in its 
   assert.equal(of(a.id, "PEN"), 1300);
   assert.equal(of(b.id, "USD"), 1100);
 });
+
+test("an exchange works the other way too: dollars leave one account, soles arrive in another", () => {
+  const { rt, data } = freshApp();
+  const a = rt.api("addPaymentMethod", { nickname: "Exch USD acct 2", type: "debit" });
+  const b = rt.api("addPaymentMethod", { nickname: "Exch PEN acct 2", type: "debit" });
+  const day = today();
+  rt.api("setPaymentMethodOpeningBalance", { id: a.id, balances: [{ currency: "USD", amount: 2000, date: "2020-01-01" }] });
+  rt.api("setPaymentMethodOpeningBalance", { id: b.id, balances: [{ currency: "PEN", amount: 100, date: "2020-01-01" }] });
+  const cat = data.cats.find((c) => c.type === "transfer");
+
+  rt.api("createEntry", { type: "transfer", date: day, amount: 500, currency: "USD", category_id: cat.id,
+    description: "exchange out", paid_by: "me", payment_method_id: a.id });
+  rt.api("createEntry", { type: "transfer", date: day, amount: 1850, currency: "PEN", category_id: cat.id,
+    description: "exchange in", paid_by: "me", payment_method_id: "", to_payment_method_id: b.id });
+
+  const bal = rt.api("listPaymentMethodBalances", {});
+  const of = (id, cur) => bal.find((x) => x.id === id).balances.find((x) => x.currency === cur).amount;
+  assert.equal(of(a.id, "USD"), 1500);
+  assert.equal(of(b.id, "PEN"), 1950);
+});

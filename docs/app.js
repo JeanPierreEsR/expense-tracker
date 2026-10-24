@@ -327,7 +327,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
@@ -1170,7 +1170,7 @@ function populateToPaymentMethodOptions() {
   const noneOpt = document.createElement("option");
   noneOpt.value = "";
   const anyPlatform = meta.paymentMethods.some((pm) => pm.type === "investment" && !pmHidden_(pm));
-  noneOpt.textContent = selectedType === "investment" ? tr(anyPlatform ? "form.pickPlatform" : "form.noPlatforms") : tr("form.noneAccount");
+  noneOpt.textContent = selectedType === "investment" ? tr(anyPlatform ? "form.pickPlatform" : "form.noPlatforms") : tr(selectedType === "transfer" ? "form.noneToOutside" : "form.noneAccount");
   select.appendChild(noneOpt);
   // An investment's "To" is a platform; a transfer's is a real account.
   const wantPlatforms = selectedType === "investment";
@@ -1265,7 +1265,7 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
-  document.getElementById("to-payment-method-hint-exchange").hidden = isInvestment;
+  document.getElementById("to-payment-method-hint-exchange").hidden = isInvestment || !!editingEntryId || !!confirmingPendingId;
   updateFromNoneOption_();
   // A transfer has no "Paid by": who it came from is the From account (or
   // None). Friends are handled by the loan/repayment kinds. Kept at "me" so
@@ -3862,11 +3862,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
-      ${entry.type === "expense" || entry.type === "income" ? `
+      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" ? `
       <div class="review-item-secondary-actions">
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
-        <button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
-        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
+        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
+        <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
       </div>` : ""}
     `;
 
@@ -3965,7 +3966,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense" || entry.type === "income") {
+    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -4003,13 +4004,136 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       };
       const splitBtn = item.querySelector(".review-split-btn"); // expenses only
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
-      item.querySelector(".review-repay-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
-      item.querySelector(".review-loan-btn").addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
+      const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
+      if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
+      const loanBtn = item.querySelector(".review-loan-btn");
+      if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
+      // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
+      item.querySelector(".review-exchange-btn").addEventListener("click", withRowEdits((e) =>
+        openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
     list.appendChild(item);
   });
 }
+
+// ---- Currency exchange pop-up (backend/CurrencyExchange.gs) ----
+// Two one-sided transfers saved together, in either direction. Opened from the Transfer tab, or from a review card
+// (`entry`, `leg`: that pending entry becomes the leg that left ("out") or arrived ("in") and keeps its e-mail reference).
+let exchangeContext_ = null;
+
+function exchangeAccountOptions_(selectedId) {
+  const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
+  return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
+    own.map((pm) => `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
+    `<option value="">${escapeHtml(tr("xch.outside"))}</option>`;
+}
+
+function exchangeCurrencyOptions_(selected) {
+  return CURRENCIES.map((c) => `<option value="${c.code}" ${c.code === selected ? "selected" : ""}>${c.flag} ${c.code}</option>`).join("");
+}
+
+function updateExchangeRateLine_() {
+  const el = document.getElementById("exchange-rate-line");
+  const a = parseFloat(document.getElementById("exchange-out-amount").value);
+  const b = parseFloat(document.getElementById("exchange-in-amount").value);
+  const ca = document.getElementById("exchange-out-currency").value;
+  const cb = document.getElementById("exchange-in-currency").value;
+  if (!(a > 0) || !(b > 0) || ca === cb) { el.hidden = true; return; }
+  // Quoted as 1 unit of the currency with the smaller amount, the way a rate is spoken (1 USD = 3.42 PEN).
+  const [from, to, rate] = a >= b ? [cb, ca, a / b] : [ca, cb, b / a];
+  el.textContent = tr("xch.rate", { from, to, rate: rate.toFixed(rate >= 100 ? 2 : 4) });
+  el.hidden = false;
+}
+
+function openExchangeModal_(opts) {
+  opts = opts || {};
+  const entry = opts.entry || null;
+  const leg = opts.leg === "in" ? "in" : "out";
+  exchangeContext_ = entry ? { entry, leg } : null;
+  const home = homeCur();
+  const entryAccount = entry ? ((leg === "out" ? entry.payment_method_id : entry.to_payment_method_id) || entry.payment_method_id || "") : "";
+  const otherCur = (cur) => (cur !== "USD" ? "USD" : home !== "USD" ? home : "EUR");
+  const entryCur = entry ? entry.currency : home;
+  const outCur = leg === "out" ? entryCur : otherCur(entryCur);
+  const inCur = leg === "in" ? entryCur : otherCur(entryCur);
+
+  document.getElementById("exchange-date").value = entry ? entry.date : todayLocalISO();
+  document.getElementById("exchange-out-account").innerHTML = exchangeAccountOptions_(leg === "out" ? entryAccount : "");
+  document.getElementById("exchange-in-account").innerHTML = exchangeAccountOptions_(leg === "in" ? entryAccount : "");
+  document.getElementById("exchange-out-currency").innerHTML = exchangeCurrencyOptions_(outCur);
+  document.getElementById("exchange-in-currency").innerHTML = exchangeCurrencyOptions_(inCur);
+  document.getElementById("exchange-out-amount").value = entry && leg === "out" ? Math.abs(Number(entry.amount)) : "";
+  document.getElementById("exchange-in-amount").value = entry && leg === "in" ? Math.abs(Number(entry.amount)) : "";
+  // A "Currency exchange (name)" description already names the house; otherwise the e-mail's recipient text is the best guess.
+  const named = entry ? String(entry.description || "").match(/^(?:Currency exchange|Cambio de moneda) \((.+)\)\s*$/i) : null;
+  document.getElementById("exchange-house").value = named ? named[1] : (entry && entry.type === "expense" ? String(entry.description || "") : "");
+  const ctx = document.getElementById("exchange-context");
+  ctx.hidden = !entry;
+  if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
+  document.getElementById("exchange-form-error").textContent = "";
+  updateExchangeRateLine_();
+  const backdrop = document.getElementById("exchange-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeExchangeModal_() {
+  document.getElementById("exchange-modal-backdrop").hidden = true;
+  exchangeContext_ = null;
+}
+
+document.getElementById("exchange-modal-close").addEventListener("click", closeExchangeModal_);
+document.getElementById("exchange-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "exchange-modal-backdrop") closeExchangeModal_();
+});
+["exchange-out-amount", "exchange-in-amount"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", (e) => {
+    const clean = sanitizeAmountInputValue(e.target.value);
+    if (clean !== e.target.value) e.target.value = clean;
+    updateExchangeRateLine_();
+  });
+});
+["exchange-out-currency", "exchange-in-currency"].forEach((id) => document.getElementById(id).addEventListener("change", updateExchangeRateLine_));
+document.getElementById("to-payment-method-hint-exchange").addEventListener("click", () => openExchangeModal_());
+
+document.getElementById("exchange-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("exchange-form-error");
+  errorEl.textContent = "";
+  const date = document.getElementById("exchange-date").value;
+  const side = (which) => ({
+    payment_method_id: document.getElementById(`exchange-${which}-account`).value,
+    amount: parseFloat(document.getElementById(`exchange-${which}-amount`).value),
+    currency: document.getElementById(`exchange-${which}-currency`).value
+  });
+  const out = side("out"), inn = side("in");
+  if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  if (out.payment_method_id === "__pick__" || inn.payment_method_id === "__pick__") { errorEl.textContent = tr("xch.needAccount"); return; }
+  if (!(out.amount > 0) || !(inn.amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
+  if (out.currency === inn.currency) { errorEl.textContent = tr("xch.sameCurrency"); return; }
+  if (!out.payment_method_id && !inn.payment_method_id) { errorEl.textContent = tr("xch.needAccount"); return; }
+  const ctx = exchangeContext_;
+  if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
+
+  const saveBtn = document.getElementById("exchange-save-btn");
+  saveBtn.disabled = true;
+  try {
+    await callApi("recordCurrencyExchange", {
+      date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
+      pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
+    });
+    closeExchangeModal_();
+    if (newEntrySheetOpen_) closeNewEntrySheet_();
+    showToast_(tr("xch.saved"));
+    refreshEntryList();
+    refreshReviewQueue().catch(() => {});
+    refreshBalances().catch(() => {});
+  } catch (err) {
+    errorEl.textContent = err.message || String(err);
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
 
 // ---- New-entry sheet + the round "+" button ----
 // The entry form no longer sits on a screen: it lives in #entry-card-home and is moved
@@ -4170,7 +4294,7 @@ function homeMainCard_(g) {
     <div class="home-four">
       <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("home.invested"))}</span><b>${homeShort_(m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
     </div>`;
 

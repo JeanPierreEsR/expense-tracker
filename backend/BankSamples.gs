@@ -97,7 +97,7 @@ function listSupportedSenders() {
     var sender = String(r.sender).toLowerCase();
     if (seen[sender]) return;
     seen[sender] = true;
-    out.push({ sender: sender, bank: String(r.bank || '') });
+    out.push({ sender: sender, bank: String(r.bank || r.house || '') });   // an exchange house has a `house`, not a `bank`
   });
   // Built-in statement senders count too: a friend who sent a STATEMENT sample waits for the same "your bank is ready" message.
   STATEMENT_SENDERS_.forEach(function (s) {

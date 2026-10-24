@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.35.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="0.36.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-24T15:12:32Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-24T16:45:07Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -206,8 +206,8 @@
           <div id="to-payment-method-field" hidden>
             <label for="to_payment_method" id="to-payment-method-label" data-i18n="field.toAccount">To (account it goes into)</label>
             <select id="to_payment_method"></select>
-            <p class="hint" id="to-payment-method-hint" data-i18n="transfer.toHint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it. Money arriving from outside (e.g. the USD side of a currency exchange)? Set From to "None" and enter the amount in its own currency; record the PEN leaving as a separate transfer with To left empty.</p>
-            <p class="hint" id="to-payment-method-hint-exchange" data-i18n="transfer.toHintExchange">Money coming from outside (for example the USD side of a currency exchange)? Set From to “None” and enter the amount in its own currency. Record the PEN that left as a separate transfer with To left empty.</p>
+            <p class="hint" id="to-payment-method-hint" data-i18n="transfer.toHint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it.</p>
+            <button type="button" class="add-inline" id="to-payment-method-hint-exchange" data-i18n="xch.openFromTransfer">💱 Changing currency? Record a currency exchange</button>
           </div>
 
           <div id="split-field" hidden>
@@ -1063,6 +1063,43 @@
           <h3 class="balance-section-title" data-i18n="balance.movements">Movements since the starting date</h3>
           <div id="balance-movements"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="exchange-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="xch.title">Currency exchange</span>
+        <button type="button" id="exchange-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="exchange-context" hidden></p>
+        <p class="hint" data-i18n="xch.intro">Changed money from one currency to another, in either direction? It is saved as two transfers, one per currency. It is not spending or income.</p>
+
+        <label for="exchange-date" data-i18n="field.date">Date</label>
+        <input type="date" id="exchange-date">
+
+        <label data-i18n="xch.left">Money that left</label>
+        <select id="exchange-out-account"></select>
+        <div class="exchange-amount-row">
+          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00">
+          <select id="exchange-out-currency"></select>
+        </div>
+
+        <label data-i18n="xch.arrived">Money that arrived</label>
+        <select id="exchange-in-account"></select>
+        <div class="exchange-amount-row">
+          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00">
+          <select id="exchange-in-currency"></select>
+        </div>
+        <p class="hint" id="exchange-rate-line" hidden></p>
+
+        <label for="exchange-house" data-i18n="xch.house">Exchange house or note (optional)</label>
+        <input type="text" id="exchange-house" data-i18n-placeholder="common.optional" placeholder="Optional">
+
+        <p class="hint" id="exchange-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
       </div>
     </div>
   </div>
@@ -2176,18 +2213,18 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="i18n.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="tour-scenes.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="signin-link.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="bank-sample.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="perf-share.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="receipt-parse.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="bill-split.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="app.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="statement-sample.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="statement-table.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="statement-parsers.js?v=2026-10-24T15:12:32Z"></script>
-  <script src="statements.js?v=2026-10-24T15:12:32Z"></script>
+  <script src="strings.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="i18n.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="tour-scenes.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="signin-link.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="bank-sample.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="perf-share.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="receipt-parse.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="bill-split.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="app.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="statement-sample.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="statement-table.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="statement-parsers.js?v=2026-10-24T16:45:07Z"></script>
+  <script src="statements.js?v=2026-10-24T16:45:07Z"></script>
 </body>
 </html>

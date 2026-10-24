@@ -116,7 +116,7 @@ function doPost(e) {
 // The lock makes a repeat that arrives WHILE the first is still running
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
-  createEntry: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
+  createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
   exportData: 1,   // a resend must not email the same files twice
@@ -275,7 +275,8 @@ function routeAction(action, payload) {
     case 'admin_compareGmailReaders': return compareGmailReaders(payload);
     case 'admin_backfillEntryMerchants': return backfillEntryMerchants(payload);
     case 'admin_listCategoryKeywords': return getAllRows('Category Keywords');
-    case 'admin_processEmailsBack': return processEmails({ days: Number(payload.days) || 7, senders: payload.senders });
+    case 'admin_processEmailsBack': return processEmails({ days: Number(payload.days) || 7, senders: payload.senders, includeOverlaps: payload.includeOverlaps === true });
+    case 'admin_emailCoverageReport': return emailCoverageReport_(payload);
     case 'admin_debugListEmails': return debugListEmails_(payload.senders || [], Number(payload.days) || 7);
     case 'admin_setupIbkAccounts': return adminSetupIbkAccounts(payload);
     case 'admin_setupInvestmentPlatforms': return adminSetupInvestmentPlatforms(payload);
@@ -361,6 +362,7 @@ function routeAction(action, payload) {
     case 'listTidyGroups': return listTidyGroups(payload);
     case 'applyTidyGroups': return applyTidyGroups(payload);
     case 'getEntry': return getEntryById_(payload.id);
+    case 'recordCurrencyExchange': return recordCurrencyExchange(payload);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     case 'getEntryBill': return getEntryBill(payload);
