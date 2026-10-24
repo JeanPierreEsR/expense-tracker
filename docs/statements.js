@@ -633,7 +633,7 @@
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catItems: [], catSaved: {}, catKey: "" };
+    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -749,8 +749,10 @@
       return { lines: all.filter((l) => state.map[l.account] && state.map[l.account] !== "skip"), undecided };
     }
     // ---- the merge of the file's categories with the person's own (backend/StatementCategories.gs) ----
-    // Each name in the file, per type, is matched to one of the person's categories, or will be created with the file's name, or left
-    // without one. The server proposes; whatever the person chose before for this layout wins; every row can be changed.
+    // Each name in the file, per type, is matched to one of the person's categories, or will be created, or left without one. The server
+    // proposes; whatever the person chose before for this layout wins; every row can be changed. The NAME that remains is the file's by
+    // default (people are used to the names of their old app); it can be typed over, and a category the app depends on (Bank fees…)
+    // keeps its own name.
     const myCategories = (type) => sortedCategories_(pickableCategories_((meta.categories || []).filter((c) => c.type === type)));
     let catTimer = null;
     function fileCategoryNames() {
@@ -770,6 +772,17 @@
       clearTimeout(catTimer);
       catTimer = setTimeout(loadCategories, 250);
     }
+    const catInfo = (id) => (state.catInfo || []).find((c) => c.id === id) || null;
+    // The name a row should carry, given where it points. A category that already answers to the file's name (in either language) or that
+    // the app depends on keeps its own; any other existing category, and a new one, takes the file's name.
+    function defaultNameFor(it, choice) {
+      if (choice === "create") return it.name;
+      if (choice === "") return "";
+      const info = catInfo(choice);
+      if (!info) return it.name;
+      const norm = StatementTable.catNorm(it.name);
+      return info.protected || info.names.indexOf(norm) !== -1 ? info.name : it.name;
+    }
     async function loadCategories() {
       const names = fileCategoryNames();
       const sigNames = JSON.stringify(names);
@@ -777,42 +790,94 @@
       state.catKey = sigNames;
       if (!names.length) { state.catItems = []; renderCategories(); return; }
       root.querySelector(".tm-cats").innerHTML = loadingHtml(tr("table.catLoading"));
-      let items = [];
-      try { items = (await callApi("suggestCategoryMap", { names })).items; } catch (e) { items = []; }
+      let res = { items: [], categories: [] };
+      try { res = await callApi("suggestCategoryMap", { names }); } catch (e) { /* no suggestions: every name is left as it is */ }
       if (JSON.stringify(fileCategoryNames()) !== sigNames) return;   // the mapping changed while waiting: a newer call is on its way
-      state.catItems = items;
-      const valid = (c) => c === "create" || c === "" || (meta.categories || []).some((x) => x.id === c);
-      items.forEach((it) => {
+      state.catItems = res.items || [];
+      state.catInfo = res.categories || [];
+      const valid = (c) => c === "create" || c === "" || state.catInfo.some((x) => x.id === c);
+      state.catItems.forEach((it) => {
         const remembered = state.catSaved[it.key];
         if (state.catChoice[it.key] === undefined) {
           state.catChoice[it.key] = remembered !== undefined && valid(remembered) ? remembered : (it.action === "match" ? it.categoryId : it.action === "create" ? "create" : "");
+          const info = catInfo(state.catChoice[it.key]);
+          const keepApp = state.catSaved["~rename:" + it.key] === false;   // the person chose to keep the app's name last time
+          const mine = state.catSaved["~name:" + it.key];                   // …or typed a name of their own, which the category may already have
+          const alreadyMine = !!(info && mine && info.names.indexOf(StatementTable.catNorm(mine)) !== -1);
+          state.catNames[it.key] = (keepApp || alreadyMine) && info ? info.name : defaultNameFor(it, state.catChoice[it.key]);
         }
       });
       renderCategories();
     }
+    // What a row will do to its category's name: { from, to } for a rename, else null.
+    function renameOf(it) {
+      const info = catInfo(state.catChoice[it.key]);
+      const to = String(state.catNames[it.key] || "").replace(/\s+/g, " ").trim();
+      if (!info || info.protected || !to || info.names.indexOf(StatementTable.catNorm(to)) !== -1) return null;
+      return { from: info.name, to };
+    }
     function categorySummary() {
-      let used = 0, created = 0, left = 0;
-      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; if (c === "create") created++; else if (c === "") left++; else used++; });
-      return tr("table.catSummary", { used, created, left });
+      let used = 0, created = 0, left = 0, renamed = 0;
+      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; if (c === "create") created++; else if (c === "") left++; else { used++; if (renameOf(it)) renamed++; } });
+      return renamed ? tr("table.catSummaryRenamed", { used, renamed, created, left }) : tr("table.catSummary", { used, created, left });
+    }
+    function rowHint(it) {
+      const c = state.catChoice[it.key];
+      if (c === "") return it.why === "retired" ? tr("table.catWhyRetired") : "";
+      const info = catInfo(c);
+      if (info && info.protected) return tr("table.catKeepsName");
+      const rn = renameOf(it);
+      if (rn) return tr("table.catWillRename", { from: rn.from, to: rn.to });
+      if (c === "create") return tr("table.catWhyNew");
+      return it.why === "equivalent" ? tr("table.catWhyEquivalent", { name: info ? info.name : "" }) : tr("table.catWhyName");
     }
     function renderCategories() {
       const box = root.querySelector(".tm-cats");
       if (!state.catItems.length) { box.innerHTML = ""; return; }
-      const why = (it) => it.why === "name" ? tr("table.catWhyName") : it.why === "equivalent" ? tr("table.catWhyEquivalent", { name: it.categoryName })
-        : it.why === "retired" ? tr("table.catWhyRetired") : tr("table.catWhyNew");
       const rowsHtml = state.catItems.map((it) => {
         const cur = state.catChoice[it.key];
         const opts = myCategories(it.type).map((c) => `<option value="${escapeHtml(c.id)}"${c.id === cur ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+        const info = catInfo(cur);
+        const nameInput = cur === "" ? "" : `<input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}"${info && info.protected ? " disabled" : ""}>`;
         return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}"><label>${escapeHtml(tr("table.valueLines", { value: it.name + (it.type === "income" ? " " + tr("table.catIncomeTag") : ""), n: it.count }))}</label>
           <select class="tm-cchoice"><optgroup label="${escapeHtml(tr("table.catYours"))}">${opts}</optgroup>
             <option value="create"${cur === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
             <option value=""${cur === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option></select>
-          <p class="hint" style="margin:2px 0 8px">${escapeHtml(why(it))}</p></div>`;
+          ${nameInput}
+          <p class="hint tm-cat-hint" style="margin:2px 0 8px">${escapeHtml(rowHint(it))}</p></div>`;
       }).join("");
-      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create");
+      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it));
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
         <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${rowsHtml}
           <p class="hint">${escapeHtml(tr("table.catEdit"))}</p></details>`;
+    }
+    // The names to send with the save: a new category's chosen name, and an existing category's new name when it is being renamed.
+    function namesToSend() {
+      const out = {};
+      state.catItems.forEach((it) => {
+        const c = state.catChoice[it.key];
+        if (c === "create") { const n = String(state.catNames[it.key] || "").replace(/\s+/g, " ").trim(); if (n && n !== it.name) out[it.key] = n; }
+        else if (c !== "") { const rn = renameOf(it); if (rn) out[it.key] = rn.to; }
+      });
+      return out;
+    }
+    // Remembered per name: did the person let the app's category be renamed (true) or keep its own name (false)?
+    function renameFlags() {
+      const out = {};
+      state.catItems.forEach((it) => {
+        const c = state.catChoice[it.key], info = catInfo(c);
+        if (c && c !== "create" && info && !info.protected && info.names.indexOf(StatementTable.catNorm(it.name)) === -1) {
+          const rn = renameOf(it);
+          out["~rename:" + it.key] = !!rn;
+          out["~name:" + it.key] = rn ? rn.to : "";   // what the person chose to call it, so the next file does not rename it back to the file's name
+        }
+      });
+      return out;
+    }
+    function refreshCategoryRow(row) {
+      const it = state.catItems.find((x) => x.key === row.dataset.key);
+      row.querySelector(".tm-cat-hint").textContent = rowHint(it);
+      root.querySelector(".tm-cat-summary").textContent = categorySummary();
     }
     function renderPreview() {
       const m = currentMapping();
@@ -861,7 +926,14 @@
       else if (cls === "currency") state.m.currency = Number(v);
       else if (cls === "acol") { state.m.account = Number(v); renderValues(); syncControlsFromState(); }
       else if (cls === "type") state.m.type = Number(v);
-      else if (cls === "cchoice") { const key = e.target.closest(".tm-cat-row").dataset.key; state.catChoice[key] = v; root.querySelector(".tm-cat-summary").textContent = categorySummary(); return; }
+      else if (cls === "cchoice") {
+        const row = e.target.closest(".tm-cat-row"), it = state.catItems.find((x) => x.key === row.dataset.key);
+        state.catChoice[it.key] = v;
+        state.catNames[it.key] = defaultNameFor(it, v);   // a new target starts from the file's name again
+        renderCategories();
+        return;
+      }
+      else if (cls === "cname") { const row = e.target.closest(".tm-cat-row"); state.catNames[row.dataset.key] = e.target.value; refreshCategoryRow(row); return; }
       else if (cls === "cat") { state.m.category = Number(v); if (!appTouched && state.m.category >= 0) { state.m.source = "app"; $q("app").checked = true; } }
       else if (cls === "app") { appTouched = true; state.m.source = e.target.checked ? "app" : ""; }
       else if (cls === "order") state.m.dateOrder = v;
@@ -883,6 +955,12 @@
       }
       renderPreview();
       scheduleCategories();
+    });
+    root.addEventListener("input", (e) => {
+      if (!e.target.classList.contains("tm-cname")) return;
+      const row = e.target.closest(".tm-cat-row");
+      state.catNames[row.dataset.key] = e.target.value;
+      refreshCategoryRow(row);
     });
     const forget = root.querySelector(".tm-forget");
     if (forget) forget.addEventListener("click", async () => {
@@ -910,13 +988,13 @@
         const accountKey = tableAccountKey(a);
         results.push({ name: byAccount.size > 1 ? `${file.name} · ${a.nickname}` : file.name,
           result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: { ...state.catChoice } } });
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: { ...state.catChoice }, categoryNames: namesToSend() } });
       });
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
       const label = typed || state.label || (byAccount.size === 1 ? pmById([...byAccount.keys()][0]).nickname : "") || "";
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
-      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...state.catChoice },
+      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...state.catChoice, ...renameFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       // A re-read of the same file replaces its earlier reading.
@@ -1403,7 +1481,8 @@
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
-      categoryMap: Object.assign({}, ...usable.map((u) => u.result.categoryMap || {})),   // the person's choice for each category name of a spreadsheet
+      categoryMap: Object.assign({}, ...usable.map((u) => u.result.categoryMap || {})),
+      categoryNames: Object.assign({}, ...usable.map((u) => u.result.categoryNames || {})),   // the name each of those categories should carry   // the person's choice for each category name of a spreadsheet
       actions: historyActions()
     });
     try {
@@ -1418,6 +1497,7 @@
       const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
         + (res.categoriesFiled ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategories", { n: res.categoriesFiled }))}</p>` : "")
+        + ((res.categoriesRenamed || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesRenamed", { n: res.categoriesRenamed.length, names: res.categoriesRenamed.map((r) => `${r.from} → ${r.to}`).join(", ") }))}</p>` : "")
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
@@ -1559,7 +1639,7 @@
     $("statement-review-status").innerHTML = loadingHtml(tr("stmt.undoing"));
     try {
       const r = await callApi("undoStatementBatch", { batchId });
-      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}`;
+      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}${r.categoriesRenamedBack ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneRenamed", { n: r.categoriesRenamedBack }))}</p>` : ""}`;
       lastBatchId = null;
       historyPlan = null;
       $("statement-history").innerHTML = "";

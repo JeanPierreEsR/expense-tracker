@@ -65,7 +65,7 @@ function getStatementFormat(payload) {
   var catIds = {};
   getAllRows('Categories').forEach(function (c) { catIds[c.id] = true; });
   var categories = parseJsonSafe_(row.categories_json, {});
-  Object.keys(categories).forEach(function (k) { if (categories[k] !== '' && categories[k] !== 'create' && !catIds[categories[k]]) delete categories[k]; });
+  Object.keys(categories).forEach(function (k) { if (k.charAt(0) !== '~' && typeof categories[k] === 'string' && categories[k] !== '' && categories[k] !== 'create' && !catIds[categories[k]]) delete categories[k]; });   // keys starting with ~ are notes about a row (rename / name), not category ids
   return { found: true, label: row.label || '', mapping: parseJsonSafe_(row.mapping_json, {}), accounts: accounts, categories: categories, uses: Number(row.uses) || 0 };
 }
 

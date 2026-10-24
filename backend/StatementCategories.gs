@@ -60,6 +60,38 @@ var CATEGORY_ALIASES_ = {
 // Categories the app retired on purpose: a file's category of this name is NOT recreated; its lines wait in Tidy my history.
 var CATEGORY_RETIRED_NAMES_ = ['savings', 'ahorros', 'loan', 'loans', 'prestamo', 'prestamos'];
 
+// Categories the app itself finds by name or key (fee lines go to Bank fees, interest to Savings return, refunds to Refunds, and Other
+// is the fallback everywhere): an import may USE them but never renames them, or those lookups would stop finding them.
+var CATEGORY_PROTECTED_KEYS_ = { bank_fees: 1, refunds: 1, savings_return: 1, other: 1 };
+var CATEGORY_PROTECTED_NAMES_ = ['bank fees', 'refunds', 'savings return', 'other'];
+
+function categoryIsProtected_(c) {
+  if (c.type !== 'expense' && c.type !== 'income') return true;
+  return !!CATEGORY_PROTECTED_KEYS_[c.key] || CATEGORY_PROTECTED_NAMES_.indexOf(catNameNorm_(c.name)) !== -1;
+}
+
+// Every normalized name a category answers to: as stored and in both languages.
+function categoryAllNames_(c) {
+  var out = [];
+  [c.name, categoryLabel_(c, 'en'), categoryLabel_(c, 'es')].forEach(function (n) { var k = catNameNorm_(n); if (k && out.indexOf(k) === -1) out.push(k); });
+  return out;
+}
+
+/**
+ * What renaming category `cat` to `newName` would do, or null when it must not happen: the name is empty, the category is one the app
+ * depends on, the new name is already one of its own names (in either language — "Transport" for a Spanish "Transporte" is no change),
+ * or another category of the same type already has that name. Returns { id, from (as shown), to, storedFrom }.
+ */
+function plannedCategoryRename_(cat, newName, cats) {
+  var to = String(newName || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!to || !cat || categoryIsProtected_(cat)) return null;
+  var n = catNameNorm_(to);
+  if (categoryAllNames_(cat).indexOf(n) !== -1) return null;
+  var clash = cats.some(function (o) { return o.id !== cat.id && o.type === cat.type && categoryAllNames_(o).indexOf(n) !== -1; });
+  if (clash) return null;
+  return { id: cat.id, from: categoryLabel_(cat), to: to, storedFrom: cat.name };
+}
+
 // Lowercase, no accents, "&" = "and", only letters and digits, single spaces: "Food & Drink" and "food and drink" are one name.
 function catNameNorm_(text) {
   return String(text === undefined || text === null ? '' : text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -124,10 +156,18 @@ function suggestCategoryMap(payload) {
       id = categoryIdByAlias_(cats, type, norm);
       if (id) { item.action = 'match'; item.why = 'equivalent'; }
     }
-    if (id) { item.categoryId = id; item.categoryName = categoryLabel_(byId[id]); }
+    if (id) {
+      item.categoryId = id; item.categoryName = categoryLabel_(byId[id]);
+      item.protected = categoryIsProtected_(byId[id]);
+      item.sameName = categoryAllNames_(byId[id]).indexOf(norm) !== -1;   // the file already calls it what the app does: nothing to rename
+    }
     items.push(item);
   });
-  return { items: items };
+  // What the phone needs to decide, for ANY category the person may pick, whether a name can be offered: its shown name, every
+  // name it answers to, and whether it is one the app depends on.
+  var categories = cats.filter(function (c) { return (c.type === 'expense' || c.type === 'income') && String(c.hidden || '') !== 'yes'; })
+    .map(function (c) { return { id: c.id, type: c.type, name: categoryLabel_(c), names: categoryAllNames_(c), protected: categoryIsProtected_(c) }; });
+  return { items: items, categories: categories };
 }
 
 /**

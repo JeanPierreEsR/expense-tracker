@@ -64,6 +64,8 @@ test("a name is listed once per type, and blank names are ignored", () => {
 
 // ---- creating them when the file is saved ----
 
+let setupStmtCache = null;
+const setupStmt = () => setupStmtCache;
 function setup() {
   const { rt } = freshApp({ entries: 20 });
   rt.run(`appendRowObject('Payment Methods', { id: 'pm-app', nickname: 'App Wallet', type: 'debit', bank_id: '', last_4: '', currency: 'PEN' });`);
@@ -76,6 +78,7 @@ function setup() {
     { date: "2019-04-06", description: "Plain", amount: -7, currency: "PEN" }
   ];
   const stmt = { key: "ACCT-pm-app", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "app.csv", period: { start: "2019-04-01", end: "2019-04-06" }, lines };
+  setupStmtCache = stmt;
   const names = [{ type: "expense", name: "Pet care" }, { type: "expense", name: "Food & Drink" }, { type: "expense", name: "Savings" }, { type: "income", name: "Pocket money" }];
   const map = () => Object.fromEntries(suggest(rt, names).map((i) => [i.key, i.action === "match" ? i.categoryId : i.action === "create" ? "create" : ""]));
   const plan = () => run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
@@ -188,4 +191,116 @@ test("a layout saved before the category mapping existed still works (its tab ge
   assert.deepEqual(got.categories, {});
   rt.api("saveStatementFormat", { signature: "sig", label: "", mapping: {}, accounts: {}, categories: { "expense:x": "create" } });
   assert.deepEqual(rt.api("getStatementFormat", { signature: "sig" }).categories, { "expense:x": "create" });
+});
+
+// ---- which name remains: the file's by default, any name the person types, and never for the categories the app depends on ----
+
+function renameSetup() {
+  const s = setup();
+  const catByKey = (key) => s.cats().find((c) => c.key === key);
+  return { ...s, catByKey };
+}
+
+test("the suggestion says whether the file's name already is the category's name, and which categories must keep theirs", () => {
+  const { rt } = freshApp({ entries: 5 });
+  const res = rt.api("suggestCategoryMap", { names: [{ type: "expense", name: "Food & Drink" }, { type: "expense", name: "transport" }, { type: "expense", name: "Fees" }, { type: "income", name: "Interest" }] });
+  const byN = (n) => res.items.find((i) => i.name === n);
+  assert.equal(byN("Food & Drink").sameName, false, "Restaurants is a different name: renaming is on the table");
+  assert.equal(byN("Food & Drink").protected, false);
+  assert.equal(byN("transport").sameName, true, "the same name, only in lower case");
+  assert.equal(byN("Fees").protected, true, "Bank fees is looked up by name by the app");
+  assert.equal(byN("Interest").protected, true, "Savings return too");
+  const restaurants = res.categories.find((c) => c.name === "Restaurants");
+  assert.deepEqual(restaurants.names.includes("restaurantes"), true, "every language the category answers to");
+  assert.equal(res.categories.find((c) => c.name === "Bank fees").protected, true);
+});
+
+test("an equivalent category is renamed to the file's name when asked, keeping its icon and colour; a dry run only reports it", () => {
+  const { rt, apply, cats, made, catByKey } = renameSetup();
+  const rest = catByKey("restaurants");
+  const map = { "expense:food and drink": rest.id };
+  const names = { "expense:food and drink": "Food & Drink" };
+  const dry = run(rt, `(function () { var p = planStatementHistory({ statements: [${JSON.stringify(setupStmt())}] }); return applyStatementDecisions({ dryRun: true, filename: 'x', statements: [${JSON.stringify(setupStmt())}], actions: p.actions, categoryMap: ${JSON.stringify(map)}, categoryNames: ${JSON.stringify(names)} }); })()`);
+  assert.deepEqual(dry.categoriesRenamed, [{ from: "Restaurants", to: "Food & Drink" }]);
+  assert.equal(cats().find((c) => c.id === rest.id).name, "Restaurants", "a dry run renames nothing");
+  const res = run(rt, `(function () { var p = planStatementHistory({ statements: [${JSON.stringify(setupStmt())}] }); return applyStatementDecisions({ dryRun: false, filename: 'x', statements: [${JSON.stringify(setupStmt())}], actions: p.actions, categoryMap: ${JSON.stringify(map)}, categoryNames: ${JSON.stringify(names)} }); })()`);
+  const after = cats().find((c) => c.id === rest.id);
+  assert.equal(after.name, "Food & Drink");
+  assert.equal(after.icon, rest.icon);
+  assert.equal(after.color, rest.color);
+  assert.equal(made().find((e) => e.description === "Lunch").category_id, rest.id);
+  assert.deepEqual(res.categoriesRenamed, [{ from: "Restaurants", to: "Food & Drink" }]);
+});
+
+test("Undo gives a renamed category its old name back, unless the person has renamed it since", () => {
+  const { rt, cats, catByKey } = renameSetup();
+  const rest = catByKey("restaurants"), groceries = catByKey("groceries");
+  const stmt = setupStmt();
+  const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  const res = run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "x", statements: [stmt], actions: p.actions,
+    categoryMap: { "expense:food and drink": rest.id, "expense:pet care": groceries.id }, categoryNames: { "expense:food and drink": "Food & Drink", "expense:pet care": "Pets" } })})`);
+  assert.equal(cats().find((c) => c.id === rest.id).name, "Food & Drink");
+  assert.equal(cats().find((c) => c.id === groceries.id).name, "Pets");
+  rt.run(`saveCategory({ id: ${JSON.stringify(groceries.id)}, name: 'My own name', type: 'expense' });`);
+  const undo = run(rt, `undoStatementBatch(${JSON.stringify({ batchId: res.batchId })})`);
+  assert.equal(cats().find((c) => c.id === rest.id).name, "Restaurants");
+  assert.equal(cats().find((c) => c.id === groceries.id).name, "My own name", "a name the person changed afterwards is left alone");
+  assert.equal(undo.categoriesRenamedBack, 1);
+});
+
+test("categories the app depends on, the same name in another language, and names already taken are never renamed", () => {
+  const { rt, cats, catByKey } = renameSetup();
+  const fees = catByKey("bank_fees"), transport = catByKey("transport"), rest = catByKey("restaurants"), groceries = catByKey("groceries");
+  const stmt = setupStmt();
+  const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  const res = run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "x", statements: [stmt], actions: p.actions,
+    categoryMap: { "expense:food and drink": fees.id, "expense:pet care": transport.id, "expense:savings": groceries.id },
+    categoryNames: { "expense:food and drink": "Fees", "expense:pet care": "Transporte", "expense:savings": "Restaurants" } })})`);
+  assert.equal(cats().find((c) => c.id === fees.id).name, "Bank fees", "protected");
+  assert.equal(cats().find((c) => c.id === transport.id).name, "Transport", "'Transporte' is its Spanish name already: no change");
+  assert.equal(cats().find((c) => c.id === groceries.id).name, "Groceries", "another category already has that name");
+  assert.deepEqual(res.categoriesRenamed, []);
+});
+
+test("two names mapped to one category rename it once (the first); a typed name can differ from the file's", () => {
+  const { rt, cats, catByKey } = renameSetup();
+  const home = catByKey("home");
+  const stmt = setupStmt();
+  const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "x", statements: [stmt], actions: p.actions,
+    categoryMap: { "expense:pet care": home.id, "expense:food and drink": home.id }, categoryNames: { "expense:pet care": "Casa y mascotas", "expense:food and drink": "Other name" } })})`);
+  assert.equal(cats().find((c) => c.id === home.id).name, "Casa y mascotas");
+});
+
+test("a new category takes the name the person typed instead of the file's", () => {
+  const { rt, cats } = renameSetup();
+  const stmt = setupStmt();
+  const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "x", statements: [stmt], actions: p.actions,
+    categoryMap: { "expense:pet care": "create" }, categoryNames: { "expense:pet care": "Mascotas" } })})`);
+  assert.ok(cats().some((c) => c.name === "Mascotas" && c.type === "expense"));
+  assert.ok(!cats().some((c) => c.name === "Pet care"));
+});
+
+test("the choices are remembered with the layout, including which names to rename", () => {
+  const { rt } = freshApp({ entries: 5 });
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.key === 'restaurants'; })[0]");
+  rt.api("saveStatementFormat", { signature: "L", label: "A", mapping: {}, accounts: {}, categories: { "expense:food and drink": cat.id, "~rename:expense:food and drink": true } });
+  assert.deepEqual(rt.api("getStatementFormat", { signature: "L" }).categories, { "expense:food and drink": cat.id, "~rename:expense:food and drink": true });
+});
+
+test("the phone and the server turn a category name into the same normal form (the rename decision depends on it)", () => {
+  const ST = require("../../docs/statement-table.js");
+  const { rt } = freshApp({ entries: 5 });
+  for (const name of ["Food & Drink", "food and drink", "  Educación ", "Mobile  Phone", "AI", "Psychologist ", "Family&Personal", "Tarjeta de crédito", "Ñandú", "x/y-z"]) {
+    assert.equal(ST.catNorm(name), rt.run(`catNameNorm_(${JSON.stringify(name)})`), name);
+  }
+});
+
+test("notes the phone keeps about a row (~rename, ~name) are remembered as they are and never mistaken for category ids", () => {
+  const { rt } = freshApp({ entries: 5 });
+  const cat = run(rt, "getAllRows('Categories').filter(function (c) { return c.key === 'restaurants'; })[0]");
+  const map = { "expense:food and drink": cat.id, "~rename:expense:food and drink": true, "~name:expense:food and drink": "Eating out" };
+  rt.api("saveStatementFormat", { signature: "N", label: "A", mapping: {}, accounts: {}, categories: map });
+  assert.deepEqual(rt.api("getStatementFormat", { signature: "N" }).categories, map);
 });
