@@ -188,7 +188,150 @@ test("an .xlsx runs through the same mapping as a CSV", async () => {
   assert.equal(r.skipped.length, 1);
 });
 
-test("an old .xls and a file that is not a spreadsheet give clear error codes", async () => {
-  await assert.rejects(() => ST.readTable(Uint8Array.from([0xD0, 0xCF, 0x11, 0xE0, 0, 0, 0, 0]), "old.xls"), /xlsx-legacy/);
+test("a file named .xlsx that is not a zip gives a clear error code", async () => {
   await assert.rejects(() => ST.readTable(bytes("not a zip at all, but named like one"), "broken.xlsx"), /xlsx-not-zip/);
+});
+
+// ---- .xls: an OLE2 container holding BIFF records. Built here from the file-format description (no real Excel file is
+// available), so these tests prove the reader follows the format as written, not that every real bank file opens. ----
+
+const le16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+const le32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+const f64 = (n) => { const b = Buffer.alloc(8); b.writeDoubleLE(n); return b; };
+const rec = (id, ...parts) => { const data = Buffer.concat(parts); return Buffer.concat([le16(id), le16(data.length), data]); };
+
+function cfb(stream, { mini = false } = {}) {
+  const ssz = 512, END = 0xFFFFFFFE, FATSECT = 0xFFFFFFFD, FREE = 0xFFFFFFFF;
+  const pad = (b, n) => Buffer.concat([b, Buffer.alloc((n - (b.length % n)) % n)]);
+  const entry = (name, type, start, size, child) => {
+    const e = Buffer.alloc(128);
+    e.write(name, 0, "utf16le"); e.writeUInt16LE((name.length + 1) * 2, 64); e[66] = type;
+    e.writeUInt32LE(FREE, 68); e.writeUInt32LE(FREE, 72); e.writeUInt32LE(child === undefined ? FREE : child, 76);
+    e.writeUInt32LE(start, 116); e.writeUInt32LE(size, 120);
+    return e;
+  };
+  // The format keeps any stream under 4096 bytes in the "mini stream"; a workbook kept in ordinary sectors is padded up to 4096 as Excel does.
+  if (!mini && stream.length < 4096) stream = Buffer.concat([stream, Buffer.alloc(4096 - stream.length)]);
+  let fat = [], rootStart = END, bookStart = 2, miniFatSector = END, nMiniFat = 0;
+  const header = Buffer.alloc(512, 0);
+  Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]).copy(header, 0);
+  header.writeUInt16LE(0x3E, 24); header.writeUInt16LE(3, 26); header.writeUInt16LE(0xFFFE, 28);
+  header.writeUInt16LE(9, 30); header.writeUInt16LE(6, 32);
+  let dataSectors;
+  if (!mini) {
+    dataSectors = pad(stream, ssz);
+    const n = dataSectors.length / ssz;
+    fat = [FATSECT, END]; for (let i = 0; i < n; i++) fat.push(i === n - 1 ? END : 2 + i + 1);
+  } else {
+    // sector 2 = mini FAT, sectors 3.. = the mini stream (the workbook itself, in 64-byte pieces)
+    const miniBytes = pad(stream, 64), nMini = miniBytes.length / 64;
+    const miniFat = Buffer.alloc(512, 0xFF); for (let i = 0; i < nMini; i++) miniFat.writeUInt32LE(i === nMini - 1 ? END : i + 1, i * 4);
+    const container = pad(miniBytes, ssz), n = container.length / ssz;
+    dataSectors = Buffer.concat([miniFat, container]);
+    fat = [FATSECT, END, END]; for (let i = 0; i < n; i++) fat.push(i === n - 1 ? END : 3 + i + 1);
+    rootStart = 3; bookStart = 0; miniFatSector = 2; nMiniFat = 1;
+  }
+  const fatSector = Buffer.alloc(512, 0xFF); fat.forEach((v, i) => fatSector.writeUInt32LE(v >>> 0, i * 4));
+  const root = entry("Root Entry", 5, rootStart, mini ? pad(stream, 64).length : 0, 1);
+  const book = entry("Workbook", 2, bookStart, stream.length);
+  const dir = Buffer.concat([root, book, entry("", 0, 0, 0), entry("", 0, 0, 0)]);
+  header.writeUInt32LE(1, 44); header.writeUInt32LE(1, 48); header.writeUInt32LE(4096, 56);
+  header.writeUInt32LE(miniFatSector, 60); header.writeUInt32LE(nMiniFat, 64); header.writeUInt32LE(END, 68); header.writeUInt32LE(0, 72);
+  for (let i = 0; i < 109; i++) header.writeUInt32LE(i === 0 ? 0 : FREE, 76 + i * 4);
+  return new Uint8Array(Buffer.concat([header, fatSector, dir, dataSectors]));
+}
+
+// The shared string table, with the cut between records placed INSIDE a chosen string's characters.
+function sst(strings, cutIn) {
+  const body = [le32(strings.length), le32(strings.length)];
+  let cutAt = -1, len = 8, highOfCut = false;
+  strings.forEach((str, i) => {
+    const high = /[^\x00-\x7f]/.test(str);
+    const head = Buffer.concat([le16(str.length), Buffer.from([high ? 1 : 0])]);
+    const chars = high ? Buffer.from(str, "utf16le") : Buffer.from(str, "latin1");
+    body.push(head); len += head.length;
+    if (i === cutIn) { cutAt = len + (high ? 2 : 1) * 3; highOfCut = high; }
+    body.push(chars); len += chars.length;
+  });
+  const all = Buffer.concat(body);
+  if (cutAt < 0) return rec(0x00FC, all);
+  return Buffer.concat([rec(0x00FC, all.subarray(0, cutAt)), rec(0x003C, Buffer.from([highOfCut ? 1 : 0]), all.subarray(cutAt))]);
+}
+
+const bof = (type, ver = 0x0600) => rec(0x0809, le16(ver), le16(type), Buffer.alloc(12));
+const eof = () => rec(0x000A);
+const xfRec = (fmt) => rec(0x00E0, le16(0), le16(fmt), Buffer.alloc(16));
+const rk = (n, int = true, div100 = false) => (int ? (((n << 2) | 2 | (div100 ? 1 : 0)) >>> 0) : 0);
+const labelSst = (r, c, i) => rec(0x00FD, le16(r), le16(c), le16(0), le32(i));
+const number = (r, c, xf, n) => rec(0x0203, le16(r), le16(c), le16(xf), f64(n));
+const rkCell = (r, c, xf, value) => rec(0x027E, le16(r), le16(c), le16(xf), le32(value));
+
+function xlsStream({ cut } = {}) {
+  const strings = ["Fecha", "Descripción", "Monto", "COMPRA BODEGA & CIA", "ABONO SUELDO", "FORMULA TEXT"];
+  const globalsHead = Buffer.concat([bof(0x0005), rec(0x0022, le16(0)), rec(0x041E, le16(164), le16(10), Buffer.from([0]), Buffer.from("dd/mm/yyyy")), xfRec(0), xfRec(14), xfRec(164)]);
+  const boundLen = 4 + 4 + 2 + 2 + "Movimientos".length;   // header, offset, visibility+type, length+flags, name
+  const sstRec = sst(strings, cut);
+  const globalsLen = globalsHead.length + boundLen + sstRec.length + 4;
+  const bound = rec(0x0085, le32(globalsLen), Buffer.from([0, 0]), Buffer.from([11, 0]), Buffer.from("Movimientos"));
+  const sheet = Buffer.concat([
+    bof(0x0010),
+    labelSst(0, 0, 0), labelSst(0, 1, 1), labelSst(0, 2, 2),
+    number(1, 0, 1, 43529), labelSst(1, 1, 3),
+    // columns C and D of row 1 as one MULRK: -23.47 (an integer/100) and 976.53
+    rec(0x00BD, le16(1), le16(2), le16(0), le32(rk(-2347, true, true)), le16(0), le32(rk(97653, true, true)), le16(3)),
+    rkCell(2, 0, 2, rk(43530, true)), labelSst(2, 1, 4), number(2, 2, 0, 3000.13),
+    number(3, 0, 1, 43531),
+    rec(0x0006, le16(3), le16(1), le16(0), Buffer.from([0, 0, 0, 0, 0, 0, 0xFF, 0xFF]), Buffer.alloc(6)),   // a formula whose result is text …
+    rec(0x0207, le16(12), Buffer.from([0]), Buffer.from("FORMULA TEXT")),                                  // … which comes in the STRING record
+    number(3, 2, 0, -1),
+    eof()
+  ]);
+  return Buffer.concat([globalsHead, bound, sstRec, eof(), sheet]);
+}
+
+test("an .xls is opened: shared strings across a CONTINUE record, 16-bit text, date formats, RK/MULRK numbers, formula text", async () => {
+  for (const mini of [false, true]) {
+    for (const cut of [undefined, 1, 3]) {   // no split, split inside a 16-bit string, split inside an 8-bit one
+      const rows = await ST.readTable(cfb(xlsStream({ cut }), { mini }), "movimientos.xls");
+      assert.deepEqual(rows[0], ["Fecha", "Descripción", "Monto"], `mini=${mini} cut=${cut}`);
+      assert.deepEqual(rows[1], ["2019-03-05", "COMPRA BODEGA & CIA", -23.47, 976.53]);
+      assert.deepEqual(rows[2], ["2019-03-06", "ABONO SUELDO", 3000.13]);
+      assert.deepEqual(rows[3], ["2019-03-07", "FORMULA TEXT", -1]);
+    }
+  }
+});
+
+test("an .xls runs through the same mapping as a CSV", async () => {
+  const rows = await ST.readTable(cfb(xlsStream({ cut: 3 })), "movimientos.xls");
+  const m = ST.guessMapping(rows);
+  const r = ST.applyMapping(rows, { ...m, currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => [l.date, l.description, l.amount]), [["2019-03-05", "COMPRA BODEGA & CIA", -23.47], ["2019-03-06", "ABONO SUELDO", 3000.13], ["2019-03-07", "FORMULA TEXT", -1]]);
+});
+
+test("an Excel 5/95 .xls (8-bit labels, no shared strings) is opened too", async () => {
+  const globals = Buffer.concat([bof(0x0005, 0x0500), xfRec(0), xfRec(14)]);
+  const boundLen = 4 + 4 + 2 + 1 + 3;
+  const lab = (r, c, text) => rec(0x0204, le16(r), le16(c), le16(0), le16(text.length), Buffer.from(text, "latin1"));
+  const sheet = Buffer.concat([bof(0x0010, 0x0500), lab(0, 0, "Fecha"), lab(0, 1, "Monto"), number(1, 0, 1, 43529), number(1, 1, 0, -5), eof()]);
+  const stream = Buffer.concat([globals, rec(0x0085, le32(globals.length + boundLen + 4), Buffer.from([0, 0]), Buffer.from([3, 0x41, 0x42, 0x43])), eof(), sheet]);
+  assert.deepEqual(await ST.readTable(cfb(stream), "old.xls"), [["Fecha", "Monto"], ["2019-03-05", -5]]);
+});
+
+test("a password-protected or damaged .xls gives a clear error code", async () => {
+  const locked = Buffer.concat([bof(0x0005), rec(0x002F, Buffer.alloc(54)), eof()]);
+  await assert.rejects(() => ST.readTable(cfb(locked), "locked.xls"), /xls-encrypted/);
+  await assert.rejects(() => ST.readTable(Uint8Array.from([0xD0, 0xCF, 0x11, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0]), "broken.xls"), /xls-unreadable|Invalid|RangeError/);
+});
+
+test("an '.xls' that is really a web page or tab-separated text is read as one", async () => {
+  const html = '<html><body><p>Estado de cuenta</p><table><tr><td>x</td></tr></table><table border=1>' +
+    "<tr><th>Fecha</th><th>Descripci&oacute;n</th><th>Cargo</th><th>Abono</th></tr>" +
+    "<tr><td>05/03/2019</td><td>COMPRA&nbsp;BODEGA &amp; CIA</td><td>23.47</td><td>&nbsp;</td></tr>" +
+    "<tr><td>06/03/2019</td><td><b>ABONO</b> SUELDO</td><td></td><td>3,000.13</td></tr></table></body></html>";
+  const rows = await ST.readTable(bytes(html), "movimientos.xls");
+  assert.deepEqual(rows, [["Fecha", "Descripción", "Cargo", "Abono"], ["05/03/2019", "COMPRA BODEGA & CIA", "23.47", ""], ["06/03/2019", "ABONO SUELDO", "", "3,000.13"]]);
+  const r = ST.applyMapping(rows, { ...ST.guessMapping(rows), currencyFixed: "PEN" });
+  assert.deepEqual(r.lines.map((l) => l.amount), [-23.47, 3000.13]);
+  const tsv = await ST.readTable(bytes("Fecha\tDetalle\tMonto\n05/03/2019\tCOMPRA\t-1,00\n"), "export.xls");
+  assert.deepEqual(tsv[1], ["05/03/2019", "COMPRA", "-1,00"]);
 });

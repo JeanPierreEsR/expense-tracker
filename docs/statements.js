@@ -595,7 +595,7 @@
 
   function tableErrorText(err) {
     const code = err && err.message;
-    const key = { "xlsx-legacy": "table.errLegacy", "xlsx-not-zip": "table.errBroken", "xlsx-no-inflate": "table.errNoInflate", "xlsx-no-sheet": "table.errEmpty", "table-empty": "table.errEmpty" }[code];
+    const key = { "xls-unreadable": "table.errLegacy", "xls-encrypted": "table.errProtected", "xlsx-not-zip": "table.errBroken", "xlsx-no-inflate": "table.errNoInflate", "xlsx-no-sheet": "table.errEmpty", "table-empty": "table.errEmpty" }[code];
     return key ? tr(key) : (code || String(err));
   }
 

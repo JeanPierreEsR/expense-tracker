@@ -143,12 +143,17 @@
   var BUILTIN_DATE_FORMATS = {};
   [14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58].forEach(function (id) { BUILTIN_DATE_FORMATS[id] = true; });
 
+  // A custom number-format code ("dd/mm/yyyy", "[$-409]d mmm yy") that shows a date: it has d/m/y/h letters outside quotes and brackets.
+  function isDateFormatCode(code) {
+    var c = String(code).replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
+    return /[dmyh]/i.test(c) && !/^[#0.,?_*%()\- ]*$/.test(c);
+  }
+
   // style index -> is it a date format
   function dateStyles(xml) {
     var custom = {}, re = /<numFmt\b[^>]*>/g, m;
     while ((m = re.exec(xml))) {
-      var code = attr(m[0], 'formatCode').replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
-      custom[attr(m[0], 'numFmtId')] = /[dmyh]/i.test(code) && !/^[#0.,?_*%()\- ]*$/.test(code);
+      custom[attr(m[0], 'numFmtId')] = isDateFormatCode(attr(m[0], 'formatCode'));
     }
     var xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml), out = [];
     if (!xfs) return out;
@@ -174,7 +179,6 @@
   // The first sheet of the workbook as rows of cell values. Dates come back as 'YYYY-MM-DD' text, numbers as numbers.
   async function readXlsx(bytes) {
     var u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    if (u8[0] === 0xD0 && u8[1] === 0xCF) throw new Error('xlsx-legacy');   // an old .xls file
     var z = zipEntries(u8);
     var read = async function (name) { return z[name] ? new TextDecoder().decode(await z[name]()) : ''; };
     var sheetPath = 'xl/worksheets/sheet1.xml';
@@ -220,12 +224,198 @@
       .filter(function (r) { return r.some(function (x) { return x !== ''; }); });
   }
 
+  // ---------- .xls (an OLE2 container holding BIFF records) ----------
+
+  var NOSECT = 0xFFFFFFFA;   // sector ids at or above this are markers (end of chain, free, FAT sector…)
+
+  // The bytes of the workbook stream inside an OLE2 compound file. Throws 'xls-unreadable' when there is none.
+  function cfbWorkbook(u8) {
+    var ssz = 1 << u16(u8, 30), mssz = 1 << u16(u8, 32);
+    var dirStart = u32(u8, 48), cutoff = u32(u8, 56) || 4096, miniStart = u32(u8, 60), difatStart = u32(u8, 68), nDifat = u32(u8, 72);
+    function sectorOff(id) { return (id + 1) * ssz; }
+    var difat = [], i, j;
+    for (i = 0; i < 109; i++) { var v = u32(u8, 76 + 4 * i); if (v < NOSECT) difat.push(v); }
+    for (var next = difatStart, d = 0; d < nDifat && next < NOSECT; d++) {
+      var off = sectorOff(next);
+      for (j = 0; j < ssz / 4 - 1; j++) { var w = u32(u8, off + 4 * j); if (w < NOSECT) difat.push(w); }
+      next = u32(u8, off + ssz - 4);
+    }
+    var fat = [];
+    difat.forEach(function (sid) { var o = sectorOff(sid); for (var k = 0; k < ssz / 4; k++) fat.push(u32(u8, o + 4 * k)); });
+    function chain(start, table) {
+      var out = [], id = start, guard = 0;
+      while (id < NOSECT && guard++ <= table.length) { out.push(id); id = table[id]; }
+      return out;
+    }
+    function readChain(start, size) {
+      var ids = chain(start, fat), buf = new Uint8Array(ids.length * ssz);
+      ids.forEach(function (id, n) { buf.set(u8.subarray(sectorOff(id), sectorOff(id) + ssz), n * ssz); });
+      return size === undefined ? buf : buf.subarray(0, size);
+    }
+    var dir = readChain(dirStart), entries = [];
+    for (var o = 0; o + 128 <= dir.length; o += 128) {
+      var nameLen = Math.max(0, u16(dir, o + 64) - 2);
+      entries.push({ name: new TextDecoder('utf-16le').decode(dir.subarray(o, o + nameLen)), type: dir[o + 66], start: u32(dir, o + 116), size: u32(dir, o + 120) });
+    }
+    var root = entries[0], book = entries.filter(function (e) { return e.type === 2 && /^(workbook|book)$/i.test(e.name); })[0];
+    if (!root || !book) throw new Error('xls-unreadable');
+    if (book.size >= cutoff) return readChain(book.start, book.size);
+    // A small workbook lives in the "mini stream": 64-byte pieces chained through the mini FAT.
+    var mini = readChain(root.start, root.size), miniFatBytes = readChain(miniStart), miniFat = [];
+    for (i = 0; i + 4 <= miniFatBytes.length; i += 4) miniFat.push(u32(miniFatBytes, i));
+    var ids = chain(book.start, miniFat), out = new Uint8Array(ids.length * mssz);
+    ids.forEach(function (id, n) { out.set(mini.subarray(id * mssz, id * mssz + mssz), n * mssz); });
+    return out.subarray(0, book.size);
+  }
+
+  // RK numbers pack a number into 32 bits: bit 0 = divide by 100, bit 1 = the rest is an integer (else the top bits of a double).
+  function rkValue(rk) {
+    var v;
+    if (rk & 2) v = rk >> 2;
+    else { var dv = new DataView(new ArrayBuffer(8)); dv.setUint32(4, (rk & 0xFFFFFFFC) >>> 0, true); v = dv.getFloat64(0, true); }
+    return (rk & 1) ? v / 100 : v;
+  }
+
+  // The strings of the shared string table. `segs` = the SST record's data followed by the data of each CONTINUE record. A string that
+  // runs over a segment boundary restarts with one flags byte (8-bit or 16-bit characters) in the next segment.
+  function sstStrings(segs) {
+    var si = 0, off = 0, out = [];
+    function more() { if (off >= segs[si].length && si + 1 < segs.length) { si++; off = 0; return true; } return off < segs[si].length; }
+    function u8n() { return more() ? segs[si][off++] : 0; }
+    function u16n() { var a = u8n(); return a | (u8n() << 8); }
+    function u32n() { var a = u16n(); return (a + u16n() * 65536) >>> 0; }
+    function skip(n) { while (n > 0 && more()) { var t = Math.min(n, segs[si].length - off); off += t; n -= t; } }
+    function chars(cch, high) {
+      var text = '', left = cch;
+      while (left > 0) {
+        if (off >= segs[si].length) { if (si + 1 >= segs.length) break; si++; off = 0; high = (segs[si][off++] & 1) === 1; }
+        var per = high ? 2 : 1, can = Math.min(left, Math.floor((segs[si].length - off) / per));
+        if (can === 0) { off = segs[si].length; continue; }
+        for (var k = 0; k < can; k++) {
+          text += String.fromCharCode(high ? segs[si][off] | (segs[si][off + 1] << 8) : segs[si][off]);
+          off += per;
+        }
+        left -= can;
+      }
+      return text;
+    }
+    skip(4); var unique = u32n();
+    for (var n = 0; n < unique && (off < segs[si].length || si + 1 < segs.length); n++) {
+      var cch = u16n(), flags = u8n(), runs = (flags & 8) ? u16n() : 0, ext = (flags & 4) ? u32n() : 0;
+      out.push(chars(cch, (flags & 1) === 1));
+      skip(runs * 4); skip(ext);
+    }
+    return out;
+  }
+
+  // The first worksheet of an old Excel file (BIFF5 and BIFF8) as rows of cell values; dates come back as 'YYYY-MM-DD' text.
+  function readXls(bytes) {
+    var u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    var s = cfbWorkbook(u8), dv = new DataView(s.buffer, s.byteOffset, s.byteLength);
+    var biff8 = true, date1904 = false, firstSheet = -1, xfFormat = [], formatIsDate = {}, strings = [];
+    function recAt(p) { return { id: u16(s, p), len: u16(s, p + 2), at: p + 4 }; }
+    function latin(a, b) { var t = ''; for (var i = a; i < b; i++) t += String.fromCharCode(s[i]); return t; }
+    function utf16(a, b) { var t = ''; for (var i = a; i + 1 < b; i += 2) t += String.fromCharCode(s[i] | (s[i + 1] << 8)); return t; }
+    function isDateXf(xf) { var f = xfFormat[xf]; return f !== undefined && (!!BUILTIN_DATE_FORMATS[f] || !!formatIsDate[f]); }
+
+    // -- workbook globals: formats, styles, shared strings, where the first sheet starts --
+    var p = 0;
+    if (u16(s, 0) !== 0x0809) throw new Error('xls-unreadable');
+    biff8 = u16(s, 4) >= 0x0600;
+    while (p + 4 <= s.length) {
+      var r = recAt(p);
+      if (r.id === 0x000A) break;   // EOF of the globals
+      if (r.id === 0x002F) throw new Error('xls-encrypted');
+      if (r.id === 0x0022) date1904 = u16(s, r.at) === 1;
+      else if (r.id === 0x0085 && firstSheet < 0 && s[r.at + 5] === 0) firstSheet = u32(s, r.at);
+      else if (r.id === 0x00E0) xfFormat.push(u16(s, r.at + 2));
+      else if (r.id === 0x041E) {
+        var fcch = biff8 ? u16(s, r.at + 2) : s[r.at + 2];
+        var code = biff8 ? ((s[r.at + 4] & 1) ? utf16(r.at + 5, r.at + 5 + fcch * 2) : latin(r.at + 5, r.at + 5 + fcch)) : latin(r.at + 3, r.at + 3 + fcch);
+        formatIsDate[u16(s, r.at)] = isDateFormatCode(code);
+      } else if (r.id === 0x00FC) {
+        var segs = [s.subarray(r.at, r.at + r.len)], q = p + 4 + r.len;
+        while (q + 4 <= s.length && u16(s, q) === 0x003C) { var c = recAt(q); segs.push(s.subarray(c.at, c.at + c.len)); q += 4 + c.len; }
+        strings = sstStrings(segs);
+        p = q; continue;
+      }
+      p += 4 + r.len;
+    }
+    if (firstSheet < 0) throw new Error('xls-unreadable');
+
+    // -- the sheet's cells --
+    var rows = [], pendingText = null;
+    function put(row, col, value) { var line = rows[row] || (rows[row] = []); while (line.length < col) line.push(''); line[col] = value; }
+    function number(xf, n) { return isDateXf(xf) && n > 0 && n < 80000 ? isoFromSerial(date1904 ? n + 1462 : n) : n; }
+    function bytesText(at, cch, hasFlags) {
+      if (!biff8) return latin(at, at + cch);
+      var high = (s[at] & 1) === 1;
+      return high ? utf16(at + 1, at + 1 + cch * 2) : latin(at + 1, at + 1 + cch);
+    }
+    for (p = firstSheet; p + 4 <= s.length;) {
+      var h = recAt(p), a = h.at, row = u16(s, a), col = u16(s, a + 2), xf = u16(s, a + 4);
+      if (h.id === 0x000A) break;
+      if (h.id === 0x00FD) put(row, col, strings[u32(s, a + 6)] || '');
+      else if (h.id === 0x0203) put(row, col, number(xf, dv.getFloat64(a + 6, true)));
+      else if (h.id === 0x027E) put(row, col, number(xf, rkValue(u32(s, a + 6))));
+      else if (h.id === 0x00BD) {
+        var count = (h.len - 6) / 6;
+        for (var m = 0; m < count; m++) put(row, col + m, number(u16(s, a + 4 + 6 * m), rkValue(u32(s, a + 6 + 6 * m))));
+      } else if (h.id === 0x0204) put(row, col, bytesText(a + 8, u16(s, a + 6)));
+      else if (h.id === 0x0006) {
+        if (u16(s, a + 12) === 0xFFFF) {
+          var kind = s[a + 6];
+          if (kind === 0) pendingText = { row: row, col: col };   // the text arrives in the STRING record that follows
+          else if (kind === 1) put(row, col, s[a + 8] ? 'TRUE' : 'FALSE');
+          else put(row, col, '');
+        } else put(row, col, number(xf, dv.getFloat64(a + 6, true)));
+      } else if (h.id === 0x0207 && pendingText) {
+        put(pendingText.row, pendingText.col, bytesText(h.at + 2, u16(s, h.at)));
+        pendingText = null;
+      }
+      p += 4 + h.len;
+    }
+    for (var i = 0; i < rows.length; i++) if (!rows[i]) rows[i] = [];
+    return rows.map(function (rw) { return rw.map(function (x) { return typeof x === 'string' ? x.trim() : x; }); })
+      .filter(function (rw) { return rw.some(function (x) { return x !== ''; }); });
+  }
+
+  // ---------- HTML tables (many banks save an HTML page with an .xls name) ----------
+
+  var NAMED_ENTITIES = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú',
+    Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú', ntilde: 'ñ', Ntilde: 'Ñ', uuml: 'ü', Uuml: 'Ü' };
+  function htmlText(s) {
+    return s.replace(/<[^>]*>/g, ' ').replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, function (m, e) {
+      if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+      return NAMED_ENTITIES[e] !== undefined ? NAMED_ENTITIES[e] : m;
+    }).replace(/\s+/g, ' ').trim();
+  }
+  // The table with the most rows on the page, as rows of text.
+  function parseHtmlTable(text) {
+    var best = [], tables = text.match(/<table\b[\s\S]*?<\/table>/gi) || [text];
+    tables.forEach(function (t) {
+      var rows = [], rowRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, rm;
+      while ((rm = rowRe.exec(t))) {
+        var cells = [], cellRe = /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi, cm;
+        while ((cm = cellRe.exec(rm[1]))) cells.push(htmlText(cm[1]));
+        if (cells.some(function (x) { return x !== ''; })) rows.push(cells);
+      }
+      if (rows.length > best.length) best = rows;
+    });
+    return best;
+  }
+
   // File bytes + name -> rows of cells. Throws an Error whose message is a code the screen turns into words.
   async function readTable(bytes, fileName) {
     var u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    var isZip = u8[0] === 0x50 && u8[1] === 0x4B;
-    if (/\.xlsx?$/i.test(fileName || '') || isZip || (u8[0] === 0xD0 && u8[1] === 0xCF)) return readXlsx(u8);
-    return parseCsv(decodeText(u8));
+    var isZip = u8[0] === 0x50 && u8[1] === 0x4B, isOle = u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0;
+    if (isZip) return readXlsx(u8);
+    if (isOle) return readXls(u8);
+    if (/\.xlsx$/i.test(fileName || '')) throw new Error('xlsx-not-zip');
+    var text = decodeText(u8);
+    // An ".xls" that is really a web page (common for bank downloads) or plain text.
+    if (/^\s*<(\?xml|!doctype|html|table|meta|head|body)/i.test(text) && /<tr\b/i.test(text)) return parseHtmlTable(text);
+    return parseCsv(text);
   }
 
   // ---------- values ----------
@@ -440,7 +630,7 @@
   }
 
   return {
-    decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readTable: readTable,
+    decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature,
     parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
