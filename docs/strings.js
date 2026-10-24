@@ -119,6 +119,7 @@
     "transfer.kind.between": { en: "Between my accounts", es: "Entre mis cuentas" },
     "transfer.kind.repayment": { en: "Repayment", es: "Repagos" },
     "transfer.kind.loan": { en: "New loan", es: "Nuevo préstamo" },
+    "transfer.kind.exchange": { en: "Currency exchange", es: "Cambio de moneda" },
     "transfer.iPaid": { en: "I paid them", es: "Le pagué" },
     "transfer.theyPaid": { en: "They paid me", es: "Me pagó" },
     "transfer.overpayCategory": { en: "Category if you paid extra", es: "Categoría si pagaste de más" },
@@ -181,7 +182,6 @@
     "review.pickAccount": { en: "Pick the account…", es: "Elige la cuenta…" },
     "review.confirm": { en: "✅ Confirm", es: "✅ Confirmar" },
     "review.discard": { en: "❌ Discard", es: "❌ Descartar" },
-    "xch.openFromTransfer": { en: "💱 Changing currency? Record a currency exchange", es: "💱 ¿Cambiaste de moneda? Registra un cambio de moneda" },
     "xch.title": { en: "Currency exchange", es: "Cambio de moneda" },
     "xch.intro": { en: "Changed money from one currency to another, in either direction? It is saved as two transfers, one per currency. It is not spending or income.", es: "¿Cambiaste dinero de una moneda a otra, en cualquier dirección? Se guarda como dos transferencias, una por moneda. No cuenta como gasto ni ingreso." },
     "xch.context": { en: "Converting: {what}. This entry becomes the “money that left” side.", es: "Convirtiendo: {what}. Este movimiento pasa a ser el lado del “dinero que salió”." },
@@ -333,8 +333,8 @@
     // ---- form ----
     "form.pickPlatform": { en: "Pick a platform…", es: "Elige una plataforma…" },
     "form.noneAccount": { en: "None", es: "Ninguna" },
-    "form.noneFromOutside": { en: "Someone else's account or company", es: "Cuenta de otra persona o empresa" },
-    "form.noneToOutside": { en: "Someone else's account or company", es: "Cuenta de otra persona o empresa" },
+    "form.noneFromOutside": { en: "Someone else's account", es: "Cuenta de otra persona" },
+    "form.noneToOutside": { en: "Someone else's account", es: "Cuenta de otra persona" },
 
     // ---- prompt ----
     "prompt.friendName": { en: "Friend's name:", es: "Nombre del amigo:" },

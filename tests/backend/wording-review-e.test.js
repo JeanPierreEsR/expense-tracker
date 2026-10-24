@@ -41,12 +41,16 @@ test("B2: the place for detected entries is always “Needs review” / “Por r
   assert.match(get("banner.saveFailed").en, /tap to see/);
 });
 
-test("B6: the transfer 'To' hint is one idea, and the currency-exchange case is a button to its own form (hidden for investments and while editing)", () => {
+test("B6: the transfer 'To' hint is one idea, and the currency exchange is the LAST choice of Type of transfer (its fields replace the usual ones, only for a new entry)", () => {
   assert.ok(get("transfer.toHint").en.length < 220, "short");
   assert.ok(!/exchange/i.test(get("transfer.toHint").en));
-  assert.match(get("xch.openFromTransfer").en, /currency exchange/i);
-  assert.match(index, /id="to-payment-method-hint-exchange" data-i18n="xch.openFromTransfer"/);
-  assert.match(app, /to-payment-method-hint-exchange"\)\.hidden = isInvestment/);
+  assert.equal(get("transfer.kind.exchange").en, JSON.stringify("Currency exchange"));
+  assert.equal(get("transfer.kind.exchange").es, JSON.stringify("Cambio de moneda"));
+  const kinds = [...index.matchAll(/<option value="(\w+)" data-i18n="transfer\.kind\.\w+"/g)].map((m) => m[1]);
+  assert.deepEqual(kinds, ["between", "repayment", "loan", "exchange"]);
+  assert.match(app, /const allowed = !editingEntryId;/);
+  assert.equal(get("form.noneFromOutside").en, JSON.stringify("Someone else's account"));
+  assert.equal(get("form.noneToOutside").es, JSON.stringify("Cuenta de otra persona"));
 });
 
 test("B7: each loan form says what really happens with the due date", () => {

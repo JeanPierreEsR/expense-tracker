@@ -1265,7 +1265,6 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
-  document.getElementById("to-payment-method-hint-exchange").hidden = isInvestment || !!editingEntryId || !!confirmingPendingId;
   updateFromNoneOption_();
   // A transfer has no "Paid by": who it came from is the From account (or
   // None). Friends are handled by the loan/repayment kinds. Kept at "me" so
@@ -1321,7 +1320,8 @@ function transferKind_() {
 }
 
 function repaymentActive_() {
-  return transferKind_() !== "between";
+  const kind = transferKind_();
+  return kind === "repayment" || kind === "loan";   // "exchange" is its own form (below), not a debt
 }
 
 // The debt's direction (Loans.direction) for what's being saved.
@@ -1394,9 +1394,11 @@ function updateRepaymentUi_() {
   if (selectedType === "transfer") document.getElementById("category-select-field").hidden = available;
   const kindSelect = document.getElementById("transfer-kind");
   if (!available) kindSelect.value = "between";
+  syncExchangeKindOption_(kindSelect);
   const kind = transferKind_();
-  document.getElementById("repayment-detail").hidden = kind === "between";
-  if (kind === "between") return;
+  syncExchangeInline_();
+  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange";
+  if (kind === "between" || kind === "exchange") return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -4020,7 +4022,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 // ---- Currency exchange pop-up (backend/CurrencyExchange.gs) ----
 // Two one-sided transfers saved together, in either direction. Opened from the Transfer tab, or from a review card
 // (`entry`, `leg`: that pending entry becomes the leg that left ("out") or arrived ("in") and keeps its e-mail reference).
-let exchangeContext_ = null;
+var exchangeContext_;
 
 function exchangeAccountOptions_(selectedId) {
   const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
@@ -4046,7 +4048,52 @@ function updateExchangeRateLine_() {
   el.hidden = false;
 }
 
+// "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
+var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
+function syncExchangeKindOption_(kindSelect) {
+  if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
+  const has = !!kindSelect.querySelector('option[value="exchange"]');
+  const allowed = !editingEntryId;
+  if (!allowed && has) {
+    if (kindSelect.value === "exchange") kindSelect.value = "between";
+    exchangeKindOption_.remove();
+  } else if (allowed && !has) {
+    kindSelect.appendChild(exchangeKindOption_);
+  }
+}
+
+// While that choice is on, the exchange fields sit inside the sheet in place of the usual ones (no second pop-up); otherwise they wait in their pop-up.
+function exchangeFormIsInline_() {
+  return document.getElementById("exchange-form").parentElement.id === "exchange-inline-slot";
+}
+function syncExchangeInline_() {
+  const inline = repaymentAvailable_() && document.getElementById("transfer-kind").value === "exchange";
+  const form = document.getElementById("exchange-form");
+  const slot = document.getElementById("exchange-inline-slot");
+  document.getElementById("entry-standard-fields").hidden = inline;
+  document.getElementById("submit-btn").hidden = inline;
+  slot.hidden = !inline;
+  if (inline && !exchangeFormIsInline_()) {
+    exchangeContext_ = null;
+    slot.appendChild(form);
+    fillExchangeForm_({});
+  } else if (!inline && exchangeFormIsInline_()) {
+    document.getElementById("exchange-modal-body").appendChild(form);
+  }
+}
+
 function openExchangeModal_(opts) {
+  if (exchangeFormIsInline_()) {   // the sheet was showing it: put the choice back so the pop-up can hold the fields
+    document.getElementById("transfer-kind").value = "between";
+    updateRepaymentUi_();
+  }
+  fillExchangeForm_(opts);
+  const backdrop = document.getElementById("exchange-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function fillExchangeForm_(opts) {
   opts = opts || {};
   const entry = opts.entry || null;
   const leg = opts.leg === "in" ? "in" : "out";
@@ -4073,9 +4120,6 @@ function openExchangeModal_(opts) {
   if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
   document.getElementById("exchange-form-error").textContent = "";
   updateExchangeRateLine_();
-  const backdrop = document.getElementById("exchange-modal-backdrop");
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
 }
 
 function closeExchangeModal_() {
@@ -4095,7 +4139,6 @@ document.getElementById("exchange-modal-backdrop").addEventListener("click", (e)
   });
 });
 ["exchange-out-currency", "exchange-in-currency"].forEach((id) => document.getElementById(id).addEventListener("change", updateExchangeRateLine_));
-document.getElementById("to-payment-method-hint-exchange").addEventListener("click", () => openExchangeModal_());
 
 document.getElementById("exchange-save-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("exchange-form-error");
@@ -4116,14 +4159,20 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
 
   const saveBtn = document.getElementById("exchange-save-btn");
+  const wasInline = exchangeFormIsInline_();
   saveBtn.disabled = true;
   try {
     await callApi("recordCurrencyExchange", {
       date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
       pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
     });
-    closeExchangeModal_();
-    if (newEntrySheetOpen_) closeNewEntrySheet_();
+    if (wasInline) {
+      document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
+      updateRepaymentUi_();
+      if (newEntrySheetOpen_) closeNewEntrySheet_();
+    } else {
+      closeExchangeModal_();
+    }
     showToast_(tr("xch.saved"));
     refreshEntryList();
     refreshReviewQueue().catch(() => {});
