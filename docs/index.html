@@ -152,6 +152,7 @@
               <option value="between" data-i18n="transfer.kind.between">Between Accounts</option>
               <option value="repayment" data-i18n="transfer.kind.repayment">Repayments</option>
               <option value="loan" data-i18n="transfer.kind.loan">New loan</option>
+              <option value="exchange" data-i18n="transfer.kind.exchange">Currency exchange</option>
             </select>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
@@ -182,6 +183,10 @@
             <p class="hint" id="investment-direction-hint" data-i18n="investment.depositHint">Money you put into the platform.</p>
           </div>
 
+          <!-- "Currency exchange" (the last Type of transfer): the exchange fields (#exchange-form) are moved in here and the usual fields below hide. -->
+          <div id="exchange-inline-slot" hidden></div>
+
+          <div id="entry-standard-fields">
           <label for="amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
@@ -207,7 +212,6 @@
             <label for="to_payment_method" id="to-payment-method-label" data-i18n="field.toAccount">To (account it goes into)</label>
             <select id="to_payment_method"></select>
             <p class="hint" id="to-payment-method-hint" data-i18n="transfer.toHint">Optional — e.g. topping up a Starbucks or Yape balance from a card. Lets that account's balance count it.</p>
-            <button type="button" class="add-inline" id="to-payment-method-hint-exchange" data-i18n="xch.openFromTransfer">💱 Changing currency? Record a currency exchange</button>
           </div>
 
           <div id="split-field" hidden>
@@ -243,6 +247,8 @@
           <div id="trip-field" hidden>
             <label for="entry-trip" data-i18n="field.trip">Trip / event</label>
             <select id="entry-trip"></select>
+          </div>
+
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
@@ -1073,7 +1079,8 @@
         <span data-i18n="xch.title">Currency exchange</span>
         <button type="button" id="exchange-modal-close" class="currency-modal-close">✕</button>
       </div>
-      <div class="budget-modal-body">
+      <div class="budget-modal-body" id="exchange-modal-body">
+       <div id="exchange-form">
         <p class="hint" id="exchange-context" hidden></p>
         <p class="hint" data-i18n="xch.intro">Changed money from one currency to another, in either direction? It is saved as two transfers, one per currency. It is not spending or income.</p>
 
@@ -1100,6 +1107,7 @@
 
         <p class="hint" id="exchange-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
+       </div>
       </div>
     </div>
   </div>
