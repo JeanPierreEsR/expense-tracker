@@ -65,7 +65,21 @@
 
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
-  function showStatementsScreen() {
+  // The Statements card and the Import data card open this one screen; `mode` ("bank" | "import") only changes what is shown
+  // (the wording and the cards that are about bank e-mail) — the reading, the review and the saving are the same engine.
+  let screenMode = "bank";
+
+  function setScreenMode(mode) {
+    screenMode = mode;
+    $("screen-statements").dataset.mode = mode;
+    $("statement-file-input").accept = mode === "import"
+      ? ".csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      : "application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    updateReviewButton();
+  }
+
+  function showStatementsScreen(mode) {
+    setScreenMode(mode === "import" ? "import" : "bank");
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -516,7 +530,7 @@
     }
     let verdict;
     if (!result.ok) verdict = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.verdictBad"))}</p>`;
-    else if (result.kind === "csv") verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("table.verdict"))}</p>`;
+    else if (result.kind === "csv") verdict = `<p class="stmt-verdict warn">${escapeHtml(tr(screenMode === "import" ? "imp.tableVerdict" : "table.verdict"))}</p>`;
     else if (result.verified === false) verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.verdictWarn"))}</p>`;
     else verdict = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.verdictGood"))}</p>`;
 
@@ -680,7 +694,7 @@
       : tr("table.layoutNew");
     body.innerHTML = `<div class="tm-root">
       <p class="stmt-note ${remembered ? "ok" : "info"}">${escapeHtml(banner)}${state.source === "saved" ? ` <button type="button" class="add-inline tm-forget">${escapeHtml(tr("table.forget"))}</button>` : ""}</p>
-      <p class="hint">${escapeHtml(tr("table.hint"))}</p>
+      <p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.tableHint" : "table.hint"))}</p>
       <div class="tm-single">${sel("account", tr("table.account"), accountOptions(state.accountId))}</div>
       <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-values"></div></div>
       ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
@@ -1025,7 +1039,7 @@
 
   function updateReviewButton() {
     $("statement-review-card").hidden = usable.length === 0;
-    $("statement-history-btn").textContent = tr("hist.button", { n: usable.length });
+    $("statement-history-btn").textContent = tr(screenMode === "import" ? "imp.histButton" : "hist.button", { n: usable.length });
   }
 
   // What the server is sent for an analysis (never the file): each statement's account key, period, balances and lines.
@@ -1689,7 +1703,10 @@
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();
   });
-  $("more-statements-btn").addEventListener("click", showStatementsScreen);
+  $("more-statements-btn").addEventListener("click", () => showStatementsScreen("bank"));
+  $("more-import-btn").addEventListener("click", () => showStatementsScreen("import"));
+  $("statement-to-import-btn").addEventListener("click", () => { showStatementsScreen("import"); window.scrollTo(0, 0); });
+  $("statement-to-bank-btn").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
   $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showScreen("more"); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
