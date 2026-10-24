@@ -114,14 +114,43 @@
 
   function dedupeSum(map, cur, v) { map[cur] = round2((map[cur] || 0) + v); }
 
+  // Any Interbank credit card (Visa, American Express, Classic, Infinite…) prints the same
+  // "payment of the month" pages; the card's own name is only on the first line, so the layout is
+  // recognised by its section headings, not by a card name.
+  function isInterbankCard(all) {
+    return /interbank/i.test(all) && /DETALLE DE PAGO DEL MES/i.test(all) &&
+      /PAGOS REALIZADOS/i.test(all) && /PAGO DEL MES \(Suma de subtotales\)/i.test(all);
+  }
+
+  function titleCase(s) {
+    return String(s).toLowerCase().replace(/(^|\s)(\S)/g, function (m, a, b) { return a + b.toUpperCase(); });
+  }
+
+  // The SIP "(C) DEUDA TOTAL" row: SALDO INICIAL, CONSUMOS E INTERESES, PAGOS Y OTROS, DEUDA TOTAL.
+  function sipSummary(rows) {
+    var summary = null;
+    rows.forEach(function (r) {
+      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
+    });
+    return summary;
+  }
+
   function detectKind(rows) {
     var all = rows.map(function (r) { return r.text; }).join('\n');
     if (/DETALLE DE MOVIMIENTOS/.test(all) && /EMPEZASTE/i.test(all)) return 'savings';
-    if (/INTERBANK VISA/i.test(all) && /DETALLE DE PAGO DEL MES/i.test(all)) return 'visa';
+    if (isInterbankCard(all)) return 'visa';
+    if (/Estado de Cuenta Tarjeta/i.test(all) && /Ciclo de Facturaci[óo]n/i.test(all) && /MONTO TOTAL FACTURADO/i.test(all)) return 'bcpcard';
+    if (/Listado de movimientos/i.test(all) && /Total Facturado Mes Anterior/i.test(all) && /\bCMR\b|Falabella/i.test(all)) return 'cmr';
     if (/PERIODO FACTURADO DEL/i.test(all)) return 'diners';
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
     if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
+    // Some SIP PDFs are a scan: the headings above are part of the picture and
+    // only the movements carry real text.
+    // Since the bank's name is not in the text, also require its closing
+    // "(C)" row: four amounts where opening + purchases − payments = total debt.
+    if (/SALDO MES ANTERIOR/i.test(all) && /DETALLE DE MOVIMIENTO DEL MES/i.test(all) && /TIT\/ADIC/i.test(all) && sipSummary(rows)) return 'sip';
     return null;
   }
 
@@ -204,12 +233,25 @@
   // `split` is S/, right of it is US$.
   function currencyByX(cell, split) { return cell.x1 < split ? 'PEN' : 'USD'; }
 
-  // ---- Interbank Visa Infinite ----
+  // ---- Interbank credit cards (every card name; kind stays 'visa' — the matcher keys on it) ----
+
+  // The card line near the top, e.g. "<CARD NAME> 1234 56** **** 7890 - SOLES": the name is whatever
+  // comes before the number, the last four digits end the masked number.
+  function interbankCardLine(rows) {
+    for (var i = 0; i < Math.min(rows.length, 12); i++) {
+      var t = rows[i].text;
+      if (!/[*Xx•]{2,}/.test(t)) continue;
+      var m = t.match(/^(.*?)\s*\d{4,6}\s+\d{2,6}[*Xx•]+\s*[*Xx•\s]*?(\d{4})\b/) || t.match(/^(.*?)\s*[*Xx•]{2,}[*Xx•\s]*?(\d{4})\b/);
+      if (m) return { name: m[1].replace(/^\s*INTERBANK\s*/i, '').replace(/[\d\s]+$/, '').trim(), last4: m[2] };
+    }
+    return null;
+  }
 
   function parseVisa(rows) {
     var errors = [];
     var all = rows.map(function (r) { return r.text; }).join('\n');
-    var l4 = all.match(/INTERBANK VISA[^\n]*?(\d{4})\s*-\s*SOLES/i) || all.match(/\*{2,}\s*(\d{4})/);
+    var card = interbankCardLine(rows);
+    var l4 = card ? [null, card.last4] : all.match(/\*{2,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+cierre\s+de\s+(\d{2})\/(\d{2})\/(\d{4})/i);
     if (!l4 || !pm) return fail('visa', [msg('sp.noCardPeriod')]);
     var start = iso(pm[3], +pm[2], +pm[1]);
@@ -305,7 +347,7 @@
     });
     return {
       ok: errors.length === 0, errors: errors, kind: 'visa', bank: 'Interbank',
-      account: { last4: l4[1], label: 'Interbank Visa Infinite' },
+      account: { last4: l4[1], label: 'Interbank' + (card && card.name ? ' ' + titleCase(card.name) : ' card') },
       period: { start: start, end: end }, balances: balances, lines: lines
     };
   }
@@ -506,9 +548,14 @@
   function parseSip(rows) {
     var errors = [];
     var all = rows.map(function (r) { return r.text; }).join('\n');
-    var l4 = all.match(/\*{4,}(\d{4})/);
+    var l4 = all.match(/\*{4,}\s*(\d{4})/);
     var pm = all.match(/del\s+(\d{2})\/(\d{2})\/(\d{4})\s+al\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    var named = /TARJETA DE CR[ÉE]DITO SIP/i.test(all);
     if (!l4 || !pm) return fail('sip', [msg('sp.noCardCycle')]);
+    // The scanned layout prints a payment as "- 318.86" (space after the minus).
+    rows.forEach(function (r) {
+      r.cells.forEach(function (c) { c.str = c.str.replace(/^-\s+(?=[\d,]+\.\d{2}$)/, '-'); });
+    });
     var lines = [];
     var prev = null, opening = null;
     var charges = 0, credits = 0;
@@ -537,11 +584,7 @@
     });
 
     // The "(C) DEUDA TOTAL" line: SALDO INICIAL, + CONSUMOS E INTERESES, − PAGOS Y OTROS, = DEUDA TOTAL.
-    var summary = null;
-    rows.forEach(function (r) {
-      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
-      if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
-    });
+    var summary = sipSummary(rows);
     if (prev === null) errors.push(msg('sp.prevMissing'));
     if (!summary) errors.push(msg('sp.summaryMissing'));
     else {
@@ -551,9 +594,197 @@
     }
     return {
       ok: errors.length === 0, errors: errors, kind: 'sip', bank: 'SIP',
+      warnings: named ? [] : [msg('sp.sipByLayout', { last4: l4[1] })],
       account: { last4: l4[1], label: 'SIP tarjeta de crédito' },
       period: { start: iso(pm[3], +pm[2], +pm[1]), end: iso(pm[6], +pm[5], +pm[4]) },
       balances: { PEN: { opening: prev === null ? null : round2(-prev), closing: summary ? round2(-summary[3]) : null } },
+      lines: lines
+    };
+  }
+
+  // ---- BCP credit cards (Visa, American Express, Mastercard… — one layout, titled "Estado de Cuenta Tarjeta <name>") ----
+
+  // BCP prints a credit as "123.45-" (minus AFTER the number). Returns the DEBT: a charge is positive.
+  function bcpAmount(str) {
+    var m = String(str).match(/^([\d,]+\.\d{2})(-?)$/);
+    return m ? (m[2] ? -num(m[1]) : num(m[1])) : null;
+  }
+
+  function parseBcpCard(rows) {
+    var errors = [];
+    var titleM = null;
+    rows.some(function (r) { titleM = r.cells[0] && r.cells[0].str.match(/^Estado de Cuenta Tarjeta\s+(.+)$/i); return !!titleM; });
+    var cardName = titleM ? titleM[1].trim() : '';
+
+    // Billing cycle: the row under the "Del … Al" headings holds the two dates (dd/mm/yy).
+    var cycle = null, last4 = null;
+    for (var i = 0; i < rows.length && !(cycle && last4); i++) {
+      var cells = rows[i].cells;
+      var numHdr = cells.find(function (c) { return /^N[úu]mero de tarjeta$/i.test(c.str); });
+      var delHdr = cells.find(function (c) { return c.str === 'Del'; });
+      if (!numHdr && !delHdr) continue;
+      var below = rows.slice(i + 1, i + 4);
+      if (numHdr && !last4) {
+        below.some(function (br) {
+          var cc = br.cells.find(function (c) { return Math.abs(c.x0 - numHdr.x0) <= 8; });
+          var m = cc && cc.str.match(/(\d{4})\D*$/);
+          if (m) last4 = m[1];
+          return !!m;
+        });
+      }
+      if (delHdr && !cycle) {
+        below.some(function (br) {
+          var ds = br.cells.filter(function (c) { return /^\d{2}\/\d{2}\/\d{2}$/.test(c.str); });
+          if (ds.length >= 2) cycle = [ds[0].str.split('/'), ds[1].str.split('/')];
+          return ds.length >= 2;
+        });
+      }
+    }
+    if (!last4 || !cycle) return fail('bcpcard', [msg('sp.noCardCycle')]);
+    var start = iso(2000 + +cycle[0][2], +cycle[0][1], +cycle[0][0]);
+    var endY = 2000 + +cycle[1][2], endM = +cycle[1][1];
+    var end = iso(endY, endM, +cycle[1][0]);
+
+    var dolX = null;            // left edge of the "Dólares" heading: amounts left of it are soles
+    var lines = [], prev = {}, total = null, sums = {};
+    var haveBalance = false;
+    var phase = 'items';        // items -> fees (from "INTERESES") -> done (after the total)
+
+    function curOf(cell) { return cell.x0 < dolX ? 'PEN' : 'USD'; }
+    function amountsOf(r) {
+      return r.cells.map(function (c) { return { c: c, v: bcpAmount(c.str) }; }).filter(function (a) { return a.v !== null; });
+    }
+    function add(date, desc, debt, cur, section) {
+      sums[cur] = round2((sums[cur] || 0) + debt);
+      if (debt !== 0) lines.push({ date: date, description: desc, amount: round2(-debt), currency: cur, section: section });
+    }
+
+    rows.forEach(function (r) {
+      var t = r.text;
+      var sh = r.cells.find(function (c) { return c.str === 'Soles'; });
+      var dh = r.cells.find(function (c) { return /^D[óo]lares$/i.test(c.str); });
+      if (sh && dh) { dolX = dh.x0; return; }
+      if (phase === 'done' || dolX === null) return;
+
+      if (/^SALDO ANTERIOR/i.test(t)) {
+        amountsOf(r).forEach(function (a) { prev[curOf(a.c)] = a.v; });
+        haveBalance = true;
+        return;
+      }
+      if (/^MONTO TOTAL FACTURADO/i.test(t)) {
+        total = {};
+        amountsOf(r).forEach(function (a) { total[curOf(a.c)] = a.v; });
+        phase = 'done';
+        return;
+      }
+      if (/^SUB ?TOTAL\b/i.test(t)) return;
+      if (/^INTERESES\b/i.test(t)) phase = 'fees';
+
+      // Movement: "12Sep  10Sep  SHOP  CITY  PE  CONSUMO  amount"
+      var d1 = r.cells[0] && r.cells[0].str.match(/^(\d{1,2})\s?([A-Za-zÁ-ú]{3})\.?$/);
+      var d2 = r.cells[1] && r.cells[1].str.match(/^(\d{1,2})\s?([A-Za-zÁ-ú]{3})\.?$/);
+      if (phase === 'items' && d1 && d2 && MONTHS[d2[2].toLowerCase()] && MONTHS[d1[2].toLowerCase()]) {
+        var month = MONTHS[d2[2].toLowerCase()];
+        var date = iso(inferYear(month, endY, endM), month, +d2[1]);
+        var amts = amountsOf(r);
+        var words = r.cells.slice(2).filter(function (c) { return bcpAmount(c.str) === null; });
+        if (!amts.length) { errors.push(msg('sp.noAmount', { text: t })); return; }
+        var type = words.length > 1 ? words[words.length - 1].str : '';
+        var desc = (words.length > 1 ? words.slice(0, -1) : words).map(function (c) { return c.str; }).join(' ');
+        var section = /PAGO/i.test(type) ? 'payments' : (/DEVOLUCI|REVERS|ANUL/i.test(type) ? 'refunds' : 'purchases');
+        amts.forEach(function (a) { add(date, desc, a.v, curOf(a.c), section); });
+        return;
+      }
+
+      // Interest, commissions, insurance: undated rows between "INTERESES" and the total.
+      if (phase === 'fees') {
+        var label = r.cells.filter(function (c) { return bcpAmount(c.str) === null; }).map(function (c) { return c.str; }).join(' ');
+        amountsOf(r).forEach(function (a) { add(end, label, a.v, curOf(a.c), 'fees'); });
+      }
+    });
+
+    if (dolX === null) return fail('bcpcard', [msg('sp.bcpNoColumns')]);
+    if (!haveBalance) errors.push(msg('sp.bcpNoBalance'));
+    if (!total) errors.push(msg('sp.bcpNoTotal'));
+    else {
+      ['PEN', 'USD'].forEach(function (cur) {
+        var read = round2((prev[cur] || 0) + (sums[cur] || 0));
+        var want = round2(total[cur] || 0);
+        if (read !== want) errors.push(msg('sp.bcpTotal', { cur: cur, a: read.toFixed(2), b: want.toFixed(2) }));
+      });
+    }
+    var balances = {};
+    ['PEN', 'USD'].forEach(function (cur) {
+      balances[cur] = { opening: round2(-(prev[cur] || 0)), closing: round2(-(total ? (total[cur] || 0) : 0)) };
+    });
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'bcpcard', bank: 'BCP',
+      account: { last4: last4, label: 'BCP' + (cardName ? ' ' + titleCase(cardName) : ' card') },
+      period: { start: start, end: end }, balances: balances, lines: lines
+    };
+  }
+
+  // ---- CMR Falabella credit cards (Banco Falabella; soles only; "Estado de Cuenta" with a "Listado de movimientos") ----
+
+  // CMR prints a credit as "-123.45" (minus BEFORE the number) and some header amounts as "S/ 1,234.50". Returns the DEBT or null.
+  function cmrAmount(str) {
+    var m = String(str).replace(/^S\/\s*/, '').match(/^(-?)([\d,]+\.\d{2})$/);
+    return m ? (m[1] ? -num(m[2]) : num(m[2])) : null;
+  }
+
+  function parseCmr(rows) {
+    var errors = [];
+    var cardName = '', last4 = null, due = null, cyc = null, totalDue = null, prev = 0, havePrev = false;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      var nm = !cardName && cells.map(function (c) { return c.str.match(/^CMR\s+([A-ZÁÉÍÓÚ ]+)$/); }).find(Boolean);
+      if (nm) cardName = nm[1].trim();
+      // "Nº de Tarjeta   1234-56**-****-7890": the value is the cell after the label
+      cells.forEach(function (c, i) {
+        if (!last4 && /^N[º°o]\.? de Tarjeta$/i.test(c.str) && cells[i + 1]) { var m = cells[i + 1].str.match(/(\d{4})\D*$/); if (m) last4 = m[1]; }
+        if (!cyc && /^Periodo de facturaci[óo]n$/i.test(c.str) && cells[i + 1]) cyc = cells[i + 1].str.match(/(\d{2})\/(\d{2})\s+al\s+(\d{2})\/(\d{2})/);
+        if (!due && /^[ÚU]ltimo d[íi]a de pago$/i.test(c.str) && cells[i + 1]) due = cells[i + 1].str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (totalDue === null && /^Pago total del mes$/i.test(c.str) && cells[i + 1]) totalDue = cmrAmount(cells[i + 1].str);
+      });
+    });
+    if (!last4 || !cyc || !due) return fail('cmr', [msg('sp.noCardCycle')]);
+    // The cycle is printed as "dd/mm al dd/mm" with no year; the payment day (full date) comes after the cycle's end.
+    var endM = +cyc[4], endY = endM <= +due[2] ? +due[3] : +due[3] - 1;
+    var startM = +cyc[2], startY = startM <= endM ? endY : endY - 1;
+    var start = iso(startY, startM, +cyc[1]), end = iso(endY, endM, +cyc[3]);
+
+    var dateRe = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    var lines = [], sum = 0;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      if (/Total Facturado Mes Anterior/i.test(r.text)) {
+        var pa = cells.map(function (c) { return cmrAmount(c.str); }).filter(function (v) { return v !== null; });
+        prev = pa.length ? pa[pa.length - 1] : 0;   // all dashes when nothing was owed
+        havePrev = true;
+        return;
+      }
+      // Movement: "dd/mm/yyyy (transaction)  dd/mm/yyyy (processed)  DESCRIPTION  Peru  …  amount"; the right-most amount is the row's TOTAL
+      var d1 = cells[0] && cells[0].str.match(dateRe), d2 = cells[1] && cells[1].str.match(dateRe);
+      if (!d1 || !d2) return;
+      var amts = cells.slice(2).filter(function (c) { return cmrAmount(c.str) !== null; });
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: r.text })); return; }
+      var printed = cmrAmount(amts[amts.length - 1].str);
+      var desc = cells.slice(2).filter(function (c) { return cmrAmount(c.str) === null && !/^\d+\/\d+$/.test(c.str) && !/^(Peru|Perú)$/i.test(c.str); })
+        .map(function (c) { return c.str; }).join(' ');
+      var section = /^Pago\b/i.test(desc) ? 'payments' : /^Devoluci/i.test(desc) ? 'refunds'
+        : /^(Itf|Seg\b|Seguro|Inter[eé]s|Comisi|Cuota de membres|Membres)/i.test(desc) ? 'fees' : 'purchases';
+      sum = round2(sum + printed);
+      if (printed !== 0) lines.push({ date: iso(+d1[3], +d1[2], +d1[1]), description: desc, amount: round2(-printed), currency: 'PEN', section: section });
+    });
+
+    if (!havePrev) errors.push(msg('sp.cmrNoPrev'));
+    if (totalDue === null) errors.push(msg('sp.cmrNoTotal'));
+    else if (havePrev && round2(prev + sum) !== round2(totalDue)) errors.push(msg('sp.cmrTotal', { a: round2(prev + sum).toFixed(2), b: totalDue.toFixed(2) }));
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'cmr', bank: 'CMR Falabella',
+      account: { last4: last4, label: 'CMR' + (cardName ? ' ' + titleCase(cardName) : ' card') },
+      period: { start: start, end: end },
+      balances: { PEN: { opening: round2(-prev) || 0, closing: totalDue === null ? null : (round2(-totalDue) || 0) } },   // "|| 0": never -0
       lines: lines
     };
   }
@@ -577,6 +808,16 @@
     else if (kind === 'diners') name = first(new RegExp('^(' + NAME_WORDS + ') \\d{2}/\\d{2}/\\d{4}\\b'));
     else if (kind === 'visa') name = first(new RegExp('^(' + NAME_WORDS + ')$'));
     else if (kind === 'sip') name = first(new RegExp('^(' + NAME_WORDS + ') \\(A\\)'));
+    else if (kind === 'bcpcard') {
+      // the holder is the first cell of the row that carries the "Número de tarjeta" heading
+      var nameRe = new RegExp('^' + NAME_WORDS + '$');
+      var hr = rows.slice(0, 16).find(function (r) { return r.cells.some(function (c) { return /^N[úu]mero de tarjeta$/i.test(c.str); }); });
+      if (hr && hr.cells[0] && nameRe.test(hr.cells[0].str.trim())) name = hr.cells[0].str.trim();
+    } else if (kind === 'cmr') {
+      // the holder is the only text on a line above "Estado de Cuenta" (the first line is the file name)
+      var stop = texts.findIndex(function (t) { return /^Estado de Cuenta$/i.test(t); });
+      for (var i = 1; i < stop && !name; i++) if (new RegExp('^' + NAME_WORDS + '$').test(texts[i])) name = texts[i];
+    }
     return name;
   }
 
@@ -587,6 +828,8 @@
     else if (kind === 'visa') res = parseVisa(rows);
     else if (kind === 'diners') res = parseDiners(rows);
     else if (kind === 'bcp') res = parseBcp(rows);
+    else if (kind === 'bcpcard') res = parseBcpCard(rows);
+    else if (kind === 'cmr') res = parseCmr(rows);
     else if (kind === 'ahorramas') res = parseAhorramas(rows);
     else if (kind === 'sip') res = parseSip(rows);
     else return fail(null, [msg('sp.notRecognized')]);

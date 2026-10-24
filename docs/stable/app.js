@@ -864,6 +864,7 @@ function refreshTelegramFields_() {
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  syncPairWithBackend_();
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
@@ -2036,7 +2037,9 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
 // A brief, non-error confirmation in the same spot #form-error normally
 // shows validation problems — reused rather than a new toast system, just
 // recolored and auto-cleared so it doesn't linger like a real error would.
+let lastFormNotice_ = "";   // what the sheet closes with, so the notice isn't lost with the form
 function showFormNotice_(text) {
+  lastFormNotice_ = text;
   const el = document.getElementById("form-error");
   el.style.color = "var(--income)";
   el.textContent = text;
@@ -2055,6 +2058,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
+  lastFormNotice_ = "";
   submitBtn.disabled = true;
   // Captured before anything below runs — the editingEntryId/
   // confirmingPendingId branches null it out themselves (exitEditMode)
@@ -2362,6 +2366,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     } else if (ICON_PICKER_TYPES.includes(selectedType)) {
       showCategoryPicker();
     }
+    // A brand-new entry made in the sheet: the sheet closes, a short toast says it
+    // landed (or what became of it: a Programmed item, a repayment…), and whatever
+    // is showing behind it refreshes.
+    if (newEntrySheetOpen_) {
+      closeNewEntrySheet_();
+      showToast_(lastFormNotice_ || tr("entry.savedToast"));
+      afterNewEntrySaved_();
+    }
     if (splitSaveFailed) {
       alert(tr("entry.splitSaveFailed"));
     } else if (billSaveFailed) {
@@ -2564,7 +2576,8 @@ function buildEntryRow_(entry) {
     // applyQueuedEditOverlay_ — so editing and saving again, even
     // unchanged, naturally retries it.
     if (blockedWhileSavingEdit_(entry.id)) return;
-    startEditEntry(entry);
+    currentDrilldown = null;   // nothing underneath to refresh: the list re-renders itself
+    openEditPopup(entry);
   });
   return row;
 }
@@ -2653,8 +2666,44 @@ function renderEntryListFromCache_() {
     return;
   }
 
-  entries.forEach((entry) => list.appendChild(buildEntryRow_(entry)));
+  // Grouped by day, newest first (the server already sends them in that order),
+  // each day headed by its name and what it came to: income minus expenses, the
+  // owner's share in the main currency. Transfers and investments don't count.
+  const sameDay = [];
+  const flushDay = () => {
+    if (!sameDay.length) return;
+    const head = document.createElement("div");
+    head.className = "day-head";
+    let net = 0;
+    sameDay.forEach((e) => {
+      const pen = e.own_share_pen != null ? Number(e.own_share_pen) : (e.amount_pen != null ? Number(e.amount_pen) : null);
+      if (pen == null) return;
+      if (e.type === "expense") net -= pen;
+      else if (e.type === "income") net += pen;
+    });
+    const total = Math.abs(net) < 0.005 ? "" : `${net < 0 ? "−" : "+"}${formatPen(Math.abs(net))}`;
+    head.innerHTML = `<span>${escapeHtml(dayHeadLabel_(sameDay[0].date))}</span><span class="day-total">${total}</span>`;
+    list.appendChild(head);
+    sameDay.forEach((e) => list.appendChild(buildEntryRow_(e)));
+    sameDay.length = 0;
+  };
+  entries.forEach((entry) => {
+    if (sameDay.length && sameDay[0].date !== entry.date) flushDay();
+    sameDay.push(entry);
+  });
+  flushDay();
   setLoadMoreButton_(list, lastRenderedHasMore_);
+}
+
+// "Today", "Yesterday", otherwise the date written out in the current language.
+function dayHeadLabel_(isoDate) {
+  const today = todayLocalISO();
+  if (isoDate === today) return tr("home.today");
+  const y = new Date(today + "T00:00:00");
+  y.setDate(y.getDate() - 1);
+  const yesterday = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+  if (isoDate === yesterday) return tr("home.yesterday");
+  return I18n.fmtDateMedium(new Date(isoDate + "T00:00:00"));
 }
 
 // ---- Entries-tab search: instant, as-you-type ----
@@ -3029,6 +3078,7 @@ function syncCancelNewEntryButton_() {
     entryDateTouched_ = false;
     resetToFreshEntryScreen_();   // also clears the unsaved draft
     document.getElementById("form-error").textContent = "";
+    if (newEntrySheetOpen_) closeNewEntrySheet_();
   });
 })();
 
@@ -3193,6 +3243,9 @@ function resetToFreshEntryScreen_() {
 }
 
 function cancelEdit() {
+  // The ✕ of the new-entry sheet: just close it. Whatever was typed stays as the
+  // unsaved draft (saveEntryDraftNow_), ready for the next time the + is tapped.
+  if (newEntrySheetOpen_) { closeNewEntrySheet_(); return; }
   exitEditMode();
   if (editingViaPopup) {
     resetEntryFormFields_();
@@ -3255,8 +3308,7 @@ function openEditPopup(entry) {
 
 function closeEditPopup() {
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
-  const screenEntries = document.getElementById("screen-entries");
-  screenEntries.insertBefore(document.getElementById("entry-card"), screenEntries.firstChild);
+  document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
   editingViaPopup = false;
 }
 
@@ -3587,6 +3639,7 @@ async function flushEntryEdit_(id) {
         commitEditToLastRendered_(edit);
         unqueueEntryEdit_(id);
         renderEntryListFromCache_();
+        refreshHomeGlance_(true);   // the totals at the top of Home now include this edit
         break;
       }
       // else: replaced mid-flight — loop again and send the newer one.
@@ -3633,7 +3686,8 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
   showScreen("entries");
   const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === failed[0].id);
   if (entry) {
-    startEditEntry(entry);
+    currentDrilldown = null;
+    openEditPopup(entry);
   } else {
     alert(tr("entry.notInList"));
   }
@@ -3921,6 +3975,287 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   });
 }
 
+// ---- New-entry sheet + the round "+" button ----
+// The entry form no longer sits on a screen: it lives in #entry-card-home and is moved
+// into the slide-up pop-up (the same one used to edit an entry) when the "+" is tapped.
+// Moving the node keeps every listener, so saving, splits, tags, repayments, the draft
+// and the rest behave exactly as before. specs/home-tab.md.
+
+let newEntrySheetOpen_ = false;
+
+function openNewEntrySheet_() {
+  if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
+  const backdrop = document.getElementById("edit-entry-modal-backdrop");
+  document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
+  document.getElementById("edit-entry-modal-title").textContent = tr("entry.newTitle");
+  document.getElementById("edit-entry-modal-inner").classList.add("new-entry-sheet");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  newEntrySheetOpen_ = true;
+  restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+}
+
+function closeNewEntrySheet_() {
+  saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  document.getElementById("edit-entry-modal-backdrop").hidden = true;
+  document.getElementById("edit-entry-modal-inner").classList.remove("new-entry-sheet");
+  document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
+  newEntrySheetOpen_ = false;
+}
+
+let appToastTimer_ = null;
+function showToast_(text) {
+  const el = document.getElementById("app-toast");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(appToastTimer_);
+  appToastTimer_ = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+// What has to refresh behind the sheet once a new entry has been saved.
+function afterNewEntrySaved_() {
+  if (!document.getElementById("screen-overview").hidden) {
+    refreshOverview().catch(() => {});
+    refreshBalances().catch(() => {});
+  }
+  refreshHomeGlance_(true);
+}
+
+// The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
+function syncFab_() {
+  const fab = document.getElementById("fab-new-entry");
+  const nav = document.getElementById("bottom-nav");
+  const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
+  const name = visible ? visible.id.replace(/^screen-/, "") : "";
+  fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
+  if (!fab.hidden) fab.style.bottom = (nav.offsetHeight + 14) + "px";
+}
+
+(function setupFab_() {
+  document.getElementById("fab-new-entry").addEventListener("click", openNewEntrySheet_);
+  const watch = new MutationObserver(syncFab_);
+  document.querySelectorAll(".screen, #bottom-nav").forEach((el) => watch.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+  window.addEventListener("resize", syncFab_);
+  syncFab_();
+})();
+
+// ---- Home: the quick glance at the top (swipeable cards) ----
+// One request (getHomeGlance), painted first from the phone's last copy so the top of Home
+// is never an empty wait, then refreshed in the background. Cards, in order: a trip or event
+// running today (one each), the month (big number, the four totals, six months of bars), the
+// spending pace against last month, the monthly budgets. A card with nothing to say isn't
+// shown; with a single card there is no swiping and no dots.
+
+const HOME_GLANCE_CACHE_KEY = "homeGlance_v1";
+const HOME_GLANCE_FRESH_MS = 60 * 1000;
+let homeGlance_ = null;
+let homeGlanceAt_ = 0;
+let homeGlanceBusy_ = null;
+let homeSelectedMonth_ = null;   // 'yyyy-mm' picked by tapping a bar; null = this month
+
+function paintHomeGlanceFromCache_() {
+  if (homeGlance_) return;
+  try {
+    const c = JSON.parse(localStorage.getItem(HOME_GLANCE_CACHE_KEY) || "null");
+    if (c && c.data && c.today === todayLocalISO()) {
+      homeGlance_ = c.data;
+      renderHomeGlance_();
+    }
+  } catch (err) { /* no saved copy: the fetch below fills it */ }
+}
+
+function kickHomeGlance_() {
+  paintHomeGlanceFromCache_();
+  // A little after the app opens, so it never competes with the start-up requests.
+  setTimeout(() => refreshHomeGlance_(false), 2500);
+}
+
+function refreshHomeGlance_(force) {
+  if (homeGlanceBusy_) return homeGlanceBusy_;
+  if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
+  homeGlanceBusy_ = callApi("getHomeGlance", {})
+    .then((data) => {
+      homeGlance_ = data;
+      homeGlanceAt_ = Date.now();
+      try { localStorage.setItem(HOME_GLANCE_CACHE_KEY, JSON.stringify({ today: todayLocalISO(), data })); } catch (err) { /* only a convenience */ }
+      renderHomeGlance_();
+    })
+    .catch(() => { /* a bonus, never an error: keep whatever is showing */ })
+    .finally(() => { homeGlanceBusy_ = null; });
+  return homeGlanceBusy_;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
+});
+
+// Whole numbers with thousands separators, for the four small boxes.
+function homeShort_(n) {
+  const v = Math.round(Math.abs(Number(n)));
+  return v.toLocaleString("en-US");
+}
+
+function homeCardEl_(cls, html) {
+  const el = document.createElement("div");
+  el.className = "home-card " + cls;
+  el.innerHTML = html;
+  return el;
+}
+
+function homeMainCard_(g) {
+  const months = g.months;
+  let idx = months.findIndex((m) => m.month === homeSelectedMonth_);
+  if (idx < 0) idx = months.length - 1;
+  const m = months[idx];
+  const isCurrent = idx === months.length - 1;
+  const [y, mo] = m.month.split("-").map(Number);
+  const label = isCurrent
+    ? tr("home.spentThisMonth")
+    : tr("home.spentIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
+
+  // This month is compared with the same day of last month (a half month against a whole one would
+  // always look like a saving); an earlier month, with the month before it.
+  let base = null;
+  if (isCurrent) {
+    const p = g.pace.prev;
+    base = p.length ? p[Math.min(g.pace.curDay, p.length) - 1] : null;
+  } else if (idx > 0) {
+    base = months[idx - 1].expense;
+  }
+  let delta = "";
+  if (base != null && base > 0.005) {
+    const pct = Math.round(((m.expense - base) / base) * 100);
+    const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
+    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr("home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
+  }
+
+  const net = m.net;
+  const four = `
+    <div class="home-four">
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("home.invested"))}</span><b>${homeShort_(m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
+    </div>`;
+
+  const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
+  const bars = months.map((x, i) => {
+    const mi = Number(x.month.split("-")[1]) - 1;
+    const h = (v) => Math.max(2, Math.round((v / top) * 84));
+    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}">
+      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span>${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
+  }).join("");
+
+  const el = homeCardEl_("home-card-main", `
+    <div class="home-card-label">${escapeHtml(label)}</div>
+    <div class="home-big">${escapeHtml(formatPen(m.expense))}</div>
+    ${delta}
+    ${four}
+    <div class="home-bars">${bars}</div>
+    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span></div>`);
+  el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
+    homeSelectedMonth_ = b.dataset.month;
+    renderHomeGlance_();
+  }));
+  return el;
+}
+
+function homePaceCard_(g) {
+  const p = g.pace;
+  const nowTotal = p.cur.length ? p.cur[p.cur.length - 1] : 0;
+  const thenTotal = p.prev.length ? p.prev[Math.min(p.curDay, p.prev.length) - 1] : 0;
+  if (!nowTotal && !p.prev[p.prev.length - 1]) return null;
+  const days = Math.max(p.curDays, p.prevDays);
+  const top = Math.max(1, nowTotal, p.prev[p.prev.length - 1] || 0);
+  const W = 300, H = 110, pad = 6;
+  const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
+  const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
+  const last = p.cur.length - 1;
+  const [dx, dy] = last >= 0 ? pt(last, p.cur[last]).split(",") : [0, 0];
+  return homeCardEl_("home-card-pace", `
+    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))}</div>
+    <svg class="home-line-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(p.prev)}"/>
+      <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(p.cur)}"/>
+      ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}
+    </svg>
+    <div class="home-pace-lines">
+      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
+      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
+    </div>`);
+}
+
+function homeBudgetCard_(g) {
+  const b = g.budget;
+  if (!b || !(b.totalPen > 0)) return null;
+  const pct = (b.spentPen / b.totalPen) * 100;
+  const left = b.totalPen - b.spentPen;
+  const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
+  const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
+  const facts = [
+    left >= 0 ? tr("home.budgetLeft", { amount: formatPen(left) }) : tr("home.budgetOver", { amount: formatPen(-left) }),
+    tr("home.budgetDays", { n: daysLeft })
+  ];
+  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
+  return homeCardEl_("home-card-budget", `
+    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))}</div>
+    <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
+    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
+    <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
+    <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
+}
+
+function homeTripCard_(t) {
+  const emoji = t.emoji || (t.kind === "event" ? "🎉" : "✈️");
+  const pct = t.budget ? (t.spent / t.budget) * 100 : null;
+  const el = homeCardEl_("home-card-trip", `
+    <div class="home-trip-head">
+      <span class="home-trip-emoji">${escapeHtml(emoji)}</span>
+      <div><div class="home-trip-name">${escapeHtml(t.name)}</div>
+      <div class="home-card-label">${escapeHtml(tr("home.tripDay", { day: t.day, days: t.days }))}</div></div>
+    </div>
+    <div class="home-card-label" style="margin-top:12px">${escapeHtml(tr("home.tripSpent"))}</div>
+    <div class="home-big">${escapeHtml(formatAmount(t.spent, t.currency))}</div>
+    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatAmount(t.budget, t.currency) }))}</div>` : ""}
+    ${pct == null ? "" : `<div class="home-meter"><div class="home-meter-fill ${pct >= 100 ? "over" : pct >= 85 ? "warn" : ""}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>`}`);
+  el.addEventListener("click", () => showTripDetail_(t.id));
+  return el;
+}
+
+function renderHomeGlance_() {
+  const box = document.getElementById("home-glance");
+  const track = document.getElementById("home-glance-track");
+  const dots = document.getElementById("home-glance-dots");
+  if (!homeGlance_) { box.hidden = true; return; }
+  const g = homeGlance_;
+  const cards = (g.trips || []).map(homeTripCard_);   // a trip happening now comes first
+  cards.push(homeMainCard_(g));
+  const pace = homePaceCard_(g);
+  if (pace) cards.push(pace);
+  const budget = homeBudgetCard_(g);
+  if (budget) cards.push(budget);
+
+  const keep = track.scrollLeft;
+  track.replaceChildren(...cards);
+  track.scrollLeft = keep;   // tapping a bar must not jump the swipe position back
+  box.classList.toggle("has-many", cards.length > 1);
+  dots.hidden = cards.length < 2;
+  dots.innerHTML = cards.map(() => "<span></span>").join("");
+  syncHomeDots_();
+  box.hidden = false;
+}
+
+function syncHomeDots_() {
+  const track = document.getElementById("home-glance-track");
+  const spans = document.querySelectorAll("#home-glance-dots span");
+  if (!spans.length || !track.children.length) return;
+  const step = track.children[0].getBoundingClientRect().width + 10;
+  const on = Math.min(spans.length - 1, Math.round(track.scrollLeft / Math.max(1, step)));
+  spans.forEach((s, i) => s.classList.toggle("on", i === on));
+}
+document.getElementById("home-glance-track").addEventListener("scroll", () => requestAnimationFrame(syncHomeDots_), { passive: true });
+
 // ---- Screens / bottom nav ----
 
 const FALLBACK_PALETTE = ["#C9E4F7", "#F7C6D9", "#D9F2D9", "#FFE0B2", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0"];
@@ -3945,6 +4280,9 @@ function showScreen(name) {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
+  if (name === "entries") {
+    refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+  }
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
@@ -4007,7 +4345,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -4893,30 +5231,56 @@ function syncSheetScrollLock_() {
 })();
 
 (function setupSheetDrag() {
-  let sheet = null, startY = 0, dy = 0;
+  let sheet = null, startY = 0, dy = 0, startH = 0;
+  const maxH = () => window.innerHeight;
   document.addEventListener("touchstart", (e) => {
     const header = e.target.closest && e.target.closest(".currency-modal-header");
     if (!header || e.target.closest("button, a, input, select")) return;
     sheet = header.closest(".currency-modal");
     startY = e.touches[0].clientY;
     dy = 0;
-    if (sheet) sheet.style.transition = "none";
+    if (sheet) {
+      clearTimeout(sheet._dragTimer);
+      sheet.style.transition = "none";
+      startH = sheet.getBoundingClientRect().height;
+    }
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!sheet) return;
     dy = e.touches[0].clientY - startY;
-    // Only follow the finger downward; "up" is handled on release.
-    sheet.style.transform = dy > 0 ? "translateY(" + dy + "px)" : "";
+    if (dy > 0) {
+      // Down: the whole sheet follows the finger (and closes if let go low).
+      sheet.style.transform = "translateY(" + dy + "px)";
+    } else if (!sheet.classList.contains("expanded")) {
+      // Up: the sheet grows with the finger, from its current height to full screen.
+      const h = Math.min(startH - dy, maxH());
+      sheet.style.transform = "";
+      sheet.style.maxHeight = "none";
+      sheet.style.height = h + "px";
+    }
   }, { passive: true });
   function end() {
     if (!sheet) return;
     const el = sheet;
     sheet = null;
-    el.style.transition = "";
-    el.style.transform = "";
     const expanded = el.classList.contains("expanded");
-    if (dy < -40 && !expanded) el.classList.add("expanded");
-    else if (dy > 40 && expanded) el.classList.remove("expanded");
+    const grew = el.style.height !== "";
+    el.style.transform = "";
+    if (grew) {
+      // Settle the grown sheet: finish to full screen, or spring back.
+      const goFull = dy < -40;
+      el.style.transition = "height 0.2s ease";
+      el.style.height = (goFull ? maxH() : startH) + "px";
+      el._dragTimer = setTimeout(() => {
+        el.style.transition = "";
+        el.style.height = "";
+        el.style.maxHeight = "";
+        if (goFull) el.classList.add("expanded");
+      }, 210);
+      return;
+    }
+    el.style.transition = "";
+    if (dy > 40 && expanded) el.classList.remove("expanded");
     else if (dy > 100) {
       const close = el.querySelector(".currency-modal-close");
       if (close) close.click();
@@ -5364,6 +5728,7 @@ async function init() {
     document.getElementById("loading-screen").hidden = true;
     document.getElementById("app").hidden = false;
     document.getElementById("bottom-nav").hidden = false;
+    kickHomeGlance_();
     perfRecordStartup_("init:cachedPaint", performance.now() - initStart);
     perfRecordStartup_("open→usable", performance.now());
   } else {
@@ -5478,6 +5843,7 @@ async function init() {
       document.getElementById("loading-screen").hidden = true;
       document.getElementById("app").hidden = false;
       document.getElementById("bottom-nav").hidden = false;
+      kickHomeGlance_();
     }
     if (paintedFromCache) {
       // The real open→usable moment was already recorded above, right
@@ -5763,7 +6129,34 @@ async function latestBackendRef_() {
 async function checkBackendUpdateNow_(caps) {
   const latest = await latestBackendRef_();
   // A copy made before backend versions were stamped has none: it is offered the update too.
-  if (latest) { updateChecked_ = true; setUpdateAvailable_(!caps.backendRef || caps.backendRef !== latest); }
+  if (latest) {
+    updateChecked_ = true;
+    const behind = !caps.backendRef || caps.backendRef !== latest;
+    setUpdateAvailable_(behind);
+    if (behind) promptBackendUpdateOnce_(latest);
+  }
+}
+// The update sheet opens by itself ONCE per new backend version (a promote that moved the pin); "Close" = later, and the More row stays. It never lands on top of
+// the welcome screens or another pop-up; it is tried again at the next check instead.
+function promptBackendUpdateOnce_(latest) {
+  let seen = ""; try { seen = localStorage.getItem("etUpdatePrompted") || ""; } catch (e) { /* no storage: asks once per open */ }
+  if (seen === latest) return;
+  const welcome = document.getElementById("welcome-overlay");
+  if ((welcome && !welcome.hidden) || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
+  try { localStorage.setItem("etUpdatePrompted", latest); } catch (e) { /* ignore */ }
+  openUpdateModal_();
+}
+// Paired screens: remember which backend this phone is on (the channel script at the top of index.html reads it to pick the matching screens), and a frozen
+// older copy (stable-<version>/) whose backend has since been updated moves on to the current stable/ copy, which sends it to the right pair.
+function syncPairWithBackend_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (caps.perfLog !== false || !caps.backendRef) return;
+  try { localStorage.setItem("etBackendRef", caps.backendRef); } catch (e) { /* ignore */ }
+  const m = (n) => ((document.querySelector('meta[name="' + n + '"]') || {}).content || "");
+  if (m("app-archived") && m("app-pin") && caps.backendRef.slice(0, 7) !== m("app-pin").slice(0, 7)) {
+    saveEntryDraftNow_();
+    location.replace(siteUrl_("stable/") + location.search + location.hash);
+  }
 }
 // An app kept alive in the background is checked again when it comes back to the front, so a promote reaches it without a full relaunch.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateChecked_ = false; checkBackendUpdate_(); } });
@@ -6032,11 +6425,11 @@ function bsMsg_(text) {
 // A reason the server gave in words ("e-mail reading is off…") is shown as it is; anything else gets the generic sentence.
 const bsReason_ = (e, fallbackKey) => (e && e.code && String(e.code).indexOf("sample_") === 0 && e.message ? e.message : tr(fallbackKey));
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
-function openBankSampleModal_() {
+function openBankSampleModal_(opts) {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
   Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false });
   I18n.applyStatic(backdrop);
-  bsEl_("bs-sender").value = "";
+  bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
   bsEl_("bs-hide").value = "";
   bsEl_("bs-name").value = perfShareState_().label || "";
@@ -6055,8 +6448,7 @@ function bsSenderOrWarn_() {
   return sender;
 }
 function bsShowPreview_() {
-  bsEl_("bs-confirm").checked = false;
-  bsEl_("bs-send").disabled = true;
+  bsEl_("bs-send").disabled = false;
   bsRedo_();
   bsStep_(3);
 }
@@ -6109,14 +6501,13 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   bsShowPreview_();
 });
 bsEl_("bs-redo").addEventListener("click", bsRedo_);
-bsEl_("bs-confirm").addEventListener("change", () => { bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked || bs_.sending; });
 bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
-bsEl_("more-bank-sample-btn").addEventListener("click", openBankSampleModal_);
+bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
-  if (bs_.sending || !bsEl_("bs-confirm").checked) return;
+  if (bs_.sending) return;
   bs_.sending = true;
   bsEl_("bs-send").disabled = true;
   bsMsg_(tr("bankSample.sending"));
@@ -6142,7 +6533,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
   } finally {
     clearTimeout(timer);
     bs_.sending = false;
-    bsEl_("bs-send").disabled = !bsEl_("bs-confirm").checked;
+    bsEl_("bs-send").disabled = false;
   }
 });
 document.getElementById("more-extras-btn").addEventListener("click", () => {
@@ -6876,13 +7267,37 @@ function renderOwnerNames_(res) {
     ? res.names.map((n, i) => `<div class="more-list-item" style="cursor:default"><span>${escapeHtml(n)}</span><button type="button" class="add-inline" data-owner-name-remove="${i}" aria-label="${escapeHtml(tr("ownerNames.remove", { name: n }))}">✕</button></div>`).join("")
     : `<p class="hint">${escapeHtml(tr("ownerNames.none"))}</p>`;
   list.dataset.names = JSON.stringify(res.names);
-  ownerNamesEl_("owner-names-waiting").textContent = res.pending.length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
+  list.dataset.pending = JSON.stringify(res.pending || []);
+  ownerNamesEl_("owner-names-waiting").textContent = (res.pending || []).length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
 }
-async function saveOwnerNames_(names) {
-  const err = ownerNamesEl_("owner-names-error");
-  err.textContent = "";
-  try { renderOwnerNames_(await callApi("saveOwnerNames", { names })); return true; }
-  catch (e) { err.textContent = e.message; return false; }
+// A name looks like a person's: 2–5 words of letters (the server checks the same rule; this only saves a round trip).
+function ownerNameLooksReal_(name) {
+  const w = String(name).trim().split(/\s+/);
+  return /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .-]+$/.test(name) && w.length >= 2 && w.length <= 5 && w.every((x) => x.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "").length >= 2);
+}
+// The list changes on screen AT ONCE; the save runs in the background (one at a time, in order) with a small spinner, and the
+// list goes back to what the server has only if the save fails.
+let ownerNamesSaves_ = Promise.resolve(), ownerNamesOpen_ = 0;
+function saveOwnerNames_(names) {
+  const list = ownerNamesEl_("owner-names-list"), status = ownerNamesEl_("owner-names-status");
+  const before = { names: JSON.parse(list.dataset.names || "[]"), pending: JSON.parse(list.dataset.pending || "[]") };
+  ownerNamesEl_("owner-names-error").textContent = "";
+  renderOwnerNames_({ names, pending: before.pending });
+  ownerNamesOpen_++;
+  status.hidden = false;
+  ownerNamesSaves_ = ownerNamesSaves_.then(async () => {
+    try {
+      const res = await callApi("saveOwnerNames", { names });
+      if (ownerNamesOpen_ === 1) renderOwnerNames_(res);   // the last save in the queue: show what the server really has
+    } catch (e) {
+      ownerNamesEl_("owner-names-error").textContent = e.message;
+      if (ownerNamesOpen_ === 1) renderOwnerNames_(before);
+    } finally {
+      ownerNamesOpen_--;
+      if (!ownerNamesOpen_) status.hidden = true;
+    }
+  });
+  return ownerNamesSaves_;
 }
 async function openOwnerNamesModal_() {
   ownerNamesEl_("owner-names-error").textContent = "";
@@ -6896,19 +7311,21 @@ async function openOwnerNamesModal_() {
 document.getElementById("more-owner-names-btn").addEventListener("click", openOwnerNamesModal_);
 ownerNamesEl_("owner-names-close").addEventListener("click", () => { ownerNamesEl_("owner-names-backdrop").hidden = true; });
 ownerNamesEl_("owner-names-backdrop").addEventListener("click", (e) => { if (e.target.id === "owner-names-backdrop") e.target.hidden = true; });
-ownerNamesEl_("owner-names-add-btn").addEventListener("click", async () => {
+ownerNamesEl_("owner-names-add-btn").addEventListener("click", () => {
   const input = ownerNamesEl_("owner-names-input");
   const name = input.value.trim();
   if (!name) return;
+  if (!ownerNameLooksReal_(name)) { ownerNamesEl_("owner-names-error").textContent = tr("ownerNames.badName", { name }); return; }
   const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
-  if (await saveOwnerNames_(names.concat([name]))) input.value = "";
+  input.value = "";
+  saveOwnerNames_(names.concat([name]));
 });
-ownerNamesEl_("owner-names-list").addEventListener("click", async (e) => {
+ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-owner-name-remove]");
   if (!btn) return;
   const names = JSON.parse(ownerNamesEl_("owner-names-list").dataset.names || "[]");
   names.splice(Number(btn.dataset.ownerNameRemove), 1);
-  await saveOwnerNames_(names);
+  saveOwnerNames_(names);
 });
 
 // Release number at the bottom of the More tab.
@@ -7201,6 +7618,63 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
 
+// ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
+
+async function showNotautoScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-notauto"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  const list = document.getElementById("notauto-list");
+  list.textContent = "…";
+  try {
+    renderNotauto_(await callApi("getManualGaps", {}));
+  } catch (err) {
+    list.textContent = err.message || String(err);
+  }
+}
+
+function renderNotauto_(data) {
+  const kinds = data.kinds || [];
+  const unread = data.unread || [];
+  document.getElementById("notauto-empty").hidden = kinds.length > 0 || unread.length > 0;
+  document.getElementById("notauto-unread").hidden = !unread.length;
+  document.getElementById("notauto-unread-list").innerHTML = unread.map((u) => {
+    const meta = tr("notauto.unread.count", { n: u.count }) + " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) });
+    return `<div class="more-list-item" style="display:block;">
+      <strong>${escapeHtml(u.subject || u.sender)}</strong>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.unread." + u.kind))}</div>
+      ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
+    </div>`;
+  }).join("");
+  const share = document.getElementById("notauto-share");
+  share.hidden = !(data.owner && data.manualShare && data.manualShare.total);
+  if (!share.hidden) {
+    share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
+  }
+  document.getElementById("notauto-list").innerHTML = kinds.map((k) => {
+    const totals = data.owner && k.totals
+      ? Object.keys(k.totals).map((cur) => `${escapeHtml(cur)} ${moneyFmt(k.totals[cur])}`).join(" · ")
+      : "";
+    const meta = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
+      + (totals ? " · " + totals : "");
+    return `<div class="more-list-item" style="display:block;">
+      <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+    </div>`;
+  }).join("");
+}
+
+// "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
+document.getElementById("notauto-unread-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".notauto-send");
+  if (btn) openBankSampleModal_({ sender: btn.dataset.sender });
+});
+document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
+document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));
+
 // ---- Performance log screen (More tab) ----
 
 function showPerfScreen() {
@@ -7309,6 +7783,7 @@ async function refreshExchangeRates() {
 // last 4 digits — the app never asks for a full number.
 
 const PM_TYPES_ = ["credit", "debit", "cash", "transfer", "wallet"];
+let accountsHiddenOpen_ = false; // the "Hidden accounts" group on the accounts screen starts collapsed
 let pmModalState = null; // { id } while the window is open; id is null when adding
 
 function showAccountsScreen() {
@@ -7328,16 +7803,10 @@ function renderAccountsList_() {
   fillBankNote_(document.getElementById("accounts-bank-note"), rows.filter((pm) => pm.type === "credit" || pm.type === "debit").map((pm) => bankName(pm.bank_id)));
   // Three groups (owner, 2026-10-19): bank accounts + credit cards, wallets + cash + transfer, investment platforms.
   const groupOf = (pm) => (pm.type === "investment" ? "platform" : pm.type === "credit" || pm.type === "debit" ? "bank" : "wallet");
-  ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => groupOf(pm) === g).forEach((pm, i) => {
-    if (i === 0) {
-      const head = document.createElement("h3");
-      head.className = "accounts-group-title";
-      head.textContent = tr(`accounts.group.${g}`);
-      list.appendChild(head);
-    }
+  const addRow_ = (pm, parent) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "");
-    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id), pmHidden_(pm) ? tr("accounts.hiddenTag") : ""].filter(Boolean).join(" · ");
+    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
@@ -7346,8 +7815,32 @@ function renderAccountsList_() {
       <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
     `;
     row.addEventListener("click", () => openPmModal_(pm));
-    list.appendChild(row);
+    parent.appendChild(row);
+  };
+  ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => !pmHidden_(pm) && groupOf(pm) === g).forEach((pm, i) => {
+    if (i === 0) {
+      const head = document.createElement("h3");
+      head.className = "accounts-group-title";
+      head.textContent = tr(`accounts.group.${g}`);
+      list.appendChild(head);
+    }
+    addRow_(pm, list);
   }));
+  // Hidden accounts live in their own collapsed group at the bottom (owner, 2026-10-23).
+  const hiddenRows = rows.filter(pmHidden_);
+  if (hiddenRows.length) {
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "accounts-group-title accounts-hidden-toggle";
+    const box = document.createElement("div");
+    box.hidden = !accountsHiddenOpen_;
+    const paint = () => { head.textContent = `${accountsHiddenOpen_ ? "▾" : "▸"} ${tr("accounts.group.hidden")} (${hiddenRows.length})`; };
+    head.addEventListener("click", () => { accountsHiddenOpen_ = !accountsHiddenOpen_; box.hidden = !accountsHiddenOpen_; paint(); });
+    paint();
+    hiddenRows.forEach((pm) => addRow_(pm, box));
+    list.appendChild(head);
+    list.appendChild(box);
+  }
 }
 
 function fillPmBankOptions_(selectedId) {

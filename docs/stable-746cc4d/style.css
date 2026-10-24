@@ -1,0 +1,2719 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #e5e5ea;
+  --accent: #0071e3;
+  --expense: #d64545;
+  --income: #2e9e5b;
+  --investment: #7a5af5;
+  --transfer: #8a8a8e;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Sits above everything else in the app, including modals (the highest,
+   the rate modal, is 270) — a running instance can have any of those open
+   when a new version becomes available. */
+button.update-banner {
+  /* it is a real button now (so screen readers can find and press it) */
+  border: 0;
+  width: 100%;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: var(--accent);
+  color: white;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* A background entry-edit save failed — see "Background entry-edit
+   saving" in app.js. Same fixed/always-visible treatment as the update
+   banner above (and the same top:0 default — renderSaveFailedBanner_
+   pushes it down when both happen to be showing), but a warning color so
+   it reads as "needs your attention" rather than routine. */
+.save-failed-banner {
+  background: var(--expense);
+}
+
+.pull-refresh-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-100%);
+  z-index: 200;
+  pointer-events: none;
+}
+
+.pull-refresh-indicator #pull-refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 1.1rem;
+  color: var(--accent);
+  transition: transform 0.15s ease;
+}
+
+.pull-refresh-indicator.ready #pull-refresh-icon {
+  transform: rotate(180deg);
+}
+
+.pull-refresh-indicator.refreshing #pull-refresh-icon {
+  animation: pull-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes pull-refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+header {
+  padding: 20px 16px 8px;
+  text-align: center;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.type-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.type-tab {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 8px 4px;
+  /* 44px is Apple's minimum comfortable tap size; centred so the label stays put. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.type-tab.active[data-type="expense"] { background: var(--expense); color: white; border-color: var(--expense); }
+.type-tab.active[data-type="income"] { background: var(--income); color: white; border-color: var(--income); }
+.type-tab.active[data-type="investment"] { background: var(--investment); color: white; border-color: var(--investment); }
+.type-tab.active[data-type="transfer"] { background: var(--transfer); color: white; border-color: var(--transfer); }
+
+.overview-type-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 4px; }
+
+/* ---- Bottom nav / screens ---- */
+
+.screen { display: block; }
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 150;
+}
+
+.nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 4px;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.nav-btn { min-width: 0; }
+.nav-btn .nav-icon { font-size: 1.2rem; }
+/* All six labels share one size and shrink together with the phone's width
+   (vw), so the longest word in each language ("Presupuestos"/"Proyecciones"
+   in Spanish, "Projections" in English) keeps a gap from its neighbour down
+   to a 320px phone. The rem value only caps the size on wider screens.
+   Spanish words are longer, hence its smaller ratio. */
+.nav-btn { font-size: min(0.7rem, 2.45vw); margin: 6px 0; }
+html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
+.nav-btn > span:last-child { white-space: nowrap; }
+
+.nav-btn.active {
+  color: var(--accent);
+  background: var(--bg);
+}
+
+/* ---- Period selector ---- */
+
+.period-selector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+
+.period-nav-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 1.1rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+#period-label { min-width: 140px; text-align: center; }
+
+/* Month/Year: the label opens the quick picker (a small ▾ says so). */
+#period-label.tappable,
+#drilldown-subtitle.tappable {
+  cursor: pointer;
+}
+#period-label.tappable::after,
+#drilldown-subtitle.tappable::after {
+  content: " ▾";
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.period-picker-year {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.period-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.period-picker-cell {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.period-picker-cell.now { border-color: var(--accent); }
+.period-picker-cell.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.period-type-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.period-type-chip {
+  /* The four buttons share the full row equally (owner's request); min-width
+     keeps a label from ever being squeezed, and the row still scrolls if a
+     very narrow screen can't fit them. */
+  flex: 1 1 0;
+  min-width: max-content;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 999px;
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.period-type-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ---- Overview summary ---- */
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.summary-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.summary-value.income { color: var(--income); }
+.summary-value.expense { color: var(--expense); }
+.summary-value.investment { color: var(--investment); }
+
+/* ---- Breakdown pie charts ---- */
+
+.breakdown-section { margin-top: 20px; }
+
+.breakdown-section h3 {
+  font-size: 0.9rem;
+  margin: 0 0 10px;
+}
+
+.pie-chart-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 1;
+  margin: 8px auto 4px;
+}
+
+.pie-chart {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 66%;
+  height: 66%;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.pie-outside-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.pie-outside-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.pie-outside-pct {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--card);
+  padding: 1px 5px;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
+
+.pie-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.legend-row:active {
+  background: var(--bg);
+}
+
+/* Overview pie-chart legend's round color dot — the drill-down chart's
+   OWN legend (Actual/Projected line-color key) uses the differently-named
+   .chart-legend-swatch instead of reusing this one, on purpose: a shared
+   class name here once caused the drill-down's thin 14px-by-2px line
+   swatch to silently override this circle (later rule, same specificity,
+   same class name wins the cascade), flattening every pie legend dot on
+   the Overview tab into a thin bar. */
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.legend-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.legend-name {
+  font-size: 0.8rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.legend-percent {
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 12px 0 4px;
+}
+
+input, select, textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1rem;
+  background: white;
+  color: var(--text);
+  font-family: inherit;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"] {
+  /* iOS Safari renders its own control chrome behind the box unless the
+     native appearance is fully stripped, which looks like a doubled
+     border/shadow offset from our own box. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.row > div {
+  min-width: 0;
+}
+
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+#split-detail,
+#recurring-split-detail {
+  margin-top: 14px;
+}
+
+#repayment-detail {
+  margin-top: 14px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  /* The blanket `input, select, textarea` rule above strips every input's
+     native appearance (including a checkbox's checkmark/fill) and nothing
+     here ever restored one — the checkbox's checked state was always set
+     correctly in JS, it just had no visual way to show it. Restoring
+     native rendering (tinted via accent-color) is the simplest fix that's
+     guaranteed to render a real checked/unchecked distinction. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.tag-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background: white;
+}
+
+.tag-chip.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.split-row-name {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.split-row input {
+  width: 110px;
+  text-align: right;
+}
+
+.loan-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.loan-row:last-child { border-bottom: none; }
+
+.loan-row-name {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.loan-row-amount {
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.loan-row-amount.owed-to-me { color: var(--income); }
+.loan-row-amount.i-owe { color: var(--text); }
+
+.loan-detail-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.loan-detail-row:last-child { border-bottom: none; }
+
+.loan-detail-row.editable { cursor: pointer; }
+
+.loan-detail-row-chevron {
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.loan-detail-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.loan-detail-row-desc {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.loan-detail-row-amount {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.loan-detail-row-amount.owed-to-me { color: var(--income); }
+.loan-detail-row-amount.i-owe { color: var(--text); }
+
+.loan-detail-row-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+#record-repayment-btn {
+  display: block;
+  margin: 8px 0 4px;
+}
+
+.loan-detail-forgive-btn {
+  display: block;
+  margin-top: 4px;
+}
+
+.loan-detail-paid-toggle {
+  display: block;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.add-inline {
+  font-size: 0.8rem;
+  color: var(--accent);
+  cursor: pointer;
+  /* text links were 25-27px tall; 44px is the comfortable minimum for a thumb */
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 8px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px 10px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.category-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.category-tile-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.category-tile-name {
+  font-size: 0.7rem;
+  text-align: center;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.category-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+
+.category-banner-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.category-banner span:nth-child(2) {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.category-banner .add-inline {
+  padding: 4px 0;
+}
+
+#investment-direction-field {
+  margin-top: 12px;
+}
+
+button.primary {
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary:disabled {
+  opacity: 0.5;
+}
+
+button.primary.danger {
+  background: var(--expense);
+}
+
+#erase-confirm-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+}
+
+.edit-mode-banner {
+  background: #fff4d6;
+  border: 1px solid #f0d38a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+}
+
+.delete-entry-btn,
+.cancel-edit-btn {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--expense);
+  border-radius: 12px;
+  background: white;
+  color: var(--expense);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel-edit-btn {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.entry {
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+/* Statements screen: the app is working on something. A small ring that turns, and what it is doing, where the person tapped. */
+.stmt-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.stmt-spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: stmt-spin 0.8s linear infinite;
+}
+@keyframes stmt-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stmt-spinner { animation-duration: 3s; } }
+
+/* Standalone status line between cards (see review-check-status in
+   index.html) — same muted look as .hint, but its own spacing since it
+   isn't nested inside a .card. */
+.review-check-status {
+  margin: -4px 0 16px;
+  padding: 0 4px;
+}
+
+.currency-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  margin-top: 6px;
+}
+
+.currency-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.currency-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.currency-chip.more {
+  color: var(--muted);
+}
+
+.currency-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  /* Above the bottom nav (150) and pull-refresh indicator (200) — otherwise
+     the nav bar's opaque background sits on top of the sheet's bottom edge
+     and it reads as never finishing its slide-up. */
+  z-index: 250;
+}
+
+/* Stacks on top of the drill-down sheet (250) — editing shouldn't have to
+   close the drill-down to get there. */
+.edit-entry-modal-backdrop {
+  z-index: 260;
+}
+
+/* Same reason as edit-entry-modal-backdrop: a budget's edit form opens
+   from its drill-down's ⋮ menu, and needs to sit above it. */
+.budget-modal-backdrop {
+  z-index: 260;
+}
+
+/* Can be triggered from inside the entry form OR the budget form, both of
+   which can themselves already be stacked over a drill-down (260) — needs
+   to sit above whichever of those happens to be open underneath it. */
+.rate-modal-backdrop {
+  z-index: 270;
+}
+
+.rate-equation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.rate-equation-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rate-equation-eq {
+  color: var(--muted);
+}
+
+.rate-equation input {
+  flex: 1;
+  min-width: 0;
+}
+
+.drilldown-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drilldown-header-left #drilldown-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Smaller than the main period selector's own nav buttons — this header
+   already has the title plus a ⋮ menu and ✕ competing for space. */
+.drilldown-header-left .period-nav-btn {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.drilldown-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drilldown-menu-wrap {
+  position: relative;
+}
+
+.drilldown-menu-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.drilldown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  min-width: 170px;
+  z-index: 10;
+}
+
+.drilldown-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.drilldown-menu-item:first-child {
+  border-top: none;
+}
+
+.drilldown-menu-item.delete {
+  color: var(--expense);
+}
+
+.edit-entry-modal-body {
+  overflow-y: auto;
+  margin-top: 10px;
+  /* Without these, a flex child's default minimum size can keep it from
+     ever shrinking below its own content height, so overflow-y: auto
+     never gets the chance to actually kick in — the form just gets
+     clipped by the modal's max-height with no way to reach the rest. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The moved-in entry card already sits inside this sheet's own white
+   surface — its own card chrome would just double up. */
+.edit-entry-modal-body .card {
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.currency-modal {
+  background: var(--card);
+  width: 100%;
+  max-width: 480px;
+  max-height: 75vh;
+  /* iOS Safari's "vh" is sized against the largest possible viewport
+     (browser chrome hidden), not what's actually visible right now —
+     "dvh" tracks the real visible height, so the sheet can't end up
+     taller than the screen actually showing it. Harmless no-op on
+     browsers that don't support dvh; they just keep using vh above. */
+  max-height: 75dvh;
+  border-radius: 18px 18px 0 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* Dragging up from the drill-down's header (see setupDrilldownExpand in
+   app.js) expands it to fill the screen instead of staying capped at 75%
+   — useful for a long transaction list or a budget with many categories.
+   Scoped to the drill-down's own id, not the shared .currency-modal class,
+   so it doesn't affect the currency picker/entry/budget/rate sheets. */
+#drilldown-modal-inner {
+  transition: max-height 0.22s ease;
+}
+
+body.sheet-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.currency-modal.expanded {
+  max-height: 100vh;
+  max-height: 100dvh;
+  height: 100dvh;
+  border-radius: 0;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+}
+
+.currency-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 12px;
+  position: relative;
+  /* Room above the title for the grab bar below. */
+  margin-top: 8px;
+}
+
+/* The grey "you can drag me" bar at the top of every sheet. It is part of
+   the header, so touching it drags the sheet like the rest of the header. */
+.currency-modal-header::before {
+  content: "";
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  width: 40px;
+  height: 5px;
+  margin-left: -20px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.currency-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.currency-option-list {
+  overflow-y: auto;
+  margin-top: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.currency-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 6px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.currency-option:last-child {
+  border-bottom: none;
+}
+
+.currency-option-flag {
+  font-size: 1.3rem;
+}
+
+.currency-option-code {
+  font-weight: 600;
+  width: 44px;
+  flex-shrink: 0;
+}
+
+.currency-option-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.entry-list h2,
+.review-queue h2 {
+  font-size: 1rem;
+  margin: 4px 0 10px;
+}
+
+.review-queue {
+  border: 1px solid #f5c518;
+  background: #fffdf5;
+}
+
+.review-item {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.review-item:last-child {
+  border-bottom: none;
+}
+
+.review-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.review-item-desc {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.review-item-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.review-item-amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-item-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.review-item-fields select,
+.review-item-fields input {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+.review-item-fields .review-category {
+  grid-column: 1 / -1;
+}
+
+.review-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.review-item-actions button {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.review-confirm-btn {
+  background: var(--income);
+  color: white;
+}
+
+.review-discard-btn {
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border) !important;
+}
+
+.review-item-actions button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.review-item-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+}
+
+.review-item-secondary-actions .add-inline {
+  padding: 12px 2px;
+}
+
+.entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.entry:last-child { border-bottom: none; }
+
+.entry-left { flex: 1; min-width: 0; }
+
+.entry-category {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.entry-desc {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.entry-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.entry-tag {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+/* A background edit to this specific entry is saving, or failed — see
+   applyQueuedEditOverlay_/buildEntryRow_ in app.js. */
+.entry-queue-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.entry-queue-failed {
+  color: var(--expense);
+  font-weight: 600;
+}
+
+.entry-amount {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+.entry-amount .primary-amt {
+  font-weight: 600;
+}
+
+.entry-amount .primary-amt.withdrawal-amt { color: var(--income); }
+
+.entry-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ---- "Expected this month" (Entries tab) ---- */
+
+.expected-recurring-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.expected-recurring-group:last-child { border-bottom: none; }
+
+.expected-recurring-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.expected-recurring-summary-label {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.expected-recurring-amount {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+.expected-recurring-amount .primary-amt { font-weight: 600; }
+
+.expected-recurring-amount.income .primary-amt { color: var(--income); }
+
+.expected-recurring-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.expected-recurring-detail {
+  padding-bottom: 10px;
+}
+
+/* One bordered box per programmed item: the item's line and its two buttons
+   together, so a button is clearly that item's. */
+.expected-recurring-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 8px 10px 10px;
+  margin-bottom: 8px;
+}
+
+.expected-recurring-entry.overdue { border-color: #e0932a; }
+
+.expected-recurring-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0 8px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+/* Programmed income is masked until "Show income amounts" is tapped. */
+.sens-real { display: none; }
+.sens-mask { letter-spacing: 1px; }
+body.income-revealed .sens-real { display: contents; }
+body.income-revealed .sens-mask { display: none; }
+.income-toggle-btn { margin: 4px 0 8px; }
+
+/* General rule: wherever a row pairs a label with an amount, the amount
+   never wraps — it shrinks the label instead, not itself. A long label
+   next to a short amount otherwise squeezes the amount just as easily as
+   the label, wrapping "USD 6.50" onto its own line for no reason. */
+.expected-recurring-item-label {
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.expected-recurring-item-amount {
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* A shared item: "Total ..." goes small and grey under the owner's own share. */
+.expected-recurring-item-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Its usual day has already passed this month with nothing confirmed yet
+   — same look either way (email hasn't arrived, or it's just late), just
+   a heads-up that it's worth a second look. */
+.expected-recurring-item.overdue .expected-recurring-item-amount {
+  color: #e0932a;
+  font-weight: 600;
+}
+
+.expected-recurring-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.expected-recurring-actions button {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  color: var(--accent, #0a66d6);
+  cursor: pointer;
+}
+
+.skipped-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.85rem;
+}
+
+.type-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.entry-cat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.type-dot[data-type="expense"] { background: var(--expense); }
+.type-dot[data-type="income"] { background: var(--income); }
+.type-dot[data-type="investment"] { background: var(--investment); }
+.type-dot[data-type="transfer"] { background: var(--transfer); }
+
+/* ---- Budgets ---- */
+
+.budgets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.budgets-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* "Owes you" sits inside .budgets-header (for the "+ Add loan" button)
+   and inherits its 1rem h2 size above — "You owe" and "Needs an exchange
+   rate" are plain h2s in their own cards and would otherwise render at
+   the browser's larger default, reading as a bigger heading for no
+   reason. Matched here so all three are the same size. */
+#screen-loans h2 {
+  font-size: 1rem;
+}
+
+.budget-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.budget-row:last-child { border-bottom: none; }
+
+.budget-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+/* The category list for a multi-category budget's drill-down — moved here
+   from the budget row itself (see openBudgetDrilldown in app.js), which
+   got unreadably packed for a budget spanning many categories. Shown on
+   demand once the budget is actually opened, instead of always inline. */
+#drilldown-categories {
+  margin-top: -6px;
+  line-height: 1.5;
+}
+
+/* Only the header (icon/title/⋮/✕) stays pinned — the subtitle, category
+   list, and transactions all scroll together as one region, so a long
+   category list doesn't permanently eat into the space available for the
+   actual transaction list underneath it. */
+#drilldown-scroll-area {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* #drilldown-list reuses .currency-option-list's look, but that class's
+   own scroll/flex rules were written for when IT is the directly-scrolling
+   element (the plain currency picker) — here it's nested one level inside
+   #drilldown-scroll-area instead, which already owns the single scroll
+   region, so those are reset to plain block behavior to avoid a second,
+   nested scrollbar. */
+#drilldown-scroll-area .currency-option-list {
+  overflow-y: visible;
+  flex: initial;
+  min-height: auto;
+}
+
+.budget-row-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.budget-row-period {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.budgets-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+}
+
+.budgets-summary-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.budgets-summary-value {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.budgets-summary-value.income { color: var(--income); }
+
+/* Loans tab section totals — one line per currency, right-aligned. */
+.loan-total-values {
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.loan-total-values.income { color: var(--income); }
+
+.budget-progress-track {
+  background: var(--bg);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.budget-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.budget-progress-fill.warn { background: #e0932a; }
+.budget-progress-fill.over { background: var(--expense); }
+
+.budget-row-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.budget-row-pct {
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.budgets-summary-fx {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.budgets-summary-fx div + div {
+  margin-top: 2px;
+}
+
+.budgets-summary-overlap {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: #B8860B;
+}
+
+.budgets-summary-overlap div + div {
+  margin-top: 4px;
+}
+
+.budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
+
+.budget-period-tabs .type-tab.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* Programmed items' Frequency tabs: Monthly/Yearly/One-time — three short
+   labels fit one row fine, unlike Budgets' own two-tab Monthly/Yearly
+   period selector that .budget-period-tabs above is really styled for. */
+#recurring-frequency-tabs { grid-template-columns: repeat(2, 1fr); }   /* four options (with "Other"): two rows, "One-time" is long in Spanish */
+
+/* "Repeats every [number] [days|weeks|months|years]" */
+.interval-row { display: flex; gap: 8px; align-items: center; }
+.interval-row input { width: 88px; flex: 0 0 auto; }
+.interval-row select { flex: 1 1 auto; min-width: 0; }
+
+/* This never had a scroll rule at all — unlike the other bottom-sheet
+   forms, the budget form's content (now a full category chip grid on top
+   of the rest) can genuinely exceed the modal's max-height, and without
+   this, the bottom of the form (Period, thresholds, Save/Delete) is
+   simply clipped with no way to reach it. */
+.budget-modal-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.budget-modal-body .primary { margin-top: 18px; }
+
+.setup-screen {
+  max-width: 400px;
+  margin: 60px auto;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.setup-screen h2 { margin: 0 0 10px; }
+#setup-code-block { margin-top: 28px; }
+.install-steps { text-align: left; padding-left: 22px; line-height: 1.5; }
+.install-steps li { margin: 8px 0; }
+#install-block a { color: var(--muted); }
+.paste-manual { margin-top: 18px; text-align: left; }
+.paste-manual summary { cursor: pointer; color: var(--muted); }
+.paste-manual textarea { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
+
+.status-msg {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 20px;
+}
+
+/* ---- Export data screen (More tab) ---- */
+
+.export-option {
+  border-top: 1px solid var(--border);
+  padding: 4px 0 14px;
+  margin-top: 14px;
+}
+
+#export-send-btn { margin-top: 6px; }
+
+/* ---- More tab ---- */
+
+.more-list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  padding: 14px 4px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Three unnamed groups, each its own white card (the grey page shows between). */
+/* divider only between visible neighbours, so a hidden first card leaves no stray line */
+.more-list-item:not([hidden]) ~ .more-list-item:not([hidden]) { border-top: 1px solid var(--border); }
+
+.more-list-chevron {
+  color: var(--muted);
+}
+
+.language-label {
+  display: block;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.app-version {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---- Recurring expenses screen (reuses the budget row's look) ---- */
+
+.recurring-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.recurring-row:last-child { border-bottom: none; }
+
+.recurring-row.inactive { opacity: 0.5; }
+.accounts-group-title { margin: 18px 0 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
+.accounts-group-title:first-child { margin-top: 6px; }
+#recurring-past-toggle { margin-top: 10px; }
+#recurring-past-section { margin-top: 8px; }
+
+.recurring-row-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.recurring-row-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.recurring-row-amount {
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.recurring-row-amount.income .primary-amt { color: var(--income); }
+
+.recurring-row-amount .original-amt {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ---- Projections "By category" 3-line breakdown ---- */
+
+.projection-row-expanded {
+  display: block;
+  cursor: pointer;
+}
+
+.projection-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projection-row-breakdown {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Left-aligned icon/amount/label, not spread to the row's own right edge
+   (changed 2026-09-16) — a fixed-width icon column means the amount
+   lands in the same horizontal spot on every line, of every category, so
+   scanning down a whole "By category" list actually lines the FIGURES
+   up, not just each row's own label/total pairing. */
+.projection-row-breakdown div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.projection-line-icon {
+  display: inline-block;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.projection-line-amount {
+  /* Wide enough for a real 5-figure amount (e.g. "PEN 10,935.06" measures
+     ~110px at this font) — min-width alone doesn't share a column across
+     sibling lines, so a figure that exceeds it grows past the boundary
+     and stops lining up with shorter lines in the same row (found
+     2026-09-22: an income category's "Programmed" line, often a 5-figure
+     salary, drifting right of its own "Actual" line at the old 78px). */
+  min-width: 116px;
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-align: right;
+}
+
+/* ---- "Find past entries" link-candidate list (recurring modal) ---- */
+
+.link-candidate-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.link-candidate-row:last-child { border-bottom: none; }
+
+.link-candidate-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's own checkbox, above — the blanket
+     `input, select, textarea` rule strips native rendering (and forces
+     width:100%) from every input including this one, which without this
+     override showed no visible checked/unchecked distinction at all. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.link-candidate-text { min-width: 0; }
+
+.link-candidate-date {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.link-candidate-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Projections drill-down's "Projected remaining" row ---- */
+
+.drilldown-projection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  cursor: pointer;
+}
+
+/* The period total is the row you tap to set a figure by hand (it looks tappable, like the hand-set row above it). */
+#drilldown-projection-total-row:not([hidden]) {
+  padding: 12px;
+  margin: 6px 0 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#drilldown-projection-total-row > span:last-child {
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+.drilldown-projection-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.drilldown-projection-amount {
+  font-weight: 700;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+
+/* ---- Projections drill-down's "Programmed" / "Expected" split ---- */
+
+.drilldown-projection-split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  font-size: 0.85rem;
+}
+
+.drilldown-projection-split-row.expandable {
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+}
+
+.drilldown-projection-split-row .hint {
+  font-size: 0.7rem;
+}
+
+.drilldown-projection-expandable-detail {
+  padding: 4px 4px 10px;
+  border-top: 1px dashed var(--border);
+}
+
+#drilldown-projection-expected-formula {
+  margin-top: 8px;
+}
+
+.projection-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ---- Budget drill-down line chart ---- */
+
+#drilldown-chart {
+  margin: 4px 0 12px;
+}
+
+#drilldown-chart-svg svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.drilldown-chart-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.chart-legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.legend-actual { background: var(--accent); }
+
+.legend-pace {
+  background: repeating-linear-gradient(to right, var(--muted) 0 4px, transparent 4px 7px);
+}
+
+/* ---- Projections tab (reuses Overview's .summary-grid) ---- */
+
+.projections-breakdown {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.projections-breakdown + .projections-breakdown {
+  margin-top: 4px;
+}
+
+.projections-breakdown:last-child {
+  margin-bottom: 8px;
+}
+
+[hidden] { display: none !important; }
+
+/* ---- Account balances (Overview) ---- */
+.balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.balance-row:last-child { border-bottom: none; }
+
+.balance-row-name { font-size: 0.95rem; color: var(--text); }
+
+.balance-row-amount {
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.balance-row-amount.negative { color: #d64545; }
+
+.balance-row-meta {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.balance-current-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.balance-current-line {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.balance-current-line.negative { color: #d64545; }
+
+.balance-section-title {
+  margin: 20px 0 4px;
+  font-size: 0.95rem;
+}
+
+.balance-form-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.balance-form-row-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.balance-form-row-main input { flex: 1; min-width: 0; }
+.balance-form-row-main select { width: auto; }
+
+.balance-row-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.balance-row-date-label { display: block; margin-top: 8px; }
+
+.balances-totals {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 2px solid var(--border);
+}
+
+.balances-totals-title {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.balances-totals-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  padding: 3px 0;
+}
+
+.balances-totals-line.negative { color: #d64545; }
+
+.review-transfer-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+
+/* ---- Statements screen (More → Statements) ---- */
+
+.stmt-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stmt-row:last-child { border-bottom: none; }
+.stmt-row-main { min-width: 0; }
+.stmt-row-title { font-weight: 600; font-size: 0.95rem; }
+.stmt-row-sub { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+
+.stmt-chip {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--border);
+  white-space: nowrap;
+}
+.stmt-chip.ok { background: #e3f4e6; color: #1e6b32; }
+.stmt-chip.due { background: #fde8e6; color: #a3261c; }
+.stmt-chip.warn { background: #fff1db; color: #8a5300; }
+.stmt-chip.resolved { background: #e3f4e6; color: #1e6b32; }
+
+.stmt-upload-btn {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  border: 1px dashed var(--muted);
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.stmt-result {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.stmt-result-name { font-weight: 600; font-size: 0.85rem; word-break: break-all; margin-bottom: 6px; }
+.stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.9rem; }
+.stmt-verdict.good { color: #1e6b32; }
+.stmt-verdict.warn { color: #9a5b00; }
+.stmt-verdict.bad { color: #a3261c; }
+.stmt-note { margin: 4px 0; font-size: 0.8rem; }
+.stmt-note.warn { color: #9a5b00; }
+.stmt-note.ok { color: #1e6b32; }
+.stmt-note.info { color: var(--muted); }
+.stmt-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; padding: 3px 0; }
+.stmt-kv span:first-child { color: var(--muted); }
+.stmt-kv span:last-child { text-align: right; }
+.stmt-errors { color: #a3261c; font-size: 0.8rem; margin: 8px 0 0; padding-left: 18px; }
+.stmt-lines { margin-top: 10px; }
+.stmt-lines summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.stmt-line {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 8px;
+  font-size: 0.78rem;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stmt-line-date { color: var(--muted); }
+.stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stmt-line-amt.in { color: var(--income); }
+
+.stmt-group { border-top: 1px solid var(--border); padding: 8px 0; }
+.stmt-group summary { cursor: pointer; font-weight: 600; font-size: 0.92rem; padding: 4px 0; }
+.stmt-count {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--border);
+  margin-left: 6px;
+}
+.stmt-line2 { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.stmt-line2 .stmt-line { border-bottom: none; padding-bottom: 0; }
+.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 60px; word-break: break-word; }
+.stmt-pair-title { font-size: 0.85rem; font-weight: 600; padding-top: 4px; }
+.stmt-pair-title + .stmt-line-sub { padding-left: 0; }
+#statement-review-btn { margin-top: 8px; }
+
+.stmt-choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 60px; align-items: center; }
+.stmt-choice {
+  font-family: inherit; font-size: 0.78rem; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
+}
+.stmt-choice.on { background: #e3f4e6; border-color: #1e6b32; color: #1e6b32; font-weight: 600; }
+.stmt-cat { font-family: inherit; font-size: 0.78rem; padding: 5px 6px; max-width: 100%; }
+.stmt-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.stmt-savebar {
+  position: sticky; bottom: 64px; background: var(--card, #fff); border-top: 1px solid var(--border);
+  padding: 10px 0 6px; margin-top: 12px;
+}
+.stmt-save-summary { font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
+.stmt-match-row {
+  display: block; width: 100%; text-align: left; font-family: inherit; font-size: 0.8rem;
+  background: none; border: none; border-bottom: 1px solid var(--border); padding: 10px 4px; cursor: pointer; color: var(--text);
+}
+
+.perf-row { padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.2); }
+.perf-name { font-weight: 600; }
+
+/* Entries-tab search bar */
+.entry-search-card { padding: 10px 12px; position: sticky; top: 0; z-index: 5; }
+.entry-search-row { position: relative; }
+.entry-search-row input { margin: 0; padding-right: 40px; min-height: 44px; }
+.entry-search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; font-size: 16px; padding: 8px 10px;
+  color: var(--muted, #888); cursor: pointer;
+}
+.entry-search-card .hint { margin: 6px 2px 0; }
+.entry-search-row input[type="search"] { -webkit-appearance: none; appearance: none; }
+.entry-search-row input[type="search"]::-webkit-search-cancel-button,
+.entry-search-row input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+
+/* While searching, the Entries tab shows ONLY the search box and its results. */
+#screen-entries.searching > :not(.entry-search-card):not(.search-results-card) { display: none !important; }
+.search-results-card { padding-top: 6px; }
+.search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
+.search-show-more { width: 100%; margin-top: 8px; }
+
+/* "Possible duplicate" note on a review-queue row (see findSameDayTwins_ in Api.gs). */
+.review-dup-warning {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff1e0;
+  color: #8a4b00;
+  font-size: 0.85rem;
+}
+
+/* ---- Split a bill by items ---- */
+.bill-modal { max-height: 92vh; max-height: 92dvh; height: 92dvh; }
+.bill-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
+.bill-item { border-bottom: 1px solid var(--border); padding: 8px 0 10px; }
+.bill-item-line { display: flex; gap: 8px; align-items: center; }
+.bill-item-line input { margin: 0; }
+.bill-item-name { flex: 1 1 auto; min-width: 0; }
+.bill-item-price { flex: 0 0 96px; width: 96px; text-align: right; }
+.bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
+.bill-item .tags-list { margin-top: 8px; }
+.bill-adj .budget-period-tabs { margin: 8px 0 0; }
+.bill-add-row { display: flex; gap: 16px; }
+.bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
+.bill-check-ok { color: #2e8b57; }
+.bill-check-bad { color: #d64545; }
+
+/* Bill sheet: breathing room between the tip choice, its input and the share mode */
+.bill-tabs { margin-bottom: 12px; }
+.bill-tip-input { margin-bottom: 6px; }
+#bill-tip-mode-tabs { margin-top: 12px; }
+.bill-item-discount .bill-item-price { color: #2e8b57; }
+.bill-discount-note { margin: 0; flex: 1 1 100%; }
+.bill-discount-toggle { color: var(--muted); }
+.bill-discount-toggle.selected { color: white; }
+
+.bill-photo-text { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; line-height: 1.35; white-space: pre; overflow: auto; min-height: 140px; }
+.bill-insert-chip { border-style: dashed; color: var(--accent); }
+.install-last { text-align: left; font-weight: 600; margin: 12px 0; }
+
+/* Welcome questions + tour (first open of an app made by the installer; More → How to use the app) */
+.welcome-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg, #fafaf8); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
+.welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
+.welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
+.welcome-choices { display: flex; flex-direction: column; gap: 8px; }
+.welcome-choice { text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
+.welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
+.welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
+.welcome-currencies .welcome-choice { padding: 10px 14px; }
+.welcome-body { font-size: 1.1em; line-height: 1.5; min-height: 6em; }
+.welcome-dots { display: flex; gap: 8px; justify-content: center; margin: 18px 0; }
+.welcome-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border, #d9d9d4); }
+.welcome-dot.active { background: var(--accent, #1f5fbf); }
+.welcome-tour-buttons { display: flex; gap: 10px; margin-top: 18px; }
+/* Back and Next are exactly the same size (Back is the outlined twin of Next). */
+.welcome-tour-buttons button { flex: 1; width: auto; margin: 0; box-sizing: border-box; min-height: 52px; padding: 14px; border-radius: 12px; border: 2px solid transparent; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.welcome-tour-buttons button:not(.primary) { background: transparent; color: var(--accent); border-color: var(--accent); }
+#welcome-continue-btn { width: 100%; margin-top: 12px; }
+.welcome-choice, .currency-chip { touch-action: manipulation; }
+.welcome-currencies .welcome-choice.main { border-color: #d89b00; background: rgba(216, 155, 0, 0.14); font-weight: 700; }
+
+/* Animated mini-app scenes in the welcome tour (tour-scenes.js). They use the app's own colours, so dark mode just works. */
+.ts-stage { position: relative; margin: 16px auto 0; max-width: 320px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ts-phone { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 8px 12px 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); font-size: 12px; overflow: hidden; min-height: 300px; }
+.ts-bar { text-align: center; font-weight: 700; font-size: 13px; padding: 4px 0 8px; }
+.ts-types { display: flex; gap: 6px; margin-bottom: 8px; }
+.ts-pill { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
+.ts-pill.on { background: var(--expense); color: #fff; }
+.ts-field { display: flex; align-items: baseline; gap: 6px; padding: 9px 10px; border: 2px solid var(--border); border-radius: 10px; margin-bottom: 8px; transition: border-color .25s, box-shadow .25s; }
+.ts-field.focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15); }
+.ts-field-label { color: var(--muted); font-size: 11px; }
+.ts-field-value { flex: 1; text-align: right; font-size: 18px; font-weight: 700; min-height: 22px; }
+.ts-field-cur { color: var(--muted); font-weight: 600; font-size: 11px; }
+.ts-chips { display: flex; gap: 6px; margin-bottom: 8px; }
+.ts-chip { flex: 1; text-align: center; padding: 7px 2px; border-radius: 999px; border: 2px solid var(--border); font-size: 10.5px; font-weight: 600; transition: background .25s, border-color .25s, color .25s; white-space: nowrap; }
+.ts-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ts-btn { text-align: center; padding: 10px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; transition: transform .15s, opacity .15s; }
+.ts-btn.pressed { transform: scale(0.95); opacity: 0.85; }
+.ts-list { margin-top: 10px; }
+.ts-list-title { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.ts-row { display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid var(--border); }
+.ts-row-amt { font-weight: 700; text-align: right; }
+.ts-form-clip:not([hidden]) { display: block; height: 272px; overflow: hidden; }
+.ts-form-inner { display: flex; flex-direction: column; gap: 6px; position: relative; transition: transform .7s ease; }
+.ts-row-sub { display: block; font-weight: 400; font-size: 9.5px; color: var(--muted); }
+.ts-check { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 0; }
+.ts-checkbox { width: 15px; height: 15px; border-radius: 4px; border: 2px solid var(--border); box-sizing: border-box; flex: none; transition: background .25s, border-color .25s; }
+.ts-checkbox.on { background: var(--accent); border-color: var(--accent); }
+.ts-split { display: flex; flex-direction: column; gap: 5px; }
+.ts-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.ts-tag { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 10.5px; transition: background .25s, border-color .25s, color .25s; }
+.ts-tag.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ts-row.enter { animation: ts-enter .5s ease both; background: rgba(46, 158, 91, 0.12); }
+@keyframes ts-enter { from { opacity: 0; transform: translateY(-10px); max-height: 0; } to { opacity: 1; transform: none; max-height: 40px; } }
+.ts-budget { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; position: relative; }
+.ts-budget.small { opacity: 0.75; }
+.ts-budget-head { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 8px; }
+.ts-muted { color: var(--muted); font-weight: 500; }
+.ts-track { height: 12px; border-radius: 6px; background: var(--border); overflow: hidden; }
+.ts-fill { height: 100%; width: 0; border-radius: 6px; background: var(--accent); transition: width .7s ease, background .3s; }
+.ts-fill.warn { background: #e0932a; }
+.ts-fill.over { background: var(--expense); }
+.ts-budget-nums { display: flex; justify-content: space-between; margin-top: 7px; }
+.ts-badge { margin-top: 8px; padding: 5px 8px; border-radius: 8px; font-weight: 700; font-size: 11px; opacity: 0; transform: scale(0.9); transition: opacity .3s, transform .3s; min-height: 24px; }
+.ts-badge.show { opacity: 1; transform: none; }
+.ts-badge.warn { background: #fff1db; color: #8a5300; }
+.ts-badge.over { background: #fde7e7; color: #a02727; }
+.ts-finger { position: absolute; top: 0; left: 0; width: 24px; height: 24px; pointer-events: none; opacity: 0; transition: transform .6s ease, opacity .3s; z-index: 2; }
+.ts-finger-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(40, 40, 40, 0.35); border: 2px solid rgba(255, 255, 255, 0.9); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); position: relative; }
+.ts-finger.ts-tap .ts-finger-dot::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--accent); animation: ts-ring .45s ease-out; }
+@keyframes ts-ring { from { transform: scale(0.8); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ts-stage * { transition: none !important; animation: none !important; } }
+
+/* tour scenes, second pass: real flows (entry form, investment, loans, repayment) */
+.ts-phone { height: 352px; min-height: 0; position: relative; }
+.ts-pill.on.income { background: var(--income); }
+.ts-pill.on.investment { background: var(--investment); }
+.ts-pill.on.transfer { background: var(--transfer); }
+.ts-pill { font-size: 10px; padding: 6px 1px; white-space: nowrap; }
+.ts-view[hidden] { display: none; }
+.ts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 2px 0 8px; min-height: 96px; align-content: start; }
+.ts-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px 2px; border-radius: 10px; transition: background .25s, transform .2s; }
+.ts-tile.on { background: rgba(0, 113, 227, 0.14); transform: scale(0.94); }
+.ts-tile-icon { width: 34px; height: 34px; border-radius: 12px; background: #eee; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.ts-tile-name { font-size: 9.5px; font-weight: 600; text-align: center; line-height: 1.15; }
+.ts-form { display: flex; flex-direction: column; gap: 6px; }
+.ts-banner { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; background: var(--bg); font-size: 12px; }
+.ts-change { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 11px; }
+.ts-two { display: flex; gap: 6px; }
+.ts-box { border: 2px solid var(--border); border-radius: 10px; padding: 3px 8px 4px; transition: border-color .25s, box-shadow .25s; min-width: 0; }
+.ts-box.grow { flex: 1; }
+.ts-two > .ts-box:first-child { flex: 1; }
+.ts-box.focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15); }
+.ts-box-label { display: block; color: var(--muted); font-size: 9px; line-height: 1.2; }
+.ts-box-value { display: block; font-size: 12px; font-weight: 700; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-chip.small { padding: 4px 2px; font-size: 10px; }
+.ts-seg { display: flex; gap: 4px; }
+.ts-seg span { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
+.ts-seg span.on { background: var(--accent); color: #fff; }
+.ts-hint { color: var(--muted); font-size: 10.5px; line-height: 1.3; }
+.ts-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.ts-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ts-link { color: var(--accent); font-weight: 600; font-size: 11px; }
+.ts-link.big { font-size: 12.5px; padding: 8px 0; }
+.ts-card-total { display: flex; justify-content: space-between; padding: 4px 0 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ts-pos { color: var(--income); }
+.ts-loanrow { display: flex; justify-content: space-between; padding: 8px 0; }
+.ts-loanrow.enter { animation: ts-enter .5s ease both; background: rgba(46, 158, 91, 0.12); }
+.ts-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--border); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12); padding: 10px 12px 12px; transform: translateY(105%); transition: transform .35s ease; display: flex; flex-direction: column; gap: 6px; z-index: 1; }
+.ts-sheet.show { transform: none; }
+.ts-sheet-head { display: flex; justify-content: space-between; font-size: 13px; padding-bottom: 2px; }
+.welcome-items { margin: 8px 0 0; padding-left: 20px; font-size: 0.95em; line-height: 1.45; }
+.welcome-items li { margin: 3px 0; }
+.welcome-body { min-height: 0; }
+/* Back / Next stay in reach while a long card scrolls */
+.welcome-tour-buttons { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); margin-top: 8px; z-index: 3; }
+/* Overview and bank-review scenes */
+.ts-clip { height: 312px; overflow: hidden; position: relative; }
+.ts-scroll { position: relative; transition: transform .9s ease; }
+.ts-scroll > .ts-card { margin-bottom: 8px; }
+.ts-period { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
+.ts-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.ts-sum-value { display: block; font-size: 14px; }
+.ts-seg span.on.expense { background: var(--expense); }
+.ts-seg span.on.income { background: var(--income); }
+.ts-h3 { font-weight: 700; font-size: 12px; margin: 8px 0 0; }
+.ts-pie-wrap { position: relative; width: 130px; height: 130px; margin: 4px auto; }
+.ts-pie { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 66%; height: 66%; border-radius: 50%; background: var(--bg); }
+.ts-pie-label { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.ts-pie-icon { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+.ts-pie-pct { font-size: 8px; font-weight: 700; background: var(--card); padding: 0 3px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+.ts-legend-row { display: flex; align-items: flex-start; gap: 6px; padding: 5px 4px; border-radius: 8px; transition: background .25s; }
+.ts-legend-row.on { background: rgba(0, 113, 227, 0.14); }
+.ts-legend-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.ts-legend-text { flex: 1; min-width: 0; }
+.ts-legend-name { font-size: 11px; }
+.ts-legend-sub { display: flex; justify-content: space-between; font-size: 9.5px; color: var(--muted); }
+.ts-legend-sub b { color: var(--text); }
+.ts-entry { display: flex; justify-content: space-between; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--border); }
+.ts-entry-cat { font-weight: 600; font-size: 11.5px; }
+.ts-entry-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; line-height: 1; margin-right: 5px; vertical-align: middle; }
+.ts-review { border-color: #f5c518; background: #fffdf5; display: flex; flex-direction: column; gap: 6px; }
+.ts-review-top { display: flex; justify-content: space-between; align-items: baseline; }
+.ts-review .ts-box-value { font-weight: 600; }
+.ts-btn.green { background: var(--income); }
+.ts-btn.ghost { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.ts-btn.grow { flex: 1; padding: 7px 2px; font-size: 11px; }
+.ts-links { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.ts-card.pop { animation: ts-pop .5s ease both; }
+@keyframes ts-pop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.ts-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+/* Welcome step 2: bank accounts (and the Yape / Plin card in Accounts & cards) */
+.wa-banks { display: flex; flex-direction: column; gap: 8px; }
+.wa-bank { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; width: 100%; }
+.wa-bank.has { border-color: var(--income); background: rgba(46, 158, 91, 0.08); }
+.wa-bank-count { color: var(--muted); font-size: 0.9em; font-weight: 600; }
+.wa-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border, #d9d9d4); }
+.wa-account-name { font-weight: 700; }
+.wa-account-sub { color: var(--muted); font-size: 0.9em; }
+.wa-link { background: none; border: none; color: var(--accent); font: inherit; font-weight: 600; padding: 6px; cursor: pointer; }
+#welcome-accounts input[type="text"] { width: 100%; padding: 12px; border: 2px solid var(--border, #d9d9d4); border-radius: 10px; font: inherit; background: var(--card); color: var(--text); }
+.wa-rail { margin: 10px 0; }
+.wa-rail label { display: block; font-weight: 600; margin-bottom: 4px; }
+.wa-rail select { width: 100%; padding: 12px; border: 2px solid var(--border, #d9d9d4); border-radius: 10px; font: inherit; background: var(--card); color: var(--text); }
+#welcome-accounts .welcome-choice { width: 100%; }
+
+/* ---- Trips & events ---- */
+.entry-trip { border-color: var(--accent); color: var(--accent); }
+.trip-total { font-size: 1.6rem; font-weight: 700; margin-top: 4px; }
+.trip-phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.trip-phase { background: var(--bg); border-radius: 10px; padding: 8px 6px; text-align: center; }
+.trip-phase-label { font-size: 0.72rem; color: var(--muted); }
+.trip-phase-value { font-weight: 600; font-size: 0.85rem; margin-top: 2px; }
+.trip-static-row { cursor: default; }
+#entry-trip { width: 100%; }
+.trip-covered-btn { display: block; margin: 4px 0 0 auto; }
+.trip-find-row { cursor: pointer; gap: 10px; }
+.trip-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.trip-find-text { flex: 1 1 auto; min-width: 0; }
+#trip-find-btn { margin-bottom: 8px; }
+#trip-find-box { margin-bottom: 12px; }
+
+/* ---- Projection method picker (2026-10-19) ---- */
+.pmm-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1.5px solid var(--border, #d9dde3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  background: var(--card, #fff);
+  color: var(--text);
+  cursor: pointer;
+  min-height: 44px;
+}
+.pmm-option.selected { border-color: var(--accent); background: rgba(0, 122, 255, 0.08); }
+.pmm-option-name { font-weight: 600; }
+.pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
+.pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+
+/* ---- One calendar for a start and an end date ---- */
+.range-field { width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text, inherit); font: inherit; cursor: pointer; }
+.range-field.empty { color: var(--muted); }
+.range-modal { max-height: 92vh; max-height: 92dvh; overflow-y: auto; }
+.range-nav { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin: 4px 0 8px; font-weight: 600; }
+.range-nav button { background: none; border: none; font-size: 1.25rem; padding: 6px 10px; color: var(--accent); cursor: pointer; }
+.range-weekdays, .range-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+.range-weekdays span { font-size: 0.72rem; color: var(--muted); padding: 4px 0; }
+.range-day { height: 42px; border: none; background: none; font: inherit; color: var(--text, inherit); cursor: pointer; border-radius: 0; }
+.range-day.is-today { font-weight: 700; text-decoration: underline; }
+.range-day.in-range { background: rgba(0, 113, 227, 0.16); }
+.range-day.is-start, .range-day.is-end { background: var(--accent); color: #fff; border-radius: 999px; }
+.range-actions { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+#range-summary { min-height: 2.8em; }   /* room for two lines, so a longer prompt never moves the calendar */
+.range-day { min-width: 0; }
+
+/* tour scenes: More sub-screens (Programmed items, Trips & events) */
+.ts-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 0 6px; }
+.ts-h2 { font-weight: 700; font-size: 14px; margin: 2px 0 6px; }
+.ts-subbody { min-height: 40px; }
+.ts-subbody[hidden] { display: none; }
+.ts-grouptitle { font-weight: 700; font-size: 12px; margin: 6px 0 2px; }
+.ts-right { text-align: right; }
+.ts-detail-title { font-weight: 700; font-size: 15px; }
+.ts-total { font-size: 24px; font-weight: 700; margin: 6px 0 0; }
+.ts-phases { display: flex; gap: 6px; margin: 10px 0 4px; }
+.ts-phase { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+
+/* ---- More → Categories: create / change sheet ---- */
+.cat-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.cat-preview .category-tile-name { font-size: 1rem; }
+.cat-emoji-groups {
+  flex-shrink: 0;
+  height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 10px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+.cat-emoji-group-title {
+  font-size: 0.72rem;
+  opacity: 0.65;
+  margin: 8px 0 2px;
+}
+.cat-emoji-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.cat-emoji-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 1.4rem;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+.cat-emoji-btn.selected { border-color: var(--accent, #4a7bd0); }
+.cat-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.cat-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+}
+.cat-swatch.selected { border-color: var(--accent, #4a7bd0); }
+
+/* Welcome step 3: investment platforms */
+.wp-add { display: flex; gap: 8px; align-items: stretch; }
+.wp-add input { flex: 1; min-width: 0; }
+.wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: 10px; }
+.wp-add input { margin: 0; }
+
+/* "Big picture" scene: a flow chart (SVG) told in 4 numbered steps. Income flows in, Expense and Investment flow out, a Transfer moves money between two accounts. */
+.ts-phone.ts-chart { height: auto; padding: 8px 8px 10px; }
+.ts-chart-svg { width: 100%; height: auto; display: block; }
+.ts-chart-hub { fill: var(--card); stroke: var(--border); stroke-width: 2; }
+.ts-chart-acct { fill: var(--bg); }
+.ts-chart-title { fill: var(--text); font-size: 12px; font-weight: 700; }
+.ts-chart-muted { fill: var(--muted); font-size: 10.5px; }
+.ts-chart-num { fill: var(--text); font-size: 13px; font-weight: 700; }
+.ts-chart-num.neg { fill: var(--expense); }
+.ts-chart-pill { fill: #fff; font-size: 11px; font-weight: 600; }
+.ts-chart-pill.b { font-weight: 700; }
+.ts-chart-stem { stroke: var(--transfer); stroke-width: 2; stroke-dasharray: 3 3; }
+.ts-col { transition: transform .8s ease; }
+.ts-col.left { transform: translateX(-86px); }
+.ts-fl { opacity: 0; transition: opacity .5s; }
+.ts-fl.on { opacity: 1; }
+.ts-fl.on.past { opacity: 0.4; }
+.ts-fl-line { stroke-width: 3; stroke-dasharray: 6 5; fill: none; }
+.ts-fl-line.run { animation: ts-dash .45s linear infinite; }
+@keyframes ts-dash { to { stroke-dashoffset: -11; } }
+.ts-blink { animation: ts-blink .9s ease; }
+@keyframes ts-blink { 0% { opacity: 0.15; } 100% { opacity: 1; } }
+.ts-stepdot circle { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+.ts-stepdot text { fill: #fff; font-size: 11px; font-weight: 700; }
+/* Pro tour: split a restaurant bill */
+.ts-phone.ts-billp { height: 400px; }
+.ts-billform { display: flex; flex-direction: column; gap: 8px; }
+.ts-billbtn { text-align: center; padding: 6px 8px; border: 1px dashed var(--border); border-radius: 10px; font-size: 11.5px; font-weight: 600; color: var(--accent); transition: background .25s, transform .15s; }
+.ts-billbtn.small { flex: 1; padding: 4px 5px; font-size: 10px; }
+.ts-billbtn.pressed { transform: scale(0.96); background: rgba(0, 113, 227, 0.12); }
+.ts-bill-adj { display: flex; gap: 5px; }
+.ts-billov { position: absolute; left: 0; right: 0; bottom: 0; top: 30px; background: var(--card); border-top: 1px solid var(--border); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12); padding: 10px 12px 12px; transform: translateY(105%); transition: transform .35s ease; display: flex; flex-direction: column; gap: 6px; z-index: 1; }
+.ts-billov.show { transform: none; }
+.ts-bill-clip { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+.ts-bill-clip .ts-scroll { display: flex; flex-direction: column; gap: 5px; }
+.ts-bill-item:not([hidden]) { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 4px 7px; }
+.ts-bill-line { display: flex; justify-content: space-between; font-size: 11.5px; }
+.ts-bill-price { border-radius: 6px; padding: 0 4px; font-weight: 600; transition: box-shadow .25s; }
+.ts-bill-price.focus { box-shadow: 0 0 0 2px var(--accent); }
+.ts-bill-bad { color: #d64545; font-weight: 600; }
+.ts-bill-res { display: flex; flex-direction: column; gap: 3px; }
+.ts-bill-resrow { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; padding: 3px 0; border-top: 1px solid var(--border); }
+.ts-billp .ts-hint.now, .ts-billp .ts-box.now { background: rgba(0, 113, 227, 0.1); border-radius: 6px; }
+.ts-btn.off { opacity: 0.45; }
+.ts-captions { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12px; line-height: 1.35; }
+.ts-captions li { display: none; gap: 8px; align-items: flex-start; padding: 5px 4px; border-radius: 8px; opacity: 0.6; }
+.ts-captions li.show { display: flex; }
+.ts-captions li.now { opacity: 1; background: rgba(0, 113, 227, 0.1); animation: ts-pop .5s ease both; }
+.ts-stepnum { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.ts-stepper { display: flex; justify-content: center; margin-top: 12px; scroll-margin-bottom: 16px; }
+.ts-step-btn { padding: 11px 26px; border: none; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.ts-step-btn:disabled { opacity: 0.45; cursor: default; }
+@keyframes ts-pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* Welcome tour as a swipeable row of cards (no Next button). Each card scrolls up and down on its own; the bottom bar is fixed. */
+.welcome-overlay.tour-mode { overflow: hidden; }
+.tour-mode .welcome-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding-bottom: 0; }
+#welcome-tour:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tour-track { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.tour-track::-webkit-scrollbar { display: none; }
+.tour-track.fast { scroll-snap-type: none; }
+.tour-slide { flex: 0 0 100%; box-sizing: border-box; height: 100%; min-width: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding-bottom: 16px; scroll-snap-align: start; scroll-snap-stop: always; }
+.tour-done-btn { width: 100%; margin-top: 18px; min-height: 52px; border-radius: 12px; }
+.tour-pro-btn { width: 100%; margin-top: 10px; min-height: 52px; border-radius: 12px; border: 2px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.tour-foot { flex: none; background: var(--bg); padding: 2px 0 calc(8px + env(safe-area-inset-bottom, 0px)); text-align: center; }
+.tour-foot-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; min-height: 40px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.tour-foot-row .add-inline { justify-self: end; padding: 8px 4px; margin: 0; }
+.tour-foot .welcome-dots { margin: 4px 0; }
+.tour-foot .welcome-dot { position: relative; border: none; padding: 0; cursor: pointer; }
+.tour-foot .welcome-dot::after { content: ""; position: absolute; inset: -10px -4px; }
+.tour-hint { margin: 2px 0 0; min-height: 1.3em; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .tour-track { scroll-behavior: auto; } }
+/* Scrubbing the dots (press and hold, slide the finger): the dots swell and a bubble names the card under the finger */
+.tour-foot { position: relative; }
+.tour-foot-row { touch-action: none; }
+.tour-foot .welcome-dots { border-radius: 999px; padding: 6px 12px; transition: transform .18s ease, background .18s ease; }
+.tour-foot .welcome-dot { transition: transform .15s ease, background .15s; }
+.tour-foot-row.scrubbing .welcome-dots { transform: scale(1.4); background: rgba(0, 113, 227, 0.14); }
+.tour-foot-row.scrubbing .welcome-dot.active { transform: scale(1.5); }
+.tour-bubble { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 8px); box-sizing: border-box; padding: 7px 14px; border-radius: 14px; background: var(--text); color: var(--bg); font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); z-index: 5; }
+.tour-bubble[hidden] { display: none; }
+
+/* Statements scene: the review screen told in 7 steps */
+.ts-phone.ts-stmt { height: 372px; }
+.ts-stmt-clip { height: 224px; overflow: hidden; position: relative; }
+.ts-stmt-result { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ts-stmt-card { border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; }
+.ts-stmt-ok { color: #1e6b32; font-weight: 600; font-size: 11px; line-height: 1.3; }
+.ts-sg { border-top: 1px solid var(--border); padding: 6px 0; transition: opacity .4s; }
+.ts-sg.dim { opacity: 0.35; }
+.ts-sg-title { font-weight: 700; font-size: 12px; }
+.ts-stmt-count { display: inline-block; min-width: 18px; text-align: center; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--border); margin-left: 6px; font-weight: 600; }
+.ts-sl { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.ts-sline { display: grid; grid-template-columns: 46px 1fr auto; gap: 6px; font-size: 11px; }
+.ts-sline .out { color: var(--text); }
+.ts-spair { font-size: 11.5px; font-weight: 600; padding-top: 2px; }
+.ts-kv { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 2px 0; }
+.ts-kv span:first-child { color: var(--muted); }
+.ts-schoices { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 0 2px; }
+.ts-schoice { font-size: 10.5px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); transition: background .25s, border-color .25s, color .25s; }
+.ts-schoice.on { background: #e3f4e6; border-color: #1e6b32; color: #1e6b32; font-weight: 600; }
+.ts-scat { margin-top: 3px; font-size: 11px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+.ts-scat.set { color: var(--text); font-weight: 600; }
+.ts-smatch { font-size: 10.5px; padding: 7px 0; border-top: 1px solid var(--border); }
+.ts-stmt-bar { position: absolute; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--border); padding: 6px 12px 10px; display: flex; flex-direction: column; gap: 5px; z-index: 0; }
+.ts-stmt-bar .ts-btn { padding: 8px; font-size: 12px; }
+
+/* Projections scene: totals, a row per category, the category's sheet, the by-hand sheet */
+.ts-phone.ts-proj { position: relative; height: 410px; }
+.ts-proj-clip { height: 346px; overflow: hidden; position: relative; }
+.ts-proj .ts-card { transition: background .3s; }
+.ts-proj .ts-card.now { background: rgba(0, 113, 227, 0.1); }
+.ts-brk { font-size: 9.5px; color: var(--muted); line-height: 1.3; margin-top: 5px; }
+.ts-prow { padding: 6px 4px; border-top: 1px solid var(--border); border-radius: 8px; transition: background .3s; }
+.ts-prow.now { background: rgba(0, 113, 227, 0.1); }
+.ts-prow-top { display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; }
+.ts-pline { display: flex; gap: 6px; font-size: 10.5px; color: var(--muted); padding-top: 2px; }
+.ts-pline-ic { width: 16px; }
+.ts-pline-am { width: 88px; }
+.ts-proj .ts-sheet { top: 40px; overflow: hidden; }
+.ts-pchart { width: 100%; height: 64px; display: block; }
+.ts-pl-actual { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+.ts-pl-proj { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 5 4; }
+.ts-plegend { display: flex; gap: 12px; font-size: 10px; color: var(--muted); }
+.ts-drow { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 4px 4px; border-top: 1px solid var(--border); border-radius: 6px; transition: background .3s; }
+.ts-drow.now { background: rgba(0, 113, 227, 0.1); }
+.ts-drow.edit { padding: 6px 8px; margin-top: 4px; border: 1px dashed var(--border); background: var(--bg); font-weight: 600; }
+.ts-trace { font-size: 10px; color: var(--muted); line-height: 1.35; padding: 2px 4px 4px; display: flex; flex-direction: column; gap: 3px; }
+.ts-trace[hidden] { display: none; }
+
+/* "Preview the welcome flow" (More): a floating way out while the welcome screens run without saving anything. */
+.welcome-preview-exit { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 12px; z-index: 450; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid #c0392b; background: #fff; color: #c0392b; }
+
+/* More scene */
+.ts-more-clip { height: 292px; overflow: hidden; position: relative; }
+.ts-more-group { padding: 2px 10px; margin-bottom: 8px; }
+.ts-more-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; font-size: 12px; transition: background .25s; }
+.ts-more-row + .ts-more-row { border-top: 1px solid var(--border); }
+.ts-more-row.on { background: rgba(0, 113, 227, 0.14); }
+.ts-more-lang { padding: 4px 2px 10px; }
+
+/* "Update available" (a friend's copy): a dot on the More tab */
+.nav-btn { position: relative; }
+body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: absolute; top: 6px; left: calc(50% + 8px); width: 9px; height: 9px; border-radius: 50%; background: var(--expense); }

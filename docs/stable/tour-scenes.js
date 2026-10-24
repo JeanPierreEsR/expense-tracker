@@ -113,11 +113,12 @@
     return { box: b, value: v };
   }
 
-  // The Entries tab: type tabs, a category grid, and (after a category is tapped) the entry form.
+  // The new-entry sheet (opened by the green +): type tabs, a category grid, and (after a category is tapped) the
+  // entry form. Saving closes the sheet, so showForm(p, false) leaves Home with the new entry on top of the list.
   function entriesPhone(stage, ctx, type, form) {
     const tr = ctx.tr;
     const phone = h("div", "ts-phone", null, stage);
-    h("div", "ts-bar", tr("nav.entries"), phone);
+    const bar = h("div", "ts-bar", tr("entry.newTitle"), phone);
     const tabs = {};
     const tabRow = h("div", "ts-types", null, phone);
     ["expense", "income", "investment", "transfer"].forEach((t) => { tabs[t] = h("span", "ts-pill" + (t === type ? " on " + t : ""), tr("type." + t), tabRow); });
@@ -130,7 +131,8 @@
       return tiles;
     };
     let tiles = fillGrid(type);
-    const recent = h("div", "ts-list", null, gridView);
+    const recent = h("div", "ts-list", null, phone);   // Home's list: shown once the sheet has closed
+    recent.hidden = true;
     h("div", "ts-list-title", tr("entries.recent"), recent);
     const rows = h("div", "ts-rows", null, recent);
     const addRow = (name, amt, enter, dot) => {
@@ -147,10 +149,20 @@
     addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48));
     const formView = h("div", "ts-view ts-form", null, phone);
     formView.hidden = true;
-    return { phone, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
+    return { phone, bar, tabRow, recent, tabs, gridView, formView, fillGrid, get tiles() { return tiles; }, set tiles(v) { tiles = v; }, addRow, finger: makeFinger(stage), ctx };
   }
   const typeOn = (p, t) => Object.keys(p.tabs).forEach((k) => { p.tabs[k].className = "ts-pill" + (k === t ? " on " + t : ""); });
-  const showForm = (p, on) => { p.gridView.hidden = on; p.formView.hidden = !on; };
+  const showForm = (p, on) => {
+    p.gridView.hidden = on;
+    p.formView.hidden = !on;
+    if (on) return;
+    // Saved: the sheet closes and Home is what is left, the new entry at the top of its list.
+    p.gridView.hidden = true;
+    p.formView.hidden = true;
+    p.tabRow.hidden = true;
+    p.recent.hidden = false;
+    p.bar.textContent = p.ctx.tr("nav.home");
+  };
   const typing = (el, parts) => parts.map((txt, i) => (inst) => { el.textContent = txt; });
 
   // ---- add an expense or income: type tab -> category -> the form's fields -> Save entry ----
@@ -830,7 +842,7 @@
     build(stage, ctx) {
       const tr = ctx.tr, cur = ctx.home;
       const phone = h("div", "ts-phone ts-billp", null, stage);
-      h("div", "ts-bar", tr("nav.entries"), phone);
+      h("div", "ts-bar", tr("entry.newTitle"), phone);
       const p = { ctx, phone, finger: makeFinger(stage), tipPct: "", total: "", sel: {}, shown: false };
       p.fmt = (cents) => cur + " " + ctx.money(cents / 100);
       // the expense form, behind the sheet
@@ -1034,9 +1046,10 @@
     }
   };
 
-  // ---- More → Statements, told in 7 numbered steps the person advances with "Next step" (the real screens and words; numbers and merchants made up):
-  //      1 read two statements at once (each is checked)   2 Add: a purchase not in the app   3 Match…: the line IS an entry you have
-  //      4 Ignore   5 a transfer between your accounts is found on both statements and paired   6 balance check → Set balance to statement   7 Save (one step, undoable)
+  // ---- More → Statements, told in 6 numbered steps the person advances with "Next step" (the real screens and words; numbers and merchants made up):
+  //      1 read two statements at once, then "Read my statements"   2 the summary: what is added, what is already in the app
+  //      3 payments with people (a Yape): spending by default, or Needs review   4 a transfer between your accounts is found on both statements and recorded once
+  //      5 balances: Set balance to statement   6 Add to my history (one step, undoable)
   SCENES.statements = {
     manual: true,
     build(stage, ctx) {
@@ -1054,13 +1067,12 @@
       h("b", null, tr("stmt.read"), p.a);
       p.choose = h("div", "ts-btn", tr("stmt.choose"), p.a);
       p.results = h("div", "ts-stmt-result", null, p.a);
-      // view B: the review (real order of groups; the steps scroll to the one being explained)
+      // view B: the summary the app shows after reading (real order: summary, people, balances; the steps scroll to the one being explained)
       p.b = h("div", null, null, scroll); p.b.hidden = true;
-      h("div", "ts-stmt-ok", tr("stmt.counts", { lines: 24, inApp: 20, handled: 0, notYet: 4 }), p.b);
       p.groups = {};
       const group = (key, title, count, hint) => {
         const g = h("div", "ts-sg", null, p.b);
-        const t = h("div", "ts-sg-title", title, g); h("span", "ts-stmt-count", String(count), t);
+        const t = h("div", "ts-sg-title", title, g); if (count !== null) h("span", "ts-stmt-count", String(count), t);
         if (hint) h("div", "ts-hint", hint, g);
         p.groups[key] = g; return g;
       };
@@ -1072,8 +1084,20 @@
         return it;
       };
       const chips = (it, labels) => { const row = h("div", "ts-schoices", null, it); return labels.map((l) => h("span", "ts-schoice", l, row)); };
-      // balance check
-      const gBal = group("balance", tr("stmt.group.balance"), 1, tr("stmt.group.balanceHint"));
+      // the summary
+      const gSum = group("sum", tr("hist.ready"), null, null);
+      p.sums = h("div", null, null, gSum);
+      p.sumLine = (text) => h("div", "ts-hint", "• " + text, p.sums);
+      p.sumLine(tr("hist.sum.expenses", { n: 3, total: money(93.5).replace("−", "") }));
+      p.sumLine(tr("hist.sum.transfers", { n: 1 }));
+      p.sumLine(tr("hist.sum.linked", { n: 2 }));
+      // payments with people
+      const gPeople = group("people", tr("hist.people.title", { n: 1 }), null, null);
+      p.peopleItem = line(gPeople, -5, "YAPE-ANA", -20, tr("scene.savings"));
+      [p.peopleSpend, p.peopleReview] = chips(p.peopleItem, [tr("hist.people.spending"), tr("hist.people.review"), tr("hist.people.leave")]);
+      stmtPick(p, p.peopleSpend, "spending");
+      // balances
+      const gBal = group("balance", tr("bal.title", { n: 1 }), null, tr("bal.hint"));
       const bal = h("div", "ts-sl", null, gBal);
       h("div", "ts-spair", tr("scene.savings") + " · " + cur, bal);
       const kv = (a, b) => { const r = h("div", "ts-kv", null, bal); h("span", null, a, r); h("span", null, b, r); };
@@ -1082,36 +1106,18 @@
       kv(tr("stmt.balDiff"), cur + " −368.00");
       h("div", "ts-stmt-ok", tr("stmt.balExplained", { parts: tr("stmt.balNotInApp", { amount: cur + " −368.00", n: 3 }) }), bal);
       p.balChip = chips(bal, [tr("stmt.choice.setBalance")])[0];
-      // transfers between your accounts
-      const gPair = group("pair", tr("stmt.group.pair"), 1, tr("stmt.group.pairHint"));
-      const pair = h("div", "ts-sl", null, gPair);
-      h("div", "ts-spair", tr("scene.savings") + " → " + tr("accounts.type.credit") + " · " + money(300).replace("−", ""), pair);
-      h("div", "ts-hint", fmtMd(-2) + " “CARD PAYMENT” / " + fmtMd(-2) + " “PAYMENT RECEIVED”", pair);
-      p.pairChip = chips(pair, [tr("stmt.choice.record")])[0];
-      // purchases not in the app: Add, Match…, Ignore
-      const gBuy = group("purchase", tr("stmt.group.purchase"), 3, tr("stmt.group.purchaseHint"));
-      p.addItem = line(gBuy, -3, "CAFE LUNA", -48, tr("scene.savings") + " — " + tr("stmt.itemNoSuggestion"));
-      [p.addChip, p.addMatch, p.addIgnore] = chips(p.addItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
-      p.catBox = h("div", "ts-scat", tr("stmt.noCategory"), p.addItem); p.catBox.hidden = true;
-      p.matchItem = line(gBuy, -4, "BODEGA SOL", -25.5, tr("accounts.type.credit") + " — " + tr("stmt.itemNoSuggestion"));
-      [, p.matchChip] = chips(p.matchItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
-      p.matchedTo = h("div", "ts-hint", null, p.matchItem); p.matchedTo.hidden = true;
-      p.ignoreItem = line(gBuy, -5, "YAPE-ANA", -20, tr("scene.savings") + " — " + tr("stmt.itemNoSuggestion"));
-      [, , p.ignoreChip] = chips(p.ignoreItem, [tr("stmt.choice.add"), tr("stmt.choice.match"), tr("stmt.choice.ignore")]);
-      // the Match… pop-up (a sheet over the review)
-      p.sheet = h("div", "ts-sheet", null, phone);
-      // the save bar (sticky at the bottom of the screen once there is a review)
+      // the save bar (sticky at the bottom of the screen once there is a summary)
       p.bar = h("div", "ts-stmt-bar", null, phone); p.bar.hidden = true;
-      p.summary = h("div", "ts-hint", tr("stmt.nothingSelected"), p.bar);
-      p.save = h("div", "ts-btn", tr("stmt.markProcessed"), p.bar);
+      p.summary = h("div", "ts-hint", tr("hist.noCategory"), p.bar);
+      p.save = h("div", "ts-btn", tr("hist.add"), p.bar);
       // the explanations, one more appearing at each step
       p.list = h("ol", "ts-captions", null, stage);
-      p.caps = ["scene.stmt.s1", "scene.stmt.s2", "scene.stmt.s3", "scene.stmt.s4", "scene.stmt.s5", "scene.stmt.s6", "scene.stmt.s7"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
+      p.caps = ["scene.stmt.s1", "scene.stmt.s2", "scene.stmt.s3", "scene.stmt.s4", "scene.stmt.s5", "scene.stmt.s6"].map((key, k) => { const li = h("li", null, null, p.list); h("span", "ts-stepnum", String(k + 1), li); h("span", null, tr(key), li); return li; });
       return p;
     },
     initial(p, ctx) { /* the starting picture is just the empty "Read a statement" screen */ },
     steps: [
-      // 1 — read two statements at once; each one is checked; then Review
+      // 1 — read two statements at once; each one is checked; then Read my statements
       (p, ctx, instant, later) => {
         const tr = ctx.tr;
         stmtStep(p, 1);
@@ -1128,76 +1134,45 @@
             h("div", "ts-stmt-ok", tr("stmt.verdictGood"), c);
             h("div", "ts-hint", tr("stmt.noteAccount", { label: name }), c);
           });
-          p.reviewBtn = h("div", "ts-btn", tr("stmt.reviewButton", { n: 2 }), p.results);
+          p.reviewBtn = h("div", "ts-btn", tr("hist.button"), p.results);
         }, 2200);
         later(() => p.finger.to(p.reviewBtn, instant), 3000);
         later(() => { p.finger.tap(instant); p.reviewBtn.classList.add("pressed"); }, 3500);
         later(() => { p.a.hidden = true; p.b.hidden = false; p.bar.hidden = false; p.finger.hide(); stmtFocus(p, null); }, 3800);
         return 4400;
       },
-      // 2 — Add: a purchase that is not in the app → pick a category → it will land as a pending entry
+      // 2 — the summary: what will be added, what is already in the app (nothing is saved yet)
       (p, ctx, instant, later) => {
-        stmtStep(p, 2); stmtFocus(p, "purchase"); stmtScroll(p, p.groups.purchase);
-        later(() => p.finger.to(p.addChip, instant), 1000);
-        later(() => { p.finger.tap(instant); stmtPick(p, p.addChip, "add"); p.catBox.hidden = false; stmtSummary(p); }, 1500);
-        later(() => p.finger.to(p.catBox, instant), 2300);
-        later(() => { p.finger.tap(instant); p.catBox.textContent = ctx.tr("scene.cat.restaurants"); p.catBox.classList.add("set"); }, 2800);
-        later(() => p.finger.hide(), 3400);
-        return 3600;
+        stmtStep(p, 2); stmtFocus(p, "sum"); stmtScroll(p, p.groups.sum);
+        later(() => p.finger.hide(), 200);
+        return 3200;
       },
-      // 3 — Match…: the line IS an entry you already have: pick it from the list
+      // 3 — payments with people: what you paid is spending by default; one can go to Needs review instead
       (p, ctx, instant, later) => {
-        const tr = ctx.tr;
-        stmtStep(p, 3); stmtFocus(p, "purchase"); stmtScroll(p, p.matchItem, true);
-        later(() => p.finger.to(p.matchChip, instant), 900);
-        later(() => {
-          p.finger.tap(instant);
-          p.sheet.innerHTML = "";
-          const hd = h("div", "ts-sheet-head", null, p.sheet); h("b", null, tr("stmt.whichEntry"), hd);
-          h("div", "ts-hint", fmtMd(-4) + " · BODEGA SOL · " + p.money(-25.5), p.sheet);
-          h("div", "ts-hint", tr("paid.mostSimilar"), p.sheet);
-          p.matchRow = h("div", "ts-smatch", fmtMd(-4) + " · " + tr("scene.cat.groceries") + " · " + p.money(-25.5) + " · " + tr("accounts.type.credit"), p.sheet);
-          h("div", "ts-smatch", fmtMd(-6) + " · " + tr("scene.cat.transport") + " · " + p.money(-6.5), p.sheet);
-          p.sheet.classList.add("show");
-        }, 1400);
-        later(() => p.finger.to(p.matchRow, instant), 2400);
-        later(() => {
-          p.finger.tap(instant); p.sheet.classList.remove("show");
-          stmtPick(p, p.matchChip, "match");
-          p.matchedTo.hidden = false; p.matchedTo.textContent = tr("stmt.matchedTo", { text: fmtMd(-4) + " · " + tr("scene.cat.groceries") + " · " + p.money(-25.5) }).replace(/^<br>/, "");
-          stmtSummary(p);
-        }, 2900);
-        later(() => p.finger.hide(), 3500);
-        return 3700;
+        stmtStep(p, 3); stmtFocus(p, "people"); stmtScroll(p, p.groups.people);
+        later(() => p.finger.to(p.peopleReview, instant), 1000);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.peopleReview, "review"); }, 1600);
+        later(() => p.finger.hide(), 2400);
+        return 2800;
       },
-      // 4 — Ignore: leave the line out; the app remembers it
+      // 4 — a transfer between your accounts: its two sides (one on each statement) are recorded once
       (p, ctx, instant, later) => {
-        stmtStep(p, 4); stmtFocus(p, "purchase"); stmtScroll(p, p.ignoreItem, true);
-        later(() => p.finger.to(p.ignoreChip, instant), 900);
-        later(() => { p.finger.tap(instant); stmtPick(p, p.ignoreChip, "ignore"); stmtSummary(p); }, 1400);
-        later(() => p.finger.hide(), 2100);
-        return 2400;
+        stmtStep(p, 4); stmtFocus(p, "sum"); stmtScroll(p, p.groups.sum);
+        later(() => p.sums.children[1].classList.add("ts-stmt-ok"), 600);
+        return 3200;
       },
-      // 5 — a transfer between your accounts: its two sides (one on each statement) are paired into ONE transfer
+      // 5 — balances: the statement's closing balance against the app's; Set balance to statement
       (p, ctx, instant, later) => {
-        stmtStep(p, 5); stmtFocus(p, "pair"); stmtScroll(p, p.groups.pair);
-        later(() => p.finger.to(p.pairChip, instant), 1000);
-        later(() => { p.finger.tap(instant); stmtPick(p, p.pairChip, "record"); stmtSummary(p); }, 1500);
-        later(() => p.finger.hide(), 2200);
-        return 2600;
-      },
-      // 6 — balance check: the statement's closing balance against the app's; Set balance to statement
-      (p, ctx, instant, later) => {
-        stmtStep(p, 6); stmtFocus(p, "balance"); stmtScroll(p, p.groups.balance);
+        stmtStep(p, 5); stmtFocus(p, "balance"); stmtScroll(p, p.groups.balance);
         later(() => p.finger.to(p.balChip, instant), 1000);
-        later(() => { p.finger.tap(instant); stmtPick(p, p.balChip, "set"); stmtSummary(p); }, 1500);
+        later(() => { p.finger.tap(instant); stmtPick(p, p.balChip, "set"); p.sumLine(ctx.tr("hist.sum.balances", { n: 1 })); }, 1500);
         later(() => p.finger.hide(), 2200);
         return 2600;
       },
-      // 7 — Save: everything chosen is applied at once, and can be undone at once
+      // 6 — Add to my history: everything is applied at once, and can be undone at once
       (p, ctx, instant, later) => {
         const tr = ctx.tr;
-        stmtStep(p, 7); stmtFocus(p, null);
+        stmtStep(p, 6); stmtFocus(p, null);
         later(() => p.finger.to(p.save, instant), 700);
         later(() => { p.finger.tap(instant); p.save.classList.add("pressed"); }, 1300);
         later(() => {
@@ -1222,17 +1197,6 @@
     [...row.children].forEach((c) => { c.classList.remove("on"); c.textContent = c.textContent.replace(/^✓ /, ""); });
     chip.classList.add("on"); chip.textContent = "✓ " + chip.textContent;
     p.sel[key] = true;
-  }
-  // the save bar, as the real one: what the chosen actions will do, and "Save N changes"
-  function stmtSummary(p) {
-    const tr = p.ctx.tr, parts = [];
-    if (p.sel.record) parts.push(tr("stmt.sum.transfer", { n: 1 }));
-    if (p.sel.add) parts.push(tr("stmt.sum.purchase", { n: 1 }));
-    if (p.sel.match) parts.push(tr("stmt.sum.match", { n: 1 }));
-    if (p.sel.set) parts.push(tr("stmt.sum.balance", { n: 1 }));
-    if (p.sel.ignore) parts.push(tr("stmt.sum.ignore", { n: 1 }));
-    p.summary.textContent = parts.join(" · ") || tr("stmt.nothingSelected");
-    p.save.textContent = parts.length ? tr("stmt.saveN", { n: parts.length }) : tr("stmt.markProcessed");
   }
 
   // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
@@ -1465,7 +1429,7 @@
     build(stage, ctx) {
       const tr = ctx.tr;
       const phone = h("div", "ts-phone", null, stage);
-      h("div", "ts-bar", tr("nav.entries"), phone);
+      h("div", "ts-bar", tr("nav.home"), phone);
       const p = { phone, finger: makeFinger(stage), ctx };
       p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
       h("b", null, tr("review.title") + " (1)", p.card);

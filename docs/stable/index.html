@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.25.3"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="0.32.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="a40ff6f93807c906a4b421da268c9ed7c683794c"><meta name="app-pairs" content="746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -31,10 +31,22 @@
     if (!inStable && (preview || (STABLE_ON && !local && flag !== "live"))) {
       location.replace(new URL("stable/", root).href + location.search + location.hash);
     }
+    // Paired screens (specs/review-telegram-email.md § Paired screens): a friend whose own backend is older than the one this copy was tested with keeps the
+    // screens that were tested with THEIR backend (stable-<first 7 letters of the backend version>/, kept by promote.sh) until they tap "Update my app".
+    // app-pin = this copy's backend version, app-pairs = the older ones kept; etBackendRef = the friend's own backend version (written by app.js after getMeta).
+    if (inStable) {
+      try {
+        var meta = function (n) { var m = document.querySelector('meta[name="' + n + '"]'); return (m && m.content) || ""; };
+        var mine = meta("app-pin").slice(0, 7), have = (localStorage.getItem("etBackendRef") || "").slice(0, 7);
+        if (mine && have && have !== mine && !meta("app-archived") && ("," + meta("app-pairs") + ",").indexOf("," + have + ",") >= 0) {
+          location.replace(new URL("stable-" + have + "/", root).href + location.search + location.hash);
+        }
+      } catch (e) { /* no storage: stays on this copy */ }
+    }
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-23T20:57:30Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-24T00:25:42Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -104,6 +116,10 @@
         <div id="search-results"></div>
       </div>
 
+      <!-- The new-entry form's home while no sheet is open. It is moved into the
+           pop-up (#edit-entry-modal-body) for a new entry, an edit or a review
+           confirmation, and back here when that closes. -->
+      <div id="entry-card-home" hidden>
       <div class="card" id="entry-card">
         <div class="type-tabs" id="entry-type-tabs">
           <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
@@ -235,6 +251,12 @@
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
         </form>
+      </div>
+      </div>
+
+      <div class="home-glance" id="home-glance" hidden>
+        <div class="home-glance-track" id="home-glance-track"></div>
+        <div class="home-glance-dots" id="home-glance-dots" hidden></div>
       </div>
 
       <p class="hint review-check-status" id="review-check-status" hidden></p>
@@ -478,6 +500,10 @@
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-notauto-btn">
+            <span data-i18n="more.notauto">✋ Not captured automatically</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-privacy-btn" hidden>
             <span data-i18n="more.privacy">🔒 Privacy</span>
             <span class="more-list-chevron">›</span>
@@ -654,6 +680,24 @@
       </div>
     </div>
 
+    <div id="screen-notauto" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="notauto-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="notauto.title">Not captured automatically</h2>
+        <p class="hint" data-i18n="notauto.hint">Some money movements never reach the app by themselves — no bank email exists for them. This is what you added by hand, by receipt photo, or that only a statement revealed in the last 90 days.</p>
+        <div id="notauto-share" class="hint" hidden></div>
+        <div id="notauto-list"></div>
+        <div id="notauto-unread" hidden>
+          <h3 data-i18n="notauto.unread.title">Bank emails I couldn't read</h3>
+          <p class="hint" data-i18n="notauto.unread.hint">These emails arrived from your bank but the app didn't know their wording, so nothing was added. Only the sender and the wording of the subject are kept, never the amounts or names. Add these movements by hand, and tell JP about them.</p>
+          <div id="notauto-unread-list"></div>
+        </div>
+        <p class="hint" id="notauto-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
+      </div>
+    </div>
+
     <div id="screen-export" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
@@ -724,6 +768,26 @@
         <div id="statement-inbox-list"></div>
       </div>
 
+      <div class="card" id="statement-find-card" hidden>
+        <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look for older statements in Gmail ›</button>
+        <div id="statement-find-body">
+        <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
+        <p class="hint" id="statement-find-start" hidden data-i18n="find.start">Start here: bring in your history. Search once, check the statements you want, and read them. After that, new statements arrive by themselves in the Inbox above.</p>
+        <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
+        <div class="stmt-choices" style="padding-left:0;align-items:center">
+          <label for="statement-find-months" data-i18n="find.period">Look back</label>
+          <select id="statement-find-months">
+            <option value="3" data-i18n="find.m3">3 months</option>
+            <option value="6" data-i18n="find.m6">6 months</option>
+            <option value="12" selected data-i18n="find.m12">12 months</option>
+            <option value="24" data-i18n="find.m24">24 months</option>
+          </select>
+          <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+        </div>
+        <div id="statement-find-results"></div>
+        </div>
+      </div>
+
       <div class="card">
         <h2 style="margin-top:0;" data-i18n="stmt.read">Read a statement</h2>
         <p class="hint" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
@@ -735,20 +799,10 @@
       </div>
 
       <div class="card" id="statement-review-card" hidden>
-        <h2 style="margin-top:0;" data-i18n="hist.choose.title">What do you want to do with these statements?</h2>
-        <div class="stmt-result">
-          <h3 style="margin:0 0 4px;" data-i18n="hist.title">I haven't recorded these months yet</h3>
-          <p class="hint" data-i18n="hist.hint">One tap adds everything the statements show, with no categories or descriptions to fill in. A payment between your own accounts is recorded once. Nothing is saved until you tap the button, and you can undo it in one step.</p>
-          <button type="button" class="primary" id="statement-history-btn" data-i18n="hist.button">📚 Fill my history</button>
-          <div id="statement-history"></div>
-        </div>
-        <p class="hint" style="text-align:center;margin:10px 0;" data-i18n="hist.choose.or">— or —</p>
-        <div class="stmt-result">
-          <h3 style="margin:0 0 4px;" data-i18n="hist.compare.title">I already record my spending in the app</h3>
-          <p class="hint" id="statement-review-hint"></p>
-          <button type="button" class="stmt-choice" id="statement-review-btn" data-i18n="hist.compare.button">Compare with my entries</button>
-          <div id="statement-review"></div>
-        </div>
+        <h2 style="margin-top:0;" data-i18n="hist.title">Read my statements</h2>
+        <p class="hint" data-i18n="hist.hint">One tap shows everything the statements contain: what is already in the app, what would be added, and what each account's balance would become. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
+        <button type="button" class="primary" id="statement-history-btn" data-i18n="hist.button">📚 Read my statements</button>
+        <div id="statement-history"></div>
         <div id="statement-review-status"></div>
       </div>
 
@@ -762,7 +816,7 @@
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button type="button" class="nav-btn active" data-screen="entries">
-      <span class="nav-icon">📝</span><span data-i18n="nav.entries">Entries</span>
+      <span class="nav-icon">🏠</span><span data-i18n="nav.home">Home</span>
     </button>
     <button type="button" class="nav-btn" data-screen="overview">
       <span class="nav-icon">📊</span><span data-i18n="nav.overview">Overview</span>
@@ -780,6 +834,10 @@
       <span class="nav-icon">⋯</span><span data-i18n="nav.more">More</span>
     </button>
   </nav>
+
+  <!-- The round "+" for a new entry: only on Home and Overview (syncFab_ in app.js). -->
+  <button type="button" id="fab-new-entry" class="fab" hidden data-i18n-aria-label="fab.new" aria-label="New entry">+</button>
+  <div id="app-toast" class="app-toast" role="status" hidden></div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
@@ -1102,6 +1160,7 @@
         <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. A name is trusted once two different accounts or banks show it. You can correct the list here.</p>
         <div id="owner-names-list"></div>
         <p class="hint" id="owner-names-waiting"></p>
+        <div class="stmt-loading" id="owner-names-status" role="status" aria-live="polite" hidden><span class="stmt-spinner" aria-hidden="true"></span><span data-i18n="ownerNames.saving">Saving…</span></div>
         <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
         <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
         <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
@@ -1430,11 +1489,7 @@
           <button type="button" class="cancel-edit-btn" id="bs-redo"data-i18n="bankSample.redo">Hide again</button>
           <label for="bs-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="bs-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
-          <label class="checkbox-row">
-            <input type="checkbox" id="bs-confirm">
-            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
-          </label>
-          <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send" disabled>Send to JP</button>
+          <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send">Send to JP</button>
           <button type="button" class="cancel-edit-btn" id="bs-back-3"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-4" hidden>
@@ -1458,26 +1513,11 @@
           <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
           <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
           <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
-          <button type="button" class="primary" id="ss-show" data-i18n="stmtSample.show">Show me what will be sent</button>
-        </div>
-        <div id="ss-step-2" hidden>
-          <p class="hint"><strong data-i18n="stmtSample.previewTitle">This is exactly what JP will receive</strong></p>
-          <p class="hint" id="ss-size"></p>
-          <textarea id="ss-preview" rows="14" spellcheck="false"></textarea>
-          <label for="ss-hide" data-i18n="stmtSample.hideLabel">Anything else to hide everywhere? (a person's name, a shop, your street…)</label>
-          <input type="text" id="ss-hide" autocomplete="off" maxlength="300">
-          <p class="hint" data-i18n="bankSample.hideHint">Separate with commas. Then tap “Hide again”.</p>
-          <button type="button" class="cancel-edit-btn" id="ss-redo" data-i18n="bankSample.redo">Hide again</button>
           <label for="ss-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="ss-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
-          <label class="checkbox-row">
-            <input type="checkbox" id="ss-confirm">
-            <span data-i18n="bankSample.confirm">I read it and nothing private is left</span>
-          </label>
-          <button type="button" class="primary" id="ss-send" data-i18n="bankSample.send" disabled>Send to JP</button>
-          <button type="button" class="cancel-edit-btn" id="ss-back" data-i18n="bankSample.back">Back</button>
+          <button type="button" class="primary" id="ss-send" data-i18n="bankSample.send">Send to JP</button>
         </div>
-        <div id="ss-step-3" hidden>
+        <div id="ss-step-2" hidden>
           <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
           <p class="hint" data-i18n="stmtSample.doneBody">I received it. I will let you know when your bank is added. Each kind of statement helps (savings, credit card…), so send another if you can.</p>
           <button type="button" class="primary" id="ss-done" data-i18n="common.close">Close</button>
@@ -1612,7 +1652,7 @@
   </div>
 
   <div id="edit-entry-modal-backdrop" class="currency-modal-backdrop edit-entry-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal" id="edit-entry-modal-inner">
       <div class="currency-modal-header">
         <span id="edit-entry-modal-title" data-i18n="entry.editTitle">Edit transaction</span>
         <button type="button" id="edit-entry-modal-close" class="currency-modal-close">✕</button>
@@ -2039,6 +2079,7 @@
       <p class="hint" id="update-modal-hint"></p>
       <button type="button" class="primary" id="update-open-btn" data-i18n="update.open">Open the update page</button>
       <button type="button" class="add-inline" id="update-copy-btn" data-i18n="update.copy">Copy update link</button>
+      <p class="hint" data-i18n="update.laterHint">Not now? Tap Close. You can update any time from More → Update my app, and your app keeps working the way it is until then.</p>
       <p class="hint" id="update-stuck" hidden data-i18n="app.safariStuck">Safari did not open? Tap the copy button, open Safari yourself and paste the link in the address bar.</p>
       <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
       <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
@@ -2087,17 +2128,17 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="i18n.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="tour-scenes.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="signin-link.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="bank-sample.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="perf-share.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="receipt-parse.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="bill-split.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="app.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="statement-sample.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="statement-parsers.js?v=2026-10-23T20:57:30Z"></script>
-  <script src="statements.js?v=2026-10-23T20:57:30Z"></script>
+  <script src="strings.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="i18n.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="tour-scenes.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="signin-link.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="bank-sample.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="perf-share.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="receipt-parse.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="bill-split.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="app.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="statement-sample.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="statement-parsers.js?v=2026-10-24T00:25:42Z"></script>
+  <script src="statements.js?v=2026-10-24T00:25:42Z"></script>
 </body>
 </html>
