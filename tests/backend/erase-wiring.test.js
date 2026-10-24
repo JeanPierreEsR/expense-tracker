@@ -42,3 +42,9 @@ test("every new text exists in English and Spanish", () => {
     assert.ok(es.includes("    " + k + ":"), "es " + k);
   }
 });
+
+test("remove mode does not count a 404 (file already gone or not reachable) as a failed delete", () => {
+  assert.match(setup, /const gone = \(e\) => \/\^404\\b\/\.test/);
+  assert.match(setup, /if \(gone\(e\)\)/);
+  assert.match(setup, /if \(!gone\(e2\)\) failed = failed \|\| e2/);
+});
