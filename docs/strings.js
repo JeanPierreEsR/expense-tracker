@@ -959,7 +959,7 @@
     "bankSample.back": { en: "Back", es: "Atrás" },
     "more.update": { en: "⬆️ Update my app (in my Google account)", es: "⬆️ Actualizar mi app (en mi cuenta de Google)" },
     "update.title": { en: "Update your app", es: "Actualiza tu app" },
-    "update.body": { en: "A newer version of your app is ready. Updating keeps your data and your access code, and Google does not ask for any new permission. It takes about a minute. This is different from the “new version” banner at the top, which only reloads the screen.", es: "Hay una versión más nueva de tu app. Al actualizar se conservan tus datos y tu código de acceso, y Google no pide ningún permiso nuevo. Toma cerca de un minuto. Esto es distinto del aviso de “nueva versión” de arriba, que solo recarga la pantalla." },
+    "update.body": { en: "A newer version of the app is ready.", es: "Hay una versión más nueva de la app." },
     "update.hintHome": { en: "Google's sign-in works best in Safari. Tap “Open in Safari” and follow the steps. If Safari does not open, tap “Copy update link”, open Safari and paste the link in the address bar.", es: "El inicio de sesión de Google funciona mejor en Safari. Toca “Abrir en Safari” y sigue los pasos. Si Safari no se abre, toca “Copiar enlace de actualización”, abre Safari y pega el enlace en la barra de direcciones." },
     "update.hintSafari": { en: "Tap “Open the update page” and follow the steps.", es: "Toca “Abrir la página de actualización” y sigue los pasos." },
     "update.copy": { en: "Copy update link", es: "Copiar enlace de actualización" },

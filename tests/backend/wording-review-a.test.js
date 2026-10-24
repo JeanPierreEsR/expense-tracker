@@ -87,8 +87,13 @@ test("'Pro' is now 'Advanced' (it suggested a paid tier)", () => {
 test("two kinds of 'update' are told apart: the More row is about the person's own app in Google, and says so", () => {
   assert.match(get("more.update").en, /Update my app \(in my Google account\)/);
   assert.match(get("more.update").es, /Actualizar mi app \(en mi cuenta de Google\)/);
-  assert.match(get("update.body").en, /“new version” banner/);
-  assert.match(get("update.body").es, /aviso de “nueva versión”/);
+});
+
+// update.body used to spell out how this differs from the "tap to reload" banner; the owner traded that
+// explanation for a one-line pop-up (2026-10-24) — the More row's own wording above still tells them apart.
+test("the 'update your app' pop-up stays to the point", () => {
+  assert.match(get("update.body").en, /^"A newer version of the app is ready\."$/);
+  assert.match(get("update.body").es, /^"Hay una versión más nueva de la app\."$/);
 });
 
 test("programmed items: the app says it does not make the payments, and one word is used for them", () => {
