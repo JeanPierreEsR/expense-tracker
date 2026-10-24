@@ -34,6 +34,7 @@ test("the mailbox address is remembered once found", () => {
 
 test("an old-style copy that cannot name its address says nothing instead of failing", () => {
   const { rt } = freshApp({ small: true });
+  rt.svc.props.delete("GMAIL_READER");   // ship.sh also runs the suite with the read-only reader forced on; this is the GmailApp way
   assert.equal(rt.api("getMeta").emailInfo.address, "");
   assert.equal(rt.svc.props.get("MAILBOX_ADDRESS") || "", "");
 });
