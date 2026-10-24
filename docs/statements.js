@@ -1059,7 +1059,7 @@
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${outcome}${rateNeedsHtml(res.rateNeeds)}
-        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button></div>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       $("statement-history").innerHTML = "";
@@ -1355,6 +1355,8 @@
     if (tab) tab.click();
     setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 400);
   });
+  // "Tidy my history" in the saved message opens the same screen as More → Tidy my history.
+  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) document.getElementById("more-tidy-btn").click(); });
   // The same button sits in Recent uploads and in the "saved" message after a save.
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".stmt-added-btn"); if (b) openAdded(b.dataset.batch); });
   $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });

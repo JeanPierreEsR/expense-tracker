@@ -924,6 +924,15 @@ function pickableCategories_(list, keep) {
 function populateCategoryOptions() {
   const select = document.getElementById("category");
   select.innerHTML = "";
+  // Expense and income may be saved with no category (Tidy my history files them later); the select only shows
+  // when no category tile was picked, so a blank is always a choice. Transfers and investments keep theirs.
+  select.required = !ICON_PICKER_TYPES.includes(selectedType);
+  if (ICON_PICKER_TYPES.includes(selectedType)) {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = tr("entry.noCategoryYet");
+    select.appendChild(none);
+  }
   sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === selectedType)))
     .forEach((c) => {
       const opt = document.createElement("option");
@@ -953,6 +962,20 @@ function populateCategoryPicker() {
       tile.addEventListener("click", () => { showDetailForm(c); preselectAnnualForTravel_(c.id); });
       grid.appendChild(tile);
     });
+  if (selectedType === "expense") {
+    const later = document.createElement("button");
+    later.type = "button";
+    later.className = "category-tile";
+    later.innerHTML = `
+      <span class="category-tile-icon" style="background:#eee">⏭</span>
+      <span class="category-tile-name">${escapeHtml(tr("entry.categorizeLater"))}</span>
+    `;
+    later.addEventListener("click", () => {
+      showDetailForm(null);
+      document.getElementById("category").value = "";
+    });
+    grid.appendChild(later);
+  }
 }
 
 // Travel is Annual by default: picking a Travel category ticks the Annual chip
@@ -2103,7 +2126,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!date) throw new Error(tr("error.dateRequired"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const isInvestmentEntry = selectedType === "investment";
-    if (!isRepayment && !isInvestmentEntry && !categoryId) throw new Error(tr("error.pickCategory"));
+    // The select (not a tile) is showing for income/expense = the category was left open on purpose.
+    const categoryMayBeBlank = ICON_PICKER_TYPES.includes(selectedType) && !document.getElementById("category-select-field").hidden;
+    if (!isRepayment && !isInvestmentEntry && !categoryId && !categoryMayBeBlank) throw new Error(tr("error.pickCategory"));
     // Investments send no category at all — the server files them under its default.
     const categoryField = isInvestmentEntry ? {} : { category_id: categoryId };
     if (selectedType === "transfer" && !isRepayment && !paymentMethodId && !toPaymentMethodId) {
@@ -2128,6 +2153,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
       (selectedType === "income" || paidBy === "me") && !splits;
     let programmedInstead = false;
+    if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
 
     if (isRepayment) {
       const friendId = document.getElementById("repayment-friend").value;
@@ -2296,6 +2322,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         tag_ids: tagIds,
         trip_id: tripId
       });
+      if (created.guessed_category_name) {
+        lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
+      } else if (selectedType === "expense" && !created.category_id) {
+        lastFormNotice_ = tr("entry.savedNoCategory");
+      }
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
       // loan for the full amount (own_share = amount − 0 = the whole
@@ -3613,13 +3644,15 @@ async function flushEntryEdit_(id) {
     // while an earlier failed attempt was still showing — the newer one
     // goes out next, instead of the stale one unqueuing itself as if it
     // had won.
+    let followed = null;
     for (;;) {
       const edit = findQueuedEdit_(id);
       if (!edit) break;
       markQueuedEditStatus_(id, "saving", null);
       renderEntryListFromCache_();
       try {
-        await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+        const saved = await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+        if (saved && saved.follow) followed = saved.follow;
         if (edit.splits !== null) {
           await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
         }
@@ -3644,6 +3677,7 @@ async function flushEntryEdit_(id) {
       }
       // else: replaced mid-flight — loop again and send the newer one.
     }
+    if (followed) onCategoryFollowed_(followed);
   } finally {
     entryEditFlushing_.delete(id);
   }
@@ -4345,7 +4379,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -7617,6 +7651,163 @@ document.getElementById("export-back-btn").addEventListener("click", () => showS
 });
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
+
+// ---- Categories that catch up later (backend/CategoryFollow.gs) ----
+
+let appUndoTimer_ = null;
+let appUndoAction_ = null;
+// A message with an Undo button, for something the app did for the person beyond what they tapped.
+function showUndoToast_(text, onUndo) {
+  const box = document.getElementById("app-undo-toast");
+  document.getElementById("app-undo-text").textContent = text;
+  appUndoAction_ = onUndo;
+  box.hidden = false;
+  clearTimeout(appUndoTimer_);
+  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoAction_ = null; }, 10000);
+}
+document.getElementById("app-undo-btn").addEventListener("click", async () => {
+  const action = appUndoAction_;
+  appUndoAction_ = null;
+  document.getElementById("app-undo-toast").hidden = true;
+  clearTimeout(appUndoTimer_);
+  if (!action) return;
+  try { await action(); } catch (err) { alert(err.message || String(err)); }
+});
+
+// An edit gave one entry a category and the server filled the other blanks of the same merchant (answer of updateEntry).
+function onCategoryFollowed_(follow) {
+  refreshEntryList().catch(() => {});
+  refreshHomeGlance_(true);
+  showUndoToast_(tr("follow.done", { n: follow.count, category: follow.categoryName }), async () => {
+    await callApi("undoCategoryFollow", { changes: [{ categoryId: follow.categoryId, ids: follow.ids }], annualIds: follow.annualIds });
+    showToast_(tr("tidy.undone"));
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+  });
+}
+
+const tidySkipped_ = new Set();   // groups the person skipped on this visit
+let tidyGroups_ = [];
+let tidyData_ = {};
+
+async function showTidyScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  tidySkipped_.clear();
+  const list = document.getElementById("tidy-list");
+  list.textContent = "…";
+  try {
+    await loadTidy_();
+  } catch (err) {
+    list.textContent = err.message || String(err);
+  }
+}
+
+async function loadTidy_() {
+  const data = await callApi("listTidyGroups", {});
+  tidyGroups_ = data.groups || [];
+  tidyData_ = data;
+  renderTidy_();
+}
+
+function tidyCategoryOptions_(selectedId) {
+  return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedId))
+      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+}
+
+function renderTidy_() {
+  const data = tidyData_;
+  const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
+  const list = document.getElementById("tidy-list");
+  const visibleEntries = groups.reduce((n, g) => n + g.count, 0);
+  document.getElementById("tidy-empty").hidden = (data.totalEntries || 0) > 0;
+  const summary = document.getElementById("tidy-summary");
+  summary.hidden = !(data.totalEntries > 0);
+  if (!summary.hidden) {
+    summary.textContent = groups.length
+      ? tr("tidy.summary", { n: data.groupCount > tidyGroups_.length ? data.totalEntries : visibleEntries, g: data.groupCount > tidyGroups_.length ? data.groupCount : groups.length })
+      : tr("tidy.allSkipped");
+  }
+  const withSuggestion = groups.filter((g) => g.suggestion);
+  const allBtn = document.getElementById("tidy-apply-all-btn");
+  allBtn.hidden = !withSuggestion.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: withSuggestion.length });
+  const more = document.getElementById("tidy-more");
+  more.hidden = !(data.groupCount > data.shown);
+  if (!more.hidden) more.textContent = tr("tidy.more", { shown: data.shown });
+  list.innerHTML = groups.map((g) => {
+    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+    const sug = g.suggestion;
+    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top">
+        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
+        <span class="tidy-group-total">${escapeHtml(data.main)} ${moneyFmt(g.totalMain)}</span>
+      </div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
+        ${sug ? `<br>${escapeHtml(tr("tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select">${tidyCategoryOptions_(sug ? sug.categoryId : "")}</select>
+        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+        <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
+      </div>
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span><span>${formatAmount(e.amount, e.currency)}</span></li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+}
+
+// Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
+async function applyTidy_(items, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const res = await callApi("applyTidyGroups", { items });
+    if (!res.count) {
+      showToast_(tr("tidy.nothingApplied"));
+    } else {
+      showUndoToast_(tr("tidy.applied", { n: res.count }), async () => {
+        await callApi("undoCategoryFollow", { changes: res.changes, annualIds: res.annualIds });
+        showToast_(tr("tidy.undone"));
+        await loadTidy_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    }
+    await loadTidy_();
+  } catch (err) {
+    alert(err.message || String(err));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
+document.getElementById("tidy-list").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".tidy-group");
+  if (!row) return;
+  const key = row.dataset.key;
+  if (ev.target.closest(".tidy-lines")) {
+    const samples = row.querySelector(".tidy-samples");
+    samples.hidden = !samples.hidden;
+  } else if (ev.target.closest(".tidy-skip")) {
+    tidySkipped_.add(key);
+    renderTidy_();
+  } else if (ev.target.closest(".tidy-apply")) {
+    const categoryId = row.querySelector(".tidy-select").value;
+    if (!categoryId) { alert(tr("review.pickCategoryFirst")); return; }
+    applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
+  }
+});
+document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => {
+  const items = tidyGroups_.filter((g) => g.suggestion && !tidySkipped_.has(g.key)).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
+  if (items.length) applyTidy_(items, [ev.currentTarget]);
+});
+document.getElementById("more-tidy-btn").addEventListener("click", showTidyScreen);
+document.getElementById("tidy-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
 
