@@ -2729,7 +2729,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .fab {
   position: fixed;
   right: 16px;
-  bottom: 84px;   /* syncFab_ sets the real value from the nav bar's height */
+  /* 14px above the bottom bar. Before the app measures the bar (syncFab_ sets --nav-h), the
+     estimate is the bar's usual 67px plus the iPhone's bottom safe area, so it is right on first open. */
+  bottom: calc(var(--nav-h, calc(67px + env(safe-area-inset-bottom, 0px))) + 14px);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -2907,3 +2909,8 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .exchange-amount-row { display: flex; gap: 8px; margin-top: 6px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
+.tour-more-text { margin-top: 14px; }
+
+/* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
+#screen-statements[data-mode="import"] .stmt-bank-only,
+#screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
