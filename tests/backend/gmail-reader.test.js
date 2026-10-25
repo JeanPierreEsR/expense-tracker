@@ -141,7 +141,85 @@ test("text that cannot be decoded fails with a message naming the part, with no 
   bcpEmail(rt, { op: "DEC-BAD" });
   readonly(rt);
   withBodyData(rt, () => "A");   // one character is not valid base64 in any form
-  assert.throws(() => bodyOf(rt), /Could not read the text\/plain part of an e-mail \(1 characters, 0 unexpected characters\)/);
+  assert.throws(() => bodyOf(rt), /Could not read the text\/plain part of an e-mail \(string, 1 characters, shape "a"\)/);
+});
+
+// ---- The real shape (seen in a friend's Executions log, 2026-10-24): Apps Script's Gmail service gives a part's data as a LIST OF BYTES ----
+const toSigned = (d) => [...Buffer.from(d, "base64url")].map((b) => (b > 127 ? b - 256 : b));
+const ACCENTED = "Operación: Café ñandú — S/ 10.00, Nº 01234567";
+
+test("a part whose data is a list of bytes (an array, or the same list as text) is read, accents included", () => {
+  const shapes = { "real array": (d) => toSigned(d), "comma list": (d) => toSigned(d).join(",") };
+  Object.entries(shapes).forEach(([name, transform]) => {
+    const { rt } = freshApp({ small: true });
+    rt.svc.gmail.addEmail({ from: BCP_SENDER, subject: "bytes", body: ACCENTED });
+    readonly(rt);
+    withBodyData(rt, transform);
+    assert.equal(bodyOf(rt), ACCENTED, name + " decodes to the same words");
+  });
+});
+
+test("a part whose data is already text is returned as it is (base64 never has spaces or accents)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.gmail.addEmail({ from: BCP_SENDER, subject: "text", body: ACCENTED });
+  readonly(rt);
+  withBodyData(rt, (d) => Buffer.from(d, "base64url").toString("utf8"));
+  assert.equal(bodyOf(rt), ACCENTED);
+});
+
+test("a comma list is never mistaken for base64 (it used to decode into nonsense and be written down as handled)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.gmail.addEmail({ from: BCP_SENDER, subject: "list", body: "Total: S/ 12.50" });
+  readonly(rt);
+  withBodyData(rt, (d) => toSigned(d).join(","));
+  assert.match(bodyOf(rt), /^Total: S\/ 12\.50$/);
+});
+
+test("a statement attachment whose data is a list of bytes comes back as the same bytes", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.gmail.addEmail({ from: "x@example.com", subject: "pdf", body: "see attached", attachments: [{ name: "s.pdf", size: 4, bytes: [37, 80, 68, 70] }] });
+  readonly(rt);
+  const orig = rt.svc.gmail.advanced.Users.Messages.Attachments.get;
+  rt.svc.gmail.advanced.Users.Messages.Attachments.get = (...a) => ({ data: toSigned(orig(...a).data) });
+  const bytes = q(rt, 'gmailSearchMessages_("from:x@example.com newer_than:3d")[0].getAttachments()[0].getBytes()');
+  assert.deepEqual(bytes, [37, 80, 68, 70]);
+});
+
+// ---- One-time re-read on a friend's copy that the old decoder had marked everything "handled" ----
+const processedCount = (rt) => rt.rows("Processed Emails").length;
+
+test("a friend's copy with no e-mail entries forgets its 'handled' list once, then reads the last days again", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail");
+  rt.svc.props.delete("MAIL_REREAD_BYTES_FIX");   // (the test setup ran a scan as the owner's copy; a real friend's copy has FEATURES from install)
+  rt.run("deleteRowsWhere_('Entries', function (e) { return e.source === 'email'; })");   // the sample data has e-mail entries; a friend's copy never made one
+  assert.equal(rt.rows("Entries").some((e) => e.source === "email"), false);
+  bcpEmail(rt, { op: "REREAD-1" });
+  rt.run("ensureProcessedEmailsSheet_(); recordProcessedEmail_('stale-1'); recordProcessedEmail_('stale-2');");
+  assert.equal(processedCount(rt), 2);
+  const first = JSON.parse(JSON.stringify(rt.run("processEmails()")));
+  assert.equal(first.created, 1, "the e-mail the old decoder wrote off is read now");
+  assert.equal(rt.rows("Processed Emails").some((r) => String(r.message_id).startsWith("stale")), false, "the old list was wiped");
+  const again = JSON.parse(JSON.stringify(rt.run("processEmails()")));
+  assert.equal(again.created, 0);
+  rt.run("recordProcessedEmail_('stale-3')");
+  rt.run("processEmails()");
+  assert.equal(rt.rows("Processed Emails").some((r) => r.message_id === "stale-3"), true, "only ever once");
+});
+
+test("a copy that already has e-mail entries, and the owner's copy, keep their 'handled' list", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail");
+  assert.equal(rt.rows("Entries").some((e) => e.source === "email"), true, "the sample data already has e-mail entries: this copy read e-mail fine");
+  rt.svc.props.delete("MAIL_REREAD_BYTES_FIX");
+  rt.run("recordProcessedEmail_('keep-me')");
+  rt.run("processEmails()");
+  assert.equal(rt.rows("Processed Emails").some((r) => r.message_id === "keep-me"), true, "it read fine before, so nothing is forgotten");
+  const { rt: owner } = freshApp({ small: true });
+  owner.svc.props.delete("FEATURES");
+  owner.run("ensureProcessedEmailsSheet_(); recordProcessedEmail_('owner-keep');");
+  owner.run("processEmails()");
+  assert.equal(owner.rows("Processed Emails").some((r) => r.message_id === "owner-keep"), true);
 });
 
 test("an e-mail whose text cannot be read is not marked handled, so the next scan tries it again", () => {
