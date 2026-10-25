@@ -5463,6 +5463,12 @@ function expandDrilldown_() {
   document.getElementById("drilldown-modal-inner").classList.add("expanded");
 }
 
+// Same for any other sheet that scrolls as a whole (the Categories form): scrolling it pulls it to full screen.
+document.addEventListener("scroll", (e) => {
+  const el = e.target;
+  if (el && el.classList && el.classList.contains("currency-modal") && el.scrollTop > 8) el.classList.add("expanded");
+}, { capture: true, passive: true });
+
 // Scrolling the list of the normal-size sheet pulls it up to full screen, so the list gets all the
 // room; dragging the header down returns it (see setupSheetDrag).
 document.getElementById("drilldown-scroll-area").addEventListener("scroll", (e) => {
@@ -8839,6 +8845,9 @@ function openCatModal_(cat) {
   updateCatPreview_();
   const backdrop = document.getElementById("cat-modal-backdrop");
   bringModalToFront_(backdrop);
+  const sheet = backdrop.querySelector(".currency-modal");
+  sheet.classList.remove("expanded");
+  sheet.scrollTop = 0;
   backdrop.hidden = false;
   if (!cat) document.getElementById("cat-name").focus();
 }

@@ -1030,6 +1030,10 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
+     whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Dragging up from the drill-down's header (see setupDrilldownExpand in
