@@ -87,6 +87,7 @@
       $("statement-review-status").innerHTML = "";
       usable = [];
       historyPlan = null;
+      addedAccounts = [];
     }
     setScreenMode(next);
     sessionPasswords = [];
@@ -1135,6 +1136,7 @@
       key: accountKeyOf(result),
       kind: result.kind,
       source: result.source || "",   // "app" = an app's export: no bank-wording rules on the server
+      bank: result.bank || "", accountLast4: (result.account && result.account.last4) || "",   // an account the app does not have yet is proposed from these (never a full number)
       holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
@@ -1514,6 +1516,46 @@
       <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i)).join("")}</details>`;
   }
 
+  // ---- accounts the statements name that the app does not have yet (backend/StatementAccounts.gs) ----
+  // The plan proposes them with defaults; one tap adds them and reads the statements again. They can be changed afterwards in
+  // More → Accounts, cards & platforms, which is where the "added" note points.
+  let addedAccounts = [];   // accounts added from the statements on this screen: [{ id, nickname }]
+
+  function newAccountsHtml(proposals) {
+    if (!proposals.length) return "";
+    const items = proposals.map((a) => `<li><strong>${escapeHtml(a.nickname)}</strong> · ${escapeHtml(tr(a.type === "credit" ? "acct.typeCredit" : "acct.typeDebit"))} · ${escapeHtml(a.bank)} · …${escapeHtml(a.last4)}</li>`).join("");
+    return `<div class="stmt-new-accounts" style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+      <p class="stmt-verdict warn" style="margin-top:0">${escapeHtml(tr("acct.newTitle", { n: proposals.length }))}</p>
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${items}</ul>
+      <p class="hint">${escapeHtml(tr("acct.newHint", { n: proposals.length }))}</p>
+      <button type="button" class="primary" id="statement-add-accounts">${escapeHtml(tr("acct.addBtn", { n: proposals.length }))}</button></div>`;
+  }
+
+  function addedAccountsHtml() {
+    if (!addedAccounts.length) return "";
+    return `<div class="stmt-note ok" style="margin-bottom:12px"><p style="margin:0 0 6px">${escapeHtml(tr("acct.added", { n: addedAccounts.length, names: addedAccounts.map((a) => a.nickname).join(", ") }))}</p>
+      <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint"))}</p>
+      <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review"))}</button></div>`;
+  }
+
+  async function addProposedAccounts() {
+    const btn = $("statement-add-accounts");
+    if (!btn || !historyPlan) return;
+    const proposals = (historyPlan.summary && historyPlan.summary.newAccounts) || [];
+    btn.disabled = true;
+    btn.textContent = tr("acct.adding");
+    try {
+      const res = await callApi("createStatementAccounts", { accounts: proposals.map((a) => ({ last4: a.last4, bank: a.bank, kind: a.kind })) });
+      addedAccounts = addedAccounts.concat(res.created || []);
+      if (typeof loadMeta === "function") await loadMeta();   // the new accounts are known to the rest of the app from now on
+      await runHistoryPlan();                                   // the statements are read again, now with their account
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = tr("acct.addBtn", { n: proposals.length });
+      alert(err.message || String(err));
+    }
+  }
+
   function renderHistoryPlan() {
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
@@ -1532,25 +1574,29 @@
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
+    const proposals = summary.newAccounts || [];
+    const proposedKeys = new Set(proposals.map((p) => p.key));
+    const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
     const notes = [];
     if (c.reviewTotal) notes.push(tr("hist.sum.pendingTotal", { n: c.reviewTotal }));
     if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
-    if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
+    if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
+    const pre = newAccountsHtml(proposals) + addedAccountsHtml();
     const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "") + balancesHtml();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(historyPlan.checks || []).length) {
-      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
+      out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
     if (!c.entries) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
-      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
+      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
-    out.innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
@@ -1603,10 +1649,11 @@
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
-        ${outcome}${rateNeedsHtml(res.rateNeeds)}
+        ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
+      addedAccounts = [];
       $("statement-history").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
@@ -1812,6 +1859,8 @@
   $("statement-history-btn").addEventListener("click", runHistoryPlan);
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
+    if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
+    if (e.target.closest("#statement-open-accounts")) { $("more-accounts-btn").click(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
     const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]"), pinc = e.target.closest("[data-pinc]");
@@ -1902,7 +1951,10 @@
     const b = e.target.closest(".stmt-gap-toggle");
     if (b) toggleGap(b.dataset.id, !!b.dataset.open, b);
   });
-  $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
+  $("statement-review-status").addEventListener("click", (e) => {
+    if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId);
+    if (e.target.closest("#statement-open-accounts")) $("more-accounts-btn").click();
+  });
   $("statement-added-close").addEventListener("click", closeAdded);
   // "Go to Needs review": the card at the top of the Entries tab, where pending entries are finished.
   document.addEventListener("click", (e) => {
