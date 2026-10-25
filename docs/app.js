@@ -5403,17 +5403,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
       </div>
-      <button type="button" class="entry-row-delete" aria-label="${escapeHtml(tr("entry.delete"))}">🗑️</button>
     `;
-    row.querySelector(".entry-row-delete").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (blockedWhileSavingEdit_(entry.id)) return;
-      const summary = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
-      if (!(await confirmAndDiscardEntry_(entry.id, entry.type, summary))) return;
-      refreshEntryList().catch(() => {});
-      refreshExpectedRecurring();
-      await refreshAfterPopupEdit();
-    });
     // Opens the same edit form used everywhere else, but as a pop-up on
     // top of this sheet — no need to leave Overview or close the
     // drill-down to fix a transaction.
