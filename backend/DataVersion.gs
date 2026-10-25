@@ -228,7 +228,7 @@ function syncEntrySearchIndex(payload) {
   // A big batch of changes is cheaper to send as a full reload.
   if (changedRows.length > 40) return fullSearchIndexResponse_(base);
 
-  var tz = Session.getScriptTimeZone();
+  var tz = sheetDateTz_();
   var changedObjs = changedRows.map(function (r) {
     var values = sheet.getRange(r, 1, 1, headers.length).getValues()[0];
     var obj = {};

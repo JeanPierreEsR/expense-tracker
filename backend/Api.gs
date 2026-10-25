@@ -474,13 +474,23 @@ function getAllRows(sheetName) {
   return rows;
 }
 
+// The time zone Sheets used when it turned a written date into a Date cell. Dates must be turned back into text in THIS
+// zone (not the script's): a copy whose Sheet is set to another zone (say UTC) would otherwise read every date one day early.
+function sheetDateTz_() {
+  try {
+    var z = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+    if (z) return z;
+  } catch (e) { /* fall back below */ }
+  return Session.getScriptTimeZone();
+}
+
 function readAllRows_(sheetName) {
   var sheet = getSheet(sheetName);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   var headers = getHeaders(sheet);
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  var tz = Session.getScriptTimeZone();
+  var tz = sheetDateTz_();
   return values.map(function (row) {
     var obj = {};
     headers.forEach(function (h, i) {

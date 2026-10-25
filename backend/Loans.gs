@@ -306,7 +306,7 @@ function deleteRowsWhere_(sheetName, predicate) {
   var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var deleted = [];
   var rowNumbers = [];   // sheet rows to remove, highest first
-  var tz = Session.getScriptTimeZone();
+  var tz = sheetDateTz_();
   for (var i = values.length - 1; i >= 0; i--) {
     var obj = {};
     // Same Date -> text normalisation getAllRows does, so a predicate sees
