@@ -645,7 +645,10 @@
     var endY = 2000 + +cycle[1][2], endM = +cycle[1][1];
     var end = iso(endY, endM, +cycle[1][0]);
 
-    var dolX = null;            // left edge of the "Dólares" heading: amounts left of it are soles
+    // Amounts are right-aligned, and on some statements a wide dollar amount starts LEFT of the "Dólares" heading, so the heading's
+    // own left edge is not the border. The border is the middle between the "Soles" and "Dólares" headings' left edges (checked
+    // on a real statement: soles amounts start left of it, dollar amounts right of it). See CHANGELOG.md § BCP card dollars.
+    var dolX = null;            // set once both headings are seen
     var lines = [], prev = {}, total = null, sums = {};
     var haveBalance = false;
     var phase = 'items';        // items -> fees (from "INTERESES") -> done (after the total)
@@ -663,7 +666,7 @@
       var t = r.text;
       var sh = r.cells.find(function (c) { return c.str === 'Soles'; });
       var dh = r.cells.find(function (c) { return /^D[óo]lares$/i.test(c.str); });
-      if (sh && dh) { dolX = dh.x0; return; }
+      if (sh && dh) { dolX = (sh.x0 + dh.x0) / 2; return; }
       if (phase === 'done' || dolX === null) return;
 
       if (/^SALDO ANTERIOR/i.test(t)) {
