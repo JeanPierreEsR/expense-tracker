@@ -135,3 +135,29 @@ function reportPerf_(p) {
     lock.releaseLock();
   }
 }
+
+// Read-only, for the Mac helper's key (promote.sh): which app release each friend's phone ran in its newest report.
+// Returns { releases: { "<release>": { installs, lastSeen: "YYYY-MM-DD" } } } — counts only, no names and no install ids.
+// The owner's own phones (label "Owner") are left out: they run the live screens, not a kept copy.
+function listPerfAppVersions_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PERF_REPORTS_SHEET_);
+  var releases = {};
+  var n = sheet ? sheet.getLastRow() - 1 : 0;
+  if (n < 1) return { releases: releases };
+  var col = function (c) { return sheet.getRange(2, c, n, 1).getValues(); };
+  var at = col(1), install = col(2), label = col(3), app = col(13);
+  var newest = {};
+  for (var i = 0; i < n; i++) {
+    var id = String(install[i][0]), t = String(at[i][0]);
+    if (!id || !t) continue;
+    if (!newest[id] || t >= newest[id].t) newest[id] = { t: t, label: String(label[i][0]).trim(), app: String(app[i][0]).trim() };
+  }
+  Object.keys(newest).forEach(function (id) {
+    var v = newest[id];
+    if (v.label.toLowerCase() === 'owner' || !v.app) return;
+    var r = releases[v.app] || (releases[v.app] = { installs: 0, lastSeen: '' });
+    r.installs++;
+    if (v.t.substring(0, 10) > r.lastSeen) r.lastSeen = v.t.substring(0, 10);
+  });
+  return { releases: releases };
+}

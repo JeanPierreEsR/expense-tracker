@@ -193,6 +193,14 @@ if [ -z "$RESUME" ]; then
   # Who still uses a kept copy: tools/friends-copies.py writes this list from the app-speed reports. With the list the newest 2 stay as a safety
   # net (friends who share nothing cannot be seen) plus every copy used in the last 30 days; without it the newest 3 stay.
   COPIES_FILE="${FRIENDS_COPIES_FILE:-$(dirname "$COMMON")/../FRIENDS_COPIES.json}"
+  # Refresh that list by asking the backend itself (read-only action, the Mac helper's key). If it cannot answer, the file as it is stays in use.
+  if [ -z "$DRY" ] || [ -n "${FRIENDS_COPIES_REFRESH_IN_DRY:-}" ]; then
+    if python3 "$HERE/tools/friends-copies.py" --from-backend "$(dirname "$COMMON")/../FRIENDS_VERSIONS.md" "$COPIES_FILE"; then
+      say "Refreshed the list of copies friends use, straight from the app-speed reports."
+    else
+      echo "⚠ Could not refresh the list of copies friends use automatically; using the file as it was (download the Sheet's 'Perf Reports' tab as CSV and run tools/friends-copies.py --- or fix the Mac helper's config.json)." >&2
+    fi
+  fi
   if [ -f "$COPIES_FILE" ]; then
     PAIRS_KEEP=2
     [ -n "$(find "$COPIES_FILE" -mtime +14 2>/dev/null)" ] && echo "⚠ The list of copies friends use is over 14 days old: refresh it first (download the Sheet's 'Perf Reports' tab as CSV and run tools/friends-copies.py), or a copy a friend moved onto since could be removed." >&2

@@ -156,8 +156,8 @@ var SESSION_IDLE_DAYS_ = 90;
 var LOGIN_MAX_FAILURES_ = 10;
 var LOGIN_LOCK_SECONDS_ = 600;
 var CURRENT_SESSION_ID_ = '';   // set per request by authenticateRequest_
-// The Mac OCR helper's key opens ONLY these.
-var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true };
+// The Mac helper's key opens ONLY these (the receipt-photo reader's four, plus promote.sh's read-only app-version counts).
+var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true, listPerfAppVersions: true };
 
 function isRequireSessions_() {
   return PropertiesService.getScriptProperties().getProperty('REQUIRE_SESSIONS') === 'true';
@@ -168,7 +168,7 @@ function isValidHelperKey_(key) {
   return !!stored && String(key) === stored;
 }
 
-// One decision for every request: a session key, the helper key (its four
+// One decision for every request: a session key, the helper key (its five
 // actions only), or the raw access code (unless sessions are required).
 function authenticateRequest_(body) {
   CURRENT_SESSION_ID_ = '';

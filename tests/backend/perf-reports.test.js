@@ -185,3 +185,19 @@ test("near the row limit the owner gets one Telegram heads-up; at the limit repo
   const later = report(rt, { entries: Array.from({ length: 10 }, (_, i) => entry(i + 18)) });
   assert.deepEqual([later.ok, later.data.ack, later.data.stored], [true, 27, 10]);
 });
+
+test("the Mac helper key gets counts of app releases in use (newest report per phone, no names, Owner left out)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("HELPER_KEY", "h".repeat(32));
+  const INSTALL_C = "0f8c1c5e-3333-4a2b-9c3d-cccccccccccc";
+  report(rt, { app: "0.40.0", entries: [entry(1)] });
+  report(rt, { app: "0.46.0", entries: [entry(2)] });                        // Ana moved on: only this one counts
+  report(rt, { install: INSTALL_B, label: "Bea", app: "0.46.0", entries: [entry(1)] });
+  report(rt, { install: INSTALL_C, label: "Owner", app: "0.46.6", entries: [entry(1)] });
+  const res = post(rt, { helperKey: "h".repeat(32), action: "listPerfAppVersions", payload: {} });
+  assert.equal(res.ok, true);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.deepEqual(res.data, { releases: { "0.46.0": { installs: 2, lastSeen: today } } });
+  assert.equal(JSON.stringify(res.data).includes("Ana"), false);
+  assert.equal(post(rt, { helperKey: "wrong", action: "listPerfAppVersions", payload: {} }).ok, false);
+});
