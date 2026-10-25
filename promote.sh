@@ -103,6 +103,22 @@ print(','.join(os.path.basename(d)[len('stable-'):] for d in kept))
 PY
 }
 
+# in_use_pins COPIES_JSON — the pins (7 letters) a friend used in the last 30 days, one per line (nothing when there is no list).
+in_use_pins() {
+  python3 - "$1" <<'PY'
+import datetime, json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(0)
+today = datetime.date.today()
+for pin, v in (data.get('pins') or {}).items():
+    try: age = (today - datetime.date.fromisoformat(v.get('lastSeen', ''))).days
+    except ValueError: continue
+    if age <= 30: print(pin[:7])
+PY
+}
+
 # ---------------------------------------------------------------- 1. guards
 git fetch -q origin || die "Could not reach GitHub (git fetch failed). Check the internet and try again."
 
@@ -194,6 +210,19 @@ if [ -z "$RESUME" ]; then
   sed -i '' -E 's/(<meta name="app-channel" content=")[^"]*"/\1stable"/' "$W/docs/stable/index.html"
   grep -q '<meta name="app-channel" content="stable">' "$W/docs/stable/index.html" || die "Could not mark stable/index.html as the stable copy — nothing was published."
   [ -f "$W/docs/stable/version.json" ] && [ -f "$W/docs/stable/app.js" ] || die "The copy in stable/ is incomplete — nothing was published."
+  # A copy a friend still uses is never lost: if an earlier promote already removed it (before the list existed), it is brought back
+  # from the commit that removed it, as it was.
+  if [ -f "$COPIES_FILE" ]; then
+    for P in $(in_use_pins "$COPIES_FILE"); do
+      [ "$P" = "$(echo "$PIN" | cut -c1-7)" ] && continue                 # that is stable/ itself
+      [ -d "$W/docs/stable-$P" ] && continue
+      GONE="$(G log -1 --diff-filter=D --format=%H -- "docs/stable-$P" 2>/dev/null || true)"
+      if [ -n "$GONE" ]; then
+        say "Bringing back stable-$P/: a friend used it in the last 30 days and an earlier promote had removed it."
+        G checkout -q "$GONE^" -- "docs/stable-$P"
+      fi
+    done
+  fi
   PAIRS="$(kept_pairs "$W" "$PAIRS_KEEP" "$COPIES_FILE")"
   set_metas "$W/docs/stable/index.html" "$PIN" "$PAIRS" ""
 

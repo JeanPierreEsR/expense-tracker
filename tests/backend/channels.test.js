@@ -332,6 +332,26 @@ test("a kept copy a friend used recently stays, whatever its age; the unused one
   assert.equal(out.status, "", "and the removals are committed");
 });
 
+test("a copy a friend uses that an earlier promote already removed is brought back", () => {
+  // Without the list, five promotes keep only the newest 3 copies: the oldest copy (pins[1]) is gone.
+  const first = fivePromotes(null);
+  const gone = first.pins[1].slice(0, 7);
+  assert.ok(!first.kept.includes(gone), "the oldest copy was removed");
+  // Now the list says a friend used it recently: the next promote restores it.
+  const f = path.join(first.r.base, "copies.json");
+  fs.writeFileSync(f, JSON.stringify({ updated: daysAgo(0), pins: { [gone]: { lastSeen: daysAgo(2), installs: 1 } } }));
+  process.env.FRIENDS_COPIES_FILE = f;
+  try {
+    // Re-promoting the same release changes nothing else, so the only change is the restored copy.
+    const res = promote(first.r.work, "0.1.5");
+    assert.ok(res.ok, res.out);
+    assert.match(res.out, new RegExp(`Bringing back stable-${gone}`));
+  } finally { delete process.env.FRIENDS_COPIES_FILE; }
+  assert.ok(fs.existsSync(path.join(first.r.work, "docs", `stable-${gone}`, "index.html")), "the copy is back");
+  assert.match(fs.readFileSync(path.join(first.r.work, "docs", `stable-${gone}`, "index.html"), "utf8"), /name="app-archived"/, "as it was");
+  assert.equal(git(first.r.work, "status", "--porcelain"), "", "and it is committed");
+});
+
 test("a copy last used over 30 days ago is no longer protected", () => {
   const out = fivePromotes((r, pins) => {
     const f = path.join(r.base, "copies.json");
