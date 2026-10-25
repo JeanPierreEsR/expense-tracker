@@ -1380,11 +1380,27 @@
         <button type="button" id="extras-modal-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="extras-off-list" style="font-weight:600;"></p>
-        <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Tap “Open in Safari” below (the setup page does not work well inside this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
-        <button type="button" class="primary" id="extras-open-btn" data-i18n="extras.open">Open the setup page</button>
-        <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
-        <p class="hint" id="extras-copy-msg"></p>
+        <p class="hint" data-i18n="extras.intro">Each of these is optional. You can turn one off at any time; your entries stay exactly as they are.</p>
+        <div id="extras-list"></div>
+        <p class="hint" id="extras-msg" hidden></p>
+        <div id="extras-turn-on" hidden>
+          <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Tap “Open in Safari” below (the setup page does not work well inside this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
+          <button type="button" class="primary" id="extras-open-btn" data-i18n="extras.open">Open the setup page</button>
+          <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
+          <p class="hint" id="extras-copy-msg"></p>
+        </div>
+        <h4 data-i18n="extras.googleTitle">Permissions in your Google account</h4>
+        <p class="hint" data-i18n="extras.googleBody">Switching an extra off stops the app from using it, but Google keeps the permission you gave until you remove it. You can see and remove it yourself at any time.</p>
+        <a class="add-inline" id="extras-google-link" href="https://myaccount.google.com/connections" target="_blank" rel="noopener" data-i18n="extras.googleLink">Open my Google account’s connected apps</a>
+        <button type="button" class="add-inline" id="extras-takeback-btn" data-i18n="extras.takeBack">Take back all permissions, keep my data</button>
+        <div id="extras-takeback-confirm" hidden>
+          <p class="hint" data-i18n="extras.takeBackWarn">The app will give back every permission it holds in your Google account. Your Sheet, your entries and your sign-ins stay. The app stops working until you approve it again from the setup page (More → Update my app).</p>
+          <button type="button" class="primary danger" id="extras-takeback-go" data-i18n="extras.takeBackGo">Yes, take them back</button>
+          <button type="button" class="add-inline" id="extras-takeback-cancel" data-i18n="common.cancel">Cancel</button>
+        </div>
+        <h4 data-i18n="extras.shareTitle">What the app sends me</h4>
+        <p class="hint" data-i18n="extras.shareBody">Sharing small app-usage counts with JP is a separate choice, and you can change it at any time.</p>
+        <button type="button" class="add-inline" id="extras-share-btn" data-i18n="extras.shareBtn">Change what I share</button>
       </div>
     </div>
   </div>

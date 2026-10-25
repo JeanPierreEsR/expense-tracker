@@ -66,7 +66,9 @@ function doGet(e) {
 
   // Extras: chosen at setup (INSTALL_FEATURES) or added later (?add=...). Each is touched here so Google
   // shows its permission now, then its real timer is created.
-  var wanted = add ? add.split(',') : String(INSTALL_FEATURES || '').split(',');
+  // An extra the person switched off in the app (FEATURES_OFF) stays off on a normal visit; approving it again (?add=) clears that.
+  if (add) installClearOptedOut_(add.split(','));
+  var wanted = add ? add.split(',') : installWithoutOptedOut_(INSTALL_FEATURES).split(',');
   if (wanted.indexOf('keepawake') !== -1) installStartKeepAwake_();
   if (wanted.indexOf('gmail') !== -1) {
     var needGmail = installTouchGmail_();
@@ -164,9 +166,21 @@ function installApplyCode_() {
   if (!INSTALL_CODE || INSTALL_CODE.indexOf('__') === 0) return;
   if (props.getProperty('INSTALL_CODE_SET_FOR') === INSTALL_RELEASE) return;
   props.setProperty('ACCESS_CODE', INSTALL_CODE);
-  if (INSTALL_FEATURES && INSTALL_FEATURES.indexOf('__') !== 0) props.setProperty('FEATURES', INSTALL_FEATURES);
+  if (INSTALL_FEATURES && INSTALL_FEATURES.indexOf('__') !== 0) props.setProperty('FEATURES', installWithoutOptedOut_(INSTALL_FEATURES));
   if (INSTALL_MAIN_URL && INSTALL_MAIN_URL.indexOf('__') !== 0) props.setProperty('WEB_APP_URL', INSTALL_MAIN_URL);
   props.setProperty('INSTALL_CODE_SET_FOR', INSTALL_RELEASE);
+}
+
+// FEATURES_OFF (backend/Features.gs setExtraOff): extras the person turned off in the app; the installer's own list must not undo that.
+function installWithoutOptedOut_(list) {
+  var off = String(PropertiesService.getScriptProperties().getProperty('FEATURES_OFF') || '').split(',');
+  return String(list || '').split(',').filter(function (f) { return off.indexOf(f.trim()) === -1; }).join(',');
+}
+
+function installClearOptedOut_(names) {
+  var props = PropertiesService.getScriptProperties();
+  var off = String(props.getProperty('FEATURES_OFF') || '').split(',').filter(function (f) { return f && names.indexOf(f) === -1; });
+  props.setProperty('FEATURES_OFF', off.join(','));
 }
 
 function installJson_(obj) {
