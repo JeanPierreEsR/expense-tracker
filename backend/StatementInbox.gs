@@ -198,7 +198,7 @@ function listStatementInbox() {
   ensureStatementInboxSheet_();
   ensureStatementUploadsSheet_();
   var rows = getAllRows('Statement Inbox').filter(function (r) { return r.status === 'new' || r.status === 'processed'; });
-  var pms = getAllRows('Payment Methods'), banksById = rowsById_(getAllRows('Banks')), uploads = getAllRows('Statement Uploads');
+  var pms = getAllRows('Payment Methods'), banksById = rowsById_(getAllRows('Banks')), uploads = getAllRows('Statement Uploads').filter(function (u) { return u.source !== 'import'; });
   var items = rows.map(function (r) {
     var last = stmtLastProcessedFor_(stmtInboxAccounts_(r, pms, banksById), uploads);
     return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: r.attachment_name, size_kb: Number(r.size_kb),

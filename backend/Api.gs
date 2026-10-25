@@ -301,6 +301,7 @@ function routeAction(action, payload) {
     case 'applyStatementDecisions': return applyStatementDecisions(payload);
     case 'undoStatementBatch': return undoStatementBatch(payload);
     case 'listStatementBatches': return listStatementBatches(payload);
+    case 'setBatchOrigin': return setBatchOrigin(payload);
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'getOwnerNames': return getOwnerNames();
     case 'saveOwnerNames': return saveOwnerNames(payload);

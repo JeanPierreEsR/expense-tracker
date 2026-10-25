@@ -79,7 +79,16 @@
   }
 
   function showStatementsScreen(mode) {
-    setScreenMode(mode === "import" ? "import" : "bank");
+    const next = mode === "import" ? "import" : "bank";
+    if (next !== screenMode) {
+      // A bank statement and another app's file never travel in the same upload: leaving one side clears what was read on it.
+      $("statement-results").innerHTML = "";
+      $("statement-history").innerHTML = "";
+      $("statement-review-status").innerHTML = "";
+      usable = [];
+      historyPlan = null;
+    }
+    setScreenMode(next);
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -1758,14 +1767,15 @@
   async function refreshStatementBatches() {
     const box = $("statement-batches");
     try {
-      const batches = await callApi("listStatementBatches", { limit: batchesShown });
+      const batches = await callApi("listStatementBatches", { limit: batchesShown, kind: screenMode === "import" ? "import" : "statement" });
       const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
         ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
       box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
         <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr("added.button"))}</button></div><div class="stmt-undo-progress"></div></div>
-        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`) + more;
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button>
+        ${b.spreadsheet ? `<div><button type="button" class="add-inline stmt-move-row" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr(screenMode === "import" ? "imp.moveToStatements" : "imp.moveToImport"))}</button></div>` : ""}</div>`).join("") : `<p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.noRecent" : "stmt.noUploads"))}</p>`) + more;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
     }
@@ -1776,7 +1786,15 @@
 
   // ---- wiring ----
 
-  $("statement-batches").addEventListener("click", (e) => {
+  $("statement-batches").addEventListener("click", async (e) => {
+    const mv = e.target.closest(".stmt-move-row");
+    if (mv) {   // a spreadsheet upload filed on the wrong side: move it to the other list (the entries it made are not touched)
+      mv.disabled = true;
+      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { alert(err.message || String(err)); }
+      refreshStatementBatches();
+      refreshStatementCoverage();
+      return;
+    }
     if (!e.target.closest("#statement-batches-more")) return;
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();

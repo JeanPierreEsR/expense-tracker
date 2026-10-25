@@ -180,7 +180,7 @@ function covLagDays_(pm, bankName) {
 
 function listStatementCoverage() {
   ensureStatementUploadsSheet_();
-  var uploads = getAllRows('Statement Uploads');
+  var uploads = getAllRows('Statement Uploads').filter(function (u) { return u.source !== 'import'; });   // an import is not a statement to keep up to date
   var banksById = rowsById_(getAllRows('Banks'));
   var accounts = {};
   getAllRows('Payment Methods').forEach(function (pm) {
