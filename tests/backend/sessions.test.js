@@ -172,7 +172,7 @@ test("once sessions are required, the raw code stops working — except to sign 
   assert.equal(asSession(rt, res.data.sessionToken, "getMeta").ok, true);
 });
 
-test("the Mac helper's key works for its four photo actions only", () => {
+test("the Mac helper's key works for its four photo actions and the app-version counts only", () => {
   const { rt } = freshApp({ entries: 100 });
   rt.svc.props.set("HELPER_KEY", "h".repeat(32));
   rt.svc.props.set("REQUIRE_SESSIONS", "true");
