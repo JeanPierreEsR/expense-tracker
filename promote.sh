@@ -174,7 +174,9 @@ if [ -z "$RESUME" ]; then
 
   # 'docs/stable-*' (a pattern, not a list of folders) also stages the copies kept_pairs just pruned: a folder that no longer exists cannot be
   # listed by name, and without this the removal stayed on disk as loose changes in the main folder after every promote (found 2026-10-24).
-  PATHS=(docs/stable docs/setup/pin.json 'docs/stable-*')
+  PATHS=(docs/stable docs/setup/pin.json)
+  # (git refuses a pattern that matches nothing at all, e.g. the very first promote, so it is added only when some copy exists or existed.)
+  if [ -n "$(G ls-files -- 'docs/stable-*')" ] || ls -d "$W"/docs/stable-*/ >/dev/null 2>&1; then PATHS+=('docs/stable-*'); fi
   G add -A -- "${PATHS[@]}"
   if [ -z "$(G status --porcelain -- "${PATHS[@]}")" ]; then
     say "Nothing to change: friends already have release $REL with this backend."
