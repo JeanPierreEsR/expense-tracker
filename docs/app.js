@@ -8612,9 +8612,24 @@ async function loadCategoryCounts_() {
   } catch (err) { /* counts are a nicety: the list works without them */ }
 }
 
+// A name used by an expense category AND an income category is shown with its type — "Other (income)", "Other (expense)".
+function categoryShownName_(c, bothTypes) {
+  return bothTypes.has(String(c.name).trim().toLowerCase()) ? `${c.name} ${tr(c.type === "income" ? "categories.tag.income" : "categories.tag.expense")}` : c.name;
+}
+function categoryNamesInBothTypes_() {
+  const types = new Map();
+  meta.categories.forEach((c) => {
+    const k = String(c.name).trim().toLowerCase();
+    if (!types.has(k)) types.set(k, new Set());
+    types.get(k).add(c.type);
+  });
+  return new Set([...types].filter(([, t]) => t.has("expense") && t.has("income")).map(([k]) => k));
+}
+
 function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
+  const bothTypes = categoryNamesInBothTypes_();
   ["expense", "income"].forEach((type) => {
     const head = document.createElement("h3");
     head.className = "accounts-group-title";
@@ -8627,7 +8642,7 @@ function renderCategoriesList_() {
         <div class="cat-preview" style="margin:0;">
           <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
-            <div class="recurring-row-name">${escapeHtml(c.name)}</div>
+            <div class="recurring-row-name">${escapeHtml(categoryShownName_(c, bothTypes))}</div>
             <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
           </div>
         </div>`;

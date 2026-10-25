@@ -165,8 +165,9 @@ function suggestCategoryMap(payload) {
   });
   // What the phone needs to decide, for ANY category the person may pick, whether a name can be offered: its shown name, every
   // name it answers to, and whether it is one the app depends on.
+  var used = getCategoryCounts().counts;   // how many entries each category already holds, so the review can say what a rename affects
   var categories = cats.filter(function (c) { return (c.type === 'expense' || c.type === 'income') && String(c.hidden || '') !== 'yes'; })
-    .map(function (c) { return { id: c.id, type: c.type, name: categoryLabel_(c), names: categoryAllNames_(c), protected: categoryIsProtected_(c) }; });
+    .map(function (c) { return { id: c.id, type: c.type, name: categoryLabel_(c), names: categoryAllNames_(c), protected: categoryIsProtected_(c), entries: used[c.id] || 0 }; });
   return { items: items, categories: categories };
 }
 
