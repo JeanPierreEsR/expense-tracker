@@ -140,9 +140,25 @@ function gmailPartText_(messageId, part) {
   if (!data) return '';
   var ct = gmailHeader_(part, 'Content-Type');
   var charset = (/charset="?([\w-]+)/i.exec(ct) || [])[1] || 'UTF-8';
-  var bytes = Utilities.base64DecodeWebSafe(data);
+  var bytes = gmailBase64Bytes_(data, part.mimeType);
   try { return Utilities.newBlob(bytes).getDataAsString(charset); }
   catch (e) { return Utilities.newBlob(bytes).getDataAsString('UTF-8'); }
+}
+
+// Gmail's body text -> bytes. Google's own decoders are strict (a padding "=", a stray line break or the other base64 alphabet makes
+// them throw "Could not decode string"), so the text is first put in ONE canonical form: letters/digits/+/ only, padded to a multiple
+// of 4, then the standard decoder. If it still cannot be read, the error says which part and how it looked (lengths only, never the
+// e-mail's words) so the log of a friend's copy is enough to find the cause.
+function gmailBase64Bytes_(data, mimeType) {
+  var raw = String(data);
+  var clean = raw.replace(/[^A-Za-z0-9_\-+\/]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  while (clean.length % 4 !== 0 && clean.length % 4 !== 1) clean += '=';
+  var why = clean.length % 4 === 1 ? 'length is not valid base64' : '';
+  if (!why) {
+    try { return Utilities.base64Decode(clean); } catch (err) { why = String(err && err.message || err); }
+  }
+  throw new Error('Could not read the ' + (mimeType || 'unknown') + ' part of an e-mail (' + raw.length + ' characters, '
+    + (raw.replace(/[A-Za-z0-9_\-=+\/]/g, '').length) + ' unexpected characters): ' + why);
 }
 
 // Named HTML characters that Spanish-language bank e-mails use (the common five are handled inline).

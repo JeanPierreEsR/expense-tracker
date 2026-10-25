@@ -56,7 +56,8 @@ const FIXED_MESSAGES_ALLOWED = [
   "No token provided", "No URL provided", "Unknown action", "Sheet not found", "entryId is required",
   "Run \"1. Build sheet tabs\"", "Unknown photo job", "Could not download the image", "batchId required",
   "contains is required", "Category not found", "Unknown payment method", "Unknown ", "A confirmed entry needs a category",
-  "Telegram bot token not set", "Unsupported language"
+  "Telegram bot token not set", "Unsupported language",
+  "Could not read the "   // GmailReader.gs: log-only diagnostic for an e-mail part that cannot be decoded; never shown in the app
 ];
 test("no fixed English error message outside the dictionary (internal and admin ones excepted)", () => {
   for (const f of files.filter((x) => x !== "Strings.gs" && x !== "Migrations.gs")) {

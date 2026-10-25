@@ -357,8 +357,9 @@ function buildServices(state) {
         getDataAsString: (charset) => (typeof data === "string" ? data
           : Buffer.from(Array.from(data, (b) => b & 255)).toString(/iso-8859-1|latin1|windows-1252/i.test(charset || "") ? "latin1" : "utf8"))
       }),
-      base64Decode: (s) => [...Buffer.from(String(s), "base64")].map((b) => (b > 127 ? b - 256 : b)),
-      base64DecodeWebSafe: (s) => [...Buffer.from(String(s), "base64url")].map((b) => (b > 127 ? b - 256 : b)),
+      // Strict like Google's: a character outside the alphabet (line break, the other alphabet) is "Could not decode string".
+      base64Decode: (s) => { if (!/^[A-Za-z0-9+/]*={0,2}$/.test(String(s))) throw new Error("Exception: Could not decode string."); return [...Buffer.from(String(s), "base64")].map((b) => (b > 127 ? b - 256 : b)); },
+      base64DecodeWebSafe: (s) => { if (!/^[A-Za-z0-9_-]*={0,2}$/.test(String(s))) throw new Error("Exception: Could not decode string."); return [...Buffer.from(String(s), "base64url")].map((b) => (b > 127 ? b - 256 : b)); },
       base64Encode: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64"),
       base64EncodeWebSafe: (x) => Buffer.from(typeof x === "string" ? x : Buffer.from(x)).toString("base64url"),
       parseCsv: () => unsupported("Utilities.parseCsv")
