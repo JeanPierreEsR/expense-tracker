@@ -691,7 +691,7 @@ function processSenders_(senders, opts, tracking, handled, results, existingExte
         if (tracking) { recordProcessedEmail_(messageId); handled[messageId] = true; }
       } catch (err) {
         results.errors++;
-        console.error('processOneMessage_: ' + err);
+        console.error('processOneMessage_ (' + sender + '): ' + err);
       }
     });
   });

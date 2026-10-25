@@ -105,3 +105,54 @@ test("without the e-mail approval, asking for a statement PDF still says so plai
   rt.svc.props.set("FEATURES", "keepawake");
   assert.throws(() => rt.run('requireFeature_("gmail", "feature.gmailOff")'), /not turned on/);
 });
+
+// ---- Google's decoders are strict: the same e-mail text can arrive padded, line-wrapped or in the other alphabet ----
+// (A friend's first Yape was never read: every e-mail of hers failed with "Could not decode string".)
+const withBodyData = (rt, transform) => {
+  const orig = rt.svc.gmail.advanced.Users.Messages.get;
+  rt.svc.gmail.advanced.Users.Messages.get = (...a) => {
+    const r = orig(...a);
+    const walk = (p) => { if (p.body && p.body.data) p.body.data = transform(p.body.data); (p.parts || []).forEach(walk); };
+    walk(r.payload);
+    return r;
+  };
+  return orig;
+};
+const bodyOf = (rt) => rt.run(`gmailSearchMessages_("from:${BCP_SENDER} newer_than:3d")[0].getPlainBody()`);
+
+test("e-mail text is read whether Gmail pads it, wraps its lines, or uses the standard alphabet", () => {
+  const variants = {
+    padded: (d) => d + "=".repeat((4 - (d.length % 4)) % 4),
+    "line-wrapped": (d) => d.replace(/(.{20})/g, "$1\r\n"),
+    "standard alphabet": (d) => d.replace(/-/g, "+").replace(/_/g, "/"),
+  };
+  Object.entries(variants).forEach(([name, transform]) => {
+    const { rt } = freshApp({ small: true });
+    bcpEmail(rt, { amount: "42.00", merchant: "Corner Cafe", op: "DEC-" + name });
+    readonly(rt);
+    const plain = bodyOf(rt);
+    withBodyData(rt, transform);
+    assert.equal(bodyOf(rt), plain, name + " text decodes to the same words");
+  });
+});
+
+test("text that cannot be decoded fails with a message naming the part, with no e-mail words in it", () => {
+  const { rt } = freshApp({ small: true });
+  bcpEmail(rt, { op: "DEC-BAD" });
+  readonly(rt);
+  withBodyData(rt, () => "A");   // one character is not valid base64 in any form
+  assert.throws(() => bodyOf(rt), /Could not read the text\/plain part of an e-mail \(1 characters, 0 unexpected characters\)/);
+});
+
+test("an e-mail whose text cannot be read is not marked handled, so the next scan tries it again", () => {
+  const { rt } = freshApp({ small: true });
+  bcpEmail(rt, { op: "DEC-RETRY" });
+  readonly(rt);
+  const orig = withBodyData(rt, () => "A");
+  const first = JSON.parse(JSON.stringify(rt.run("processEmails()")));
+  assert.equal(first.errors, 1);
+  assert.equal(first.created, 0);
+  rt.svc.gmail.advanced.Users.Messages.get = orig;   // Gmail now answers normally
+  const second = JSON.parse(JSON.stringify(rt.run("processEmails()")));
+  assert.equal(second.created, 1, "the same e-mail becomes an entry on the retry");
+});
