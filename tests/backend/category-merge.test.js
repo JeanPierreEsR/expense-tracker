@@ -304,3 +304,14 @@ test("notes the phone keeps about a row (~rename, ~name) are remembered as they 
   rt.api("saveStatementFormat", { signature: "N", label: "A", mapping: {}, accounts: {}, categories: map });
   assert.deepEqual(rt.api("getStatementFormat", { signature: "N" }).categories, map);
 });
+
+test("the category list says how many entries each category holds, so the review can say what a rename touches", () => {
+  const { rt } = freshApp({ entries: 40 });
+  const res = rt.api("suggestCategoryMap", { names: [{ type: "expense", name: "Transport" }] });
+  const rows = JSON.parse(rt.run(`JSON.stringify(getAllRows('Entries'))`));
+  const first = res.categories[0];
+  assert.equal(typeof first.entries, "number");
+  const expected = rows.filter((e) => e.category_id === first.id).length;
+  assert.equal(first.entries, expected);
+  assert.ok(res.categories.some((c) => c.entries > 0));
+});
