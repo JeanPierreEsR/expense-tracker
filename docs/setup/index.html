@@ -74,6 +74,8 @@
   button.danger { background:var(--bad); }
   .linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-size:16px; font-weight:600; text-decoration:underline; padding:4px 0; margin:0; width:auto; min-height:0; display:inline; }
   .callout .linkbtn { color:inherit; }
+  .acctbar { margin:4px 0 10px; }
+  .acctbar .linkbtn { font-size:inherit; margin-left:6px; }
   #moreOverlay { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.5); display:flex; align-items:flex-end; justify-content:center; }
   #moreOverlay[hidden] { display:none; }
   #moreSheet { background:var(--card); color:var(--fg); width:100%; max-width:560px; max-height:85vh; overflow:auto; border-radius:18px 18px 0 0; padding:18px 16px 24px; box-sizing:border-box; }
@@ -162,8 +164,8 @@
   .msc .hl { outline:3px solid #f9ab00; outline-offset:2px; border-radius:4px; }
   @keyframes tap { 50% { transform:scale(.7); } }
   @media (prefers-reduced-motion: reduce) { .msc, .msc .sc, .mock .finger, .msc .sw, .msc .sw::after { transition:none; } .mock .finger.press { animation:none; } }
-  body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
-  body.updating main >:not(#updateCard):not(#topStatus):not(#helpBox):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
+  body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(#acctBar):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
+  body.updating main >:not(#updateCard):not(#topStatus):not(#helpBox):not(#acctBar):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../signin-link.js"></script>
@@ -173,6 +175,7 @@
 <main>
   <p class="small langrow" style="text-align:right;margin:0"><a href="#" data-lang="es">Español</a> · <a href="#" data-lang="en">English</a></p>
   <h1 data-t="title"></h1>
+  <p class="small acctbar" id="acctBar"><span id="acct"></span><button class="linkbtn" id="btnChangeAcct" type="button" hidden data-t="changeAcct"></button></p>
   <p class="banner" id="inAppWarn" hidden data-t="inAppWarn"></p>
 
   <div class="topstatus idle" id="topStatus" role="status" aria-live="polite">
@@ -190,6 +193,12 @@
   </div>
 
   <div class="callout"><span data-t="accountTip"></span> <button class="linkbtn" data-more="accountTipMore"></button></div>
+
+  <div class="step" id="signinCard" hidden>
+    <h3 id="signinTitle" data-t="signinTitle"></h3>
+    <p id="signinBody" data-t="signinBody"></p>
+    <button id="btnSignin" data-t="signinBtn"></button>
+  </div>
 
   <div class="step" id="overview">
     <h3 data-t="whatTitle"></h3>
@@ -245,7 +254,7 @@
     <h3 data-t="switchTitle"></h3>
     <p style="color:inherit" data-t="switchIntro"></p>
     <div class="anim" id="anim-api" data-anim="api"></div>
-    <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
+    <a class="bigbtn" id="settingLink" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
     <p id="apiWait" style="color:inherit;margin-top:10px"></p>
   </div>
 
@@ -265,7 +274,6 @@
     <h3 data-t="createTitle"></h3>
     <div class="anim" id="anim-signin" data-anim="signin"></div>
     <button class="linkbtn" data-more="createAskMore"></button>
-    <p class="small" id="acct"></p>
     <div id="s1"></div>
     <button id="btnInstall" data-t="createBtn"></button>
     <div id="sheetNote" role="note" hidden>
@@ -456,6 +464,12 @@ const T = {
     continueBtn: 'Continue setup',
     cancelBtn: 'Stuck? Stop and try again',
     account: 'Signed in to Google as: {e}',
+    acctNone: 'Google account: you choose it when you tap the button below.',
+    changeAcct: 'Change account',
+    signinTitle: 'First: choose your Google account',
+    signinBody: 'Pick the Google account you want your app in. Doing it now means Google won’t stop to ask you later, when you come back to this page.',
+    signinBtn: 'Choose my Google account',
+    readySignin: 'First, choose your Google account (the box below).',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
@@ -649,6 +663,12 @@ const T = {
     continueBtn: 'Continuar la configuración',
     cancelBtn: '¿Te atascaste? Detener e intentar de nuevo',
     account: 'Iniciaste sesión en Google como: {e}',
+    acctNone: 'Cuenta de Google: la eliges al tocar el botón de abajo.',
+    changeAcct: 'Cambiar de cuenta',
+    signinTitle: 'Primero: elige tu cuenta de Google',
+    signinBody: 'Elige la cuenta de Google donde quieres tu app. Hacerlo ahora evita que Google te interrumpa después, cuando vuelvas a esta página.',
+    signinBtn: 'Elegir mi cuenta de Google',
+    readySignin: 'Primero, elige tu cuenta de Google (el recuadro de abajo).',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su archivo',
@@ -1042,7 +1062,7 @@ function saveProgressBg() {
 // ---------- Google sign-in for the setup page ----------
 // The token is also kept for this tab only (sessionStorage), so the page can
 // finish a step after coming back from Google without asking again.
-let accessToken = null, tokenExpires = 0, tokenClient = null;
+let accessToken = null, tokenExpires = 0, tokenClient = null, forceChooser = false;
 // Google's guide: create the sign-in object when the page loads, so the tap can open its window at once.
 // (Creating it inside the tap is the likely reason the window sometimes 'failed to open' on the first try.)
 function prepareSignIn() {
@@ -1096,16 +1116,45 @@ function getToken() {
       reject(new Error(type === 'popup_failed_to_open' ? T.popupFailed : type === 'popup_closed' ? T.popupClosed : 'Google sign-in window: ' + type));
     };
     log('Opening the Google sign-in window (tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').');
-    tokenClient.requestAccessToken();
+    const chooser = forceChooser; forceChooser = false;
+    tokenClient.requestAccessToken(chooser ? { prompt: 'select_account' } : state.account ? { login_hint: state.account } : undefined);
   });
 }
 
+// The line at the top of the page: which Google account this page is using, and (while it is safe) a way to pick another.
+// Not safe once a Sheet was made in setup: it belongs to the account that made it, so switching would split the work in two.
+function renderAccount() {
+  $('acct').textContent = state.account ? T.account.replace('{e}', state.account) : T.acctNone;
+  $('btnChangeAcct').hidden = !(WANT_UPDATE || WANT_REMOVE || !state.spreadsheetId) || busy;
+  // Step zero of a fresh setup: be signed in BEFORE anything sends the person to another Google page (the one-time setting),
+  // or Google may ask them to sign in there and they come back not knowing what to do.
+  // Not needed when the page already knows the account (a sign-in earlier in this tab, or one remembered from a past visit):
+  // the main button then signs in by itself, Google pre-selecting that account.
+  const needSignin = !(WANT_UPDATE || WANT_REMOVE || state.spreadsheetId || state.account);
+  $('signinCard').hidden = !needSignin;
+  $('btnInstall').disabled = busy || needSignin;
+  $('settingLink').href = withAccount('https://script.google.com/home/usersettings', '').replace(/[?&]$/, '');
+}
+async function signInFirst() {
+  try { await getToken(); await showAccount(); }
+  catch (e) { setTop('err', '', '✗ ' + e.message, 100); return; }
+  render();
+}
+async function changeAccount() {
+  log('Person asked to use a different Google account.');
+  accessToken = null; tokenExpires = 0; forceChooser = true;
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  const old = state.account;
+  state.account = ''; save(); renderAccount();
+  try { await getToken(); await showAccount(); }
+  catch (e) { forceChooser = false; state.account = old; save(); renderAccount(); setTop('err', '', '✗ ' + e.message, 100); }
+}
 let accountReady = Promise.resolve();
 async function showAccount() {
   try {
     const r = await google_('GET', 'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
     const em = r.user && r.user.emailAddress;
-    if (em) { state.account = em; save(); $('acct').textContent = T.account.replace('{e}', em); log('Signed in to Google as ' + em + '.'); }
+    if (em) { state.account = em; save(); renderAccount(); log('Signed in to Google as ' + em + '.'); }
   } catch (e) { log('Could not read the Google account name: ' + e.message); }
 }
 
@@ -1790,7 +1839,7 @@ function render(failed) {
   if (!busy) $('sheetNote').hidden = true;   // the "don't delete your Sheet" note is only for the minute the Sheet is being made
   if (state.webAppUrl) $('switchCard').hidden = !apiRetryTimer;
   if (state.webAppUrl && !$('s1').textContent) say('s1', T.createdDone);
-  if (state.account) $('acct').textContent = T.account.replace('{e}', state.account);
+  renderAccount();
   if (state.permissionDone && !$('s2').textContent) say('s2', T.approved);
   $('readyCard').hidden = !state.permissionDone;
   $('updateCard').hidden = WANT_REMOVE || !(WANT_UPDATE || state.permissionDone);
@@ -1818,12 +1867,13 @@ function render(failed) {
     $('btnInstall').textContent = mainLabel;
     $('btnInstall').classList.toggle('donebtn', mainDone);
     $('btnInstall').disabled = false;
+    renderAccount();   // re-applies the sign-in gate on the main button
   }
   if (!busy && !failed && !apiRetryTimer && !WANT_REMOVE) {   // the delete page writes its own status (removeEverything)
     if (state.pending) setTop('wait', T.stepAdd, T.p_wait);
     else if (state.permissionDone) setTop('ok', '', (WANT_UPDATE && updateJustDone) ? T.allDoneUpdate : T.allDone, 100);
     else if (state.pending || state.webAppUrl) setTop('wait', state.pending ? T.stepAdd : T.stepAllow, T.p_wait);
-    else setTop('idle', '', T.ready, 0);
+    else setTop('idle', '', (!WANT_UPDATE && !WANT_REMOVE && !state.spreadsheetId && !state.account) ? T.readySignin : T.ready, 0);
   }
   if (!busy && approvalTarget()) watchForApproval();
 }
@@ -1886,6 +1936,8 @@ $('btnCancel').addEventListener('click', () => { log('Stopped by the person — 
 $('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval, null, T.stepAllow));
 $('btnContinueAdd').addEventListener('click', () => run('sAdd', continueAfterApproval, null, T.stepAdd));
 $('btnAdd').addEventListener('click', () => run('sAdd', startAdd, 'btnAdd', T.stepAdd));
+$('btnChangeAcct').addEventListener('click', changeAccount);
+$('btnSignin').addEventListener('click', signInFirst);
 $('btnUpdate').addEventListener('click', () => run('sUpd', updateMyApp, 'btnUpdate', T.stepUpdate));
 $('btnRemove').addEventListener('click', () => run('sRm', removeEverything, 'btnRemove', T.stepRemove));
 $('btnCopy').addEventListener('click', async () => {
@@ -1898,7 +1950,7 @@ $('btnForget').addEventListener('click', () => {
   try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
   log('This phone forgot the setup (your Google Sheet in Drive is untouched).');
   ['s1', 's2', 'sAdd'].forEach((id) => { $(id).innerHTML = ''; });
-  $('acct').textContent = '';
+  renderAccount();
   try { localStorage.removeItem(HANDOFF_KEY); localStorage.removeItem('etSigninHandoff'); } catch (e) {}
   showRetry = false;
   render();
@@ -1918,6 +1970,7 @@ $('shareName').addEventListener('input', () => { beta.label = PerfShare.cleanLab
 function refreshHandoff() { try { if (state.webAppUrl && state.accessCode) localStorage.setItem('etSigninHandoff', signinText()); } catch (e) {} }
 if (beta.pending.length) betaFlush();   // notes left over from before the page jumped to Google
 render();
+if (accessToken && !state.account) accountReady = showAccount();   // a sign-in from earlier in this tab: name its account too
 if (WANT_UPDATE) setTimeout(() => { try { $('updateCard').scrollIntoView({ block: 'start' }); } catch (e) {} }, 200);
 log('Ready (' + LANG + ').' + (state.webAppUrl ? ' Resuming an earlier test.' : ''));
 handleReturn();
