@@ -194,6 +194,12 @@
 
   <div class="callout"><span data-t="accountTip"></span> <button class="linkbtn" data-more="accountTipMore"></button></div>
 
+  <div class="step" id="signinCard" hidden>
+    <h3 id="signinTitle" data-t="signinTitle"></h3>
+    <p id="signinBody" data-t="signinBody"></p>
+    <button id="btnSignin" data-t="signinBtn"></button>
+  </div>
+
   <div class="step" id="overview">
     <h3 data-t="whatTitle"></h3>
     <ol data-t="what"></ol>
@@ -248,7 +254,7 @@
     <h3 data-t="switchTitle"></h3>
     <p style="color:inherit" data-t="switchIntro"></p>
     <div class="anim" id="anim-api" data-anim="api"></div>
-    <a class="bigbtn" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
+    <a class="bigbtn" id="settingLink" href="https://script.google.com/home/usersettings" target="_blank" rel="noopener" data-t="switchBtn"></a>
     <p id="apiWait" style="color:inherit;margin-top:10px"></p>
   </div>
 
@@ -460,6 +466,11 @@ const T = {
     account: 'Signed in to Google as: {e}',
     acctNone: 'Google account: you choose it when you tap the button below.',
     changeAcct: 'Change account',
+    signinTitle: 'First: sign in to Google',
+    signinBody: 'Sign in with the Google account you want to use. Doing it now means Google won’t stop to ask you later, when you come back to this page.',
+    signinBtn: 'Sign in with Google',
+    signinDone: '✓ Signed in to Google',
+    readySignin: 'First, sign in to Google (the box below).',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
@@ -655,6 +666,11 @@ const T = {
     account: 'Iniciaste sesión en Google como: {e}',
     acctNone: 'Cuenta de Google: la eliges al tocar el botón de abajo.',
     changeAcct: 'Cambiar de cuenta',
+    signinTitle: 'Primero: inicia sesión en Google',
+    signinBody: 'Inicia sesión con la cuenta de Google que quieres usar. Hacerlo ahora evita que Google te interrumpa después, cuando vuelvas a esta página.',
+    signinBtn: 'Iniciar sesión con Google',
+    signinDone: '✓ Sesión iniciada en Google',
+    readySignin: 'Primero, inicia sesión en Google (el recuadro de abajo).',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su archivo',
@@ -1112,6 +1128,20 @@ function getToken() {
 function renderAccount() {
   $('acct').textContent = state.account ? T.account.replace('{e}', state.account) : T.acctNone;
   $('btnChangeAcct').hidden = !(WANT_UPDATE || WANT_REMOVE || !state.spreadsheetId) || busy;
+  // Step zero of a fresh setup: be signed in BEFORE anything sends the person to another Google page (the one-time setting),
+  // or Google may ask them to sign in there and they come back not knowing what to do.
+  const fresh = !(WANT_UPDATE || WANT_REMOVE || state.spreadsheetId), ok = signedIn();
+  $('signinCard').hidden = !fresh;
+  $('signinTitle').textContent = ok ? T.signinDone : T.signinTitle;
+  $('signinBody').hidden = $('btnSignin').hidden = ok;
+  $('btnInstall').disabled = busy || (fresh && !ok);
+  $('settingLink').href = withAccount('https://script.google.com/home/usersettings', '').replace(/[?&]$/, '');
+}
+const signedIn = () => !!(accessToken && Date.now() < tokenExpires - 60000);
+async function signInFirst() {
+  try { await getToken(); await showAccount(); }
+  catch (e) { setTop('err', '', '✗ ' + e.message, 100); return; }
+  render();
 }
 async function changeAccount() {
   log('Person asked to use a different Google account.');
@@ -1120,7 +1150,7 @@ async function changeAccount() {
   const old = state.account;
   state.account = ''; save(); renderAccount();
   try { await getToken(); await showAccount(); }
-  catch (e) { forceChooser = false; state.account = old; save(); renderAccount(); setTop('bad', '', e.message, 0); }
+  catch (e) { forceChooser = false; state.account = old; save(); renderAccount(); setTop('err', '', '✗ ' + e.message, 100); }
 }
 let accountReady = Promise.resolve();
 async function showAccount() {
@@ -1840,12 +1870,13 @@ function render(failed) {
     $('btnInstall').textContent = mainLabel;
     $('btnInstall').classList.toggle('donebtn', mainDone);
     $('btnInstall').disabled = false;
+    renderAccount();   // re-applies the sign-in gate on the main button
   }
   if (!busy && !failed && !apiRetryTimer && !WANT_REMOVE) {   // the delete page writes its own status (removeEverything)
     if (state.pending) setTop('wait', T.stepAdd, T.p_wait);
     else if (state.permissionDone) setTop('ok', '', (WANT_UPDATE && updateJustDone) ? T.allDoneUpdate : T.allDone, 100);
     else if (state.pending || state.webAppUrl) setTop('wait', state.pending ? T.stepAdd : T.stepAllow, T.p_wait);
-    else setTop('idle', '', T.ready, 0);
+    else setTop('idle', '', (!WANT_UPDATE && !state.spreadsheetId && !signedIn()) ? T.readySignin : T.ready, 0);
   }
   if (!busy && approvalTarget()) watchForApproval();
 }
@@ -1909,6 +1940,7 @@ $('btnContinue').addEventListener('click', () => run('s2', continueAfterApproval
 $('btnContinueAdd').addEventListener('click', () => run('sAdd', continueAfterApproval, null, T.stepAdd));
 $('btnAdd').addEventListener('click', () => run('sAdd', startAdd, 'btnAdd', T.stepAdd));
 $('btnChangeAcct').addEventListener('click', changeAccount);
+$('btnSignin').addEventListener('click', signInFirst);
 $('btnUpdate').addEventListener('click', () => run('sUpd', updateMyApp, 'btnUpdate', T.stepUpdate));
 $('btnRemove').addEventListener('click', () => run('sRm', removeEverything, 'btnRemove', T.stepRemove));
 $('btnCopy').addEventListener('click', async () => {
