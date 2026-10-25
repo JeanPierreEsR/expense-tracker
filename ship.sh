@@ -207,6 +207,16 @@ if echo "$CHANGED" | grep -q '^backend/'; then
     [ -f "$ID_FILE" ] || die "Missing $ID_FILE (live deployment id). Merged on main but NOT published; fix and re-run ./ship.sh"
     [ -f "$HERE/backend/.clasp.json" ] || die "Missing backend/.clasp.json in the main folder. Merged on main but NOT published; fix and re-run ./ship.sh"
     DEPLOY_ID="$(tr -d '[:space:]' < "$ID_FILE")"
+    # Apps Script keeps at most 200 versions and every backend deploy makes one; only the owner can delete old ones
+    # (script.google.com → the project → Project history). Say so BEFORE the upload fails, not after.
+    USED="$( (cd "$HERE/backend" && clasp versions 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1) || true )"
+    if [[ "$USED" =~ ^[0-9]+$ ]]; then
+      if [ "$USED" -ge 199 ]; then
+        die "Google keeps at most 200 versions of the backend and $USED are used, so this deploy would fail. Merged on main but NOT published. Delete old versions at script.google.com (the project → Project history; never the one the live deployment uses), then re-run ./ship.sh"
+      elif [ "$USED" -ge 170 ]; then
+        echo "⚠ Google keeps at most 200 backend versions: $USED are used and this deploy makes one more. Delete old ones soon (script.google.com → the project → Project history)."
+      fi
+    fi
     say "Uploading backend to Google and pointing the live deployment at it…"
     (cd "$HERE/backend" && clasp push -f && clasp deploy -i "$DEPLOY_ID" -d "${MSG:-ship}") \
       || die "Google upload failed. Main has the merge but nothing is on GitHub; fix the problem and re-run ./ship.sh (no arguments) to finish."

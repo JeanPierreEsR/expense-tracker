@@ -278,6 +278,27 @@ test("promote keeps the old screens as stable-<pin>/ when the pin moves, lists t
   assert.ok(fs.existsSync(path.join(r.work, "docs", `stable-${new7}`)), "the release rolled back from is kept for friends already on it");
 });
 
+test("promote keeps at most 3 older copies and COMMITS the removal of the rest (it used to leave them as loose deleted files)", () => {
+  const r = makeRepo();
+  const more = (rel, n) => {
+    write(r.work, "docs/index.html", `<html><head><meta name="app-release" content="${rel}"><meta name="app-channel" content="live"><script>window.etSiteUrl=1</script><link href="style.css?v=${rel}"></head></html>\n`);
+    write(r.work, "docs/app.js", `// app ${rel}\n`);
+    write(r.work, "docs/version.json", JSON.stringify({ version: `2026-01-0${n}T00:00:00Z`, release: rel }) + "\n");
+    write(r.work, "backend/Main.gs", `// backend ${rel}\n`);
+    git(r.work, "add", "-A"); git(r.work, "commit", "-q", "-m", `release ${rel}`); git(r.work, "tag", "-a", `v${rel}`, "-m", rel);
+    git(r.work, "push", "-q", "origin", "main", "--tags");
+  };
+  more("0.1.2", 3); more("0.1.3", 4); more("0.1.4", 5); more("0.1.5", 6);
+  for (const rel of ["0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5"]) {
+    const res = promote(r.work, rel);
+    assert.ok(res.ok, res.out);
+    assert.equal(git(r.work, "status", "--porcelain"), "", `nothing is left loose after promoting ${rel}`);
+  }
+  const kept = fs.readdirSync(path.join(r.work, "docs")).filter((d) => d.startsWith("stable-"));
+  assert.equal(kept.length, 3, "only the newest 3 older copies stay");
+  assert.equal(git(r.work, "ls-files", "docs/stable-*").split("\n").map((f) => f.split("/")[1]).filter((v, i, a) => a.indexOf(v) === i).length, 3, "and git agrees");
+});
+
 test("a normal ship refuses a branch that changes a kept stable-<pin>/ copy", () => {
   const sh = fs.readFileSync(path.join(ROOT, "ship.sh"), "utf8");
   assert.match(sh, /\^docs\/stable\(-\[0-9a-f\]\+\)\?\//);
