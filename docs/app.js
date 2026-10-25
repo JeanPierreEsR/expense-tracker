@@ -4271,7 +4271,13 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
-  if (!fab.hidden && nav.offsetHeight) fab.style.setProperty("--nav-h", nav.offsetHeight + "px");
+  // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
+  // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
+  // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
+  if (!fab.hidden && nav.offsetHeight) {
+    const pad = parseFloat(getComputedStyle(nav).paddingBottom) || 0;
+    fab.style.setProperty("--nav-h", (nav.offsetHeight - pad) + "px");
+  }
 }
 
 (function setupFab_() {
