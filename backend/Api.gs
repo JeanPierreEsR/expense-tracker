@@ -292,6 +292,7 @@ function routeAction(action, payload) {
     case 'listStatementInbox': return listStatementInbox();
     case 'getStatementAttachment': return getStatementAttachment(payload);
     case 'listPerfAppVersions': return listPerfAppVersions_();
+    case 'listStatementSamples': return listStatementSamples_(payload);
     case 'findStatementEmails': return findStatementEmails(payload);
     case 'addStatementsToInbox': return addStatementsToInbox(payload);
     case 'rememberStatementSender': return rememberStatementSender(payload);
