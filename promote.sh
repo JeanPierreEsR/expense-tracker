@@ -172,8 +172,9 @@ if [ -z "$RESUME" ]; then
   # ------------------------------------------------- 4. the matching backend
   printf '{ "pin": "%s" }\n' "$PIN" > "$W/docs/setup/pin.json"
 
-  PATHS=(docs/stable docs/setup/pin.json)
-  for d in "$W"/docs/stable-*/; do [ -d "$d" ] && PATHS+=("docs/$(basename "$d")"); done
+  # 'docs/stable-*' (a pattern, not a list of folders) also stages the copies kept_pairs just pruned: a folder that no longer exists cannot be
+  # listed by name, and without this the removal stayed on disk as loose changes in the main folder after every promote (found 2026-10-24).
+  PATHS=(docs/stable docs/setup/pin.json 'docs/stable-*')
   G add -A -- "${PATHS[@]}"
   if [ -z "$(G status --porcelain -- "${PATHS[@]}")" ]; then
     say "Nothing to change: friends already have release $REL with this backend."
