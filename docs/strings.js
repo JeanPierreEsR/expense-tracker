@@ -1594,6 +1594,8 @@
     "find.known": { en: "The app can read these", es: "La app puede leer estos" },
     "find.unknown": { en: "New to the app — we'll try to read them; if we can't, you'll be able to send one so your bank is added", es: "Nuevo para la app: intentaremos leerlos; si no se puede, podrás enviar uno para que se agregue tu banco" },
     "find.alreadyRead": { en: "already read", es: "ya leído" },
+    "find.selectAll": { en: "Select all", es: "Marcar todos" },
+    "find.deselectAll": { en: "Deselect all", es: "Desmarcar todos" },
     "find.read": { en: "Read selected ({n})", es: "Leer seleccionados ({n})" },
     "find.readNone": { en: "Check the statements to read", es: "Marca los estados de cuenta que quieres leer" },
     "find.adding": { en: "Preparing…", es: "Preparando…" },

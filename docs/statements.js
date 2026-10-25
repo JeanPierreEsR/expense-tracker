@@ -222,7 +222,7 @@
     });
     // Known banks first: those are the ones the app can read for sure.
     groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p>` + groups.map((g) => {
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-all"></button></div>` + groups.map((g) => {
       const rows = g.items.map((f) => `<label class="stmt-find-row">
         <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" checked>
         <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
@@ -241,6 +241,8 @@
     const btn = $("statement-find-read");
     if (!btn || btn.dataset.busy) return;
     const n = pickedFound().length;
+    const tg = $("statement-find-all");
+    if (tg) tg.textContent = tr(n === found.length ? "find.deselectAll" : "find.selectAll");
     btn.textContent = n ? tr("find.read", { n }) : tr("find.readNone");
     btn.disabled = !n;
   }
@@ -272,7 +274,14 @@
   $("statement-find-toggle").addEventListener("click", openFindCard);
   $("statement-coverage-list").addEventListener("click", (e) => { if (e.target.closest(".stmt-older-link")) openFindCard(); });
   $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
-  $("statement-find-results").addEventListener("click", (e) => { if (e.target.id === "statement-find-read") readPickedFound(); });
+  $("statement-find-results").addEventListener("click", (e) => {
+    if (e.target.id === "statement-find-read") readPickedFound();
+    if (e.target.id === "statement-find-all") {
+      const boxes = document.querySelectorAll(".stmt-find-pick"), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
+  });
 
   // ---- gaps (notes saved when a balance is set from a statement) ----
 
