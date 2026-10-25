@@ -54,13 +54,17 @@ function formatDate(date, tz, fmt) {
 // Sheets turns a recognisable date string into a real Date when it is written
 // to a cell that isn't text-formatted (see the comment above DATE_FIELD_FORMATS
 // in Api.gs). Mimicked so the backend's string-normalising code is exercised.
+const SHEET_OFFSETS = { "America/Lima": "-05:00", UTC: "Z", GMT: "Z" };
+let sheetTz = TZ;   // the Sheet's own time zone, which can differ from the script's (tests set it with setSheetTimeZone)
+function setSheetTimeZone(z) { sheetTz = z || TZ; }
 function maybeDate(v) {
   if (typeof v !== "string") return v;
+  const off = SHEET_OFFSETS[sheetTz];
   // "2026-09-30" and also "2026-09" (Sheets reads that as 1 Sep 2026).
-  if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5)) >= 1 && Number(v.slice(5)) <= 12) return new Date(`${v}-01T00:00:00-05:00`);
+  if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5)) >= 1 && Number(v.slice(5)) <= 12) return new Date(`${v}-01T00:00:00${off}`);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
   if (!m) return v;
-  return new Date(`${v}T00:00:00-05:00`);
+  return new Date(`${v}T00:00:00${off}`);
 }
 
 // ---- Spreadsheet ------------------------------------------------------------
@@ -342,7 +346,7 @@ function buildServices(state) {
   return {
     ss, props, cache, fetchLog, uiLog, mailLog, gmail,
     SpreadsheetApp: {
-      getActiveSpreadsheet: () => ss,
+      getActiveSpreadsheet: () => Object.assign(ss, { getSpreadsheetTimeZone: () => sheetTz }),
       getUi: () => uiChain
     },
     Utilities: {
@@ -422,4 +426,4 @@ function buildServices(state) {
   };
 }
 
-module.exports = { buildServices, formatDate, TZ, stats, resetStats };
+module.exports = { buildServices, formatDate, setSheetTimeZone, TZ, stats, resetStats };

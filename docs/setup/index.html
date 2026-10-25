@@ -1354,7 +1354,7 @@ async function install() {
   if (!state.spreadsheetId) {
     progress(T.p_sheet, 15);
     const s = Date.now();
-    const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE } });
+    const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE, timeZone: 'America/Lima' } });
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
     betaSend('sheet_created');
     saveProgressBg();
