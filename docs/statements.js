@@ -223,8 +223,8 @@
     // Known banks first: those are the ones the app can read for sure.
     groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
     out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p>` + groups.map((g) => {
-      const rows = g.items.map((f) => `<label class="stmt-find-row" style="display:flex;gap:8px;align-items:flex-start;padding:4px 0">
-        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" ${g.known && f.status !== "processed" ? "checked" : ""}>
+      const rows = g.items.map((f) => `<label class="stmt-find-row">
+        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" checked>
         <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
       return `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(g.name)}</div>
