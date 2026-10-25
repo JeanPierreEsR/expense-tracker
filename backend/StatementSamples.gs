@@ -104,3 +104,23 @@ function reportStatementSample_(p) {
   }
   return { stored: true, parts: parts.length };
 }
+
+// Read-only, for the Mac helper's key (tools/statement-samples.py): the rows of the "Statement Samples" tab after sheet row `afterRow`,
+// at most STATEMENT_SAMPLE_LIST_ROWS_ per call (the script asks again from `next` until `done`). The text is the same already-redacted
+// text the tab holds. Refused on a friend's copy, which has no such tab.
+var STATEMENT_SAMPLE_LIST_ROWS_ = 20;
+function listStatementSamples_(p) {
+  if (isFriendCopy_()) throw codedError_('sample_not_collected', 'This copy does not collect statement samples.');
+  var after = Math.max(1, Math.floor(Number((p || {}).afterRow) || 1));
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(STATEMENT_SAMPLES_SHEET_);
+  var last = sheet ? sheet.getLastRow() : 1;
+  if (last <= after) return { rows: [], next: after, done: true };
+  var n = Math.min(STATEMENT_SAMPLE_LIST_ROWS_, last - after);
+  var values = sheet.getRange(after + 1, 1, n, STATEMENT_SAMPLE_HEADERS_.length).getValues();
+  var rows = values.map(function (v, i) {
+    var o = { row: after + 1 + i };
+    STATEMENT_SAMPLE_HEADERS_.forEach(function (h, c) { o[h] = String(v[c]); });
+    return o;
+  });
+  return { rows: rows, next: after + n, done: after + n >= last };
+}
