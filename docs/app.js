@@ -5459,6 +5459,36 @@ document.addEventListener("scroll", (e) => {
   if (el && el.classList && el.classList.contains("currency-modal") && el.scrollTop > 8) el.classList.add("expanded");
 }, { capture: true, passive: true });
 
+// The way back: with a full-screen sheet already scrolled to its top, pulling down (finger) or scrolling up
+// (wheel) once more shrinks it to normal size. The header drag does the same (setupSheetDrag).
+(function setupSheetContractOnOverscroll() {
+  const scrollerOf = (target, sheet) => {
+    for (let el = target; el && el !== sheet.parentElement; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return el;
+    }
+    return sheet;
+  };
+  let sheet = null, scroller = null, startY = 0, startedAtTop = false;
+  document.addEventListener("touchstart", (e) => {
+    sheet = e.target.closest && e.target.closest(".currency-modal.expanded");
+    if (!sheet) return;
+    scroller = scrollerOf(e.target, sheet);
+    startY = e.touches[0].clientY;
+    startedAtTop = scroller.scrollTop <= 0;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (!sheet || !startedAtTop) return;
+    if (e.touches[0].clientY - startY > 40 && scroller.scrollTop <= 0) {
+      sheet.classList.remove("expanded");
+      sheet = null;
+    }
+  }, { passive: true });
+  document.addEventListener("wheel", (e) => {
+    const s = e.target.closest && e.target.closest(".currency-modal.expanded");
+    if (s && e.deltaY < 0 && scrollerOf(e.target, s).scrollTop <= 0) s.classList.remove("expanded");
+  }, { passive: true });
+})();
+
 // Scrolling the list of the normal-size sheet pulls it up to full screen, so the list gets all the
 // room; dragging the header down returns it (see setupSheetDrag).
 document.getElementById("drilldown-scroll-area").addEventListener("scroll", (e) => {
