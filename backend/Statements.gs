@@ -462,6 +462,7 @@ function analyzeStatements(payload) {
     });
     return {
       key: s.key, kind: s.kind, source: s.source || '', period: s.period,
+      bank: String(s.bank || ''), last4: String((s.account && s.account.last4) || s.accountLast4 || ''), balances: s.balances || {},   // what a NEW account is proposed from (StatementAccounts.gs)
       account: pm ? { id: pm.id, nickname: pm.nickname, type: pm.type } : null,
       lines: lines
     };

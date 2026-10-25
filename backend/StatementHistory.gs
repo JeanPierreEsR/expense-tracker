@@ -363,6 +363,7 @@ function stmtHistoryPlan_(analysis, platforms) {
       counts: counts, leftOut: leftOut, spent: spent, aside: aside, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
+      newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them
       from: first, to: last,
       importable: counts.expenses + counts.income + counts.refunds + counts.refundIncome + counts.transfers + counts.fees
     }
