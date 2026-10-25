@@ -1030,6 +1030,10 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
+     whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Dragging up from the drill-down's header (see setupDrilldownExpand in
@@ -2914,3 +2918,16 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 /* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
+
+.stmt-find-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.stmt-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark and sizing. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  padding: 0;
+}
