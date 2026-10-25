@@ -265,7 +265,7 @@ test("promote keeps the old screens as stable-<pin>/ when the pin moves, lists t
   const kept = fs.readFileSync(path.join(r.work, "docs", `stable-${old7}`, "index.html"), "utf8");
   assert.match(kept, /content="0\.1\.0"/, "the kept copy is the old release's screens");
   assert.match(kept, new RegExp(`name="app-pin" content="${r.backendOne}"`));
-  assert.match(kept, /name="app-archived" content="\d{8}T\d{6}Z"/);
+  assert.match(kept, /name="app-archived" content="\d{8}T\d{9}Z"/);
   assert.ok(!/app-pairs/.test(kept));
   const cur = fs.readFileSync(path.join(r.work, "docs", "stable", "index.html"), "utf8");
   assert.match(cur, new RegExp(`name="app-pin" content="${r.backendTwo}"`));

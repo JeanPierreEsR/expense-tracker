@@ -185,7 +185,8 @@ if [ -z "$RESUME" ]; then
     A="$W/docs/stable-$(echo "$OLDPIN" | cut -c1-7)"
     say "The backend pin moves, so the screens friends have now are kept as $(basename "$A")/ for friends who have not updated."
     rm -rf "$A"; mkdir -p "$A"; rsync -a "$W/docs/stable/" "$A/"
-    set_metas "$A/index.html" "$OLDPIN" "" "$(date -u +%Y%m%dT%H%M%SZ)"
+    # milliseconds, so two promotes in the same second still sort in the order they happened
+    set_metas "$A/index.html" "$OLDPIN" "" "$(python3 -c "import datetime;print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%f')[:18] + 'Z')")"
   fi
   rm -rf "$W/docs/stable-$(echo "$PIN" | cut -c1-7)"   # the copy for the pin being promoted is stable/ itself
   rm -rf "$W/docs/stable"; mkdir -p "$W/docs/stable"
