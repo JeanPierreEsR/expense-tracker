@@ -5403,17 +5403,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
       </div>
-      <button type="button" class="entry-row-delete" aria-label="${escapeHtml(tr("entry.delete"))}">🗑️</button>
     `;
-    row.querySelector(".entry-row-delete").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (blockedWhileSavingEdit_(entry.id)) return;
-      const summary = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
-      if (!(await confirmAndDiscardEntry_(entry.id, entry.type, summary))) return;
-      refreshEntryList().catch(() => {});
-      refreshExpectedRecurring();
-      await refreshAfterPopupEdit();
-    });
     // Opens the same edit form used everywhere else, but as a pop-up on
     // top of this sheet — no need to leave Overview or close the
     // drill-down to fix a transaction.
@@ -5462,6 +5452,42 @@ document.getElementById("drilldown-period-next").addEventListener("click", () =>
 function expandDrilldown_() {
   document.getElementById("drilldown-modal-inner").classList.add("expanded");
 }
+
+// Same for any other sheet that scrolls as a whole (the Categories form): scrolling it pulls it to full screen.
+document.addEventListener("scroll", (e) => {
+  const el = e.target;
+  if (el && el.classList && el.classList.contains("currency-modal") && el.scrollTop > 8) el.classList.add("expanded");
+}, { capture: true, passive: true });
+
+// The way back: with a full-screen sheet already scrolled to its top, pulling down (finger) or scrolling up
+// (wheel) once more shrinks it to normal size. The header drag does the same (setupSheetDrag).
+(function setupSheetContractOnOverscroll() {
+  const scrollerOf = (target, sheet) => {
+    for (let el = target; el && el !== sheet.parentElement; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return el;
+    }
+    return sheet;
+  };
+  let sheet = null, scroller = null, startY = 0, startedAtTop = false;
+  document.addEventListener("touchstart", (e) => {
+    sheet = e.target.closest && e.target.closest(".currency-modal.expanded");
+    if (!sheet) return;
+    scroller = scrollerOf(e.target, sheet);
+    startY = e.touches[0].clientY;
+    startedAtTop = scroller.scrollTop <= 0;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (!sheet || !startedAtTop) return;
+    if (e.touches[0].clientY - startY > 40 && scroller.scrollTop <= 0) {
+      sheet.classList.remove("expanded");
+      sheet = null;
+    }
+  }, { passive: true });
+  document.addEventListener("wheel", (e) => {
+    const s = e.target.closest && e.target.closest(".currency-modal.expanded");
+    if (s && e.deltaY < 0 && scrollerOf(e.target, s).scrollTop <= 0) s.classList.remove("expanded");
+  }, { passive: true });
+})();
 
 // Scrolling the list of the normal-size sheet pulls it up to full screen, so the list gets all the
 // room; dragging the header down returns it (see setupSheetDrag).
@@ -8839,6 +8865,9 @@ function openCatModal_(cat) {
   updateCatPreview_();
   const backdrop = document.getElementById("cat-modal-backdrop");
   bringModalToFront_(backdrop);
+  const sheet = backdrop.querySelector(".currency-modal");
+  sheet.classList.remove("expanded");
+  sheet.scrollTop = 0;
   backdrop.hidden = false;
   if (!cat) document.getElementById("cat-name").focus();
 }
