@@ -651,7 +651,7 @@
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
+    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -830,6 +830,8 @@
           const mine = state.catSaved["~name:" + it.key];                   // …or typed a name of their own, which the category may already have
           const alreadyMine = !!(info && mine && info.names.indexOf(StatementTable.catNorm(mine)) !== -1);
           state.catNames[it.key] = (keepApp || alreadyMine) && info ? info.name : defaultNameFor(it, state.catChoice[it.key]);
+          const custom = state.catSaved["~custom:" + it.key];                // a new category the person named themselves last time
+          if (state.catChoice[it.key] === "create" && custom) { state.catCustom[it.key] = true; state.catNames[it.key] = custom; }
         }
       });
       renderCategories();
@@ -860,6 +862,14 @@
       return tr(renamed ? "table.catSummaryRenamed" : "table.catSummary", { used, renamed, created, left }) + (skipped ? " · " + tr("table.catSummarySkipped", { n: skipped }) : "");
     }
     // What the row will do, said from the file's side: the file's category is the subject, the person's existing one is what it joins.
+    // What the "Goes into" list shows for a row: a category as it is, the same category renamed to the file's name ("ren:<id>"), a new category
+    // with the file's name ("create") or one the person names ("custom"), none, or leave the lines out.
+    function selectValue(it) {
+      const c = state.catChoice[it.key];
+      if (c === "create") return state.catCustom[it.key] ? "custom" : "create";
+      if (c === "" || c === "skip") return c;
+      return renameOf(it) ? "ren:" + c : c;
+    }
     function rowHint(it) {
       const c = state.catChoice[it.key];
       if (c === "skip") return tr("table.catSkipHint", { n: it.count });
@@ -878,22 +888,27 @@
       if (!state.catItems.length) { box.innerHTML = ""; return; }
       const rowHtml = (it) => {
         const cur = state.catChoice[it.key];
+        const selVal = selectValue(it);
+        const norm = StatementTable.catNorm(it.name);
         const opts = myCategories(it.type).map((c) => {
-          const n = (catInfo(c.id) || {}).entries;
-          return `<option value="${escapeHtml(c.id)}"${c.id === cur ? " selected" : ""}>${escapeHtml(c.name + (n ? ` · ${tr("categories.entryCount", { n })}` : ""))}</option>`;
+          const info = catInfo(c.id) || {};
+          const n = info.entries ? ` · ${tr("categories.entryCount", { n: info.entries })}` : "";
+          // The suggested category (or the one a remembered choice renames) is offered twice: renamed to the file's name, and as it is.
+          const renamable = (c.id === it.categoryId || selVal === "ren:" + c.id) && !info.protected && info.names && info.names.indexOf(norm) === -1;
+          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: c.name, to: shownName(it.name, it.type) }) + n)}</option>` : "") +
+            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(c.name + n)}</option>`;
         }).join("");
-        const info = catInfo(cur);
-        const named = cur !== "" && cur !== "skip";
-        const nameInput = named ? `<label>${escapeHtml(tr("table.catCalled"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}"${info && info.protected ? " disabled" : ""}>` : "";
+        const nameInput = selVal === "custom" ? `<label>${escapeHtml(tr("table.catCustomLabel"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}">` : "";
         const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
         return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}" style="margin-bottom:14px">
           <div><span class="hint" style="margin-right:6px">${escapeHtml(tr("table.catFromFile"))}</span><strong>${escapeHtml(shownName(it.name, it.type))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: it.count }))}</span></div>
           ${note}
           <label>${escapeHtml(tr("table.catGoesIntoLabel"))}</label>
           <select class="tm-cchoice"><optgroup label="${escapeHtml(tr("table.catYours"))}">${opts}</optgroup>
-            <option value="create"${cur === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
-            <option value=""${cur === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
-            <option value="skip"${cur === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
+            <option value="create"${selVal === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
+            <option value="custom"${selVal === "custom" ? " selected" : ""}>${escapeHtml(tr("table.catCustom"))}</option>
+            <option value=""${selVal === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
+            <option value="skip"${selVal === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
           ${nameInput}
           <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p></div>`;
       };
@@ -920,6 +935,7 @@
     const withoutSkips = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip"));
     function renameFlags() {
       const out = {};
+      state.catItems.forEach((it) => { if (state.catChoice[it.key] === "create") out["~custom:" + it.key] = state.catCustom[it.key] ? String(state.catNames[it.key] || "").trim() : ""; });
       state.catItems.forEach((it) => {
         const c = state.catChoice[it.key], info = catInfo(c);
         if (c && c !== "create" && info && !info.protected && info.names.indexOf(StatementTable.catNorm(it.name)) === -1) {
@@ -989,9 +1005,14 @@
       else if (cls === "type") state.m.type = Number(v);
       else if (cls === "cchoice") {
         const row = e.target.closest(".tm-cat-row"), it = state.catItems.find((x) => x.key === row.dataset.key);
-        state.catChoice[it.key] = v;
-        state.catNames[it.key] = defaultNameFor(it, v);   // a new target starts from the file's name again
+        state.catCustom[it.key] = false;
+        if (v === "custom") { state.catChoice[it.key] = "create"; state.catCustom[it.key] = true; if (!state.catNames[it.key]) state.catNames[it.key] = it.name; }
+        else if (v === "create") { state.catChoice[it.key] = "create"; state.catNames[it.key] = it.name; }
+        else if (v === "" || v === "skip") { state.catChoice[it.key] = v; state.catNames[it.key] = ""; }
+        else if (v.indexOf("ren:") === 0) { state.catChoice[it.key] = v.slice(4); state.catNames[it.key] = it.name; }   // the category takes the file's name
+        else { state.catChoice[it.key] = v; state.catNames[it.key] = (catInfo(v) || {}).name || it.name; }                // an existing category keeps its own
         renderCategories();
+        if (v === "custom") { const box = root.querySelector(`.tm-cat-row[data-key="${CSS.escape(it.key)}"] .tm-cname`); if (box) { box.focus(); box.select(); } }
         renderPreview();   // lines of a category left out change the totals
         return;
       }
