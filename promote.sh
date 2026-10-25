@@ -67,19 +67,39 @@ if n != 1: sys.exit("no app-channel tag")
 open(f, 'w').write(s)
 PY
 }
-# kept_pairs ROOT KEEP — prunes the older kept copies down to the newest KEEP (by when they were kept) and prints the rest as a comma list.
+# kept_pairs ROOT KEEP COPIES_JSON — prunes the older kept copies and prints the ones that stay as a comma list. A copy stays when it is among the
+# newest KEEP (by when it was kept) OR a friend used it in the last 30 days (COPIES_JSON, written by tools/friends-copies.py from the app-speed
+# reports; absent = nobody is known to use any). What it removes and what it keeps because someone still uses it goes to stderr.
 kept_pairs() {
-  python3 - "$1" "$2" <<'PY'
-import glob, os, re, shutil, sys
-root, keep = sys.argv[1], int(sys.argv[2])
+  python3 - "$1" "$2" "$3" <<'PY'
+import datetime, glob, json, os, re, shutil, sys
+root, keep, copies = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+STALE_DAYS = 30
+inuse = {}
+try:
+    data = json.load(open(copies))
+    today = datetime.date.today()
+    for pin, v in (data.get('pins') or {}).items():
+        try: age = (today - datetime.date.fromisoformat(v.get('lastSeen', ''))).days
+        except ValueError: continue
+        if age <= STALE_DAYS: inuse[pin[:7]] = v
+except (OSError, ValueError): pass
 found = []
 for d in glob.glob(os.path.join(root, 'docs', 'stable-*')):
     try: m = re.search(r'name="app-archived" content="([^"]*)"', open(os.path.join(d, 'index.html')).read())
     except OSError: m = None
     found.append((m.group(1) if m else '', d))
 found.sort(reverse=True)
-for _, d in found[keep:]: shutil.rmtree(d)
-print(','.join(os.path.basename(d)[len('stable-'):] for _, d in found[:keep]))
+kept = []
+for i, (_, d) in enumerate(found):
+    pin = os.path.basename(d)[len('stable-'):]
+    if i < keep or pin in inuse:
+        kept.append(d)
+        if i >= keep: print('Keeping %s: %d friend phone(s) used it in the last %d days.' % (os.path.basename(d), inuse[pin].get('installs', 1), STALE_DAYS), file=sys.stderr)
+    else:
+        shutil.rmtree(d)
+        print('Removing %s: no friend is known to use it.' % os.path.basename(d), file=sys.stderr)
+print(','.join(os.path.basename(d)[len('stable-'):] for d in kept))
 PY
 }
 
@@ -154,6 +174,13 @@ if [ -z "$RESUME" ]; then
   # Paired screens: when the backend pin moves, the screens friends had until now stay available as stable-<first 7 of the old pin>/, so a friend whose
   # backend is not updated yet keeps running the screens that were tested with it (at most KEEP such copies; the oldest go).
   PAIRS_KEEP=3
+  # Who still uses a kept copy: tools/friends-copies.py writes this list from the app-speed reports. With the list the newest 2 stay as a safety
+  # net (friends who share nothing cannot be seen) plus every copy used in the last 30 days; without it the newest 3 stay.
+  COPIES_FILE="${FRIENDS_COPIES_FILE:-$(dirname "$COMMON")/../FRIENDS_COPIES.json}"
+  if [ -f "$COPIES_FILE" ]; then
+    PAIRS_KEEP=2
+    [ -n "$(find "$COPIES_FILE" -mtime +14 2>/dev/null)" ] && echo "⚠ The list of copies friends use is over 14 days old: refresh it first (download the Sheet's 'Perf Reports' tab as CSV and run tools/friends-copies.py), or a copy a friend moved onto since could be removed." >&2
+  fi
   if [ -n "$OLDPIN" ] && [ "$OLDPIN" != "$PIN" ] && [ -f "$W/docs/stable/index.html" ]; then
     A="$W/docs/stable-$(echo "$OLDPIN" | cut -c1-7)"
     say "The backend pin moves, so the screens friends have now are kept as $(basename "$A")/ for friends who have not updated."
@@ -166,7 +193,7 @@ if [ -z "$RESUME" ]; then
   sed -i '' -E 's/(<meta name="app-channel" content=")[^"]*"/\1stable"/' "$W/docs/stable/index.html"
   grep -q '<meta name="app-channel" content="stable">' "$W/docs/stable/index.html" || die "Could not mark stable/index.html as the stable copy — nothing was published."
   [ -f "$W/docs/stable/version.json" ] && [ -f "$W/docs/stable/app.js" ] || die "The copy in stable/ is incomplete — nothing was published."
-  PAIRS="$(kept_pairs "$W" "$PAIRS_KEEP")"
+  PAIRS="$(kept_pairs "$W" "$PAIRS_KEEP" "$COPIES_FILE")"
   set_metas "$W/docs/stable/index.html" "$PIN" "$PAIRS" ""
 
   # ------------------------------------------------- 4. the matching backend

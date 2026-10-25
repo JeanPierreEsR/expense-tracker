@@ -299,6 +299,72 @@ test("promote keeps at most 3 older copies and COMMITS the removal of the rest (
   assert.equal(git(r.work, "ls-files", "docs/stable-*").split("\n").map((f) => f.split("/")[1]).filter((v, i, a) => a.indexOf(v) === i).length, 3, "and git agrees");
 });
 
+// Five promotes, each moving the pin; returns the pins in order (index 0 = the first release's) and the repo.
+function fivePromotes(copiesFile) {
+  const r = makeRepo();
+  const pins = [r.backendOne, r.backendTwo];
+  const more = (rel, n) => {
+    write(r.work, "docs/index.html", `<html><head><meta name="app-release" content="${rel}"><meta name="app-channel" content="live"><script>window.etSiteUrl=1</script><link href="style.css?v=${rel}"></head></html>\n`);
+    write(r.work, "docs/version.json", JSON.stringify({ version: `2026-01-0${n}T00:00:00Z`, release: rel }) + "\n");
+    write(r.work, "backend/Main.gs", `// backend ${rel}\n`);
+    git(r.work, "add", "-A"); git(r.work, "commit", "-q", "-m", `release ${rel}`); git(r.work, "tag", "-a", `v${rel}`, "-m", rel);
+    git(r.work, "push", "-q", "origin", "main", "--tags");
+    pins.push(git(r.work, "rev-parse", "HEAD"));
+  };
+  more("0.1.2", 3); more("0.1.3", 4); more("0.1.4", 5); more("0.1.5", 6);
+  if (copiesFile) process.env.FRIENDS_COPIES_FILE = copiesFile(r, pins);
+  try {
+    for (const rel of ["0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5"]) { const res = promote(r.work, rel); assert.ok(res.ok, res.out); }
+  } finally { delete process.env.FRIENDS_COPIES_FILE; }
+  const kept = fs.readdirSync(path.join(r.work, "docs")).filter((d) => d.startsWith("stable-")).map((d) => d.slice(7)).sort();
+  return { r, pins, kept, status: git(r.work, "status", "--porcelain") };
+}
+const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+
+test("a kept copy a friend used recently stays, whatever its age; the unused ones go; the newest 2 stay as a safety net", () => {
+  const out = fivePromotes((r, pins) => {
+    const f = path.join(r.base, "copies.json");
+    fs.writeFileSync(f, JSON.stringify({ updated: daysAgo(0), pins: { [pins[1].slice(0, 7)]: { lastSeen: daysAgo(3), installs: 1 } } }));
+    return f;
+  });
+  const want = [out.pins[1], out.pins[3], out.pins[4]].map((p) => p.slice(0, 7)).sort();   // 0.1.1's pin (in use) + the two newest kept copies
+  assert.deepEqual(out.kept, want);
+  assert.equal(out.status, "", "and the removals are committed");
+});
+
+test("a copy last used over 30 days ago is no longer protected", () => {
+  const out = fivePromotes((r, pins) => {
+    const f = path.join(r.base, "copies.json");
+    fs.writeFileSync(f, JSON.stringify({ updated: daysAgo(0), pins: { [pins[1].slice(0, 7)]: { lastSeen: daysAgo(45), installs: 1 } } }));
+    return f;
+  });
+  assert.deepEqual(out.kept, [out.pins[3], out.pins[4]].map((p) => p.slice(0, 7)).sort());
+});
+
+test("without the list the newest 3 stay, as before", () => {
+  const out = fivePromotes(null);
+  assert.equal(out.kept.length, 3);
+});
+
+test("tools/friends-copies.py turns the app-speed reports and the promote log into the list of copies in use", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "copies-"));
+  const csv = path.join(dir, "perf.csv"), md = path.join(dir, "FRIENDS_VERSIONS.md"), out = path.join(dir, "copies.json");
+  fs.writeFileSync(md, "| Date | Release | Backend pin | Note |\n|---|---|---|---|\n| 2026-10-23 | 0.32.1 | a40ff6f | promoted |\n| 2026-10-24 | 0.41.0 | cdc54b1 | promoted |\n| 2026-10-24 | 0.43.0 | 0bfee36 | promoted |\n");
+  fs.writeFileSync(csv, [
+    "received_at,install_id,label,seq,at,kind,action,total_ms,server_ms,cold,attempts,ok,app_version,device",
+    "2026-10-20T10:00:00Z,aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,Ana,1,x,call,a,1,1,no,1,yes,0.32.1,iPhone",
+    "2026-10-24T10:00:00Z,aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,Ana,2,x,call,a,1,1,no,1,yes,0.41.0,iPhone",
+    "2026-10-22T10:00:00Z,bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb,Ben,1,x,call,a,1,1,no,1,yes,0.41.0,iPhone",
+    "2026-10-23T10:00:00Z,cccccccc-cccc-cccc-cccc-cccccccccccc,Owner,1,x,call,a,1,1,no,1,yes,0.43.0,Mac",
+    "2026-10-23T10:00:00Z,dddddddd-dddd-dddd-dddd-dddddddddddd,Cy,1,x,call,a,1,1,no,1,yes,0.99.9,iPhone",
+  ].join("\n") + "\n");
+  const printed = execFileSync("python3", [path.join(ROOT, "tools", "friends-copies.py"), csv, md, out], { encoding: "utf8" });
+  const data = JSON.parse(fs.readFileSync(out, "utf8"));
+  assert.deepEqual(data.pins, { cdc54b1: { lastSeen: "2026-10-24", installs: 2 } }, "Ana's newest report counts, her older one does not; the owner and an unknown release are left out");
+  assert.ok(!/Ana|Ben/.test(JSON.stringify(data)), "the list holds no names");
+  assert.match(printed, /Cy.*0\.99\.9.*not counted/);
+});
+
 test("a normal ship refuses a branch that changes a kept stable-<pin>/ copy", () => {
   const sh = fs.readFileSync(path.join(ROOT, "ship.sh"), "utf8");
   assert.match(sh, /\^docs\/stable\(-\[0-9a-f\]\+\)\?\//);
