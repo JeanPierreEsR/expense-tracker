@@ -2914,3 +2914,16 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 /* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
+
+/* The trash can at the end of each row of a drill-down / trip list. */
+.entry-row-delete {
+  flex: none;
+  align-self: center;
+  margin-left: 6px;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  font-size: 1.05rem;
+  cursor: pointer;
+}

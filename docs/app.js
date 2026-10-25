@@ -3322,28 +3322,35 @@ function cancelEdit() {
 
 document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdit);
 
-document.getElementById("delete-entry-btn").addEventListener("click", async () => {
-  if (!editingEntryId) return;
+// Asks, then deletes one entry. Shared by the edit form's "Delete this entry" and the 🗑️ on each row of a
+// drill-down / trip list. Returns true only when the entry was really deleted.
+async function confirmAndDiscardEntry_(id, originalType, summary) {
   // A repayment's transfer entry takes the repayment with it — say so first.
-  let confirmText = tr("confirm.deleteEntry", { what: editingEntrySummary_ || tr("confirm.thisEntry") });
-  if (["transfer", "expense", "income"].includes(editingEntryOriginalType)) {
-    const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
+  let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
+  if (["transfer", "expense", "income"].includes(originalType)) {
+    const links = await callApi("getEntryRepaymentLinks", { id });
     if (links.forgiveness) {
       const f = links.forgiveness;
       confirmText = tr(f.direction === "they_owe_me" ? "delete.forgivenessTheyOweMe" : "delete.forgivenessIOweThem", { friend: f.friend });
     }
     if (links.loan) {
       alert(tr("delete.isLoan"));
-      return;
+      return false;
     }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!confirm(confirmText)) return;
-  await callApi("discardEntry", { id: editingEntryId });
+  if (!confirm(confirmText)) return false;
+  await callApi("discardEntry", { id });
   refreshLoans().catch(() => {});
+  return true;
+}
+
+document.getElementById("delete-entry-btn").addEventListener("click", async () => {
+  if (!editingEntryId) return;
+  if (!(await confirmAndDiscardEntry_(editingEntryId, editingEntryOriginalType, editingEntrySummary_))) return;
   exitEditMode();
   await refreshEntryList();
   refreshExpectedRecurring();
@@ -5029,6 +5036,8 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   subtitle.classList.toggle("tappable", !!drilldownProjection && (periodType === "month" || periodType === "year"));
   list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
   bringModalToFront_(backdrop);
+  // A freshly opened drill-down starts at the top (the area keeps its old scroll position otherwise).
+  if (backdrop.hidden) document.getElementById("drilldown-scroll-area").scrollTop = 0;
   backdrop.hidden = false;
 
   // A later open (another month picked while this one loads) replaces
@@ -5394,7 +5403,17 @@ function renderEntriesInto_(list, entries, emptyKey) {
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
       </div>
+      <button type="button" class="entry-row-delete" aria-label="${escapeHtml(tr("entry.delete"))}">🗑️</button>
     `;
+    row.querySelector(".entry-row-delete").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (blockedWhileSavingEdit_(entry.id)) return;
+      const summary = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
+      if (!(await confirmAndDiscardEntry_(entry.id, entry.type, summary))) return;
+      refreshEntryList().catch(() => {});
+      refreshExpectedRecurring();
+      await refreshAfterPopupEdit();
+    });
     // Opens the same edit form used everywhere else, but as a pop-up on
     // top of this sheet — no need to leave Overview or close the
     // drill-down to fix a transaction.
@@ -5443,6 +5462,12 @@ document.getElementById("drilldown-period-next").addEventListener("click", () =>
 function expandDrilldown_() {
   document.getElementById("drilldown-modal-inner").classList.add("expanded");
 }
+
+// Scrolling the list of the normal-size sheet pulls it up to full screen, so the list gets all the
+// room; dragging the header down returns it (see setupSheetDrag).
+document.getElementById("drilldown-scroll-area").addEventListener("scroll", (e) => {
+  if (e.target.scrollTop > 8) expandDrilldown_();
+}, { passive: true });
 
 function collapseDrilldownExpand_() {
   document.getElementById("drilldown-modal-inner").classList.remove("expanded");
