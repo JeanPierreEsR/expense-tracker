@@ -2915,6 +2915,19 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
 
+/* The trash can at the end of each row of a drill-down / trip list. */
+.entry-row-delete {
+  flex: none;
+  align-self: center;
+  margin-left: 6px;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
 .stmt-find-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
 .stmt-find-row input[type="checkbox"] {
   /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark and sizing. */
