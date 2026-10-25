@@ -538,8 +538,11 @@ function applyStatementDecisions(payload) {
   stmts.forEach(function (s, si) {
     if (!s.period || !s.period.end) return;
     var acctKey = covKey_(s.key);
-    var existing = uploadRows.find(function (u) { return covKey_(u.account_key) === acctKey && String(u.period_end) === s.period.end; });
-    uploadOps.push({ s: s, si: si, existing: existing || null, acctKey: acctKey });
+    // An app's export is recorded as an IMPORT (source 'import'), never as a bank statement: Statements' coverage, inbox and recent uploads
+    // look only at 'upload' rows, Import data's own list only at 'import' rows; the same account and day in both never overwrite each other.
+    var isImport = s.source === 'app';
+    var existing = uploadRows.find(function (u) { return covKey_(u.account_key) === acctKey && String(u.period_end) === s.period.end && (u.source === 'import') === isImport && u.source !== 'seed'; });
+    uploadOps.push({ s: s, si: si, existing: existing || null, acctKey: acctKey, isImport: isImport });
   });
   report.statementsRecorded = uploadOps.length;
   report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
@@ -601,7 +604,7 @@ function applyStatementDecisions(payload) {
   uploadOps.forEach(function (op) {
     var closing = JSON.stringify(op.s.balances || {});
     var fields = { closing_json: closing, file_name: op.s.file_name || '', processed_at: today, batch_id: batchId,
-      lines_total: (op.s.lines || []).length, verified: op.s.verified === false ? 'false' : 'true', source: 'upload' };
+      lines_total: (op.s.lines || []).length, verified: op.s.verified === false ? 'false' : 'true', source: op.isImport ? 'import' : 'upload' };
     if (op.existing) {
       var ri = findRowIndexById(usheet, uheaders, op.existing.id);
       Object.keys(fields).forEach(function (f) {
@@ -858,13 +861,15 @@ function getStatementBatchDetails(payload) {
 /** The most recent uploads that can still be undone (5 by default; the screen asks for more with payload.limit). */
 function listStatementBatches(payload) {
   var limit = Math.max(1, Math.min(200, Math.floor(Number((payload || {}).limit) || 5)));
+  var wanted = (payload || {}).kind === 'import' ? 'import' : 'upload';   // Statements lists bank statements, Import data lists imports
   ensureStatementChangesSheet_();
   ensureStatementUploadsSheet_();
   var byBatch = {};
   getAllRows('Statement Uploads').forEach(function (u) {
-    if (u.source !== 'upload' || !u.batch_id) return;
-    var b = byBatch[u.batch_id] || (byBatch[u.batch_id] = { batchId: u.batch_id, processed_at: String(u.processed_at), statements: [] });
+    if (u.source !== wanted || !u.batch_id) return;
+    var b = byBatch[u.batch_id] || (byBatch[u.batch_id] = { batchId: u.batch_id, processed_at: String(u.processed_at), statements: [], spreadsheet: true });
     b.statements.push(u.account_label || u.account_key);
+    if (u.kind !== 'csv') b.spreadsheet = false;   // only a spreadsheet can be moved to the other list (setBatchOrigin)
   });
   var created = {};
   getAllRows('Entries').forEach(function (e) { if (byBatch[e.import_batch_id]) created[e.import_batch_id] = (created[e.import_batch_id] || 0) + 1; });
@@ -873,6 +878,32 @@ function listStatementBatches(payload) {
   return Object.keys(byBatch).map(function (k) {
     var b = byBatch[k]; b.entriesCreated = created[k] || 0; b.entriesChanged = changed[k] || 0; return b;
   }).sort(function (x, y) { return x.processed_at < y.processed_at ? 1 : -1; }).slice(0, limit);
+}
+
+/**
+ * Moves a saved spreadsheet upload between Statements and Import data (for an upload saved before the two were kept apart, or one filed on
+ * the wrong side). payload: { batchId, origin: 'import' | 'statement' }. Only spreadsheet uploads (kind csv) move; the entries it created are
+ * not touched, and Undo works the same from either list.
+ */
+function setBatchOrigin(payload) {
+  var batchId = String((payload || {}).batchId || '');
+  var source = (payload || {}).origin === 'import' ? 'import' : 'upload';
+  if (!batchId) throw new Error('batchId required');
+  ensureStatementUploadsSheet_();
+  var sheet = getSheet('Statement Uploads');
+  var headers = getHeaders(sheet);
+  var moved = 0;
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (u.batch_id !== batchId || (u.source !== 'upload' && u.source !== 'import')) return;
+    if (u.kind !== 'csv') throw new Error(tr_('sa.onlySpreadsheetMoves'));
+    if (u.source === source) return;
+    var ri = findRowIndexById(sheet, headers, u.id);
+    if (ri < 2) return;
+    setCellByRow_(sheet, headers, ri, 'source', source);
+    moved++;
+  });
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Statement Uploads'];
+  return { moved: moved };
 }
 
 /**

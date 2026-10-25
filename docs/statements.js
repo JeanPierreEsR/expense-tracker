@@ -79,7 +79,16 @@
   }
 
   function showStatementsScreen(mode) {
-    setScreenMode(mode === "import" ? "import" : "bank");
+    const next = mode === "import" ? "import" : "bank";
+    if (next !== screenMode) {
+      // A bank statement and another app's file never travel in the same upload: leaving one side clears what was read on it.
+      $("statement-results").innerHTML = "";
+      $("statement-history").innerHTML = "";
+      $("statement-review-status").innerHTML = "";
+      usable = [];
+      historyPlan = null;
+    }
+    setScreenMode(next);
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -548,7 +557,7 @@
     const SHOW_LINES = 200;
     const allLines = result.lines || [];
     const lines = allLines.slice(0, SHOW_LINES).map((l) =>
-      `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
+      `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
     ).join("") + (allLines.length > SHOW_LINES ? `<p class="hint">${escapeHtml(tr("table.moreLines", { n: allLines.length - SHOW_LINES }))}</p>` : "");
 
     body.innerHTML = `${title ? `<div class="stmt-result-name">${escapeHtml(title)}</div>` : ""}${verdict}${notes}
@@ -981,7 +990,7 @@
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
-        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
     }
     function applyAccountGuess() {
       // A card's purchases are usually positive: re-guess the sign for the chosen account, but only for a layout nobody has confirmed.
@@ -1143,7 +1152,7 @@
     const out = $("statement-history");
     btn.disabled = true;
     $("statement-review-status").innerHTML = "";   // an old "Saved" / "Undone" message is not about this run
-    out.innerHTML = loadingHtml(tr("hist.planning"));
+    out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
@@ -1261,7 +1270,7 @@
 
   function pairTitle(out, inn) { return `${fmtMoney(out.currency, Math.abs(out.amount))} → ${fmtMoney(inn.currency, inn.amount)}`; }
   function pairSub(out, inn) {
-    return `${escapeHtml(fmtDate(out.date))} “${escapeHtml(out.description)}” · ${escapeHtml(out.account)} / ${escapeHtml(fmtDate(inn.date))} “${escapeHtml(inn.description)}” · ${escapeHtml(inn.account)}`;
+    return `${escapeHtml(fmtDate(out.date, true))} “${escapeHtml(out.description)}” · ${escapeHtml(out.account)} / ${escapeHtml(fmtDate(inn.date, true))} “${escapeHtml(inn.description)}” · ${escapeHtml(inn.account)}`;
   }
   function candidateAt(ref) { return historyPlan.summary.candidates.find((c) => c.stmt === ref.stmt && c.line === ref.line); }
 
@@ -1297,7 +1306,7 @@
       shown = items.slice(0, 60);
       $("statement-exchange-title").textContent = tr(step === 1 ? "hist.xch.pickOut" : "hist.xch.pickIn");
       list.innerHTML = shown.length
-        ? shown.map((c, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${escapeHtml(fmtDate(c.date))} · ${escapeHtml(c.description)} · ${escapeHtml(fmtMoney(c.currency, c.amount))} · ${escapeHtml(c.account)}</button>`).join("")
+        ? shown.map((c, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${escapeHtml(fmtDate(c.date, true))} · ${escapeHtml(c.description)} · ${escapeHtml(fmtMoney(c.currency, c.amount))} · ${escapeHtml(c.account)}</button>`).join("")
         : `<p class="hint">${escapeHtml(tr("hist.xch.none"))}</p>`;
     };
     list.onclick = (ev) => {
@@ -1348,7 +1357,7 @@
       const inflow = a.amount > 0;
       const cashLabel = tr(inflow ? "hist.aside.addIncome" : "hist.aside.addExpense");
       const invLabel = tr(inflow ? "hist.aside.addWithdrawal" : "hist.aside.addInvestment");
-      const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
+      const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date, true)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
       const buttonsFor = (m, mi) => (m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : "")
         + modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))
         + (m.optInInvestment ? modeButton(`data-aside="${mi}" data-mode="investment"`, chosen.get(mi) === "investment", invLabel) : "")
@@ -1613,7 +1622,7 @@
 
   function lineRow(l, sub) {
     return `<div class="stmt-line2">
-      <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
+      <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
       ${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}
     </div>`;
   }
@@ -1674,7 +1683,7 @@
       list.forEach((e) => { by[e.currency] = (by[e.currency] || 0) + Math.abs(Number(e.amount)); });
       return Object.keys(by).sort().map((cur) => fmtMoney(cur, Math.round(by[cur] * 100) / 100)).join(" + ");
     };
-    const stmts = details.statements.map((s) => `<div class="stmt-row-sub">${escapeHtml(tr("added.statementLine", { label: s.label, from: fmtDate(s.period_start), to: fmtDate(s.period_end, true), n: s.lines_total }))}</div>`).join("");
+    const stmts = details.statements.map((s) => `<div class="stmt-row-sub">${escapeHtml(tr("added.statementLine", { label: s.label, from: fmtDate(s.period_start, true), to: fmtDate(s.period_end, true), n: s.lines_total }))}</div>`).join("");
     const summary = entries.length
       ? `<p class="stmt-verdict good">${escapeHtml(tr("added.total", { n: entries.length }))}</p>`
       : `<p class="stmt-verdict warn">${escapeHtml(tr("added.none"))}</p>`;
@@ -1758,14 +1767,15 @@
   async function refreshStatementBatches() {
     const box = $("statement-batches");
     try {
-      const batches = await callApi("listStatementBatches", { limit: batchesShown });
+      const batches = await callApi("listStatementBatches", { limit: batchesShown, kind: screenMode === "import" ? "import" : "statement" });
       const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
         ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
       box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
         <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr("added.button"))}</button></div><div class="stmt-undo-progress"></div></div>
-        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`) + more;
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button>
+        ${b.spreadsheet ? `<div><button type="button" class="add-inline stmt-move-row" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr(screenMode === "import" ? "imp.moveToStatements" : "imp.moveToImport"))}</button></div>` : ""}</div>`).join("") : `<p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.noRecent" : "stmt.noUploads"))}</p>`) + more;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
     }
@@ -1776,7 +1786,15 @@
 
   // ---- wiring ----
 
-  $("statement-batches").addEventListener("click", (e) => {
+  $("statement-batches").addEventListener("click", async (e) => {
+    const mv = e.target.closest(".stmt-move-row");
+    if (mv) {   // a spreadsheet upload filed on the wrong side: move it to the other list (the entries it made are not touched)
+      mv.disabled = true;
+      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { alert(err.message || String(err)); }
+      refreshStatementBatches();
+      refreshStatementCoverage();
+      return;
+    }
     if (!e.target.closest("#statement-batches-more")) return;
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();

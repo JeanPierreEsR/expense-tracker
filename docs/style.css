@@ -2169,13 +2169,13 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-lines summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
 .stmt-line {
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 80px 1fr auto;   /* wide enough for a date with its year, like Mar 10, 2025 */
   gap: 8px;
   font-size: 0.78rem;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
 }
-.stmt-line-date { color: var(--muted); }
+.stmt-line-date { color: var(--muted); white-space: nowrap; }
 .stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stmt-line-amt.in { color: var(--income); }
 
@@ -2193,7 +2193,7 @@ body.income-revealed .sens-mask { display: none; }
 }
 .stmt-line2 { padding: 4px 0; border-bottom: 1px solid var(--border); }
 .stmt-line2 .stmt-line { border-bottom: none; padding-bottom: 0; }
-.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 60px; word-break: break-word; }
+.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 88px; word-break: break-word; }
 .stmt-pair-title { font-size: 0.85rem; font-weight: 600; padding-top: 4px; }
 .stmt-pair-title + .stmt-line-sub { padding-left: 0; }
 #statement-review-btn { margin-top: 8px; }
