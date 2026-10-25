@@ -222,12 +222,12 @@
     });
     // Known banks first: those are the ones the app can read for sure.
     groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-all"></button></div>` + groups.map((g) => {
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-all"></button></div>` + groups.map((g, gi) => {
       const rows = g.items.map((f) => `<label class="stmt-find-row">
-        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" checked>
+        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" data-g="${gi}" checked>
         <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
       return `<div class="stmt-row"><div class="stmt-row-main">
-        <div class="stmt-row-title">${escapeHtml(g.name)}</div>
+        <div class="stmt-row-title">${escapeHtml(g.name)} <button type="button" class="add-inline stmt-find-group" data-g="${gi}"></button></div>
         <div class="stmt-row-sub">${escapeHtml(g.sender)} · ${escapeHtml(tr(g.known ? "find.known" : "find.unknown"))}</div>${rows}</div></div>`;
     }).join("") + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-read"></button></div>`;
     updateFindReadButton();
@@ -242,6 +242,10 @@
     if (!btn || btn.dataset.busy) return;
     const n = pickedFound().length;
     const tg = $("statement-find-all");
+    document.querySelectorAll(".stmt-find-group").forEach((b) => {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${b.dataset.g}"]`);
+      b.textContent = tr(Array.from(boxes).every((x) => x.checked) ? "find.deselectAll" : "find.selectAll");
+    });
     if (tg) tg.textContent = tr(n === found.length ? "find.deselectAll" : "find.selectAll");
     btn.textContent = n ? tr("find.read", { n }) : tr("find.readNone");
     btn.disabled = !n;
@@ -276,6 +280,11 @@
   $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
   $("statement-find-results").addEventListener("click", (e) => {
     if (e.target.id === "statement-find-read") readPickedFound();
+    if (e.target.classList.contains("stmt-find-group")) {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${e.target.dataset.g}"]`), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
     if (e.target.id === "statement-find-all") {
       const boxes = document.querySelectorAll(".stmt-find-pick"), all = Array.from(boxes).every((b) => b.checked);
       boxes.forEach((b) => { b.checked = !all; });
