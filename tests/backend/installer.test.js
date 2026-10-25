@@ -171,3 +171,69 @@ test("the owner's own copy (no installer file) reports no backend version", () =
   const { rt } = freshApp({ small: true });
   assert.equal(rt.run("getCapabilities_().backendRef"), "");
 });
+
+// More → Extra features: an extra can be switched off without deleting anything, and an update must not switch it back on.
+test("switching an extra off removes it from FEATURES, stops its timer and survives an update", () => {
+  const { rt, triggers, load } = withInstall({ features: "base,keepawake,gmail", url: MAIN });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);   // the installer wrote its own code; the harness signs in with its own
+  assert.ok(triggers.some((t) => t.fn === "pingWebApp_"));
+  const r = rt.api("setExtraOff", { name: "keepawake" });
+  assert.equal(r.capabilities.keepAwake, false);
+  assert.equal(r.capabilities.bankEmails, true);
+  assert.equal(rt.svc.props.get("FEATURES"), "base,gmail");
+  assert.ok(!triggers.some((t) => t.fn === "pingWebApp_"), "keep-awake timer removed");
+  load({ release: "r2" });   // "Update my app": a new release rewrites FEATURES from the installer's own list
+  rt.run("doGet({ parameter: {} })");
+  assert.equal(rt.svc.props.get("FEATURES"), "base,gmail", "the update did not turn it back on");
+  assert.ok(!triggers.some((t) => t.fn === "pingWebApp_"), "and did not restart its timer");
+});
+
+test("switching Gmail off never leaves FEATURES empty (empty would mean everything on)", () => {
+  const { rt } = withInstall({ features: "base,gmail" });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);
+  rt.api("setExtraOff", { name: "gmail" });
+  assert.equal(rt.svc.props.get("FEATURES"), "base");
+  assert.equal(rt.run('featureOn_("gmail")'), false);
+  assert.equal(rt.run("isFriendCopy_()"), true);
+});
+
+test("approving an extra again on the setup page clears the opt-out", () => {
+  const { rt, load } = withInstall({ features: "base,gmail" });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);
+  rt.api("setExtraOff", { name: "gmail" });
+  assert.equal(rt.svc.props.get("FEATURES_OFF"), "gmail");
+  rt.run('doGet({ parameter: { add: "gmail" } })');
+  assert.equal(rt.svc.props.get("FEATURES_OFF"), "");
+  assert.equal(rt.svc.props.get("FEATURES"), "base", "the live app is unchanged until the person finishes");
+  load({ release: "r3", features: "base,gmail" });
+  rt.run("doGet({ parameter: {} })");
+  assert.equal(rt.svc.props.get("FEATURES"), "base,gmail");
+});
+
+test("opt-out is refused on the owner's copy and for an unknown name", () => {
+  const { rt } = freshApp({ small: true });
+  assert.throws(() => rt.api("setExtraOff", { name: "gmail" }), /only for copies/);
+  assert.throws(() => rt.api("takeBackPermissions", { confirm: true }), /only for copies/);
+  rt.svc.props.set("FEATURES", "base,gmail");
+  assert.throws(() => rt.api("setExtraOff", { name: "telegram" }), /does not exist/);
+});
+
+test("taking back all permissions keeps the data and the sign-ins, stops every timer and needs confirmation", () => {
+  const { rt, triggers } = withInstall({ features: "base,keepawake,gmail", url: MAIN });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);
+  assert.ok(triggers.length > 0);
+  const rowsBefore = rt.svc.ss.getSheets().reduce((n, s) => n + s.getLastRow(), 0);
+  assert.throws(() => rt.api("takeBackPermissions", {}), /confirmation/);
+  assert.equal(rt.svc.props.get("FEATURES"), "base,keepawake,gmail", "nothing changed without confirmation");
+  rt.run("ScriptApp.invalidateAuth = () => {};");   // the installer test double has no such call
+  const r = rt.api("takeBackPermissions", { confirm: true });
+  assert.equal(r.permissionRevoked, true);
+  assert.equal(triggers.length, 0);
+  assert.equal(rt.svc.props.get("FEATURES"), "base");
+  assert.equal(rt.svc.ss.getSheets().reduce((n, s) => n + s.getLastRow(), 0), rowsBefore, "no data touched");
+  assert.ok(rt.svc.props.get("ACCESS_CODE"), "sign-in kept");
+});

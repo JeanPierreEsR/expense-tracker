@@ -75,3 +75,59 @@ function getCapabilities_() {
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };
 }
+
+// ---- Turning extras off again (More → Extra features; friends' copies only) ----
+// The two optional extras can be switched off without deleting anything: the app stops using the ability at once
+// (FEATURES loses it; the keep-awake timer is removed; the e-mail steps already check featureOn_). The name is also kept in
+// FEATURES_OFF so a later "Update my app" (installApplyCode_ in docs/setup/Install.gs, which rewrites FEATURES from what the
+// installer was built with) does not silently turn it back on. Turning one ON again goes through the setup page (the Google
+// approval cannot be given from here); its approval visit clears the name from FEATURES_OFF.
+var OPT_OUT_EXTRAS_ = ['keepawake', 'gmail'];
+
+function csvList_(raw) {
+  return String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+}
+
+function requireFriendCopy_() {
+  if (isFriendCopy_()) return;
+  var denied = new Error(tr_('erase.ownerCopy'));
+  denied.code = 'not_allowed';
+  throw denied;
+}
+
+function setExtraOff(payload) {
+  requireFriendCopy_();
+  var name = String((payload && payload.name) || '');
+  if (OPT_OUT_EXTRAS_.indexOf(name) === -1) {
+    var bad = new Error(tr_('extras.unknown'));
+    bad.code = 'bad_request';
+    throw bad;
+  }
+  var props = PropertiesService.getScriptProperties();
+  var on = csvList_(props.getProperty('FEATURES')).filter(function (f) { return f !== name && f !== 'base'; });
+  props.setProperty('FEATURES', ['base'].concat(on).join(','));
+  var off = csvList_(props.getProperty('FEATURES_OFF'));
+  if (off.indexOf(name) === -1) off.push(name);
+  props.setProperty('FEATURES_OFF', off.join(','));
+  if (name === 'keepawake') removeKeepWarmPingTriggers_();
+  return { capabilities: getCapabilities_() };
+}
+
+// "Take back all permissions, keep my data": every extra off, every timer stopped, and the app's own Google permission
+// withdrawn (ScriptApp.invalidateAuth). The Sheet, the entries and the sign-ins stay; the app works again once the person
+// approves it on the setup page.
+function takeBackPermissions(payload) {
+  requireFriendCopy_();
+  if (!payload || payload.confirm !== true) {
+    var unconfirmed = new Error(tr_('extras.notConfirmed'));
+    unconfirmed.code = 'not_confirmed';
+    throw unconfirmed;
+  }
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('FEATURES', 'base');
+  props.setProperty('FEATURES_OFF', OPT_OUT_EXTRAS_.join(','));
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  var revoked = false;
+  try { ScriptApp.invalidateAuth(); revoked = true; } catch (err) { Logger.log('invalidateAuth failed: ' + err); }
+  return { permissionRevoked: revoked };
+}
