@@ -4271,7 +4271,13 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
-  if (!fab.hidden && nav.offsetHeight) fab.style.setProperty("--nav-h", nav.offsetHeight + "px");
+  // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
+  // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
+  // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
+  if (!fab.hidden && nav.offsetHeight) {
+    const pad = parseFloat(getComputedStyle(nav).paddingBottom) || 0;
+    fab.style.setProperty("--nav-h", (nav.offsetHeight - pad) + "px");
+  }
 }
 
 (function setupFab_() {
@@ -6295,7 +6301,8 @@ function extrasOff_() {
   return off;
 }
 function refreshExtrasRow_() {
-  document.getElementById("more-extras-btn").hidden = !extrasOff_().length;
+  // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
+  document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
   // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
   perfShareOwnerInit_();
   const owner = perfIsOwnerCopy_();
@@ -6831,11 +6838,94 @@ bsEl_("bs-send").addEventListener("click", async () => {
     bsEl_("bs-send").disabled = false;
   }
 });
+// Each extra: [backend feature name, capabilities key, title string, what-it-does string]. Turning one off is one tap (nothing is
+// deleted); turning one on needs Google's approval, which only the setup page can ask for.
+const EXTRAS_SWITCHES_ = [
+  ["keepawake", "keepAwake", "extras.awake", "extras.awakeBody"],
+  ["gmail", "bankEmails", "extras.bank", "extras.bankBody"]
+];
+function extrasMsg_(text) {
+  const el = document.getElementById("extras-msg");
+  el.textContent = text || "";
+  el.hidden = !text;
+}
+function renderExtrasList_() {
+  const caps = (meta && meta.capabilities) || {};
+  const list = document.getElementById("extras-list");
+  list.innerHTML = "";
+  EXTRAS_SWITCHES_.forEach(([feature, capKey, titleKey, bodyKey]) => {
+    const on = caps[capKey] !== false;
+    const row = document.createElement("div");
+    row.className = "extras-row";
+    const head = document.createElement("div");
+    head.style.fontWeight = "600";
+    head.textContent = tr(titleKey) + " — " + tr(on ? "extras.on" : "extras.off");
+    const body = document.createElement("p");
+    body.className = "hint";
+    body.textContent = tr(bodyKey);
+    row.append(head, body);
+    if (on) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "add-inline";
+      btn.textContent = tr("extras.turnOff");
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        extrasMsg_("");
+        try {
+          const r = await callApi("setExtraOff", { name: feature });
+          meta.capabilities = r.capabilities;
+          refreshExtrasRow_();
+          renderExtrasList_();
+          extrasMsg_(tr("extras.turnedOff", { name: tr(titleKey) }));
+        } catch (err) {
+          btn.disabled = false;
+          extrasMsg_(tr("extras.failed"));
+        }
+      });
+      row.appendChild(btn);
+    }
+    list.appendChild(row);
+  });
+  document.getElementById("extras-turn-on").hidden = !extrasOff_().length;
+}
 document.getElementById("more-extras-btn").addEventListener("click", () => {
-  document.getElementById("extras-off-list").textContent = tr("extras.offPrefix") + " " + extrasOff_().join(", ");
+  I18n.applyStatic(document.getElementById("extras-modal-backdrop"));
+  renderExtrasList_();
+  extrasMsg_("");
+  document.getElementById("extras-takeback-confirm").hidden = true;
+  document.getElementById("extras-takeback-btn").hidden = false;
   document.getElementById("extras-copy-msg").textContent = "";
   document.getElementById("extras-open-btn").textContent = tr(isHomeScreenApp_() ? "app.openInSafari" : "extras.open");
   document.getElementById("extras-modal-backdrop").hidden = false;
+});
+document.getElementById("extras-takeback-btn").addEventListener("click", () => {
+  document.getElementById("extras-takeback-btn").hidden = true;
+  document.getElementById("extras-takeback-confirm").hidden = false;
+});
+document.getElementById("extras-takeback-cancel").addEventListener("click", () => {
+  document.getElementById("extras-takeback-confirm").hidden = true;
+  document.getElementById("extras-takeback-btn").hidden = false;
+});
+document.getElementById("extras-takeback-go").addEventListener("click", async () => {
+  const btn = document.getElementById("extras-takeback-go");
+  btn.disabled = true;
+  try {
+    await callApi("takeBackPermissions", { confirm: true });
+    meta.capabilities = Object.assign({}, meta.capabilities, { keepAwake: false, bankEmails: false });
+    refreshExtrasRow_();
+    renderExtrasList_();
+    document.getElementById("extras-takeback-confirm").hidden = true;
+    extrasMsg_(tr("extras.takenBack"));
+  } catch (err) {
+    extrasMsg_(tr("extras.failed"));
+  } finally {
+    btn.disabled = false;
+  }
+});
+document.getElementById("extras-share-btn").addEventListener("click", () => {
+  document.getElementById("extras-modal-backdrop").hidden = true;
+  openPerfShareModal_(null);
 });
 document.getElementById("extras-modal-close").addEventListener("click", () => { document.getElementById("extras-modal-backdrop").hidden = true; });
 document.getElementById("extras-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "extras-modal-backdrop") e.target.hidden = true; });

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.44.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="7519af49e864a3cf3adc2d482d4d5ce206f04fd5"><meta name="app-pairs" content="bf3ff8d,0bfee36,c5958d7"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="0.45.2"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="020ca58ce9d5e5fa9ba11d18d6c97264d81d9a0a"><meta name="app-pairs" content="7519af4,bf3ff8d,0bfee36"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-25T00:55:02Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-25T14:44:04Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -796,7 +796,7 @@
         <p class="hint stmt-bank-only"><button type="button" class="add-inline" id="statement-to-import-btn" data-i18n="stmt.toImport">Have an export from another app? Use Import data ›</button></p>
         <div id="statement-coverage-list" class="stmt-bank-only"></div>
         <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
-        <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in Spendee or another app: export it as a CSV or Excel file with a category on every line, then pick the file here. Spendee's export is recognized by itself; for any other app you check the columns once and the app remembers them. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
+        <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in another app: export it as a CSV or Excel file with a category on every line, then pick the file here. You check the columns once and the app remembers them for the next file from the same app. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
         <p class="hint stmt-import-only"><button type="button" class="add-inline" id="statement-to-bank-btn" data-i18n="imp.toBank">Reading your bank's statements instead? Open Statements ›</button></p>
       </div>
 
@@ -856,8 +856,10 @@
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0;" data-i18n="stmt.recent">Recent uploads</h2>
-        <p class="hint" data-i18n="stmt.recentHint">Each saved upload can be undone in one step.</p>
+        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.recent">Recent uploads</h2>
+        <p class="hint stmt-bank-only" data-i18n="stmt.recentHint">Each saved upload can be undone in one step.</p>
+        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.recent">Recent imports</h2>
+        <p class="hint stmt-import-only" data-i18n="imp.recentHint">Each saved import can be undone in one step.</p>
         <div id="statement-batches"></div>
       </div>
     </div>
@@ -1380,11 +1382,27 @@
         <button type="button" id="extras-modal-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="extras-off-list" style="font-weight:600;"></p>
-        <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Tap “Open in Safari” below (the setup page does not work well inside this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
-        <button type="button" class="primary" id="extras-open-btn" data-i18n="extras.open">Open the setup page</button>
-        <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
-        <p class="hint" id="extras-copy-msg"></p>
+        <p class="hint" data-i18n="extras.intro">Each of these is optional. You can turn one off at any time; your entries stay exactly as they are.</p>
+        <div id="extras-list"></div>
+        <p class="hint" id="extras-msg" hidden></p>
+        <div id="extras-turn-on" hidden>
+          <p class="hint" data-i18n="extras.hint">You can turn these on whenever you like. Tap “Open in Safari” below (the setup page does not work well inside this icon), tap “Turn on the selected extras” and follow the steps. Google asks you to confirm once, and your app keeps working meanwhile.</p>
+          <button type="button" class="primary" id="extras-open-btn" data-i18n="extras.open">Open the setup page</button>
+          <button type="button" class="add-inline" id="extras-copy-btn" data-i18n="extras.copy">Copy the setup page address</button>
+          <p class="hint" id="extras-copy-msg"></p>
+        </div>
+        <h4 data-i18n="extras.googleTitle">Permissions in your Google account</h4>
+        <p class="hint" data-i18n="extras.googleBody">Switching an extra off stops the app from using it, but Google keeps the permission you gave until you remove it. You can see and remove it yourself at any time.</p>
+        <a class="add-inline" id="extras-google-link" href="https://myaccount.google.com/connections" target="_blank" rel="noopener" data-i18n="extras.googleLink">Open my Google account’s connected apps</a>
+        <button type="button" class="add-inline" id="extras-takeback-btn" data-i18n="extras.takeBack">Take back all permissions, keep my data</button>
+        <div id="extras-takeback-confirm" hidden>
+          <p class="hint" data-i18n="extras.takeBackWarn">The app will give back every permission it holds in your Google account. Your Sheet, your entries and your sign-ins stay. The app stops working until you approve it again from the setup page (More → Update my app).</p>
+          <button type="button" class="primary danger" id="extras-takeback-go" data-i18n="extras.takeBackGo">Yes, take them back</button>
+          <button type="button" class="add-inline" id="extras-takeback-cancel" data-i18n="common.cancel">Cancel</button>
+        </div>
+        <h4 data-i18n="extras.shareTitle">What the app sends me</h4>
+        <p class="hint" data-i18n="extras.shareBody">Sharing small app-usage counts with JP is a separate choice, and you can change it at any time.</p>
+        <button type="button" class="add-inline" id="extras-share-btn" data-i18n="extras.shareBtn">Change what I share</button>
       </div>
     </div>
   </div>
@@ -2236,18 +2254,18 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="i18n.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="tour-scenes.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="signin-link.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="bank-sample.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="perf-share.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="receipt-parse.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="bill-split.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="app.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="statement-sample.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="statement-table.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="statement-parsers.js?v=2026-10-25T00:55:02Z"></script>
-  <script src="statements.js?v=2026-10-25T00:55:02Z"></script>
+  <script src="strings.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="i18n.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="tour-scenes.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="signin-link.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="bank-sample.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="perf-share.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="receipt-parse.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="bill-split.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="app.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="statement-sample.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="statement-table.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="statement-parsers.js?v=2026-10-25T14:44:04Z"></script>
+  <script src="statements.js?v=2026-10-25T14:44:04Z"></script>
 </body>
 </html>
