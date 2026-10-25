@@ -466,11 +466,10 @@ const T = {
     account: 'Signed in to Google as: {e}',
     acctNone: 'Google account: you choose it when you tap the button below.',
     changeAcct: 'Change account',
-    signinTitle: 'First: sign in to Google',
-    signinBody: 'Sign in with the Google account you want to use. Doing it now means Google won’t stop to ask you later, when you come back to this page.',
-    signinBtn: 'Sign in with Google',
-    signinDone: '✓ Signed in to Google',
-    readySignin: 'First, sign in to Google (the box below).',
+    signinTitle: 'First: choose your Google account',
+    signinBody: 'Pick the Google account you want your app in. Doing it now means Google won’t stop to ask you later, when you come back to this page.',
+    signinBtn: 'Choose my Google account',
+    readySignin: 'First, choose your Google account (the box below).',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
     approveTitle: '2. Allow your app to use its sheet',
@@ -666,11 +665,10 @@ const T = {
     account: 'Iniciaste sesión en Google como: {e}',
     acctNone: 'Cuenta de Google: la eliges al tocar el botón de abajo.',
     changeAcct: 'Cambiar de cuenta',
-    signinTitle: 'Primero: inicia sesión en Google',
-    signinBody: 'Inicia sesión con la cuenta de Google que quieres usar. Hacerlo ahora evita que Google te interrumpa después, cuando vuelvas a esta página.',
-    signinBtn: 'Iniciar sesión con Google',
-    signinDone: '✓ Sesión iniciada en Google',
-    readySignin: 'Primero, inicia sesión en Google (el recuadro de abajo).',
+    signinTitle: 'Primero: elige tu cuenta de Google',
+    signinBody: 'Elige la cuenta de Google donde quieres tu app. Hacerlo ahora evita que Google te interrumpa después, cuando vuelvas a esta página.',
+    signinBtn: 'Elegir mi cuenta de Google',
+    readySignin: 'Primero, elige tu cuenta de Google (el recuadro de abajo).',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
     approveTitle: '2. Permite que tu app use su archivo',
@@ -1119,7 +1117,7 @@ function getToken() {
     };
     log('Opening the Google sign-in window (tap still counts: ' + (navigator.userActivation ? navigator.userActivation.isActive : 'unknown') + ').');
     const chooser = forceChooser; forceChooser = false;
-    tokenClient.requestAccessToken(chooser ? { prompt: 'select_account' } : undefined);
+    tokenClient.requestAccessToken(chooser ? { prompt: 'select_account' } : state.account ? { login_hint: state.account } : undefined);
   });
 }
 
@@ -1130,14 +1128,13 @@ function renderAccount() {
   $('btnChangeAcct').hidden = !(WANT_UPDATE || WANT_REMOVE || !state.spreadsheetId) || busy;
   // Step zero of a fresh setup: be signed in BEFORE anything sends the person to another Google page (the one-time setting),
   // or Google may ask them to sign in there and they come back not knowing what to do.
-  const fresh = !(WANT_UPDATE || WANT_REMOVE || state.spreadsheetId), ok = signedIn();
-  $('signinCard').hidden = !fresh;
-  $('signinTitle').textContent = ok ? T.signinDone : T.signinTitle;
-  $('signinBody').hidden = $('btnSignin').hidden = ok;
-  $('btnInstall').disabled = busy || (fresh && !ok);
+  // Not needed when the page already knows the account (a sign-in earlier in this tab, or one remembered from a past visit):
+  // the main button then signs in by itself, Google pre-selecting that account.
+  const needSignin = !(WANT_UPDATE || WANT_REMOVE || state.spreadsheetId || state.account);
+  $('signinCard').hidden = !needSignin;
+  $('btnInstall').disabled = busy || needSignin;
   $('settingLink').href = withAccount('https://script.google.com/home/usersettings', '').replace(/[?&]$/, '');
 }
-const signedIn = () => !!(accessToken && Date.now() < tokenExpires - 60000);
 async function signInFirst() {
   try { await getToken(); await showAccount(); }
   catch (e) { setTop('err', '', '✗ ' + e.message, 100); return; }
@@ -1876,7 +1873,7 @@ function render(failed) {
     if (state.pending) setTop('wait', T.stepAdd, T.p_wait);
     else if (state.permissionDone) setTop('ok', '', (WANT_UPDATE && updateJustDone) ? T.allDoneUpdate : T.allDone, 100);
     else if (state.pending || state.webAppUrl) setTop('wait', state.pending ? T.stepAdd : T.stepAllow, T.p_wait);
-    else setTop('idle', '', (!WANT_UPDATE && !state.spreadsheetId && !signedIn()) ? T.readySignin : T.ready, 0);
+    else setTop('idle', '', (!WANT_UPDATE && !WANT_REMOVE && !state.spreadsheetId && !state.account) ? T.readySignin : T.ready, 0);
   }
   if (!busy && approvalTarget()) watchForApproval();
 }
