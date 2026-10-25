@@ -610,6 +610,7 @@
 
   const isTableFile = (f) => /\.(csv|tsv|txt|xlsx|xls)$/i.test(f.name) || /csv|spreadsheet|excel/i.test(f.type || "");
   const TABLE_BIG_FILE = 1500;   // lines: past this the screen warns that reading and saving take a while
+  const NO_ACCOUNT_KEY = "NOACCOUNT";   // an import saved with no account (backend: STMT_NO_ACCOUNT_KEY_)
   const normName = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
   function tableErrorText(err) {
@@ -643,7 +644,10 @@
 
   async function renderTableMapping(body, rows, file) {
     const accounts = tableAccounts();
-    if (!accounts.length) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
+    // Import data never needs an account (a person may be trying the app before setting any up): its entries are saved with none.
+    // Statements still do — a bank's statement is about one account (balances, gaps, coverage).
+    const noneOk = screenMode === "import";
+    if (!accounts.length && !noneOk) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
@@ -693,7 +697,7 @@
       Array.from({ length: width }, (_, i) => `<option value="${i}"${i === selected ? " selected" : ""}>${escapeHtml(colName(i))}</option>`).join("");
     const sel = (cls, label, inner) => `<label>${escapeHtml(label)}</label><select class="tm-${cls}">${inner}</select>`;
     const currencyOptions = (selected) => CURRENCIES.map((c) => `<option value="${c.code}"${c.code === selected ? " selected" : ""}>${c.code}</option>`).join("");
-    const accountOptions = (selectedId, extra) => `<option value="">${escapeHtml(tr("table.pickAccount"))}</option>` + (extra || "") +
+    const accountOptions = (selectedId, extra) => `<option value="">${escapeHtml(tr(noneOk ? "imp.noAccountOption" : "table.pickAccount"))}</option>` + (extra || "") +
       accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("");
 
     const banner = state.source === "known" ? tr("table.layoutKnown", { name: state.label })
@@ -702,7 +706,7 @@
     body.innerHTML = `<div class="tm-root">
       <p class="stmt-note ${remembered ? "ok" : "info"}">${escapeHtml(banner)}${state.source === "saved" ? ` <button type="button" class="add-inline tm-forget">${escapeHtml(tr("table.forget"))}</button>` : ""}</p>
       <p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.tableHint" : "table.hint"))}</p>
-      <div class="tm-single">${sel("account", tr("table.account"), accountOptions(state.accountId))}</div>
+      <div class="tm-single">${sel("account", tr(noneOk ? "imp.account" : "table.account"), accountOptions(state.accountId))}</div>
       <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-values"></div></div>
       ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
       ${sel("desc", tr("table.colDesc"), colOptions(state.m.description, true))}
@@ -760,12 +764,14 @@
       root.querySelector(".tm-multi").hidden = !multi();
     }
     // The lines that will be used: for a multi-account file only the names the person assigned (or has not decided yet).
-    function usableLines(all) {
+    const skippedCategory = (l) => !!l.category && state.catChoice[(l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category)] === "skip";
+    function usableLines(all0) {
+      const all = all0.filter((l) => !skippedCategory(l));   // lines of a category the person chose not to import
       if (!multi()) return { lines: all, undecided: 0 };
       const names = new Set(all.map((l) => l.account));
       let undecided = 0;
-      names.forEach((n) => { if (!state.map[n]) undecided++; });
-      return { lines: all.filter((l) => state.map[l.account] && state.map[l.account] !== "skip"), undecided };
+      if (!noneOk) names.forEach((n) => { if (!state.map[n]) undecided++; });   // an import may leave a name with no account
+      return { lines: all.filter((l) => (noneOk || state.map[l.account]) && state.map[l.account] !== "skip"), undecided };
     }
     // ---- the merge of the file's categories with the person's own (backend/StatementCategories.gs) ----
     // Each name in the file, per type, is matched to one of the person's categories, or will be created, or left without one. The server
@@ -814,7 +820,7 @@
       if (JSON.stringify(fileCategoryNames()) !== sigNames) return;   // the mapping changed while waiting: a newer call is on its way
       state.catItems = res.items || [];
       state.catInfo = res.categories || [];
-      const valid = (c) => c === "create" || c === "" || state.catInfo.some((x) => x.id === c);
+      const valid = (c) => c === "create" || c === "" || state.catInfo.some((x) => x.id === c);   // "skip" is never remembered: leaving lines out is decided per file
       state.catItems.forEach((it) => {
         const remembered = state.catSaved[it.key];
         if (state.catChoice[it.key] === undefined) {
@@ -835,39 +841,69 @@
       if (!info || info.protected || !to || info.names.indexOf(StatementTable.catNorm(to)) !== -1) return null;
       return { from: info.name, to };
     }
-    function categorySummary() {
-      let used = 0, created = 0, left = 0, renamed = 0;
-      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; if (c === "create") created++; else if (c === "") left++; else { used++; if (renameOf(it)) renamed++; } });
-      return renamed ? tr("table.catSummaryRenamed", { used, renamed, created, left }) : tr("table.catSummary", { used, created, left });
+    // A name that exists in both types (in the file or in the app) gets its type in brackets, so "Other (income)" and "Other (expense)"
+    // can be told apart.
+    function ambiguousNames() {
+      const seen = new Map();
+      const add = (name, type) => { const k = StatementTable.catNorm(name); if (!k) return; if (!seen.has(k)) seen.set(k, new Set()); seen.get(k).add(type); };
+      state.catItems.forEach((it) => add(it.name, it.type));
+      (state.catInfo || []).forEach((c) => add(c.name, c.type));
+      return new Set([...seen].filter(([, types]) => types.size > 1).map(([k]) => k));
     }
+    const shownName = (name, type) => ambiguousNames().has(StatementTable.catNorm(name)) ? `${name} ${tr(type === "income" ? "table.catIncomeTag" : "table.catExpenseTag")}` : name;
+    function categorySummary() {
+      let used = 0, created = 0, left = 0, renamed = 0, skipped = 0;
+      state.catItems.forEach((it) => {
+        const c = state.catChoice[it.key];
+        if (c === "create") created++; else if (c === "") left++; else if (c === "skip") skipped++; else { used++; if (renameOf(it)) renamed++; }
+      });
+      return tr(renamed ? "table.catSummaryRenamed" : "table.catSummary", { used, renamed, created, left }) + (skipped ? " · " + tr("table.catSummarySkipped", { n: skipped }) : "");
+    }
+    // What the row will do, said from the file's side: the file's category is the subject, the person's existing one is what it joins.
     function rowHint(it) {
       const c = state.catChoice[it.key];
-      if (c === "") return it.why === "retired" ? tr("table.catWhyRetired") : "";
+      if (c === "skip") return tr("table.catSkipHint", { n: it.count });
+      if (c === "") return tr(it.why === "retired" ? "table.catWhyRetired" : "table.catLeaveHint");
+      const typed = String(state.catNames[it.key] || "").replace(/\s+/g, " ").trim() || it.name;
+      if (c === "create") return tr("table.catWhyNew", { name: shownName(typed, it.type) });
       const info = catInfo(c);
-      if (info && info.protected) return tr("table.catKeepsName");
+      if (!info) return "";
+      if (info.protected) return tr("table.catKeepsName", { name: shownName(info.name, it.type) });
       const rn = renameOf(it);
-      if (rn) return tr("table.catWillRename", { from: rn.from, to: rn.to });
-      if (c === "create") return tr("table.catWhyNew");
-      return it.why === "equivalent" ? tr("table.catWhyEquivalent", { name: info ? info.name : "" }) : tr("table.catWhyName");
+      if (rn) return tr(info.entries ? "table.catWillRename" : "table.catWillRenameEmpty", { from: shownName(rn.from, it.type), to: shownName(rn.to, it.type), n: info.entries || 0 });
+      return tr("table.catGoesInto", { name: shownName(info.name, it.type) });
     }
     function renderCategories() {
       const box = root.querySelector(".tm-cats");
       if (!state.catItems.length) { box.innerHTML = ""; return; }
-      const rowsHtml = state.catItems.map((it) => {
+      const rowHtml = (it) => {
         const cur = state.catChoice[it.key];
-        const opts = myCategories(it.type).map((c) => `<option value="${escapeHtml(c.id)}"${c.id === cur ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+        const opts = myCategories(it.type).map((c) => {
+          const n = (catInfo(c.id) || {}).entries;
+          return `<option value="${escapeHtml(c.id)}"${c.id === cur ? " selected" : ""}>${escapeHtml(c.name + (n ? ` · ${tr("categories.entryCount", { n })}` : ""))}</option>`;
+        }).join("");
         const info = catInfo(cur);
-        const nameInput = cur === "" ? "" : `<input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}"${info && info.protected ? " disabled" : ""}>`;
-        return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}"><label>${escapeHtml(tr("table.valueLines", { value: it.name + (it.type === "income" ? " " + tr("table.catIncomeTag") : ""), n: it.count }))}</label>
+        const named = cur !== "" && cur !== "skip";
+        const nameInput = named ? `<label>${escapeHtml(tr("table.catCalled"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}"${info && info.protected ? " disabled" : ""}>` : "";
+        const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
+        return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}" style="margin-bottom:14px">
+          <div><span class="hint" style="margin-right:6px">${escapeHtml(tr("table.catFromFile"))}</span><strong>${escapeHtml(shownName(it.name, it.type))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: it.count }))}</span></div>
+          ${note}
+          <label>${escapeHtml(tr("table.catGoesIntoLabel"))}</label>
           <select class="tm-cchoice"><optgroup label="${escapeHtml(tr("table.catYours"))}">${opts}</optgroup>
             <option value="create"${cur === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
-            <option value=""${cur === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option></select>
+            <option value=""${cur === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
+            <option value="skip"${cur === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
           ${nameInput}
-          <p class="hint tm-cat-hint" style="margin:2px 0 8px">${escapeHtml(rowHint(it))}</p></div>`;
-      }).join("");
-      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it));
+          <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p></div>`;
+      };
+      const groupHtml = (type) => {
+        const items = state.catItems.filter((it) => it.type === type);
+        return items.length ? `<h4 class="accounts-group-title">${escapeHtml(tr(type === "income" ? "table.catGroupIncome" : "table.catGroupExpense"))}</h4>${items.map(rowHtml).join("")}` : "";
+      };
+      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired");
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
-        <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${rowsHtml}
+        <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${groupHtml("expense")}${groupHtml("income")}
           <p class="hint">${escapeHtml(tr("table.catEdit"))}</p></details>`;
     }
     // The names to send with the save: a new category's chosen name, and an existing category's new name when it is being renamed.
@@ -876,11 +912,12 @@
       state.catItems.forEach((it) => {
         const c = state.catChoice[it.key];
         if (c === "create") { const n = String(state.catNames[it.key] || "").replace(/\s+/g, " ").trim(); if (n && n !== it.name) out[it.key] = n; }
-        else if (c !== "") { const rn = renameOf(it); if (rn) out[it.key] = rn.to; }
+        else if (c !== "" && c !== "skip") { const rn = renameOf(it); if (rn) out[it.key] = rn.to; }
       });
       return out;
     }
     // Remembered per name: did the person let the app's category be renamed (true) or keep its own name (false)?
+    const withoutSkips = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip"));
     function renameFlags() {
       const out = {};
       state.catItems.forEach((it) => {
@@ -910,7 +947,9 @@
         return;
       }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
-      use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : !pm());
+      use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
+      // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
+      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.length ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
@@ -922,6 +961,7 @@
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
+        ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
@@ -952,6 +992,7 @@
         state.catChoice[it.key] = v;
         state.catNames[it.key] = defaultNameFor(it, v);   // a new target starts from the file's name again
         renderCategories();
+        renderPreview();   // lines of a category left out change the totals
         return;
       }
       else if (cls === "cname") { const row = e.target.closest(".tm-cat-row"); state.catNames[row.dataset.key] = e.target.value; refreshCategoryRow(row); return; }
@@ -995,26 +1036,27 @@
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {
-        const id = multi() ? state.map[l.account] : state.accountId;
-        if (!id || !pmById(id)) return;
+        let id = multi() ? state.map[l.account] : state.accountId;
+        if (id === "skip") return;
+        if (!id || !pmById(id)) { if (!noneOk) return; id = ""; }   // an import keeps the lines with no account
         if (!byAccount.has(id)) byAccount.set(id, []);
         byAccount.get(id).push(l);
       });
-      if (!byAccount.size) { if (!multi()) root.querySelector(".tm-account").focus(); return; }
+      if (!byAccount.size) { if (!multi() && !noneOk) root.querySelector(".tm-account").focus(); return; }
       const results = [];
       byAccount.forEach((accLines, id) => {
-        const a = pmById(id);
+        const a = pmById(id);   // null: the lines have no account
         const dates = accLines.map((l) => l.date).sort();
-        const accountKey = tableAccountKey(a);
-        results.push({ name: byAccount.size > 1 ? `${file.name} · ${a.nickname}` : file.name,
+        const accountKey = a ? tableAccountKey(a) : NO_ACCOUNT_KEY;
+        results.push({ name: byAccount.size > 1 ? `${file.name} · ${a ? a.nickname : tr("imp.noAccountOption")}` : file.name,
           result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: { ...state.catChoice }, categoryNames: namesToSend() } });
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: withoutSkips(state.catChoice), categoryNames: namesToSend() } });
       });
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
-      const label = typed || state.label || (byAccount.size === 1 ? pmById([...byAccount.keys()][0]).nickname : "") || "";
+      const label = typed || state.label || (byAccount.size === 1 && pmById([...byAccount.keys()][0]) ? pmById([...byAccount.keys()][0]).nickname : "") || "";
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
-      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...state.catChoice, ...renameFlags() },
+      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...withoutSkips(state.catChoice), ...renameFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       // A re-read of the same file replaces its earlier reading.

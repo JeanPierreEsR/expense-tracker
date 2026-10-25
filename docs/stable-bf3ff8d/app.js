@@ -1238,19 +1238,27 @@ document.getElementById("to_payment_method").addEventListener("change", updateAu
 // account.
 function updateFromNoneOption_() {
   const select = document.getElementById("payment_method");
-  const existing = select.querySelector("option[data-none]");
-  if (selectedType === "transfer" && !existing) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.dataset.none = "1";
-    opt.textContent = tr("form.noneFromOutside");
-    const addOpt = Array.from(select.options).find((o) => o.value === "__add__");
-    select.insertBefore(opt, addOpt || null);
-  } else if (selectedType !== "transfer" && existing) {
-    const wasNone = select.value === "";
-    existing.remove();
-    if (wasNone && select.options.length) select.selectedIndex = 0;
+  const none = select.querySelector("option[data-none]");
+  // With no account set up the select already holds one blank choice ("No accounts or cards yet"); nothing more to add.
+  const hasAccounts = Array.from(select.options).some((o) => o.value && o.value !== "__add__");
+  if (!hasAccounts) { if (none) none.remove(); return; }
+  // An account is never mandatory (a person may be trying the app before entering every account): a blank choice always follows
+  // the accounts. For a transfer it means money from outside the app; for anything else, "No account" (saving it asks once).
+  const label = tr(selectedType === "transfer" ? "form.noneFromOutside" : "form.noAccountChoice");
+  if (none) {
+    // Leaving a transfer while "someone else's account" was showing: back to the first account, as before.
+    if (none.dataset.kind === "transfer" && selectedType !== "transfer" && select.value === "" && select.options.length) select.selectedIndex = 0;
+    none.dataset.kind = selectedType === "transfer" ? "transfer" : "other";
+    none.textContent = label;
+    return;
   }
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.dataset.none = "1";
+  opt.dataset.kind = selectedType === "transfer" ? "transfer" : "other";
+  opt.textContent = label;
+  const addOpt = Array.from(select.options).find((o) => o.value === "__add__");
+  select.insertBefore(opt, addOpt || null);
 }
 
 function togglePaymentMethodVisibilityBase_() {
@@ -2139,7 +2147,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       throw new Error(tr("error.pickAccount"));
     }
     // A transfer may have only a "To" (money arriving from outside the app).
-    if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId)) throw new Error(tr("error.pickPaymentMethod"));
+    // An account is not mandatory. When the person HAS accounts and picked none, ask once; with none set up there is nothing to ask.
+    if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId) &&
+        Array.from(document.getElementById("payment_method").options).some((o) => o.value && o.value !== "__add__") &&
+        !confirm(tr("entry.confirmNoAccount"))) {
+      throw new Error(tr("error.pickPaymentMethod"));
+    }
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
@@ -4258,7 +4271,7 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
-  if (!fab.hidden) fab.style.bottom = (nav.offsetHeight + 14) + "px";
+  if (!fab.hidden && nav.offsetHeight) fab.style.setProperty("--nav-h", nav.offsetHeight + "px");
 }
 
 (function setupFab_() {
@@ -4266,6 +4279,12 @@ function syncFab_() {
   const watch = new MutationObserver(syncFab_);
   document.querySelectorAll(".screen, #bottom-nav").forEach((el) => watch.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
   window.addEventListener("resize", syncFab_);
+  // The bar's height can still change after the first measure (the iPhone's bottom safe area
+  // and the icon font arrive a moment after the app opens), which left the "+" too low on
+  // first open. Following the bar's own size keeps it exactly 14px above it, always.
+  if (window.ResizeObserver) new ResizeObserver(syncFab_).observe(document.getElementById("bottom-nav"));
+  window.addEventListener("load", syncFab_);
+  window.addEventListener("pageshow", syncFab_);
   syncFab_();
 })();
 
@@ -8593,9 +8612,24 @@ async function loadCategoryCounts_() {
   } catch (err) { /* counts are a nicety: the list works without them */ }
 }
 
+// A name used by an expense category AND an income category is shown with its type — "Other (income)", "Other (expense)".
+function categoryShownName_(c, bothTypes) {
+  return bothTypes.has(String(c.name).trim().toLowerCase()) ? `${c.name} ${tr(c.type === "income" ? "categories.tag.income" : "categories.tag.expense")}` : c.name;
+}
+function categoryNamesInBothTypes_() {
+  const types = new Map();
+  meta.categories.forEach((c) => {
+    const k = String(c.name).trim().toLowerCase();
+    if (!types.has(k)) types.set(k, new Set());
+    types.get(k).add(c.type);
+  });
+  return new Set([...types].filter(([, t]) => t.has("expense") && t.has("income")).map(([k]) => k));
+}
+
 function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
+  const bothTypes = categoryNamesInBothTypes_();
   ["expense", "income"].forEach((type) => {
     const head = document.createElement("h3");
     head.className = "accounts-group-title";
@@ -8608,7 +8642,7 @@ function renderCategoriesList_() {
         <div class="cat-preview" style="margin:0;">
           <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
-            <div class="recurring-row-name">${escapeHtml(c.name)}</div>
+            <div class="recurring-row-name">${escapeHtml(categoryShownName_(c, bothTypes))}</div>
             <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
           </div>
         </div>`;
