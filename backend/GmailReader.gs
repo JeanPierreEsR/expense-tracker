@@ -134,31 +134,48 @@ function gmailPlainBody_(messageId, payload) {
 
 function gmailPartText_(messageId, part) {
   var data = part.body && part.body.data;
-  if (!data && part.body && part.body.attachmentId) {
+  if (!gmailHasData_(data) && part.body && part.body.attachmentId) {
     data = Gmail.Users.Messages.Attachments.get('me', messageId, part.body.attachmentId).data;
   }
-  if (!data) return '';
+  if (!gmailHasData_(data)) return '';
   var ct = gmailHeader_(part, 'Content-Type');
   var charset = (/charset="?([\w-]+)/i.exec(ct) || [])[1] || 'UTF-8';
-  var bytes = gmailBase64Bytes_(data, part.mimeType);
-  try { return Utilities.newBlob(bytes).getDataAsString(charset); }
-  catch (e) { return Utilities.newBlob(bytes).getDataAsString('UTF-8'); }
+  var decoded = gmailDecodePartData_(data, part.mimeType);
+  if (typeof decoded === 'string') return decoded;   // the service had already turned it into text
+  try { return Utilities.newBlob(decoded).getDataAsString(charset); }
+  catch (e) { return Utilities.newBlob(decoded).getDataAsString('UTF-8'); }
 }
 
-// Gmail's body text -> bytes. Google's own decoders are strict (a padding "=", a stray line break or the other base64 alphabet makes
-// them throw "Could not decode string"), so the text is first put in ONE canonical form: letters/digits/+/ only, padded to a multiple
-// of 4, then the standard decoder. If it still cannot be read, the error says which part and how it looked (lengths only, never the
-// e-mail's words) so the log of a friend's copy is enough to find the cause.
-function gmailBase64Bytes_(data, mimeType) {
+function gmailHasData_(d) {
+  return d !== undefined && d !== null && d !== '' && !(typeof d === 'object' && d.length === 0);
+}
+
+// What a part's "data" looks like. The REST API says base64url, but Apps Script's Gmail service seems to hand it over as a LIST OF BYTES
+// (a friend's first scan: "71,104,-61,..." made Utilities.base64DecodeWebSafe throw "Could not decode string" on every e-mail).
+// Anything that can only be one thing is taken as that thing, so one shape is never mistaken for another:
+//   a list of numbers with commas (or a real array)  -> bytes        (base64 never contains a comma)
+//   any character base64 does not have               -> already text (base64 has no spaces, accents or <>)
+//   otherwise                                        -> base64/base64url, put in ONE canonical form first (Google's decoders are strict
+//                                                       about padding, line breaks and the alphabet)
+// If it still cannot be read, the error says which part and what SHAPE it had (letters shown as a, digits as 9; never the e-mail's words).
+function gmailDecodePartData_(data, mimeType) {
+  if (typeof data === 'object' && data !== null && typeof data.length === 'number') return gmailSignedBytes_(Array.prototype.slice.call(data));
   var raw = String(data);
+  if (/^\s*-?\d+(\s*,\s*-?\d+)+\s*$/.test(raw)) return gmailSignedBytes_(raw.split(','));
+  if (/[^A-Za-z0-9_\-+\/=\r\n]/.test(raw)) return raw;
   var clean = raw.replace(/[^A-Za-z0-9_\-+\/]/g, '').replace(/-/g, '+').replace(/_/g, '/');
   while (clean.length % 4 !== 0 && clean.length % 4 !== 1) clean += '=';
   var why = clean.length % 4 === 1 ? 'length is not valid base64' : '';
   if (!why) {
     try { return Utilities.base64Decode(clean); } catch (err) { why = String(err && err.message || err); }
   }
-  throw new Error('Could not read the ' + (mimeType || 'unknown') + ' part of an e-mail (' + raw.length + ' characters, '
-    + (raw.replace(/[A-Za-z0-9_\-=+\/]/g, '').length) + ' unexpected characters): ' + why);
+  throw new Error('Could not read the ' + (mimeType || 'unknown') + ' part of an e-mail (' + typeof data + ', ' + raw.length + ' characters, shape "'
+    + raw.slice(0, 30).replace(/[A-Za-z]/g, 'a').replace(/\d/g, '9') + '"): ' + why);
+}
+
+// Apps Script byte arrays are signed (-128..127).
+function gmailSignedBytes_(list) {
+  return list.map(function (n) { n = Number(n); return n > 127 ? n - 256 : n; });
 }
 
 // Named HTML characters that Spanish-language bank e-mails use (the common five are handled inline).
@@ -199,10 +216,12 @@ function gmailAttachments_(messageId, payload, opts) {
       getContentType: function () { return part.mimeType; },
       getBytes: function () {
         var data = part.body && part.body.data;
-        if (!data && part.body && part.body.attachmentId) {
+        if (!gmailHasData_(data) && part.body && part.body.attachmentId) {
           data = Gmail.Users.Messages.Attachments.get('me', messageId, part.body.attachmentId).data;
         }
-        return data ? Utilities.base64DecodeWebSafe(data) : [];
+        if (!gmailHasData_(data)) return [];
+        var bytes = gmailDecodePartData_(data, part.mimeType);
+        return typeof bytes === 'string' ? Utilities.newBlob(bytes).getBytes() : bytes;
       }
     });
   });

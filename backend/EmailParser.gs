@@ -660,6 +660,7 @@ function processEmails(opts) {
   // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
   UNREAD_LOGGING_ = tracking;
+  if (tracking) forgetMailReadByOldDecoder_();
   var handled = tracking ? loadProcessedEmailIds_() : {};
   // A back-check re-reads old mail, which overlaps entries typed or imported long ago under other reference numbers
   // (EmailCoverage.gs): such an e-mail is listed in the result, not created. `includeOverlaps: true` turns that off.
@@ -715,6 +716,20 @@ function ensureProcessedEmailsSheet_() {
 
 function recordProcessedEmail_(messageId) {
   appendRowObject('Processed Emails', { message_id: messageId, processed_at: nowTimestamp_() });
+}
+
+// Once, on a friend's copy: until the byte-list fix (GmailReader.gs gmailDecodePartData_) every e-mail it read was either refused or decoded
+// into nonsense that matched no rule, and was then written down as "handled" — so a real bank e-mail would never be looked at again.
+// Such a copy has never made an e-mail entry, so its list of handled e-mails is wiped once and the next scan reads the last 3 days afresh
+// (anything already in Entries is still skipped by its external_id). A copy that HAS e-mail entries read fine, and is left alone.
+function forgetMailReadByOldDecoder_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('MAIL_REREAD_BYTES_FIX')) return;
+  props.setProperty('MAIL_REREAD_BYTES_FIX', '1');
+  if (!isFriendCopy_()) return;
+  if (getAllRows('Entries').some(function (e) { return e.source === 'email'; })) return;
+  ensureProcessedEmailsSheet_();
+  deleteRowsWhere_('Processed Emails', function () { return true; });
 }
 
 // message id -> true for every email already handled. Also tidies up old rows.
