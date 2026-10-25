@@ -329,6 +329,14 @@ const STORE_KEY = 'setupState';
 const TOKEN_KEY = 'setupToken';
 const HANDOFF_KEY = 'setupHandoff';
 const SHEET_TITLE = 'Expense Tracker';
+// The person's own time zone (from their phone), used for BOTH their Sheet and their script so dates agree. Peru if unknown.
+const USER_TZ = (() => {
+  try {
+    const z = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (z) { new Intl.DateTimeFormat('en', { timeZone: z }); return z; }
+  } catch (e) { /* fall through */ }
+  return 'America/Lima';
+})();
 // The name Google shows for the person's OWN app (approval pages: "Go to …"; Google Account → third-party apps).
 // Deliberately different from the setup page's name ("Expense Tracker Installer") so the two entries there are not identical.
 const BACKEND_TITLE = 'Expense Tracker';
@@ -1255,7 +1263,7 @@ function manifestFor(stages) {
   const scopes = new Set();
   stages.forEach((s) => (STAGE_SCOPES[s] || []).forEach((x) => scopes.add(x)));
   const m = {
-    timeZone: 'America/Lima', exceptionLogging: 'STACKDRIVER', runtimeVersion: 'V8',
+    timeZone: USER_TZ, exceptionLogging: 'STACKDRIVER', runtimeVersion: 'V8',
     webapp: { executeAs: 'USER_DEPLOYING', access: 'ANYONE_ANONYMOUS' },
     oauthScopes: [...scopes]
   };
@@ -1354,7 +1362,7 @@ async function install() {
   if (!state.spreadsheetId) {
     progress(T.p_sheet, 15);
     const s = Date.now();
-    const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE, timeZone: 'America/Lima' } });
+    const sheet = await google_('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE, timeZone: USER_TZ } });
     state.spreadsheetId = sheet.spreadsheetId; state.spreadsheetUrl = sheet.spreadsheetUrl; save();
     betaSend('sheet_created');
     saveProgressBg();
