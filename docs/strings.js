@@ -1593,6 +1593,7 @@
     "stmt.received": { en: "{bank} · received {date}", es: "{bank} · recibido el {date}" },
     "stmt.dismiss": { en: "Remove from the list", es: "Quitar de la lista" },
     "stmt.fetching": { en: "Fetching…", es: "Obteniendo…" },
+    "stmt.removing": { en: "Removing…", es: "Quitando…" },
     "stmt.fetchFailed": { en: "Couldn't fetch that statement: {error}", es: "No se pudo obtener ese estado de cuenta: {error}" },
     "stmt.openingN": { en: "Opening {i} of {n}…", es: "Abriendo {i} de {n}…" },
     "find.title": { en: "Past emails", es: "Correos anteriores" },

@@ -2160,6 +2160,9 @@
     if (all) openAllInboxItems(all);
     else if (open) openInboxItem(open.dataset.id, open);
     else if (dis && confirm(tr("stmt.confirmDismiss"))) {
+      // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
+      const buttons = dis.closest(".stmt-choices");
+      if (buttons) buttons.innerHTML = loadingHtml(tr("stmt.removing"));
       try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert(tr("stmt.dismissFailed", { error: err.message })); }
       refreshStatementInbox(); refreshStatementCoverage();
     }
