@@ -72,8 +72,10 @@ def main(argv):
     if not groups:
         print("No new statement samples (%d rows in total)." % len(rows))
     for (at, _install, bank), parts in groups.items():
-        print("NEW  %s  %s  bank=%s  kind=%s  %d part(s), %d characters" % (
-            at, parts[0]["label"], bank, parts[0]["kind"], len(parts), sum(int(p["chars"] or 0) for p in parts)))
+        kind = parts[0]["kind"]
+        print("NEW  %s  %s  bank=%s  kind=%s  %d part(s), %d characters%s" % (
+            at, parts[0]["label"], bank, kind, len(parts), sum(int(p["chars"] or 0) for p in parts),
+            "   ** FULL VERSION: real numbers and names, private **" if kind.startswith("full-") else ""))
     with open(state_path, "w") as f:
         json.dump({"seenRows": max([r["row"] for r in rows] + [1])}, f)
     return 0

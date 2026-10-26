@@ -124,3 +124,40 @@ test("a friend's own copy refuses statement samples, and a telegram failure neve
   assert.equal(send(rt, {}).ok, true);
   assert.equal(Array.from(rt.rows("Statement Samples")).length, 1);
 });
+
+// ---- the full version (real digits + exact positions), sent only after the person ticked the box ----
+
+test("full version: digits kept, each cell carries its exact left and right edge, columns list their real positions", () => {
+  const rows = [
+    { page: 1, cells: [{ x0: 40.04, x1: 62, str: "12 OCT" }, { x0: 430.5, x1: 470.25, str: "S/ 1,234.50" }] }
+  ];
+  const lines = StatementSample.rowsToText(rows, { full: true }).split("\n");
+  assert.match(lines[0], /^Columns A, B, C/);
+  assert.match(lines[1], /^FULL VERSION: nothing is hidden\./);
+  assert.match(lines[1], /A=40 B=430\.5$/);
+  assert.equal(lines[2], "A[40-62]: 12 OCT  ¦  B[430.5-470.3]: S/ 1,234.50");
+  assert.ok(!StatementSample.rowsToText(rows, {}).includes("["), "the normal version has no positions and no real digits");
+});
+
+test("full version: the backend keeps the real digits ONLY with full + consent, marks the kind and tells the owner it is unhidden", () => {
+  const { rt } = freshApp({ small: true });
+  linkTelegram(rt);
+  const text = "A: Cuenta 123-4567890123 saldo 1,234.50 nadie@gmail.test ".repeat(10);
+  assert.equal(send(rt, { text, full: true, consent: true, kind: "unverified" }).ok, true);
+  const rows = Array.from(rt.rows("Statement Samples"));
+  assert.equal(rows[0].kind, "full-unverified");
+  assert.ok(String(rows[0].text).includes("123-4567890123") && String(rows[0].text).includes("1,234.50"));
+  const said = telegramTexts(rt).join("\n");
+  assert.match(said, /FULL statement sample/);
+  assert.ok(!said.includes("4567890123"), "the text itself never goes to Telegram");
+});
+
+test("full version: without the consent flag (or without 'full') digits still become 9 and the kind stays the normal one", () => {
+  const { rt } = freshApp({ small: true });
+  const text = "A: Cuenta 123-4567890123 saldo 1,234.50 ".repeat(10);
+  send(rt, { text, full: true });                    // no consent
+  send(rt, { text, consent: true });                 // no full
+  const rows = Array.from(rt.rows("Statement Samples"));
+  assert.equal(rows.length, 2);
+  rows.forEach((r) => { assert.ok(!/[0-8]/.test(String(r.text))); assert.equal(r.kind, "unrecognised"); });
+});
