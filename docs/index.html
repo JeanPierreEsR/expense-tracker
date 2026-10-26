@@ -828,9 +828,15 @@
           <p class="hint stmt-bank-only" style="margin-bottom:0;" data-i18n="stmt.s1.hint">Pick a way. You can add more later.</p>
 
           <div class="stmt-option stmt-bank-only" id="statement-inbox-card">
-            <h3 data-i18n="stmt.inbox">Inbox</h3>
-            <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one. Which account each one belongs to shows once you open it.</p>
-            <div id="statement-inbox-list"></div>
+            <button type="button" class="stmt-option-head" id="stmt-inbox-toggle" aria-expanded="false">
+              <span class="stmt-option-title" data-i18n="stmt.inbox">Inbox</span>
+              <span class="stmt-chip" id="stmt-inbox-chip"></span>
+              <span class="stmt-status-chev" aria-hidden="true">›</span>
+            </button>
+            <div id="stmt-inbox-body" hidden>
+              <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one. Which account each one belongs to shows once you open it.</p>
+              <div id="statement-inbox-list"></div>
+            </div>
           </div>
 
           <div class="stmt-option">

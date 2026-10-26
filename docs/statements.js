@@ -90,6 +90,7 @@
     if (stepNow === 4 || !usable.length) { if (stepNow === 4) clearRun(); stepNow = 1; }
     pastOpen = false;
     setStatusOpen(false);   // the accounts list starts folded: one line says how many are up to date
+    inboxOpen = null; inboxEarlierOpen = false;   // the Inbox decides again from what is in it
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -193,27 +194,56 @@
 
   let inbox = [];
 
-  async function refreshStatementInbox() {
-    const list = $("statement-inbox-list");
-    list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
-    try { inbox = (await callApi("listStatementInbox", {})).items; }
-    catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
-    if (!inbox.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.inboxEmpty"))}</p>`; return; }
-    const waitingCount = inbox.filter((i) => i.status === "new").length;
-    const openAll = waitingCount > 1
-      ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-inbox-open-all">${escapeHtml(tr("stmt.openAll", { n: waitingCount }))}</button></div>`
-      : "";
-    list.innerHTML = openAll + inbox.map((i) => {
-      const done = i.status === "processed";
-      const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
-      return `<div class="stmt-row"><div class="stmt-row-main">
+  // The Inbox box is compact (owner's design, 2026-10-26): a header line with a count chip; open on its own only when something is NEW;
+  // statements already read — and those that only look read ("probably processed": received before the account's last processed one) —
+  // sit in a fold inside it, so a box with nothing to do costs one line.
+  let inboxOpen = null;          // null = decide from the list (open when there is something new); true/false = the person chose
+  let inboxEarlierOpen = false;  // the "Already read" fold
+
+  const isNewItem = (i) => i.status === "new" && !i.probably_processed;
+
+  function inboxRow(i) {
+    const done = i.status === "processed";
+    const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
+    return `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.bank, date: fmtDate(i.received, true) }))}</div>
         <div class="stmt-row-sub">${escapeHtml(note)} · ${i.size_kb} KB</div>
         <div class="stmt-choices" style="padding-left:0">
           <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
           ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.dismiss"))}</button>`}
         </div></div></div>`;
-    }).join("");
+  }
+
+  function setInboxOpen(open) {
+    $("stmt-inbox-body").hidden = !open;
+    $("stmt-inbox-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+    $("stmt-inbox-toggle").classList.toggle("open", open);
+  }
+
+  function renderInbox() {
+    const list = $("statement-inbox-list"), chip = $("stmt-inbox-chip");
+    const fresh = inbox.filter(isNewItem), earlier = inbox.filter((i) => !isNewItem(i));
+    const looksRead = earlier.filter((i) => i.status === "new").length;   // not marked processed, but received before the last processed statement
+    chip.className = "stmt-chip " + (fresh.length ? "warn" : "info");
+    chip.textContent = fresh.length ? tr("stmt.inbox.new", { n: fresh.length })
+      : (looksRead ? tr("stmt.inbox.noneProbably", { n: looksRead }) : tr(earlier.length ? "stmt.inbox.none" : "stmt.inbox.empty"));
+    const openAll = fresh.length > 1
+      ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-inbox-open-all">${escapeHtml(tr("stmt.openAll", { n: fresh.length }))}</button></div>`
+      : "";
+    const nothing = fresh.length ? "" : `<p class="hint">${escapeHtml(tr(earlier.length ? "stmt.inbox.nothingNew" : "stmt.inboxEmpty"))}</p>`;
+    const fold = earlier.length
+      ? `<button type="button" class="add-inline stmt-inbox-earlier-toggle">${inboxEarlierOpen ? "⌄" : "›"} ${escapeHtml(tr("stmt.inbox.earlier", { n: earlier.length }))}</button>${inboxEarlierOpen ? earlier.map(inboxRow).join("") : ""}`
+      : "";
+    list.innerHTML = nothing + openAll + fresh.map(inboxRow).join("") + fold;
+    setInboxOpen(inboxOpen === null ? fresh.length > 0 : inboxOpen);
+  }
+
+  async function refreshStatementInbox() {
+    const list = $("statement-inbox-list");
+    list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
+    try { inbox = (await callApi("listStatementInbox", {})).items; }
+    catch (err) { list.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; setInboxOpen(true); return; }
+    renderInbox();
   }
 
   // Fetches one inbox statement from Gmail and reads it (asks its password). Throws on failure.
@@ -245,7 +275,7 @@
   // Opens every statement still waiting in the inbox, one after another (easy on a phone's memory;
   // each asks its own password). One that fails to fetch is reported at the end, the rest continue.
   async function openAllInboxItems(btn) {
-    const waiting = inbox.filter((i) => i.status === "new");
+    const waiting = inbox.filter(isNewItem);   // the ones that look already read stay in the fold: open them one by one if wanted
     if (!waiting.length) return;
     const label = btn.textContent;
     btn.disabled = true;
@@ -2123,8 +2153,10 @@
       if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);
     }
   }, true);
+  $("stmt-inbox-toggle").addEventListener("click", () => { inboxOpen = $("stmt-inbox-body").hidden; setInboxOpen(inboxOpen); });
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
+    if (e.target.closest(".stmt-inbox-earlier-toggle")) { inboxEarlierOpen = !inboxEarlierOpen; renderInbox(); return; }
     if (all) openAllInboxItems(all);
     else if (open) openInboxItem(open.dataset.id, open);
     else if (dis && confirm(tr("stmt.confirmDismiss"))) {
