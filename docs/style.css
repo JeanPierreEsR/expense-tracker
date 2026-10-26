@@ -3059,3 +3059,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-overview > #period-selector-card { position: sticky; top: 0; z-index: 5; }
 /* Cards opened from Home (scrollIntoView) must stop below the pinned picker, not under it. */
 #screen-overview > .card { scroll-margin-top: 150px; }
+
+/* Statements by month: accounts × months, scrolls sideways, account names stay put. */
+.stmt-matrix-summary { font-weight: 600; font-size: 1.05rem; cursor: pointer; }
+.stmt-matrix-scroll { overflow-x: auto; margin-top: 8px; }
+.stmt-matrix { border-collapse: collapse; font-size: 0.78rem; }
+.stmt-matrix th, .stmt-matrix td { padding: 6px 8px; text-align: center; white-space: nowrap; font-weight: 400; color: var(--muted); }
+.stmt-matrix .stmt-matrix-acct { position: sticky; left: 0; background: var(--card, #fff); text-align: left; font-weight: 600; color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.stmt-matrix td.has { color: #2e9e5b; font-weight: 700; }
+.stmt-matrix td.hole { color: #d64545; font-weight: 700; }
+.stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }

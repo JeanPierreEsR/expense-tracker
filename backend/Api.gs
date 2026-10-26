@@ -289,6 +289,7 @@ function routeAction(action, payload) {
     case 'admin_debugSearchEmails': return debugSearchEmails_(payload.query, payload.max);
     case 'admin_debugEmailBody': return debugEmailBody_(payload.query, payload.chars);
     case 'listStatementCoverage': return listStatementCoverage();
+    case 'getStatementMonthMatrix': return getStatementMonthMatrix();
     case 'listStatementInbox': return listStatementInbox();
     case 'getStatementAttachment': return getStatementAttachment(payload);
     case 'listPerfAppVersions': return listPerfAppVersions_();

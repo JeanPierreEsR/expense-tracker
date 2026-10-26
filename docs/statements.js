@@ -89,6 +89,7 @@
     // A finished run starts over from step 1; a run still in progress keeps its step (the person may have only switched tabs).
     if (stepNow === 4 || !usable.length) { if (stepNow === 4) clearRun(); stepNow = 1; }
     pastOpen = false;
+    $("statement-matrix-card").open = false;   // folded again each visit
     setStatusOpen(false);   // the accounts list starts folded: one line says how many are up to date
     inboxOpen = null; inboxEarlierOpen = false;   // the Inbox decides again from what is in it
     sessionPasswords = [];
@@ -403,6 +404,30 @@
       updateFindReadButton();
     }
   });
+
+  // ---- statements by month (accounts × months; a fold inside Past uploads) ----
+
+  async function refreshStatementMatrix() {
+    const box = $("statement-matrix");
+    box.innerHTML = loadingHtml(tr("common.loading"));
+    let res;
+    try { res = await callApi("getStatementMonthMatrix", {}); }
+    catch (err) { box.innerHTML = `<p class="hint">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`; return; }
+    if (!res.accounts.length) { box.innerHTML = `<p class="hint">${escapeHtml(tr("matrix.empty"))}</p>`; return; }
+    const head = res.months.map((ym) => {
+      const [y, m] = ym.split("-").map(Number);
+      return `<th>${escapeHtml(I18n.monthShort(m - 1, true))}<br>${String(y).slice(2)}</th>`;
+    }).join("");
+    const body = res.accounts.map((a) => `<tr><th class="stmt-matrix-acct">${escapeHtml(a.label)}</th>${res.months.map((ym) => {
+      const n = a.cells[ym] || 0;
+      if (n) return `<td class="has">✓${n > 1 ? `<small>${n}</small>` : ""}</td>`;
+      return ym > a.first && ym < a.last ? `<td class="hole">–</td>` : `<td></td>`;
+    }).join("")}</tr>`).join("");
+    box.innerHTML = `<div class="stmt-matrix-scroll"><table class="stmt-matrix"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    const sc = box.querySelector(".stmt-matrix-scroll");
+    sc.scrollLeft = sc.scrollWidth;   // lands on the newest months
+  }
+  $("statement-matrix-card").addEventListener("toggle", (e) => { if (e.target.open) refreshStatementMatrix(); });
 
   // ---- gaps (notes saved when a balance is set from a statement) ----
 

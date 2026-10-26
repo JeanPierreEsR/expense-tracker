@@ -1544,6 +1544,9 @@
 
     // ---- stmt ----
     // ---- gaps (More → Statements) ----
+    "matrix.title": { en: "Statements by month", es: "Estados de cuenta por mes" },
+    "matrix.hint": { en: "A ✓ means a statement ending that month was added. A dash is a month with no statement between two you did add — a hole to fill.", es: "Un ✓ significa que se agregó un estado de cuenta que termina ese mes. Un guion es un mes sin estado de cuenta entre dos que sí agregaste: un hueco por llenar." },
+    "matrix.empty": { en: "No statements added yet.", es: "Aún no has agregado estados de cuenta." },
     "gaps.title": { en: "Unexplained differences", es: "Diferencias" },
     "gaps.hint": { en: "Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.", es: "Cada vez que fijas un saldo desde un estado de cuenta, la diferencia que la app no pudo explicar queda aquí como una nota. Son solo notas: nunca cuentan en tus totales, presupuestos ni saldos. Márcala como resuelta cuando encuentres la causa." },
     "gaps.empty": { en: "No unexplained differences so far.", es: "Aún no hay diferencias." },
