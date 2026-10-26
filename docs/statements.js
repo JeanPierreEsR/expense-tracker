@@ -82,14 +82,13 @@
     const next = mode === "import" ? "import" : "bank";
     if (next !== screenMode) {
       // A bank statement and another app's file never travel in the same upload: leaving one side clears what was read on it.
-      $("statement-results").innerHTML = "";
-      $("statement-history").innerHTML = "";
-      $("statement-review-status").innerHTML = "";
-      usable = [];
-      historyPlan = null;
-      addedAccounts = [];
+      clearRun();
+      stepNow = 1;
     }
     setScreenMode(next);
+    // A finished run starts over from step 1; a run still in progress keeps its step (the person may have only switched tabs).
+    if (stepNow === 4 || !usable.length) { if (stepNow === 4) clearRun(); stepNow = 1; }
+    pastOpen = false;
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -102,6 +101,85 @@
     refreshStatementGaps();
     refreshStatementBatches();
     refreshStatementInbox();
+    renderSteps();
+  }
+
+  // ---- the four steps: Upload > Check > Preview > Done ----
+  // One screen, four steps, one next button per step (owner's design, 2026-10-26). The reading, planning and saving engine below is
+  // unchanged: the cards it uses are only regrouped into steps. A step is a plain <div id="stmt-step-N">; `stepNow` says which shows.
+  // "Past uploads and differences" (Recent uploads + Gaps) is a side panel, not a step.
+  let stepNow = 1;
+  let pastOpen = false;
+  let savedThisRun = false;   // a save (or an undo) happened in this run: step 4 has something to show
+
+  function stmtCards() { return Array.from($("statement-results").children); }
+  // Distinct statements that can go on to the preview (a spreadsheet may yield several entries in `usable`).
+  function readyCount() { return new Set(usable.map((u) => u.group || u.file)).size; }
+
+  function canGoTo(n) {
+    if (n === 1) return true;
+    if (n === 2) return stmtCards().length > 0;
+    if (n === 3) return usable.length > 0;
+    return savedThisRun;
+  }
+
+  function clearRun() {
+    $("statement-results").innerHTML = "";
+    $("statement-history").innerHTML = "";
+    $("statement-plan-status").innerHTML = "";
+    $("statement-review-status").innerHTML = "";
+    $("stmt-s4-waiting").innerHTML = "";
+    usable = [];
+    historyPlan = null;
+    addedAccounts = [];
+    savedThisRun = false;
+  }
+
+  function showStep(n) {
+    stepNow = n;
+    pastOpen = false;
+    renderSteps();
+    window.scrollTo(0, 0);
+    if (n === 3 && !historyPlan && usable.length) runHistoryPlan();   // the plan is read-only, so it is built on arrival: no extra button
+    if (n === 4) renderWaiting();
+  }
+
+  function renderSteps() {
+    const names = ["stmt.step.upload", "stmt.step.check", "stmt.step.preview", "stmt.step.done"];
+    $("stmt-stepper").hidden = pastOpen;
+    $("stmt-stepper").innerHTML = names.map((key, i) => {
+      const n = i + 1;
+      const cls = n === stepNow ? "on" : (n < stepNow ? "done" : "");
+      const can = n === stepNow || canGoTo(n);
+      return `<button type="button" class="stmt-pill ${cls}" data-step="${n}" ${can ? "" : "disabled"} aria-current="${n === stepNow ? "step" : "false"}">${n < stepNow ? "✓ " : `${n} `}${escapeHtml(tr(key))}</button>`;
+    }).join("");
+    [1, 2, 3, 4].forEach((n) => { $("stmt-step-" + n).hidden = pastOpen || n !== stepNow; });
+    $("statement-past").hidden = !pastOpen;
+    updateStepUi();
+  }
+
+  // Counts and buttons that depend on what was read so far.
+  function updateStepUi() {
+    const total = stmtCards().length, ready = readyCount();
+    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr("stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    const next = $("stmt-next-2");
+    next.hidden = !usable.length;
+    next.textContent = tr("stmt.s2.next", { n: ready });
+    const cont = $("stmt-step1-continue");
+    cont.hidden = !total;
+    cont.textContent = tr("stmt.s1.continue", { n: total });
+    $("statement-history-btn").textContent = tr(screenMode === "import" ? "imp.histButton" : "hist.button", { n: usable.length });
+    // pills that became (un)reachable
+    document.querySelectorAll("#stmt-stepper .stmt-pill").forEach((b) => { const n = Number(b.dataset.step); b.disabled = !(n === stepNow || canGoTo(n)); });
+  }
+
+  // Step 4: the accounts that still need a statement (the coverage list, shortened to what is left to do).
+  function renderWaiting() {
+    const box = $("stmt-s4-waiting");
+    const left = screenMode === "import" || !coverage ? [] : coverage.accounts.filter((a) => a.status === "due" || a.status === "never");
+    box.innerHTML = left.length
+      ? `<p class="stmt-s4-label">${escapeHtml(tr("stmt.s4.waiting"))}</p>` + left.map((a) => `<div class="stmt-row"><div class="stmt-row-main"><div class="stmt-row-title">${escapeHtml(a.label)}</div><div class="stmt-row-sub">${escapeHtml(tr(a.status === "due" ? "stmt.statusDue" : "stmt.statusNever"))}</div></div></div>`).join("")
+      : "";
   }
 
   // ---- inbox (statements that arrived by email) ----
@@ -180,16 +258,13 @@
   let found = [];   // last findStatementEmails result's items
 
   // Find statements is a catch-up tool: it is used once to bring in history (and again for a new bank or a gap), while new statements
-  // arrive in the Inbox by themselves. So it is OPEN at the top ("Start here") only while no statement was ever processed, and otherwise
-  // a one-line link at the bottom that opens it. Decided once per visit (when the coverage list first arrives), so the card never jumps
-  // while the person is working.
+  // arrive in the Inbox by themselves. So it is OPEN ("Start here") only while no statement was ever processed, and otherwise
+  // a one-line link that opens it. It stays in its place in step 1 (after the Inbox and "From this phone"). Decided once per visit
+  // (when the coverage list first arrives), so the card never jumps while the person is working.
   let findFirstUse = null;
   function placeFindCard() {
     if (findFirstUse !== null || !coverage || !coverage.accounts.length) return;
     findFirstUse = coverage.accounts.every((a) => !a.last);
-    const card = $("statement-find-card");
-    if (findFirstUse) $("statement-coverage-list").closest(".card").after(card);
-    else $("screen-statements").appendChild(card);
     $("statement-find-start").hidden = !findFirstUse;
     $("statement-find-body").hidden = !findFirstUse;
     $("statement-find-toggle").hidden = findFirstUse;
@@ -350,6 +425,7 @@
     }
     renderCoverage();
     placeFindCard();
+    if (stepNow === 4) renderWaiting();   // the list that says which accounts still need a statement
   }
 
   function renderCoverage() {
@@ -548,6 +624,8 @@
       <button type="button" class="stmt-result-remove">${escapeHtml(tr("stmt.removeFile"))}</button>`;
     card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, fileName));
     $("statement-results").prepend(card);
+    // Reading starts: the person moves on to step 2 by themselves (from the inbox, a file, or the Gmail search alike).
+    if (stepNow === 1 || pastOpen) showStep(2); else updateStepUi();
     return card.querySelector(".stmt-result-body");
   }
 
@@ -555,7 +633,7 @@
   function removeResultCard(card, fileName) {
     const had = usable.some((u) => (u.group || u.file) === fileName);
     card.remove();
-    if (!had) return;
+    if (!had) { updateReviewButton(); return; }
     usable = usable.filter((u) => (u.group || u.file) !== fileName);
     // The plan's statement/line numbers refer to the list — any change makes an open plan stale.
     historyPlan = null;
@@ -1182,9 +1260,9 @@
 
   // ---- review (read-only) ----
 
+  // (The name is from before the steps: it now refreshes the counts, the "Next" buttons and the step pills.)
   function updateReviewButton() {
-    $("statement-review-card").hidden = usable.length === 0;
-    $("statement-history-btn").textContent = tr(screenMode === "import" ? "imp.histButton" : "hist.button", { n: usable.length });
+    updateStepUi();
   }
 
   // What the server is sent for an analysis (never the file): each statement's account key, period, balances and lines.
@@ -1211,6 +1289,7 @@
     const out = $("statement-history");
     btn.disabled = true;
     $("statement-review-status").innerHTML = "";   // an old "Saved" / "Undone" message is not about this run
+    $("statement-plan-status").innerHTML = "";
     out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
@@ -1718,8 +1797,11 @@
       refreshStatementBatches();
       refreshStatementInbox();
       refreshOtherScreens();
+      savedThisRun = true;
+      showStep(4);
     } catch (err) {
-      status.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
+      // The failure stays on the Preview step, where the Add button is.
+      $("statement-plan-status").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
       renderHistoryPlan();   // brings the Add button back and drops the loading line
     }
   }
@@ -1836,7 +1918,10 @@
 
   async function undoBatch(batchId, trigger) {
     if (!confirm(tr("stmt.confirmUndo"))) return;
-    // The Undo buttons sit in Recent uploads, far from the status box: show the loading line in the row that was tapped as well.
+    // The Undo buttons sit in Recent uploads (a side panel) or in step 4: the result is always shown in step 4.
+    savedThisRun = true;
+    showStep(4);
+    // Show the loading line in the row that was tapped as well (it is out of sight when the panel is closed, harmless then).
     const slot = trigger && trigger.closest(".stmt-row") ? trigger.closest(".stmt-row").querySelector(".stmt-undo-progress") : null;
     if (slot) slot.innerHTML = loadingHtml(tr("stmt.undoing"));
     // Show that something is happening and stop a second tap: a second Undo running at the same time was never meant to be.
@@ -1914,6 +1999,18 @@
     e.target.value = ""; // lets the same file be picked again
   });
   $("statement-history-btn").addEventListener("click", runHistoryPlan);
+  // the four steps
+  $("stmt-stepper").addEventListener("click", (e) => {
+    const b = e.target.closest(".stmt-pill");
+    if (b && !b.disabled && Number(b.dataset.step) !== stepNow) showStep(Number(b.dataset.step));
+  });
+  $("stmt-step1-continue").addEventListener("click", () => showStep(2));
+  $("stmt-next-2").addEventListener("click", () => showStep(3));
+  $("stmt-add-more").addEventListener("click", () => showStep(1));
+  $("stmt-back-3").addEventListener("click", () => showStep(2));
+  $("stmt-another").addEventListener("click", () => { clearRun(); showStep(1); });
+  $("statement-past-btn").addEventListener("click", () => { pastOpen = true; renderSteps(); window.scrollTo(0, 0); });
+  $("statement-past-back").addEventListener("click", () => { pastOpen = false; renderSteps(); window.scrollTo(0, 0); });
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
