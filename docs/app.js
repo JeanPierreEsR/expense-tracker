@@ -5082,7 +5082,7 @@ async function loadOverviewEntries_(bounds) {
 }
 
 // Investments card: FLOWS only — net put into each platform during the selected
-// period (deposits minus withdrawals, owner's PEN value). Never a balance or a
+// period (deposits minus withdrawals), one line per currency, never converted. Never a balance or a
 // % (specs/accounts.md § Investments are flows only). Tap a row for its entries.
 function renderInvestmentsPeriod_(items) {
   const list = document.getElementById("investments-period-list");
@@ -5094,8 +5094,8 @@ function renderInvestmentsPeriod_(items) {
     row.innerHTML = `
       <div class="legend-text">
         <div class="legend-name">${escapeHtml(item.name)}</div>
-        <div class="legend-sub">
-          <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
+        <div class="legend-sub stacked">
+          ${item.lines.map((l) => `<span class="legend-amount">${formatSignedBalance_(l.amount, l.currency)}</span>`).join("")}
         </div>
       </div>
     `;

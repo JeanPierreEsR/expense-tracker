@@ -29,3 +29,20 @@ test("by-account and by-tag pies add up to the total (No account / Untagged slic
   const untagged = rt.api("listEntries", Object.assign({ type: "expense", noTag: true }, range));
   assert.ok(untagged.length >= 3);
 });
+
+test("investment flows are per platform and per currency, never converted", () => {
+  const { rt } = freshApp({ small: true });
+  const range = { startDate: today(), endDate: today() };
+  const before = rt.api("getPeriodSummary", range).investmentsByPlatform;
+  const meta = rt.api("getMeta");
+  const cat = meta.categories.find((c) => c.type === "investment");
+  const from = meta.paymentMethods.find((p) => p.type !== "investment");
+  const plat = meta.paymentMethods.find((p) => p.type === "investment");
+  const mk = (amount, currency) => rt.api("createEntry", { type: "investment", date: today(), category_id: cat.id, status: "confirmed", paid_by: "me", amount, currency, description: "dep", payment_method_id: from.id, to_payment_method_id: plat.id });
+  mk(100, "PEN"); mk(-30, "PEN"); mk(50, "USD");
+  const row = rt.api("getPeriodSummary", range).investmentsByPlatform.find((r) => r.id === plat.id);
+  const base = (before.find((r) => r.id === plat.id) || { lines: [] }).lines;
+  const get = (lines, c) => (lines.find((l) => l.currency === c) || { amount: 0 }).amount;
+  assert.equal(get(row.lines, "PEN") - get(base, "PEN"), 70);
+  assert.equal(get(row.lines, "USD") - get(base, "USD"), 50);
+});

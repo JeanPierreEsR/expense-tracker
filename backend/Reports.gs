@@ -39,7 +39,8 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
-  var investmentByPlatform = {};
+  // Investments are flows per platform in each entry's OWN currency (no conversion).
+  var investmentFlows = {};
 
   var acc = {
     expense: { category: {}, tag: {}, paymentMethod: {} },
@@ -47,6 +48,12 @@ function getPeriodSummary(payload) {
   };
 
   entries.forEach(function (e) {
+    if (e.type === 'investment') {
+      var pk = e.to_payment_method_id || '';
+      var cur = e.currency || homeCurrency_();
+      var f = investmentFlows[pk] || (investmentFlows[pk] = {});
+      f[cur] = (f[cur] || 0) + Number(e.amount);
+    }
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     if (rate == null) { excludedCount++; return; }
 
@@ -64,8 +71,6 @@ function getPeriodSummary(payload) {
     else if (e.type === 'income') totals.income += ownAmountPen;
     else if (e.type === 'investment') {
       totals.investment += ownAmountPen;
-      // By platform: the account the money went to (a withdrawal is negative).
-      addToBucket_(investmentByPlatform, e.to_payment_method_id, ownAmountPen, pmById);
     }
     else return;
 
@@ -97,7 +102,7 @@ function getPeriodSummary(payload) {
       net: net
     },
     excludedCount: excludedCount,
-    investmentsByPlatform: bucketToList_(investmentByPlatform, totals.investment, tr_('report.otherMethod')),
+    investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     breakdowns: {
       expense: {
         byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
@@ -111,6 +116,19 @@ function getPeriodSummary(payload) {
       }
     }
   };
+}
+
+// One row per platform: its net flow in each currency (a withdrawal is negative).
+function investmentFlowsToList_(flows, pmById) {
+  return Object.keys(flows).map(function (id) {
+    var lines = Object.keys(flows[id]).map(function (cur) {
+      return { currency: cur, amount: Math.round(flows[id][cur] * 100) / 100 };
+    }).filter(function (l) { return Math.abs(l.amount) > 0.004; });
+    var pm = id ? pmById[id] : null;
+    return { id: id, name: pm ? pm.nickname : tr_('report.otherMethod'), lines: lines };
+  }).filter(function (r) { return r.lines.length; }).sort(function (a, b) {
+    return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+  });
 }
 
 function rowsById_(rows) {
