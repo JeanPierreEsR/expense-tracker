@@ -3030,3 +3030,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-option h3 { margin: 0 0 4px; font-size: 1rem; }
 .stmt-option .hint { margin: 4px 0 8px; }
 .stmt-acct { font-weight: 600; font-size: 0.95rem; margin: 2px 0 4px; }
+
+/* Compact Inbox: a header line with a count chip, folds inside */
+.stmt-option-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; background: none; font-family: inherit; text-align: left; cursor: pointer; color: var(--text);
+}
+.stmt-option-title { font-size: 1rem; font-weight: 600; }
+.stmt-option-head .stmt-chip { margin-left: auto; white-space: normal; text-align: right; }
+.stmt-option-head.open .stmt-status-chev { transform: rotate(90deg); }
+.stmt-chip.info { background: #efeff2; color: var(--muted); }
+#stmt-inbox-body { margin-top: 8px; }
