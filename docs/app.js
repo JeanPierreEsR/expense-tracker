@@ -4598,7 +4598,7 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
-    refreshMonthsHistory_();
+    trackOverviewLoad_(refreshMonthsHistory_());
     refreshBalances().catch(() => {});
   }
   if (name === "budgets") {
@@ -4868,7 +4868,6 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
 let monthsHist_ = null;
 let monthsHistAt_ = 0;
 let monthsHistBusy_ = null;
-let paceRefMonth_ = null;        // 'yyyy-mm' of the reference line; null = last month
 let overviewScrollTo_ = null;    // card id to bring into view once the history has painted
 
 function refreshMonthsHistory_() {
@@ -4925,27 +4924,18 @@ function paceRefList_() {
   return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
 }
 
-function paceStep_(dir) {
-  const list = paceRefList_();
-  if (!list.length) return;
-  let i = list.findIndex((m) => m.month === paceRefMonth_);
-  if (i < 0) i = list.length - 1;
-  paceRefMonth_ = list[Math.max(0, Math.min(list.length - 1, i + dir))].month;
-  renderPaceBig_();
-}
-
 function renderPaceBig_() {
   const card = document.getElementById("pace-card");
   const months = monthsHist_.months;
   const cur = months[months.length - 1];
   const list = paceRefList_();
-  const ref = list.length ? (list.find((m) => m.month === paceRefMonth_) || list[list.length - 1]) : null;
+  // The grey reference line follows Overview's pinned period picker: the month picked there (when it is an
+  // earlier month than this one), otherwise last month. The card has no picker of its own.
+  const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
+  const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
   const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
   card.hidden = !nowTotal && !(ref && ref.expense > 0);
   if (card.hidden) return;
-  const refIdx = ref ? list.indexOf(ref) : -1;
-  document.getElementById("pace-older").disabled = !ref || refIdx <= 0;
-  document.getElementById("pace-newer").disabled = !ref || refIdx >= list.length - 1;
   const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
   const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
   document.getElementById("pace-ref-label").textContent = refName;
@@ -4971,22 +4961,13 @@ function renderPaceBig_() {
 }
 
 (function wirePaceBig_() {
-  document.getElementById("pace-older").addEventListener("click", () => paceStep_(-1));
-  document.getElementById("pace-newer").addEventListener("click", () => paceStep_(1));
-  // Swiping right (scrolling back in time) goes to an earlier month. Stopped here so the Overview's
-  // own month-to-month swipe doesn't also fire.
+  // The graph and the bars scroll/swipe without triggering Overview's own month-to-month swipe.
   const svg = document.getElementById("pace-svg");
   const scroller = document.getElementById("months-scroll");
-  let x0 = 0, y0 = 0;
-  svg.addEventListener("touchstart", (e) => { e.stopPropagation(); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
-  svg.addEventListener("touchend", (e) => {
-    e.stopPropagation();
-    const dx = e.changedTouches[0].clientX - x0;
-    const dy = e.changedTouches[0].clientY - y0;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) paceStep_(dx > 0 ? -1 : 1);
-  }, { passive: true });
-  scroller.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-  scroller.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+  [svg, scroller].forEach((el) => {
+    el.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+    el.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+  });
 })();
 
 // Home's cards land here: open Overview and bring the matching card into view.
@@ -5021,7 +5002,25 @@ function formatPen(n) {
   return `${homeCur()} ${moneyFmt(n)}`;
 }
 
-async function refreshOverview() {
+// Overview shows a "Loading…" bar and dims its cards while ANY of its pieces
+// (summary, entries list, balances, month history) is still being fetched, so
+// switching months never looks like a finished screen showing old figures.
+let overviewBusyCount_ = 0;
+function trackOverviewLoad_(promise) {
+  const screen = document.getElementById("screen-overview");
+  overviewBusyCount_++;
+  screen.classList.add("overview-loading");
+  const done = () => {
+    overviewBusyCount_ = Math.max(0, overviewBusyCount_ - 1);
+    if (!overviewBusyCount_) screen.classList.remove("overview-loading");
+  };
+  Promise.resolve(promise).then(done, done);
+  return promise;
+}
+
+function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_()); }
+
+async function refreshOverviewInner_() {
   renderPeriodSelector();
   const bounds = getPeriodBounds();
   if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
@@ -5046,6 +5045,7 @@ async function refreshOverview() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   loadOverviewEntries_(bounds);
 }
@@ -5054,7 +5054,8 @@ async function refreshOverview() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 50;
 let overviewEntriesToken_ = 0;
-async function loadOverviewEntries_(bounds) {
+function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
+async function loadOverviewEntriesInner_(bounds) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
   list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
@@ -13021,7 +13022,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
 let balanceModalPmId = null;
 let balanceModalData = null;
 
-async function refreshBalances() {
+function refreshBalances() { return trackOverviewLoad_(refreshBalancesInner_()); }
+
+async function refreshBalancesInner_() {
   const list = document.getElementById("balances-list");
   const emptyNote = document.getElementById("balances-empty-note");
   const rows = await callApi("listPaymentMethodBalances", {});
