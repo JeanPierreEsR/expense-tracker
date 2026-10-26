@@ -425,13 +425,7 @@
     "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, Yape, una tarjeta de Starbucks…) para empezar a llevar su saldo." },
 
     // ---- invest ----
-    "invest.hint": { en: "Net cash you've put into each platform (deposits minus withdrawals). Not the platform's current value. The total below is not affected by the period above.", es: "Efectivo neto que has puesto en cada plataforma (depósitos menos retiros). No es el valor actual de la plataforma. El total de abajo no depende del periodo de arriba." },
-    "invest.periodTitle": { en: "Put in during this period", es: "Puesto en este periodo" },
-    "invest.totalTitle": { en: "Total put in so far", es: "Total puesto hasta ahora" },
-    "invest.nothingYet": { en: "Nothing yet", es: "Aún nada" },
-    "invest.noMoves": { en: "No deposits or withdrawals yet.", es: "Aún no hay depósitos ni retiros." },
-    "invest.fromAccount": { en: " · from {account}", es: " · desde {account}" },
-    "invest.toAccount": { en: " · to {account}", es: " · hacia {account}" },
+    "invest.periodTitle": { en: "Put in this period", es: "Puesto en este periodo" },
 
     // ---- budgets ----
     "budgets.add": { en: "+ Add budget", es: "+ Agregar presupuesto" },

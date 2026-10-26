@@ -59,41 +59,6 @@ function needsInvestmentCategory_(categoryId, cats) {
   return !cat || cat.type !== 'investment';
 }
 
-// Net cash put into each platform (confirmed entries only), one line per
-// currency, plus a PEN total at the latest rate on file (null when a
-// currency has no rate at all).
-function listInvestmentPlatforms() {
-  var pms = getAllRows('Payment Methods').filter(function (pm) { return pm.type === 'investment'; });
-  if (!pms.length) return [];
-  var month = todayMonthKey_();
-  var totalsByPm = {};
-  confirmedEntries_().forEach(function (e) {
-    if (e.type !== 'investment' || !e.to_payment_method_id) return;
-    var cur = e.currency || homeCurrency_();
-    var t = totalsByPm[e.to_payment_method_id] || (totalsByPm[e.to_payment_method_id] = {});
-    t[cur] = (t[cur] || 0) + Number(e.amount);
-  });
-  return pms.map(function (pm) {
-    var totals = totalsByPm[pm.id] || {};
-    var totalPen = 0;
-    var lines = Object.keys(totals).map(function (cur) {
-      var amount = Math.round(totals[cur] * 100) / 100;
-      var rate = cur === homeCurrency_() ? 1 : getLatestRateOnOrBefore_(cur, month);
-      if (rate == null || totalPen == null) totalPen = null;
-      else totalPen += amount * rate;
-      return { currency: cur, amount: amount };
-    }).filter(function (l) { return Math.abs(l.amount) > 0.004; });
-    return {
-      id: pm.id,
-      nickname: pm.nickname,
-      lines: lines,
-      total_pen: totalPen == null ? null : Math.round(totalPen * 100) / 100
-    };
-  }).sort(function (a, b) {
-    return (b.total_pen == null ? -Infinity : b.total_pen) - (a.total_pen == null ? -Infinity : a.total_pen);
-  });
-}
-
 /**
  * One-off setup (idempotent, dry-run unless payload.dryRun === false):
  * creates the four platforms as `investment` payment methods and the
