@@ -288,6 +288,7 @@ var BACKEND_STRINGS_ = {
   // ---- report ----
   "report.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
   "report.untagged": { en: "Untagged", es: "Sin etiqueta" },
+  "report.noAccount": { en: "No account", es: "Sin cuenta" },
   "report.otherMethod": { en: "Other", es: "Otros" },
 
   // ---- guess ----

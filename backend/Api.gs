@@ -789,6 +789,14 @@ function listEntries(payload) {
   if (payload && payload.paymentMethodId) {
     entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
   }
+  // Overview "No account" slice: same test the report uses (not paid with one of the owner's accounts).
+  if (payload && payload.noAccount) {
+    entries = entries.filter(function (e) { return !(e.paid_by === 'me' && e.payment_method_id); });
+  }
+  // Overview Investments card: deposits into / withdrawals from one platform.
+  if (payload && payload.toPaymentMethodId !== undefined && payload.toPaymentMethodId !== null) {
+    entries = entries.filter(function (e) { return (e.to_payment_method_id || '') === payload.toPaymentMethodId; });
+  }
   // A MONTHLY budget's drill-down: the entries it actually counts, so the list
   // adds up to the budget's own "spent" figure (Annual-tagged ones don't count
   // against a monthly budget — see excludeAnnual in Budgets.gs).
@@ -810,6 +818,11 @@ function listEntries(payload) {
     });
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
+  if (payload && payload.noTag) {
+    var taggedEntryIds = {};
+    getAllRows('Entry Tags').forEach(function (et) { taggedEntryIds[et.entry_id] = true; });
+    entries = entries.filter(function (e) { return !taggedEntryIds[e.id]; });
+  }
 
   // Entries-tab search bar: every typed word must appear somewhere in the
   // entry's searchable text (see filterEntriesBySearch_).
@@ -823,7 +836,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.tripId || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
