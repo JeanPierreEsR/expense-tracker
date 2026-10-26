@@ -3051,19 +3051,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-chip.info { background: #efeff2; color: var(--muted); }
 #stmt-inbox-body { margin-top: 8px; }
 
-/* Overview: while any piece is still loading, a bar under the period picker and the cards dimmed (after a short delay, so quick loads do not flash). */
-.overview-loading-bar {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 0 10px;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-.overview-loading .overview-loading-bar { display: flex; animation: ov-appear 0.2s 0.2s both; }
-#screen-overview > .card:not(#period-selector-card) { transition: opacity 0.2s; }
-.overview-loading > .card:not(#period-selector-card) { opacity: 0.45; pointer-events: none; transition-delay: 0.2s; }
+/* Overview loading: a small spinner in the period picker's corner (no layout shift, after a short delay so quick loads
+   show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
+#period-selector-card { position: relative; }
+.period-spin { display: none; position: absolute; top: 10px; right: 12px; }
+.overview-loading .period-spin { display: block; animation: ov-appear 0.2s 0.3s both; }
+#screen-overview > .card { transition: opacity 0.2s; }
+.overview-stale > .card.ov-period { opacity: 0.45; pointer-events: none; }
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
