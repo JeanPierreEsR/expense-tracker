@@ -1030,6 +1030,10 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
+     whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Dragging up from the drill-down's header (see setupDrilldownExpand in
@@ -2169,13 +2173,13 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-lines summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
 .stmt-line {
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 80px 1fr auto;   /* wide enough for a date with its year, like Mar 10, 2025 */
   gap: 8px;
   font-size: 0.78rem;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
 }
-.stmt-line-date { color: var(--muted); }
+.stmt-line-date { color: var(--muted); white-space: nowrap; }
 .stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stmt-line-amt.in { color: var(--income); }
 
@@ -2193,7 +2197,7 @@ body.income-revealed .sens-mask { display: none; }
 }
 .stmt-line2 { padding: 4px 0; border-bottom: 1px solid var(--border); }
 .stmt-line2 .stmt-line { border-bottom: none; padding-bottom: 0; }
-.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 60px; word-break: break-word; }
+.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 88px; word-break: break-word; }
 .stmt-pair-title { font-size: 0.85rem; font-weight: 600; padding-top: 4px; }
 .stmt-pair-title + .stmt-line-sub { padding-left: 0; }
 #statement-review-btn { margin-top: 8px; }
@@ -2729,9 +2733,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .fab {
   position: fixed;
   right: 16px;
-  /* 14px above the bottom bar. Before the app measures the bar (syncFab_ sets --nav-h), the
-     estimate is the bar's usual 67px plus the iPhone's bottom safe area, so it is right on first open. */
-  bottom: calc(var(--nav-h, calc(67px + env(safe-area-inset-bottom, 0px))) + 14px);
+  /* 14px above the bottom bar = the bar's height (syncFab_ sets --nav-h; 67px until measured)
+     + the iPhone's bottom safe area, added here so it follows the phone live. */
+  bottom: calc(var(--nav-h, 67px) + env(safe-area-inset-bottom, 0px) + 14px);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -2914,3 +2918,16 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 /* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
+
+.stmt-find-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.stmt-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark and sizing. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  padding: 0;
+}

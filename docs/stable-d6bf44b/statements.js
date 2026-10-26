@@ -79,7 +79,17 @@
   }
 
   function showStatementsScreen(mode) {
-    setScreenMode(mode === "import" ? "import" : "bank");
+    const next = mode === "import" ? "import" : "bank";
+    if (next !== screenMode) {
+      // A bank statement and another app's file never travel in the same upload: leaving one side clears what was read on it.
+      $("statement-results").innerHTML = "";
+      $("statement-history").innerHTML = "";
+      $("statement-review-status").innerHTML = "";
+      usable = [];
+      historyPlan = null;
+      addedAccounts = [];
+    }
+    setScreenMode(next);
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -212,12 +222,12 @@
     });
     // Known banks first: those are the ones the app can read for sure.
     groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p>` + groups.map((g) => {
-      const rows = g.items.map((f) => `<label class="stmt-find-row" style="display:flex;gap:8px;align-items:flex-start;padding:4px 0">
-        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" ${g.known && f.status !== "processed" ? "checked" : ""}>
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-all"></button></div>` + groups.map((g, gi) => {
+      const rows = g.items.map((f) => `<label class="stmt-find-row">
+        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" data-g="${gi}" checked>
         <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
       return `<div class="stmt-row"><div class="stmt-row-main">
-        <div class="stmt-row-title">${escapeHtml(g.name)}</div>
+        <div class="stmt-row-title">${escapeHtml(g.name)} <button type="button" class="add-inline stmt-find-group" data-g="${gi}"></button></div>
         <div class="stmt-row-sub">${escapeHtml(g.sender)} · ${escapeHtml(tr(g.known ? "find.known" : "find.unknown"))}</div>${rows}</div></div>`;
     }).join("") + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-read"></button></div>`;
     updateFindReadButton();
@@ -231,6 +241,12 @@
     const btn = $("statement-find-read");
     if (!btn || btn.dataset.busy) return;
     const n = pickedFound().length;
+    const tg = $("statement-find-all");
+    document.querySelectorAll(".stmt-find-group").forEach((b) => {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${b.dataset.g}"]`);
+      b.textContent = tr(Array.from(boxes).every((x) => x.checked) ? "find.deselectAll" : "find.selectAll");
+    });
+    if (tg) tg.textContent = tr(n === found.length ? "find.deselectAll" : "find.selectAll");
     btn.textContent = n ? tr("find.read", { n }) : tr("find.readNone");
     btn.disabled = !n;
   }
@@ -262,7 +278,19 @@
   $("statement-find-toggle").addEventListener("click", openFindCard);
   $("statement-coverage-list").addEventListener("click", (e) => { if (e.target.closest(".stmt-older-link")) openFindCard(); });
   $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
-  $("statement-find-results").addEventListener("click", (e) => { if (e.target.id === "statement-find-read") readPickedFound(); });
+  $("statement-find-results").addEventListener("click", (e) => {
+    if (e.target.id === "statement-find-read") readPickedFound();
+    if (e.target.classList.contains("stmt-find-group")) {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${e.target.dataset.g}"]`), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
+    if (e.target.id === "statement-find-all") {
+      const boxes = document.querySelectorAll(".stmt-find-pick"), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
+  });
 
   // ---- gaps (notes saved when a balance is set from a statement) ----
 
@@ -548,7 +576,7 @@
     const SHOW_LINES = 200;
     const allLines = result.lines || [];
     const lines = allLines.slice(0, SHOW_LINES).map((l) =>
-      `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
+      `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
     ).join("") + (allLines.length > SHOW_LINES ? `<p class="hint">${escapeHtml(tr("table.moreLines", { n: allLines.length - SHOW_LINES }))}</p>` : "");
 
     body.innerHTML = `${title ? `<div class="stmt-result-name">${escapeHtml(title)}</div>` : ""}${verdict}${notes}
@@ -651,7 +679,7 @@
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
+    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -830,6 +858,8 @@
           const mine = state.catSaved["~name:" + it.key];                   // …or typed a name of their own, which the category may already have
           const alreadyMine = !!(info && mine && info.names.indexOf(StatementTable.catNorm(mine)) !== -1);
           state.catNames[it.key] = (keepApp || alreadyMine) && info ? info.name : defaultNameFor(it, state.catChoice[it.key]);
+          const custom = state.catSaved["~custom:" + it.key];                // a new category the person named themselves last time
+          if (state.catChoice[it.key] === "create" && custom) { state.catCustom[it.key] = true; state.catNames[it.key] = custom; }
         }
       });
       renderCategories();
@@ -860,6 +890,14 @@
       return tr(renamed ? "table.catSummaryRenamed" : "table.catSummary", { used, renamed, created, left }) + (skipped ? " · " + tr("table.catSummarySkipped", { n: skipped }) : "");
     }
     // What the row will do, said from the file's side: the file's category is the subject, the person's existing one is what it joins.
+    // What the "Goes into" list shows for a row: a category as it is, the same category renamed to the file's name ("ren:<id>"), a new category
+    // with the file's name ("create") or one the person names ("custom"), none, or leave the lines out.
+    function selectValue(it) {
+      const c = state.catChoice[it.key];
+      if (c === "create") return state.catCustom[it.key] ? "custom" : "create";
+      if (c === "" || c === "skip") return c;
+      return renameOf(it) ? "ren:" + c : c;
+    }
     function rowHint(it) {
       const c = state.catChoice[it.key];
       if (c === "skip") return tr("table.catSkipHint", { n: it.count });
@@ -878,22 +916,27 @@
       if (!state.catItems.length) { box.innerHTML = ""; return; }
       const rowHtml = (it) => {
         const cur = state.catChoice[it.key];
+        const selVal = selectValue(it);
+        const norm = StatementTable.catNorm(it.name);
         const opts = myCategories(it.type).map((c) => {
-          const n = (catInfo(c.id) || {}).entries;
-          return `<option value="${escapeHtml(c.id)}"${c.id === cur ? " selected" : ""}>${escapeHtml(c.name + (n ? ` · ${tr("categories.entryCount", { n })}` : ""))}</option>`;
+          const info = catInfo(c.id) || {};
+          const n = info.entries ? ` · ${tr("categories.entryCount", { n: info.entries })}` : "";
+          // The suggested category (or the one a remembered choice renames) is offered twice: renamed to the file's name, and as it is.
+          const renamable = (c.id === it.categoryId || selVal === "ren:" + c.id) && !info.protected && info.names && info.names.indexOf(norm) === -1;
+          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: c.name, to: shownName(it.name, it.type) }) + n)}</option>` : "") +
+            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(c.name + n)}</option>`;
         }).join("");
-        const info = catInfo(cur);
-        const named = cur !== "" && cur !== "skip";
-        const nameInput = named ? `<label>${escapeHtml(tr("table.catCalled"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}"${info && info.protected ? " disabled" : ""}>` : "";
+        const nameInput = selVal === "custom" ? `<label>${escapeHtml(tr("table.catCustomLabel"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}">` : "";
         const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
         return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}" style="margin-bottom:14px">
           <div><span class="hint" style="margin-right:6px">${escapeHtml(tr("table.catFromFile"))}</span><strong>${escapeHtml(shownName(it.name, it.type))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: it.count }))}</span></div>
           ${note}
           <label>${escapeHtml(tr("table.catGoesIntoLabel"))}</label>
           <select class="tm-cchoice"><optgroup label="${escapeHtml(tr("table.catYours"))}">${opts}</optgroup>
-            <option value="create"${cur === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
-            <option value=""${cur === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
-            <option value="skip"${cur === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
+            <option value="create"${selVal === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
+            <option value="custom"${selVal === "custom" ? " selected" : ""}>${escapeHtml(tr("table.catCustom"))}</option>
+            <option value=""${selVal === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
+            <option value="skip"${selVal === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
           ${nameInput}
           <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p></div>`;
       };
@@ -920,6 +963,7 @@
     const withoutSkips = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip"));
     function renameFlags() {
       const out = {};
+      state.catItems.forEach((it) => { if (state.catChoice[it.key] === "create") out["~custom:" + it.key] = state.catCustom[it.key] ? String(state.catNames[it.key] || "").trim() : ""; });
       state.catItems.forEach((it) => {
         const c = state.catChoice[it.key], info = catInfo(c);
         if (c && c !== "create" && info && !info.protected && info.names.indexOf(StatementTable.catNorm(it.name)) === -1) {
@@ -965,7 +1009,7 @@
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
-        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
     }
     function applyAccountGuess() {
       // A card's purchases are usually positive: re-guess the sign for the chosen account, but only for a layout nobody has confirmed.
@@ -989,9 +1033,14 @@
       else if (cls === "type") state.m.type = Number(v);
       else if (cls === "cchoice") {
         const row = e.target.closest(".tm-cat-row"), it = state.catItems.find((x) => x.key === row.dataset.key);
-        state.catChoice[it.key] = v;
-        state.catNames[it.key] = defaultNameFor(it, v);   // a new target starts from the file's name again
+        state.catCustom[it.key] = false;
+        if (v === "custom") { state.catChoice[it.key] = "create"; state.catCustom[it.key] = true; if (!state.catNames[it.key]) state.catNames[it.key] = it.name; }
+        else if (v === "create") { state.catChoice[it.key] = "create"; state.catNames[it.key] = it.name; }
+        else if (v === "" || v === "skip") { state.catChoice[it.key] = v; state.catNames[it.key] = ""; }
+        else if (v.indexOf("ren:") === 0) { state.catChoice[it.key] = v.slice(4); state.catNames[it.key] = it.name; }   // the category takes the file's name
+        else { state.catChoice[it.key] = v; state.catNames[it.key] = (catInfo(v) || {}).name || it.name; }                // an existing category keeps its own
         renderCategories();
+        if (v === "custom") { const box = root.querySelector(`.tm-cat-row[data-key="${CSS.escape(it.key)}"] .tm-cname`); if (box) { box.focus(); box.select(); } }
         renderPreview();   // lines of a category left out change the totals
         return;
       }
@@ -1105,6 +1154,7 @@
       key: accountKeyOf(result),
       kind: result.kind,
       source: result.source || "",   // "app" = an app's export: no bank-wording rules on the server
+      bank: result.bank || "", accountLast4: (result.account && result.account.last4) || "",   // an account the app does not have yet is proposed from these (never a full number)
       holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
@@ -1122,7 +1172,7 @@
     const out = $("statement-history");
     btn.disabled = true;
     $("statement-review-status").innerHTML = "";   // an old "Saved" / "Undone" message is not about this run
-    out.innerHTML = loadingHtml(tr("hist.planning"));
+    out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
@@ -1240,7 +1290,7 @@
 
   function pairTitle(out, inn) { return `${fmtMoney(out.currency, Math.abs(out.amount))} → ${fmtMoney(inn.currency, inn.amount)}`; }
   function pairSub(out, inn) {
-    return `${escapeHtml(fmtDate(out.date))} “${escapeHtml(out.description)}” · ${escapeHtml(out.account)} / ${escapeHtml(fmtDate(inn.date))} “${escapeHtml(inn.description)}” · ${escapeHtml(inn.account)}`;
+    return `${escapeHtml(fmtDate(out.date, true))} “${escapeHtml(out.description)}” · ${escapeHtml(out.account)} / ${escapeHtml(fmtDate(inn.date, true))} “${escapeHtml(inn.description)}” · ${escapeHtml(inn.account)}`;
   }
   function candidateAt(ref) { return historyPlan.summary.candidates.find((c) => c.stmt === ref.stmt && c.line === ref.line); }
 
@@ -1276,7 +1326,7 @@
       shown = items.slice(0, 60);
       $("statement-exchange-title").textContent = tr(step === 1 ? "hist.xch.pickOut" : "hist.xch.pickIn");
       list.innerHTML = shown.length
-        ? shown.map((c, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${escapeHtml(fmtDate(c.date))} · ${escapeHtml(c.description)} · ${escapeHtml(fmtMoney(c.currency, c.amount))} · ${escapeHtml(c.account)}</button>`).join("")
+        ? shown.map((c, i) => `<button type="button" class="stmt-match-row" data-i="${i}">${escapeHtml(fmtDate(c.date, true))} · ${escapeHtml(c.description)} · ${escapeHtml(fmtMoney(c.currency, c.amount))} · ${escapeHtml(c.account)}</button>`).join("")
         : `<p class="hint">${escapeHtml(tr("hist.xch.none"))}</p>`;
     };
     list.onclick = (ev) => {
@@ -1327,7 +1377,7 @@
       const inflow = a.amount > 0;
       const cashLabel = tr(inflow ? "hist.aside.addIncome" : "hist.aside.addExpense");
       const invLabel = tr(inflow ? "hist.aside.addWithdrawal" : "hist.aside.addInvestment");
-      const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
+      const maybe = a.maybe ? `<div class="stmt-line-sub" style="padding-left:0">${escapeHtml(tr("hist.aside.maybe", { entry: `${fmtDate(a.maybe.date, true)} · ${a.maybe.description || ""} · ${fmtMoney(a.maybe.currency, a.maybe.amount)}${a.maybe.account ? " · " + a.maybe.account : ""}` }))}</div>` : "";
       const buttonsFor = (m, mi) => (m.optIn ? modeButton(`data-aside="${mi}" data-mode="cash"`, chosen.get(mi) === "cash", cashLabel) : "")
         + modeButton(`data-aside="${mi}" data-mode="transfer"`, chosen.get(mi) === "transfer", tr("hist.aside.addTransfer"))
         + (m.optInInvestment ? modeButton(`data-aside="${mi}" data-mode="investment"`, chosen.get(mi) === "investment", invLabel) : "")
@@ -1484,6 +1534,46 @@
       <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i)).join("")}</details>`;
   }
 
+  // ---- accounts the statements name that the app does not have yet (backend/StatementAccounts.gs) ----
+  // The plan proposes them with defaults; one tap adds them and reads the statements again. They can be changed afterwards in
+  // More → Accounts, cards & platforms, which is where the "added" note points.
+  let addedAccounts = [];   // accounts added from the statements on this screen: [{ id, nickname }]
+
+  function newAccountsHtml(proposals) {
+    if (!proposals.length) return "";
+    const items = proposals.map((a) => `<li><strong>${escapeHtml(a.nickname)}</strong> · ${escapeHtml(tr(a.type === "credit" ? "acct.typeCredit" : "acct.typeDebit"))} · ${escapeHtml(a.bank)} · …${escapeHtml(a.last4)}</li>`).join("");
+    return `<div class="stmt-new-accounts" style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+      <p class="stmt-verdict warn" style="margin-top:0">${escapeHtml(tr("acct.newTitle", { n: proposals.length }))}</p>
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${items}</ul>
+      <p class="hint">${escapeHtml(tr("acct.newHint", { n: proposals.length }))}</p>
+      <button type="button" class="primary" id="statement-add-accounts">${escapeHtml(tr("acct.addBtn", { n: proposals.length }))}</button></div>`;
+  }
+
+  function addedAccountsHtml() {
+    if (!addedAccounts.length) return "";
+    return `<div class="stmt-note ok" style="margin-bottom:12px"><p style="margin:0 0 6px">${escapeHtml(tr("acct.added", { n: addedAccounts.length, names: addedAccounts.map((a) => a.nickname).join(", ") }))}</p>
+      <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint"))}</p>
+      <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review"))}</button></div>`;
+  }
+
+  async function addProposedAccounts() {
+    const btn = $("statement-add-accounts");
+    if (!btn || !historyPlan) return;
+    const proposals = (historyPlan.summary && historyPlan.summary.newAccounts) || [];
+    btn.disabled = true;
+    btn.textContent = tr("acct.adding");
+    try {
+      const res = await callApi("createStatementAccounts", { accounts: proposals.map((a) => ({ last4: a.last4, bank: a.bank, kind: a.kind })) });
+      addedAccounts = addedAccounts.concat(res.created || []);
+      if (typeof loadMeta === "function") await loadMeta();   // the new accounts are known to the rest of the app from now on
+      await runHistoryPlan();                                   // the statements are read again, now with their account
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = tr("acct.addBtn", { n: proposals.length });
+      alert(err.message || String(err));
+    }
+  }
+
   function renderHistoryPlan() {
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
@@ -1502,25 +1592,29 @@
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
+    const proposals = summary.newAccounts || [];
+    const proposedKeys = new Set(proposals.map((p) => p.key));
+    const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
     const notes = [];
     if (c.reviewTotal) notes.push(tr("hist.sum.pendingTotal", { n: c.reviewTotal }));
     if (left.waiting) notes.push(tr("hist.left.waiting", { n: left.waiting }));
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
-    if (left.noAccount) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: summary.unknownAccounts.join(", ") }));
+    if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
+    const pre = newAccountsHtml(proposals) + addedAccountsHtml();
     const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "") + balancesHtml();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(historyPlan.checks || []).length) {
-      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${noteHtml}`;
+      out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
     if (!c.entries) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
-      out.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
+      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
-    out.innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
@@ -1573,10 +1667,11 @@
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
-        ${outcome}${rateNeedsHtml(res.rateNeeds)}
+        ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
+      addedAccounts = [];
       $("statement-history").innerHTML = "";
       coverage = null;
       refreshStatementCoverage();
@@ -1592,7 +1687,7 @@
 
   function lineRow(l, sub) {
     return `<div class="stmt-line2">
-      <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
+      <div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>
       ${sub ? `<div class="stmt-line-sub">${sub}</div>` : ""}
     </div>`;
   }
@@ -1653,7 +1748,7 @@
       list.forEach((e) => { by[e.currency] = (by[e.currency] || 0) + Math.abs(Number(e.amount)); });
       return Object.keys(by).sort().map((cur) => fmtMoney(cur, Math.round(by[cur] * 100) / 100)).join(" + ");
     };
-    const stmts = details.statements.map((s) => `<div class="stmt-row-sub">${escapeHtml(tr("added.statementLine", { label: s.label, from: fmtDate(s.period_start), to: fmtDate(s.period_end, true), n: s.lines_total }))}</div>`).join("");
+    const stmts = details.statements.map((s) => `<div class="stmt-row-sub">${escapeHtml(tr("added.statementLine", { label: s.label, from: fmtDate(s.period_start, true), to: fmtDate(s.period_end, true), n: s.lines_total }))}</div>`).join("");
     const summary = entries.length
       ? `<p class="stmt-verdict good">${escapeHtml(tr("added.total", { n: entries.length }))}</p>`
       : `<p class="stmt-verdict warn">${escapeHtml(tr("added.none"))}</p>`;
@@ -1737,14 +1832,15 @@
   async function refreshStatementBatches() {
     const box = $("statement-batches");
     try {
-      const batches = await callApi("listStatementBatches", { limit: batchesShown });
+      const batches = await callApi("listStatementBatches", { limit: batchesShown, kind: screenMode === "import" ? "import" : "statement" });
       const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
         ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
       box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(fmtDate(b.processed_at, true))}</div>
         <div class="stmt-row-sub">${escapeHtml(b.statements.join(", "))}</div>
         <div class="stmt-row-sub">${escapeHtml(tr("stmt.batchCounts", { n: b.entriesCreated, c: b.entriesChanged }))}</div><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr("added.button"))}</button></div><div class="stmt-undo-progress"></div></div>
-        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button></div>`).join("") : `<p class="hint">${escapeHtml(tr("stmt.noUploads"))}</p>`) + more;
+        <button type="button" class="cancel-edit-btn stmt-undo-row" data-batch="${escapeHtml(b.batchId)}" style="width:auto;padding:6px 12px;">${escapeHtml(tr("stmt.undo"))}</button>
+        ${b.spreadsheet ? `<div><button type="button" class="add-inline stmt-move-row" data-batch="${escapeHtml(b.batchId)}">${escapeHtml(tr(screenMode === "import" ? "imp.moveToStatements" : "imp.moveToImport"))}</button></div>` : ""}</div>`).join("") : `<p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.noRecent" : "stmt.noUploads"))}</p>`) + more;
     } catch (err) {
       box.innerHTML = `<p class="hint">Couldn't load: ${escapeHtml(err.message)}</p>`;
     }
@@ -1755,7 +1851,15 @@
 
   // ---- wiring ----
 
-  $("statement-batches").addEventListener("click", (e) => {
+  $("statement-batches").addEventListener("click", async (e) => {
+    const mv = e.target.closest(".stmt-move-row");
+    if (mv) {   // a spreadsheet upload filed on the wrong side: move it to the other list (the entries it made are not touched)
+      mv.disabled = true;
+      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { alert(err.message || String(err)); }
+      refreshStatementBatches();
+      refreshStatementCoverage();
+      return;
+    }
     if (!e.target.closest("#statement-batches-more")) return;
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();
@@ -1773,6 +1877,8 @@
   $("statement-history-btn").addEventListener("click", runHistoryPlan);
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
+    if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
+    if (e.target.closest("#statement-open-accounts")) { $("more-accounts-btn").click(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
     const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]"), pinc = e.target.closest("[data-pinc]");
@@ -1863,7 +1969,10 @@
     const b = e.target.closest(".stmt-gap-toggle");
     if (b) toggleGap(b.dataset.id, !!b.dataset.open, b);
   });
-  $("statement-review-status").addEventListener("click", (e) => { if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId); });
+  $("statement-review-status").addEventListener("click", (e) => {
+    if (e.target.id === "stmt-undo-btn" && lastBatchId) undoBatch(lastBatchId);
+    if (e.target.closest("#statement-open-accounts")) $("more-accounts-btn").click();
+  });
   $("statement-added-close").addEventListener("click", closeAdded);
   // "Go to Needs review": the card at the top of the Entries tab, where pending entries are finished.
   document.addEventListener("click", (e) => {

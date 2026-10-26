@@ -1286,6 +1286,8 @@ body.sheet-open {
   margin-top: 2px;
 }
 
+.entry.entry-deleting { opacity: 0.5; pointer-events: none; }
+
 .entry-queue-failed {
   color: var(--expense);
   font-weight: 600;
@@ -2931,3 +2933,11 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   margin: 1px 0 0;
   padding: 0;
 }
+
+/* Overview: month-by-month bars and the spending-pace graph (opened from Home's cards) */
+.months-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; align-items: flex-end; -webkit-overflow-scrolling: touch; }
+.months-scroll .home-bar-col { flex: 0 0 44px; }
+.home-card-tap { cursor: pointer; }
+.pace-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.pace-ref-label { flex: 1; text-align: center; font-weight: 600; }
+.home-line-svg.pace-big { height: 150px; touch-action: pan-y; }

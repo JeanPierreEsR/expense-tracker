@@ -2604,6 +2604,24 @@ function entryMetaHtml_(entry, headline) {
 const ENTRY_PAGE_SIZE = 100;
 let entriesShown = ENTRY_PAGE_SIZE;
 
+// Entries whose delete has been confirmed and is still being sent. Their rows
+// (Home list, drill-downs, trip screen, search) show "Deleting…" meanwhile.
+const deletingEntryIds_ = new Set();
+
+// Marks the rows already on screen for this entry, without a re-render.
+function markEntryRowsDeleting_(id) {
+  document.querySelectorAll(".entry[data-entry-id]").forEach((row) => {
+    if (row.dataset.entryId !== String(id) || row.classList.contains("entry-deleting")) return;
+    row.classList.add("entry-deleting");
+    const left = row.querySelector(".entry-left");
+    if (!left) return;
+    const note = document.createElement("div");
+    note.className = "entry-queue-status";
+    note.textContent = tr("entry.deleting");
+    left.appendChild(note);
+  });
+}
+
 function buildEntryRow_(entry) {
   const row = document.createElement("div");
   row.className = "entry";
@@ -2614,11 +2632,15 @@ function buildEntryRow_(entry) {
   // still saving in the background, or failed and is waiting to be
   // retried. Shown right under the description so it's never mistaken
   // for an already-landed change.
-  const statusLine = entry._queueStatus === "saving"
+  const statusLine = deletingEntryIds_.has(entry.id)
+    ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>`
+    : entry._queueStatus === "saving"
     ? `<div class="entry-queue-status">${tr("entry.saving")}</div>`
     : entry._queueStatus === "failed"
       ? `<div class="entry-queue-status entry-queue-failed">${tr("entry.saveFailedRetry")}</div>`
       : "";
+  row.dataset.entryId = entry.id;
+  if (deletingEntryIds_.has(entry.id)) row.classList.add("entry-deleting");
 
   const left = document.createElement("div");
   left.className = "entry-left";
@@ -3324,7 +3346,8 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 
 // Asks, then deletes one entry. Shared by the edit form's "Delete this entry" and the 🗑️ on each row of a
 // drill-down / trip list. Returns true only when the entry was really deleted.
-async function confirmAndDiscardEntry_(id, originalType, summary) {
+// onConfirmed runs right after the owner says OK, before the (slow) delete call.
+async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
   if (["transfer", "expense", "income"].includes(originalType)) {
@@ -3343,6 +3366,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary) {
     }
   }
   if (!confirm(confirmText)) return false;
+  if (onConfirmed) onConfirmed();
   await callApi("discardEntry", { id });
   refreshLoans().catch(() => {});
   return true;
@@ -3350,16 +3374,36 @@ async function confirmAndDiscardEntry_(id, originalType, summary) {
 
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
-  if (!(await confirmAndDiscardEntry_(editingEntryId, editingEntryOriginalType, editingEntrySummary_))) return;
-  exitEditMode();
-  await refreshEntryList();
-  refreshExpectedRecurring();
-  if (editingViaPopup) {
-    resetEntryFormFields_();
+  const id = editingEntryId;
+  const wasPopup = editingViaPopup;
+  let ok;
+  try {
+    ok = await confirmAndDiscardEntry_(id, editingEntryOriginalType, editingEntrySummary_, () => {
+      // Close the form at once; the row shows "Deleting…" until the server is done.
+      deletingEntryIds_.add(id);
+      exitEditMode();
+      if (wasPopup) {
+        resetEntryFormFields_();
+        closeEditPopup();
+      } else {
+        resetToFreshEntryScreen_();
+      }
+      markEntryRowsDeleting_(id);
+    });
+  } catch (err) {
+    // The delete failed after the form closed: the entry is still there.
+    deletingEntryIds_.delete(id);
+    renderEntryListFromCache_();
     await refreshAfterPopupEdit();
-  } else {
-    resetToFreshEntryScreen_();
+    alert(err.message);
+    return;
   }
+  if (!ok) return;
+  await refreshEntryList();   // the entry is gone from the server by now
+  deletingEntryIds_.delete(id);
+  renderEntryListFromCache_();
+  refreshExpectedRecurring();
+  if (wasPopup) await refreshAfterPopupEdit();
 });
 
 // ---- Editing as a pop-up (from an Overview drill-down) ----
@@ -4415,7 +4459,9 @@ function homeMainCard_(g) {
     ${delta}
     ${four}
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span></div>`);
+    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+  el.classList.add("home-card-tap");
+  el.addEventListener("click", (ev) => { if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card"); });
   el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
     homeSelectedMonth_ = b.dataset.month;
     renderHomeGlance_();
@@ -4435,8 +4481,8 @@ function homePaceCard_(g) {
   const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
   const last = p.cur.length - 1;
   const [dx, dy] = last >= 0 ? pt(last, p.cur[last]).split(",") : [0, 0];
-  return homeCardEl_("home-card-pace", `
-    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))}</div>
+  const paceEl = homeCardEl_("home-card-pace home-card-tap", `
+    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))} ›</div>
     <svg class="home-line-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       <polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(p.prev)}"/>
       <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(p.cur)}"/>
@@ -4446,6 +4492,8 @@ function homePaceCard_(g) {
       <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
       <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
     </div>`);
+  paceEl.addEventListener("click", () => openOverviewAt_("pace-card"));
+  return paceEl;
 }
 
 function homeBudgetCard_(g) {
@@ -4460,12 +4508,14 @@ function homeBudgetCard_(g) {
     tr("home.budgetDays", { n: daysLeft })
   ];
   if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
-  return homeCardEl_("home-card-budget", `
-    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))}</div>
+  const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
+    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
     <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
     <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
     <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
     <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
+  budgetEl.addEventListener("click", () => showScreen("budgets"));
+  return budgetEl;
 }
 
 function homeTripCard_(t) {
@@ -4548,13 +4598,8 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
+    refreshMonthsHistory_();
     refreshBalances().catch(() => {});
-    // Investments card: hidden for now (2026-09-27) — the owner doesn't
-    // want a per-platform balance shown yet, only the flows in/out. The
-    // card, its API, and Investments.gs are left in place; this is the
-    // one line keeping it off Overview. See CLAUDE.md § Investment
-    // platforms.
-    // refreshInvestments().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -4816,6 +4861,140 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
   }, { passive: true });
 });
 
+// ---- Overview: month by month + spending pace (opened from Home's cards) ----
+// One request (getMonthlyHistory) feeds both cards: every month's totals as scrollable bars, and the
+// running expenses by day so the pace graph can put any earlier month next to this one as a reference.
+
+let monthsHist_ = null;
+let monthsHistAt_ = 0;
+let monthsHistBusy_ = null;
+let paceRefMonth_ = null;        // 'yyyy-mm' of the reference line; null = last month
+let overviewScrollTo_ = null;    // card id to bring into view once the history has painted
+
+function refreshMonthsHistory_() {
+  if (monthsHistBusy_) return monthsHistBusy_;
+  if (monthsHist_ && Date.now() - monthsHistAt_ < HOME_GLANCE_FRESH_MS) {
+    renderMonthsHistory_();
+    return Promise.resolve();
+  }
+  monthsHistBusy_ = callApi("getMonthlyHistory", {})
+    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); })
+    .catch(() => { /* a bonus: the rest of Overview works without it */ })
+    .finally(() => { monthsHistBusy_ = null; });
+  return monthsHistBusy_;
+}
+
+function renderMonthsHistory_() {
+  if (!monthsHist_) return;
+  renderMonthsBars_();
+  renderPaceBig_();
+  if (overviewScrollTo_) {
+    const el = document.getElementById(overviewScrollTo_);
+    overviewScrollTo_ = null;
+    if (el && !el.hidden) el.scrollIntoView({ block: "start", behavior: "auto" });
+  }
+}
+
+function renderMonthsBars_() {
+  const card = document.getElementById("months-card");
+  const months = monthsHist_.months;
+  card.hidden = months.length < 1;
+  if (card.hidden) return;
+  const box = document.getElementById("months-scroll");
+  const keep = box.scrollLeft;
+  const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
+  const h = (v) => Math.max(2, Math.round((v / top) * 84));
+  const shown = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
+  box.innerHTML = months.map((x) => {
+    const [y, mo] = x.month.split("-").map(Number);
+    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}">
+      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
+  }).join("");
+  box.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
+    const [y, mo] = b.dataset.month.split("-").map(Number);
+    periodType = "month";
+    renderPeriodSelector();
+    choosePeriodAnchor_(new Date(y, mo - 1, 1));   // the summary below follows; the bars re-mark themselves
+    renderMonthsBars_();
+  }));
+  box.scrollLeft = keep || box.scrollWidth;   // first paint lands on the newest months
+}
+
+function paceRefList_() {
+  return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
+}
+
+function paceStep_(dir) {
+  const list = paceRefList_();
+  if (!list.length) return;
+  let i = list.findIndex((m) => m.month === paceRefMonth_);
+  if (i < 0) i = list.length - 1;
+  paceRefMonth_ = list[Math.max(0, Math.min(list.length - 1, i + dir))].month;
+  renderPaceBig_();
+}
+
+function renderPaceBig_() {
+  const card = document.getElementById("pace-card");
+  const months = monthsHist_.months;
+  const cur = months[months.length - 1];
+  const list = paceRefList_();
+  const ref = list.length ? (list.find((m) => m.month === paceRefMonth_) || list[list.length - 1]) : null;
+  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
+  card.hidden = !nowTotal && !(ref && ref.expense > 0);
+  if (card.hidden) return;
+  const refIdx = ref ? list.indexOf(ref) : -1;
+  document.getElementById("pace-older").disabled = !ref || refIdx <= 0;
+  document.getElementById("pace-newer").disabled = !ref || refIdx >= list.length - 1;
+  const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
+  const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
+  document.getElementById("pace-ref-label").textContent = refName;
+
+  const W = 300, H = 150, pad = 6;
+  const days = Math.max(cur.days, ref ? ref.days : 0);
+  const top = Math.max(1, nowTotal, ref ? ref.cum[ref.cum.length - 1] || 0 : 0);
+  const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
+  const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
+  const last = cur.cum.length - 1;
+  const [dx, dy] = last >= 0 ? pt(last, cur.cum[last]).split(",") : [0, 0];
+  document.getElementById("pace-svg").innerHTML = `
+    ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
+    <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
+    ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
+
+  const curDay = monthsHist_.curDay;
+  const sameDay = ref ? ref.cum[Math.min(curDay, ref.cum.length) - 1] || 0 : 0;
+  document.getElementById("pace-lines").innerHTML = `
+    <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
+    ${ref ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint">${escapeHtml(tr("pace.refWhole"))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
+}
+
+(function wirePaceBig_() {
+  document.getElementById("pace-older").addEventListener("click", () => paceStep_(-1));
+  document.getElementById("pace-newer").addEventListener("click", () => paceStep_(1));
+  // Swiping right (scrolling back in time) goes to an earlier month. Stopped here so the Overview's
+  // own month-to-month swipe doesn't also fire.
+  const svg = document.getElementById("pace-svg");
+  const scroller = document.getElementById("months-scroll");
+  let x0 = 0, y0 = 0;
+  svg.addEventListener("touchstart", (e) => { e.stopPropagation(); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  svg.addEventListener("touchend", (e) => {
+    e.stopPropagation();
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) paceStep_(dx > 0 ? -1 : 1);
+  }, { passive: true });
+  scroller.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+  scroller.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+})();
+
+// Home's cards land here: open Overview and bring the matching card into view.
+function openOverviewAt_(cardId) {
+  overviewScrollTo_ = cardId;
+  showScreen("overview");
+}
+
 // ---- Overview: expense/income toggle ----
 
 let overviewType = "expense";
@@ -4867,6 +5046,62 @@ async function refreshOverview() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  renderInvestmentsPeriod_(data.investmentsByPlatform || []);
+  loadOverviewEntries_(bounds);
+}
+
+// The list at the end of Overview: every entry of the selected period (all
+// types), newest first, shown 50 at a time.
+const OVERVIEW_ENTRIES_PAGE = 50;
+let overviewEntriesToken_ = 0;
+async function loadOverviewEntries_(bounds) {
+  const list = document.getElementById("overview-entries-list");
+  const token = ++overviewEntriesToken_;
+  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  try {
+    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
+    if (token !== overviewEntriesToken_) return;
+    let shown = 0;
+    const draw = () => {
+      shown = Math.min(entries.length, shown + OVERVIEW_ENTRIES_PAGE);
+      renderEntriesInto_(list, entries.slice(0, shown), "overview.empty");
+      if (shown < entries.length) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "cancel-edit-btn";
+        btn.textContent = tr("common.loadMore");
+        btn.addEventListener("click", draw);
+        list.appendChild(btn);
+      }
+    };
+    draw();
+  } catch (err) {
+    if (token !== overviewEntriesToken_) return;
+    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+  }
+}
+
+// Investments card: FLOWS only — net put into each platform during the selected
+// period (deposits minus withdrawals, owner's PEN value). Never a balance or a
+// % (specs/accounts.md § Investments are flows only). Tap a row for its entries.
+function renderInvestmentsPeriod_(items) {
+  const list = document.getElementById("investments-period-list");
+  document.getElementById("investments-card").hidden = items.length === 0;
+  list.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "legend-row";
+    row.innerHTML = `
+      <div class="legend-text">
+        <div class="legend-name">${escapeHtml(item.name)}</div>
+        <div class="legend-sub">
+          <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
+        </div>
+      </div>
+    `;
+    row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
+    list.appendChild(row);
+  });
 }
 
 function renderBreakdowns(breakdown) {
@@ -4924,6 +5159,15 @@ function renderPie(key, items) {
   const wrapEl = document.getElementById(`pie-wrap-${key}`);
   const pieEl = document.getElementById(`pie-${key}`);
   const listEl = document.getElementById(`list-${key}`);
+
+  // A breakdown with no pie (tags: a row per tag, since one entry can carry
+  // several tags and the slices would not add up to the whole).
+  if (!wrapEl) {
+    if (!items.length) { listEl.innerHTML = `<div class="status-msg">${escapeHtml(tr("overview.nothingYet"))}</div>`; return; }
+    listEl.innerHTML = "";
+    resolveDisplayColors(items).forEach((item) => appendLegendRow_(listEl, key, item));
+    return;
+  }
 
   wrapEl.querySelectorAll(".pie-outside-label").forEach((el) => el.remove());
 
@@ -4990,22 +5234,24 @@ function renderPie(key, items) {
   });
 
   listEl.innerHTML = "";
-  listItems.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "legend-row";
-    row.innerHTML = `
-      <span class="legend-swatch" style="background:${item.displayColor}"></span>
-      <div class="legend-text">
-        <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
-        <div class="legend-sub">
-          <span class="legend-amount">${formatPen(item.amount_pen)}</span>
-          <span class="legend-percent">${item.percent.toFixed(1)}%</span>
-        </div>
+  listItems.forEach((item) => appendLegendRow_(listEl, key, item));
+}
+
+function appendLegendRow_(listEl, key, item) {
+  const row = document.createElement("div");
+  row.className = "legend-row";
+  row.innerHTML = `
+    <span class="legend-swatch" style="background:${item.displayColor}"></span>
+    <div class="legend-text">
+      <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
+      <div class="legend-sub">
+        <span class="legend-amount">${formatPen(item.amount_pen)}</span>
+        <span class="legend-percent">${item.percent.toFixed(1)}%</span>
       </div>
-    `;
-    row.addEventListener("click", () => openBreakdownDrilldown(key, item));
-    listEl.appendChild(row);
-  });
+    </div>
+  `;
+  row.addEventListener("click", () => openBreakdownDrilldown(key, item));
+  listEl.appendChild(row);
 }
 
 // ---- Breakdown drill-down: transactions behind one category/tag/payment method ----
@@ -5071,13 +5317,14 @@ async function openBreakdownDrilldown(kind, item) {
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
   if (kind === "category") payload.categoryId = item.id;
-  else if (kind === "tag") payload.tagId = item.id;
-  else if (kind === "paymentMethod") payload.paymentMethodId = item.id;
+  else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
+  else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
+  else if (kind === "platform") { payload.type = "investment"; payload.toPaymentMethodId = item.id; }
 
   await openDrilldownWithPayload_(
     payload,
     `${item.icon ? item.icon + " " : ""}${item.name}`,
-    `${bounds.label} · ${TYPE_LABELS[overviewType]}`
+    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`
   );
 }
 
@@ -5393,12 +5640,14 @@ function renderEntriesInto_(list, entries, emptyKey) {
     const headline = entryHeadline_(entry);
 
     const row = document.createElement("div");
-    row.className = "entry";
+    row.className = deletingEntryIds_.has(entry.id) ? "entry entry-deleting" : "entry";
+    row.dataset.entryId = entry.id;
     row.innerHTML = `
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
         <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
+        ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
       </div>
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
@@ -6359,10 +6608,10 @@ function refreshExtrasRow_() {
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-btn").hidden = !owner;
   refreshPerfShareRow_();
-  document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
   document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
-  document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
+  // Bank emails: friends always (it holds "teach the app my bank" even when reading is off); the owner only when reading is on.
+  document.getElementById("more-bank-mail-btn").hidden = owner && !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
   checkBackendUpdate_();
   checkBankReady_();
@@ -6858,7 +7107,6 @@ bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
-bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
   if (bs_.sending) return;
   bs_.sending = true;
@@ -7823,43 +8071,58 @@ let bm_ = { onClose: null };
 // Which bank-alert tip each bank gets (the rest share the generic one: the steps differ bank by bank and are not drawn).
 const BM_TIP_KEYS_ = { Yape: "bankMail.tip.Yape", Interbank: "bankMail.tip.Interbank" };
 
-// The banks the person has an account at (Yape counts once it is linked to an account): only those get a "no email yet" warning.
+// The banks the person has an account at (Yape counts once it is linked to an account), by name. Only these are listed.
 function bmBanksInUse_() {
-  const used = new Set();
+  const names = [];
   const banks = (meta && meta.banks) || [], pms = (meta && meta.paymentMethods) || [];
-  banks.forEach((b) => { if (pms.some((pm) => pm.bank_id === b.id)) used.add(String(b.name || "").toLowerCase()); });
+  banks.forEach((b) => { if (b.name && pms.some((pm) => pm.bank_id === b.id)) names.push(String(b.name).trim()); });
   const st = (meta && meta.settings) || {};
-  if (st.yape_pen || st.yape_usd) used.add("yape");
-  return used;
+  if (st.yape_pen || st.yape_usd) names.push("Yape");
+  const seenLower = new Set();
+  return names.filter((n) => { const k = n.toLowerCase(); if (seenLower.has(k)) return false; seenLower.add(k); return true; });
 }
 
-// One tap-to-open row per bank the app can read: its name, whether an e-mail from it has arrived, and the alert steps.
+// One tap-to-open row per bank the person uses. A bank the app can read shows whether an e-mail from it has arrived and the alert steps;
+// a bank with no rule yet (friends' copies only) says so and offers to teach it. Banks the person does not use are not listed.
 function renderBankAlerts_() {
   const box = bmEl_("bm-alerts");
   box.innerHTML = "";
   const info = (meta && meta.emailInfo) || {};
   const seen = info.seen || {};
-  const used = bmBanksInUse_();
-  const inUse = (b) => used.has(b.toLowerCase());
-  (info.banks || []).slice().sort((a, b) => (inUse(b) ? 1 : 0) - (inUse(a) ? 1 : 0)).forEach((bank) => {
+  const readable = info.banks || [];
+  const canTeach = !perfIsOwnerCopy_() && !!info.banks;   // an older pinned backend sends no emailInfo: do not call every bank unreadable
+  bmBanksInUse_().forEach((used) => {
+    const bank = readable.find((b) => b.toLowerCase() === used.toLowerCase());
+    if (!bank && !canTeach) return;
     const row = document.createElement("details");
     row.className = "bm-bank";
     const sum = document.createElement("summary");
     const name = document.createElement("b");
-    name.textContent = bank;
+    name.textContent = bank || used;
     sum.appendChild(name);
-    if (inUse(bank)) {
-      const st = document.createElement("span");
+    const st = document.createElement("span");
+    if (bank) {
       const day = seen[bank];
       st.className = "bm-status " + (day ? "ok" : "wait");
       st.textContent = day ? tr("bankMail.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("bankMail.notSeen");
-      sum.appendChild(st);
+    } else {
+      st.className = "bm-status wait";
+      st.textContent = tr("bankMail.notReadable");
     }
+    sum.appendChild(st);
     row.appendChild(sum);
     const tip = document.createElement("p");
     tip.className = "hint";
-    tip.textContent = tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic");
+    tip.textContent = bank ? tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic") : tr("bankNote.text", { banks: used });
     row.appendChild(tip);
+    if (!bank) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "add-inline";
+      btn.textContent = tr("bankMail.teachBank");
+      btn.addEventListener("click", () => openBankSampleModal_());
+      row.appendChild(btn);
+    }
     box.appendChild(row);
   });
 }
@@ -7873,11 +8136,14 @@ function openBankMailModal_(opts) {
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
-  renderBankAlerts_();
+  const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
+  backdrop.querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
+  bmEl_("bm-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
+  if (reading) renderBankAlerts_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
-  if (typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
+  if (reading && typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
 }
 
 function closeBankMailModal_() {
@@ -7889,6 +8155,7 @@ function closeBankMailModal_() {
 }
 
 bmEl_("more-bank-mail-btn").addEventListener("click", () => openBankMailModal_());
+bmEl_("bm-teach-btn").addEventListener("click", () => openBankSampleModal_());
 bmEl_("bank-mail-close").addEventListener("click", closeBankMailModal_);
 bmEl_("bm-done-btn").addEventListener("click", closeBankMailModal_);
 bmEl_("bm-copy-btn").addEventListener("click", async () => {
@@ -12796,54 +13063,6 @@ async function refreshBalances() {
 }
 
 let balancesCache = [];
-
-// ---- Investments card ----
-// Net cash put into each platform, per currency (Investments.gs). Tap a
-// platform to list its deposits/withdrawals underneath.
-async function refreshInvestments() {
-  const card = document.getElementById("investments-card");
-  const list = document.getElementById("investments-list");
-  const rows = await callApi("listInvestmentPlatforms", {});
-  card.hidden = rows.length === 0;
-  list.innerHTML = "";
-  rows.forEach((r) => {
-    const wrap = document.createElement("div");
-    const row = document.createElement("div");
-    row.className = "balance-row";
-    const lines = r.lines.length
-      ? r.lines.map((l) => formatSignedBalance_(l.amount, l.currency)).join(" · ")
-      : tr("invest.nothingYet");
-    row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${escapeHtml(lines)}</div>
-    `;
-    const detail = document.createElement("div");
-    detail.hidden = true;
-    row.addEventListener("click", async () => {
-      if (!detail.hidden) { detail.hidden = true; return; }
-      detail.hidden = false;
-      detail.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
-      const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: r.id });
-      detail.innerHTML = moves.length ? "" : `<p class="hint">${escapeHtml(tr("invest.noMoves"))}</p>`;
-      moves.forEach((m) => {
-        const item = document.createElement("div");
-        item.className = "loan-detail-row";
-        const kind = tr(m.signed > 0 ? "investment.deposit" : "investment.withdrawal");
-        item.innerHTML = `
-          <div class="loan-detail-row-top">
-            <span class="loan-detail-row-desc">${escapeHtml(m.description || kind)}</span>
-            <span class="loan-detail-row-amount">${formatSignedBalance_(m.signed, m.currency)}</span>
-          </div>
-          <div class="loan-detail-row-meta">${m.date} · ${kind}${m.other_account ? tr(m.signed > 0 ? "invest.fromAccount" : "invest.toAccount", { account: escapeHtml(m.other_account) }) : ""}</div>
-        `;
-        detail.appendChild(item);
-      });
-    });
-    wrap.appendChild(row);
-    wrap.appendChild(detail);
-    list.appendChild(wrap);
-  });
-}
 
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
