@@ -89,6 +89,7 @@
     // A finished run starts over from step 1; a run still in progress keeps its step (the person may have only switched tabs).
     if (stepNow === 4 || !usable.length) { if (stepNow === 4) clearRun(); stepNow = 1; }
     pastOpen = false;
+    setStatusOpen(false);   // the accounts list starts folded: one line says how many are up to date
     sessionPasswords = [];
     batchesShown = BATCHES_FIRST;
     findFirstUse = null;   // decided again once the coverage list is in
@@ -121,6 +122,12 @@
     if (n === 2) return stmtCards().length > 0;
     if (n === 3) return usable.length > 0;
     return savedThisRun;
+  }
+
+  function setStatusOpen(open) {
+    $("statement-coverage-list").hidden = !open;
+    $("stmt-status-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+    $("stmt-status-toggle").classList.toggle("open", open);
   }
 
   function clearRun() {
@@ -417,6 +424,7 @@
   async function refreshStatementCoverage() {
     const list = $("statement-coverage-list");
     list.innerHTML = `${loadingHtml(tr("common.loading"))}`;
+    $("stmt-status-text").textContent = tr("common.loading");
     try {
       coverage = await callApi("listStatementCoverage", {});
     } catch (err) {
@@ -428,8 +436,19 @@
     if (stepNow === 4) renderWaiting();   // the list that says which accounts still need a statement
   }
 
+  // The one line above the Upload block: how many accounts are up to date. Tapping it shows the whole list (renderCoverage).
+  function renderStatusLine() {
+    const line = $("stmt-status-text");
+    if (!coverage) { line.textContent = tr("common.loading"); return; }
+    const m = coverage.accounts.length, ok = coverage.accounts.filter((a) => a.status === "ok").length;
+    if (!m) { line.textContent = tr("stmt.noAccounts"); return; }
+    const icon = ok === m ? "✅" : (coverage.accounts.some((a) => a.status === "due") ? "🔴" : "⚪");
+    line.textContent = `${icon} ${tr(ok === m ? "stmt.status.all" : "stmt.status.some", { n: m, ok })}`;
+  }
+
   function renderCoverage() {
     const list = $("statement-coverage-list");
+    renderStatusLine();
     if (!coverage || !coverage.accounts.length) {
       list.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.noAccounts"))}</p>`;
       return;
@@ -650,7 +669,6 @@
       notes.push(["warn", escapeHtml(tr("stmt.noteNotTracked", { key: accountKeyOf(result) || tr("stmt.noteUnknown") }))]);
       return notes;
     }
-    notes.push(["info", escapeHtml(tr("stmt.noteAccount", { label: acct.label }))]);
     const last = acct.last;
     if (!last) return notes;
     if (result.period.end === last.period_end) {
@@ -664,6 +682,18 @@
       }
     }
     return notes;
+  }
+
+  // Which account a reading belongs to, as a bold line at the top of its card (a person can hold several accounts at one bank).
+  // The app's own name for the account when it is one of the tracked ones; otherwise what the statement itself says (name and last digits).
+  function accountHeader(result) {
+    const key = accountKeyOf(result);
+    const acct = coverage && key ? coverage.accounts.find((a) => a.key === key) : null;
+    let label = acct ? acct.label : "";
+    if (!label && result.kind !== "csv" && result.account && result.account.label) {
+      label = result.account.label + (result.account.last4 ? ` …${result.account.last4}` : "");
+    }
+    return label ? `<div class="stmt-acct">${escapeHtml(label)}</div>` : "";
   }
 
   function renderResult(body, result, rows, file, title) {
@@ -696,7 +726,7 @@
       `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`
     ).join("") + (allLines.length > SHOW_LINES ? `<p class="hint">${escapeHtml(tr("table.moreLines", { n: allLines.length - SHOW_LINES }))}</p>` : "");
 
-    body.innerHTML = `${title ? `<div class="stmt-result-name">${escapeHtml(title)}</div>` : ""}${verdict}${notes}
+    body.innerHTML = `${title ? `<div class="stmt-result-name">${escapeHtml(title)}</div>` : ""}${accountHeader(result)}${verdict}${notes}
       <div class="stmt-kv"><span>${escapeHtml(tr("stmt.period"))}</span><span>${escapeHtml(period)}</span></div>
       <div class="stmt-kv"><span>${escapeHtml(tr("stmt.linesRead"))}</span><span>${(result.lines || []).length}</span></div>
       ${balances}
@@ -2004,6 +2034,7 @@
     const b = e.target.closest(".stmt-pill");
     if (b && !b.disabled && Number(b.dataset.step) !== stepNow) showStep(Number(b.dataset.step));
   });
+  $("stmt-status-toggle").addEventListener("click", () => setStatusOpen($("statement-coverage-list").hidden));
   $("stmt-step1-continue").addEventListener("click", () => showStep(2));
   $("stmt-next-2").addEventListener("click", () => showStep(3));
   $("stmt-add-more").addEventListener("click", () => showStep(1));
