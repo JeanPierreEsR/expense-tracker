@@ -5224,12 +5224,9 @@ function renderPie(key, items) {
       <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
       <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
-    // "Others" bundles multiple categories — nothing single to drill into;
-    // every category inside it is still individually clickable in the
-    // list below.
-    if (!s.slice.isOthers) {
-      label.addEventListener("click", () => openBreakdownDrilldown(key, s.slice));
-    }
+    // The outside labels are display-only (too small and too close together
+    // to tap); every category, "Others" members included, is a tappable row
+    // in the list below.
     wrapEl.appendChild(label);
   });
 
