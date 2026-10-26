@@ -3923,12 +3923,18 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
-        ${entry.type === "investment" ? "" : `<select class="review-category">
-          <option value="">${escapeHtml(tr("review.pickCategory"))}</option>
-          ${categoryOptions}
-        </select>`}
-        <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}">
-        <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}">
+        ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
+          <label class="review-field-label">${escapeHtml(tr("field.category"))}</label>
+          <select class="review-category">
+            <option value="">${escapeHtml(tr("review.pickCategory"))}</option>
+            ${categoryOptions}
+          </select></div>`}
+        <div class="review-field">
+          <label class="review-field-label">${escapeHtml(tr("field.description"))}</label>
+          <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}"></div>
+        <div class="review-field">
+          <label class="review-field-label">${escapeHtml(tr("field.amount"))} (${escapeHtml(entry.currency)})</label>
+          <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}"></div>
         ${entry.type === "expense" && (meta.trips || []).length ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
@@ -3953,6 +3959,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
       </div>` : ""}
     `;
@@ -4093,6 +4100,27 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
       if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
+      // Not an expense/income at all: the owner's own money moving between accounts. The card comes back as a
+      // transfer (From / To), with the account it already had on the matching side.
+      const makeTransferBtn = item.querySelector(".review-transfer-btn");
+      if (makeTransferBtn) makeTransferBtn.addEventListener("click", async () => {
+        if (!confirm(tr("review.makeTransferConfirm"))) return;
+        const amt = parseFloat(amountInput.value.trim());
+        makeTransferBtn.disabled = true;
+        try {
+          await callApi("convertPendingToTransfer", {
+            id: entry.id,
+            description: item.querySelector(".review-description").value.trim(),
+            amount: amt > 0 ? amt : undefined
+          });
+        } catch (err) {
+          makeTransferBtn.disabled = false;
+          alert(err.message || String(err));
+          return;
+        }
+        refreshReviewQueue().catch(() => {});
+        refreshEntryList();
+      });
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.

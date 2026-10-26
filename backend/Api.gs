@@ -370,6 +370,7 @@ function routeAction(action, payload) {
     case 'discardEntry': return discardEntryWithRepayments_(payload.id);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'updateEntry': return updateEntryFromApp_(payload);
+    case 'convertPendingToTransfer': return convertPendingToTransfer(payload);
     case 'undoCategoryFollow': return undoCategoryFollow(payload);
     case 'listTidyGroups': return listTidyGroups(payload);
     case 'applyTidyGroups': return applyTidyGroups(payload);
@@ -1064,6 +1065,36 @@ function updateEntryFields(entryId, fields) {
   });
 
   return getEntryById_(entryId);
+}
+
+/**
+ * Needs review: "this is not an expense/income, it is my own money moving". A PENDING expense or income
+ * becomes a (one-sided) transfer: an expense left its account, so that account is the "From"; an income
+ * arrived, so its account is the "To". The other side stays blank for the owner to pick on the card.
+ * The expense's category is dropped (the lone transfer category is used when there is one); no trip. Description and amount typed in the row ride along.
+ * payload: { id, description?, amount? }. Returns the updated entry.
+ */
+function convertPendingToTransfer(payload) {
+  var entry = getEntryById_(payload.id);
+  if (!entry) throw new Error(tr_('err.entryNotFound'));
+  if (entry.status !== 'pending' || (entry.type !== 'expense' && entry.type !== 'income')) {
+    throw new Error(tr_('review.alreadyHandled'));
+  }
+  var account = entry.payment_method_id || '';
+  // The card still asks for a category on a transfer: when there is only one transfer category
+  // ("Between accounts"), pick it so the owner doesn't have to.
+  var transferCats = getAllRows('Categories').filter(function (c) { return c.type === 'transfer'; });
+  var fields = {
+    type: 'transfer',
+    category_id: transferCats.length === 1 ? transferCats[0].id : '',
+    payment_method_id: entry.type === 'expense' ? account : '',
+    to_payment_method_id: entry.type === 'income' ? account : ''
+  };
+  if (entry.trip_id) fields.trip_id = '';
+  if (payload.description !== undefined) fields.description = String(payload.description);
+  var amount = Number(payload.amount);
+  if (payload.amount !== undefined && amount > 0) fields.amount = amount;
+  return updateEntryFields(payload.id, fields);
 }
 
 function computeAmountPen(amount, currency, dateStr) {
