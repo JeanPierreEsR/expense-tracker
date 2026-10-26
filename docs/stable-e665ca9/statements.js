@@ -222,12 +222,12 @@
     });
     // Known banks first: those are the ones the app can read for sure.
     groups.sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0));
-    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p>` + groups.map((g) => {
-      const rows = g.items.map((f) => `<label class="stmt-find-row" style="display:flex;gap:8px;align-items:flex-start;padding:4px 0">
-        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" ${g.known && f.status !== "processed" ? "checked" : ""}>
+    out.innerHTML = `<p class="hint">${escapeHtml(tr("find.found", { n: found.length }))} ${escapeHtml(tr("find.hintNote"))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-all"></button></div>` + groups.map((g, gi) => {
+      const rows = g.items.map((f) => `<label class="stmt-find-row">
+        <input type="checkbox" class="stmt-find-pick" data-i="${f.i}" data-g="${gi}" checked>
         <span><strong>${escapeHtml(fmtDate(f.received, true))}</strong> · ${escapeHtml(f.attachment_name)} · ${f.size_kb} KB${f.status === "processed" ? ` · ${escapeHtml(tr("find.alreadyRead"))}` : ""}</span></label>`).join("");
       return `<div class="stmt-row"><div class="stmt-row-main">
-        <div class="stmt-row-title">${escapeHtml(g.name)}</div>
+        <div class="stmt-row-title">${escapeHtml(g.name)} <button type="button" class="add-inline stmt-find-group" data-g="${gi}"></button></div>
         <div class="stmt-row-sub">${escapeHtml(g.sender)} · ${escapeHtml(tr(g.known ? "find.known" : "find.unknown"))}</div>${rows}</div></div>`;
     }).join("") + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-read"></button></div>`;
     updateFindReadButton();
@@ -241,6 +241,12 @@
     const btn = $("statement-find-read");
     if (!btn || btn.dataset.busy) return;
     const n = pickedFound().length;
+    const tg = $("statement-find-all");
+    document.querySelectorAll(".stmt-find-group").forEach((b) => {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${b.dataset.g}"]`);
+      b.textContent = tr(Array.from(boxes).every((x) => x.checked) ? "find.deselectAll" : "find.selectAll");
+    });
+    if (tg) tg.textContent = tr(n === found.length ? "find.deselectAll" : "find.selectAll");
     btn.textContent = n ? tr("find.read", { n }) : tr("find.readNone");
     btn.disabled = !n;
   }
@@ -272,7 +278,19 @@
   $("statement-find-toggle").addEventListener("click", openFindCard);
   $("statement-coverage-list").addEventListener("click", (e) => { if (e.target.closest(".stmt-older-link")) openFindCard(); });
   $("statement-find-results").addEventListener("change", (e) => { if (e.target.classList.contains("stmt-find-pick")) updateFindReadButton(); });
-  $("statement-find-results").addEventListener("click", (e) => { if (e.target.id === "statement-find-read") readPickedFound(); });
+  $("statement-find-results").addEventListener("click", (e) => {
+    if (e.target.id === "statement-find-read") readPickedFound();
+    if (e.target.classList.contains("stmt-find-group")) {
+      const boxes = document.querySelectorAll(`.stmt-find-pick[data-g="${e.target.dataset.g}"]`), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
+    if (e.target.id === "statement-find-all") {
+      const boxes = document.querySelectorAll(".stmt-find-pick"), all = Array.from(boxes).every((b) => b.checked);
+      boxes.forEach((b) => { b.checked = !all; });
+      updateFindReadButton();
+    }
+  });
 
   // ---- gaps (notes saved when a balance is set from a statement) ----
 
@@ -411,31 +429,68 @@
   // Friends' copies only (the owner's own banks are built in). The PDF and its password never leave the phone: this works on the rows the reader
   // already extracted (docs/statement-sample.js turns every digit into 9 and nothing else; the screen says so). No preview step (owner, 2026-10-23).
   // The owner's backend (StatementSamples.gs) turns digits into 9 a second time and keeps the text in the Sheet tab "Statement Samples".
-  const ss_ = { rows: null, kind: "unrecognised", sending: false, sender: "", onSent: null };
+  // The FULL version (2026-10-26): when a statement was already sent the normal way (digits hidden) and still does not add up, the card offers a second
+  // button that sends the same text with the real digits and each cell's exact position. It needs a ticked box, and only appears for a statement that
+  // was sent before (on this card now, or earlier: the phone remembers a short fingerprint of what it sent, never the text).
+  const ss_ = { rows: null, kind: "unrecognised", sending: false, sender: "", onSent: null, full: false };
   const ssEl_ = (id) => $(id);
   function ssMsg_(t) { ssEl_("ss-msg").textContent = t || ""; }
   function ssStep_(n) { [1, 2].forEach((i) => { ssEl_("ss-step-" + i).hidden = i !== n; }); ssMsg_(""); }
+  function sampleKey_(rows) {
+    let h = 5381;
+    const s = rows.map((r) => (r.cells || []).map((c) => String(c.str).replace(/[0-8]/g, "9")).join("|")).join("\n");
+    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return h.toString(36) + ":" + rows.length;
+  }
+  function sampleSentList_() { try { return JSON.parse(localStorage.getItem("stmtSampleSent") || "[]"); } catch (e) { return []; } }
+  function sampleSentMark_(key) {
+    try { localStorage.setItem("stmtSampleSent", JSON.stringify([key].concat(sampleSentList_().filter((k) => k !== key)).slice(0, 60))); } catch (e) { /* the full-version button then only shows on this card */ }
+  }
   function offerSample(body, rows, kind, sender) {
     if (!rows || !rows.length || perfIsOwnerCopy_()) return;
+    const key = sampleKey_(rows);
+    const verdictOf = () => body.querySelector(".stmt-verdict");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "add-inline";
     btn.textContent = tr("stmtSample.offer");
+    const fullBtn = document.createElement("button");
+    fullBtn.type = "button";
+    fullBtn.className = "add-inline";
+    fullBtn.textContent = tr("stmtSample.fullOffer");
     // Once sent, the card stops saying "layout not recognized" and says the statement is with JP (a friend saw the old verdict and thought nothing had gone out).
     const onSent = () => {
-      const verdict = body.querySelector(".stmt-verdict");
+      const verdict = verdictOf();
       if (verdict) { verdict.className = "stmt-verdict good"; verdict.textContent = tr("stmtSample.sentVerdict"); }
       const hint = body.querySelector(".hint");
       if (hint) hint.textContent = tr("stmtSample.sentHint");
       btn.remove();
+      sampleSentMark_(key);
+      body.appendChild(fullBtn);
+    };
+    const onFullSent = () => {
+      const verdict = verdictOf();
+      if (verdict) { verdict.className = "stmt-verdict good"; verdict.textContent = tr("stmtSample.fullSentVerdict"); }
+      fullBtn.remove();
     };
     btn.addEventListener("click", () => openSampleModal(rows, kind, sender, onSent));
-    body.appendChild(btn);
+    fullBtn.addEventListener("click", () => openSampleModal(rows, kind, sender, onFullSent, true));
+    if (sampleSentList_().includes(key)) {
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = tr("stmtSample.sentBefore");
+      body.appendChild(note);
+      body.appendChild(fullBtn);
+    } else body.appendChild(btn);
   }
-  function openSampleModal(rows, kind, sender, onSent) {
-    Object.assign(ss_, { rows, kind, sending: false, sender: sender || "", onSent: onSent || null });
+  function openSampleModal(rows, kind, sender, onSent, full) {
+    Object.assign(ss_, { rows, kind, sending: false, sender: sender || "", onSent: onSent || null, full: !!full });
     const backdrop = ssEl_("statement-sample-backdrop");
     I18n.applyStatic(backdrop);
+    ssEl_("ss-full-box").hidden = !full;
+    ssEl_("ss-normal-intro").hidden = !!full;
+    ssEl_("ss-normal-privacy").hidden = !!full;
+    ssEl_("ss-consent").checked = false;
     ssEl_("ss-bank").value = "";
     ssEl_("ss-name").value = perfShareState_().label || "";
     ssEl_("ss-send").disabled = false;
@@ -448,6 +503,7 @@
   ssEl_("ss-send").addEventListener("click", async () => {
     if (ss_.sending) return;
     if (!PerfShare.cleanLabel(ssEl_("ss-bank").value)) { ssMsg_(tr("stmtSample.bankMissing")); return; }
+    if (ss_.full && !ssEl_("ss-consent").checked) { ssMsg_(tr("stmtSample.fullConsentMissing")); return; }
     ss_.sending = true;
     ssEl_("ss-send").disabled = true;
     ssMsg_(tr("bankSample.sending"));
@@ -460,7 +516,8 @@
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "reportStatementSample", payload: {
           install: perfInstallId_(), label: PerfShare.cleanLabel(ssEl_("ss-name").value), bank: PerfShare.cleanLabel(ssEl_("ss-bank").value),
-          kind: ss_.kind, text: (ss_.sender ? "E-mail sender: " + ss_.sender + "\n" : "") + StatementSample.rowsToText(ss_.rows), language: I18n.getLang(), app: appRelease_()
+          kind: ss_.kind, text: (ss_.sender ? "E-mail sender: " + ss_.sender + "\n" : "") + StatementSample.rowsToText(ss_.rows, { full: ss_.full }), language: I18n.getLang(), app: appRelease_(),
+          ...(ss_.full ? { full: true, consent: true } : {})
         } }),
         signal: controller.signal
       });

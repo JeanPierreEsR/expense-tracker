@@ -5082,7 +5082,7 @@ async function loadOverviewEntries_(bounds) {
 }
 
 // Investments card: FLOWS only — net put into each platform during the selected
-// period (deposits minus withdrawals, owner's PEN value). Never a balance or a
+// period (deposits minus withdrawals), one line per currency, never converted. Never a balance or a
 // % (specs/accounts.md § Investments are flows only). Tap a row for its entries.
 function renderInvestmentsPeriod_(items) {
   const list = document.getElementById("investments-period-list");
@@ -5090,14 +5090,10 @@ function renderInvestmentsPeriod_(items) {
   list.innerHTML = "";
   items.forEach((item) => {
     const row = document.createElement("div");
-    row.className = "legend-row";
+    row.className = "balance-row";
     row.innerHTML = `
-      <div class="legend-text">
-        <div class="legend-name">${escapeHtml(item.name)}</div>
-        <div class="legend-sub">
-          <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
-        </div>
-      </div>
+      <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div>${formatSignedBalance_(l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
@@ -5224,12 +5220,9 @@ function renderPie(key, items) {
       <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
       <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
-    // "Others" bundles multiple categories — nothing single to drill into;
-    // every category inside it is still individually clickable in the
-    // list below.
-    if (!s.slice.isOthers) {
-      label.addEventListener("click", () => openBreakdownDrilldown(key, s.slice));
-    }
+    // The outside labels are display-only (too small and too close together
+    // to tap); every category, "Others" members included, is a tappable row
+    // in the list below.
     wrapEl.appendChild(label);
   });
 
@@ -12178,17 +12171,22 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // overwritten the next time the expense itself is touched.
   const row = document.createElement("div");
   row.className = "loan-detail-row editable";
+  // Only the description/amount/date block opens the edit; the Forgive button below sits OUTSIDE that tap area, so a near-miss on it
+  // never opens the loan by mistake.
   row.innerHTML = `
-    <div class="loan-detail-row-top">
-      <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
-      <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+    <div class="loan-detail-row-main">
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
     </div>
-    <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
   `;
+  const rowMain = row.querySelector(".loan-detail-row-main");
   if (l.origin === "cash") {
-    row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+    rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
-    row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+    rowMain.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
   }
 
   // Forgiving applies to either kind of loan — it doesn't touch the
@@ -13053,6 +13051,8 @@ async function refreshBalances() {
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
   totalsWrap.hidden = codes.length === 0;
+  balancesRowCount_ = rows.length;
+  applyBalancesExpanded_();
   codes.forEach((code) => {
     const amount = Math.round(totals[code] * 100) / 100;
     const line = document.createElement("div");
@@ -13063,6 +13063,21 @@ async function refreshBalances() {
 }
 
 let balancesCache = [];
+
+// The Balances card opens showing only the net per currency; the accounts
+// (this person's own tracked ones) appear when it is expanded.
+let balancesExpanded_ = false;
+let balancesRowCount_ = 0;
+function applyBalancesExpanded_() {
+  document.getElementById("balances-list").hidden = !balancesExpanded_;
+  const btn = document.getElementById("balances-toggle");
+  btn.setAttribute("aria-expanded", String(balancesExpanded_));
+  btn.textContent = balancesExpanded_ ? tr("balances.hideAccounts") : tr("balances.showAccounts", { n: balancesRowCount_ });
+}
+document.getElementById("balances-toggle").addEventListener("click", () => {
+  balancesExpanded_ = !balancesExpanded_;
+  applyBalancesExpanded_();
+});
 
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;

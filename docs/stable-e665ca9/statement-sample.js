@@ -31,8 +31,13 @@
     return s;
   }
 
-  function rowsToText(rows) {
+  function pt(n) { return String(Math.round(n * 10) / 10); }
+
+  // opts.full (the "full version", sent only when the person ticks the box after the normal one did not make the reader work): digits are NOT
+  // hidden, and each cell also carries its exact left and right edge in points (the letters alone lose how far apart columns really are).
+  function rowsToText(rows, opts) {
     rows = rows || [];
+    var full = !!(opts && opts.full);
     var cols = columns(rows);
     function columnOf(x) {
       var best = 0, gap = Infinity;
@@ -40,13 +45,18 @@
       return letters(best);
     }
     var lines = ["Columns A, B, C... run from the left edge of the page to the right. Each line is one row of the page."];
+    if (full) {
+      lines.push("FULL VERSION: nothing is hidden. Each cell reads COLUMN[left edge-right edge in points]: text. Column left edges: " +
+        cols.map(function (c, i) { return letters(i) + "=" + pt(c); }).join(" "));
+    }
     var page = null;
     rows.forEach(function (r) {
       if (page !== null && r.page !== page) lines.push("--- next page ---");
       page = r.page;
       var cells = (r.cells || []).map(function (c) {
-        var s = String(c.str === undefined || c.str === null ? "" : c.str).replace(/[0-8]/g, "9");
-        return columnOf(c.x0) + ": " + s;
+        var s = String(c.str === undefined || c.str === null ? "" : c.str);
+        if (!full) return columnOf(c.x0) + ": " + s.replace(/[0-8]/g, "9");
+        return columnOf(c.x0) + "[" + pt(c.x0) + "-" + pt(c.x1 === undefined ? c.x0 : c.x1) + "]: " + s;
       });
       lines.push(cells.join("  ¦  "));
     });

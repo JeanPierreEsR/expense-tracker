@@ -1030,6 +1030,10 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
+     whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Dragging up from the drill-down's header (see setupDrilldownExpand in
@@ -1281,6 +1285,8 @@ body.sheet-open {
   font-size: 0.75rem;
   margin-top: 2px;
 }
+
+.entry.entry-deleting { opacity: 0.5; pointer-events: none; }
 
 .entry-queue-failed {
   color: var(--expense);
@@ -2914,3 +2920,24 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 /* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
+
+.stmt-find-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.stmt-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark and sizing. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  padding: 0;
+}
+
+/* Overview: month-by-month bars and the spending-pace graph (opened from Home's cards) */
+.months-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; align-items: flex-end; -webkit-overflow-scrolling: touch; }
+.months-scroll .home-bar-col { flex: 0 0 44px; }
+.home-card-tap { cursor: pointer; }
+.pace-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.pace-ref-label { flex: 1; text-align: center; font-weight: 600; }
+.home-line-svg.pace-big { height: 150px; touch-action: pan-y; }

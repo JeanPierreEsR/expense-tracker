@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.46.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="1719a6c442560626490f80d463104cd9dd0b005d"><meta name="app-archived" content="20261025T223616739Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="0.51.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="e665ca975c97c96b83cfd43273c96a35267b5ab5"><meta name="app-archived" content="20261026T185347515Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-25T14:57:24Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-26T13:16:29Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -340,6 +340,25 @@
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
 
+      <div class="card" id="months-card" hidden>
+        <h2 data-i18n="monthsHist.title">Month by month</h2>
+        <p class="hint" data-i18n="monthsHist.hint">Income and expenses for every month with entries. Tap a month to see it below.</p>
+        <div class="months-scroll" id="months-scroll"></div>
+        <div class="home-legend"><span><i style="background:var(--income)"></i><span data-i18n="summary.income">Income</span></span><span><i style="background:var(--expense)"></i><span data-i18n="summary.expenses">Expenses</span></span></div>
+      </div>
+
+      <div class="card" id="pace-card" hidden>
+        <h2 data-i18n="home.paceTitle">Spending pace</h2>
+        <div class="pace-nav">
+          <button type="button" class="period-nav-btn" id="pace-older" data-i18n-aria-label="pace.older" aria-label="Earlier month">‹</button>
+          <div id="pace-ref-label" class="pace-ref-label"></div>
+          <button type="button" class="period-nav-btn" id="pace-newer" data-i18n-aria-label="pace.newer" aria-label="Later month">›</button>
+        </div>
+        <svg class="home-line-svg pace-big" id="pace-svg" viewBox="0 0 300 150" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="home-pace-lines" id="pace-lines"></div>
+        <p class="hint" data-i18n="pace.swipeHint">Swipe the graph or use the arrows to compare with other months.</p>
+      </div>
+
       <div class="card" id="balances-card">
         <div class="budgets-header">
           <h2 data-i18n="balances.title">Balances</h2>
@@ -355,11 +374,9 @@
       </div>
 
       <div class="card" id="investments-card" hidden>
-        <div class="budgets-header">
-          <h2 data-i18n="summary.investments">Investments</h2>
-        </div>
-        <p class="hint" data-i18n="invest.hint">Net cash you've put into each platform (deposits minus withdrawals). Not the platform's current value, and not affected by the period above.</p>
-        <div id="investments-list"></div>
+        <h2 data-i18n="summary.investments">Investments</h2>
+        <p class="hint" data-i18n="invest.periodTitle">Put in this period</p>
+        <div class="pie-list" id="investments-period-list"></div>
       </div>
 
       <div class="card">
@@ -378,9 +395,6 @@
 
         <div class="breakdown-section">
           <h3 data-i18n="overview.byTag">By tag</h3>
-          <div class="pie-chart-wrap" id="pie-wrap-tag">
-            <div class="pie-chart" id="pie-tag"></div>
-          </div>
           <div class="pie-list" id="list-tag"></div>
         </div>
 
@@ -391,6 +405,11 @@
           </div>
           <div class="pie-list" id="list-paymentMethod"></div>
         </div>
+      </div>
+
+      <div class="card" id="overview-entries-card">
+        <h2 data-i18n="overview.entriesTitle">Entries in this period</h2>
+        <div id="overview-entries-list"></div>
       </div>
     </div>
 
@@ -535,10 +554,6 @@
           </button>
           <button type="button" class="more-list-item" id="more-perf-share-btn" hidden>
             <span data-i18n="more.perfShare">📊 Help me improve the app</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-bank-sample-btn" hidden>
-            <span data-i18n="more.bankSample">📩 Teach the app my bank's emails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-feedback-btn" hidden>
@@ -1619,8 +1634,16 @@
       </div>
       <div class="budget-modal-body">
         <div id="ss-step-1">
-          <p class="hint" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
-          <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <p class="hint" id="ss-normal-intro" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
+          <p class="hint" id="ss-normal-privacy" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <div id="ss-full-box" hidden>
+            <p class="hint" data-i18n="stmtSample.fullIntro">Send the full version of this statement so I can find what the app is missing. — JP</p>
+            <p class="hint" data-i18n="stmtSample.fullPrivacy">⚠️ Nothing is hidden this time.</p>
+            <label class="checkbox-row">
+              <input type="checkbox" id="ss-consent">
+              <span data-i18n="stmtSample.fullConsent">I understand that this version includes my real numbers and details</span>
+            </label>
+          </div>
           <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
           <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
           <label for="ss-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
@@ -1660,6 +1683,7 @@
         <button type="button" id="bank-mail-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <div class="bm-reading">
         <p class="hint" data-i18n="bankMail.intro">The app reads your bank's notification emails from this Google account:</p>
         <p id="bm-address" style="font-weight:700;word-break:break-all;margin:6px 0;"></p>
         <button type="button" class="add-inline" id="bm-copy-btn" data-i18n="bankMail.copy">Copy address</button>
@@ -1668,6 +1692,13 @@
         <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
         <p class="hint" data-i18n="bankMail.alertsLead">The app only knows what your bank emails you. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
         <div id="bm-alerts" class="bm-alerts"></div>
+        </div>
+        <div id="bm-teach" hidden>
+          <h3 data-i18n="bankMail.teachTitle">Is your bank missing?</h3>
+          <p class="hint" data-i18n="bankMail.teachLead">Send me one of its emails and I will teach the app to read them. After that, your payments from that bank show up in the app by themselves.</p>
+          <button type="button" class="add-inline" id="bm-teach-btn" data-i18n="bankMail.teachLink">My bank isn't listed</button>
+        </div>
+        <div class="bm-reading">
         <p class="hint" data-i18n="bankMail.try">Try it: pay something small with your card, or send a Yape of S/ 10 or more. It should show up in “Needs review” within about 15 minutes.</p>
         <details class="bm-more">
           <summary data-i18n="bankMail.notCoveredTitle">What emails do not cover</summary>
@@ -1697,6 +1728,7 @@
           <p class="hint" data-i18n="bankMail.o4">Forwarding sends everything to this Gmail, not only bank emails. That is fine: the app only looks at emails from your bank.</p>
         </details>
         <p class="hint" data-i18n="bankMail.review">Everything it finds waits in your review list until you confirm it.</p>
+        </div>
         <button type="button" class="primary" id="bm-done-btn" data-i18n="bankMail.gotIt" hidden>Got it</button>
       </div>
     </div>
@@ -2254,18 +2286,18 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="i18n.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="tour-scenes.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="signin-link.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="bank-sample.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="perf-share.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="receipt-parse.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="bill-split.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="app.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="statement-sample.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="statement-table.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="statement-parsers.js?v=2026-10-25T14:57:24Z"></script>
-  <script src="statements.js?v=2026-10-25T14:57:24Z"></script>
+  <script src="strings.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="i18n.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="tour-scenes.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="signin-link.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="bank-sample.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="perf-share.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="receipt-parse.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="bill-split.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="app.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="statement-sample.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="statement-table.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="statement-parsers.js?v=2026-10-26T13:16:29Z"></script>
+  <script src="statements.js?v=2026-10-26T13:16:29Z"></script>
 </body>
 </html>
