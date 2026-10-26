@@ -808,75 +808,121 @@
           <button type="button" class="add-inline" id="statements-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.title">Statements</h2>
-        <p class="hint stmt-bank-only" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
         <p class="hint stmt-bank-only"><button type="button" class="add-inline" id="statement-to-import-btn" data-i18n="stmt.toImport">Have an export from another app? Use Import data ›</button></p>
-        <div id="statement-coverage-list" class="stmt-bank-only"></div>
         <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
         <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in another app: export it as a CSV or Excel file with a category on every line, then pick the file here. You check the columns once and the app remembers them for the next file from the same app. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
         <p class="hint stmt-import-only"><button type="button" class="add-inline" id="statement-to-bank-btn" data-i18n="imp.toBank">Reading your bank's statements instead? Open Statements ›</button></p>
+        <div class="stmt-stepper" id="stmt-stepper" role="list"></div>
       </div>
 
-      <div class="card stmt-bank-only" id="statement-gaps-card">
-        <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
-        <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>
-        <div id="statement-gaps-list"></div>
-      </div>
-
-      <div class="card stmt-bank-only" id="statement-inbox-card">
-        <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
-        <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
-        <div id="statement-inbox-list"></div>
-      </div>
-
-      <div class="card stmt-bank-only" id="statement-find-card" hidden>
-        <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look for older statements in Gmail ›</button>
-        <div id="statement-find-body">
-        <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
-        <p class="hint" id="statement-find-start" hidden data-i18n="find.start">Start here: bring in your history. Search once, check the statements you want, and read them. After that, new statements arrive by themselves in the Inbox above.</p>
-        <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
-        <div class="stmt-choices" style="padding-left:0;align-items:center">
-          <label for="statement-find-months" data-i18n="find.period">Look back</label>
-          <select id="statement-find-months">
-            <option value="3" data-i18n="find.m3">3 months</option>
-            <option value="6" data-i18n="find.m6">6 months</option>
-            <option value="12" selected data-i18n="find.m12">12 months</option>
-            <option value="24" data-i18n="find.m24">24 months</option>
-          </select>
-          <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+      <div id="stmt-step-1" class="stmt-step">
+        <div class="card stmt-bank-only">
+          <h2 style="margin-top:0;" data-i18n="stmt.s1.title">Upload your statements</h2>
+          <p class="hint" style="margin-bottom:0;" data-i18n="stmt.s1.hint">Pick a way. You can add more later.</p>
         </div>
-        <div id="statement-find-results"></div>
+
+        <div class="card stmt-bank-only" id="statement-inbox-card">
+          <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
+          <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
+          <div id="statement-inbox-list"></div>
+        </div>
+
+        <div class="card">
+          <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.s1.phone">From this phone</h2>
+          <p class="hint stmt-bank-only" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved until you tap Save.</p>
+          <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.read">Choose your file</h2>
+          <p class="hint stmt-import-only" data-i18n="imp.readHint">Pick one or more CSV or Excel files exported from the other app. Nothing is saved until you confirm at the end.</p>
+          <label class="stmt-upload-btn">
+            <span class="stmt-bank-only" data-i18n="stmt.choose">Choose statement PDFs</span>
+            <span class="stmt-import-only" data-i18n="imp.choose">Choose export files (CSV or Excel)</span>
+            <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
+          </label>
+        </div>
+
+        <div class="card stmt-bank-only" id="statement-find-card" hidden>
+          <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look for older statements in Gmail ›</button>
+          <div id="statement-find-body">
+          <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
+          <p class="hint" id="statement-find-start" hidden data-i18n="find.start">Start here: bring in your history. Search once, check the statements you want, and read them. After that, new statements arrive by themselves in the Inbox above.</p>
+          <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
+          <div class="stmt-choices" style="padding-left:0;align-items:center">
+            <label for="statement-find-months" data-i18n="find.period">Look back</label>
+            <select id="statement-find-months">
+              <option value="3" data-i18n="find.m3">3 months</option>
+              <option value="6" data-i18n="find.m6">6 months</option>
+              <option value="12" selected data-i18n="find.m12">12 months</option>
+              <option value="24" data-i18n="find.m24">24 months</option>
+            </select>
+            <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+          </div>
+          <div id="statement-find-results"></div>
+          </div>
+        </div>
+
+        <div class="card stmt-bank-only">
+          <h2 style="margin-top:0;" data-i18n="stmt.s1.accounts">Your accounts</h2>
+          <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
+          <div id="statement-coverage-list"></div>
+        </div>
+
+        <div class="stmt-stepnav">
+          <button type="button" class="primary" id="stmt-step1-continue" hidden></button>
+          <button type="button" class="add-inline" id="statement-past-btn"><span class="stmt-bank-only" data-i18n="stmt.past">Past uploads and differences ›</span><span class="stmt-import-only" data-i18n="imp.past">Past imports ›</span></button>
         </div>
       </div>
 
-      <div class="card">
-        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.read">Read a statement</h2>
-        <p class="hint stmt-bank-only" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved from this screen yet.</p>
-        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.read">Choose your file</h2>
-        <p class="hint stmt-import-only" data-i18n="imp.readHint">Pick one or more CSV or Excel files exported from the other app. Nothing is saved until you confirm at the end.</p>
-        <label class="stmt-upload-btn">
-          <span class="stmt-bank-only" data-i18n="stmt.choose">Choose statement PDFs</span>
-          <span class="stmt-import-only" data-i18n="imp.choose">Choose export files (CSV or Excel)</span>
-          <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
-        </label>
-        <div id="statement-results"></div>
+      <div id="stmt-step-2" class="stmt-step" hidden>
+        <div class="card">
+          <h2 style="margin-top:0;" data-i18n="stmt.s2.title">Check what was read</h2>
+          <p class="hint" id="stmt-s2-count"></p>
+          <div id="statement-results"></div>
+          <div class="stmt-stepnav">
+            <button type="button" class="primary" id="stmt-next-2" hidden></button>
+            <button type="button" class="add-inline" id="stmt-add-more" data-i18n="stmt.s2.addMore">+ Add more statements</button>
+          </div>
+        </div>
       </div>
 
-      <div class="card" id="statement-review-card" hidden>
-        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="hist.title">Read my statements</h2>
-        <p class="hint stmt-bank-only" data-i18n="hist.hint">One tap shows everything the statements contain: what is already in the app, what would be added, and what each account's balance would become. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
-        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.histTitle">Check my import</h2>
-        <p class="hint stmt-import-only" data-i18n="imp.histHint">One tap shows what is already in the app, what would be added and which categories would be used. Nothing is saved until you tap the final button, and you can undo it in one step.</p>
-        <button type="button" class="primary" id="statement-history-btn" data-i18n="hist.button">📚 Read my statements</button>
-        <div id="statement-history"></div>
-        <div id="statement-review-status"></div>
+      <div id="stmt-step-3" class="stmt-step" hidden>
+        <div class="card" id="statement-review-card">
+          <h2 style="margin-top:0;" data-i18n="stmt.s3.title">Preview what will be saved</h2>
+          <p class="hint" data-i18n="stmt.s3.hint">Nothing is saved until you tap the final button. You can undo it in one step.</p>
+          <button type="button" class="primary" id="statement-history-btn" hidden data-i18n="hist.button">📚 Read my statements</button>
+          <div id="statement-plan-status"></div>
+          <div id="statement-history"></div>
+          <div class="stmt-stepnav">
+            <button type="button" class="add-inline" id="stmt-back-3" data-i18n="stmt.s3.back">‹ Back to check</button>
+          </div>
+        </div>
       </div>
 
-      <div class="card">
-        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.recent">Recent uploads</h2>
-        <p class="hint stmt-bank-only" data-i18n="stmt.recentHint">Each saved upload can be undone in one step.</p>
-        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.recent">Recent imports</h2>
-        <p class="hint stmt-import-only" data-i18n="imp.recentHint">Each saved import can be undone in one step.</p>
-        <div id="statement-batches"></div>
+      <div id="stmt-step-4" class="stmt-step" hidden>
+        <div class="card">
+          <h2 style="margin-top:0;" data-i18n="stmt.s4.title">What's next</h2>
+          <div id="statement-review-status"></div>
+          <div id="stmt-s4-waiting"></div>
+          <div class="stmt-stepnav">
+            <button type="button" class="primary" id="stmt-another" data-i18n="stmt.s4.another">Add another statement</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="statement-past" class="stmt-past" hidden>
+        <div class="card">
+          <button type="button" class="add-inline" id="statement-past-back" data-i18n="common.back">‹ Back</button>
+        </div>
+        <div class="card stmt-bank-only" id="statement-gaps-card">
+          <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
+          <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>
+          <div id="statement-gaps-list"></div>
+        </div>
+        <div class="card">
+          <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.recent">Recent uploads</h2>
+          <p class="hint stmt-bank-only" data-i18n="stmt.recentHint">Each saved upload can be undone in one step.</p>
+          <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.recent">Recent imports</h2>
+          <p class="hint stmt-import-only" data-i18n="imp.recentHint">Each saved import can be undone in one step.</p>
+          <div id="statement-batches"></div>
+        </div>
       </div>
     </div>
   </main>

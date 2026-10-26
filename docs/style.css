@@ -3003,3 +3003,17 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
 .tags-list ~ .add-inline { margin-top: 8px; }
 .stmt-find-read-wrap { margin-top: 14px; }
+
+/* More → Statements: the four steps (Upload, Check, Preview, Done) and the "past uploads" side panel */
+.stmt-stepper { display: flex; gap: 6px; margin-top: 12px; }
+.stmt-stepper[hidden] { display: none; }
+.stmt-pill {
+  flex: 1 1 0; min-width: 0; padding: 8px 2px; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
+  border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.stmt-pill.on { background: #e8f1fd; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.stmt-pill.done { color: var(--text); }
+.stmt-pill:disabled { opacity: 0.55; cursor: default; }
+.stmt-stepnav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 12px; }
+.stmt-stepnav .add-inline { align-self: flex-start; }
+.stmt-s4-label { font-weight: 600; font-size: 0.9rem; margin: 14px 0 4px; }
