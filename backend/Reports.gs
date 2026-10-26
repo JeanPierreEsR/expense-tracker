@@ -39,6 +39,7 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
+  var investmentByPlatform = {};
 
   var acc = {
     expense: { category: {}, tag: {}, paymentMethod: {} },
@@ -61,18 +62,28 @@ function getPeriodSummary(payload) {
 
     if (e.type === 'expense') totals.expense += ownAmountPen;
     else if (e.type === 'income') totals.income += ownAmountPen;
-    else if (e.type === 'investment') totals.investment += ownAmountPen;
+    else if (e.type === 'investment') {
+      totals.investment += ownAmountPen;
+      // By platform: the account the money went to (a withdrawal is negative).
+      addToBucket_(investmentByPlatform, e.to_payment_method_id, ownAmountPen, pmById);
+    }
     else return;
 
     var bucket = e.type === 'expense' ? acc.expense : (e.type === 'income' ? acc.income : null);
     if (!bucket) return;
 
     addToBucket_(bucket.category, e.category_id, ownAmountPen, categoryById);
-    (tagIdsByEntry[e.id] || []).forEach(function (tagId) {
+    // An entry with no tag / no account of the owner's still counts, in its
+    // own "no tag" / "no account" slice, so each pie covers the whole total.
+    var tagIds = tagIdsByEntry[e.id] || [];
+    if (!tagIds.length) addToBucket_(bucket.tag, '', ownAmountPen, tagById);
+    tagIds.forEach(function (tagId) {
       addToBucket_(bucket.tag, tagId, ownAmountPen, tagById);
     });
     if (e.paid_by === 'me' && e.payment_method_id) {
       addToBucket_(bucket.paymentMethod, e.payment_method_id, ownAmountPen, pmById);
+    } else {
+      addToBucket_(bucket.paymentMethod, '', ownAmountPen, pmById);
     }
   });
 
@@ -86,16 +97,17 @@ function getPeriodSummary(payload) {
       net: net
     },
     excludedCount: excludedCount,
+    investmentsByPlatform: bucketToList_(investmentByPlatform, totals.investment, tr_('report.otherMethod')),
     breakdowns: {
       expense: {
         byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
         byTag: bucketToList_(acc.expense.tag, totals.expense, tr_('report.untagged')),
-        byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.otherMethod'))
+        byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.noAccount'))
       },
       income: {
         byCategory: bucketToList_(acc.income.category, totals.income, tr_('report.uncategorized')),
         byTag: bucketToList_(acc.income.tag, totals.income, tr_('report.untagged')),
-        byPaymentMethod: bucketToList_(acc.income.paymentMethod, totals.income, tr_('report.otherMethod'))
+        byPaymentMethod: bucketToList_(acc.income.paymentMethod, totals.income, tr_('report.noAccount'))
       }
     }
   };

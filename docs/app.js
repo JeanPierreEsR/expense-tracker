@@ -4593,12 +4593,7 @@ function showScreen(name) {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
     refreshBalances().catch(() => {});
-    // Investments card: hidden for now (2026-09-27) — the owner doesn't
-    // want a per-platform balance shown yet, only the flows in/out. The
-    // card, its API, and Investments.gs are left in place; this is the
-    // one line keeping it off Overview. See CLAUDE.md § Investment
-    // platforms.
-    // refreshInvestments().catch(() => {});
+    refreshInvestments().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -4911,6 +4906,7 @@ async function refreshOverview() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   loadOverviewEntries_(bounds);
 }
 
@@ -4943,6 +4939,30 @@ async function loadOverviewEntries_(bounds) {
     if (token !== overviewEntriesToken_) return;
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
   }
+}
+
+// Investments card, top part: net put into each platform during the selected
+// period (deposits minus withdrawals, owner's PEN value). Tap a row for its entries.
+function renderInvestmentsPeriod_(items) {
+  const wrap = document.getElementById("investments-period");
+  const list = document.getElementById("investments-period-list");
+  wrap.hidden = items.length === 0;
+  list.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "legend-row";
+    row.innerHTML = `
+      <div class="legend-text">
+        <div class="legend-name">${escapeHtml(item.name)}</div>
+        <div class="legend-sub">
+          <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
+          <span class="legend-percent">${item.percent.toFixed(1)}%</span>
+        </div>
+      </div>
+    `;
+    row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
+    list.appendChild(row);
+  });
 }
 
 function renderBreakdowns(breakdown) {
@@ -5147,13 +5167,14 @@ async function openBreakdownDrilldown(kind, item) {
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
   if (kind === "category") payload.categoryId = item.id;
-  else if (kind === "tag") payload.tagId = item.id;
-  else if (kind === "paymentMethod") payload.paymentMethodId = item.id;
+  else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
+  else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
+  else if (kind === "platform") { payload.type = "investment"; payload.toPaymentMethodId = item.id; }
 
   await openDrilldownWithPayload_(
     payload,
     `${item.icon ? item.icon + " " : ""}${item.name}`,
-    `${bounds.label} · ${TYPE_LABELS[overviewType]}`
+    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`
   );
 }
 
