@@ -3511,6 +3511,11 @@ function statusLabel_(status) {
   return ["pending", "confirmed", "discarded"].includes(status) ? tr("status." + status) : status;
 }
 
+// The one "working on it" look for the whole app: a small turning ring and a line of text (same as the Statements screen).
+function loadingHtml_(text) {
+  return `<div class="stmt-loading center" role="status" aria-live="polite"><span class="stmt-spinner" aria-hidden="true"></span><span>${escapeHtml(text || tr("common.loading"))}</span></div>`;
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -5131,7 +5136,7 @@ function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEn
 async function loadOverviewEntriesInner_(bounds) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   try {
     const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
     if (token !== overviewEntriesToken_) return;
@@ -5347,7 +5352,7 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   subtitle.textContent = subtitleText;
   // A Projections category detail lets the owner tap the period to pick another.
   subtitle.classList.toggle("tappable", !!drilldownProjection && (periodType === "month" || periodType === "year"));
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   bringModalToFront_(backdrop);
   // A freshly opened drill-down starts at the top (the area keeps its old scroll position otherwise).
   if (backdrop.hidden) document.getElementById("drilldown-scroll-area").scrollTop = 0;
@@ -6612,7 +6617,7 @@ async function openDevicesModal_() {
   const statusEl = document.getElementById("devices-status");
   errorEl.textContent = "";
   statusEl.textContent = "";
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   // Still holding the old stored code (the background switch-over hasn't worked
@@ -8061,7 +8066,7 @@ function saveOwnerNames_(names) {
 async function openOwnerNamesModal_() {
   ownerNamesEl_("owner-names-error").textContent = "";
   ownerNamesEl_("owner-names-input").value = "";
-  ownerNamesEl_("owner-names-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  ownerNamesEl_("owner-names-list").innerHTML = loadingHtml_();
   bringModalToFront_(ownerNamesEl_("owner-names-backdrop"));
   ownerNamesEl_("owner-names-backdrop").hidden = false;
   try { renderOwnerNames_(await callApi("getOwnerNames", {})); }
@@ -8749,7 +8754,7 @@ function renderPerfScreen() {
 async function refreshExchangeRates() {
   const list = document.getElementById("exchange-rates-list");
   const emptyNote = document.getElementById("exchange-rates-empty-note");
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   let rates;
   try {
     rates = await callApi("listExchangeRates");
@@ -9492,7 +9497,7 @@ async function showTripDetail_(id) {
   const known = (meta.trips || []).find((t) => t.id === id);
   document.getElementById("trip-detail-title").textContent = known ? tripLabel_(known) : "";
   document.getElementById("trip-detail-sub").textContent = known ? `${tr(`trips.kind.${known.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(known)}` : "";
-  document.getElementById("trip-detail-body").innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  document.getElementById("trip-detail-body").innerHTML = loadingHtml_();
   document.getElementById("trip-detail-entries-card").hidden = true;
   document.getElementById("trip-find-box").hidden = true;
   await refreshTripDetail_();
@@ -9877,7 +9882,7 @@ document.getElementById("trip-find-btn").addEventListener("click", () => {
 async function loadTripFinder_(lookBack) {
   const id = tripDetailId_;
   const box = document.getElementById("trip-find-box");
-  box.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  box.innerHTML = loadingHtml_();
   const earlierBtn = () => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -10128,7 +10133,7 @@ async function refreshRecurringExpenses() {
   const emptyNote = document.getElementById("recurring-empty-note");
   const onetimeList = document.getElementById("recurring-onetime-list");
   const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   onetimeList.innerHTML = "";
   let items;
   try {
@@ -10989,7 +10994,7 @@ async function openPaidPicker_(item, currency) {
   const list = document.getElementById("paid-picker-list");
   const errorEl = document.getElementById("paid-picker-error");
   errorEl.textContent = "";
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   document.getElementById("paid-picker-empty").hidden = true;
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
@@ -11136,7 +11141,7 @@ async function refreshProjections() {
   if (cached) {
     renderProjectionsSummary_(cached);
   } else {
-    body.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+    body.innerHTML = loadingHtml_();
     monthLabel.textContent = "";
     methodNote.textContent = "";
   }
@@ -11263,7 +11268,7 @@ async function refreshProjectionCategories() {
   const cacheKey = projectionsCacheKey_();
   const cached = loadProjectionsCache_(cacheKey, "categories");
   if (cached) renderProjectionCategories_(cached);
-  else list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  else list.innerHTML = loadingHtml_();
 
   let result;
   setProjectionsUpdating_(true);
@@ -11702,7 +11707,7 @@ document.getElementById("pmm-compare-btn").addEventListener("click", async () =>
   const categoryId = pmmState.categoryId;
   btn.disabled = true;
   results.hidden = false;
-  table.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  table.innerHTML = loadingHtml_();
   cats.innerHTML = "";
   applyBest.hidden = true;
   document.getElementById("pmm-apply-best-result").textContent = "";
@@ -13234,7 +13239,7 @@ function renderBalanceCurrentLines_() {
 async function loadBalanceMovements_(pmId) {
   const wrap = document.getElementById("balance-movements-wrap");
   const list = document.getElementById("balance-movements");
-  list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  list.innerHTML = loadingHtml_();
   wrap.hidden = false;
   const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: pmId });
   if (balanceModalPmId !== pmId) return;
