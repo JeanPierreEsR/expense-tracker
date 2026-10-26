@@ -1197,9 +1197,16 @@ body.sheet-open {
   font-size: 0.85rem;
 }
 
-.review-item-fields .review-category {
-  grid-column: 1 / -1;
-}
+.review-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-field-wide { grid-column: 1 / -1; }
+.review-field-label { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+.review-item-fields .review-transfer-label,
+.review-item-fields .review-trip,
+.review-item-fields .review-from,
+.review-item-fields .review-to,
+.review-item-fields .review-platform,
+.review-item-fields .review-land { grid-column: 1 / -1; }
+.review-item-fields .review-transfer-label { margin: 2px 0 -4px; font-size: 0.72rem; font-weight: 600; }
 
 .review-item-actions {
   display: flex;
@@ -1236,13 +1243,17 @@ body.sheet-open {
 .review-item-secondary-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 8px;
+  gap: 0 14px;
+  margin-top: 4px;
 }
 
 .review-item-secondary-actions .add-inline {
   padding: 12px 2px;
 }
+
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the 2nd, 3rd... button
+   below the first one: they sit in a row. */
+.review-item-secondary-actions button.add-inline { margin-top: 0; }
 
 .entry {
   display: flex;
