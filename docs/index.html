@@ -365,11 +365,12 @@
           <button type="button" class="add-inline" id="add-balance-btn" data-i18n="balances.add">+ Add balance</button>
         </div>
         <p class="hint" data-i18n="balances.hint">What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.</p>
-        <div id="balances-list"></div>
         <div id="balances-totals" class="balances-totals" hidden>
-          <div class="balances-totals-title" data-i18n="balances.netByCurrency">Net by currency</div>
+          <div class="balances-totals-title" data-i18n="balances.netByCurrency">What's left by currency</div>
           <div id="balances-totals-lines"></div>
+          <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
         </div>
+        <div id="balances-list" hidden></div>
         <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
