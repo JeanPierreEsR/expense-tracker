@@ -12171,17 +12171,22 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // overwritten the next time the expense itself is touched.
   const row = document.createElement("div");
   row.className = "loan-detail-row editable";
+  // Only the description/amount/date block opens the edit; the Forgive button below sits OUTSIDE that tap area, so a near-miss on it
+  // never opens the loan by mistake.
   row.innerHTML = `
-    <div class="loan-detail-row-top">
-      <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
-      <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+    <div class="loan-detail-row-main">
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
     </div>
-    <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
   `;
+  const rowMain = row.querySelector(".loan-detail-row-main");
   if (l.origin === "cash") {
-    row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+    rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
-    row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+    rowMain.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
   }
 
   // Forgiving applies to either kind of loan — it doesn't touch the

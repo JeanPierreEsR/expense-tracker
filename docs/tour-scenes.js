@@ -63,8 +63,9 @@
       i++;
       if (instant) { refresh(); return; }
       btn.disabled = true;
-      // keep the new explanation and the button in view (the page grows as explanations are added)
-      timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (bar.scrollIntoView) bar.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, ms));
+      // each step starts at the top of the animation, so as much of it as possible is on screen (a tall one, e.g. Pro slide 7, would otherwise stay scrolled to its button)
+      if (stage.scrollIntoView) stage.scrollIntoView({ block: "start", behavior: "smooth" });
+      timers.push(setTimeout(() => { btn.disabled = false; refresh(); }, ms));
     };
     btn.onclick = () => go(false);
     // Tapping the animation itself also goes to the next step (not while a step is still playing, and not to replay at the end).

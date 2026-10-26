@@ -602,6 +602,7 @@ input[type="date"] {
 .loan-detail-row:last-child { border-bottom: none; }
 
 .loan-detail-row.editable { cursor: pointer; }
+.loan-detail-row.editable .loan-detail-row-main { cursor: pointer; min-height: 44px; }
 
 .loan-detail-row-chevron {
   color: var(--muted);
@@ -640,7 +641,7 @@ input[type="date"] {
 
 .loan-detail-forgive-btn {
   display: block;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .loan-detail-paid-toggle {
@@ -2942,7 +2943,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 
-.exchange-amount-row { display: flex; gap: 8px; margin-top: 6px; min-width: 0; }
+.exchange-amount-row { display: flex; gap: 8px; margin-top: 8px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
 .tour-more-text { margin-top: 14px; }
@@ -2992,3 +2993,12 @@ input[type="checkbox"], input[type="radio"] { min-height: 0; }
 .expected-recurring-actions button { min-height: 44px; }
 .drilldown-header-actions { gap: 8px; }
 .home-bar-col { min-width: 44px; }
+
+/* ---- Stacked buttons: at least 8px between neighbouring tap targets ---- */
+button.primary + button, button.primary + a.add-inline, .add-inline + .add-inline { margin-top: 8px; }
+#export-send-btn { margin-top: 8px; }
+#extras-google-link { margin-bottom: 8px; }
+#extras-takeback-btn { margin-top: 8px; }
+#statement-find-btn { margin-top: 8px; }
+#rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
+.tags-list ~ .add-inline { margin-top: 8px; }
