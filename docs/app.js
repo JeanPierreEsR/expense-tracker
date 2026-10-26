@@ -6437,10 +6437,10 @@ function refreshExtrasRow_() {
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-btn").hidden = !owner;
   refreshPerfShareRow_();
-  document.getElementById("more-bank-sample-btn").hidden = owner;   // the owner's own banks are already built in
   document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
-  document.getElementById("more-bank-mail-btn").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails);
+  // Bank emails: friends always (it holds "teach the app my bank" even when reading is off); the owner only when reading is on.
+  document.getElementById("more-bank-mail-btn").hidden = owner && !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
   checkBackendUpdate_();
   checkBankReady_();
@@ -6936,7 +6936,6 @@ bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
-bsEl_("more-bank-sample-btn").addEventListener("click", () => openBankSampleModal_());
 bsEl_("bs-send").addEventListener("click", async () => {
   if (bs_.sending) return;
   bs_.sending = true;
@@ -7901,43 +7900,58 @@ let bm_ = { onClose: null };
 // Which bank-alert tip each bank gets (the rest share the generic one: the steps differ bank by bank and are not drawn).
 const BM_TIP_KEYS_ = { Yape: "bankMail.tip.Yape", Interbank: "bankMail.tip.Interbank" };
 
-// The banks the person has an account at (Yape counts once it is linked to an account): only those get a "no email yet" warning.
+// The banks the person has an account at (Yape counts once it is linked to an account), by name. Only these are listed.
 function bmBanksInUse_() {
-  const used = new Set();
+  const names = [];
   const banks = (meta && meta.banks) || [], pms = (meta && meta.paymentMethods) || [];
-  banks.forEach((b) => { if (pms.some((pm) => pm.bank_id === b.id)) used.add(String(b.name || "").toLowerCase()); });
+  banks.forEach((b) => { if (b.name && pms.some((pm) => pm.bank_id === b.id)) names.push(String(b.name).trim()); });
   const st = (meta && meta.settings) || {};
-  if (st.yape_pen || st.yape_usd) used.add("yape");
-  return used;
+  if (st.yape_pen || st.yape_usd) names.push("Yape");
+  const seenLower = new Set();
+  return names.filter((n) => { const k = n.toLowerCase(); if (seenLower.has(k)) return false; seenLower.add(k); return true; });
 }
 
-// One tap-to-open row per bank the app can read: its name, whether an e-mail from it has arrived, and the alert steps.
+// One tap-to-open row per bank the person uses. A bank the app can read shows whether an e-mail from it has arrived and the alert steps;
+// a bank with no rule yet (friends' copies only) says so and offers to teach it. Banks the person does not use are not listed.
 function renderBankAlerts_() {
   const box = bmEl_("bm-alerts");
   box.innerHTML = "";
   const info = (meta && meta.emailInfo) || {};
   const seen = info.seen || {};
-  const used = bmBanksInUse_();
-  const inUse = (b) => used.has(b.toLowerCase());
-  (info.banks || []).slice().sort((a, b) => (inUse(b) ? 1 : 0) - (inUse(a) ? 1 : 0)).forEach((bank) => {
+  const readable = info.banks || [];
+  const canTeach = !perfIsOwnerCopy_() && !!info.banks;   // an older pinned backend sends no emailInfo: do not call every bank unreadable
+  bmBanksInUse_().forEach((used) => {
+    const bank = readable.find((b) => b.toLowerCase() === used.toLowerCase());
+    if (!bank && !canTeach) return;
     const row = document.createElement("details");
     row.className = "bm-bank";
     const sum = document.createElement("summary");
     const name = document.createElement("b");
-    name.textContent = bank;
+    name.textContent = bank || used;
     sum.appendChild(name);
-    if (inUse(bank)) {
-      const st = document.createElement("span");
+    const st = document.createElement("span");
+    if (bank) {
       const day = seen[bank];
       st.className = "bm-status " + (day ? "ok" : "wait");
       st.textContent = day ? tr("bankMail.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("bankMail.notSeen");
-      sum.appendChild(st);
+    } else {
+      st.className = "bm-status wait";
+      st.textContent = tr("bankMail.notReadable");
     }
+    sum.appendChild(st);
     row.appendChild(sum);
     const tip = document.createElement("p");
     tip.className = "hint";
-    tip.textContent = tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic");
+    tip.textContent = bank ? tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic") : tr("bankNote.text", { banks: used });
     row.appendChild(tip);
+    if (!bank) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "add-inline";
+      btn.textContent = tr("bankMail.teachBank");
+      btn.addEventListener("click", () => openBankSampleModal_());
+      row.appendChild(btn);
+    }
     box.appendChild(row);
   });
 }
@@ -7951,11 +7965,14 @@ function openBankMailModal_(opts) {
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
-  renderBankAlerts_();
+  const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
+  backdrop.querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
+  bmEl_("bm-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
+  if (reading) renderBankAlerts_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
-  if (typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
+  if (reading && typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
 }
 
 function closeBankMailModal_() {
@@ -7967,6 +7984,7 @@ function closeBankMailModal_() {
 }
 
 bmEl_("more-bank-mail-btn").addEventListener("click", () => openBankMailModal_());
+bmEl_("bm-teach-btn").addEventListener("click", () => openBankSampleModal_());
 bmEl_("bank-mail-close").addEventListener("click", closeBankMailModal_);
 bmEl_("bm-done-btn").addEventListener("click", closeBankMailModal_);
 bmEl_("bm-copy-btn").addEventListener("click", async () => {
