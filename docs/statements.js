@@ -229,7 +229,7 @@
       return `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(g.name)} <button type="button" class="add-inline stmt-find-group" data-g="${gi}"></button></div>
         <div class="stmt-row-sub">${escapeHtml(g.sender)} · ${escapeHtml(tr(g.known ? "find.known" : "find.unknown"))}</div>${rows}</div></div>`;
-    }).join("") + `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-find-read"></button></div>`;
+    }).join("") + `<div class="stmt-find-read-wrap"><button type="button" class="primary" id="statement-find-read"></button></div>`;
     updateFindReadButton();
   }
 

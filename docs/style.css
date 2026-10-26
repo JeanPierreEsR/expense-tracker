@@ -3002,3 +3002,4 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #statement-find-btn { margin-top: 8px; }
 #rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
 .tags-list ~ .add-inline { margin-top: 8px; }
+.stmt-find-read-wrap { margin-top: 14px; }
