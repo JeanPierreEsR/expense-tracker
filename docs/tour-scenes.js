@@ -56,15 +56,25 @@
     btn.type = "button";
     let i = 0;
     const refresh = () => { btn.textContent = ctx.tr(i < total ? "tour.nextStep" : "tour.replay"); };
+    // Scroll so the top of the animation is on screen, but only when it is not already fully visible (no jump when it is).
+    const showTop = () => {
+      if (!stage.scrollIntoView) return;
+      let box = stage.parentElement;
+      while (box && !(box.scrollHeight > box.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+      const view = box ? box.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const top = stage.getBoundingClientRect().top;
+      if (top < view.top - 0.5 || top >= view.bottom) stage.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
     const go = (instant) => {
-      if (i >= total) { play(key, stage, ctx); return; }
+      if (i >= total) { showTop(); play(key, stage, ctx); return; }
       const later = (fn, ms) => { if (instant) fn(); else timers.push(setTimeout(fn, ms)); };
       const ms = scene.steps[i](parts, ctx, instant, later) || 0;
       i++;
       if (instant) { refresh(); return; }
       btn.disabled = true;
-      // keep the new explanation and the button in view (the page grows as explanations are added)
-      timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (bar.scrollIntoView) bar.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, ms));
+      // each step starts with the top of the animation on screen, so as much of it as possible shows (a tall one, e.g. Pro slide 7, would otherwise stay scrolled to its button)
+      showTop();
+      timers.push(setTimeout(() => { btn.disabled = false; refresh(); }, ms));
     };
     btn.onclick = () => go(false);
     // Tapping the animation itself also goes to the next step (not while a step is still playing, and not to replay at the end).
