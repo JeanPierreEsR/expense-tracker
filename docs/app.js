@@ -1205,6 +1205,18 @@ function togglePaymentMethodVisibility() {
   togglePaymentMethodVisibilityBase_();
   updateRepaymentUi_();
   updateAutoTransferDescription_();
+  updatePaidByFriendHint_();
+}
+
+// Under "Paid by": when a friend paid an expense, say that the whole amount is
+// already booked as owed to them, so the Split toggle stays off unless someone
+// else shared it.
+function updatePaidByFriendHint_() {
+  const hint = document.getElementById("paid-by-friend-hint");
+  const select = document.getElementById("paid_by");
+  const friend = meta.friends.find((f) => f.id === select.value);
+  hint.hidden = !(selectedType === "expense" && friend && !select.hidden);
+  if (!hint.hidden) hint.textContent = tr("paidBy.friendHint", { friend: friend.name });
 }
 
 // A new plain transfer between the owner's own accounts gets "from X to Y" as
