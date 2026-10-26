@@ -112,3 +112,24 @@ test("one request stays cheap: sheet reads do not grow with the number of entrie
   assert.ok(a < 80, `getHomeGlance made ${a} sheet reads`);
   assert.ok(b <= a + 5, `reads grew from ${a} to ${b} with 7x the entries`);
 });
+
+test("monthly history: every month from the first entry to today, with each month's running expenses by day", () => {
+  const rt = setup();
+  entry(rt, { amount: 80 });
+  entry(rt, { type: "income", category_id: "cat-i", amount: 500 });
+  entry(rt, { date: monthsAgo(9) + "-03", amount: 30 });
+  entry(rt, { date: monthsAgo(9) + "-05", amount: 20 });
+  entry(rt, { date: monthsAgo(9) + "-05", type: "transfer", amount: 999 });   // never counts
+  const h = rt.api("getMonthlyHistory", {});
+  assert.equal(h.months.length, 10);
+  assert.equal(h.months[0].month, monthsAgo(9));
+  assert.equal(h.months[9].month, today().slice(0, 7));
+  assert.equal(h.months[0].expense, 50);
+  assert.equal(h.months[0].cum[1], 0);
+  assert.equal(h.months[0].cum[2], 30);
+  assert.equal(h.months[0].cum[4], 50);
+  assert.equal(h.months[0].cum.length, h.months[0].days, "a finished month has every day");
+  assert.equal(h.months[9].cum.length, h.curDay, "this month stops at today");
+  assert.deepEqual([h.months[9].expense, h.months[9].income], [80, 500]);
+  assert.equal(h.months[4].expense, 0, "a quiet month is still there");
+});

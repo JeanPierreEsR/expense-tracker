@@ -4459,7 +4459,9 @@ function homeMainCard_(g) {
     ${delta}
     ${four}
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span></div>`);
+    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+  el.classList.add("home-card-tap");
+  el.addEventListener("click", (ev) => { if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card"); });
   el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
     homeSelectedMonth_ = b.dataset.month;
     renderHomeGlance_();
@@ -4479,8 +4481,8 @@ function homePaceCard_(g) {
   const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
   const last = p.cur.length - 1;
   const [dx, dy] = last >= 0 ? pt(last, p.cur[last]).split(",") : [0, 0];
-  return homeCardEl_("home-card-pace", `
-    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))}</div>
+  const paceEl = homeCardEl_("home-card-pace home-card-tap", `
+    <div class="home-card-label">${escapeHtml(tr("home.paceTitle"))} ›</div>
     <svg class="home-line-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       <polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(p.prev)}"/>
       <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(p.cur)}"/>
@@ -4490,6 +4492,8 @@ function homePaceCard_(g) {
       <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
       <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
     </div>`);
+  paceEl.addEventListener("click", () => openOverviewAt_("pace-card"));
+  return paceEl;
 }
 
 function homeBudgetCard_(g) {
@@ -4504,12 +4508,14 @@ function homeBudgetCard_(g) {
     tr("home.budgetDays", { n: daysLeft })
   ];
   if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
-  return homeCardEl_("home-card-budget", `
-    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))}</div>
+  const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
+    <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
     <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
     <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
     <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
     <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
+  budgetEl.addEventListener("click", () => showScreen("budgets"));
+  return budgetEl;
 }
 
 function homeTripCard_(t) {
@@ -4592,6 +4598,7 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
+    refreshMonthsHistory_();
     refreshBalances().catch(() => {});
     refreshInvestments().catch(() => {});
   }
@@ -4854,6 +4861,140 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
     }
   }, { passive: true });
 });
+
+// ---- Overview: month by month + spending pace (opened from Home's cards) ----
+// One request (getMonthlyHistory) feeds both cards: every month's totals as scrollable bars, and the
+// running expenses by day so the pace graph can put any earlier month next to this one as a reference.
+
+let monthsHist_ = null;
+let monthsHistAt_ = 0;
+let monthsHistBusy_ = null;
+let paceRefMonth_ = null;        // 'yyyy-mm' of the reference line; null = last month
+let overviewScrollTo_ = null;    // card id to bring into view once the history has painted
+
+function refreshMonthsHistory_() {
+  if (monthsHistBusy_) return monthsHistBusy_;
+  if (monthsHist_ && Date.now() - monthsHistAt_ < HOME_GLANCE_FRESH_MS) {
+    renderMonthsHistory_();
+    return Promise.resolve();
+  }
+  monthsHistBusy_ = callApi("getMonthlyHistory", {})
+    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); })
+    .catch(() => { /* a bonus: the rest of Overview works without it */ })
+    .finally(() => { monthsHistBusy_ = null; });
+  return monthsHistBusy_;
+}
+
+function renderMonthsHistory_() {
+  if (!monthsHist_) return;
+  renderMonthsBars_();
+  renderPaceBig_();
+  if (overviewScrollTo_) {
+    const el = document.getElementById(overviewScrollTo_);
+    overviewScrollTo_ = null;
+    if (el && !el.hidden) el.scrollIntoView({ block: "start", behavior: "auto" });
+  }
+}
+
+function renderMonthsBars_() {
+  const card = document.getElementById("months-card");
+  const months = monthsHist_.months;
+  card.hidden = months.length < 1;
+  if (card.hidden) return;
+  const box = document.getElementById("months-scroll");
+  const keep = box.scrollLeft;
+  const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
+  const h = (v) => Math.max(2, Math.round((v / top) * 84));
+  const shown = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
+  box.innerHTML = months.map((x) => {
+    const [y, mo] = x.month.split("-").map(Number);
+    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}">
+      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
+  }).join("");
+  box.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
+    const [y, mo] = b.dataset.month.split("-").map(Number);
+    periodType = "month";
+    renderPeriodSelector();
+    choosePeriodAnchor_(new Date(y, mo - 1, 1));   // the summary below follows; the bars re-mark themselves
+    renderMonthsBars_();
+  }));
+  box.scrollLeft = keep || box.scrollWidth;   // first paint lands on the newest months
+}
+
+function paceRefList_() {
+  return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
+}
+
+function paceStep_(dir) {
+  const list = paceRefList_();
+  if (!list.length) return;
+  let i = list.findIndex((m) => m.month === paceRefMonth_);
+  if (i < 0) i = list.length - 1;
+  paceRefMonth_ = list[Math.max(0, Math.min(list.length - 1, i + dir))].month;
+  renderPaceBig_();
+}
+
+function renderPaceBig_() {
+  const card = document.getElementById("pace-card");
+  const months = monthsHist_.months;
+  const cur = months[months.length - 1];
+  const list = paceRefList_();
+  const ref = list.length ? (list.find((m) => m.month === paceRefMonth_) || list[list.length - 1]) : null;
+  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
+  card.hidden = !nowTotal && !(ref && ref.expense > 0);
+  if (card.hidden) return;
+  const refIdx = ref ? list.indexOf(ref) : -1;
+  document.getElementById("pace-older").disabled = !ref || refIdx <= 0;
+  document.getElementById("pace-newer").disabled = !ref || refIdx >= list.length - 1;
+  const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
+  const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
+  document.getElementById("pace-ref-label").textContent = refName;
+
+  const W = 300, H = 150, pad = 6;
+  const days = Math.max(cur.days, ref ? ref.days : 0);
+  const top = Math.max(1, nowTotal, ref ? ref.cum[ref.cum.length - 1] || 0 : 0);
+  const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
+  const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
+  const last = cur.cum.length - 1;
+  const [dx, dy] = last >= 0 ? pt(last, cur.cum[last]).split(",") : [0, 0];
+  document.getElementById("pace-svg").innerHTML = `
+    ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
+    <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
+    ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
+
+  const curDay = monthsHist_.curDay;
+  const sameDay = ref ? ref.cum[Math.min(curDay, ref.cum.length) - 1] || 0 : 0;
+  document.getElementById("pace-lines").innerHTML = `
+    <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
+    ${ref ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint">${escapeHtml(tr("pace.refWhole"))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
+}
+
+(function wirePaceBig_() {
+  document.getElementById("pace-older").addEventListener("click", () => paceStep_(-1));
+  document.getElementById("pace-newer").addEventListener("click", () => paceStep_(1));
+  // Swiping right (scrolling back in time) goes to an earlier month. Stopped here so the Overview's
+  // own month-to-month swipe doesn't also fire.
+  const svg = document.getElementById("pace-svg");
+  const scroller = document.getElementById("months-scroll");
+  let x0 = 0, y0 = 0;
+  svg.addEventListener("touchstart", (e) => { e.stopPropagation(); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  svg.addEventListener("touchend", (e) => {
+    e.stopPropagation();
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) paceStep_(dx > 0 ? -1 : 1);
+  }, { passive: true });
+  scroller.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+  scroller.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+})();
+
+// Home's cards land here: open Overview and bring the matching card into view.
+function openOverviewAt_(cardId) {
+  overviewScrollTo_ = cardId;
+  showScreen("overview");
+}
 
 // ---- Overview: expense/income toggle ----
 
