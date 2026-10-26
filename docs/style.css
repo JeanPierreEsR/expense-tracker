@@ -225,7 +225,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   cursor: pointer;
 }
 
-#period-label { min-width: 140px; text-align: center; }
+#period-label { min-width: 140px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
 
 /* Month/Year: the label opens the quick picker (a small ▾ says so). */
 #period-label.tappable,
@@ -469,6 +469,7 @@ input, select, textarea {
   color: var(--text);
   font-family: inherit;
   box-sizing: border-box;
+  min-height: 44px;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -503,6 +504,7 @@ input[type="date"] {
   align-items: center;
   gap: 8px;
   margin: 12px 0 0;
+  min-height: 44px;
   font-size: 0.9rem;
   color: var(--text);
   cursor: pointer;
@@ -653,8 +655,9 @@ input[type="date"] {
   cursor: pointer;
   /* text links were 25-27px tall; 44px is the comfortable minimum for a thumb */
   min-height: 44px;
+  min-width: 44px;
   box-sizing: border-box;
-  padding: 12px 4px;
+  padding: 12px 8px;
   background: none;
   border: none;
 }
@@ -1089,7 +1092,13 @@ body.sheet-open {
   font-size: 1.1rem;
   color: var(--muted);
   cursor: pointer;
+  /* 44x44 is the minimum comfortable thumb target (Apple HIG); the glyph stays small and centred */
+  min-width: 44px;
+  min-height: 44px;
   padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .currency-option-list {
@@ -2220,7 +2229,7 @@ body.income-revealed .sens-mask { display: none; }
 
 .stmt-choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 60px; align-items: center; }
 .stmt-choice {
-  font-family: inherit; font-size: 0.78rem; padding: 5px 10px; border-radius: 999px;
+  font-family: inherit; font-size: 0.85rem; padding: 10px 16px; min-height: 44px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
 }
 .stmt-choice.on { background: #e3f4e6; border-color: #1e6b32; color: #1e6b32; font-weight: 600; }
@@ -2853,7 +2862,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-four-box b.income { color: var(--income); }
 .home-four-box b.expense { color: var(--expense); }
 
-.home-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; }
+.home-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; align-items: end; }
 .home-bar-col {
   background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0;
@@ -2955,3 +2964,14 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .pace-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
 .pace-ref-label { flex: 1; text-align: center; font-weight: 600; }
 .home-line-svg.pace-big { height: 150px; touch-action: pan-y; }
+
+/* ---- Tap targets: every tappable thing is at least 44x44 (Apple HIG) ---- */
+/* summaries keep their native ▶ marker (display:flex would hide it), so the height comes from padding */
+details > summary { box-sizing: border-box; min-height: 44px; padding-top: 11px; padding-bottom: 11px; }
+.bm-bank summary { display: flex; align-items: center; }
+#paste-manual-btn, a.add-inline { min-height: 44px; }
+a.add-inline { display: inline-flex; align-items: center; }
+.language-label { min-height: 44px; display: flex; align-items: center; }
+input[type="checkbox"], input[type="radio"] { min-height: 0; }
+.checkbox-row input[type="checkbox"] { width: 22px; height: 22px; }
+.currency-chip, .tag-chip { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
