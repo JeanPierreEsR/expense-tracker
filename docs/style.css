@@ -1286,6 +1286,8 @@ body.sheet-open {
   margin-top: 2px;
 }
 
+.entry.entry-deleting { opacity: 0.5; pointer-events: none; }
+
 .entry-queue-failed {
   color: var(--expense);
   font-weight: 600;

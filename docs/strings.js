@@ -65,6 +65,7 @@
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
     "entry.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
     "entry.saving": { en: "💾 Saving…", es: "💾 Guardando…" },
+    "entry.deleting": { en: "🗑️ Deleting…", es: "🗑️ Eliminando…" },
     "entry.saveFailedRetry": { en: "⚠️ Couldn't save — tap to retry", es: "⚠️ No se pudo guardar: toca para reintentar" },
     "entry.draftRestored": { en: "↩️ Restored the entry you were typing — it wasn't saved yet. To discard it, clear the amount and description.", es: "↩️ Se restauró el movimiento que estabas escribiendo: aún no se guardó. Borra el monto y la descripción para descartarlo." },
     "entry.confirmCancelNew": { en: "Cancel this entry? What you've typed will be discarded.", es: "¿Cancelar este movimiento? Lo que escribiste se descartará." },
