@@ -2155,6 +2155,13 @@
     "sp.cmrNoPrev": { en: "\"Total Facturado Mes Anterior\" (previous balance) not found.", es: "No se encontró \"Total Facturado Mes Anterior\" (saldo anterior)." },
     "sp.cmrNoTotal": { en: "\"Pago total del mes\" not found.", es: "No se encontró \"Pago total del mes\"." },
     "sp.cmrTotal": { en: "Previous balance + the lines add up to {a}, but “Pago total del mes” says {b}.", es: "Saldo anterior + las líneas suman {a}, pero “Pago total del mes” dice {b}." },
+    "sp.ripleyNoSummary": { en: "The summary with the previous balance (under “¿Cómo se calcula el pago total y mínimo del mes?”) was not found.", es: "No se encontró el resumen con el saldo anterior (bajo “¿Cómo se calcula el pago total y mínimo del mes?”)." },
+    "sp.ripleyPrevDiffers": { en: "The previous balance in the summary ({a}) and in the movements ({b}) are different.", es: "El saldo anterior del resumen ({a}) y el de los movimientos ({b}) son distintos." },
+    "sp.ripleyNoTotal": { en: "\"Pago Total del Mes\" not found.", es: "No se encontró \"Pago Total del Mes\"." },
+    "sp.ripleyTotal": { en: "Previous balance + the lines add up to {a}, but “Pago Total del Mes” says {b}.", es: "Saldo anterior + las líneas suman {a}, pero “Pago Total del Mes” dice {b}." },
+    "sp.falNoOpening": { en: "\"SALDO ANTERIOR CONTABLE\" (opening balance) not found.", es: "No se encontró \"SALDO ANTERIOR CONTABLE\" (saldo inicial)." },
+    "sp.falNoClosing": { en: "\"Saldo Contable\" (closing balance) not found.", es: "No se encontró \"Saldo Contable\" (saldo final)." },
+    "sp.falTotal": { en: "Opening balance + the lines add up to {a}, but “Saldo Contable” says {b}.", es: "Saldo inicial + las líneas suman {a}, pero “Saldo Contable” dice {b}." },
     "sp.sipByLayout": { en: "The bank's name isn't readable in this PDF (it is part of a picture), so it was recognized as a SIP card statement by its layout and totals. It shows the card ending in {last4}. If that is not your SIP card, tap “Remove this file” below.", es: "El nombre del banco no se puede leer en este PDF (es parte de una imagen), así que se reconoció como estado de tarjeta SIP por su formato y totales. Muestra la tarjeta que termina en {last4}. Si no es tu tarjeta SIP, toca “Quitar este archivo” abajo." },
     "sp.notRecognized": { en: "This statement layout is not recognized yet.", es: "Este formato de estado de cuenta aún no está reconocido." }
   };
