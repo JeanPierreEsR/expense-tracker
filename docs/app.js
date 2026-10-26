@@ -1746,7 +1746,11 @@ function validateSplitIfEnabled() {
     const shares = computeCustomShares();
     if (shares.over) throw new Error(tr("split.errOverTotal"));
     if (shares.unassigned) throw new Error(tr("split.errNotTotal"));
-    if (assigned <= 0) throw new Error(tr("split.errNoAmount"));
+    // Nothing assigned to friends is fine when a friend paid: it means "I owe
+    // them all of it" (the backend then books the full amount as my debt).
+    const paidBy = document.getElementById("paid_by").value;
+    const friendPaid = paidBy && paidBy !== "me";
+    if (assigned <= 0 && !friendPaid) throw new Error(tr("split.errNoAmount"));
   }
   if (assigned - amount > 0.004) {
     throw new Error(tr("split.errOverTotal"));
