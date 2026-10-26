@@ -39,11 +39,11 @@ function ensureStatementSamplesSheet_() {
 
 // Same promise as the phone's screen: digits become 9, nothing else is changed (e-mail addresses and names stay — owner, 2026-10-23).
 // Control characters go and the size is capped. Not bankSampleScrub_: that one also replaces e-mail addresses, which e-mail samples need.
-function statementSampleScrub_(text, maxChars) {
+function statementSampleScrub_(text, maxChars, keepDigits) {
   var s = String(text === undefined || text === null ? '' : text)
     .replace(/\r\n?/g, '\n')
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
-    .replace(/[0-8]/g, '9');
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+  if (!keepDigits) s = s.replace(/[0-8]/g, '9');
   return s.length > maxChars ? s.substring(0, maxChars) : s;
 }
 
@@ -68,12 +68,14 @@ function reportStatementSample_(p) {
   if (!/^[0-9a-f-]{16,36}$/.test(install)) throw codedError_('sample_bad_report', 'Not a statement sample.');
   var bank = perfLabel_(p.bank);
   if (!bank) throw codedError_('sample_bad_report', 'Not a statement sample.');
-  var text = statementSampleScrub_(p.text, STATEMENT_SAMPLE_MAX_TEXT_).trim();
+  // The FULL version (real digits kept) is sent only after the person ticked the box on the phone; the stored kind says so ("full-unverified").
+  var full = p.full === true && p.consent === true;
+  var text = statementSampleScrub_(p.text, STATEMENT_SAMPLE_MAX_TEXT_, full).trim();
   if (text.length < STATEMENT_SAMPLE_MIN_TEXT_) throw codedError_('sample_bad_report', 'Not a statement sample.');
   var label = perfLabel_(p.label) || '(no name)';
   var language = p.language === 'es' ? 'es' : 'en';
   var app = /^[0-9A-Za-z:.\-]{1,30}$/.test(String(p.app || '')) ? String(p.app) : '';
-  var kind = p.kind === 'unverified' ? 'unverified' : 'unrecognised';
+  var kind = (full ? 'full-' : '') + (p.kind === 'unverified' ? 'unverified' : 'unrecognised');
   var parts = statementSampleParts_(text);
 
   var lock = LockService.getScriptLock();
@@ -98,7 +100,7 @@ function reportStatementSample_(p) {
 
   // The Sheet rows are the record; Telegram only says that one arrived (a statement is far too long for a message).
   try {
-    sendTelegramText_(tr_('statementSample.notice', { label: label, bank: bank, kind: kind, chars: text.length, parts: parts.length }));
+    sendTelegramText_(tr_(full ? 'statementSample.noticeFull' : 'statementSample.notice', { label: label, bank: bank, kind: kind, chars: text.length, parts: parts.length }));
   } catch (err) {
     console.error('statement sample notice: ' + err);
   }

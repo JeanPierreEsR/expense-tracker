@@ -121,6 +121,44 @@ test("BCP card lines: sign, currency, consumption date, payments and refunds, fe
   assert.equal(r.lines.length, 6, "the 'how to compute your minimum payment' table is not read as lines");
 });
 
+// Amounts are RIGHT-aligned under "Soles" / "Dólares": a wide dollar amount starts left of the "Dólares" heading.
+// Headings: Soles x 400-425, Dólares x 480-515; amounts end at 425 (soles) and 515 (dollars), whatever their width.
+const rpen = (v) => ({ str: v, x0: 425 - v.length * 5, x1: 425 });
+const rusd = (v) => ({ str: v, x0: 515 - v.length * 5, x1: 515 });
+
+test("BCP card with right-aligned amounts: wide dollar amounts, a foreign-currency purchase and a refunded fee are read and verified", () => {
+  const rows = [
+    row(at("Estado de Cuenta Tarjeta American Express", 20)),
+    row(at("Ciclo de Facturación", 300)),
+    row(at("Maria Ejemplo", 20), at("Número de tarjeta", 200), at("Del", 300), at("Al", 340)),
+    row(at("Calle Inventada 456", 20), at("3759-88XX-XXXX-4321", 200), at("27/01/26", 300), at("26/02/26", 340)),
+    row(at("Fecha de", 20), at("Descripción", 120), at("Tipo de", 250), at("Soles", 400), at("Dólares", 480)),
+    row(at("SALDO ANTERIOR", 120), rpen("1,000.00"), rusd("1,200.00")),
+    row(at("02Feb", 20), at("01Feb", 60), at("CAFE UNO", 120), at("CONSUMO", 250), rpen("12.50")),
+    row(at("03Feb", 20), at("02Feb", 60), at("TIENDA DOS", 120), at("CONSUMO", 250), rusd("1,234.56")),
+    row(at("04Feb", 20), at("03Feb", 60), at("RESTAURANTE TRES", 120), at("LA PLATA", 190), at("CONSUMO", 250), rusd("9.99")),
+    row(at("1500.00", 120), at("ARGENTINE PESO", 200), at("IN", 330)),   // foreign-currency note under the purchase: not a line
+    row(at("05Feb", 20), at("04Feb", 60), at("PAGO BANCA MOVIL", 120), at("PAGO", 250), rusd("1,200.00-")),
+    row(at("06Feb", 20), at("05Feb", 60), at("PAGO BANCA MOVIL", 120), at("PAGO", 250), rpen("1,000.00-")),
+    row(at("07Feb", 20), at("06Feb", 60), at("DEVOLUCION MEMBRESIA", 120), at("DEVOLUCION", 250), rpen("99.00-")),
+    row(at("INTERESES", 120)),
+    row(at("SUB TOTAL", 120), rpen("12.50"), rusd("1,244.55")),
+    row(at("COMISION ANUAL POR MEMBRESIA", 120), rpen("99.00")),
+    // soles: 1000.00 + 12.50 - 1000.00 - 99.00 (refund) + 99.00 (annual fee) = 12.50; dollars: 1200.00 + 1234.56 + 9.99 - 1200.00 = 1244.55
+    row(at("MONTO TOTAL FACTURADO", 120), rpen("12.50"), rusd("1,244.55"))
+  ];
+  const r = SP.parseStatement(rows);
+  assert.equal(r.kind, "bcpcard");
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.deepEqual(r.balances, { PEN: { opening: -1000, closing: -12.5 }, USD: { opening: -1200, closing: -1244.55 } });
+  const by = (d) => r.lines.find((l) => l.description.startsWith(d));
+  assert.equal(by("TIENDA DOS").currency, "USD");
+  assert.equal(by("TIENDA DOS").amount, -1234.56);
+  assert.equal(r.lines.filter((l) => l.description.startsWith("PAGO BANCA")).map((l) => l.currency).sort().join(), "PEN,USD");
+  assert.equal(by("DEVOLUCION MEMBRESIA").section, "refunds");
+  assert.equal(r.lines.some((l) => /ARGENTINE/.test(l.description)), false);
+});
+
 test("BCP card: a total that does not add up is rejected", () => {
   const r = SP.parseStatement(bcp("VISA", { totalPen: "60.00" }));
   assert.equal(r.ok, false);

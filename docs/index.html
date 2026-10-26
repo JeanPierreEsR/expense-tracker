@@ -1624,8 +1624,16 @@
       </div>
       <div class="budget-modal-body">
         <div id="ss-step-1">
-          <p class="hint" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
-          <p class="hint" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <p class="hint" id="ss-normal-intro" data-i18n="stmtSample.intro">The app cannot read this statement yet. Send me its text and I will teach the app to read it. The PDF itself never leaves your phone: only its text, with your private details hidden.</p>
+          <p class="hint" id="ss-normal-privacy" data-i18n="stmtSample.privacy">🔒 Before anything leaves your phone, every digit turns into a 9, email addresses and links are removed, and names written after labels like “Titular” are hidden. Shops and people you paid stay unless you hide them, so read the whole text before sending.</p>
+          <div id="ss-full-box" hidden>
+            <p class="hint" data-i18n="stmtSample.fullIntro">Send the full version of this statement so I can find what the app is missing. — JP</p>
+            <p class="hint" data-i18n="stmtSample.fullPrivacy">⚠️ Nothing is hidden this time.</p>
+            <label class="checkbox-row">
+              <input type="checkbox" id="ss-consent">
+              <span data-i18n="stmtSample.fullConsent">I understand that this version includes my real numbers and details</span>
+            </label>
+          </div>
           <label for="ss-bank" data-i18n="stmtSample.bankLabel">Which bank, and what kind of statement is it?</label>
           <input type="text" id="ss-bank" maxlength="30" autocomplete="off" data-i18n-placeholder="stmtSample.bankPlaceholder" placeholder="e.g. Examplebank credit card">
           <label for="ss-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
