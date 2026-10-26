@@ -5021,6 +5021,15 @@ function renderPie(key, items) {
   const pieEl = document.getElementById(`pie-${key}`);
   const listEl = document.getElementById(`list-${key}`);
 
+  // A breakdown with no pie (tags: a row per tag, since one entry can carry
+  // several tags and the slices would not add up to the whole).
+  if (!wrapEl) {
+    if (!items.length) { listEl.innerHTML = `<div class="status-msg">${escapeHtml(tr("overview.nothingYet"))}</div>`; return; }
+    listEl.innerHTML = "";
+    resolveDisplayColors(items).forEach((item) => appendLegendRow_(listEl, key, item));
+    return;
+  }
+
   wrapEl.querySelectorAll(".pie-outside-label").forEach((el) => el.remove());
 
   if (!items.length) {
@@ -5086,22 +5095,24 @@ function renderPie(key, items) {
   });
 
   listEl.innerHTML = "";
-  listItems.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "legend-row";
-    row.innerHTML = `
-      <span class="legend-swatch" style="background:${item.displayColor}"></span>
-      <div class="legend-text">
-        <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
-        <div class="legend-sub">
-          <span class="legend-amount">${formatPen(item.amount_pen)}</span>
-          <span class="legend-percent">${item.percent.toFixed(1)}%</span>
-        </div>
+  listItems.forEach((item) => appendLegendRow_(listEl, key, item));
+}
+
+function appendLegendRow_(listEl, key, item) {
+  const row = document.createElement("div");
+  row.className = "legend-row";
+  row.innerHTML = `
+    <span class="legend-swatch" style="background:${item.displayColor}"></span>
+    <div class="legend-text">
+      <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
+      <div class="legend-sub">
+        <span class="legend-amount">${formatPen(item.amount_pen)}</span>
+        <span class="legend-percent">${item.percent.toFixed(1)}%</span>
       </div>
-    `;
-    row.addEventListener("click", () => openBreakdownDrilldown(key, item));
-    listEl.appendChild(row);
-  });
+    </div>
+  `;
+  row.addEventListener("click", () => openBreakdownDrilldown(key, item));
+  listEl.appendChild(row);
 }
 
 // ---- Breakdown drill-down: transactions behind one category/tag/payment method ----
