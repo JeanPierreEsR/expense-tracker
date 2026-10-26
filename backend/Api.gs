@@ -283,7 +283,6 @@ function routeAction(action, payload) {
     case 'admin_debugListEmails': return debugListEmails_(payload.senders || [], Number(payload.days) || 7);
     case 'admin_setupIbkAccounts': return adminSetupIbkAccounts(payload);
     case 'admin_setupInvestmentPlatforms': return adminSetupInvestmentPlatforms(payload);
-    case 'listInvestmentPlatforms': return listInvestmentPlatforms();
     case 'admin_setupBcpAccounts': return adminSetupBcpAccounts(payload);
     case 'admin_applyStatementActions': return adminApplyStatementActions(payload);
     case 'admin_undoImportBatch': return adminUndoImportBatch(payload);

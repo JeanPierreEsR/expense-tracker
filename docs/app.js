@@ -4600,7 +4600,6 @@ function showScreen(name) {
     refreshOverview();
     refreshMonthsHistory_();
     refreshBalances().catch(() => {});
-    refreshInvestments().catch(() => {});
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -5082,12 +5081,12 @@ async function loadOverviewEntries_(bounds) {
   }
 }
 
-// Investments card, top part: net put into each platform during the selected
-// period (deposits minus withdrawals, owner's PEN value). Tap a row for its entries.
+// Investments card: FLOWS only — net put into each platform during the selected
+// period (deposits minus withdrawals, owner's PEN value). Never a balance or a
+// % (specs/accounts.md § Investments are flows only). Tap a row for its entries.
 function renderInvestmentsPeriod_(items) {
-  const wrap = document.getElementById("investments-period");
   const list = document.getElementById("investments-period-list");
-  wrap.hidden = items.length === 0;
+  document.getElementById("investments-card").hidden = items.length === 0;
   list.innerHTML = "";
   items.forEach((item) => {
     const row = document.createElement("div");
@@ -5097,7 +5096,6 @@ function renderInvestmentsPeriod_(items) {
         <div class="legend-name">${escapeHtml(item.name)}</div>
         <div class="legend-sub">
           <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
-          <span class="legend-percent">${item.percent.toFixed(1)}%</span>
         </div>
       </div>
     `;
@@ -13065,54 +13063,6 @@ async function refreshBalances() {
 }
 
 let balancesCache = [];
-
-// ---- Investments card ----
-// Net cash put into each platform, per currency (Investments.gs). Tap a
-// platform to list its deposits/withdrawals underneath.
-async function refreshInvestments() {
-  const card = document.getElementById("investments-card");
-  const list = document.getElementById("investments-list");
-  const rows = await callApi("listInvestmentPlatforms", {});
-  card.hidden = rows.length === 0;
-  list.innerHTML = "";
-  rows.forEach((r) => {
-    const wrap = document.createElement("div");
-    const row = document.createElement("div");
-    row.className = "balance-row";
-    const lines = r.lines.length
-      ? r.lines.map((l) => formatSignedBalance_(l.amount, l.currency)).join(" · ")
-      : tr("invest.nothingYet");
-    row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${escapeHtml(lines)}</div>
-    `;
-    const detail = document.createElement("div");
-    detail.hidden = true;
-    row.addEventListener("click", async () => {
-      if (!detail.hidden) { detail.hidden = true; return; }
-      detail.hidden = false;
-      detail.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
-      const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: r.id });
-      detail.innerHTML = moves.length ? "" : `<p class="hint">${escapeHtml(tr("invest.noMoves"))}</p>`;
-      moves.forEach((m) => {
-        const item = document.createElement("div");
-        item.className = "loan-detail-row";
-        const kind = tr(m.signed > 0 ? "investment.deposit" : "investment.withdrawal");
-        item.innerHTML = `
-          <div class="loan-detail-row-top">
-            <span class="loan-detail-row-desc">${escapeHtml(m.description || kind)}</span>
-            <span class="loan-detail-row-amount">${formatSignedBalance_(m.signed, m.currency)}</span>
-          </div>
-          <div class="loan-detail-row-meta">${m.date} · ${kind}${m.other_account ? tr(m.signed > 0 ? "invest.fromAccount" : "invest.toAccount", { account: escapeHtml(m.other_account) }) : ""}</div>
-        `;
-        detail.appendChild(item);
-      });
-    });
-    wrap.appendChild(row);
-    wrap.appendChild(detail);
-    list.appendChild(wrap);
-  });
-}
 
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
