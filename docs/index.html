@@ -913,6 +913,11 @@
         <div class="card">
           <button type="button" class="add-inline" id="statement-past-back" data-i18n="common.back">‹ Back</button>
         </div>
+        <details class="card stmt-bank-only" id="statement-matrix-card">
+          <summary class="stmt-matrix-summary" data-i18n="matrix.title">Statements by month</summary>
+          <p class="hint" data-i18n="matrix.hint">A ✓ means a statement ending that month was added. A dash is a month with no statement between two you did add — a hole to fill.</p>
+          <div id="statement-matrix"></div>
+        </details>
         <div class="card stmt-bank-only" id="statement-gaps-card">
           <h2 style="margin-top:0;" data-i18n="gaps.title">Gaps</h2>
           <p class="hint" data-i18n="gaps.hint">Each time you set a balance from a statement, any leftover difference the app couldn't explain is kept here as a note. They are only notes — they never count in your totals, budgets or balances. Mark one resolved once you've found the cause.</p>

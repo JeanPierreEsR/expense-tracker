@@ -229,6 +229,53 @@ function listStatementCoverage() {
 }
 
 /**
+ * History by month (More → Statements → Past uploads → "Statements by month"):
+ * accounts as rows, months as columns. A statement counts in the month its
+ * period ENDS in (billing cycles do not follow calendar months). Per account:
+ * `cells[yyyy-mm]` = number of statements ending that month; months between the
+ * account's first and last statement with none are the holes the table is for.
+ * Imports are not statements. Read-only.
+ */
+function getStatementMonthMatrix() {
+  ensureStatementUploadsSheet_();
+  var uploads = getAllRows('Statement Uploads').filter(function (u) {
+    return u.source !== 'import' && u.account_key && covKey_(u.account_key) !== STMT_NO_ACCOUNT_KEY_ && String(u.period_end).length >= 7;
+  });
+  var pmByKey = {};
+  getAllRows('Payment Methods').forEach(function (pm) {
+    var k = covKey_(pm.last_4);
+    if (k) pmByKey[k] = pm;
+  });
+  var accounts = {}, first = '', last = '';
+  uploads.forEach(function (u) {
+    var key = covKey_(u.account_key);
+    var ym = String(u.period_end).substring(0, 7);
+    var a = accounts[key] || (accounts[key] = {
+      key: key,
+      label: pmByKey[key] ? pmByKey[key].nickname + ' …' + key : (u.account_label || key),
+      cells: {}, first: ym, last: ym
+    });
+    a.cells[ym] = (a.cells[ym] || 0) + 1;
+    if (ym < a.first) a.first = ym;
+    if (ym > a.last) a.last = ym;
+    if (!first || ym < first) first = ym;
+    if (!last || ym > last) last = ym;
+  });
+  var months = [];
+  if (first) {
+    var y = Number(first.substring(0, 4)), m = Number(first.substring(5, 7));
+    var endY = Number(last.substring(0, 4)), endM = Number(last.substring(5, 7));
+    while (y < endY || (y === endY && m <= endM)) {
+      months.push(y + '-' + (m < 10 ? '0' : '') + m);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+  }
+  var rows = Object.keys(accounts).map(function (k) { return accounts[k]; })
+    .sort(function (a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
+  return { months: months, accounts: rows };
+}
+
+/**
  * One-off seed of Statement Uploads from statements already reconciled by
  * hand (payload.rows: [{ account_key, account_label, kind, period_start,
  * period_end, closing_json, file_name, processed_at, lines_total, verified }]).
