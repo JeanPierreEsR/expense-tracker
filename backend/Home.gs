@@ -106,6 +106,63 @@ function getHomeGlance() {
   return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today) };
 }
 
+// Every month from the first confirmed entry to today: the totals (the Overview's month-by-month bars)
+// and each month's running expenses by day (the Overview's spending-pace graph, which steps back through
+// earlier months as a reference line). Same rules as getHomeGlance. A separate request on purpose: only
+// the Overview asks for it, so Home's single glance request stays light.
+var HOME_HISTORY_MAX_MONTHS_ = 120;
+
+function getMonthlyHistory() {
+  var today = formatCalendarDate_(new Date());
+  var curKey = today.substring(0, 7);
+  var curDay = Number(today.substring(8, 10));
+
+  var splitSum = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount);
+  });
+
+  var perMonth = {};
+  var dayExpense = {};
+  var firstKey = curKey;
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || e.type === 'transfer') return;
+    var key = String(e.date).substring(0, 7);
+    if (key > curKey) return;
+    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    if (rate == null) return;
+    var own = Number(e.amount);
+    if (e.type === 'expense') own -= (splitSum[e.id] || 0);
+    var pen = own * rate;
+    var bucket = perMonth[key] || (perMonth[key] = { income: 0, expense: 0, investment: 0 });
+    if (key < firstKey) firstKey = key;
+    if (e.type === 'expense') {
+      bucket.expense += pen;
+      dayExpense[e.date] = (dayExpense[e.date] || 0) + pen;
+    } else if (e.type === 'income') {
+      bucket.income += pen;
+    } else if (e.type === 'investment') {
+      bucket.investment += pen;
+    }
+  });
+
+  var count = (Number(curKey.substring(0, 4)) - Number(firstKey.substring(0, 4))) * 12 +
+    Number(curKey.substring(5, 7)) - Number(firstKey.substring(5, 7)) + 1;
+  var keys = homeMonthKeys_(today, Math.min(count, HOME_HISTORY_MAX_MONTHS_));
+  var months = keys.map(function (k) {
+    var b = perMonth[k] || { income: 0, expense: 0, investment: 0 };
+    var days = homeDaysInMonth_(k);
+    return {
+      month: k,
+      income: b.income, expense: b.expense, investment: b.investment,
+      net: b.income - b.expense - b.investment,
+      days: days,
+      cum: homeCumulativeByDay_(dayExpense, k, k === curKey ? curDay : days)
+    };
+  });
+  return { months: months, curDay: curDay };
+}
+
 // Trips and events whose dates include today, newest start first, each with what it has cost so far
 // (real payments plus estimates nothing has paid yet — the same total the Trips screen shows).
 function homeActiveTrips_(today) {

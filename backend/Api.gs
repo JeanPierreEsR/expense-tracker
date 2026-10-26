@@ -170,6 +170,7 @@ function routeAction(action, payload) {
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
+    case 'getMonthlyHistory': return getMonthlyHistory();
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
     case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
