@@ -4867,6 +4867,38 @@ async function refreshOverview() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  loadOverviewEntries_(bounds);
+}
+
+// The list at the end of Overview: every entry of the selected period (all
+// types), newest first, shown 50 at a time.
+const OVERVIEW_ENTRIES_PAGE = 50;
+let overviewEntriesToken_ = 0;
+async function loadOverviewEntries_(bounds) {
+  const list = document.getElementById("overview-entries-list");
+  const token = ++overviewEntriesToken_;
+  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  try {
+    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
+    if (token !== overviewEntriesToken_) return;
+    let shown = 0;
+    const draw = () => {
+      shown = Math.min(entries.length, shown + OVERVIEW_ENTRIES_PAGE);
+      renderEntriesInto_(list, entries.slice(0, shown), "overview.empty");
+      if (shown < entries.length) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "cancel-edit-btn";
+        btn.textContent = tr("common.loadMore");
+        btn.addEventListener("click", draw);
+        list.appendChild(btn);
+      }
+    };
+    draw();
+  } catch (err) {
+    if (token !== overviewEntriesToken_) return;
+    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+  }
 }
 
 function renderBreakdowns(breakdown) {
