@@ -816,53 +816,54 @@
       </div>
 
       <div id="stmt-step-1" class="stmt-step">
-        <div class="card stmt-bank-only">
-          <h2 style="margin-top:0;" data-i18n="stmt.s1.title">Upload your statements</h2>
-          <p class="hint" style="margin-bottom:0;" data-i18n="stmt.s1.hint">Pick a way. You can add more later.</p>
+        <div class="card stmt-bank-only" id="stmt-status-card">
+          <button type="button" class="stmt-status-line" id="stmt-status-toggle" aria-expanded="false">
+            <span id="stmt-status-text"></span><span class="stmt-status-chev" aria-hidden="true">›</span>
+          </button>
+          <div id="statement-coverage-list" hidden></div>
         </div>
 
-        <div class="card stmt-bank-only" id="statement-inbox-card">
-          <h2 style="margin-top:0;" data-i18n="stmt.inbox">Inbox</h2>
-          <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one.</p>
-          <div id="statement-inbox-list"></div>
-        </div>
+        <div class="card" id="stmt-upload-card">
+          <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.s1.title">Upload your statements</h2>
+          <p class="hint stmt-bank-only" style="margin-bottom:0;" data-i18n="stmt.s1.hint">Pick a way. You can add more later.</p>
 
-        <div class="card">
-          <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.s1.phone">From this phone</h2>
-          <p class="hint stmt-bank-only" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved until you tap Save.</p>
-          <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.read">Choose your file</h2>
-          <p class="hint stmt-import-only" data-i18n="imp.readHint">Pick one or more CSV or Excel files exported from the other app. Nothing is saved until you confirm at the end.</p>
-          <label class="stmt-upload-btn">
-            <span class="stmt-bank-only" data-i18n="stmt.choose">Choose statement PDFs</span>
-            <span class="stmt-import-only" data-i18n="imp.choose">Choose export files (CSV or Excel)</span>
-            <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
-          </label>
-        </div>
-
-        <div class="card stmt-bank-only" id="statement-find-card" hidden>
-          <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look for older statements in Gmail ›</button>
-          <div id="statement-find-body">
-          <h2 style="margin-top:0;" data-i18n="find.title">Find statements in Gmail</h2>
-          <p class="hint" id="statement-find-start" hidden data-i18n="find.start">Start here: bring in your history. Search once, check the statements you want, and read them. After that, new statements arrive by themselves in the Inbox above.</p>
-          <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
-          <div class="stmt-choices" style="padding-left:0;align-items:center">
-            <label for="statement-find-months" data-i18n="find.period">Look back</label>
-            <select id="statement-find-months">
-              <option value="3" data-i18n="find.m3">3 months</option>
-              <option value="6" data-i18n="find.m6">6 months</option>
-              <option value="12" selected data-i18n="find.m12">12 months</option>
-              <option value="24" data-i18n="find.m24">24 months</option>
-            </select>
-            <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+          <div class="stmt-option stmt-bank-only" id="statement-inbox-card">
+            <h3 data-i18n="stmt.inbox">Inbox</h3>
+            <p class="hint" data-i18n="stmt.inboxHint">Statements that arrived in your email. They wait here — nothing is downloaded until you tap Open, and you type the PDF password when you open one. Which account each one belongs to shows once you open it.</p>
+            <div id="statement-inbox-list"></div>
           </div>
-          <div id="statement-find-results"></div>
-          </div>
-        </div>
 
-        <div class="card stmt-bank-only">
-          <h2 style="margin-top:0;" data-i18n="stmt.s1.accounts">Your accounts</h2>
-          <p class="hint" data-i18n="stmt.hint">Which bank statement you last processed for each account, and when the next one should be available.</p>
-          <div id="statement-coverage-list"></div>
+          <div class="stmt-option">
+            <h3 class="stmt-bank-only" data-i18n="stmt.s1.phone">From this phone</h3>
+            <p class="hint stmt-bank-only" data-i18n="stmt.readHint">Pick one or more statement PDFs. They are read on this device — the file is never uploaded — and every reading checks its own totals. Nothing is saved until you tap Save.</p>
+            <h3 class="stmt-import-only" data-i18n="imp.read">Choose your file</h3>
+            <p class="hint stmt-import-only" data-i18n="imp.readHint">Pick one or more CSV or Excel files exported from the other app. Nothing is saved until you confirm at the end.</p>
+            <label class="stmt-upload-btn">
+              <span class="stmt-bank-only" data-i18n="stmt.choose">Choose statement PDFs</span>
+              <span class="stmt-import-only" data-i18n="imp.choose">Choose export files (CSV or Excel)</span>
+              <input type="file" id="statement-file-input" accept="application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
+            </label>
+          </div>
+
+          <div class="stmt-option stmt-bank-only" id="statement-find-card" hidden>
+            <h3 data-i18n="find.title">Past emails</h3>
+            <button type="button" class="add-inline" id="statement-find-toggle" hidden data-i18n="find.older">Look through past emails ›</button>
+            <div id="statement-find-body">
+            <p class="hint" id="statement-find-start" hidden data-i18n="find.start">Start here: bring in your history. Search once, check the statements you want, and read them. After that, new statements arrive by themselves in the Inbox above.</p>
+            <p class="hint" data-i18n="find.hint">Looks through your Gmail for bank statement PDFs — for example all of last year's — so you don't have to download them one by one. Nothing is opened until you check what you want and tap Read.</p>
+            <div class="stmt-choices" style="padding-left:0;align-items:center">
+              <label for="statement-find-months" data-i18n="find.period">Look back</label>
+              <select id="statement-find-months">
+                <option value="3" data-i18n="find.m3">3 months</option>
+                <option value="6" data-i18n="find.m6">6 months</option>
+                <option value="12" selected data-i18n="find.m12">12 months</option>
+                <option value="24" data-i18n="find.m24">24 months</option>
+              </select>
+              <button type="button" class="stmt-choice" id="statement-find-btn" data-i18n="find.search">Search</button>
+            </div>
+            <div id="statement-find-results"></div>
+            </div>
+          </div>
         </div>
 
         <div class="stmt-stepnav">

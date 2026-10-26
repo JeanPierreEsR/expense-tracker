@@ -3017,3 +3017,16 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-stepnav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 12px; }
 .stmt-stepnav .add-inline { align-self: flex-start; }
 .stmt-s4-label { font-weight: 600; font-size: 0.9rem; margin: 14px 0 4px; }
+
+/* Step 1: a status line above the Upload block, and the Upload block's three options */
+.stmt-status-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 0; border: 0; background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--text); text-align: left; cursor: pointer;
+}
+.stmt-status-chev { color: var(--muted); font-size: 1.2rem; transition: transform 0.15s; }
+.stmt-status-line.open .stmt-status-chev { transform: rotate(90deg); }
+#statement-coverage-list { margin-top: 10px; }
+.stmt-option { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 12px; }
+.stmt-option h3 { margin: 0 0 4px; font-size: 1rem; }
+.stmt-option .hint { margin: 4px 0 8px; }
+.stmt-acct { font-weight: 600; font-size: 0.95rem; margin: 2px 0 4px; }
