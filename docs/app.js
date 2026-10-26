@@ -13053,6 +13053,8 @@ async function refreshBalances() {
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
   totalsWrap.hidden = codes.length === 0;
+  balancesRowCount_ = rows.length;
+  applyBalancesExpanded_();
   codes.forEach((code) => {
     const amount = Math.round(totals[code] * 100) / 100;
     const line = document.createElement("div");
@@ -13063,6 +13065,21 @@ async function refreshBalances() {
 }
 
 let balancesCache = [];
+
+// The Balances card opens showing only the net per currency; the accounts
+// (this person's own tracked ones) appear when it is expanded.
+let balancesExpanded_ = false;
+let balancesRowCount_ = 0;
+function applyBalancesExpanded_() {
+  document.getElementById("balances-list").hidden = !balancesExpanded_;
+  const btn = document.getElementById("balances-toggle");
+  btn.setAttribute("aria-expanded", String(balancesExpanded_));
+  btn.textContent = balancesExpanded_ ? tr("balances.hideAccounts") : tr("balances.showAccounts", { n: balancesRowCount_ });
+}
+document.getElementById("balances-toggle").addEventListener("click", () => {
+  balancesExpanded_ = !balancesExpanded_;
+  applyBalancesExpanded_();
+});
 
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;

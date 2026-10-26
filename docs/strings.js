@@ -422,6 +422,8 @@
     "balances.add": { en: "+ Add balance", es: "+ Agregar saldo" },
     "balances.hint": { en: "What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.", es: "Lo que debería tener cada cuenta ahora, a partir de su saldo inicial más cada movimiento desde entonces. No depende del periodo de arriba." },
     "balances.netByCurrency": { en: "What's left by currency", es: "Lo que queda por moneda" },
+    "balances.showAccounts": { en: "Show accounts ({n}) ›", es: "Ver cuentas ({n}) ›" },
+    "balances.hideAccounts": { en: "Hide accounts ‹", es: "Ocultar cuentas ‹" },
     "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, Yape, una tarjeta de Starbucks…) para empezar a llevar su saldo." },
 
     // ---- invest ----
