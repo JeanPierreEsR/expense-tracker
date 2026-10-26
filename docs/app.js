@@ -4929,7 +4929,10 @@ function renderPaceBig_() {
   const months = monthsHist_.months;
   const cur = months[months.length - 1];
   const list = paceRefList_();
-  const ref = list.length ? list[list.length - 1] : null;   // always last month: the card has no picker of its own
+  // The grey reference line follows Overview's pinned period picker: the month picked there (when it is an
+  // earlier month than this one), otherwise last month. The card has no picker of its own.
+  const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
+  const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
   const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
   card.hidden = !nowTotal && !(ref && ref.expense > 0);
   if (card.hidden) return;
@@ -5042,6 +5045,7 @@ async function refreshOverviewInner_() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   loadOverviewEntries_(bounds);
 }
