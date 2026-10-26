@@ -299,7 +299,7 @@
     </div>
 
     <div id="screen-overview" class="screen" hidden>
-      <div class="card" id="period-selector-card">
+      <div class="card" id="period-selector-card"><span class="period-spin stmt-spinner" role="status" aria-label="Loading"></span>
         <div class="period-selector">
           <button type="button" class="period-nav-btn" id="period-prev" data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
           <div id="period-label" role="button" tabindex="0">Month</div>
@@ -317,9 +317,7 @@
         </div>
       </div>
 
-      <div class="overview-loading-bar" role="status" aria-live="polite"><span class="stmt-spinner"></span><span data-i18n="common.loading">Loading…</span></div>
-
-      <div class="card">
+      <div class="card ov-period">
         <div class="summary-grid">
           <div class="summary-item">
             <span class="summary-label" data-i18n="summary.income">Income</span>
@@ -371,13 +369,13 @@
         <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
-      <div class="card" id="investments-card" hidden>
+      <div class="card ov-period" id="investments-card" hidden>
         <h2 data-i18n="summary.investments">Investments</h2>
         <p class="hint" data-i18n="invest.periodTitle">Put in this period</p>
         <div id="investments-period-list"></div>
       </div>
 
-      <div class="card">
+      <div class="card ov-period">
         <div class="type-tabs overview-type-tabs" id="overview-type-tabs">
           <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
           <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>
@@ -405,7 +403,7 @@
         </div>
       </div>
 
-      <div class="card" id="overview-entries-card">
+      <div class="card ov-period" id="overview-entries-card">
         <h2 data-i18n="overview.entriesTitle">Entries in this period</h2>
         <div id="overview-entries-list"></div>
       </div>

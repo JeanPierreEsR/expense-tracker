@@ -5048,12 +5048,16 @@ function trackOverviewLoad_(promise) {
 
 function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_()); }
 
-async function refreshOverviewInner_() {
-  renderPeriodSelector();
-  const bounds = getPeriodBounds();
-  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
+// What Overview does while it loads: the screen NEVER blanks or waits. A small spinner by the period picker
+// says "fetching"; the last figures stay readable. Only when the figures on screen belong to ANOTHER period
+// (a month was just switched to, nothing cached for it) are the period cards dimmed — they would be wrong.
+// A period seen before this session is painted at once from the cache and refreshed behind the scenes.
+let overviewShownKey_ = null;
+let overviewReqToken_ = 0;
+const overviewCache_ = {};
+const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}`;
 
-  const data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+function paintOverviewSummary_(data) {
   lastOverviewData = data;
 
   document.getElementById("summary-income").textContent = formatPen(data.totals.income);
@@ -5075,6 +5079,31 @@ async function refreshOverviewInner_() {
   renderBreakdowns(data.breakdowns[overviewType]);
   if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
+}
+
+async function refreshOverviewInner_() {
+  renderPeriodSelector();
+  const bounds = getPeriodBounds();
+  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
+
+  const screen = document.getElementById("screen-overview");
+  const key = overviewKey_(bounds);
+  const token = ++overviewReqToken_;
+  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); }
+  else if (overviewShownKey_ !== key) screen.classList.add("overview-stale");
+
+  let data;
+  try {
+    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+  } catch (err) {
+    if (token === overviewReqToken_) screen.classList.remove("overview-stale");
+    throw err;
+  }
+  overviewCache_[key] = data;
+  if (token !== overviewReqToken_) return;   // the person already moved on to another period
+  screen.classList.remove("overview-stale");
+  overviewShownKey_ = key;
+  paintOverviewSummary_(data);
   loadOverviewEntries_(bounds);
 }
 
