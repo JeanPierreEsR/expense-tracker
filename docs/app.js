@@ -5090,14 +5090,10 @@ function renderInvestmentsPeriod_(items) {
   list.innerHTML = "";
   items.forEach((item) => {
     const row = document.createElement("div");
-    row.className = "legend-row";
+    row.className = "balance-row";
     row.innerHTML = `
-      <div class="legend-text">
-        <div class="legend-name">${escapeHtml(item.name)}</div>
-        <div class="legend-sub stacked">
-          ${item.lines.map((l) => `<span class="legend-amount">${formatSignedBalance_(l.amount, l.currency)}</span>`).join("")}
-        </div>
-      </div>
+      <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div>${formatSignedBalance_(l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);

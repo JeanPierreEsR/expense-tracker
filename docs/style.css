@@ -436,7 +436,6 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   white-space: nowrap;
 }
 
-.legend-sub.stacked { flex-direction: column; gap: 2px; }
 .legend-sub {
   display: flex;
   justify-content: space-between;
