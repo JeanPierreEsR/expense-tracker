@@ -406,6 +406,7 @@
     "overview.byPaymentMethod": { en: "By account or card", es: "Por cuenta o tarjeta" },
     "overview.excluded": { en: { one: "{n} entry excluded — missing an exchange rate for that month.", other: "{n} entries excluded — missing an exchange rate for that month." }, es: { one: "{n} movimiento excluido: falta el tipo de cambio de ese mes.", other: "{n} movimientos excluidos: falta el tipo de cambio de ese mes." } },
     "overview.nothingYet": { en: "Nothing here yet.", es: "Aún no hay nada aquí." },
+    "overview.entriesTitle": { en: "Entries in this period", es: "Movimientos de este periodo" },
     "overview.others": { en: "Others ({n})", es: "Otros ({n})" },
 
     // ---- balances ----
