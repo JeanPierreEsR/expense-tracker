@@ -2604,6 +2604,24 @@ function entryMetaHtml_(entry, headline) {
 const ENTRY_PAGE_SIZE = 100;
 let entriesShown = ENTRY_PAGE_SIZE;
 
+// Entries whose delete has been confirmed and is still being sent. Their rows
+// (Home list, drill-downs, trip screen, search) show "Deleting…" meanwhile.
+const deletingEntryIds_ = new Set();
+
+// Marks the rows already on screen for this entry, without a re-render.
+function markEntryRowsDeleting_(id) {
+  document.querySelectorAll(".entry[data-entry-id]").forEach((row) => {
+    if (row.dataset.entryId !== String(id) || row.classList.contains("entry-deleting")) return;
+    row.classList.add("entry-deleting");
+    const left = row.querySelector(".entry-left");
+    if (!left) return;
+    const note = document.createElement("div");
+    note.className = "entry-queue-status";
+    note.textContent = tr("entry.deleting");
+    left.appendChild(note);
+  });
+}
+
 function buildEntryRow_(entry) {
   const row = document.createElement("div");
   row.className = "entry";
@@ -2614,11 +2632,15 @@ function buildEntryRow_(entry) {
   // still saving in the background, or failed and is waiting to be
   // retried. Shown right under the description so it's never mistaken
   // for an already-landed change.
-  const statusLine = entry._queueStatus === "saving"
+  const statusLine = deletingEntryIds_.has(entry.id)
+    ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>`
+    : entry._queueStatus === "saving"
     ? `<div class="entry-queue-status">${tr("entry.saving")}</div>`
     : entry._queueStatus === "failed"
       ? `<div class="entry-queue-status entry-queue-failed">${tr("entry.saveFailedRetry")}</div>`
       : "";
+  row.dataset.entryId = entry.id;
+  if (deletingEntryIds_.has(entry.id)) row.classList.add("entry-deleting");
 
   const left = document.createElement("div");
   left.className = "entry-left";
@@ -3324,7 +3346,8 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 
 // Asks, then deletes one entry. Shared by the edit form's "Delete this entry" and the 🗑️ on each row of a
 // drill-down / trip list. Returns true only when the entry was really deleted.
-async function confirmAndDiscardEntry_(id, originalType, summary) {
+// onConfirmed runs right after the owner says OK, before the (slow) delete call.
+async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
   if (["transfer", "expense", "income"].includes(originalType)) {
@@ -3343,6 +3366,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary) {
     }
   }
   if (!confirm(confirmText)) return false;
+  if (onConfirmed) onConfirmed();
   await callApi("discardEntry", { id });
   refreshLoans().catch(() => {});
   return true;
@@ -3350,16 +3374,36 @@ async function confirmAndDiscardEntry_(id, originalType, summary) {
 
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
-  if (!(await confirmAndDiscardEntry_(editingEntryId, editingEntryOriginalType, editingEntrySummary_))) return;
-  exitEditMode();
-  await refreshEntryList();
-  refreshExpectedRecurring();
-  if (editingViaPopup) {
-    resetEntryFormFields_();
+  const id = editingEntryId;
+  const wasPopup = editingViaPopup;
+  let ok;
+  try {
+    ok = await confirmAndDiscardEntry_(id, editingEntryOriginalType, editingEntrySummary_, () => {
+      // Close the form at once; the row shows "Deleting…" until the server is done.
+      deletingEntryIds_.add(id);
+      exitEditMode();
+      if (wasPopup) {
+        resetEntryFormFields_();
+        closeEditPopup();
+      } else {
+        resetToFreshEntryScreen_();
+      }
+      markEntryRowsDeleting_(id);
+    });
+  } catch (err) {
+    // The delete failed after the form closed: the entry is still there.
+    deletingEntryIds_.delete(id);
+    renderEntryListFromCache_();
     await refreshAfterPopupEdit();
-  } else {
-    resetToFreshEntryScreen_();
+    alert(err.message);
+    return;
   }
+  if (!ok) return;
+  await refreshEntryList();   // the entry is gone from the server by now
+  deletingEntryIds_.delete(id);
+  renderEntryListFromCache_();
+  refreshExpectedRecurring();
+  if (wasPopup) await refreshAfterPopupEdit();
 });
 
 // ---- Editing as a pop-up (from an Overview drill-down) ----
@@ -5393,12 +5437,14 @@ function renderEntriesInto_(list, entries, emptyKey) {
     const headline = entryHeadline_(entry);
 
     const row = document.createElement("div");
-    row.className = "entry";
+    row.className = deletingEntryIds_.has(entry.id) ? "entry entry-deleting" : "entry";
+    row.dataset.entryId = entry.id;
     row.innerHTML = `
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
         <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
+        ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
       </div>
       <div class="entry-amount">
         ${renderEntryAmountHtml(entry)}
