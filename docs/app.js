@@ -4598,7 +4598,7 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
-    refreshMonthsHistory_();
+    trackOverviewLoad_(refreshMonthsHistory_());
     refreshBalances().catch(() => {});
   }
   if (name === "budgets") {
@@ -5021,7 +5021,25 @@ function formatPen(n) {
   return `${homeCur()} ${moneyFmt(n)}`;
 }
 
-async function refreshOverview() {
+// Overview shows a "Loading…" bar and dims its cards while ANY of its pieces
+// (summary, entries list, balances, month history) is still being fetched, so
+// switching months never looks like a finished screen showing old figures.
+let overviewBusyCount_ = 0;
+function trackOverviewLoad_(promise) {
+  const screen = document.getElementById("screen-overview");
+  overviewBusyCount_++;
+  screen.classList.add("overview-loading");
+  const done = () => {
+    overviewBusyCount_ = Math.max(0, overviewBusyCount_ - 1);
+    if (!overviewBusyCount_) screen.classList.remove("overview-loading");
+  };
+  Promise.resolve(promise).then(done, done);
+  return promise;
+}
+
+function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_()); }
+
+async function refreshOverviewInner_() {
   renderPeriodSelector();
   const bounds = getPeriodBounds();
   if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
@@ -5054,7 +5072,8 @@ async function refreshOverview() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 50;
 let overviewEntriesToken_ = 0;
-async function loadOverviewEntries_(bounds) {
+function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
+async function loadOverviewEntriesInner_(bounds) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
   list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
@@ -13021,7 +13040,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
 let balanceModalPmId = null;
 let balanceModalData = null;
 
-async function refreshBalances() {
+function refreshBalances() { return trackOverviewLoad_(refreshBalancesInner_()); }
+
+async function refreshBalancesInner_() {
   const list = document.getElementById("balances-list");
   const emptyNote = document.getElementById("balances-empty-note");
   const rows = await callApi("listPaymentMethodBalances", {});
