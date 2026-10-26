@@ -3055,9 +3055,6 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Overview loading: a small spinner in the period picker's corner (no layout shift, after a short delay so quick loads
    show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
 #period-selector-card { position: relative; }
-.period-spin { display: none; position: absolute; top: 10px; right: 12px; }
-.overview-loading .period-spin { display: block; animation: ov-appear 0.2s 0.3s both; }
-.overview-stale .period-spin { display: none; }
 #screen-overview > .card { transition: opacity 0.2s; }
 /* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
 .overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
