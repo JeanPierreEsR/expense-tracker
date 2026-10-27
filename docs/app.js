@@ -5093,6 +5093,9 @@ function paintOverviewSummary_(data) {
   document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
   document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
+  // Any positive figure reads green.
+  document.getElementById("summary-investment").classList.toggle("pos-green", data.totals.investment < -0.005);
+  document.getElementById("summary-net").classList.toggle("pos-green", data.totals.net > 0.005);
 
   const excludedNote = document.getElementById("overview-excluded-note");
   if (data.excludedCount > 0) {
@@ -5180,7 +5183,7 @@ function renderInvestmentsPeriod_(items) {
     row.className = "balance-row";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${item.lines.map((l) => `<div>${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div class="${l.amount < 0 ? "pos-green" : ""}">${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);

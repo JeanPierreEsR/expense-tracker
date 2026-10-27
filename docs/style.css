@@ -327,6 +327,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.income { color: var(--income); }
 .summary-value.expense { color: var(--expense); }
 .summary-value.investment { color: var(--investment); }
+.pos-green, .summary-value.pos-green { color: var(--income); }
 
 /* ---- Breakdown pie charts ---- */
 
