@@ -1568,7 +1568,7 @@ function getFriendRepaymentHistory(payload) {
   var groups = {};
   settlements.forEach(function (s) {
     var loan = loanById[s.loan_id];
-    var part = { loan_description: label(loan), loan_date: loan.date, amount: Number(s.amount) };
+    var part = { loan_id: loan.id, loan_description: label(loan), loan_date: loan.date, amount: Number(s.amount) };
     if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
       var g = groups[s.transfer_entry_id];
       g.amount += part.amount;
@@ -1589,6 +1589,66 @@ function getFriendRepaymentHistory(payload) {
   lines.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 
   return { loans: loanRows, repayments: lines };
+}
+
+// Changes which loans a recorded repayment paid (owner's request, 2026-10-27). `id` is any settlement row of the repayment
+// (its rows share a transfer entry); `loan_ids` are the loans the person selected. The repayment's total is re-applied:
+// the selected loans first, oldest first, each up to what it has left (this repayment's own earlier share counts as
+// free again), then whatever remains goes to the oldest other open loans of the same person, currency and direction.
+// All-or-nothing: when the open loans cannot take the whole amount nothing is changed. The repayment's money movement
+// (its transfer entry), date and account stay as they are.
+function reassignRepayment(payload) {
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var all = getAllRows('Settlements');
+  var first = all.find(function (s) { return s.id === payload.id; });
+  if (!first) throw new Error(tr_('err.repaymentNotFound'));
+  if (first.offset_loan_id) throw new Error(tr_('repay.autoOffsetEdit'));
+  var group = first.transfer_entry_id
+    ? all.filter(function (s) { return s.transfer_entry_id === first.transfer_entry_id && !s.offset_loan_id; })
+    : [first];
+  var anchorLoan = getAllRows('Loans').find(function (l) { return l.id === first.loan_id; });
+  if (!anchorLoan) throw new Error(tr_('err.loanNotFound'));
+
+  var total = group.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  group.forEach(function (s) { settledByLoan[s.loan_id] = (settledByLoan[s.loan_id] || 0) - Number(s.amount); });
+
+  var candidates = getAllRows('Loans').filter(function (l) {
+    return l.friend_id === anchorLoan.friend_id && l.currency === anchorLoan.currency &&
+      l.direction === anchorLoan.direction && l.status !== 'forgiven';
+  }).map(function (l) { return { loan: l, room: Number(l.amount) - (settledByLoan[l.id] || 0) }; })
+    .filter(function (c) { return c.room > 0.004; })
+    .sort(function (a, b) { return a.loan.date < b.loan.date ? -1 : (a.loan.date > b.loan.date ? 1 : 0); });
+
+  var chosen = {};
+  (payload.loan_ids || []).forEach(function (id) {
+    if (!candidates.some(function (c) { return c.loan.id === id; })) throw new Error(tr_('repay.chosenLoanNotOpen'));
+    chosen[id] = true;
+  });
+  var ordered = candidates.filter(function (c) { return chosen[c.loan.id]; })
+    .concat(candidates.filter(function (c) { return !chosen[c.loan.id]; }));
+
+  var plan = [];
+  var left = total;
+  ordered.forEach(function (c) {
+    if (left <= 0.004) return;
+    var take = Math.round(Math.min(c.room, left) * 100) / 100;
+    if (take > 0.004) { plan.push({ loan_id: c.loan.id, amount: take }); left -= take; }
+  });
+  if (left > 0.01) throw new Error(tr_('repay.reassignNoRoom'));
+
+  var touched = {};
+  group.forEach(function (s) { touched[s.loan_id] = true; });
+  var ids = {};
+  group.forEach(function (s) { ids[s.id] = true; });
+  deleteRowsWhere_('Settlements', function (s) { return ids[s.id]; });
+  plan.forEach(function (item) {
+    recordSettlementRow_(item.loan_id, first.date, item.amount, first.payment_method_id || '', '', first.transfer_entry_id || '');
+    touched[item.loan_id] = true;
+  });
+  Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
+  return { done: true, parts: plan.length };
 }
 
 // People who have loan history but nothing owing either way right now, so they never show on the Loans tab lists.

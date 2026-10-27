@@ -417,6 +417,7 @@ function routeAction(action, payload) {
     case 'listLoanBalances': return listLoanBalances(payload);
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'getFriendRepaymentHistory': return getFriendRepaymentHistory(payload);
+    case 'reassignRepayment': return reassignRepayment(payload);
     case 'listSettledLoanFriends': return listSettledLoanFriends(payload);
     case 'addLoan': return addLoan(payload);
     case 'updateLoan': return updateLoan(payload);
