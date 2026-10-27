@@ -14654,8 +14654,24 @@ function renderSettlementChooseSummary_() {
     const a = assignments.find((x) => x.loan_id === input.dataset.loan);
     input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${repaymentCurrency} ${moneyFmt(a.amount)}` : "";
   });
-  document.getElementById("settlement-choose-summary").textContent =
-    tr("settle.chooseSummary", { assigned: `${repaymentCurrency} ${moneyFmt(assigned)}`, rest: `${repaymentCurrency} ${moneyFmt(Math.max(0, paid - assigned))}` });
+  // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
+  const cur = repaymentCurrency;
+  let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
+  const parts = [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })];
+  if (rest > 0.004) {
+    const picked = new Set(assignments.map((a) => a.loan_id));
+    const others = [];
+    for (const l of settlementChoosableLoans_()) {
+      if (rest <= 0.004) break;
+      if (picked.has(l.id)) continue;
+      const take = Math.round(Math.min(l.remaining, rest) * 100) / 100;
+      others.push(`${l.description || tr("transfer.kind.loan")} (${cur} ${moneyFmt(take)})`);
+      rest = Math.round((rest - take) * 100) / 100;
+    }
+    if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.join(", ") }));
+    if (rest > 0.004) parts.push(tr(repaymentDirection === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(rest)}` }));
+  }
+  document.getElementById("settlement-choose-summary").textContent = parts.join(" · ");
 }
 
 // Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
