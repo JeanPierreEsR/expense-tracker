@@ -2949,6 +2949,11 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.mail-health { border-left: 4px solid #b26a00; }
+.mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
+.mail-health .hint { margin: 4px 0 6px; }
+.bm-health { margin: 4px 0; }
+.bm-health.problem { color: #b26a00; font-weight: 600; }
 .bm-status { font-size: 0.8rem; color: var(--muted); }
 .bm-status.ok { color: #2e9e5b; font-weight: 600; }
 .bm-status.wait { color: #b26a00; font-weight: 600; }

@@ -6445,6 +6445,7 @@ async function checkEmailsNow_(force) {
   emailCheckAt_ = Date.now();
   try {
     const out = await callApi("checkEmailsNow", {});
+    if (out && out.health) setMailHealth_(out.health);   // an older pinned backend sends none: the app then says nothing about it
     if (out && out.ran && out.created > 0) {
       const editing = document.activeElement && document.activeElement.closest("#review-list");
       if (!editing) await refreshReviewQueue();
@@ -6458,6 +6459,58 @@ async function checkEmailsNow_(force) {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
 });
+
+// ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----
+// The server answers every check with `health`: { now, lastOk, problem, lookbackDays, … }. `problem` is null (say nothing), 'stale' (no good check for
+// 6 hours) or the kind of failure. The Home warning appears only after a check made in THIS session has answered, so a phone that was closed for a day
+// never flashes a warning that the check it is about to make would clear. More → Bank emails shows "Last checked …" at any time.
+let mailHealthChecked_ = false;
+function setMailHealth_(health) {
+  if (!health || typeof health !== "object") return;
+  if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { health });
+  mailHealthChecked_ = true;
+  renderMailHealth_();
+  renderFirstSteps_();   // its "no e-mail yet" hint depends on whether the check works
+}
+function mailAgo_(health, at) {
+  const mins = Math.max(0, Math.floor(((Number(health.now) || Date.now()) - Number(at)) / 60000));
+  if (mins < 1) return tr("mailHealth.ago.now");
+  if (mins < 60) return tr("mailHealth.ago.min", { n: mins });
+  if (mins < 48 * 60) return tr("mailHealth.ago.hour", { n: Math.floor(mins / 60) });
+  return tr("mailHealth.ago.day", { n: Math.floor(mins / 1440) });
+}
+function mailHealthProblemText_(health) {
+  const known = ["stale", "quota", "auth", "read_errors", "time"].indexOf(health.problem) !== -1;
+  let text = tr("mailHealth.problem." + (known ? health.problem : "other"), { ago: mailAgo_(health, health.lastOk) });
+  if (Number(health.lookbackDays) > 3) text += " " + tr("mailHealth.catchUp", { n: health.lookbackDays });
+  return text;
+}
+function renderMailHealth_() {
+  const health = meta && meta.emailInfo && meta.emailInfo.health;
+  const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails) && !!health;
+  const card = document.getElementById("mail-health-card");
+  if (card) {
+    card.hidden = !(reading && mailHealthChecked_ && health.problem);
+    if (!card.hidden) document.getElementById("mail-health-text").textContent = mailHealthProblemText_(health);
+  }
+  const line = document.getElementById("bm-health");
+  if (line) {
+    const problem = reading && !!health.problem;
+    line.classList.toggle("problem", problem);
+    line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
+  }
+  const btn = document.getElementById("bm-check-btn");
+  if (btn) btn.hidden = !reading;
+}
+// "Check now" (Home warning and More → Bank emails): one forced check, then the screens refresh from its answer.
+async function mailCheckNowClicked_(btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("mailHealth.checking");
+  try { await checkEmailsNow_(true); } finally { btn.disabled = false; btn.textContent = original; renderMailHealth_(); }
+}
+document.getElementById("mail-health-check").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+document.getElementById("bm-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
 
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
@@ -6861,6 +6914,7 @@ function refreshExtrasRow_() {
   checkBackendUpdate_();
   checkBankReady_();
   renderFirstSteps_();
+  renderMailHealth_();
 }
 
 // ---- Home "Getting started" card (a friend's copy only; specs/home-tab.md § Getting started) ----
@@ -6879,7 +6933,9 @@ function renderFirstSteps_() {
   const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
   if (caps.bankEmails) {
     const got = Object.keys(info.seen || {}).length > 0;
-    steps.push({ done: got, text: tr("firstSteps.firstMail"), late: days >= 3, hint: days >= 3 ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
+    // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
+    const late = days >= 3 && !(info.health && info.health.problem);
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
   }
   steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
@@ -8392,6 +8448,7 @@ function openBankMailModal_(opts) {
   backdrop.querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
   bmEl_("bm-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
   if (reading) renderBankAlerts_();
+  renderMailHealth_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;

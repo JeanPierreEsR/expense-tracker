@@ -308,6 +308,12 @@
         <ul class="first-steps-list" id="first-steps-list"></ul>
       </div>
 
+      <div class="card mail-health" id="mail-health-card" role="status" hidden>
+        <h2 data-i18n="mailHealth.title">Your bank emails may not be arriving</h2>
+        <p class="hint" id="mail-health-text"></p>
+        <button type="button" class="add-inline" id="mail-health-check" data-i18n="mailHealth.checkNow">Check now</button>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
@@ -1950,6 +1956,8 @@
         <p id="bm-address" style="font-weight:700;word-break:break-all;margin:6px 0;"></p>
         <button type="button" class="add-inline" id="bm-copy-btn" data-i18n="bankMail.copy">Copy address</button>
         <p class="hint" id="bm-msg" role="status"></p>
+        <p class="hint bm-health" id="bm-health" role="status"></p>
+        <button type="button" class="add-inline" id="bm-check-btn" data-i18n="mailHealth.checkNow">Check now</button>
         <div class="ts-stage bm-stage" id="bm-scene" role="img" data-i18n-aria-label="bankMail.animLabel" aria-label="A bank email arrives and shows up in Needs review" hidden></div>
         <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
         <p class="hint" data-i18n="bankMail.alertsLead">The app only knows what your bank emails you. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
