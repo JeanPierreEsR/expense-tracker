@@ -1662,6 +1662,28 @@ function reassignRepayment(payload) {
   return { done: true, parts: plan.length };
 }
 
+// Undoes an automatic cancel-out (owner's request, 2026-10-27): the two matching rows (one on each loan) are removed, so
+// both loans owe that amount again. `id` is either half. Nothing else changes: no money moved when it was written.
+function undoCancelOut(payload) {
+  ensureSettlementsOffsetColumn_();
+  var all = getAllRows('Settlements');
+  var row = all.find(function (s) { return s.id === payload.id; });
+  if (!row) throw new Error(tr_('err.repaymentNotFound'));
+  if (!row.offset_loan_id) throw new Error(tr_('repay.notCancelOut'));
+  // the other half: on the other loan, pointing back at this one, same amount and date
+  var other = all.find(function (s) {
+    return s.id !== row.id && s.loan_id === row.offset_loan_id && s.offset_loan_id === row.loan_id &&
+      Math.abs(Number(s.amount) - Number(row.amount)) < 0.005 && String(s.date) === String(row.date);
+  });
+  var ids = {};
+  ids[row.id] = true;
+  if (other) ids[other.id] = true;
+  deleteRowsWhere_('Settlements', function (s) { return ids[s.id]; });
+  updateLoanStatusFromSettlements_(row.loan_id);
+  updateLoanStatusFromSettlements_(row.offset_loan_id);
+  return { done: true, both: !!other };
+}
+
 // People who have loan history but nothing owing either way right now, so they never show on the Loans tab lists.
 function listSettledLoanFriends(payload) {
   var scope = loanProjectScope_(payload);

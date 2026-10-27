@@ -390,3 +390,46 @@ test("history: a repayment shows the full amount that arrived, and what no longe
   assert.equal(paidOn(rt, other.id), 100);
   assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 150);
 });
+
+test("an automatic cancel-out can be undone from either half: both loans owe again", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const owed = cashLoan(rt, data, friend, 50);
+  const refund = rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 30, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "Refund" });
+  repay(rt, data, friend, 0.01);   // writes the cancel-out pair between the two loans
+  const status = (id) => rt.rows("Loans").find((l) => l.id === id).status;
+  assert.equal(status(refund.id), "repaid");
+  const half = rt.rows("Settlements").find((s) => s.loan_id === refund.id && s.offset_loan_id);
+
+  const out = rt.api("undoCancelOut", { id: half.id });
+
+  assert.equal(out.both, true);
+  assert.equal(rt.rows("Settlements").some((s) => s.offset_loan_id && [owed.id, refund.id].includes(s.loan_id)), false, "both halves gone");
+  assert.equal(status(refund.id), "outstanding");
+  assert.equal(status(owed.id), "partially_repaid", "still holds the 0.01 real repayment");
+  assert.throws(() => rt.api("undoCancelOut", { id: rt.rows("Settlements").find((s) => s.loan_id === owed.id && !s.offset_loan_id).id }), "a real repayment is not a cancel-out");
+});
+
+test("undoing the cancel-out of a refund loan reopens room, so a repayment can then be moved onto that loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-01");
+  const sar = cashLoan(rt, data, friend, 171.32, "2026-09-10");
+  rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 301.56, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "Refund" });
+  repay(rt, data, friend, 0.01);   // the oldest open loan (Bao) is canceled out against the refund: 301.56 of its room is used up
+  assert.equal(paidOn(rt, bao.id), 301.57);
+  // a repayment of 171.32 that the person assigned entirely to Sarcletti
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 171.32, date: today(), currency: "PEN", payment_method_id: data.pms[3].id, allocations: [{ loan_id: sar.id, amount: 171.32 }] });
+  const onSar = () => rt.rows("Settlements").find((s) => s.loan_id === sar.id && !s.offset_loan_id);
+
+  // Bao has only 155.43 of room, so moving the repayment onto Bao alone still leaves part on Sarcletti
+  rt.api("reassignRepayment", { id: onSar().id, loan_ids: [bao.id] });
+  assert.ok(paidOn(rt, sar.id) > 15, "the rest had nowhere else to go");
+
+  // undo the cancel-out: Bao has room again, and the whole repayment fits on it
+  const half = rt.rows("Settlements").find((s) => s.loan_id === bao.id && s.offset_loan_id);
+  rt.api("undoCancelOut", { id: half.id });
+  rt.api("reassignRepayment", { id: onSar().id, loan_ids: [bao.id] });
+  assert.equal(paidOn(rt, sar.id), 0, "Sarcletti is free of it");
+  assert.ok(Math.abs(paidOn(rt, bao.id) - (0.01 + 171.32)) < 0.005);
+});

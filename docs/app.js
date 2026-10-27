@@ -14251,8 +14251,8 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   document.getElementById("history-repayments-empty").hidden = h.repayments.length > 0;
   h.repayments.forEach((r) => {
     const row = document.createElement("div");
-    row.className = "loan-detail-row" + (r.is_offset ? "" : " editable");
-    if (!r.is_offset) row.addEventListener("click", () => openReassignRepayment_(r));
+    row.className = "loan-detail-row editable";
+    row.addEventListener("click", () => (r.is_offset ? undoCancelOut_(r) : openReassignRepayment_(r)));
     const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
     const acct = !r.is_offset && r.payment_method_id ? escapeHtml(pmName(r.payment_method_id)) : "";
     // A repayment that paid several loans is ONE line; the loans it paid are listed under it.
@@ -14265,7 +14265,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
     row.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${r.date} · ${kind}${r.is_offset ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
       ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}`;
@@ -14291,6 +14291,22 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   });
   loadingEl.hidden = true;
   contentEl.hidden = false;
+}
+
+// Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
+async function undoCancelOut_(r) {
+  const ctx = historyCtx_;
+  if (!confirm(tr("history.undoConfirm", { amount: `${r.currency} ${moneyFmt(r.amount)}`, a: r.loan_description, b: r.offset_loan_description }))) return;
+  try {
+    await callApi("undoCancelOut", { id: r.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
 }
 
 // ---- Change which loans a recorded repayment paid ----
