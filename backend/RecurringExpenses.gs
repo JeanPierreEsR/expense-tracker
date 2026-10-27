@@ -1077,6 +1077,29 @@ function linkEntryToRecurring(payload) {
   return result;
 }
 
+// "Mark as paid" when nothing was logged yet: records the payment itself as a
+// confirmed entry made from the item (its category, description, currency and
+// trip; the amount and date the owner confirms) and links it to the item, so
+// the item counts as paid. Splits are not copied (same rule as a confirmed
+// entry from an email — see the Recurring Expense Splits note).
+function recordRecurringPayment(payload) {
+  var item = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.recurringExpenseId; });
+  if (!item) throw new Error(tr_('err.recurringNotFound'));
+  var amount = Number(payload.amount);
+  if (!(amount > 0)) throw new Error(tr_('err.amountPositive'));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(payload.date || ''))) throw new Error(tr_('err.dateRequired'));
+  var cat = rowsById_(getAllRows('Categories'))[item.category_id];
+  var type = cat ? cat.type : 'expense';
+  var entry = createEntry({
+    type: type, date: payload.date, amount: amount, currency: item.currency,
+    category_id: item.category_id, description: item.description || '',
+    payment_method_id: payload.payment_method_id || '', paid_by: 'me',
+    trip_id: type === 'expense' ? item.trip_id : ''
+  });
+  adminLinkEntryToRecurring(entry.id, item.id);
+  return entry;
+}
+
 // The picker for "Mark as paid": EVERY confirmed entry of the item's own kind
 // (income vs expense) in this calendar month, in any currency, plus the last
 // two days of the previous month when the item falls on the 1st/2nd. The 10

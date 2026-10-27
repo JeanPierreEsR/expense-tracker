@@ -11029,6 +11029,27 @@ async function openPaidPicker_(item, currency) {
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
     tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(item.amount) });
+  // "Not logged yet": record the payment itself from the programmed item.
+  document.getElementById("paid-new-amount").value = item.amount;
+  document.getElementById("paid-new-date").value = todayLocalISO();
+  const acct = document.getElementById("paid-new-account");
+  acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
+    ((meta && meta.paymentMethods) || []).filter((p) => !p.archived).map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  document.getElementById("paid-new-save").onclick = async () => {
+    try {
+      await callApi("recordRecurringPayment", {
+        recurringExpenseId: item.id,
+        amount: Number(document.getElementById("paid-new-amount").value),
+        date: document.getElementById("paid-new-date").value,
+        payment_method_id: acct.value
+      });
+      backdrop.hidden = true;
+      await refreshExpectedRecurring();
+      if (typeof refreshEntries === "function") refreshEntries();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  };
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   try {

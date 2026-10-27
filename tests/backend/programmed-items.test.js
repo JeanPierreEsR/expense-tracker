@@ -300,3 +300,15 @@ test("the statement picker lists the whole month in any currency, best matches f
   const early2 = rt.api("getEntriesNear", { date: "2031-06-02", amount: 20, currency: "PEN", description: "x", kind: "purchase" });
   assert.deepEqual(early2.map((x) => x.id), [mayEnd.id]);
 });
+
+test("Mark as paid can record a brand-new entry from the item and counts it as paid", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data, { day: 28, amount: 100 });
+  assert.ok(expectedIds(rt).includes(r.id));
+  const e = rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 95, date: ym() + "-03" });
+  assert.equal(e.status, "confirmed");
+  assert.equal(e.category_id, r.category_id);
+  assert.equal(Number(e.amount), 95);
+  assert.ok(!expectedIds(rt).includes(r.id), "item now counted as paid");
+  assert.throws(() => rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 0, date: ym() + "-03" }));
+});
