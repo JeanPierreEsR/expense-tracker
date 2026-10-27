@@ -2502,21 +2502,40 @@ function exchangeLegSide_(entry) {
   return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
 }
 
+// Which way the money moved for the owner, for the sign on an entry's amount (the app-wide rule, owner 2026-10-27):
+// "in" = cash inflow (green, "+"), "out" = expense or cash disbursement ("−"), "" = a move between the owner's
+// own accounts (no sign). A transfer with a friend is a flow: a loan I give or a repayment I make is out; a loan
+// I receive or a repayment I get back is in.
+function entryFlowDirection_(entry) {
+  if (entry.type === "income") return "in";
+  if (entry.type === "expense") return "out";
+  if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
+  if (entry.type === "transfer" && entry.link && entry.link.friend) {
+    const paidThem = entry.link.direction === "i_owe_them";
+    return (entry.link.kind === "repayment" ? !paidThem : paidThem) ? "in" : "out";
+  }
+  return "";
+}
+
 function renderEntryAmountHtml(entry) {
-  if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
-    const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
-    return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
-  // A withdrawal is stored negative; it reads as money coming BACK, so it
-  // shows as a positive green figure with a leading +, like income.
-  if (entry.type === "investment" && Number(entry.amount) < 0) {
-    const abs = (v) => (v == null ? v : Math.abs(Number(v)));
-    const flipped = Object.assign({}, entry, {
-      amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
-      own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
-    });
-    return renderEntryAmountHtml(flipped).replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
+  const dir = entryFlowDirection_(entry);
+  // A withdrawal is stored negative: show its size, the sign comes from the direction.
+  const shown = entry.type === "investment" && Number(entry.amount) < 0
+    ? (() => {
+        const abs = (v) => (v == null ? v : Math.abs(Number(v)));
+        return Object.assign({}, entry, {
+          amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
+          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+        });
+      })()
+    : entry;
+  const html = renderEntryAmountPlain_(shown);
+  if (dir === "in") return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  if (dir === "out") return html.replace('class="primary-amt">', 'class="primary-amt">−');
+  return html;
+}
+
+function renderEntryAmountPlain_(entry) {
   const hasSplit = entry.own_share != null &&
     Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
@@ -3959,7 +3978,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
         </div>
-        <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
+        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -5115,6 +5134,7 @@ function paintOverviewSummary_(data) {
   document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
   document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
+  // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
   const excludedNote = document.getElementById("overview-excluded-note");
   if (data.excludedCount > 0) {
@@ -5202,7 +5222,7 @@ function renderInvestmentsPeriod_(items) {
     row.className = "balance-row";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${item.lines.map((l) => `<div>${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div class="${l.amount < 0 ? "pos-green" : ""}">${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
@@ -10811,7 +10831,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  const primary = `<span class="primary-amt">${isIncome ? "+" : "−"}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
@@ -11674,7 +11694,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
 
     const isPen = g.currency === homeCur();
     const isIncome = g.type === "income";
-    const sign = isIncome ? "+" : "";
+    const sign = isIncome ? "+" : "−";   // money in is +, money out is −
     let amountHtml;
     if (isPen) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
@@ -11992,27 +12012,27 @@ function renderProjectionsSummary_(p) {
   if (p.expenses > 0) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
-  if (p.investments > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), programmed: formatPen(p.investmentsProgrammed) }));
+  if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
         <span class="summary-label">${tr("summary.income")}</span>
-        <span class="summary-value income">${formatPen(p.income)}</span>
+        <span class="summary-value income">${formatPenSigned_(p.income)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.expenses")}</span>
-        <span class="summary-value expense">${formatPen(p.expenses)}</span>
+        <span class="summary-value expense">${formatPenSigned_(-p.expenses)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.investments")}</span>
-        <span class="summary-value investment">${formatPen(p.investments)}</span>
+        <span class="summary-value investment">${formatPenSigned_(p.investments)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
-        <span class="summary-value">${formatPen(p.net)}</span>
+        <span class="summary-value">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
@@ -12056,11 +12076,12 @@ function projectionRowLine_(icon, amount, label) {
 
 function projectionRowBreakdown_(c) {
   const isIncome = c.category_type === "income";
-  const lines = [projectionRowLine_("✅", c.actualPen, tr("projections.actual"))];
+  const flip = c.category_type === "investment" ? -1 : 1;   // investments read taken out − put in
+  const lines = [projectionRowLine_("✅", flip * c.actualPen, tr("projections.actual"))];
   if (c.hasOverride) {
     lines.push(projectionRowLine_("✏️", c.remainingTotalPen, tr("projections.remainingManual")));
   } else {
-    lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, tr("projections.programmed")));
+    lines.push(projectionRowLine_("🔁", flip * c.programmedRemainingPen, tr("projections.programmed")));
     if (!isIncome && c.category_type !== "investment") {
       lines.push(projectionRowLine_("📈", c.expectedRemainingPen, tr("projections.expected")));
     }
@@ -12098,14 +12119,28 @@ function renderProjectionCategories_(result) {
   list.innerHTML = "";
   emptyNote.hidden = categories.length > 0;
 
-  categories.forEach((c) => {
+  // Grouped by type (owner, 2026-10-27): Income, Expenses, Investments, each biggest first (the server's order).
+  const typeOrder = [["income", "summary.income"], ["expense", "summary.expenses"], ["investment", "summary.investments"]];
+  const groups = typeOrder.map(([type, key]) => ({ key, items: categories.filter((c) => c.category_type === type) })).filter((g) => g.items.length);
+  const ordered = [];
+  groups.forEach((g) => { ordered.push({ heading: tr(g.key) }); g.items.forEach((c) => ordered.push({ c })); });
+
+  ordered.forEach((entry) => {
+    if (entry.heading) {
+      const h = document.createElement("div");
+      h.className = "projection-type-heading";
+      h.textContent = entry.heading;
+      list.appendChild(h);
+      return;
+    }
+    const c = entry.c;
     const isIncome = c.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row projection-row-expanded";
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.totalPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${formatPenSigned_(isIncome ? c.totalPen : -c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
@@ -12221,12 +12256,12 @@ function renderProjectionDrilldownAmount_(detail) {
 
   // Actual, what is left, and their sum: so the numbers add up where they can be seen.
   document.getElementById("drilldown-projection-actual-row").hidden = false;
-  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen(p.actualPen);
+  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.actualPen);
   const annualNote = document.getElementById("drilldown-projection-annual-note");
   annualNote.hidden = !(p.annualInPeriodPen > 0.005);
   annualNote.textContent = p.annualInPeriodPen > 0.005 ? tr("drill.annualAside", { amount: formatPen(p.annualInPeriodPen) }) : "";
   document.getElementById("drilldown-projection-total-row").hidden = false;
-  document.getElementById("drilldown-projection-total-amount").textContent = formatPen(p.totalPen);
+  document.getElementById("drilldown-projection-total-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.totalPen);
 
   renderProjectionSplit_(detail);
 }
@@ -12272,7 +12307,7 @@ function renderProjectionSplit_(detail) {
   }
   if (!show) return;
 
-  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.programmedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;

@@ -327,6 +327,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.income { color: var(--income); }
 .summary-value.expense { color: var(--expense); }
 .summary-value.investment { color: var(--investment); }
+.pos-green, .summary-value.pos-green { color: var(--income); }
 
 /* ---- Breakdown pie charts ---- */
 
@@ -3100,3 +3101,10 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .business-budget-row .budget-cur { width: 74px; text-transform: uppercase; }
 .business-budget-row .budget-amt { flex: 1; }
 .entry-business { border-color: #7b5ea7; color: #7b5ea7; }
+
+/* Projections "By category": a small heading before each type (Income, Expenses, Investments). */
+.projection-type-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 4px; }
+.projection-type-heading:first-child { margin-top: 0; }
+
+/* Review queue: money coming in reads green, like everywhere else. */
+.review-item-amount.review-amt-in { color: var(--income); }

@@ -390,12 +390,14 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     var leaveAnnualOut = bounds.periodType === 'monthly' && category.type !== 'income';
     var actualPen = 0;
     var annualInPeriodPen = 0;
+    var flowInPen = 0, flowOutPen = 0;   // investments: money put in / taken out (withdrawals are stored negative)
     categoryEntriesInPeriod.forEach(function (e) {
       if (e.date > todayStr) return;
       var pen = toPen_(ownAmount_(e), e.currency, e.date);
       if (pen == null) return;
       if (leaveAnnualOut && annualEntryIds[e.id]) { annualInPeriodPen += pen; return; }
       actualPen += pen;
+      if (pen >= 0) flowInPen += pen; else flowOutPen -= pen;
     });
 
     // "Programmed remaining" — this period's recurring occurrences that
@@ -457,6 +459,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
       overrideAmountPen: hasOverride ? overridesByKey[overrideKey] : null,
       amountPen: amountPen,
       actualPen: actualPen,
+      flowInPen: flowInPen,
+      flowOutPen: flowOutPen,
       annualInPeriodPen: annualInPeriodPen,
       programmedRemainingPen: programmedRemainingPen,
       expectedRemainingPen: expectedRemainingPen,
@@ -485,6 +489,9 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // totalPen already incorporates both actual spend and what's still
     // projected, so a single check covers what used to need three
     // (amountPen > 0, hasOverride, or actualPen > 0 on its own).
+    // An investment category's total is NET (put in minus taken out) and can be
+    // zero or negative in a month of withdrawals; it still has something to show.
+    if (c.category_type === 'investment' && (Math.abs(c.actualPen) > 0.005 || Math.abs(c.flowInPen) > 0.005 || c.totalPen > 0.005)) return true;
     return c.totalPen > 0.005 || c.hasOverride;
   });
 
@@ -773,7 +780,10 @@ function getProjections(payload) {
   // full-period estimate that ignores how the period's actually going.
   var income = sumByType_('income', 'totalPen');
   var expenses = sumByType_('expense', 'totalPen');
-  var investments = sumByType_('investment', 'totalPen');
+  // Investments read as taken out − put in (owner, 2026-10-27): positive when more came out than went in.
+  // The raw sum (put in − taken out) is what comes off the money left below.
+  var investmentsPutInNet = sumByType_('investment', 'totalPen');
+  var investments = -investmentsPutInNet;
 
   return {
     monthLabel: periodLabel,
@@ -787,9 +797,11 @@ function getProjections(payload) {
     expensesProgrammed: sumByType_('expense', 'programmedRemainingPen'),
     expensesExpected: sumByType_('expense', 'expectedRemainingPen'),
     investments: investments,
-    investmentsActual: sumByType_('investment', 'actualPen'),
-    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),
+    investmentsActual: -sumByType_('investment', 'actualPen'),
+    investmentsIn: sumByType_('investment', 'flowInPen'),
+    investmentsOut: sumByType_('investment', 'flowOutPen'),
+    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),   // money to be put in
     investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
-    net: income - expenses - investments
+    net: income - expenses - investmentsPutInNet
   };
 }
