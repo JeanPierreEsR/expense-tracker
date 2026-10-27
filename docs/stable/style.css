@@ -814,6 +814,7 @@ button.primary.danger {
   font-size: 0.85rem;
   color: var(--muted);
 }
+.stmt-loading.center { justify-content: center; padding: 20px; margin-top: 0; }
 .stmt-spinner {
   width: 14px;
   height: 14px;
@@ -1197,9 +1198,16 @@ body.sheet-open {
   font-size: 0.85rem;
 }
 
-.review-item-fields .review-category {
-  grid-column: 1 / -1;
-}
+.review-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-field-wide { grid-column: 1 / -1; }
+.review-field-label { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+.review-item-fields .review-transfer-label,
+.review-item-fields .review-trip,
+.review-item-fields .review-from,
+.review-item-fields .review-to,
+.review-item-fields .review-platform,
+.review-item-fields .review-land { grid-column: 1 / -1; }
+.review-item-fields .review-transfer-label { margin: 2px 0 -4px; font-size: 0.72rem; font-weight: 600; }
 
 .review-item-actions {
   display: flex;
@@ -1236,13 +1244,17 @@ body.sheet-open {
 .review-item-secondary-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 8px;
+  gap: 0 14px;
+  margin-top: 4px;
 }
 
 .review-item-secondary-actions .add-inline {
   padding: 12px 2px;
 }
+
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the 2nd, 3rd... button
+   below the first one: they sit in a row. */
+.review-item-secondary-actions button.add-inline { margin-top: 0; }
 
 .entry {
   display: flex;
@@ -2969,8 +2981,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .months-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; align-items: flex-end; -webkit-overflow-scrolling: touch; }
 .months-scroll .home-bar-col { flex: 0 0 44px; }
 .home-card-tap { cursor: pointer; }
-.pace-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
-.pace-ref-label { flex: 1; text-align: center; font-weight: 600; }
+.pace-ref-label { text-align: center; font-weight: 600; margin: 6px 0; }
 .home-line-svg.pace-big { height: 150px; touch-action: pan-y; }
 
 /* ---- Tap targets: every tappable thing is at least 44x44 (Apple HIG) ---- */
@@ -3040,3 +3051,34 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-option-head.open .stmt-status-chev { transform: rotate(90deg); }
 .stmt-chip.info { background: #efeff2; color: var(--muted); }
 #stmt-inbox-body { margin-top: 8px; }
+
+/* Overview loading: a small spinner in the period picker's corner (no layout shift, after a short delay so quick loads
+   show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
+#period-selector-card { position: relative; }
+.period-spin { display: none; position: absolute; top: 10px; right: 12px; }
+.overview-loading .period-spin { display: block; animation: ov-appear 0.2s 0.3s both; }
+.overview-stale .period-spin { display: none; }
+#screen-overview > .card { transition: opacity 0.2s; }
+/* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
+.overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
+.overview-stale > .card.ov-period > * { opacity: 0.18; }
+.overview-stale > .card.ov-period:not(#overview-entries-card)::after {
+  content: ""; position: absolute; top: calc(50% - 9px); left: calc(50% - 9px); width: 18px; height: 18px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: stmt-spin 0.8s linear infinite;
+}
+@keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
+
+/* Overview: the period picker stays at the top while the screen scrolls. */
+#screen-overview > #period-selector-card { position: sticky; top: 0; z-index: 5; }
+/* Cards opened from Home (scrollIntoView) must stop below the pinned picker, not under it. */
+#screen-overview > .card { scroll-margin-top: 150px; }
+
+/* Statements by month: accounts × months, scrolls sideways, account names stay put. */
+.stmt-matrix-summary { font-weight: 600; font-size: 1.05rem; cursor: pointer; }
+.stmt-matrix-scroll { overflow-x: auto; margin-top: 8px; }
+.stmt-matrix { border-collapse: collapse; font-size: 0.78rem; }
+.stmt-matrix th, .stmt-matrix td { padding: 6px 8px; text-align: center; white-space: nowrap; font-weight: 400; color: var(--muted); }
+.stmt-matrix .stmt-matrix-acct { position: sticky; left: 0; background: var(--card, #fff); text-align: left; font-weight: 600; color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.stmt-matrix td.has { color: #2e9e5b; font-weight: 700; }
+.stmt-matrix td.hole { color: #d64545; font-weight: 700; }
+.stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
