@@ -300,3 +300,25 @@ test("the statement picker lists the whole month in any currency, best matches f
   const early2 = rt.api("getEntriesNear", { date: "2031-06-02", amount: 20, currency: "PEN", description: "x", kind: "purchase" });
   assert.deepEqual(early2.map((x) => x.id), [mayEnd.id]);
 });
+
+test("Mark as paid can record a brand-new entry from the item and counts it as paid", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data, { day: 28, amount: 100 });
+  assert.ok(expectedIds(rt).includes(r.id));
+  const e = rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 95, date: ym() + "-03" });
+  assert.equal(e.status, "confirmed");
+  assert.equal(e.category_id, r.category_id);
+  assert.equal(Number(e.amount), 95);
+  assert.ok(!expectedIds(rt).includes(r.id), "item now counted as paid");
+  assert.throws(() => rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 0, date: ym() + "-03" }));
+});
+
+test("Mark as paid carries the split to the new entry and creates the loan", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data, { day: 28, amount: 100 });
+  const f = rt.api("addFriend", { name: "Ana Lo" });
+  const e = rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 100, date: ym() + "-03", splits: [{ friend_id: f.id, amount: 40 }] });
+  const loans = jr(rt, `getAllRows('Loans').filter(function (l) { return l.entry_id === ${JSON.stringify(e.id)}; })`);
+  assert.equal(loans.length, 1);
+  assert.equal(Number(loans[0].amount), 40);
+});

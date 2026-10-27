@@ -339,6 +339,7 @@ function routeAction(action, payload) {
     case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
     case 'unskipRecurringOccurrence': return unskipRecurringOccurrence(payload);
     case 'linkEntryToRecurring': return linkEntryToRecurring(payload);
+    case 'recordRecurringPayment': return recordRecurringPayment(payload);
     case 'listEntriesForRecurringMonth': return listEntriesForRecurringMonth(payload);
     case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
     case 'saveRecurringExpenseSplits': return saveRecurringExpenseSplits(payload);
