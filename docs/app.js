@@ -11034,7 +11034,8 @@ async function openPaidPicker_(item, currency, isIncome) {
   document.getElementById("paid-new-date").value = todayLocalISO();
   const acct = document.getElementById("paid-new-account");
   acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
-    ((meta && meta.paymentMethods) || []).filter((p) => !p.archived).map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+    ((meta && meta.paymentMethods) || []).filter((p) => p.type !== "investment" && !pmHidden_(p))
+      .map((p) => `<option value="${p.id}">${escapeHtml(p.nickname + (p.last_4 ? ` (${p.last_4})` : ""))}</option>`).join("");
   // The item's saved split, if any, is offered ticked; friends' shares scale with the amount typed.
   let savedSplits = [];
   const splitRow = document.getElementById("paid-new-split-row");
