@@ -14170,7 +14170,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${r.date} · ${kind}</span>
-        <span class="loan-detail-row-amount ${r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
+        <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
       <div class="loan-detail-row-meta">${where}${acct}</div>`;
     repEl.appendChild(row);
