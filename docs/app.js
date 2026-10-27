@@ -13915,7 +13915,29 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // that a loan detail sheet is what triggered it.
   currentDrilldown = { refetch: () => openLoanDetail(friendId, friendName) };
 
-  let loans = await callApi("getFriendLoanDetail", { friendId });
+  // Loading standard: the screen opens at once with "Loading…" and shows nothing half-drawn; a refresh of an already open
+  // screen keeps what is there until the new data replaces it.
+  const detailBackdrop = document.getElementById("loan-detail-modal-backdrop");
+  const detailActions = document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions");
+  const firstOpen = detailBackdrop.hidden;
+  if (firstOpen) {
+    document.getElementById("loan-detail-title").textContent = friendName;
+    document.getElementById("loan-detail-subtitle").textContent = tr("common.loading");
+    detailActions.hidden = true;
+    document.getElementById("loan-detail-list").innerHTML = "";
+    document.getElementById("loan-detail-empty-note").hidden = true;
+    document.getElementById("loan-detail-paid-toggle").hidden = true;
+    document.getElementById("loan-detail-paid-list").hidden = true;
+    bringModalToFront_(detailBackdrop);
+    detailBackdrop.hidden = false;
+  }
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId });
+  } catch (err) {
+    if (firstOpen) detailBackdrop.hidden = true;
+    throw err;
+  }
   const scopeProject = projectId ? (meta.projects || []).find((p) => p.id === projectId) : null;
   if (projectId) loans = loans.filter((l) => String(l.project_id || "") === projectId);
   document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
@@ -13991,6 +14013,8 @@ async function openLoanDetail(friendId, friendName, projectId) {
     }
   };
 
+  detailActions.hidden = false;
+  if (firstOpen) return;
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -14142,8 +14166,14 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   document.getElementById("history-net").textContent = netText || "";
   const repEl = document.getElementById("history-repayments");
   const loanEl = document.getElementById("history-loans");
+  const loadingEl = document.getElementById("history-loading");
+  const contentEl = document.getElementById("history-content");
   repEl.innerHTML = "";
   loanEl.innerHTML = "";
+  // Loading standard: nothing half-drawn is shown; "Loading…" stays until everything has arrived.
+  loadingEl.textContent = tr("common.loading");
+  loadingEl.hidden = false;
+  contentEl.hidden = true;
   const backdrop = document.getElementById("history-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -14152,7 +14182,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   try {
     h = await callApi("getFriendRepaymentHistory", { friendId, project_id: projectId || undefined });
   } catch (err) {
-    repEl.textContent = err.message;
+    loadingEl.textContent = err.message;
     return;
   }
   const money = (cur, n) => `${cur} ${moneyFmt(n)}`;
@@ -14193,6 +14223,8 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
     loanEl.appendChild(row);
   });
+  loadingEl.hidden = true;
+  contentEl.hidden = false;
 }
 
 document.getElementById("history-modal-close").addEventListener("click", () => {
