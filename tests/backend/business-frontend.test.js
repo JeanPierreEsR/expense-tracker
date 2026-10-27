@@ -174,6 +174,24 @@ test("step 3B: every igv.* text the app uses exists in English and Spanish", () 
   }
 });
 
+test("step 3B: the receipt reader button is hidden in the page itself, shown only while the pack is on for an expense or income, and nothing is uploaded", () => {
+  assert.match(html, /<div id="receipt-read-field" hidden>/);
+  assert.match(html, /<script src="receipt-fields\.js\?v=[^"]+"><\/script>/, "the pure reader is loaded (ship.sh bumps its ?v= like the others)");
+  assert.match(app, /field\.hidden = !\(businessOn\(\) && \(selectedType === "expense" \|\| selectedType === "income"\)\);/);
+  assert.match(app, /syncReceiptField_\(\);\n\}/, "re-evaluated whenever the type changes (populateBusinessOptions_)");
+  const block = app.slice(app.indexOf("async function readReceiptPhoto_"), app.indexOf("document.getElementById(\"receipt-read-btn\")"));
+  assert.ok(!/callApi\(/.test(block), "the photo never leaves the phone");
+  assert.match(app, /ReceiptFields\.parse\(text, \{ today: todayLocalISO\(\) \}\)/);
+  const strings = read("docs", "strings.js");
+  const used = new Set([...app.matchAll(/tr\("(receipt\.[A-Za-z.]+)"/g)].map((m) => m[1]));
+  for (const key of html.matchAll(/data-i18n="(receipt\.[A-Za-z.]+)"/g)) used.add(key[1]);
+  for (const key of ["receipt.f.amount", "receipt.f.date", "receipt.f.business", "receipt.f.payer", "receipt.f.invoice", "receipt.f.igv"]) used.add(key);   // built from a list in the code
+  assert.ok(used.size >= 12, "found " + used.size);
+  for (const key of used) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+});
+
 test("step 3A: every xp.* / bx.* / settle.choose* text the app uses exists in English and Spanish", () => {
   const strings = read("docs", "strings.js");
   const used = new Set([...app.matchAll(/tr\("((?:xp|bx)\.[A-Za-z.]+|settle\.choose[A-Za-z]*|field\.expected)"/g)].map((m) => m[1]));

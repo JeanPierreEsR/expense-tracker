@@ -187,6 +187,16 @@
           <div id="exchange-inline-slot" hidden></div>
 
           <div id="entry-standard-fields">
+          <div id="receipt-read-field" hidden>
+            <button type="button" class="add-inline" id="receipt-read-btn" data-i18n="receipt.button">📷 Read a receipt or payment</button>
+            <input type="file" id="receipt-read-input" accept="image/*" hidden>
+            <p class="hint" id="receipt-read-status" hidden></p>
+            <details id="receipt-read-raw" hidden>
+              <summary data-i18n="receipt.rawTitle">The text the reader saw</summary>
+              <textarea id="receipt-read-text" class="bill-photo-text" rows="7" readonly spellcheck="false"></textarea>
+            </details>
+          </div>
+
           <label for="amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
@@ -2663,6 +2673,7 @@
   <script src="bank-sample.js?v=2026-10-27T17:10:47Z"></script>
   <script src="perf-share.js?v=2026-10-27T17:10:47Z"></script>
   <script src="receipt-parse.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="receipt-fields.js?v=2026-10-27T17:10:47Z"></script>
   <script src="bill-split.js?v=2026-10-27T17:10:47Z"></script>
   <script src="app.js?v=2026-10-27T17:10:47Z"></script>
   <script src="statement-sample.js?v=2026-10-27T17:10:47Z"></script>

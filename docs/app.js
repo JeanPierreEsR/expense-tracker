@@ -11408,6 +11408,7 @@ function populateBusinessOptions_() {
   syncClientButton_();
   syncExpectedField_();
   syncIgvField_();
+  syncReceiptField_();
 }
 
 // ---- "Pays expected payment" (an income on a project) ----
@@ -16163,6 +16164,142 @@ document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   if (file) readBillPhoto_(file);
 });
 
+
+// ---- "📷 Read a receipt or payment" in the entry form (Business pack, step 3B) ----
+// The same on-phone reader as the bill splitter (photo shrunk, read by self-hosted tesseract.js, nothing uploaded or kept); the text
+// goes through ReceiptFields (receipt-fields.js). An expense gets amount, date, business name and the IGV when it is printed; an
+// income gets amount, date, who paid and the invoice number (which also picks the matching expected payment). It only FILLS the
+// form — the person always checks it and taps Save.
+
+function syncReceiptField_() {
+  const field = document.getElementById("receipt-read-field");
+  if (field) field.hidden = !(businessOn() && (selectedType === "expense" || selectedType === "income"));
+}
+
+function receiptReadSay_(text, bad) {
+  const status = document.getElementById("receipt-read-status");
+  status.hidden = false;
+  status.textContent = text;
+  status.className = "hint" + (bad ? " bill-check-bad" : "");
+}
+
+// Tries the photo cropped to the paper first and the whole photo second (they fail on different pictures), as the bill reader does;
+// stops at the first reading that found both an amount and a date.
+async function readReceiptFields_(file, say) {
+  const attempts = [{ crop: true }, { crop: false, maxLong: 2000 }];
+  let best = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const canvas = await prepareReceiptImage_(file, attempts[i]);
+    say(i ? tr("photo.retry") : !window.Tesseract ? tr("photo.loadingReader") : tr("photo.reading"));
+    const text = await recognizeReceiptText_(canvas, (m) => {
+      if (m.status === "recognizing text") say(tr(i ? "photo.readingAgainPct" : "photo.readingPct", { pct: Math.round((m.progress || 0) * 100) }));
+      else if (/loading/i.test(m.status)) say(tr("photo.loadingReader"));
+    });
+    const fields = ReceiptFields.parse(text, { today: todayLocalISO() });
+    const score = (fields.amount ? 4 : 0) + (fields.date ? 2 : 0) + (fields.name || fields.payer ? 1 : 0) + (fields.igv ? 1 : 0);
+    if (!best || score > best.score) best = { text, fields, score };
+    if (fields.amount && fields.date) break;
+  }
+  return best;
+}
+
+const receiptInvoiceKey_ = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^([FBE][A-Z0-9]{3})0+(\d)/, "$1$2");
+
+// Puts what was read into the open form; returns the names of what it filled in (for the message).
+function applyReceiptFields_(f) {
+  const found = [];
+  let igvFromExpected = false;
+  let payerNote = "";
+  const isIncome = selectedType === "income";
+  if (f.currency && f.currency !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === f.currency)) selectCurrency(f.currency, "entry");
+
+  // An income whose invoice number is on one of the expected payments: pick that project and that expected payment.
+  if (isIncome && f.invoice) {
+    const cur = document.getElementById("currency").value;
+    const x = (meta.expectedPayments || []).find((e) => e.status !== "covered" && receiptInvoiceKey_(e.invoice_no) === receiptInvoiceKey_(f.invoice) && e.currency === cur);
+    if (x) {
+      if (!businessProjectOfPick_()) setBusinessPick_("p:" + x.project_id);
+      if (businessProjectOfPick_() && businessProjectOfPick_().id === x.project_id) {
+        setExpectedPick_(x.id);
+        found.push("receipt.f.invoice");
+        if (x.igv_included && !f.igv) igvFromExpected = true;   // that invoice includes IGV: work it out from the amount below
+      }
+    }
+  }
+  if (f.amount) {
+    const el = document.getElementById("amount");
+    el.value = f.amount;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    found.push("receipt.f.amount");
+  }
+  if (f.date) {
+    document.getElementById("date").value = f.date;
+    entryDateTouched_ = true;
+    found.push("receipt.f.date");
+  }
+  const description = document.getElementById("description");
+  if (isIncome) {
+    const payer = f.payer ? f.payer.toLowerCase().replace(/\*+$/, "").trim() : "";
+    const payorId = payer ? (meta.payors || []).find((p) => { const n = p.name.toLowerCase(); return n === payer || n.includes(payer) || payer.includes(n); }) : null;
+    if (payorId) { document.getElementById("paid_by").value = payorId.id; found.push("receipt.f.payer"); }
+    else if (f.payer) payerNote = " " + tr("receipt.payerUnknown", { payer: f.payer });   // read, but not in the person's list: they pick or add them
+    if (!description.value.trim()) {
+      const text = f.invoice ? tr("xp.incomeDescInvoice", { invoice: f.invoice }) : (f.payer ? tr("xp.incomeDescClient", { client: f.payer }) : "");
+      if (text) description.value = text;
+    }
+  } else if (f.name) {
+    if (!description.value.trim()) description.value = f.name;
+    found.push("receipt.f.business");   // read (a description the person already typed is never overwritten)
+  }
+  // The IGV only when the form can record it (a company that charges IGV is picked); otherwise the message says what was printed.
+  let igvNote = "";
+  if (f.igv) {
+    if (!document.getElementById("igv-field").hidden || (businessCompanyOfPick_() && businessCompanyOfPick_().igv_enabled === "yes")) {
+      setIgvState_(true, f.igv, true);
+      found.push("receipt.f.igv");
+    } else {
+      igvNote = " " + tr("receipt.igvNoCompany", { cur: document.getElementById("currency").value, igv: moneyFmt(Number(f.igv)) });
+    }
+  }
+  if (igvFromExpected && !found.includes("receipt.f.igv") && !document.getElementById("igv-field").hidden) {
+    setIgvState_(true, "", false);
+    found.push("receipt.f.igv");
+  }
+  scheduleEntryDraftSave_();
+  return { found, igvNote: igvNote + payerNote };
+}
+
+async function readReceiptPhoto_(file) {
+  const btn = document.getElementById("receipt-read-btn");
+  btn.disabled = true;
+  try {
+    receiptReadSay_(tr("photo.preparing"));
+    const best = await readReceiptFields_(file, receiptReadSay_);
+    document.getElementById("receipt-read-text").value = best.text;
+    document.getElementById("receipt-read-raw").hidden = false;
+    if (!best.score) { receiptReadSay_(tr("receipt.nothing"), true); return; }
+    const { found, igvNote } = applyReceiptFields_(best.fields);
+    // "Couldn't find" means the reader found nothing for it (a payer that was read but is not in the person's list has its own note).
+    const f = best.fields;
+    const wanted = selectedType === "income"
+      ? [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.payer", f.payer]]
+      : [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.business", f.name]];
+    const missing = wanted.filter(([, value]) => !value).map(([key]) => key);
+    receiptReadSay_(tr("receipt.done", { found: found.map((k) => tr(k)).join(", ") || "—" })
+      + (missing.length ? " " + tr("receipt.missing", { missing: missing.map((k) => tr(k)).join(", ") }) : "") + igvNote, missing.length > 0);
+  } catch (err) {
+    receiptReadSay_(err.message || tr("photo.couldntRead"), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("receipt-read-btn").addEventListener("click", () => document.getElementById("receipt-read-input").click());
+document.getElementById("receipt-read-input").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";           // picking the same photo again must work
+  if (file) readReceiptPhoto_(file);
+});
 
 // ---- One calendar for a start AND an end date (2026-10-19) ----
 // Wherever the app asks for "from … to …" (a trip's dates, a Programmed item's start/end, Overview's custom
