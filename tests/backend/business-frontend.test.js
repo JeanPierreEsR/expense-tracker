@@ -45,6 +45,20 @@ test("the owner's own copy is switched on once, and only when nothing was ever c
   assert.match(app, /function refreshExtrasRow_\(\) \{\s*maybeEnableBusinessForOwner_\(\);/, "runs after the app's data has loaded");
 });
 
+test("the period of every Companies & projects screen has a Custom… choice that opens the calendar and can be cancelled", () => {
+  assert.match(app, /\["custom", "business\.period\.custom"\]/, "the choice is in the list the three screens share");
+  assert.match(app, /if \(businessPeriod_ === "custom"\) return \{ startDate: businessCustom_\.start \|\| null, endDate: businessCustom_\.end \|\| null \};/);
+  const handler = app.match(/if \(sel\.value === "custom"\) \{[\s\S]*?return;\n  \}/)[0];
+  assert.match(handler, /sel\.value = businessPeriod_;/, "closing the calendar without Done leaves the period as it was");
+  assert.match(handler, /openDateRangePicker_\(/);
+  assert.ok(html.includes('id="business-custom-start"') && html.includes('id="business-custom-end"'));
+});
+
+test("the project budget button says 'Add a budget' in both languages", () => {
+  const strings = read("docs", "strings.js");
+  assert.match(strings, /"business\.addBudget": \{ en: "\+ Add a budget", es: "\+ Agregar un presupuesto" \}/);
+});
+
 test("step 2: People is a remembered More screen; business people hide from ordinary pickers while the pack is off", () => {
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-people"'));
   assert.ok(html.includes('id="screen-business-people"'));

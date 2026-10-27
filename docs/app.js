@@ -10186,9 +10186,11 @@ document.getElementById("bf-back-btn").addEventListener("click", () => showScree
 // ---- Period (shared by the list and the detail screen; in memory only) ----
 
 let businessPeriod_ = "alltime";
+let businessCustom_ = { start: "", end: "" };   // the range behind the "Custom…" choice
 
 function businessBounds_() {
   const now = new Date();
+  if (businessPeriod_ === "custom") return { startDate: businessCustom_.start || null, endDate: businessCustom_.end || null };
   if (businessPeriod_ === "month") return monthBounds(now);
   if (businessPeriod_ === "lastMonth") return monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
   if (businessPeriod_ === "year") return yearBounds(now);
@@ -10198,24 +10200,48 @@ function businessBounds_() {
 
 function fillBusinessPeriodSelects_() {
   const options = [["alltime", "business.period.alltime"], ["month", "business.period.month"], ["lastMonth", "business.period.lastMonth"],
-    ["year", "business.period.year"], ["lastYear", "business.period.lastYear"]];
+    ["year", "business.period.year"], ["lastYear", "business.period.lastYear"], ["custom", "business.period.custom"]];
   document.querySelectorAll(".business-period-select").forEach((sel) => {
     sel.innerHTML = "";
     options.forEach(([value, key]) => {
       const o = document.createElement("option");
       o.value = value;
-      o.textContent = tr(key);
+      // Once a range is chosen the option says which one ("From 1 Oct 2026 to 31 Oct 2026").
+      o.textContent = value === "custom" && businessPeriod_ === "custom" ? rangeSummary_("open", businessCustom_.start, businessCustom_.end) : tr(key);
       sel.appendChild(o);
     });
     sel.value = businessPeriod_;
   });
 }
 
-document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
-  businessPeriod_ = sel.value;
-  document.querySelectorAll(".business-period-select").forEach((other) => { other.value = businessPeriod_; });
+function refreshBusinessPeriodScreens_() {
   if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
   if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+}
+
+document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
+  if (sel.value === "custom") {
+    // Stays on the current period until a range is confirmed in the calendar (closing it without Done changes nothing).
+    sel.value = businessPeriod_;
+    openDateRangePicker_({ titleKey: "period.dates", startRequired: false, noEnd: "open" },
+      document.getElementById("business-custom-start"), document.getElementById("business-custom-end"));
+    return;
+  }
+  businessPeriod_ = sel.value;
+  document.querySelectorAll(".business-period-select").forEach((other) => { other.value = businessPeriod_; });
+  refreshBusinessPeriodScreens_();
+}));
+
+// The calendar's Done writes both dates and fires "change" on each: the second event finds nothing new and is ignored.
+["business-custom-start", "business-custom-end"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  const start = document.getElementById("business-custom-start").value;
+  const end = document.getElementById("business-custom-end").value;
+  const same = businessPeriod_ === "custom" && businessCustom_.start === start && businessCustom_.end === end;
+  if (same) return;
+  if (!start && !end) businessPeriod_ = "alltime";                       // "Clear dates" in the calendar = back to all time
+  else { businessPeriod_ = "custom"; businessCustom_ = { start, end }; }
+  fillBusinessPeriodSelects_();
+  refreshBusinessPeriodScreens_();
 }));
 
 // ---- Shared pieces ----
