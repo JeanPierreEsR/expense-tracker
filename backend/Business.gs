@@ -400,7 +400,9 @@ function businessByCategory_(rows) {
           id: id, name: cat ? cat.name : tr_('report.uncategorized'), icon: cat ? cat.icon : '', color: cat ? cat.color : '',
           amount: round2_(byCat[id]), pct: total > 0 ? Math.round(byCat[id] / total * 1000) / 10 : 0
         };
-      }).sort(function (a, b) { return b.amount - a.amount; });
+      }).filter(function (x) { return Math.abs(x.amount) > 0.004; })   // a cost the client repays in full has nothing left to show
+        .sort(function (a, b) { return b.amount - a.amount; });
+      if (!out[type][currency].length) delete out[type][currency];
     });
   });
   return out;

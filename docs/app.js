@@ -13153,8 +13153,41 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
 // forgiving a loan are later Phase 5 steps (see CLAUDE.md's Build phases
 // table); this only reflects loans the split-entry UI already created.
 
+// Business pack: the Loans tab can show everything (default), only debts with no project, or one project's. In memory only.
+let loansScope_ = "";
+
+function populateLoansScope_() {
+  const card = document.getElementById("loans-scope-card");
+  const sel = document.getElementById("loans-scope");
+  const show = businessOn() && (meta.projects || []).length > 0;
+  card.hidden = !show;
+  if (!show) { loansScope_ = ""; return; }
+  sel.innerHTML = "";
+  const add = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  };
+  add("", tr("overview.scopeAll"));
+  add("personal", tr("overview.scopePersonal"));
+  (meta.projects || []).forEach((p) => {
+    const company = (meta.companies || []).find((c) => c.id === p.company_id);
+    add(p.id, company ? `${company.name} › ${p.name}` : p.name);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === loansScope_)) loansScope_ = "";
+  sel.value = loansScope_;
+}
+document.getElementById("loans-scope").addEventListener("change", (e) => { loansScope_ = e.target.value; refreshLoans(); });
+
+function loansScopePayload_() {
+  if (!businessOn() || !loansScope_) return {};
+  return loansScope_ === "personal" ? { personal: true } : { project_id: loansScope_ };
+}
+
 async function refreshLoans() {
-  const balances = await callApi("listLoanBalances", {});
+  populateLoansScope_();
+  const balances = await callApi("listLoanBalances", loansScopePayload_());
 
   // A friend can be owed in one currency and owe in another (e.g. they owe
   // you PEN but you owe them USD), so each section takes only that
@@ -13165,7 +13198,7 @@ async function refreshLoans() {
     .map((b) => {
       const lines = b.balances.filter((l) => sign * l.net > 0);
       const penSize = lines.reduce((sum, l) => sum + (l.net_pen == null ? 0 : Math.abs(l.net_pen)), 0);
-      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, lines, penSize };
+      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, project_ids: b.project_ids || [], lines, penSize };
     })
     .filter((row) => row.lines.length)
     .sort((x, y) => y.penSize - x.penSize);
@@ -13224,8 +13257,10 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
     const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";
+    // Business pack: which projects this person's debts belong to (only while the pack is on).
+    const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}</span>
+      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
     row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name, ""));   // "" = every debt of this person
@@ -13327,6 +13362,14 @@ async function openLoanDetail(friendId, friendName, projectId) {
   backdrop.hidden = false;
 }
 
+// Business pack: the project a debt belongs to, as a small pill after its date. Nothing while the pack is off.
+function loanProjectPillHtml_(l) {
+  if (!businessOn() || !l.project_id) return "";
+  const project = (meta.projects || []).find((p) => p.id === l.project_id);
+  const company = project ? (meta.companies || []).find((c) => c.id === project.company_id) : null;
+  return project ? ` <span class="entry-tag entry-business">${escapeHtml((company ? company.name + " › " : "") + project.name)}</span>` : "";
+}
+
 // Shared by openLoanDetail's two sections (pending / already paid) so a
 // row looks and behaves identically in either — only which list it lands
 // in differs.
@@ -13361,7 +13404,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");

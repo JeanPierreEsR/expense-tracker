@@ -45,6 +45,24 @@ test("the owner's own copy is switched on once, and only when nothing was ever c
   assert.match(app, /function refreshExtrasRow_\(\) \{\s*maybeEnableBusinessForOwner_\(\);/, "runs after the app's data has loaded");
 });
 
+test("step 2: People is a remembered More screen; business people hide from ordinary pickers while the pack is off", () => {
+  assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-people"'));
+  assert.ok(html.includes('id="screen-business-people"'));
+  assert.match(app, /function plainFriends_\(\) \{ return meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\); \}/);
+  assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\) \|\| \(tripId/, "the split list follows the same rule");
+});
+
+test("step 2: a repayment from a project sheet carries the project; the Loans tab never does", () => {
+  assert.match(app, /project_id: repaymentProjectId_ \|\| undefined/);
+  assert.match(app, /openLoanDetail\(r\.friend_id, r\.friend_name, ""\)/, "the Loans tab asks for every debt of the person");
+  assert.match(app, /openLoanDetail\(row\.dataset\.friend, row\.dataset\.name, d\.project\.id\)/, "the project's Owed rows ask for that project only");
+});
+
+test("step 2: the cash-loan form and the Entries-tab Repayment / New loan send a project only while the pack is on", () => {
+  assert.match(app, /if \(businessOn\(\)\) fields\.project_id = document\.getElementById\("loan-project"\)\.value;/);
+  assert.match(app, /if \(businessOn\(\)\) fields\.project_id = businessPickProjectId_\(\);/);
+});
+
 test("a future date with a company or project is refused instead of becoming a Programmed item", () => {
   assert.match(app, /business\.futureNotYet/);
 });

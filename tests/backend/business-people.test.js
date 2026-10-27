@@ -113,6 +113,10 @@ test("balances can be scoped: everything (default), one project, or personal onl
   assert.deepEqual(net(rt.api("listLoanBalances", { personal: true })), [["Ana Client", "client", 40]]);
   assert.deepEqual(net(rt.api("getProjectDebts", { project_id: casa.id })), [["Ana Client", "client", 300]]);
   assert.throws(() => rt.api("getProjectDebts", { project_id: "ghost" }), /Project not found/i);
+  const row = rt.api("listLoanBalances", {}).find((r) => r.friend_name === "Ana Client");
+  assert.deepEqual(row.project_ids, [casa.id], "the row says which projects the debts belong to");
+  // A cost the client repays in full leaves nothing in the project's category list.
+  assert.deepEqual(rt.api("getProjectDetail", { id: casa.id }).byCategory.expense, {});
 });
 
 test("a repayment from a project only pays that project's loans; from the Loans tab it is oldest first across all", () => {

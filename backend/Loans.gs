@@ -1303,9 +1303,11 @@ function listLoanBalances(payload) {
   // negative), native amounts, remaining balance after settlements.
   var byFriendCurrency = {};
   var overdueFriendIds = {};
+  var projectsByFriend = {};   // Business pack: which projects a person's open debts belong to
   loans.forEach(function (loan) {
     var remaining = Number(loan.amount) - (settledByLoan[loan.id] || 0);
     if (remaining <= 0.004) return;
+    if (loan.project_id) (projectsByFriend[loan.friend_id] = projectsByFriend[loan.friend_id] || {})[String(loan.project_id)] = true;
 
     if (isLoanOverdue_(loan, remaining)) overdueFriendIds[loan.friend_id] = true;
 
@@ -1339,6 +1341,7 @@ function listLoanBalances(payload) {
       friend_id: friendId,
       friend_name: friendMap[friendId] || tr_('label.unknownFriend'),
       role: roleMap[friendId] || 'friend',
+      project_ids: Object.keys(projectsByFriend[friendId] || {}),
       balances: balances,
       has_overdue: !!overdueFriendIds[friendId]
     });

@@ -1008,6 +1008,7 @@
     "business.confirmDeleteProject": { en: "Delete \"{name}\"? Its entries are not deleted: they stay in the company and stop belonging to the project.", es: "¿Eliminar \"{name}\"? Sus movimientos no se eliminan: se quedan en la empresa y dejan de pertenecer al proyecto." },
     "business.needCompany": { en: "Add a company first.", es: "Primero agrega una empresa." },
     "field.business": { en: "Company / project", es: "Empresa / proyecto" },
+    "loans.scope": { en: "Showing", es: "Mostrando" },
     "split.clientRepays": { en: "🏢 Client will repay this", es: "🏢 El cliente lo reembolsará" },
     "split.clientPick": { en: "Who will repay it?", es: "¿Quién lo reembolsará?" },
     "business.loanProject": { en: "Project (optional)", es: "Proyecto (opcional)" },
