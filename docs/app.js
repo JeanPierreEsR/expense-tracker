@@ -3446,6 +3446,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
+  let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   if (["transfer", "expense", "income"].includes(originalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id });
     if (links.forgiveness) {
@@ -3457,17 +3458,17 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       return false;
     }
     if (links.refunds && links.refunds.length) {
-      const r = links.refunds[0];
-      confirmText += "\n\n" + tr(r.direction === "they_owe_me" ? "delete.refundTheyOweMe" : "delete.refundIOweThem", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+      repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
+      if (!repaymentsChoice) return false;
     }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!confirm(confirmText)) return false;
+  if (!repaymentsChoice && !confirm(confirmText)) return false;
   if (onConfirmed) onConfirmed();
-  await callApi("discardEntry", { id });
+  await callApi("discardEntry", { id, repayments: repaymentsChoice });
   refreshLoans().catch(() => {});
   return true;
 }
@@ -13524,12 +13525,47 @@ async function openLinkedEntryFromLoan_(entryId) {
   }
 }
 
+// Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
+// other way), "cancel" (they are cancelled too) or null (the person backed out). `rows` = [{friend, currency, total}].
+function askRepaymentChoice_(titleKey, rows) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("repay-choice-backdrop");
+    const list = rows.map((r) => `${r.friend} (${r.currency} ${moneyFmt(r.total)})`).join(", ");
+    document.getElementById("repay-choice-title").textContent = tr(titleKey);
+    document.getElementById("repay-choice-text").textContent = tr("repayChoice.text", { list });
+    document.getElementById("repay-choice-keep").textContent = tr("repayChoice.keep");
+    document.getElementById("repay-choice-keep-hint").textContent = tr("repayChoice.keepHint");
+    document.getElementById("repay-choice-cancel").textContent = tr("repayChoice.cancel");
+    document.getElementById("repay-choice-cancel-hint").textContent = tr("repayChoice.cancelHint");
+    const done = (value) => {
+      backdrop.hidden = true;
+      ["repay-choice-keep", "repay-choice-cancel", "repay-choice-back", "repay-choice-close"].forEach((id) => {
+        document.getElementById(id).onclick = null;
+      });
+      resolve(value);
+    };
+    document.getElementById("repay-choice-keep").onclick = () => done("keep");
+    document.getElementById("repay-choice-cancel").onclick = () => done("cancel");
+    document.getElementById("repay-choice-back").onclick = () => done(null);
+    document.getElementById("repay-choice-close").onclick = () => done(null);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
+}
+
 // A loan kept for its repayment history after its expense was deleted has no
 // expense to open; the only thing left to do with it is delete it.
 async function deleteOrphanLoan_(l, friend) {
-  if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) return;
   try {
-    await callApi("deleteLoan", { id: l.id });
+    const info = await callApi("getLoanDeleteInfo", { id: l.id });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: friend.name, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: l.id, repayments });
     await openLoanDetail(friend.id, friend.name);
     refreshLoans();
   } catch (err) {
@@ -13748,12 +13784,20 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
   const loanDesc = document.getElementById("loan-description").value.trim();
   const loanAmt = document.getElementById("loan-amount").value.trim();
   const loanCur = document.getElementById("loan-currency").value;
-  if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) return;
   const errorEl = document.getElementById("loan-form-error");
   errorEl.textContent = "";
 
   try {
-    await callApi("deleteLoan", { id: editingLoanId });
+    // With repayments recorded against it the person chooses what happens to them; otherwise the usual OK / Cancel.
+    const info = await callApi("getLoanDeleteInfo", { id: editingLoanId });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: loanWho, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: editingLoanId, repayments });
     closeLoanModal();
     await refreshAfterLoanModalChange_();
   } catch (err) {
@@ -13846,6 +13890,7 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
   pendingOverpay = null;
+  populateSettlementLoanOptions_("");
 }
 
 function loadSettlementIntoForm_(s) {
@@ -13857,6 +13902,7 @@ function loadSettlementIntoForm_(s) {
   document.getElementById("settlement-amount").value = s.amount;
   document.getElementById("settlement-date").value = s.date;
   document.getElementById("settlement-payment-method").value = s.payment_method_id || "";
+  populateSettlementLoanOptions_(s.loan_id, s.loan_direction);
 }
 
 function renderSettlementList_(settlements) {
@@ -13894,7 +13940,41 @@ function renderSettlementList_(settlements) {
   });
 }
 
+let repaymentLoans_ = [];   // the friend's loans, for the "Applies to" picker
+
+// "Applies to": every open loan of this person in the selected currency and direction. A new repayment: the empty
+// choice means the usual oldest-first. Editing one: it must name a loan, preselected to the one it is on now.
+function populateSettlementLoanOptions_(selectedId, forcedDirection) {
+  const select = document.getElementById("settlement-loan");
+  const wrap = document.getElementById("settlement-loan-wrap");
+  const direction = forcedDirection || repaymentDirection;
+  const editing = !!editingSettlementId;
+  const loans = repaymentLoans_.filter((l) =>
+    l.currency === repaymentCurrency && l.direction === direction && l.status !== "forgiven" &&
+    (!repaymentProjectId_ || String(l.project_id || "") === repaymentProjectId_) &&
+    (l.remaining > 0.004 || l.id === selectedId));
+  select.innerHTML = "";
+  if (!editing) {
+    const oldest = document.createElement("option");
+    oldest.value = "";
+    oldest.textContent = tr("settle.applyOldest");
+    select.appendChild(oldest);
+  }
+  loans.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).forEach((l) => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    const label = l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word"));
+    opt.textContent = `${label} · ${l.date} · ${l.currency} ${moneyFmt(Math.max(l.remaining, 0))}`;
+    select.appendChild(opt);
+  });
+  select.value = selectedId || "";
+  wrap.hidden = loans.length < 2;
+  document.getElementById("settlement-loan-hint").textContent = tr(editing ? "settle.applyToEditHint" : "settle.applyToHint");
+}
+
 async function refreshSettlementList_() {
+  repaymentLoans_ = await callApi("getFriendLoanDetail", { friendId: repaymentFriendId });
+  populateSettlementLoanOptions_("");
   const settlements = await callApi("listSettlementsForFriendCurrency", {
     friendId: repaymentFriendId,
     currency: repaymentCurrency
@@ -13965,6 +14045,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const date = document.getElementById("settlement-date").value;
   const paymentMethodId = document.getElementById("settlement-payment-method").value;
   const description = document.getElementById("settlement-description").value.trim();
+  const chosenLoanId = document.getElementById("settlement-loan").value;
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
@@ -13984,7 +14065,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
       // Loans.gs).
-      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId });
+      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: chosenLoanId || undefined });
       await refreshAfterSettlementChange_();
       return;
     }
@@ -13997,6 +14078,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       date,
       payment_method_id: paymentMethodId,
       description,
+      loan_id: chosenLoanId || undefined,   // optional: pay this loan first; blank = oldest first
       project_id: repaymentProjectId_ || undefined   // only that project's debts are paid down (Loans.gs)
     });
 

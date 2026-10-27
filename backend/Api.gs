@@ -387,7 +387,7 @@ function routeAction(action, payload) {
       try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
       return followed ? { done: true, follow: followed } : { done: true };
     }
-    case 'discardEntry': return discardEntryWithRepayments_(payload.id);
+    case 'discardEntry': return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'updateEntry': return updateEntryFromApp_(payload);
     case 'convertPendingToTransfer': return convertPendingToTransfer(payload);
@@ -409,7 +409,8 @@ function routeAction(action, payload) {
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'addLoan': return addLoan(payload);
     case 'updateLoan': return updateLoan(payload);
-    case 'deleteLoan': deleteLoan(payload.id); return { done: true };
+    case 'deleteLoan': deleteLoan(payload.id, payload.repayments); return { done: true };
+    case 'getLoanDeleteInfo': return getLoanDeleteInfo(payload);
     case 'listSettlementsForFriendCurrency': return listSettlementsForFriendCurrency(payload.friendId, payload.currency);
     case 'recordRepayment': return recordRepayment(payload);
     case 'convertEntryToRepayment': return convertEntryToRepayment(payload);

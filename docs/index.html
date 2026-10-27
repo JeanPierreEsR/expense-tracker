@@ -1342,6 +1342,23 @@
     </div>
   </div>
 
+  <div id="repay-choice-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="repay-choice-title"></span>
+        <button type="button" id="repay-choice-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="repay-choice-text"></p>
+        <button type="button" class="primary" id="repay-choice-keep"></button>
+        <p class="hint" id="repay-choice-keep-hint"></p>
+        <button type="button" class="delete-entry-btn" id="repay-choice-cancel"></button>
+        <p class="hint" id="repay-choice-cancel-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="repay-choice-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1356,6 +1373,11 @@
         <p class="hint" id="settlement-list-empty-note" hidden data-i18n="settle.empty">No repayments recorded yet.</p>
 
         <div id="settlement-form">
+          <div id="settlement-loan-wrap" hidden>
+            <label for="settlement-loan" data-i18n="settle.applyTo">Applies to</label>
+            <select id="settlement-loan"></select>
+            <p class="hint" id="settlement-loan-hint" data-i18n="settle.applyToHint">Oldest loans first, unless you pick one. Anything left over carries on oldest-first.</p>
+          </div>
           <label for="settlement-amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
 

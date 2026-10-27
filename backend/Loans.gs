@@ -491,7 +491,13 @@ function updateLoan(payload) {
 // reasoning as deleteEntrySplitsAndLoansForEntry_: a real repayment
 // already made should never just disappear because the loan row it was
 // against gets deleted.
-function deleteLoan(loanId) {
+// `repayments` is only read when the loan has repayments recorded against it:
+//   'cancel' — the repayments are cancelled with the loan (a repayment's transfer
+//              entry loses that share, same as deleteSettlement);
+//   'keep'   — the loan goes but what was really paid back stays on record as a loan
+//              the other way (refundAndDeleteRepaidLoan_), independent of this one.
+// Without a choice a loan with repayments is refused, as before.
+function deleteLoan(loanId, repayments) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
   if (!loan) return;
   // A loan from a shared expense is deleted by deleting that expense — unless
@@ -500,9 +506,20 @@ function deleteLoan(loanId) {
   if (loan.origin !== 'cash' && !(loan.origin === 'entry' && !getEntryById_(loan.entry_id))) {
     throw new Error(tr_('loan.fromSharedDelete'));
   }
+  ensureSettlementsOffsetColumn_();
   var hasSettlement = getAllRows('Settlements').some(function (s) { return s.loan_id === loanId; });
   if (hasSettlement) {
-    throw new Error(tr_('loan.noDeleteWithRepayment'));
+    if (repayments !== 'cancel' && repayments !== 'keep') {
+      throw new Error(tr_('loan.noDeleteWithRepayment'));
+    }
+    if (loan.transfer_entry_id) deleteEntry_(loan.transfer_entry_id);
+    if (repayments === 'keep') {
+      refundAndDeleteRepaidLoan_(loan);
+    } else {
+      cancelLoanRepayments_(loanId);
+      deleteRowsWhere_('Loans', function (row) { return row.id === loanId; });
+    }
+    return;
   }
 
   if (loan.transfer_entry_id) {
@@ -513,6 +530,46 @@ function deleteLoan(loanId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loanId);
   if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
+}
+
+// Removes every repayment row of a loan. A real repayment's transfer entry shrinks by that
+// share (and disappears once nothing backs it); the other half of an auto-offset is removed
+// so that loan owes again.
+function cancelLoanRepayments_(loanId) {
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var mine = getAllRows('Settlements').filter(function (s) { return s.loan_id === loanId; });
+  var transferIds = {};
+  var otherLoanIds = {};
+  mine.forEach(function (s) {
+    if (s.offset_loan_id) otherLoanIds[s.offset_loan_id] = true;
+    else if (s.transfer_entry_id) transferIds[s.transfer_entry_id] = true;
+  });
+  deleteRowsWhere_('Settlements', function (s) {
+    return s.loan_id === loanId || (s.offset_loan_id === loanId && otherLoanIds[s.loan_id]);
+  });
+  Object.keys(otherLoanIds).forEach(updateLoanStatusFromSettlements_);
+  Object.keys(transferIds).forEach(recalculateRepaymentTransferEntry_);
+}
+
+// What deleting this loan would do to its repayments, for the choice screen.
+function getLoanDeleteInfo(payload) {
+  ensureSettlementsOffsetColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  if (!loan) return { exists: false };
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var realPaid = getAllRows('Settlements').reduce(function (sum, s) {
+    return s.loan_id === loan.id && !s.offset_loan_id ? sum + Number(s.amount) : sum;
+  }, 0);
+  var anyRepayment = getAllRows('Settlements').some(function (s) { return s.loan_id === loan.id; });
+  return {
+    exists: true,
+    hasRepayments: anyRepayment,
+    paid: realPaid,
+    currency: loan.currency,
+    direction: loan.direction,
+    friend: friend ? friend.name : ''
+  };
 }
 
 // ---- Settlements / repayments (Phase 5.4, consolidated 2026-09-17) ----
@@ -656,6 +713,14 @@ function recordRepayment(payload) {
 
   var primary = payload.direction === 'they_owe_me' ? theyOweMe : iOweThem;
   var secondary = payload.direction === 'they_owe_me' ? iOweThem : theyOweMe;
+
+  // Optional: the person chose which loan this repayment goes to. That loan is paid first
+  // (offsets included); anything left over carries on oldest-first as usual.
+  if (payload.loan_id) {
+    var chosenIdx = primary.findIndex(function (l) { return l.id === payload.loan_id; });
+    if (chosenIdx === -1) throw new Error(tr_('repay.chosenLoanNotOpen'));
+    primary.unshift(primary.splice(chosenIdx, 1)[0]);
+  }
 
   // Set by the review queue / Telegram when converting a pending INCOME entry
   // ("this money was really a friend paying me back"). With no debt on record
@@ -1133,8 +1198,15 @@ function getEntryRepaymentLinks(payload) {
 // stay, same as deleteSettlement leaves them. A cash loan's own transfer
 // entry is refused — deleting it would leave the loan with no movement, and
 // deleting the loan is what the Loans tab is for.
-function discardEntryWithRepayments_(entryId) {
+function discardEntryWithRepayments_(entryId, repayments) {
   var links = getEntryRepaymentLinks({ id: entryId });
+  // 'cancel': the repayments made on this expense's loans are cancelled with it. Any other
+  // value keeps them (as refund loans, see refundAndDeleteRepaidLoan_).
+  if (repayments === 'cancel') {
+    getAllRows('Loans').forEach(function (l) {
+      if (l.origin === 'entry' && l.entry_id === entryId && l.status !== 'forgiven') cancelLoanRepayments_(l.id);
+    });
+  }
   if (links.loan) {
     throw new Error(tr_('loan.entryIsMovement'));
   }
@@ -1280,8 +1352,18 @@ function updateSettlement(payload) {
   if (existing.offset_loan_id) {
     throw new Error(tr_('repay.autoOffsetEdit'));
   }
-  var loan = getAllRows('Loans').find(function (l) { return l.id === existing.loan_id; });
-  if (!loan) throw new Error(tr_('err.loanNotFound'));
+  var oldLoan = getAllRows('Loans').find(function (l) { return l.id === existing.loan_id; });
+  if (!oldLoan) throw new Error(tr_('err.loanNotFound'));
+  // Optional: move the repayment to another loan of the same person, currency and direction.
+  var loan = oldLoan;
+  if (payload.loan_id && payload.loan_id !== existing.loan_id) {
+    loan = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
+    if (!loan) throw new Error(tr_('err.loanNotFound'));
+    if (loan.friend_id !== oldLoan.friend_id || loan.currency !== oldLoan.currency ||
+        loan.direction !== oldLoan.direction || loan.status === 'forgiven') {
+      throw new Error(tr_('repay.chosenLoanNotOpen'));
+    }
+  }
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
@@ -1289,7 +1371,7 @@ function updateSettlement(payload) {
   // otherwise editing one down and back up again would always look like
   // it's exceeding the balance it's itself already part of.
   var settledOthers = getAllRows('Settlements')
-    .filter(function (s) { return s.loan_id === existing.loan_id && s.id !== payload.id; })
+    .filter(function (s) { return s.loan_id === loan.id && s.id !== payload.id; })
     .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   var remaining = Number(loan.amount) - settledOthers;
   if (Number(payload.amount) - remaining > 0.004) {
@@ -1303,8 +1385,10 @@ function updateSettlement(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'date', payload.date);
   setCellByRow_(sheet, headers, rowIndex, 'amount', Number(payload.amount));
   setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
+  if (loan.id !== existing.loan_id) setCellByRow_(sheet, headers, rowIndex, 'loan_id', loan.id);
 
   updateLoanStatusFromSettlements_(existing.loan_id);
+  if (loan.id !== existing.loan_id) updateLoanStatusFromSettlements_(loan.id);
   recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }

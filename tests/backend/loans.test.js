@@ -175,3 +175,113 @@ test("deleting an expense with an unpaid loan just deletes the loan", () => {
   rt.api("discardEntry", { id: entry.id });
   assert.equal(loansOf(rt, friend.id).length, 0);
 });
+
+// ---- Choices when deleting a repaid loan / expense, and choosing which loan a repayment goes to ----
+const cashLoan = (rt, data, friend, amount, date) =>
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount, currency: "PEN", date: date || today(), payment_method_id: data.pms[3].id, description: "Cash loan " + amount });
+const newFriend = (rt) => rt.api("addFriend", { name: "Test Friend " + Math.random().toString(36).slice(2, 7) });
+const transferEntryIds = (rt, loanId) => rt.rows("Settlements").filter((s) => s.loan_id === loanId && s.transfer_entry_id).map((s) => s.transfer_entry_id);
+
+test("deleting a repaid cash loan is refused without a choice", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const loan = cashLoan(rt, data, friend, 50);
+  repay(rt, data, friend, 20);
+  assert.throws(() => rt.api("deleteLoan", { id: loan.id }));
+  assert.equal(rt.api("getLoanDeleteInfo", { id: loan.id }).paid, 20);
+});
+
+test("deleting a repaid cash loan and cancelling its repayments removes both", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const loan = cashLoan(rt, data, friend, 50);
+  repay(rt, data, friend, 20);
+  const tid = transferEntryIds(rt, loan.id)[0];
+  assert.ok(rt.rows("Entries").some((e) => e.id === tid));
+
+  rt.api("deleteLoan", { id: loan.id, repayments: "cancel" });
+
+  assert.equal(loansOf(rt, friend.id).length, 0, "no loan, no refund loan");
+  assert.equal(rt.rows("Settlements").some((s) => s.loan_id === loan.id), false);
+  assert.equal(rt.rows("Entries").some((e) => e.id === tid), false, "the repayment's money movement is cancelled too");
+});
+
+test("deleting a repaid cash loan but keeping the repayments leaves a refund loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const loan = cashLoan(rt, data, friend, 50);
+  repay(rt, data, friend, 20);
+  const tid = transferEntryIds(rt, loan.id)[0];
+
+  rt.api("deleteLoan", { id: loan.id, repayments: "keep" });
+
+  const loans = loansOf(rt, friend.id);
+  assert.equal(loans.length, 1);
+  assert.equal(loans[0].direction, "i_owe_them");
+  assert.equal(Number(loans[0].amount), 20);
+  assert.ok(rt.rows("Entries").some((e) => e.id === tid), "the money that really moved stays on record");
+});
+
+test("deleting a repaid loan with an auto-offset gives that offset back to the other loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const owedToMe = cashLoan(rt, data, friend, 50);
+  const iOwe = rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 30, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "I owe" });
+  repay(rt, data, friend, 0.01);   // writes the offset between the two loans
+  assert.ok(rt.rows("Settlements").some((s) => s.loan_id === iOwe.id && s.offset_loan_id === owedToMe.id));
+
+  rt.api("deleteLoan", { id: owedToMe.id, repayments: "cancel" });
+
+  assert.equal(rt.rows("Settlements").some((s) => s.loan_id === iOwe.id && s.offset_loan_id), false, "the other loan owes its full amount again");
+});
+
+test("deleting a repaid expense can cancel the repayments instead of keeping them", () => {
+  const { rt, data } = freshApp();
+  const { entry, friend } = sharedExpense(rt, data, 100, 40);
+  repay(rt, data, friend, 30);
+  const loanId = loansFor(rt, entry.id)[0].id;
+  const tid = transferEntryIds(rt, loanId)[0];
+
+  rt.api("discardEntry", { id: entry.id, repayments: "cancel" });
+
+  assert.equal(loansOf(rt, friend.id).length, 0, "no refund loan");
+  assert.equal(rt.rows("Entries").some((e) => e.id === tid), false);
+});
+
+test("a repayment can be sent to a chosen loan; the default stays oldest-first", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const older = cashLoan(rt, data, friend, 50, "2026-01-01");
+  const newer = cashLoan(rt, data, friend, 50, "2026-02-01");
+  const paidOn = (id) => rt.rows("Settlements").filter((s) => s.loan_id === id).reduce((a, s) => a + Number(s.amount), 0);
+
+  repay(rt, data, friend, 10);
+  assert.equal(paidOn(older.id), 10, "default: oldest first");
+
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 60, date: today(), currency: "PEN", payment_method_id: data.pms[3].id, loan_id: newer.id });
+  assert.equal(paidOn(newer.id), 50, "chosen loan paid in full first");
+  assert.equal(paidOn(older.id), 20, "the rest carries on oldest-first");
+
+  assert.throws(() => rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 5, date: today(), currency: "PEN", payment_method_id: data.pms[3].id, loan_id: newer.id }), "a fully paid loan can't be chosen");
+});
+
+test("an existing repayment can be moved to another loan of the same person", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const a = cashLoan(rt, data, friend, 50, "2026-01-01");
+  const b = cashLoan(rt, data, friend, 50, "2026-02-01");
+  repay(rt, data, friend, 20);   // lands on the older loan
+  const s = rt.rows("Settlements").find((x) => x.loan_id === a.id);
+  const statusOf = (id) => rt.rows("Loans").find((l) => l.id === id).status;
+  assert.equal(statusOf(a.id), "partially_repaid");
+
+  rt.api("updateSettlement", { id: s.id, amount: 20, date: s.date, payment_method_id: s.payment_method_id, loan_id: b.id });
+
+  assert.equal(rt.rows("Settlements").find((x) => x.id === s.id).loan_id, b.id);
+  assert.equal(statusOf(a.id), "outstanding");
+  assert.equal(statusOf(b.id), "partially_repaid");
+
+  const other = newFriend(rt);
+  const c = cashLoan(rt, data, other, 50);
+  assert.throws(() => rt.api("updateSettlement", { id: s.id, amount: 20, date: s.date, loan_id: c.id }), "not another person's loan");
+});
