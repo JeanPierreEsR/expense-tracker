@@ -80,7 +80,8 @@ def ocr(path):
                 texts.append(r.stdout.decode('utf-8', 'replace'))
         finally:
             os.unlink(small)
-    return '\n\n'.join(texts)
+    # form feed between passes: the server reads each pass on its own and votes
+    return '\n\f\n'.join(texts)
 
 
 def main():
