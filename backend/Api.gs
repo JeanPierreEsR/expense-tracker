@@ -118,7 +118,7 @@ function doPost(e) {
 var ONCE_ACTIONS_ = {
   createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
-  addCompany: 1, addProject: 1,   // Business pack (Business.gs): a resend must not create a second one
+  addCompany: 1, addProject: 1, addExpectedPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
@@ -204,6 +204,11 @@ function routeAction(action, payload) {
     case 'setBusinessFeatures': return setBusinessFeatures(payload);
     case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
     case 'listBusinessPeople': return listBusinessPeople();
+    case 'listExpectedPayments': return listExpectedPayments(payload);
+    case 'addExpectedPayment': return addExpectedPayment(payload);
+    case 'updateExpectedPayment': return updateExpectedPayment(payload);
+    case 'coverExpectedPayment': return coverExpectedPayment(payload);
+    case 'deleteExpectedPayment': return deleteExpectedPayment(payload);
     case 'updateFriend': return updateFriend(payload);
     case 'deleteFriend': return deleteFriend(payload);
     case 'getProjectDebts': return getProjectDebts(payload);
@@ -573,6 +578,7 @@ function getMeta() {
     // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
     companies: getCompanyRows_(),
     projects: getProjectRows_(),
+    expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap(),
@@ -719,6 +725,9 @@ function createEntry(payload) {
     ensureBusinessSheets_();
     entry.company_id = businessLink.company_id;
     entry.project_id = businessLink.project_id;
+    // An income may settle one expected payment of its project (same currency).
+    var expectedId = expectedLinkFor_(entry.type, payload.expected_payment_id, businessLink.project_id, entry.currency);
+    if (expectedId) entry.expected_payment_id = expectedId;
   }
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
@@ -1043,7 +1052,7 @@ function buildSearchIndexRows_(entries) {
       _s: entrySearchText_(e, lk)
     };
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
-    if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; }
+    if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; }
     return row;
   });
 }

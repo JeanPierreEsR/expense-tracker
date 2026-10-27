@@ -18,7 +18,9 @@
 var BUSINESS_TABLES_ = {
   'Companies': ['id', 'name', 'emoji'],
   'Projects': ['id', 'company_id', 'name', 'emoji', 'status', 'client_id'],
-  'Project Budgets': ['id', 'project_id', 'currency', 'amount']
+  'Project Budgets': ['id', 'project_id', 'currency', 'amount'],
+  // Step 3A: money a client still owes on a project (a reminder, never income). due_date is text (see DATE_LIKE_COLUMNS).
+  'Expected Payments': ['id', 'project_id', 'client_id', 'amount', 'currency', 'due_date', 'invoice_no', 'note', 'status']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };
@@ -48,8 +50,11 @@ function ensureBusinessSheets_() {
     headerRange.setValues([headers]);
     headerRange.setFontWeight('bold');
     sheet.setFrozenRows(1);
+    // A date written as text must stay text (Sheets would turn "2026-11-15" into a Date).
+    if (name === 'Expected Payments') sheet.getRange(1, headers.indexOf('due_date') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
   });
   ensureColumn_('Entries', 'company_id');
+  ensureColumn_('Entries', 'expected_payment_id');   // step 3A: the expected payment an income entry settles
   ensureColumn_('Entries', 'project_id');
   // Step 2: a person's business role and the project a debt belongs to (both created only on first use of the pack).
   ensureColumn_('Friends', 'role');
@@ -123,16 +128,23 @@ function businessLinkFor_(type, projectId, companyId) {
 // whether or not the pack is on, so a hidden label never survives on the wrong kind of entry.
 function businessFieldsForUpdate_(entryId, fields) {
   fields = fields || {};
-  var touches = fields.project_id !== undefined || fields.company_id !== undefined;
+  var touches = fields.project_id !== undefined || fields.company_id !== undefined || fields.expected_payment_id !== undefined;
   var typeChanges = fields.type !== undefined && fields.type !== 'expense' && fields.type !== 'income';
-  if (!touches && !typeChanges) return fields;
+  var leavesIncome = fields.type !== undefined && fields.type !== 'income';   // an expense / transfer / investment settles nothing
+  if (!touches && !typeChanges && !leavesIncome) return fields;
   var out = Object.assign({}, fields);
   delete out.project_id;
   delete out.company_id;
+  delete out.expected_payment_id;
   var headers = getHeaders(getSheet('Entries'));
   var hasColumns = headers.indexOf('project_id') !== -1 && headers.indexOf('company_id') !== -1;
   if (typeChanges) {
     if (hasColumns) { out.project_id = ''; out.company_id = ''; }
+    if (headers.indexOf('expected_payment_id') !== -1) out.expected_payment_id = '';
+    return out;
+  }
+  if (leavesIncome && !touches) {                 // an expense no longer settles anything
+    if (headers.indexOf('expected_payment_id') !== -1) out.expected_payment_id = '';
     return out;
   }
   if (!touches || !businessOn_()) return out;     // while off, a link in the payload is ignored
@@ -141,6 +153,11 @@ function businessFieldsForUpdate_(entryId, fields) {
   ensureBusinessSheets_();
   out.project_id = link.project_id;
   out.company_id = link.company_id;
+  // The expected payment an income settles: kept only when it is on this project and in this currency.
+  var type = fields.type || (existing && existing.type);
+  var expectedId = fields.expected_payment_id !== undefined ? fields.expected_payment_id : (existing && existing.expected_payment_id);
+  var currency = fields.currency || (existing && existing.currency);
+  out.expected_payment_id = leavesIncome ? '' : expectedLinkFor_(type, expectedId, link.project_id, currency);
   return out;
 }
 
@@ -309,6 +326,7 @@ function deleteProject(payload) {
       });
     }
     deleteRowsWhere_('Project Budgets', function (row) { return String(row.project_id) === id; });
+    deleteExpectedForProject_(id);
     deleteRowsWhere_('Projects', function (row) { return String(row.id) === id; });
   });
   return { done: true };
@@ -427,7 +445,8 @@ function getProjectDetail(payload) {
     project: { id: project.id, name: project.name, emoji: project.emoji, status: project.status || 'active', company_id: project.company_id, client_id: project.client_id || '' },
     company: company ? { id: company.id, name: company.name, emoji: company.emoji } : null,
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
-    byCategory: businessByCategory_(rows)
+    byCategory: businessByCategory_(rows),
+    expected: listExpectedPayments({ project_id: project.id, today: payload.today }).items
   };
 }
 
@@ -449,7 +468,8 @@ function getCompanyDetail(payload) {
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
     projects: projects,
     companyLevel: { currencies: level.currencies, approx: level.approx, entryCount: level.entryCount },
-    byCategory: businessByCategory_(rows)
+    byCategory: businessByCategory_(rows),
+    expected: listExpectedPayments({ company_id: company.id, today: payload.today }).items
   };
 }
 

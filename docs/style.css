@@ -3110,3 +3110,14 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .review-item-amount.review-amt-in { color: var(--income); }
 
 .loan-row-projects { display: block; font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-top: 1px; }
+
+/* Business pack step 3A: expected payments on a project, the separate Home card, and "Choose which loans this pays". */
+.xp-row { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 4px 10px 8px; margin-bottom: 8px; }
+.xp-row.overdue { border-color: #e0932a; }
+.xp-row .xp-main { cursor: pointer; }
+.xp-closed summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 0; }
+.business-expected-card .business-expected-row { cursor: pointer; }
+.business-expected-card .business-expected-row.overdue .recurring-row-sub { color: #c77a12; }
+.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.85rem; }
+.settle-choose-row span { flex: 1; }
+.settle-choose-row input { width: 96px; }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.2.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.3.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-27T16:49:38Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-27T17:10:47Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -257,6 +257,11 @@
             <select id="entry-business"></select>
           </div>
 
+          <div id="expected-field" hidden>
+            <label for="entry-expected" data-i18n="field.expected">Pays expected payment</label>
+            <select id="entry-expected"></select>
+          </div>
+
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
@@ -297,6 +302,12 @@
         <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
         <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
         <div id="expected-recurring-groups"></div>
+      </div>
+
+      <div class="card business-expected-card" id="business-expected-card" hidden>
+        <h2 data-i18n="bx.title">💼 Business · expected this month</h2>
+        <p class="hint" data-i18n="bx.hint">Payments clients still owe you, due this month or overdue.</p>
+        <div id="business-expected-list"></div>
       </div>
 
       <div class="card entry-list">
@@ -1373,11 +1384,6 @@
         <p class="hint" id="settlement-list-empty-note" hidden data-i18n="settle.empty">No repayments recorded yet.</p>
 
         <div id="settlement-form">
-          <div id="settlement-loan-wrap" hidden>
-            <label for="settlement-loan" data-i18n="settle.applyTo">Applies to</label>
-            <select id="settlement-loan"></select>
-            <p class="hint" id="settlement-loan-hint" data-i18n="settle.applyToHint">Oldest loans first, unless you pick one. Anything left over carries on oldest-first.</p>
-          </div>
           <label for="settlement-amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
 
@@ -1390,6 +1396,21 @@
 
           <label for="settlement-description" data-i18n="field.description">Description</label>
           <input type="text" id="settlement-description" data-i18n-placeholder="common.optional" placeholder="Optional">
+
+          <div id="settlement-loan-field" hidden>
+            <label for="settlement-loan" data-i18n="settle.loanLabel">Which loan this pays</label>
+            <select id="settlement-loan"></select>
+            <p class="hint" data-i18n="settle.loanHint">Pick another loan to move this repayment to it. The amount and the account stay the same.</p>
+          </div>
+
+          <div id="settlement-choose" hidden>
+            <button type="button" class="add-inline" id="settlement-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+            <div id="settlement-choose-panel" hidden>
+              <p class="hint" data-i18n="settle.chooseHint">Type how much goes to each loan. Whatever you leave unassigned is applied to the oldest loans first.</p>
+              <div id="settlement-choose-list"></div>
+              <p class="hint" id="settlement-choose-summary"></p>
+            </div>
+          </div>
 
           <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
           <button type="button" class="primary" id="settlement-save-btn" data-i18n="settle.save">Save repayment</button>
@@ -2149,6 +2170,38 @@
     </div>
   </div>
 
+  <div id="expected-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="expected-modal-title" data-i18n="xp.addTitle">Add expected payment</span>
+        <button type="button" id="expected-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="expected-client" data-i18n="xp.client">Client</label>
+        <select id="expected-client"></select>
+
+        <label for="expected-amount" data-i18n="field.amount">Amount</label>
+        <input type="text" inputmode="decimal" id="expected-amount" placeholder="0.00">
+
+        <label for="expected-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="expected-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="expected-due" data-i18n="xp.due">Due date</label>
+        <input type="date" id="expected-due">
+
+        <label for="expected-invoice"><span data-i18n="xp.invoice">Invoice number</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-invoice" maxlength="60">
+
+        <label for="expected-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-note" maxlength="200">
+
+        <p class="hint" id="expected-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="expected-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="expected-delete-btn" hidden data-i18n="xp.delete">Delete this expected payment</button>
+      </div>
+    </div>
+  </div>
+
   <div id="project-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -2552,18 +2605,18 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="i18n.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="tour-scenes.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="signin-link.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="bank-sample.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="perf-share.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="receipt-parse.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="bill-split.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="app.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="statement-sample.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="statement-table.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="statement-parsers.js?v=2026-10-27T16:49:38Z"></script>
-  <script src="statements.js?v=2026-10-27T16:49:38Z"></script>
+  <script src="strings.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="i18n.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="tour-scenes.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="signin-link.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="bank-sample.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="perf-share.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="receipt-parse.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="bill-split.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="app.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="statement-sample.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="statement-table.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="statement-parsers.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="statements.js?v=2026-10-27T17:10:47Z"></script>
 </body>
 </html>

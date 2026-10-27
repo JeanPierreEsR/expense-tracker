@@ -52,6 +52,10 @@ function bringModalToFront_(backdropEl) {
 
 let meta = null;
 let selectedType = "expense";
+// Business pack: the expected payment an income settles (declared up here because selectCurrency can run before the business code below).
+let expectedPick_ = "";
+let expectedPickTouched_ = false;
+let expectedSeq_ = 0;
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
 let editingEntryId = null;
@@ -197,6 +201,9 @@ function selectCurrency(code, target) {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
+    // An expected payment is in one currency: a new currency means a new list to choose from.
+    expectedPick_ = ""; expectedPickTouched_ = false;
+    syncExpectedField_();
   } else if (resolvedTarget === "trip") {
     refreshTripRateWarning_(true);   // a newly chosen trip currency with no rate on file asks for one
   }
@@ -329,7 +336,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
-  "addCompany", "addProject",   // Business pack: a resend must not create a second one
+  "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
@@ -2427,6 +2434,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     await refreshEntryList();
     refreshExpectedRecurring();
+    // A project screen underneath shows the income just saved (and what is still expected).
+    if (businessOn() && !document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_().catch(() => {});
 
     if (confirmingPendingId) {
       closeConfirmPendingPopup();
@@ -3144,7 +3153,8 @@ function captureEntryDraft_() {
     date: entryDateTouched_ ? document.getElementById("date").value : "",
     tagIds: [...selectedTagIds],
     tripId: document.getElementById("entry-trip").value,
-    businessPick: document.getElementById("entry-business").value
+    businessPick: document.getElementById("entry-business").value,
+    expectedPick: expectedPick_
   };
 }
 
@@ -3175,7 +3185,13 @@ function restoreEntryDraft_() {
   try { d = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (err) { d = null; }
   if (!d || d.v !== 1 || !(Date.now() - d.savedAt < ENTRY_DRAFT_MAX_AGE_MS)) { clearEntryDraft_(); return false; }
   if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) return false;
+  applyEntryDraft_(d);
+  showFormNotice_(tr("entry.draftRestored"));
+  return true;
+}
 
+// Fills the new-entry form from a draft (a saved one, or the income the "Received" button prepares).
+function applyEntryDraft_(d) {
   selectedType = d.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === d.type));
   populateCategoryOptions();
@@ -3202,8 +3218,7 @@ function restoreEntryDraft_() {
   populateTags();
   setTripPick_(d.tripId);
   setBusinessPick_(d.businessPick);
-  showFormNotice_(tr("entry.draftRestored"));
-  return true;
+  if (d.expectedPick) setExpectedPick_(d.expectedPick);
 }
 
 (function setupEntryDraft_() {
@@ -3356,6 +3371,7 @@ async function startEditEntry(entry) {
   populateTags();
   setTripPick_(entry.trip_id);
   setBusinessPick_(businessPickValue_(entry));
+  if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -10185,6 +10201,7 @@ function applyBusinessVisibility_() {
   const on = businessOn();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
+  refreshBusinessHomeCard_();
 }
 
 // Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
@@ -10477,6 +10494,7 @@ async function refreshBusinessDetail_() {
     ]);
     if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
     detail.debts = debts || [];
+    rememberExpected_(detail.expected || [], target.kind === "project" ? [target.id] : (meta.projects || []).filter((p) => p.company_id === target.id).map((p) => p.id));
     businessDetailData_ = detail;
     renderBusinessDetail_(detail);
     const shown = applyQueuedEditOverlay_(entries);
@@ -10539,6 +10557,7 @@ function renderBusinessDetail_(d) {
     ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
     ${businessApproxHtml_(d)}
     ${isProject ? businessOwedHtml_(d.debts || []) : ""}
+    ${businessExpectedHtml_(d.expected || [], isProject)}
     ${chips}
     ${costs ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.costsByCategory"))}</h3>${costs}` : ""}
     ${income ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.incomeByCategory"))}</h3>${income}` : ""}
@@ -10552,6 +10571,7 @@ function renderBusinessDetail_(d) {
   document.querySelectorAll("#business-detail-body .business-owed-row").forEach((row) => row.addEventListener("click", () => openLoanDetail(row.dataset.friend, row.dataset.name, d.project.id)));
   const addProject = document.getElementById("business-detail-add-project");
   if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
+  wireBusinessExpected_(d, isProject);
   const statusBtn = document.getElementById("business-detail-status-btn");
   if (statusBtn) statusBtn.addEventListener("click", async () => {
     const closing = d.project.status !== "closed";
@@ -10579,6 +10599,207 @@ document.getElementById("business-detail-edit-btn").addEventListener("click", ()
   if (businessDetail_.kind === "company") openCompanyModal_(d.company);
   else openProjectModal_(d.project, d.project.company_id, d.currencies.filter((c) => c.budget).map((c) => ({ currency: c.currency, amount: c.budget })));
 });
+
+// ---- Expected payments (step 3A): money a client still owes on a project. A reminder, never income. ----
+
+// The phone's copy (the invoice pill on an income row reads it): replace what is known for these projects with what the screen just loaded.
+function rememberExpected_(items, projectIds) {
+  const covered = new Set(projectIds);
+  meta.expectedPayments = (meta.expectedPayments || []).filter((x) => !covered.has(x.project_id)).concat(items);
+}
+
+function expectedDueText_(x) {
+  const date = I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00"));
+  return x.overdue ? `${tr("xp.dueOn", { date })} · ⚠️ ${tr("xp.overdue")}` : tr("xp.dueOn", { date });
+}
+
+function expectedRowHtml_(x, isProject) {
+  const sub = [x.invoice_no && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
+    x.state === "open" && x.paid > 0 ? tr("xp.partReceived", { cur: x.currency, amount: moneyFmt(x.paid) }) : "",
+    x.state !== "open" ? tr("xp.state." + x.state) : ""].filter(Boolean).join(" · ");
+  const actions = !isProject ? "" : x.state === "open"
+    ? `<button type="button" data-act="received">${escapeHtml(tr("xp.received"))}</button><button type="button" data-act="cover">${escapeHtml(tr("xp.cover"))}</button>`
+    : (x.state === "covered" ? `<button type="button" data-act="uncover">${escapeHtml(tr("xp.uncover"))}</button>` : "");
+  return `
+    <div class="xp-row${x.overdue ? " overdue" : ""}" data-id="${escapeHtml(x.id)}" data-project="${escapeHtml(x.project_id)}">
+      <div class="recurring-row xp-main">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-sub">${escapeHtml(sub)}</div>
+        </div>
+        <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.state === "open" ? x.remaining : x.amount)}</div></div>
+      </div>
+      ${actions ? `<div class="expected-recurring-actions">${actions}</div>` : ""}
+    </div>`;
+}
+
+function businessExpectedHtml_(items, isProject) {
+  if (!items.length && !isProject) return "";
+  const open = items.filter((x) => x.state === "open");
+  const closed = items.filter((x) => x.state !== "open");
+  return `<h3 class="accounts-group-title">${escapeHtml(tr("xp.title"))}</h3>
+    ${isProject ? `<p class="hint">${escapeHtml(tr("xp.hint"))}</p>` : ""}
+    ${open.map((x) => expectedRowHtml_(x, isProject)).join("")}
+    ${closed.length ? `<details class="xp-closed"><summary>${escapeHtml(tr("xp.settledGroup", { n: closed.length }))}</summary>${closed.map((x) => expectedRowHtml_(x, isProject)).join("")}</details>` : ""}
+    ${isProject ? `<button type="button" class="add-inline" id="business-detail-add-expected">${escapeHtml(tr("xp.add"))}</button>` : ""}`;
+}
+
+function wireBusinessExpected_(d, isProject) {
+  const byId = (id) => (d.expected || []).find((x) => x.id === id);
+  document.querySelectorAll("#business-detail-body .xp-row").forEach((row) => {
+    const x = byId(row.dataset.id);
+    if (!x) return;
+    row.querySelector(".xp-main").addEventListener("click", () => {
+      if (isProject) openExpectedModal_(d.project.id, x);
+      else showBusinessDetail_("project", x.project_id);
+    });
+    row.querySelectorAll("button[data-act]").forEach((btn) => btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (btn.dataset.act === "received") { startReceivedIncome_(x); return; }
+      btn.disabled = true;
+      try {
+        await callApi("coverExpectedPayment", { id: x.id, covered: btn.dataset.act === "cover" });
+        await refreshBusinessDetail_();
+        refreshBusinessHomeCard_();
+      } catch (err) {
+        document.getElementById("business-detail-error").textContent = err.message;
+        btn.disabled = false;
+      }
+    }));
+  });
+  const add = document.getElementById("business-detail-add-expected");
+  if (add) add.addEventListener("click", () => openExpectedModal_(d.project.id, null));
+}
+
+// "Received": the usual income form, already filled in (project, amount still to come, currency, today, the invoice as the
+// description). Saving it is what settles the payment; the person picks the category and the account as for any income.
+function startReceivedIncome_(x) {
+  const description = x.invoice_no ? tr("xp.incomeDescInvoice", { invoice: x.invoice_no })
+    : (x.client_name ? tr("xp.incomeDescClient", { client: x.client_name }) : tr("xp.incomeDesc"));
+  openNewEntrySheet_();
+  applyEntryDraft_({
+    v: 1, type: "income", categoryId: "", amount: Number(x.remaining).toFixed(2), description, currency: x.currency,
+    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [], tripId: "",
+    businessPick: "p:" + x.project_id, expectedPick: x.id
+  });
+  entryDateTouched_ = false;
+  document.getElementById("date").value = todayLocalISO();
+}
+
+let editingExpected_ = null;   // { projectId, payment|null }
+
+function openExpectedModal_(projectId, payment) {
+  editingExpected_ = { projectId, payment };
+  document.getElementById("expected-modal-title").textContent = tr(payment ? "xp.editTitle" : "xp.addTitle");
+  document.getElementById("expected-form-error").textContent = "";
+  const project = (meta.projects || []).find((p) => p.id === projectId);
+  const sel = document.getElementById("expected-client");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("xp.noClient");
+  sel.appendChild(none);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && isBusinessPerson_(f))
+    .sort((a, b) => (b.role === "client") - (a.role === "client") || a.name.localeCompare(b.name))
+    .forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = friendLabel_(f);
+      sel.appendChild(o);
+    });
+  sel.value = payment ? payment.client_id : (project && project.client_id) || "";
+  document.getElementById("expected-amount").value = payment ? String(payment.amount) : "";
+  document.getElementById("expected-currency").value = payment ? payment.currency : homeCur();
+  document.getElementById("expected-due").value = payment ? payment.due_date : todayLocalISO();
+  document.getElementById("expected-invoice").value = payment ? payment.invoice_no : "";
+  document.getElementById("expected-note").value = payment ? payment.note : "";
+  document.getElementById("expected-delete-btn").hidden = !payment;
+  const backdrop = document.getElementById("expected-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeExpectedModal_() {
+  document.getElementById("expected-modal-backdrop").hidden = true;
+  editingExpected_ = null;
+}
+
+async function afterExpectedChange_() {
+  closeExpectedModal_();
+  await refreshBusinessDetail_();
+  refreshBusinessHomeCard_();
+}
+
+document.getElementById("expected-modal-close").addEventListener("click", closeExpectedModal_);
+document.getElementById("expected-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "expected-modal-backdrop") closeExpectedModal_();
+});
+document.getElementById("expected-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+document.getElementById("expected-save-btn").addEventListener("click", async () => {
+  if (!editingExpected_) return;
+  const errorEl = document.getElementById("expected-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("expected-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = {
+      project_id: editingExpected_.projectId,
+      client_id: document.getElementById("expected-client").value,
+      amount: document.getElementById("expected-amount").value.trim(),
+      currency: document.getElementById("expected-currency").value.trim().toUpperCase(),
+      due_date: document.getElementById("expected-due").value,
+      invoice_no: document.getElementById("expected-invoice").value.trim(),
+      note: document.getElementById("expected-note").value.trim()
+    };
+    if (editingExpected_.payment) await callApi("updateExpectedPayment", Object.assign({ id: editingExpected_.payment.id }, fields));
+    else await callApi("addExpectedPayment", fields);
+    await afterExpectedChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("expected-delete-btn").addEventListener("click", async () => {
+  if (!editingExpected_ || !editingExpected_.payment || !confirm(tr("xp.confirmDelete"))) return;
+  try {
+    await callApi("deleteExpectedPayment", { id: editingExpected_.payment.id });
+    await afterExpectedChange_();
+  } catch (err) {
+    document.getElementById("expected-form-error").textContent = err.message;
+  }
+});
+
+// Home: a card of its own under "Programmed this month" — what clients still owe, due this month or overdue. Never mixed into
+// the personal figures, and only there while the pack is on and something is expected.
+async function refreshBusinessHomeCard_() {
+  const card = document.getElementById("business-expected-card");
+  if (!card) return;
+  if (!businessOn()) { card.hidden = true; return; }
+  let r;
+  try {
+    r = await callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() });
+  } catch (err) {
+    return;   // keep what is there; the next refresh tries again
+  }
+  if (!r.items.length) { card.hidden = true; return; }
+  const totals = r.totals.map((t) => `<span class="primary-amt">${escapeHtml(t.currency)} ${moneyFmt(t.remaining)}</span>`).join(" · ");
+  document.getElementById("business-expected-list").innerHTML = `
+    <div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("xp.title"))}</div><div class="recurring-row-amount">${totals}</div></div>
+    ${r.items.map((x) => `
+      <div class="recurring-row business-expected-row${x.overdue ? " overdue" : ""}" data-project="${escapeHtml(x.project_id)}">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-sub">${escapeHtml([x.company_name, x.project_name].filter(Boolean).join(" › "))} · ${escapeHtml(expectedDueText_(x))}</div>
+        </div>
+        <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.remaining)}</div></div>
+      </div>`).join("")}`;
+  card.hidden = false;
+  card.querySelectorAll(".business-expected-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.project)));
+}
 
 // ---- Company pop-up ----
 
@@ -11002,7 +11223,65 @@ function populateBusinessOptions_() {
   fillBusinessOptions_(sel, canLink ? sel.value : "");
   document.getElementById("business-field").hidden = !canLink;
   syncClientButton_();
+  syncExpectedField_();
 }
+
+// ---- "Pays expected payment" (an income on a project) ----
+// FIFO by default: a NEW income on a project pre-selects the oldest-due open expected payment of that project in the same
+// currency; the person can pick another or None. A choice (including None) is never overridden afterwards.
+function setExpectedPick_(id) {
+  expectedPick_ = id || "";
+  expectedPickTouched_ = !!id;
+  syncExpectedField_();
+}
+
+function expectedRowLabel_(x) {
+  return x.invoice_no || x.client_name || x.project_name || "—";
+}
+
+async function syncExpectedField_() {
+  const field = document.getElementById("expected-field");
+  if (!field) return;
+  const project = businessProjectOfPick_();
+  const show = businessOn() && selectedType === "income" && !!project;
+  if (!show) { field.hidden = true; return; }
+  const seq = ++expectedSeq_;
+  const currency = document.getElementById("currency").value;
+  let items;
+  try {
+    items = (await callApi("listExpectedPayments", { project_id: project.id, currency })).items;
+  } catch (err) {
+    return;   // offline or a hiccup: leave the field and the current choice as they are
+  }
+  if (seq !== expectedSeq_) return;   // the project or currency changed while loading
+  const usable = items.filter((x) => x.state === "open" || x.id === expectedPick_);
+  const sel = document.getElementById("entry-expected");
+  if (!usable.length) { expectedPick_ = ""; field.hidden = true; return; }
+  if (expectedPick_ && !usable.some((x) => x.id === expectedPick_)) expectedPick_ = "";
+  if (!expectedPick_ && !expectedPickTouched_ && (entryFormIsNewEntry_() || confirmingPendingId)) {
+    const open = usable.find((x) => x.state === "open");
+    if (open) expectedPick_ = open.id;
+  }
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("xp.pickNone");
+  sel.appendChild(none);
+  usable.forEach((x) => {
+    const o = document.createElement("option");
+    o.value = x.id;
+    o.textContent = tr("xp.pickRow", { label: expectedRowLabel_(x), cur: x.currency, amount: moneyFmt(x.state === "open" ? x.remaining : x.amount), date: I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00")) });
+    sel.appendChild(o);
+  });
+  sel.value = expectedPick_;
+  field.hidden = false;
+}
+
+document.getElementById("entry-expected").addEventListener("change", (e) => {
+  expectedPick_ = e.target.value;
+  expectedPickTouched_ = true;
+});
+document.getElementById("entry-business").addEventListener("change", () => { expectedPick_ = ""; expectedPickTouched_ = false; syncExpectedField_(); });
 
 // The project a Repayment / New loan on the Entries tab belongs to ("" = none); only a project counts there, never a company alone.
 function businessPickProjectId_() {
@@ -11098,18 +11377,20 @@ function setBusinessPick_(value) {
     sel.appendChild(o);
     sel.value = value;
   }
+  expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
+  syncExpectedField_();
 }
 
-// What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else both keys.
+// What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else all the keys.
 function businessLinkFields_() {
   if (!businessOn() || (selectedType !== "expense" && selectedType !== "income")) return {};
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "" };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "" };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2) };
-  return { project_id: "", company_id: "" };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "" };
+  return { project_id: "", company_id: "", expected_payment_id: "" };
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
@@ -11119,7 +11400,10 @@ function businessPillHtml_(entry) {
   const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
   if (!company && !project) return "";
   const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
-  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>`;
+  // An income that settles an expected payment also carries its invoice number.
+  const expected = entry.expected_payment_id ? (meta.expectedPayments || []).find((x) => x.id === entry.expected_payment_id) : null;
+  const invoice = expected && expected.invoice_no ? `<span class="entry-tag entry-business">${escapeHtml(tr("xp.pill", { no: expected.invoice_no }))}</span>` : "";
+  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>${invoice}`;
 }
 
 // ---- Recurring income/expenses ----
@@ -11988,6 +12272,7 @@ document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
 // drops off there on its own once that match exists.
 // prefetchedGroups: see loadMeta's comment above.
 async function refreshExpectedRecurring(prefetchedGroups) {
+  refreshBusinessHomeCard_();   // the separate business card under this one follows the same refreshes (hidden unless the pack is on)
   const card = document.getElementById("expected-recurring-card");
   const container = document.getElementById("expected-recurring-groups");
   let groups;
@@ -13383,7 +13668,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // beyond which currency, when there's more than one.
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
-  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId);
+  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
@@ -13890,11 +14175,117 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
   pendingOverpay = null;
-  populateSettlementLoanOptions_("");
+  editingSettlementLoanId_ = "";
+  document.getElementById("settlement-loan-field").hidden = true;
+  renderSettlementChoose_();
 }
+
+// ---- "Which loan this pays": fixing a recorded repayment that went to the wrong loan ----
+
+let editingSettlementLoanId_ = "";   // the loan the repayment being edited is on now
+
+// Only shown while editing one recorded repayment, and only when the person has another loan of the same kind and currency
+// to move it to (a fully paid loan can't take more; the current one is always listed, paid or not).
+function renderSettlementLoanField_(s) {
+  editingSettlementLoanId_ = s.loan_id;
+  const field = document.getElementById("settlement-loan-field");
+  const select = document.getElementById("settlement-loan");
+  select.innerHTML = "";
+  const label = (l) => tr("settle.loanOption", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
+  const candidates = repaymentAllLoans_.filter((l) =>
+    l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && (l.id === s.loan_id || l.remaining > 0.004));
+  candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  candidates.forEach((l) => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    // The current loan shows no balance: after this very repayment it often reads "0.00 left", which only confuses.
+    opt.textContent = l.id === s.loan_id
+      ? tr("settle.loanCurrent", { label: `${I18n.fmtDateMedium(new Date(l.date + "T00:00:00"))} · ${l.description || tr("transfer.kind.loan")}` })
+      : label(l);
+    select.appendChild(opt);
+  });
+  if (!candidates.some((l) => l.id === s.loan_id)) {   // current loan outside the screen's scope: still show it, so nothing looks changed
+    const opt = document.createElement("option");
+    opt.value = s.loan_id;
+    opt.textContent = tr("settle.loanCurrent", { label: s.loan_description || tr("transfer.kind.loan") });
+    select.insertBefore(opt, select.firstChild);
+  }
+  select.value = s.loan_id;
+  field.hidden = select.options.length < 2;
+}
+
+// ---- "Choose which loans this pays": FIFO (oldest first) unless the person assigns amounts to particular loans ----
+
+function settlementChoosableLoans_() {
+  return repaymentLoans_
+    .filter((l) => l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && l.remaining > 0.004)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+function settlementAssignments_() {
+  const out = [];
+  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+    const amount = parseFloat(input.value);
+    if (amount > 0) out.push({ loan_id: input.dataset.loan, amount });
+  });
+  return out;
+}
+
+function renderSettlementChooseSummary_() {
+  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
+  const assigned = settlementAssignments_().reduce((n, a) => n + a.amount, 0);
+  const el = document.getElementById("settlement-choose-summary");
+  el.textContent = assigned > paid + 0.004
+    ? tr("settle.chooseTooMuch")
+    : tr("settle.chooseSummary", { assigned: `${repaymentCurrency} ${moneyFmt(assigned)}`, rest: `${repaymentCurrency} ${moneyFmt(Math.max(0, paid - assigned))}` });
+}
+
+// Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
+// one recorded repayment. Closed and empty each time the sheet is reset, so a choice never leaks into the next repayment.
+function renderSettlementChoose_() {
+  const wrap = document.getElementById("settlement-choose");
+  if (!wrap) return;
+  document.getElementById("settlement-choose-panel").hidden = true;
+  document.getElementById("settlement-choose-list").innerHTML = "";
+  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseLoans");
+  wrap.hidden = !!editingSettlementId || settlementChoosableLoans_().length < 2;
+}
+
+document.getElementById("settlement-choose-btn").addEventListener("click", () => {
+  const panel = document.getElementById("settlement-choose-panel");
+  if (!panel.hidden) { renderSettlementChoose_(); return; }   // "Back to oldest first"
+  const list = document.getElementById("settlement-choose-list");
+  list.innerHTML = "";
+  settlementChoosableLoans_().forEach((l) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const text = document.createElement("span");
+    text.textContent = tr("settle.chooseRow", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.placeholder = "0.00";
+    input.dataset.loan = l.id;
+    input.addEventListener("input", () => {
+      const sanitized = sanitizeAmountInputValue(input.value);
+      if (sanitized !== input.value) input.value = sanitized;
+      renderSettlementChooseSummary_();
+    });
+    row.appendChild(text);
+    row.appendChild(input);
+    list.appendChild(row);
+  });
+  panel.hidden = false;
+  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseOff");
+  renderSettlementChooseSummary_();
+});
+document.getElementById("settlement-amount").addEventListener("input", () => {
+  if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
+});
 
 function loadSettlementIntoForm_(s) {
   editingSettlementId = s.id;
+  renderSettlementChoose_();
   document.getElementById("settlement-save-btn").textContent = tr("settle.saveChanges");
   document.getElementById("settlement-cancel-edit-btn").hidden = false;
   document.getElementById("settlement-delete-btn").hidden = false;
@@ -13902,7 +14293,7 @@ function loadSettlementIntoForm_(s) {
   document.getElementById("settlement-amount").value = s.amount;
   document.getElementById("settlement-date").value = s.date;
   document.getElementById("settlement-payment-method").value = s.payment_method_id || "";
-  populateSettlementLoanOptions_(s.loan_id, s.loan_direction);
+  renderSettlementLoanField_(s);
 }
 
 function renderSettlementList_(settlements) {
@@ -13940,41 +14331,7 @@ function renderSettlementList_(settlements) {
   });
 }
 
-let repaymentLoans_ = [];   // the friend's loans, for the "Applies to" picker
-
-// "Applies to": every open loan of this person in the selected currency and direction. A new repayment: the empty
-// choice means the usual oldest-first. Editing one: it must name a loan, preselected to the one it is on now.
-function populateSettlementLoanOptions_(selectedId, forcedDirection) {
-  const select = document.getElementById("settlement-loan");
-  const wrap = document.getElementById("settlement-loan-wrap");
-  const direction = forcedDirection || repaymentDirection;
-  const editing = !!editingSettlementId;
-  const loans = repaymentLoans_.filter((l) =>
-    l.currency === repaymentCurrency && l.direction === direction && l.status !== "forgiven" &&
-    (!repaymentProjectId_ || String(l.project_id || "") === repaymentProjectId_) &&
-    (l.remaining > 0.004 || l.id === selectedId));
-  select.innerHTML = "";
-  if (!editing) {
-    const oldest = document.createElement("option");
-    oldest.value = "";
-    oldest.textContent = tr("settle.applyOldest");
-    select.appendChild(oldest);
-  }
-  loans.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).forEach((l) => {
-    const opt = document.createElement("option");
-    opt.value = l.id;
-    const label = l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word"));
-    opt.textContent = `${label} · ${l.date} · ${l.currency} ${moneyFmt(Math.max(l.remaining, 0))}`;
-    select.appendChild(opt);
-  });
-  select.value = selectedId || "";
-  wrap.hidden = loans.length < 2;
-  document.getElementById("settlement-loan-hint").textContent = tr(editing ? "settle.applyToEditHint" : "settle.applyToHint");
-}
-
 async function refreshSettlementList_() {
-  repaymentLoans_ = await callApi("getFriendLoanDetail", { friendId: repaymentFriendId });
-  populateSettlementLoanOptions_("");
   const settlements = await callApi("listSettlementsForFriendCurrency", {
     friendId: repaymentFriendId,
     currency: repaymentCurrency
@@ -13994,7 +14351,11 @@ async function switchRepaymentCurrency_(currency) {
 // `netByCurrency` comes straight from openLoanDetail's own already-loaded
 // loan list (see there) — no extra fetch needed just to open this.
 let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
-async function openRepaymentModal(friendId, friendName, netByCurrency, projectId) {
+let repaymentLoans_ = [];       // the person's open loans (in the scope the sheet was opened with), for "Choose which loans this pays"
+let repaymentAllLoans_ = [];    // the same scope including paid ones, for "Which loan this pays" when fixing a recorded repayment
+async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans, allLoans) {
+  repaymentLoans_ = openLoans || [];
+  repaymentAllLoans_ = allLoans || openLoans || [];
   repaymentProjectId_ = projectId || "";
   repaymentFriendId = friendId;
   repaymentFriendName = friendName;
@@ -14045,9 +14406,20 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const date = document.getElementById("settlement-date").value;
   const paymentMethodId = document.getElementById("settlement-payment-method").value;
   const description = document.getElementById("settlement-description").value.trim();
-  const chosenLoanId = document.getElementById("settlement-loan").value;
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
+  const allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
+  if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
+  // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
+  const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
+  if (newLoanId && newLoanId !== editingSettlementLoanId_) {
+    const target = repaymentAllLoans_.find((l) => l.id === newLoanId);
+    if (target && amount > target.remaining + 0.004) {
+      errorEl.textContent = tr("settle.loanTooMuch", { cur: target.currency, amount: moneyFmt(target.remaining) });
+      return;
+    }
+  }
 
   // Everything from here on runs after the modal has closed — the owner
   // doesn't sit and wait for the server. A failure is reported with an alert
@@ -14065,7 +14437,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
       // Loans.gs).
-      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: chosenLoanId || undefined });
+      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: newLoanId || undefined });
       await refreshAfterSettlementChange_();
       return;
     }
@@ -14078,8 +14450,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       date,
       payment_method_id: paymentMethodId,
       description,
-      loan_id: chosenLoanId || undefined,   // optional: pay this loan first; blank = oldest first
-      project_id: repaymentProjectId_ || undefined   // only that project's debts are paid down (Loans.gs)
+      project_id: repaymentProjectId_ || undefined,   // only that project's debts are paid down (Loans.gs)
+      allocations: allocations.length ? allocations : undefined   // the loans the person chose; none = oldest first
     });
 
     refreshEntriesInBackground_();

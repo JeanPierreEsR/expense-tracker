@@ -86,3 +86,63 @@ test("step 2: the cash-loan form and the Entries-tab Repayment / New loan send a
 test("a future date with a company or project is refused instead of becoming a Programmed item", () => {
   assert.match(app, /business\.futureNotYet/);
 });
+
+// ---- Step 3A: expected payments, the Home card, "Choose which loans this pays" ----
+
+test("step 3A: creating an expected payment is protected against a resend, in the app and in the backend", () => {
+  assert.match(app.match(/const ONCE_ACTIONS = new Set\(\[([\s\S]*?)\]\);/)[1], /"addExpectedPayment"/);
+  assert.match(api.match(/var ONCE_ACTIONS_ = \{([\s\S]*?)\};/)[1], /\baddExpectedPayment: 1/);
+});
+
+test("step 3A: the expected-payment picker, the Home card and the 'choose loans' block are hidden in the page itself", () => {
+  assert.match(html, /id="expected-field" hidden/);
+  assert.match(html, /id="business-expected-card" hidden/);
+  assert.match(html, /id="settlement-choose" hidden/);
+  assert.match(html, /id="expected-modal-backdrop" class="[^"]*" hidden/);
+});
+
+test("step 3A: the Home business card is a separate card that follows every Programmed-this-month refresh, and hides while the pack is off", () => {
+  assert.match(app, /async function refreshExpectedRecurring\(prefetchedGroups\) \{\s*refreshBusinessHomeCard_\(\);/);
+  const fn = app.match(/async function refreshBusinessHomeCard_\(\) \{[\s\S]*?\n\}/)[0];
+  assert.match(fn, /if \(!businessOn\(\)\) \{ card\.hidden = true; return; \}/);
+  assert.match(fn, /scope: "home"/);
+  assert.ok(html.indexOf('id="expected-recurring-card"') < html.indexOf('id="business-expected-card"'), "directly under Programmed this month");
+});
+
+test("step 3A: the income form sends the expected payment only for an income on a project, and its state is declared before selectCurrency can use it", () => {
+  const fn = app.match(/function businessLinkFields_\(\) \{[\s\S]*?\n\}/)[0];
+  assert.match(fn, /expected_payment_id: selectedType === "income" \? expectedPick_ : ""/);
+  assert.ok(app.indexOf("let expectedPick_") < app.indexOf("function selectCurrency("), "declared first (a let used before its line throws)");
+  assert.match(app, /function syncExpectedField_\(\)|async function syncExpectedField_\(\)/);
+});
+
+test("step 3A: the repayment sends the chosen loans only when the panel was opened, never while fixing a recorded repayment", () => {
+  assert.match(app, /const allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
+  assert.match(app, /allocations: allocations\.length \? allocations : undefined/);
+  assert.match(app, /wrap\.hidden = !!editingSettlementId \|\| settlementChoosableLoans_\(\)\.length < 2;/);
+});
+
+test("step 3A: the loan picker shows only while fixing a recorded repayment, and its choice is sent as loan_id", () => {
+  const html = read("docs", "index.html");
+  assert.match(html, /<div id="settlement-loan-field" hidden>/);
+  assert.match(app, /document\.getElementById\("settlement-loan-field"\)\.hidden = true;/);   // closed again whenever the sheet is reset
+  assert.match(app, /const newLoanId = editingSettlementId && !document\.getElementById\("settlement-loan-field"\)\.hidden/);
+  assert.match(app, /loan_id: newLoanId \|\| undefined/);
+  assert.match(app, /openRepaymentModal\(friendId, friendName, netByCurrency, projectId, outstanding, loans\)/);
+  const strings = read("docs", "strings.js");
+  for (const key of ["settle.loanLabel", "settle.loanHint", "settle.loanOption", "settle.loanCurrent", "settle.loanTooMuch"]) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+  assert.match(read("backend", "Strings.gs"), /"repay\.moveBad": \{ en: "[^"]+", es: "[^"]+"/);
+});
+
+test("step 3A: every xp.* / bx.* / settle.choose* text the app uses exists in English and Spanish", () => {
+  const strings = read("docs", "strings.js");
+  const used = new Set([...app.matchAll(/tr\("((?:xp|bx)\.[A-Za-z.]+|settle\.choose[A-Za-z]*|field\.expected)"/g)].map((m) => m[1]));
+  used.delete("xp.state.");
+  ["xp.state.settled", "xp.state.covered"].forEach((k) => used.add(k));   // built from a prefix in the code
+  assert.ok(used.size > 20);
+  for (const key of used) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+});
