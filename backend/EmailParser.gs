@@ -165,8 +165,8 @@ var EMAIL_RULES = [
     }
   },
   // Money RECEIVED by Yapeo on the BCP account ("Recibiste un yapeo de S/ 250.00 de <who>"). Built from a friend's forwarded copy
-  // (2026-10-26): the subject, the sentence and the "Monto recibido" label were seen; the label of the operation number was not, so
-  // it is tried as in the other BCP constancias and the entry falls back to a generated id when it is absent. Always lands pending.
+  // (2026-10-26). The email has "Monto recibido" and "Enviado por <who>" but NO operation number, so the entry's id is generated
+  // from the message (computeEmailExternalId_). Always lands pending.
   {
     bank: 'BCP', rail: 'yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
     label: 'Yapeo recibido',
@@ -174,33 +174,38 @@ var EMAIL_RULES = [
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto recibido') || body);
       if (!amt) return null;
-      var m = body.match(/recibiste un yapeo de\s*\*?\s*(?:S\/\.?|US\$|\$)\s*[\d,.]+\s*\*?\s+de\s+([^\r\n]+)/i);
-      var from = m ? cleanText_(m[1]).replace(/\.$/, '') : null;
+      var from = afterLabel_(body, 'Enviado por');
+      if (!from) {   // the sentence wraps over two lines in the real email, so the label above is the reliable one
+        var m = body.match(/recibiste un yapeo de\s*\*?\s*(?:S\/\.?|US\$|\$)\s*[\d,.]+\s*\*?\s+de\s+([^\r\n]+)/i);
+        from = m ? cleanText_(m[1]).replace(/\.$/, '') : null;
+      }
       return {
         type: 'income', needsReview: true,
         amount: amt.amount, currency: amt.currency, description: from ? 'Yape de ' + from : 'Yape recibido',
         last4: null,
-        externalId: afterLabel_(body, 'Número de operación')
+        externalId: null
       };
     }
   },
-  // EBANX is a payment processor many foreign shops use for Peruvian cards (the statement shows "EBN*<SHOP>"). The email does not say
-  // which card paid, so the entry has no account (no `bank`, like the exchange house) and is chosen at review. The shop is read from the
-  // subject ("Pago confirmado del pedido BL123 de Adobe - Braintree" -> Adobe); the order number is the dedup id. If no amount can be
-  // found the email is listed under "Bank emails I couldn't read" instead of guessed.
+  // EBANX is a payment processor many foreign shops use for Peruvian cards (the statement shows "EBN*<SHOP>"). The email names the card
+  // by its last four digits ("Últimos dígitos tarjeta de crédito") but not the bank, so there is no `bank` on the rule (like the exchange
+  // house) and the account is found by those digits among ALL the person's accounts (see the bank-less lookup in the entry builder);
+  // if no single account has them it stays blank for review. The amount is "Valor final en <CUR>" (what was really charged). The shop is
+  // read from the subject ("Pago confirmado del pedido BL123 de Adobe - Braintree" -> Adobe); the order number is the dedup id. If no
+  // amount can be found the email is listed under "Bank emails I couldn't read" instead of guessed.
   {
     sender: 'payments@ebanx.com', house: 'EBANX',   // `house`: a name for "Your bank is ready" without being an account (listSupportedSenders)
     label: 'Pago confirmado (EBANX)',
     match: function (subject) { return /pago confirmado del pedido/i.test(subject); },
     extract: function (subject, body) {
-      var amt = extractAmount_(body);
+      var amt = extractAmount_(afterLabel_(body, 'Valor final en [A-Z]{3}') || body);
       if (!amt) return null;
       var m = subject.match(/pedido\s+(\S+)\s+de\s+(.+)$/i);
       var shop = m ? cleanText_(m[2]).split(/\s+-\s+/)[0] : null;
       return {
         type: 'expense', needsReview: true,
         amount: amt.amount, currency: amt.currency, description: shop, merchant: shop,
-        last4: null,
+        last4: (String(afterLabel_(body, 'Últimos dígitos tarjeta de crédito') || '').match(/\b(\d{4})\b/) || [])[1] || null,   // plain digits, not masked
         externalId: m ? 'ebanx-' + m[1] : null
       };
     }
@@ -860,6 +865,11 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     paymentMethod = fields.last4
       ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
       : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+  }
+  // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
+  if (!paymentMethod && !rule.bank && fields.last4) {
+    var byCard = paymentMethods.filter(function (pm) { return String(pm.last_4) === String(fields.last4); });
+    if (byCard.length === 1) paymentMethod = byCard[0];
   }
   // No account named in the email: the rule may say which account of that
   // currency the money always leaves (BCP, Yape).
