@@ -386,7 +386,13 @@ function paidByDisplayName_(id) {
 function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progress) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: budgetAlertText_(budget, categoryDisplayName, progress) });
+  noteTelegramAlertSent_(res);
+  return !!(res && res.ok);
+}
 
+// The words of a budget alert (also the in-app notice, Notices.gs).
+function budgetAlertText_(budget, categoryDisplayName, progress) {
   var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : 'bot.thisMonth');
   var emoji = progress.percent >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
@@ -396,29 +402,26 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
   // has usually already moved past it (e.g. 77%), so the message says
   // where things actually stand, not the round number that tripped it.
   var actualPercent = Math.round(progress.percent);
-  var text = tr_('bot.budgetAlert', { emoji: emoji, category: categoryDisplayName, percent: actualPercent, cur: budget.currency,
+  return tr_('bot.budgetAlert', { emoji: emoji, category: categoryDisplayName, percent: actualPercent, cur: budget.currency,
     amount: amountStr, spent: spentStr, period: periodLabel });
+}
 
-  // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
-  // chat id, etc. — only a real ok counts as sent, so the caller doesn't
-  // log the alert as delivered and never retry it.
-  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+// A trip/event budget alert — same contract as sendTelegramBudgetAlert_ (false = not configured, retry later).
+// Telegram answers HTTP 200 with ok:false for a blocked bot, a bad chat id, etc. — only a real ok counts as sent, so the
+// caller doesn't log the alert as delivered and never retry it.
+function sendTelegramTripBudgetAlert_(trip, percent) {
+  var chatId = getOwnerTelegramChatId_();
+  if (!chatId || !getTelegramToken_()) return false;
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: tripBudgetAlertText_(trip, percent) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
 }
 
-// A trip/event budget alert — same contract as sendTelegramBudgetAlert_ (false = not configured, retry later).
-function sendTelegramTripBudgetAlert_(trip, percent) {
-  var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
-  var cur = tripCurrency_(trip);
-  var text = tr_('bot.tripBudgetAlert', {
+function tripBudgetAlertText_(trip, percent) {
+  return tr_('bot.tripBudgetAlert', {
     emoji: percent >= 100 ? '🚨' : '⚠️', name: tripDisplayName_(trip), percent: Math.round(percent),
-    cur: cur, amount: moneyFmt_(trip.budget_amount), spent: moneyFmt_(trip.budgetSpent)
+    cur: tripCurrency_(trip), amount: moneyFmt_(trip.budget_amount), spent: moneyFmt_(trip.budgetSpent)
   });
-  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
-  noteTelegramAlertSent_(res);
-  return !!(res && res.ok);
 }
 
 // Phase 5.6: loan due-date alerts, same bot, same "false means not
@@ -427,17 +430,15 @@ function sendTelegramTripBudgetAlert_(trip, percent) {
 function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var chatId = getOwnerTelegramChatId_();
   if (!chatId || !getTelegramToken_()) return false;
-
-  var text = tr_(loan.direction === 'they_owe_me' ? 'bot.overdueTheyOwe' : 'bot.overdueIOwe', {
-    friend: friendName, cur: loan.currency, amount: moneyFmt_(loan.remaining), date: loan.due_date,
-    description: loan.description ? ' ' + loan.description : '' });
-
-  // Telegram answers HTTP 200 with ok:false for a blocked bot, a bad
-  // chat id, etc. — only a real ok counts as sent, so the caller doesn't
-  // log the alert as delivered and never retry it.
-  var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
+  var res = telegramApi_('sendMessage', { chat_id: chatId, text: loanOverdueAlertText_(loan, friendName) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
+}
+
+function loanOverdueAlertText_(loan, friendName) {
+  return tr_(loan.direction === 'they_owe_me' ? 'bot.overdueTheyOwe' : 'bot.overdueIOwe', {
+    friend: friendName, cur: loan.currency, amount: moneyFmt_(loan.remaining), date: loan.due_date,
+    description: loan.description ? ' ' + loan.description : '' });
 }
 
 // ---- Polling for replies / button taps ----

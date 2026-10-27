@@ -1675,8 +1675,8 @@ function checkOverdueLoans() {
     if (alertedSet[key]) return;
 
     var friendName = friendNameById[loan.friend_id] || tr_('label.unknownFriend');
-    var sent = sendTelegramLoanOverdueAlert_(loan, friendName);
-    if (!sent) return; // Telegram not configured — try again next cycle
+    var sent = deliverNotice_('loan', 'loan|' + loan.id + '|' + loan.due_date, loanOverdueAlertText_(loan, friendName));
+    if (!sent) return; // a linked Telegram refused — try again next cycle (Notices.gs)
 
     appendRowObject('Loan Alert Log', {
       id: Utilities.getUuid(),

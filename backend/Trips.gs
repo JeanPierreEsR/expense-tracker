@@ -523,7 +523,7 @@ function checkTripBudgetsLocked_() {
     });
     if (!newlyCrossed.length) return;
 
-    if (!sendTelegramTripBudgetAlert_(t, percent)) return;   // Telegram not configured: try again next cycle
+    if (!deliverNotice_('trip', 'trip|' + t.id, tripBudgetAlertText_(t, percent))) return;   // a linked Telegram refused: try again next cycle (Notices.gs)
     newlyCrossed.forEach(function (threshold) {
       appendRowObject('Budget Alert Log', {
         id: Utilities.getUuid(), budget_id: t.id, threshold: threshold, period: TRIP_ALERT_PERIOD_,

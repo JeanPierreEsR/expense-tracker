@@ -6185,6 +6185,7 @@ document.getElementById("budget-rate-warning-link").addEventListener("click", as
 });
 
 function openBudgetModal(budget) {
+  refreshAlertHints_();
   editingBudgetId = budget ? budget.id : null;
   document.getElementById("budget-modal-title").textContent = budget ? tr("budgetModal.edit") : tr("budgetModal.add");
   document.getElementById("budget-form-error").textContent = "";
@@ -6457,7 +6458,7 @@ async function checkEmailsNow_(force) {
   }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(); }
 });
 
 // ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----
@@ -6511,6 +6512,78 @@ async function mailCheckNowClicked_(btn) {
 }
 document.getElementById("mail-health-check").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
 document.getElementById("bm-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+
+// ---- Alerts: budget, trip and loan alerts land here (backend/Notices.gs); Telegram is an extra channel, not the only one ----
+// The Home "Alerts" card lists the notices not yet dismissed. Asked for in the background when the app opens, comes back to the front or is
+// pulled down (the timer makes them every 15 minutes), only when this backend has them (capabilities.notices; an older one would answer
+// "Unknown action" and make the app think it needs an update).
+let notices_ = [], noticesMore_ = 0;
+async function loadNotices_() {
+  if (!meta || !(meta.capabilities && meta.capabilities.notices)) return;
+  try {
+    const out = await callApi("listNotices", {});
+    notices_ = (out && out.notices) || [];
+    noticesMore_ = (out && out.more) || 0;
+  } catch (err) { return; }   // a background extra: the card just stays as it was
+  renderNotices_();
+}
+function renderNotices_() {
+  const card = document.getElementById("notices-card");
+  if (!card) return;
+  card.hidden = !notices_.length;
+  const list = document.getElementById("notices-list");
+  list.innerHTML = "";
+  notices_.forEach((n) => {
+    const li = document.createElement("li");
+    const body = document.createElement("div");
+    body.className = "notice-body";
+    const text = document.createElement("span");
+    text.className = "notice-text";
+    text.textContent = n.text;   // already written by the server; may hold a person's or a category's name
+    body.appendChild(text);
+    const day = String(n.created_at || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      const when = document.createElement("span");
+      when.className = "notice-date";
+      when.textContent = I18n.fmtDateMedium(new Date(day + "T00:00:00"));
+      body.appendChild(when);
+    }
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "notice-x";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", tr("notices.dismiss"));
+    x.addEventListener("click", () => dismissNotices_({ ids: [n.id] }));
+    li.appendChild(body);
+    li.appendChild(x);
+    list.appendChild(li);
+  });
+  const more = document.getElementById("notices-more");
+  more.hidden = !noticesMore_;
+  if (noticesMore_) more.textContent = tr("notices.more", { n: noticesMore_ });
+}
+async function dismissNotices_(payload) {
+  // Gone from the screen at once; the server catches up (and if it cannot, the next load brings them back).
+  notices_ = payload.all ? [] : notices_.filter((n) => payload.ids.indexOf(n.id) === -1);
+  renderNotices_();
+  try { await callApi("markNoticesSeen", payload); } catch (err) { /* shown again by the next load */ }
+  if (noticesMore_) loadNotices_();   // dismissing may let notices beyond the first 20 appear
+}
+document.getElementById("notices-dismiss-all").addEventListener("click", () => dismissNotices_({ all: true }));
+
+// An alert hint says "It also arrives on Telegram" only when a Telegram chat is linked; a friend's copy has none.
+function refreshAlertHints_() {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  document.querySelectorAll("[data-alert-hint]").forEach((el) => {
+    el.textContent = tr(el.dataset.alertHint) + (linked ? tr("alert.alsoTelegram") : "");
+  });
+}
+// "Not captured automatically" tips that send the person to the Telegram bot read differently when there is none.
+const NOTAUTO_NO_BOT_TIPS_ = ["plin_out_whatsapp", "yape_in", "yape_out", "plin_out"];
+function notAutoTip_(key) {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  return tr(!linked && NOTAUTO_NO_BOT_TIPS_.indexOf(key) !== -1 ? "notauto.tipNoBot." + key : "notauto.tip." + key);
+}
 
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
@@ -6685,6 +6758,7 @@ async function init() {
       perfRecordStartup_("open→usable", performance.now());
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
+    loadNotices_();           // likewise
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6756,6 +6830,7 @@ async function init() {
       await refreshEntryList();
       await refreshReviewQueue();
       checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
+      loadNotices_();
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
@@ -8907,7 +8982,7 @@ function renderNotauto_(data) {
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(notAutoTip_(k.key))}</div>
     </div>`;
   }).join("");
 }
@@ -10045,6 +10120,7 @@ function renderTripEstimates_(d) {
 }
 
 function openTripModal_(trip) {
+  refreshAlertHints_();
   editingTripId_ = trip ? trip.id : null;
   tripKind_ = trip && trip.kind === "event" ? "event" : "trip";
   document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.kind === tripKind_));

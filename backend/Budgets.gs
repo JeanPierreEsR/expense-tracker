@@ -729,8 +729,10 @@ function checkBudgetsLocked_() {
 
     var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
     var highestThreshold = newlyCrossed[newlyCrossed.length - 1];
-    var sent = sendTelegramBudgetAlert_(budget, resolveBudgetDisplayName_(budget, display.name), highestThreshold, progress);
-    if (!sent) return; // Telegram not configured — don't mark any as alerted, try again next cycle
+    // In-app notice always, plus Telegram when linked (Notices.gs). One open notice per budget and period: a later threshold updates it.
+    var sent = deliverNotice_('budget', 'budget|' + budget.id + '|' + progress.periodKey,
+      budgetAlertText_(budget, resolveBudgetDisplayName_(budget, display.name), progress));
+    if (!sent) return; // a linked Telegram refused — don't mark any as alerted, try again next cycle
 
     newlyCrossed.forEach(function (threshold) {
       var key = budget.id + '|' + progress.periodKey + '|' + threshold;
