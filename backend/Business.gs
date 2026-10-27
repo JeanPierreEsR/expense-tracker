@@ -61,6 +61,18 @@ function setBusinessFeatures(payload) {
   return { business: on, capabilities: getCapabilities_() };
 }
 
+// The OWNER'S own copy only (owner's request, 2026-10-27: "as if I had answered yes in the onboarding"): switches the pack on once,
+// when nobody ever chose. The server decides, not the phone — a phone's saved copy of the settings can be stale, and a stale "nothing
+// chosen" must never undo a later "no". A friend's copy never gets this (it chooses in the welcome question / More).
+function enableBusinessForOwnerOnce() {
+  if (isFriendCopy_() || String(getSettingsMap().business_features || '') !== '') {
+    return { changed: false, capabilities: getCapabilities_() };
+  }
+  setSetting_('business_features', 'yes');
+  ensureBusinessSheets_();
+  return { changed: true, capabilities: getCapabilities_() };
+}
+
 function getCompanyRows_() {
   if (!businessOn_()) return [];
   ensureBusinessSheets_();

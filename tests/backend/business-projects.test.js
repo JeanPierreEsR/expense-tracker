@@ -295,6 +295,29 @@ test("Overview filter: the entry list and the totals use the same scope, so a dr
   assert.equal(rt.api("listEntries", { ...range, scope: "personal" }).length, 3, "ignored while the pack is off");
 });
 
+test("the owner's own copy is switched on once; a choice (yes or no) is never overridden; a friend's copy never", () => {
+  // Owner's copy (no FEATURES property): nothing chosen -> on, once.
+  const rt = setup({ on: false });
+  const first = rt.api("enableBusinessForOwnerOnce", {});
+  assert.equal(first.changed, true);
+  assert.equal(first.capabilities.business, true);
+  assert.equal(rt.api("enableBusinessForOwnerOnce", {}).changed, false, "already chosen: nothing to do");
+  // The owner turns it off: a later (even stale-phone) call must not turn it back on.
+  rt.api("setBusinessFeatures", { on: false });
+  const again = rt.api("enableBusinessForOwnerOnce", {});
+  assert.equal(again.changed, false);
+  assert.equal(again.capabilities.business, false);
+  assert.equal(rt.api("getMeta", {}).capabilities.business, false);
+
+  // A friend's copy (FEATURES present): never switched on this way.
+  const friend = setup({ on: false });
+  friend.svc.props.set("FEATURES", "base");
+  const res = friend.api("enableBusinessForOwnerOnce", {});
+  assert.equal(res.changed, false);
+  assert.equal(res.capabilities.business, false);
+  assert.equal(friend.rows("Settings").some((r) => r.key === "business_features"), false, "nothing written");
+});
+
 test("export: the CSV gains Company and Project columns only while the pack is on; the backup always keeps the tabs", () => {
   const rt = setup();
   const a = company(rt, "Studio A");

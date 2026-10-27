@@ -37,6 +37,14 @@ test("the entry form sends the business link only through businessLinkFields_ (n
   assert.equal((app.match(/\.\.\.businessLink\b/g) || []).length, 3);
 });
 
+test("the owner's own copy is switched on once, and only when nothing was ever chosen (friends' copies never)", () => {
+  const fn = app.match(/function maybeEnableBusinessForOwner_\(\) \{[\s\S]*?\n\}/)[0];
+  assert.match(fn, /!perfIsOwnerCopy_\(\)\) return;/, "owner's copy only");
+  assert.match(fn, /saved !== undefined && saved !== ""\) return;/, "a choice already on record is respected");
+  assert.match(fn, /callApi\("enableBusinessForOwnerOnce"/, "the server decides (a stale phone copy must not undo a later 'no')");
+  assert.match(app, /function refreshExtrasRow_\(\) \{\s*maybeEnableBusinessForOwner_\(\);/, "runs after the app's data has loaded");
+});
+
 test("a future date with a company or project is refused instead of becoming a Programmed item", () => {
   assert.match(app, /business\.futureNotYet/);
 });

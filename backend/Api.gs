@@ -202,6 +202,7 @@ function routeAction(action, payload) {
     case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
     case 'recordTripSettlement': return recordTripSettlement(payload);
     case 'setBusinessFeatures': return setBusinessFeatures(payload);
+    case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
     case 'updateCompany': return updateCompany(payload);

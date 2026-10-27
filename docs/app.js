@@ -6730,7 +6730,29 @@ function extrasOff_() {
   if (c.bankEmails === false) off.push(tr("extras.bank"));
   return off;
 }
+// The owner's own copy only (owner's request, 2026-10-27: "as if I had answered yes in the onboarding"). The SERVER decides and does
+// it once (enableBusinessForOwnerOnce in Business.gs): it never overrides a choice, so turning the switch off ("no") sticks even when
+// this phone's saved copy of the settings is out of date. A friend's copy is never switched on this way.
+let ownerBusinessAuto_ = false;
+function maybeEnableBusinessForOwner_() {
+  if (ownerBusinessAuto_ || !meta || !meta.capabilities || !perfIsOwnerCopy_()) return;
+  const saved = meta.settings && meta.settings.business_features;
+  if (saved !== undefined && saved !== "") return;   // a choice is already on record
+  ownerBusinessAuto_ = true;
+  callApi("enableBusinessForOwnerOnce", {}).then((r) => {
+    meta.capabilities = r.capabilities;
+    if (r.changed) {
+      meta.settings = Object.assign({}, meta.settings, { business_features: "yes" });
+      meta.companies = meta.companies || [];
+      meta.projects = meta.projects || [];
+    }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+  }).catch(() => { ownerBusinessAuto_ = false; });
+}
+
 function refreshExtrasRow_() {
+  maybeEnableBusinessForOwner_();
   applyBusinessVisibility_();
   // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
   document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
