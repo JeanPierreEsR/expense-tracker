@@ -11030,7 +11030,7 @@ async function openPaidPicker_(item, currency, isIncome) {
   document.getElementById("paid-picker-hint").textContent =
     tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(item.amount) });
   // "Not logged yet": record the payment itself from the programmed item.
-  document.getElementById("paid-new-amount").value = item.amount;
+  document.getElementById("paid-new-amount").value = Number(item.amount).toFixed(2);
   document.getElementById("paid-new-date").value = todayLocalISO();
   const acct = document.getElementById("paid-new-account");
   acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
@@ -11112,6 +11112,11 @@ async function openPaidPicker_(item, currency, isIncome) {
     errorEl.textContent = tr("paid.loadFailed", { error: err.message });
   }
 }
+// Same typing rules as the entry form's amount field (dot decimal, 2 places).
+document.getElementById("paid-new-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
 document.getElementById("paid-picker-close").addEventListener("click", () => {
   document.getElementById("paid-picker-modal-backdrop").hidden = true;
 });
