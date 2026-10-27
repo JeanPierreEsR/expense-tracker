@@ -250,6 +250,7 @@ function seedStarterData(onProgress) {
     seed();
     if (onProgress) onProgress(i + 1, seeds.length);
   });
+  markAlertBaselineDone_();   // a new copy has nothing old to hide: its first alert is a real one (Notices.gs)
   Logger.log('Starter data seeded.');
 }
 

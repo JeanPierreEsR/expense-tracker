@@ -1659,7 +1659,12 @@ function checkOverdueLoans() {
     })
     .filter(function (l) { return isLoanOverdue_(l, l.remaining); });
 
-  if (!overdueLoans.length) return { checked: 0, alertsSent: 0 };
+  // The first run on an existing copy only writes down what is already overdue, without alerting (Notices.gs § Alerts only from now on).
+  var baseline = alertBaselinePending_('loans');
+  if (!overdueLoans.length) {
+    if (baseline) markAlertBaselineDone_('loans');
+    return { checked: 0, alertsSent: 0 };
+  }
 
   var alertedSet = {};
   getAllRows('Loan Alert Log').forEach(function (a) {
@@ -1675,7 +1680,7 @@ function checkOverdueLoans() {
     if (alertedSet[key]) return;
 
     var friendName = friendNameById[loan.friend_id] || tr_('label.unknownFriend');
-    var sent = deliverNotice_('loan', 'loan|' + loan.id + '|' + loan.due_date, loanOverdueAlertText_(loan, friendName));
+    var sent = baseline ? true : deliverNotice_('loan', 'loan|' + loan.id + '|' + loan.due_date, loanOverdueAlertText_(loan, friendName));
     if (!sent) return; // a linked Telegram refused — try again next cycle (Notices.gs)
 
     appendRowObject('Loan Alert Log', {
@@ -1685,8 +1690,9 @@ function checkOverdueLoans() {
       sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
     });
     alertedSet[key] = true;
-    alertsSent++;
+    if (!baseline) alertsSent++;
   });
 
+  if (baseline) markAlertBaselineDone_('loans');
   return { checked: overdueLoans.length, alertsSent: alertsSent };
 }

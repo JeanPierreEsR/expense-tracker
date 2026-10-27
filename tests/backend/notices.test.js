@@ -154,6 +154,66 @@ test("dismissed notices older than 30 days are removed the next time one is adde
   assert.ok(ids.includes("fresh"));
 });
 
+// ---- Alerts only from now on (no burst of old news when an existing copy is updated) ----
+const BASELINE_KEY = "ALERTS_BASELINE_DONE";
+const baselineDone = (rt) => JSON.parse(rt.svc.props.get(BASELINE_KEY) || "{}");
+function overTrip(rt, name) {
+  rt.run(`appendRowObject('Categories', { id: 'cat-trip', name: 'Trip cat', type: 'expense', icon: '', color: '#ccc', parent_id: '' });`);
+  const t = rt.api("addTrip", { name, kind: "trip", start_date: "2020-03-01", end_date: new Date().toISOString().slice(0, 10), budget_amount: 100, currency: "PEN" });
+  const e = { id: "trip-e1", type: "expense", date: "2020-03-10", amount: 120, currency: "PEN", category_id: "cat-trip", description: "x", paid_by: "me", status: "confirmed", source: "manual" };
+  rt.run(`appendRowObject('Entries', ${JSON.stringify(e)}); ensureEntriesTripColumn_(); setEntryField_('trip-e1', 'trip_id', '${t.id}');`);
+  return t;
+}
+const runChecks = (rt) => rt.run("checkBudgets(); checkTripBudgets(); checkOverdueLoans();");
+
+test("a new copy is marked 'from now on' at setup, so its first alert is a real one", () => {
+  const { rt } = freshApp({ small: true });
+  assert.deepEqual(baselineDone(rt), { budgets: true, trips: true, loans: true });
+});
+
+test("an existing copy updated to this version: what is already over is written down, not alerted; only new crossings alert", () => {
+  const { rt, data } = freshApp({ entries: 50 });
+  linkTelegram(rt);
+  rt.state.fetchHandler = () => ({ ok: true, result: { message_id: 3 } });
+  const friend = rt.rows("Friends")[0];
+  // The situation of a copy that has been running for a while, before it gets this version: things already over, nothing logged, no marker.
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  rt.svc.props.delete(BASELINE_KEY);
+  const old = budgetOver(rt, data, { index: 1, clear: false });
+  overTrip(rt, "Old trip");
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2020-01-01", due_date: "2020-02-01" });
+
+  runChecks(rt);
+  assert.ok(!rt.svc.ss.getSheetByName("Notices"), "no notice for old news");
+  assert.equal(rt.svc.fetchLog.length, 0, "and nothing sent to Telegram either");
+  assert.equal(alertRows(rt, old.budget.id).length, 1, "but it is written down as already alerted");
+  assert.deepEqual(baselineDone(rt), { budgets: true, trips: true, loans: true });
+  const logged = rt.rows("Loan Alert Log").length + rt.rows("Budget Alert Log").length;
+
+  runChecks(rt);
+  assert.ok(!rt.svc.ss.getSheetByName("Notices"), "the next cycle does not alert for it either");
+  assert.equal(rt.rows("Loan Alert Log").length + rt.rows("Budget Alert Log").length, logged);
+
+  // New news, after the update: that does alert (notice + Telegram)
+  budgetOver(rt, data, { index: 2, clear: false });
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2020-03-01", due_date: "2020-03-15" });
+  runChecks(rt);
+  const kinds = notices(rt).map((n) => n.kind).sort();
+  assert.deepEqual(kinds, ["budget", "loan"], "only the new budget and the new overdue loan");
+  assert.ok(rt.svc.fetchLog.length >= 2, "Telegram got them");
+});
+
+test("the 'from now on' mark is used up even when nothing was over yet, so a later over-limit budget does alert", () => {
+  const { rt, data } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  rt.svc.props.delete(BASELINE_KEY);
+  runChecks(rt);                                    // nothing to hide: the mark is consumed
+  assert.equal(baselineDone(rt).budgets, true);
+  budgetOver(rt, data, { clear: false });
+  rt.run("checkBudgets()");
+  assert.equal(notices(rt).length, 1);
+});
+
 test("capabilities: notices are offered, and Telegram counts as linked only with a chat", () => {
   const { rt } = freshApp({ small: true });
   let caps = rt.api("getMeta").capabilities;

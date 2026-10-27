@@ -495,7 +495,12 @@ function checkTripBudgetsLocked_() {
   var trips = listTrips().filter(function (t) {
     return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff;
   });
-  if (!trips.length) return { checked: 0, alertsSent: 0 };
+  // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
+  var baseline = alertBaselinePending_('trips');
+  if (!trips.length) {
+    if (baseline) markAlertBaselineDone_('trips');
+    return { checked: 0, alertsSent: 0 };
+  }
 
   var alertedSet = {};
   getAllRows('Budget Alert Log').forEach(function (a) {
@@ -523,7 +528,7 @@ function checkTripBudgetsLocked_() {
     });
     if (!newlyCrossed.length) return;
 
-    if (!deliverNotice_('trip', 'trip|' + t.id, tripBudgetAlertText_(t, percent))) return;   // a linked Telegram refused: try again next cycle (Notices.gs)
+    if (!baseline && !deliverNotice_('trip', 'trip|' + t.id, tripBudgetAlertText_(t, percent))) return;   // a linked Telegram refused: try again next cycle (Notices.gs)
     newlyCrossed.forEach(function (threshold) {
       appendRowObject('Budget Alert Log', {
         id: Utilities.getUuid(), budget_id: t.id, threshold: threshold, period: TRIP_ALERT_PERIOD_,
@@ -531,7 +536,7 @@ function checkTripBudgetsLocked_() {
       });
       alertedSet[t.id + '|' + threshold] = true;
     });
-    alertsSent++;
+    if (!baseline) alertsSent++;
   });
 
   if (Object.keys(staleKeys).length) {
@@ -539,6 +544,7 @@ function checkTripBudgetsLocked_() {
       return r.period === TRIP_ALERT_PERIOD_ && staleKeys[r.budget_id + '|' + r.threshold] === true;
     });
   }
+  if (baseline) markAlertBaselineDone_('trips');
   return { checked: trips.length, alertsSent: alertsSent };
 }
 

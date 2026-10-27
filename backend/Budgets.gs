@@ -690,7 +690,12 @@ function checkBudgets() {
 
 function checkBudgetsLocked_() {
   var budgets = getAllRows('Budgets');
-  if (!budgets.length) return { checked: 0, alertsSent: 0 };
+  // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
+  var baseline = alertBaselinePending_('budgets');
+  if (!budgets.length) {
+    if (baseline) markAlertBaselineDone_('budgets');
+    return { checked: 0, alertsSent: 0 };
+  }
 
   var categoryById = rowsById_(getAllRows('Categories'));
   var ctx = buildBudgetContext_();
@@ -730,7 +735,7 @@ function checkBudgetsLocked_() {
     var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById);
     var highestThreshold = newlyCrossed[newlyCrossed.length - 1];
     // In-app notice always, plus Telegram when linked (Notices.gs). One open notice per budget and period: a later threshold updates it.
-    var sent = deliverNotice_('budget', 'budget|' + budget.id + '|' + progress.periodKey,
+    var sent = baseline ? true : deliverNotice_('budget', 'budget|' + budget.id + '|' + progress.periodKey,
       budgetAlertText_(budget, resolveBudgetDisplayName_(budget, display.name), progress));
     if (!sent) return; // a linked Telegram refused — don't mark any as alerted, try again next cycle
 
@@ -745,7 +750,7 @@ function checkBudgetsLocked_() {
       });
       alertedSet[key] = true;
     });
-    alertsSent++;
+    if (!baseline) alertsSent++;
   });
 
   if (Object.keys(staleKeys).length) {
@@ -753,6 +758,7 @@ function checkBudgetsLocked_() {
       return staleKeys[r.budget_id + '|' + r.period + '|' + r.threshold] === true;
     });
   }
+  if (baseline) markAlertBaselineDone_('budgets');
   return { checked: budgets.length, alertsSent: alertsSent };
 }
 

@@ -25,6 +25,33 @@ var NOTICE_COLUMNS_ = ['id', 'created_at', 'kind', 'key', 'text', 'seen'];
 var NOTICE_KEEP_SEEN_DAYS_ = 30;
 var NOTICE_MAX_SHOWN_ = 20;
 
+// ---- Alerts only from now on ----
+// When a copy that already exists is updated to this version, budgets may already be over a limit and loans already overdue. Alerting for
+// all of that at once would be a burst of old news, so the FIRST run of each check on such a copy only writes those down as already
+// alerted (the same log rows a real alert writes) and says nothing; from then on only new crossings alert. A fresh install and the test
+// data are marked done at setup (markAlertBaselineDone_ in seedStarterData), as there is nothing old to hide. Script Property
+// ALERTS_BASELINE_DONE = JSON {budgets, trips, loans}. A run that dies before finishing leaves its part unmarked, so the next run redoes
+// it (writing the same log rows is harmless).
+var ALERT_BASELINE_KEY_ = 'ALERTS_BASELINE_DONE';
+var ALERT_BASELINE_PARTS_ = ['budgets', 'trips', 'loans'];
+
+function alertBaselineRead_() {
+  try {
+    var done = JSON.parse(PropertiesService.getScriptProperties().getProperty(ALERT_BASELINE_KEY_) || '{}');
+    return (done && typeof done === 'object') ? done : {};
+  } catch (err) { return {}; }
+}
+
+function alertBaselinePending_(part) {
+  return alertBaselineRead_()[part] !== true;
+}
+
+function markAlertBaselineDone_(part) {
+  var done = alertBaselineRead_();
+  (part ? [part] : ALERT_BASELINE_PARTS_).forEach(function (p) { done[p] = true; });
+  PropertiesService.getScriptProperties().setProperty(ALERT_BASELINE_KEY_, JSON.stringify(done));
+}
+
 function ensureNoticesSheet_() {
   ensureStatementSheet_('Notices', NOTICE_COLUMNS_, ['id', 'created_at', 'key']);
 }
