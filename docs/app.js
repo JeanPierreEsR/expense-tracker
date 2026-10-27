@@ -336,7 +336,8 @@ const ONCE_ACTIONS = new Set([
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
-  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000 };   // a history of thousands of entries reads and rewrites whole columns
+  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
+  checkEmailsNow: 120000 };   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -6311,6 +6312,32 @@ async function migrateLegacyCodeToSession_() {
   }
 }
 
+// ---- Look for new bank e-mail whenever the app is opened or brought back (specs/review-telegram-email.md § Email automation) ----
+// The 15-minute timer on the server used to be the only thing reading Gmail, so a new bank e-mail could wait up to 15 minutes. This asks
+// for a check in the background (never blocks the screen, never shows an error), at most once a minute here (the server also limits it);
+// when it created something the "Needs review" list is refreshed, unless the person is in the middle of editing one of its cards.
+let emailCheckAt_ = 0, emailCheckBusy_ = false;
+async function checkEmailsNow_(force) {
+  if (emailCheckBusy_ || !meta || !(meta.capabilities && meta.capabilities.bankEmails)) return;
+  if (!force && Date.now() - emailCheckAt_ < 60000) return;
+  emailCheckBusy_ = true;
+  emailCheckAt_ = Date.now();
+  try {
+    const out = await callApi("checkEmailsNow", {});
+    if (out && out.ran && out.created > 0) {
+      const editing = document.activeElement && document.activeElement.closest("#review-list");
+      if (!editing) await refreshReviewQueue();
+    }
+  } catch (err) {
+    // A bonus on top of the timer: if it fails the timer still finds the e-mail.
+  } finally {
+    emailCheckBusy_ = false;
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
+});
+
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
   if (!getSessionToken() && !getAccessCode()) {
@@ -6483,6 +6510,7 @@ async function init() {
       // full "tapped the icon → usable" time, including HTML/JS download.
       perfRecordStartup_("open→usable", performance.now());
     }
+    checkEmailsNow_(false);   // not awaited: the app is already usable
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6553,6 +6581,7 @@ async function init() {
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
+      checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
