@@ -487,6 +487,10 @@
             <span data-i18n="more.trips">✈️ Trips &amp; events</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-business-btn" hidden>
+            <span data-i18n="more.business">🏢 Companies &amp; projects</span>
+            <span class="more-list-chevron">›</span>
+          </button>
       </div>
       <div class="card more-group more-group-az">
           <button type="button" class="more-list-item" id="more-accounts-btn">
@@ -559,6 +563,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-extras-btn" hidden>
             <span data-i18n="more.extras">⚡ Extra features</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-business-features-btn">
+            <span><span data-i18n="more.businessFeatures">🏢 Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-preview-welcome-btn" hidden>
@@ -687,6 +695,56 @@
         <button type="button" class="add-inline" id="trip-find-btn" data-i18n="trips.find">🔎 Find expenses in these dates</button>
         <div id="trip-find-box" hidden></div>
         <div id="trip-detail-entries"></div>
+      </div>
+    </div>
+
+    <div id="screen-business-features" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="bf-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="bf.title">Business features</h2>
+        <p class="hint" data-i18n="bf.hint">Optional. They add companies and projects to the app, so you can see the income, the costs and the margin of each one, in each currency. The rest of the app stays exactly as it is.</p>
+        <label class="checkbox-row">
+          <input type="checkbox" id="bf-toggle">
+          <span data-i18n="bf.toggle">Use business features</span>
+        </label>
+        <p class="hint" data-i18n="bf.offNote">If you turn them off, they are hidden but nothing is deleted. Turn them on again and everything comes back.</p>
+        <p class="hint" id="bf-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="business-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="business-add-company-btn" data-i18n="business.addCompany">+ Company</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
+        <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
+        <select id="business-period" class="business-period-select"></select>
+        <div id="business-list"></div>
+        <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
+        <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
+        <p class="hint" id="business-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-detail" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="business-detail-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="business-detail-edit-btn" data-i18n="business.edit">Edit</button>
+        </div>
+        <h2 style="margin-top:0;" id="business-detail-title"></h2>
+        <p class="hint" id="business-detail-sub"></p>
+        <select id="business-detail-period" class="business-period-select"></select>
+        <div id="business-detail-body"></div>
+        <p class="hint" id="business-detail-error" style="color:#d64545;"></p>
+      </div>
+      <div class="card" id="business-detail-entries-card" hidden>
+        <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
+        <div id="business-detail-entries"></div>
       </div>
     </div>
 
@@ -1977,6 +2035,54 @@
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="company-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="company-modal-title" data-i18n="business.companyAddTitle">Add company</span>
+        <button type="button" id="company-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="company-name" data-i18n="business.companyName">Company name</label>
+        <input type="text" id="company-name" maxlength="60" data-i18n-placeholder="business.companyNamePh" placeholder="e.g. Studio Alfa">
+
+        <label for="company-emoji" data-i18n="business.emoji">Icon (optional)</label>
+        <input type="text" id="company-emoji" maxlength="4" placeholder="🏢">
+
+        <p class="hint" id="company-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="company-delete-btn" hidden data-i18n="business.deleteCompany">Delete this company</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="project-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="project-modal-title" data-i18n="business.projectAddTitle">Add project</span>
+        <button type="button" id="project-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="project-company" data-i18n="business.projectCompany">Company</label>
+        <select id="project-company"></select>
+
+        <label for="project-name" data-i18n="business.projectName">Project name</label>
+        <input type="text" id="project-name" maxlength="60" data-i18n-placeholder="business.projectNamePh" placeholder="e.g. House in Lima">
+
+        <label for="project-emoji" data-i18n="business.emoji">Icon (optional)</label>
+        <input type="text" id="project-emoji" maxlength="4" placeholder="🏗️">
+
+        <label data-i18n="business.budgets">Cost budget (optional)</label>
+        <div id="project-budgets"></div>
+        <button type="button" class="add-inline" id="project-add-budget-btn" data-i18n="business.addBudget">+ Add a currency</button>
+        <p class="hint" data-i18n="business.budgetsHint">One per currency. Only a guide: it shows how much of it your costs have used.</p>
+
+        <p class="hint" id="project-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="project-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="project-delete-btn" hidden data-i18n="business.deleteProject">Delete this project</button>
       </div>
     </div>
   </div>

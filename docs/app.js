@@ -329,6 +329,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
+  "addCompany", "addProject",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
@@ -3490,6 +3491,7 @@ async function refreshAfterPopupEdit() {
   }
   // The trip screen is a screen of its own, not a drill-down: refresh it too.
   if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+  if (!document.getElementById("screen-business-detail").hidden) await refreshBusinessDetail_();
 }
 
 document.getElementById("edit-entry-modal-close").addEventListener("click", cancelEdit);
@@ -4662,6 +4664,9 @@ function showScreen(name) {
   if (name === "loans") {
     refreshLoans();
   }
+  if (name === "more") {
+    applyBusinessVisibility_();
+  }
 }
 
 // Recurring income/expenses lives under More but isn't a bottom-nav tab of
@@ -4702,7 +4707,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-features", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -6709,6 +6714,7 @@ function extrasOff_() {
   return off;
 }
 function refreshExtrasRow_() {
+  applyBusinessVisibility_();
   // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
   document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
   // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
@@ -10053,6 +10059,539 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
     errorEl.textContent = err.message;
   }
 });
+
+// ---- Business pack (specs/business.md): optional, hidden until the person turns it on ----
+// Nothing here runs or shows while `meta.capabilities.business` is false. A company or project is only a label on
+// entries (never an account); every figure is kept per currency and never converted, except one labelled estimate.
+
+function businessOn() { return !!(meta && meta.capabilities && meta.capabilities.business); }
+
+function applyBusinessVisibility_() {
+  const on = businessOn();
+  document.getElementById("more-business-btn").hidden = !on;
+  document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
+}
+
+// Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
+function showMoreSub_(name) {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  window.scrollTo(0, 0);
+}
+
+// ---- The switch (More → Business features) ----
+
+function showBusinessFeaturesScreen_() {
+  showMoreSub_("business-features");
+  document.getElementById("bf-toggle").checked = businessOn();
+  document.getElementById("bf-error").textContent = "";
+}
+
+document.getElementById("bf-toggle").addEventListener("change", async (e) => {
+  const box = e.target;
+  const errorEl = document.getElementById("bf-error");
+  errorEl.textContent = "";
+  const wanted = box.checked;
+  box.disabled = true;
+  try {
+    const r = await callApi("setBusinessFeatures", { on: wanted });
+    meta.capabilities = r.capabilities;
+    if (!wanted) { meta.companies = []; meta.projects = []; }
+    else { meta.companies = meta.companies || []; meta.projects = meta.projects || []; }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+    // The entry form and rows pick the new fields up on the next reload; the search copy reloads on its own
+    // (changing this setting bumps the structure version on the server).
+  } catch (err) {
+    box.checked = !wanted;
+    errorEl.textContent = tr("bf.saveFailed", { error: err.message });
+  } finally {
+    box.disabled = false;
+  }
+});
+document.getElementById("more-business-features-btn").addEventListener("click", showBusinessFeaturesScreen_);
+document.getElementById("bf-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Period (shared by the list and the detail screen; in memory only) ----
+
+let businessPeriod_ = "alltime";
+
+function businessBounds_() {
+  const now = new Date();
+  if (businessPeriod_ === "month") return monthBounds(now);
+  if (businessPeriod_ === "lastMonth") return monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  if (businessPeriod_ === "year") return yearBounds(now);
+  if (businessPeriod_ === "lastYear") return yearBounds(new Date(now.getFullYear() - 1, 0, 1));
+  return { startDate: null, endDate: null };
+}
+
+function fillBusinessPeriodSelects_() {
+  const options = [["alltime", "business.period.alltime"], ["month", "business.period.month"], ["lastMonth", "business.period.lastMonth"],
+    ["year", "business.period.year"], ["lastYear", "business.period.lastYear"]];
+  document.querySelectorAll(".business-period-select").forEach((sel) => {
+    sel.innerHTML = "";
+    options.forEach(([value, key]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = tr(key);
+      sel.appendChild(o);
+    });
+    sel.value = businessPeriod_;
+  });
+}
+
+document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
+  businessPeriod_ = sel.value;
+  document.querySelectorAll(".business-period-select").forEach((other) => { other.value = businessPeriod_; });
+  if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
+  if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+}));
+
+// ---- Shared pieces ----
+
+function businessEmoji_(item, fallback) { return (item && item.emoji) || fallback; }
+function companyLabel_(c) { return `${businessEmoji_(c, "🏢")} ${c.name}`; }
+function projectLabel_(p) { return `${businessEmoji_(p, "🏗️")} ${p.name}`; }
+function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
+
+// Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
+function rememberBusinessLists_(companies) {
+  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }));
+  meta.projects = [];
+  companies.forEach((c) => c.projects.forEach((p) => meta.projects.push({ id: p.id, company_id: c.id, name: p.name, emoji: p.emoji, status: p.status })));
+  populateBusinessOptions_();
+}
+
+// One small card per currency: income, costs, margin (and the budget bar when a budget was set in that currency).
+function businessCurrencyCardsHtml_(currencies) {
+  return currencies.map((c) => {
+    const marginCls = c.margin < -0.004 ? "business-neg" : (c.margin > 0.004 ? "business-pos" : "");
+    let budget = "";
+    if (c.budget) {
+      const pct = Math.min(100, c.budgetPct || 0);
+      const cls = c.budgetPct > 100 ? " over" : (c.budgetPct >= 80 ? " warn" : "");
+      const diff = c.budget - c.costs;
+      const text = diff < 0
+        ? tr("business.budgetOver", { amount: businessAmount_(c.currency, -diff) })
+        : tr("business.budgetLeft", { amount: businessAmount_(c.currency, diff) });
+      budget = `
+        <div class="budget-progress-track"><div class="budget-progress-fill${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="budget-row-sub"><span>${escapeHtml(text)}</span><span>${escapeHtml(tr("business.ofBudget", { amount: businessAmount_(c.currency, c.budget) }))}</span></div>`;
+    }
+    return `
+      <div class="business-cur-card">
+        <div class="business-cur-head">${escapeHtml(c.currency)}</div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.income"))}</span><span>${moneyFmt(c.income)}</span></div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.costs"))}</span><span>${moneyFmt(c.costs)}</span></div>
+        <div class="business-cur-row margin"><span>${escapeHtml(tr("business.margin"))}</span><span class="${marginCls}">${moneyFmt(c.margin)}</span></div>
+        ${budget}
+      </div>`;
+  }).join("");
+}
+
+// The one converted line, shown only when it says something the cards don't (more than one currency, or a foreign one).
+function businessApproxHtml_(d) {
+  const single = d.currencies.length === 1 && d.currencies[0].currency === d.approx.currency;
+  if (!d.currencies.length || (single && !d.approx.missing)) return "";
+  const missing = d.approx.missing > 0 ? `<p class="hint">${escapeHtml(tr("business.approxMissing", { n: d.approx.missing }))}</p>` : "";
+  const line = single ? "" : `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("business.approx", { cur: d.approx.currency, amount: moneyFmt(d.approx.margin) }))}</p>`;
+  return line + missing;
+}
+
+// A compact "margin per currency" block for list rows.
+function businessMarginLinesHtml_(currencies) {
+  if (!currencies.length) return `<span class="original-amt">—</span>`;
+  return currencies.map((c) => {
+    const cls = c.margin < -0.004 ? "business-neg" : "";
+    return `<div class="primary-amt ${cls}">${escapeHtml(businessAmount_(c.currency, c.margin))}</div>`;
+  }).join("");
+}
+
+// ---- More → Companies & projects ----
+
+let businessList_ = [];
+
+async function showBusinessScreen() {
+  showMoreSub_("business");
+  fillBusinessPeriodSelects_();
+  await refreshBusinessList_();
+}
+
+async function refreshBusinessList_() {
+  const errorEl = document.getElementById("business-error");
+  errorEl.textContent = "";
+  try {
+    const b = businessBounds_();
+    const list = await callApi("listCompaniesAndProjects", { startDate: b.startDate, endDate: b.endDate });
+    businessList_ = list;
+    rememberBusinessLists_(list);
+    renderBusinessList_(list);
+  } catch (err) {
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessList_(companies) {
+  const box = document.getElementById("business-list");
+  box.innerHTML = "";
+  document.getElementById("business-empty-note").hidden = companies.length > 0;
+  document.getElementById("business-first-btn").hidden = companies.length > 0;
+  document.getElementById("business-period").hidden = companies.length === 0;
+  companies.forEach((c) => {
+    const head = document.createElement("div");
+    head.className = "business-company-head";
+    head.innerHTML = `
+      <h3 class="accounts-group-title" style="margin:0;">${escapeHtml(companyLabel_(c))}</h3>
+      <div class="business-mini">${escapeHtml(tr("business.projectCount", { n: c.projects.length }))}</div>`;
+    head.querySelector("h3").addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(head);
+
+    const summary = document.createElement("div");
+    summary.className = "recurring-row";
+    summary.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tr("business.entryCount", { n: c.entryCount || 0 }))}</div>
+      </div>
+      <div class="recurring-row-amount">${businessMarginLinesHtml_(c.currencies)}</div>`;
+    summary.addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(summary);
+
+    const active = c.projects.filter((p) => p.status !== "closed");
+    const closed = c.projects.filter((p) => p.status === "closed");
+    const projectRow = (p) => {
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>`;
+      row.addEventListener("click", () => showBusinessDetail_("project", p.id));
+      return row;
+    };
+    active.forEach((p) => box.appendChild(projectRow(p)));
+    if (closed.length) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "add-inline";
+      toggle.textContent = "▸ " + tr("business.closedProjects", { n: closed.length });
+      const wrap = document.createElement("div");
+      wrap.hidden = true;
+      closed.forEach((p) => wrap.appendChild(projectRow(p)));
+      toggle.addEventListener("click", () => {
+        wrap.hidden = !wrap.hidden;
+        toggle.textContent = (wrap.hidden ? "▸ " : "▾ ") + tr("business.closedProjects", { n: closed.length });
+      });
+      box.appendChild(toggle);
+      box.appendChild(wrap);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline";
+    add.textContent = tr("business.addProject");
+    add.addEventListener("click", () => openProjectModal_(null, c.id, []));
+    box.appendChild(add);
+  });
+}
+
+document.getElementById("more-business-btn").addEventListener("click", showBusinessScreen);
+document.getElementById("business-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("business-add-company-btn").addEventListener("click", () => openCompanyModal_(null));
+document.getElementById("business-first-btn").addEventListener("click", () => openCompanyModal_(null));
+
+// ---- A project's or a company's profit and loss ----
+
+let businessDetail_ = null;        // { kind: "project" | "company", id }
+let businessDetailData_ = null;
+let businessCatCurrency_ = "";     // the currency chip chosen for the category lists
+
+async function showBusinessDetail_(kind, id) {
+  businessDetail_ = { kind, id };
+  businessDetailData_ = null;
+  businessCatCurrency_ = "";
+  showMoreSub_("business-detail");
+  fillBusinessPeriodSelects_();
+  const known = kind === "project" ? (meta.projects || []).find((p) => p.id === id) : (meta.companies || []).find((c) => c.id === id);
+  document.getElementById("business-detail-title").textContent = known ? (kind === "project" ? projectLabel_(known) : companyLabel_(known)) : "";
+  document.getElementById("business-detail-sub").textContent = "";
+  document.getElementById("business-detail-body").innerHTML = loadingHtml_();
+  document.getElementById("business-detail-entries-card").hidden = true;
+  await refreshBusinessDetail_();
+}
+
+async function refreshBusinessDetail_() {
+  const target = businessDetail_;
+  if (!target) return;
+  const errorEl = document.getElementById("business-detail-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const b = businessBounds_();
+    const range = { startDate: b.startDate, endDate: b.endDate };
+    const [detail, entries] = await Promise.all([
+      callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
+      callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range))
+    ]);
+    if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
+    businessDetailData_ = detail;
+    renderBusinessDetail_(detail);
+    const shown = applyQueuedEditOverlay_(entries);
+    document.getElementById("business-detail-entries-card").hidden = false;
+    renderEntriesInto_(document.getElementById("business-detail-entries"), shown, "business.noEntries");
+  } catch (err) {
+    document.getElementById("business-detail-body").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessDetail_(d) {
+  const isProject = businessDetail_.kind === "project";
+  const title = isProject ? projectLabel_(d.project) : companyLabel_(d.company);
+  document.getElementById("business-detail-title").textContent = title;
+  document.getElementById("business-detail-sub").textContent = isProject
+    ? [d.company ? companyLabel_(d.company) : "", d.project.status === "closed" ? tr("business.status.closed") : ""].filter(Boolean).join(" · ")
+    : tr("business.projectCount", { n: d.projects.length });
+
+  const currencies = d.currencies;
+  if (!businessCatCurrency_ || !currencies.some((c) => c.currency === businessCatCurrency_)) {
+    businessCatCurrency_ = currencies.length ? currencies[0].currency : "";
+  }
+  const catRows = (type) => ((d.byCategory[type] || {})[businessCatCurrency_] || []).map((c) => `
+    <div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
+      <div class="recurring-row-amount">${escapeHtml(businessCatCurrency_)} ${moneyFmt(c.amount)} <span class="original-amt">${Math.round(c.pct)}%</span></div>
+    </div>`).join("");
+  const chips = currencies.length > 1
+    ? `<div class="business-chips">${currencies.map((c) => `<button type="button" class="business-chip${c.currency === businessCatCurrency_ ? " active" : ""}" data-cur="${escapeHtml(c.currency)}">${escapeHtml(c.currency)}</button>`).join("")}</div>`
+    : "";
+  const costs = catRows("expense");
+  const income = catRows("income");
+
+  let projectsHtml = "";
+  if (!isProject) {
+    const rows = d.projects.map((p) => `
+      <div class="recurring-row business-project-row" data-id="${escapeHtml(p.id)}">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>
+      </div>`).join("");
+    const level = d.companyLevel.entryCount ? `
+      <div class="recurring-row trip-static-row">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(tr("business.companyLevel"))}</div>
+          <div class="recurring-row-sub">${escapeHtml(tr("business.entryCount", { n: d.companyLevel.entryCount }))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(d.companyLevel.currencies)}</div>
+      </div>` : "";
+    projectsHtml = `<h3 class="accounts-group-title">${escapeHtml(tr("business.projects"))}</h3>${rows}${level}
+      <button type="button" class="add-inline" id="business-detail-add-project">${escapeHtml(tr("business.addProject"))}</button>`;
+  } else {
+    projectsHtml = `<button type="button" class="add-inline" id="business-detail-status-btn">${escapeHtml(tr(d.project.status === "closed" ? "business.reopenProject" : "business.closeProject"))}</button>`;
+  }
+
+  document.getElementById("business-detail-body").innerHTML = `
+    ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
+    ${businessApproxHtml_(d)}
+    ${chips}
+    ${costs ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.costsByCategory"))}</h3>${costs}` : ""}
+    ${income ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.incomeByCategory"))}</h3>${income}` : ""}
+    ${projectsHtml}`;
+
+  document.querySelectorAll("#business-detail-body .business-chip").forEach((chip) => chip.addEventListener("click", () => {
+    businessCatCurrency_ = chip.dataset.cur;
+    renderBusinessDetail_(d);
+  }));
+  document.querySelectorAll("#business-detail-body .business-project-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.id)));
+  const addProject = document.getElementById("business-detail-add-project");
+  if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
+  const statusBtn = document.getElementById("business-detail-status-btn");
+  if (statusBtn) statusBtn.addEventListener("click", async () => {
+    statusBtn.disabled = true;
+    try {
+      await callApi("updateProject", { id: d.project.id, name: d.project.name, emoji: d.project.emoji, company_id: d.project.company_id, status: d.project.status === "closed" ? "active" : "closed" });
+      const p = (meta.projects || []).find((x) => x.id === d.project.id);
+      if (p) p.status = d.project.status === "closed" ? "active" : "closed";
+      populateBusinessOptions_();
+      await refreshBusinessDetail_();
+    } catch (err) {
+      document.getElementById("business-detail-error").textContent = err.message;
+      statusBtn.disabled = false;
+    }
+  });
+}
+
+document.getElementById("business-detail-back-btn").addEventListener("click", () => { businessDetail_ = null; showBusinessScreen(); });
+document.getElementById("business-detail-edit-btn").addEventListener("click", () => {
+  const d = businessDetailData_;
+  if (!d || !businessDetail_) return;
+  if (businessDetail_.kind === "company") openCompanyModal_(d.company);
+  else openProjectModal_(d.project, d.project.company_id, d.currencies.filter((c) => c.budget).map((c) => ({ currency: c.currency, amount: c.budget })));
+});
+
+// ---- Company pop-up ----
+
+let editingCompanyId_ = null;
+
+function openCompanyModal_(company) {
+  editingCompanyId_ = company ? company.id : null;
+  document.getElementById("company-modal-title").textContent = tr(company ? "business.companyEditTitle" : "business.companyAddTitle");
+  document.getElementById("company-form-error").textContent = "";
+  document.getElementById("company-name").value = company ? company.name : "";
+  document.getElementById("company-emoji").value = company ? (company.emoji || "") : "";
+  document.getElementById("company-delete-btn").hidden = !company;
+  const backdrop = document.getElementById("company-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeCompanyModal_() {
+  document.getElementById("company-modal-backdrop").hidden = true;
+  editingCompanyId_ = null;
+}
+
+async function afterBusinessChange_() {
+  if (!document.getElementById("screen-business").hidden) await refreshBusinessList_();
+  else if (!document.getElementById("screen-business-detail").hidden) {
+    await refreshBusinessList_().catch(() => {});   // keeps the app's lists in step
+    await refreshBusinessDetail_();
+  }
+}
+
+document.getElementById("company-modal-close").addEventListener("click", closeCompanyModal_);
+document.getElementById("company-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "company-modal-backdrop") closeCompanyModal_();
+});
+document.getElementById("company-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("company-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("company-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = { name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim() };
+    if (editingCompanyId_) await callApi("updateCompany", Object.assign({ id: editingCompanyId_ }, fields));
+    else await callApi("addCompany", fields);
+    closeCompanyModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("company-delete-btn").addEventListener("click", async () => {
+  if (!editingCompanyId_) return;
+  const company = (meta.companies || []).find((c) => c.id === editingCompanyId_);
+  if (!company || !confirm(tr("business.confirmDeleteCompany", { name: company.name }))) return;
+  try {
+    await callApi("deleteCompany", { id: company.id });
+    closeCompanyModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("company-form-error").textContent = err.message;
+  }
+});
+
+// ---- Project pop-up ----
+
+let editingProjectId_ = null;
+
+function addProjectBudgetRow_(currency, amount) {
+  const row = document.createElement("div");
+  row.className = "business-budget-row";
+  row.innerHTML = `
+    <input type="text" class="budget-cur" maxlength="3" autocapitalize="characters" placeholder="${escapeHtml(tr("business.budgetCurrencyPh"))}">
+    <input type="text" class="budget-amt" inputmode="decimal" placeholder="${escapeHtml(tr("business.budgetAmountPh"))}">
+    <button type="button" class="add-inline" aria-label="${escapeHtml(tr("business.removeBudget"))}">✕</button>`;
+  row.querySelector(".budget-cur").value = currency || "";
+  row.querySelector(".budget-amt").value = amount || "";
+  row.querySelector(".budget-amt").addEventListener("input", (e) => {
+    const sanitized = sanitizeAmountInputValue(e.target.value);
+    if (sanitized !== e.target.value) e.target.value = sanitized;
+  });
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  document.getElementById("project-budgets").appendChild(row);
+}
+
+function openProjectModal_(project, companyId, budgets) {
+  if (!(meta.companies || []).length) { alert(tr("business.needCompany")); return; }
+  editingProjectId_ = project ? project.id : null;
+  document.getElementById("project-modal-title").textContent = tr(project ? "business.projectEditTitle" : "business.projectAddTitle");
+  document.getElementById("project-form-error").textContent = "";
+  const sel = document.getElementById("project-company");
+  sel.innerHTML = "";
+  meta.companies.forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = companyLabel_(c);
+    sel.appendChild(o);
+  });
+  sel.value = companyId || meta.companies[0].id;
+  document.getElementById("project-name").value = project ? project.name : "";
+  document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
+  document.getElementById("project-budgets").innerHTML = "";
+  (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
+  document.getElementById("project-delete-btn").hidden = !project;
+  const backdrop = document.getElementById("project-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeProjectModal_() {
+  document.getElementById("project-modal-backdrop").hidden = true;
+  editingProjectId_ = null;
+}
+
+document.getElementById("project-add-budget-btn").addEventListener("click", () => addProjectBudgetRow_("", ""));
+document.getElementById("project-modal-close").addEventListener("click", closeProjectModal_);
+document.getElementById("project-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "project-modal-backdrop") closeProjectModal_();
+});
+document.getElementById("project-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("project-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("project-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const budgets = Array.from(document.querySelectorAll("#project-budgets .business-budget-row")).map((row) => ({
+      currency: row.querySelector(".budget-cur").value.trim().toUpperCase(),
+      amount: row.querySelector(".budget-amt").value.trim()
+    }));
+    const fields = {
+      company_id: document.getElementById("project-company").value,
+      name: document.getElementById("project-name").value.trim(),
+      emoji: document.getElementById("project-emoji").value.trim(),
+      budgets
+    };
+    if (editingProjectId_) await callApi("updateProject", Object.assign({ id: editingProjectId_ }, fields));
+    else await callApi("addProject", fields);
+    closeProjectModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("project-delete-btn").addEventListener("click", async () => {
+  if (!editingProjectId_) return;
+  const project = (meta.projects || []).find((p) => p.id === editingProjectId_);
+  if (!project || !confirm(tr("business.confirmDeleteProject", { name: project.name }))) return;
+  try {
+    await callApi("deleteProject", { id: project.id });
+    closeProjectModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("project-form-error").textContent = err.message;
+  }
+});
+
+// The entry form's picker arrives in a later slice; until then this only keeps the lists tidy.
+function populateBusinessOptions_() {}
 
 // ---- Recurring income/expenses ----
 
