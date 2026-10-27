@@ -13691,6 +13691,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
+    // Same as an entry: an account is not mandatory, but when the person HAS accounts and picked none, ask once.
+    if (!paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
+      throw new Error(tr("error.pickPaymentMethod"));
+    }
 
     saveBtn.disabled = true;
     const fields = {
