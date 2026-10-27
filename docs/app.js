@@ -11272,8 +11272,8 @@ function renderProjectionsSummary_(p) {
   if (p.expenses > 0) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
-  if (p.investments > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), programmed: formatPen(p.investmentsProgrammed) }));
+  if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
