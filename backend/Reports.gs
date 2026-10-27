@@ -21,6 +21,8 @@ function getPeriodSummary(payload) {
   // Transfers between the owner's own accounts are never income/expense —
   // excluded from every figure this endpoint returns (see CLAUDE.md §5).
   entries = entries.filter(function (e) { return e.type !== 'transfer'; });
+  // Overview's "Showing" filter (Business pack): personal / one company / one project. Ignored while the pack is off.
+  entries = filterEntriesByScope_(entries, payload && payload.scope);
 
   var splitSumByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
