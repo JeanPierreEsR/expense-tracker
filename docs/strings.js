@@ -374,6 +374,8 @@
     // ---- delete ----
     "delete.forgivenessTheyOweMe": { en: "This entry records you forgiving {friend}'s debt. Deleting it also undoes the forgiveness, so they owe you that amount again. Continue?", es: "Este movimiento registra que perdonaste la deuda de {friend}. Si lo eliminas, también se deshace el perdón y te volverá a deber ese monto. ¿Continuar?" },
     "delete.forgivenessIOweThem": { en: "This entry records you forgiving {friend}'s debt. Deleting it also undoes the forgiveness, so you owe them that amount again. Continue?", es: "Este movimiento registra que perdonaste la deuda de {friend}. Si lo eliminas, también se deshace el perdón y volverás a deberle ese monto. ¿Continuar?" },
+    "delete.refundTheyOweMe": { en: "{friend} already repaid {cur} {total} on this. The loan is deleted and you will owe {friend} {cur} {total}; it cancels against future loans with them.", es: "{friend} ya repagó {cur} {total} de esto. El préstamo se elimina y le deberás {cur} {total} a {friend}; se compensa con futuros préstamos con esa persona." },
+    "delete.refundIOweThem": { en: "You already repaid {friend} {cur} {total} on this. The loan is deleted and {friend} will owe you {cur} {total}; it cancels against future loans with them.", es: "Ya le repagaste {cur} {total} a {friend} por esto. El préstamo se elimina y {friend} te deberá {cur} {total}; se compensa con futuros préstamos con esa persona." },
     "delete.isLoan": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
     "delete.repaymentFrom": { en: "This is a repayment from {friend} ({cur} {total}). Deleting it also cancels the repayment, so they owe you that amount again. Continue?", es: "Este es un repago de {friend} ({cur} {total}). Si lo eliminas, también se cancela el repago y te volverá a deber ese monto. ¿Continuar?" },
     "delete.repaymentTo": { en: "This is a repayment to {friend} ({cur} {total}). Deleting it also cancels the repayment, so you owe them that amount again. Continue?", es: "Este es un repago a {friend} ({cur} {total}). Si lo eliminas, también se cancela el repago y volverás a deberle ese monto. ¿Continuar?" },
@@ -590,6 +592,7 @@
     "loanDetail.overdueSince": { en: "⚠️ Overdue since {date}", es: "⚠️ Vencido desde el {date}" },
     "loanDetail.repaidSoFar": { en: "{cur} {amount} repaid so far", es: "{cur} {amount} repagados hasta ahora" },
     "loanDetail.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
+    "loanDetail.confirmDeleteOrphan": { en: "The expense behind this loan ({amount}, {date}) was deleted. Delete the loan too?", es: "El gasto de este préstamo ({amount}, {date}) fue eliminado. ¿Eliminar también el préstamo?" },
     "loanDetail.forgive": { en: "🙏 Forgive", es: "🙏 Perdonar" },
     "loanDetail.expenseNotFound": { en: "That expense couldn't be found — it may have been deleted.", es: "No se encontró ese gasto: puede que se haya eliminado." },
 

@@ -128,3 +128,50 @@ test("forgiving a debt I owed books INCOME", () => {
   assert.equal(res.entry.type, "income");
   assert.equal(Number(res.entry.amount), 75);
 });
+
+const loansOf = (rt, friendId) => rt.rows("Loans").filter((l) => l.friend_id === friendId);
+const repay = (rt, data, friend, amount) =>
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount, date: today(), currency: "PEN", payment_method_id: data.pms[3].id });
+
+test("deleting an expense whose loan was repaid turns the repayment into a loan I owe", () => {
+  const { rt, data } = freshApp();
+  const { entry, friend } = sharedExpense(rt, data, 100, 40);
+  repay(rt, data, friend, 30);
+
+  const links = rt.api("getEntryRepaymentLinks", { id: entry.id });
+  assert.equal(links.refunds.length, 1);
+  assert.equal(links.refunds[0].total, 30);
+
+  rt.api("discardEntry", { id: entry.id });
+
+  const loans = loansOf(rt, friend.id);
+  assert.equal(loans.length, 1, "the repaid loan is gone, one refund loan replaces it");
+  assert.equal(loans[0].direction, "i_owe_them");
+  assert.equal(Number(loans[0].amount), 30);
+  assert.equal(loans[0].origin, "cash");
+  assert.equal(rt.rows("Settlements").some((s) => s.loan_id === loans[0].id), false);
+  // it can be deleted like any cash loan (no repayment against it)
+  rt.api("deleteLoan", { id: loans[0].id });
+  assert.equal(loansOf(rt, friend.id).length, 0);
+});
+
+test("a refund loan cancels against a later loan with the same friend", () => {
+  const { rt, data } = freshApp();
+  const { entry, friend, cat } = sharedExpense(rt, data, 100, 40);
+  repay(rt, data, friend, 40);
+  rt.api("discardEntry", { id: entry.id });
+
+  const e2 = rt.api("createEntry", { type: "expense", date: today(), amount: 50, currency: "PEN", category_id: cat.id, description: "Lunch", paid_by: "me", payment_method_id: data.pms[3].id });
+  rt.api("saveEntrySplits", { entryId: e2.id, splits: [{ friend_id: friend.id, amount: 25 }] });
+  repay(rt, data, friend, 0.01);   // the next repayment writes the offset between the two loans
+
+  const open = loansOf(rt, friend.id).map((l) => (l.direction === "they_owe_me" ? 1 : -1) * (Number(l.amount) - rt.rows("Settlements").filter((s) => s.loan_id === l.id).reduce((a, s) => a + Number(s.amount), 0)));
+  assert.ok(Math.abs(open.reduce((a, b) => a + b, 0) - (25 - 40)) < 0.02, "net = 25 owed to me minus 40 refund (± the 1-cent test repayment)");
+});
+
+test("deleting an expense with an unpaid loan just deletes the loan", () => {
+  const { rt, data } = freshApp();
+  const { entry, friend } = sharedExpense(rt, data, 100, 40);
+  rt.api("discardEntry", { id: entry.id });
+  assert.equal(loansOf(rt, friend.id).length, 0);
+});

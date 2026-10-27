@@ -99,6 +99,7 @@ var BACKEND_STRINGS_ = {
   "loan.missingFriend": { en: "Missing friend.", es: "Falta el amigo." },
   "loan.fromSharedEdit": { en: "This loan came from a shared expense — edit that entry instead.", es: "Este préstamo viene de un gasto compartido: edita ese movimiento." },
   "loan.repaymentLocked": { en: "This loan already has a repayment recorded — you can't change its friend, direction or currency.", es: "Este préstamo ya tiene un repago registrado: no puedes cambiar su amigo, dirección ni moneda." },
+  "loan.refundDescription": { en: "Refund: {what} was deleted, {friend} had repaid {cur} {amount}", es: "Reembolso: se eliminó {what}, {friend} había repagado {cur} {amount}" },
   "loan.fromSharedDelete": { en: "This loan came from a shared expense — delete that entry instead.", es: "Este préstamo viene de un gasto compartido: elimina ese movimiento." },
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
   "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
