@@ -2410,6 +2410,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     }
     writesDone = true;
     clearEntryDraft_();
+    rememberRecentEntryDate_(date, !wasEditingExistingEntry && !confirmingPendingId && !editingViaPopup);
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
@@ -3095,6 +3096,29 @@ const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
 let entryDraftTimer_ = null;
 let entryDateTouched_ = false;   // the owner picked the date themselves
 
+// A new entry starts on today. The one exception: right after saving an entry with
+// ANOTHER date (typing in a batch of older receipts), the next one keeps that date
+// for a short while, so it needn't be picked again. Later = today again.
+const RECENT_ENTRY_DATE_MS = 30 * 60 * 1000;
+let recentEntryDate_ = null;     // { date, at } of the last new entry saved on a non-today date
+
+function rememberRecentEntryDate_(date, isNewEntry) {
+  entryDateTouched_ = false;
+  recentEntryDate_ = isNewEntry && date && date !== todayLocalISO() ? { date, at: Date.now() } : null;
+}
+
+function defaultNewEntryDate_() {
+  const r = recentEntryDate_;
+  return r && Date.now() - r.at < RECENT_ENTRY_DATE_MS ? r.date : todayLocalISO();
+}
+
+// Sets the date of a fresh new-entry form (before any draft is put back).
+function applyNewEntryDate_() {
+  const d = defaultNewEntryDate_();
+  document.getElementById("date").value = d;
+  entryDateTouched_ = d !== todayLocalISO();
+}
+
 function entryFormIsNewEntry_() {
   return !editingEntryId && !confirmingPendingId && !editingViaPopup;
 }
@@ -3163,7 +3187,8 @@ function restoreEntryDraft_() {
   document.getElementById("amount").value = d.amount;
   document.getElementById("description").value = d.description;
   selectCurrency(d.currency || homeCur(), "entry");
-  if (d.date) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
+  // A draft's own date counts only if it was typed a moment ago; otherwise today.
+  if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
@@ -4378,6 +4403,7 @@ function openNewEntrySheet_() {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   newEntrySheetOpen_ = true;
+  applyNewEntryDate_();   // today, unless an older-dated entry was saved moments ago
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
 }
 
