@@ -3462,6 +3462,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
+  let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   if (["transfer", "expense", "income"].includes(originalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id });
     if (links.forgiveness) {
@@ -3473,17 +3474,17 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       return false;
     }
     if (links.refunds && links.refunds.length) {
-      const r = links.refunds[0];
-      confirmText += "\n\n" + tr(r.direction === "they_owe_me" ? "delete.refundTheyOweMe" : "delete.refundIOweThem", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+      repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
+      if (!repaymentsChoice) return false;
     }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!confirm(confirmText)) return false;
+  if (!repaymentsChoice && !confirm(confirmText)) return false;
   if (onConfirmed) onConfirmed();
-  await callApi("discardEntry", { id });
+  await callApi("discardEntry", { id, repayments: repaymentsChoice });
   refreshLoans().catch(() => {});
   return true;
 }
@@ -13809,12 +13810,47 @@ async function openLinkedEntryFromLoan_(entryId) {
   }
 }
 
+// Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
+// other way), "cancel" (they are cancelled too) or null (the person backed out). `rows` = [{friend, currency, total}].
+function askRepaymentChoice_(titleKey, rows) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("repay-choice-backdrop");
+    const list = rows.map((r) => `${r.friend} (${r.currency} ${moneyFmt(r.total)})`).join(", ");
+    document.getElementById("repay-choice-title").textContent = tr(titleKey);
+    document.getElementById("repay-choice-text").textContent = tr("repayChoice.text", { list });
+    document.getElementById("repay-choice-keep").textContent = tr("repayChoice.keep");
+    document.getElementById("repay-choice-keep-hint").textContent = tr("repayChoice.keepHint");
+    document.getElementById("repay-choice-cancel").textContent = tr("repayChoice.cancel");
+    document.getElementById("repay-choice-cancel-hint").textContent = tr("repayChoice.cancelHint");
+    const done = (value) => {
+      backdrop.hidden = true;
+      ["repay-choice-keep", "repay-choice-cancel", "repay-choice-back", "repay-choice-close"].forEach((id) => {
+        document.getElementById(id).onclick = null;
+      });
+      resolve(value);
+    };
+    document.getElementById("repay-choice-keep").onclick = () => done("keep");
+    document.getElementById("repay-choice-cancel").onclick = () => done("cancel");
+    document.getElementById("repay-choice-back").onclick = () => done(null);
+    document.getElementById("repay-choice-close").onclick = () => done(null);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
+}
+
 // A loan kept for its repayment history after its expense was deleted has no
 // expense to open; the only thing left to do with it is delete it.
 async function deleteOrphanLoan_(l, friend) {
-  if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) return;
   try {
-    await callApi("deleteLoan", { id: l.id });
+    const info = await callApi("getLoanDeleteInfo", { id: l.id });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: friend.name, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: l.id, repayments });
     await openLoanDetail(friend.id, friend.name);
     refreshLoans();
   } catch (err) {
@@ -14033,12 +14069,20 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
   const loanDesc = document.getElementById("loan-description").value.trim();
   const loanAmt = document.getElementById("loan-amount").value.trim();
   const loanCur = document.getElementById("loan-currency").value;
-  if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) return;
   const errorEl = document.getElementById("loan-form-error");
   errorEl.textContent = "";
 
   try {
-    await callApi("deleteLoan", { id: editingLoanId });
+    // With repayments recorded against it the person chooses what happens to them; otherwise the usual OK / Cancel.
+    const info = await callApi("getLoanDeleteInfo", { id: editingLoanId });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: loanWho, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: editingLoanId, repayments });
     closeLoanModal();
     await refreshAfterLoanModalChange_();
   } catch (err) {
