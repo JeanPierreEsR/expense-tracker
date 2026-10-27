@@ -5048,6 +5048,12 @@ function moneyFmt(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function signedMoney_(n, cur) {
+  const r = Math.round(Number(n) * 100) / 100;
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${cur} ${moneyFmt(Math.abs(r))}`;
+}
+function formatPenSigned_(n) { return signedMoney_(n, homeCur()); }
+
 function formatPen(n) {
   return `${homeCur()} ${moneyFmt(n)}`;
 }
@@ -5082,10 +5088,11 @@ const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || "
 function paintOverviewSummary_(data) {
   lastOverviewData = data;
 
-  document.getElementById("summary-income").textContent = formatPen(data.totals.income);
-  document.getElementById("summary-expense").textContent = formatPen(data.totals.expense);
-  document.getElementById("summary-investment").textContent = formatPen(data.totals.investment);
-  document.getElementById("summary-net").textContent = formatPen(data.totals.net);
+  // Money-in-your-pocket view: what came in is "+", what went out (spent, put into an investment) is "−".
+  document.getElementById("summary-income").textContent = formatPenSigned_(data.totals.income);
+  document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
+  document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
+  document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
 
   const excludedNote = document.getElementById("overview-excluded-note");
   if (data.excludedCount > 0) {
@@ -5173,7 +5180,7 @@ function renderInvestmentsPeriod_(items) {
     row.className = "balance-row";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${item.lines.map((l) => `<div>${formatSignedBalance_(l.amount, l.currency)}</div>`).join("")}</div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div>${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
