@@ -222,3 +222,14 @@ test("dates: year first always, and the person's own order (language, or the dat
   rt.run("setSetting_('date_format', 'ymd');");
   reply("date 13/09/2026"); assert.equal(entry().date, "2026-09-12", "with year-first as the order, day-first text is not guessed");
 });
+
+test("a reply with no field keyword is taken as the description; a keyword typo is still reported", () => {
+  const { reply, entry, sent } = setup();
+  reply("Uber to the airport");
+  assert.equal(entry().description, "Uber to the airport");
+  reply("Cena, con amigos");                       // comma without a keyword stays part of the text
+  assert.equal(entry().description, "Cena, con amigos");
+  reply("category Gorceries");                     // keyword + bad value: NOT turned into a description
+  assert.equal(entry().description, "Cena, con amigos");
+  assert.match(sent(), /Didn.t recognize that/);
+});
