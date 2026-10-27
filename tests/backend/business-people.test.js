@@ -191,6 +191,20 @@ test("deleting a person is refused while they have debts, shares or paid entries
   assert.throws(() => rt.api("deleteFriend", { id: "ghost" }), /not found|No se encontr/i);
 });
 
+test("a project can have a client (an existing person); an unknown one is ignored; editing without it keeps it", () => {
+  const rt = setup();
+  const co = company(rt);
+  const ana = person(rt, "Ana Client");
+  const p = rt.api("addProject", { company_id: co.id, name: "Casa Lima", client_id: ana.id });
+  assert.equal(p.client_id, ana.id);
+  assert.equal(rt.api("getProjectDetail", { id: p.id }).project.client_id, ana.id);
+  assert.equal(rt.api("addProject", { company_id: co.id, name: "Torre Sur", client_id: "ghost" }).client_id, "");
+  rt.api("updateProject", { id: p.id, name: "Casa Lima" });                         // client_id not sent: kept
+  assert.equal(rt.api("getProjectDetail", { id: p.id }).project.client_id, ana.id);
+  rt.api("updateProject", { id: p.id, name: "Casa Lima", client_id: "" });          // sent blank: cleared
+  assert.equal(rt.api("getProjectDetail", { id: p.id }).project.client_id, "");
+});
+
 test("a business person disappears from lists only through the app (the data is kept): turning the pack off keeps them in the Sheet", () => {
   const rt = setup();
   person(rt, "Ana Client");

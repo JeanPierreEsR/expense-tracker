@@ -17,7 +17,7 @@
 // Created on first use (not in TABLE_DEFINITIONS, so a copy that never opts in never gets these tabs).
 var BUSINESS_TABLES_ = {
   'Companies': ['id', 'name', 'emoji'],
-  'Projects': ['id', 'company_id', 'name', 'emoji', 'status'],
+  'Projects': ['id', 'company_id', 'name', 'emoji', 'status', 'client_id'],
   'Project Budgets': ['id', 'project_id', 'currency', 'amount']
 };
 
@@ -54,6 +54,7 @@ function ensureBusinessSheets_() {
   // Step 2: a person's business role and the project a debt belongs to (both created only on first use of the pack).
   ensureColumn_('Friends', 'role');
   ensureColumn_('Loans', 'project_id');
+  ensureColumn_('Projects', 'client_id');   // the person who repays this project's reimbursable costs (optional)
 }
 
 // The switch itself (More → Business features, welcome question). Turning it off keeps every row.
@@ -248,7 +249,13 @@ function cleanProjectInput_(p, ownId, ownCompanyId) {
     }
   });
   var status = PROJECT_STATUSES_[p.status] ? p.status : 'active';
-  return { company_id: companyId, name: name, emoji: String(p.emoji || '').trim(), status: status };
+  // The project's client (optional): an existing person that is not a trip's group. Anything else = none.
+  var clientId = '';
+  if (p.client_id) {
+    var person = getAllRows('Friends').find(function (f) { return String(f.id) === String(p.client_id); });
+    if (person && !person.trip_id) clientId = String(person.id);
+  }
+  return { company_id: companyId, name: name, emoji: String(p.emoji || '').trim(), status: status, client_id: clientId };
 }
 
 function addProject(payload) {
@@ -273,6 +280,7 @@ function updateProject(payload) {
   if (rowIndex === -1) throw new Error(tr_('business.projectNotFound'));
   var existing = projectById_(payload.id);
   var clean = cleanProjectInput_(payload, payload.id, existing.company_id);
+  if (payload.client_id === undefined) clean.client_id = String(existing.client_id || '');   // not sent: keep what is there
   // A project with entries stays in its company: moving it would silently move their company label too.
   if (clean.company_id !== String(existing.company_id) && entriesUsing_('project_id', payload.id) > 0) {
     throw new Error(tr_('business.errProjectMove'));
@@ -414,7 +422,7 @@ function getProjectDetail(payload) {
   var rows = businessRows_(function (e) { return String(e.project_id || '') === String(project.id); }, payload.startDate, payload.endDate);
   var totals = businessTotals_(rows, budgetsOfProject_(project.id));
   return {
-    project: { id: project.id, name: project.name, emoji: project.emoji, status: project.status || 'active', company_id: project.company_id },
+    project: { id: project.id, name: project.name, emoji: project.emoji, status: project.status || 'active', company_id: project.company_id, client_id: project.client_id || '' },
     company: company ? { id: company.id, name: company.name, emoji: company.emoji } : null,
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
     byCategory: businessByCategory_(rows)

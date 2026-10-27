@@ -221,6 +221,8 @@
               <input type="checkbox" id="split-toggle">
               <span data-i18n="split.toggle">Split this expense</span>
             </label>
+            <button type="button" class="add-inline" id="split-client-btn" hidden data-i18n="split.clientRepays">🏢 Client will repay this</button>
+            <select id="split-client-select" hidden aria-label="Who will repay it?"></select>
 
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
@@ -729,6 +731,7 @@
           <button type="button" class="add-inline" id="business-back-btn" data-i18n="common.back">‹ Back</button>
           <button type="button" class="add-inline" id="business-add-company-btn" data-i18n="business.addCompany">+ Company</button>
         </div>
+        <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">👥 People</button>
         <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
         <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
         <select id="business-period" class="business-period-select"></select>
@@ -736,6 +739,20 @@
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
         <p class="hint" id="business-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-people" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="people-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="people-add-btn" data-i18n="people.add">+ Person</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="people.title">People</h2>
+        <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
+        <div id="people-list"></div>
+        <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
+        <p class="hint" id="people-error" style="color:#d64545;"></p>
       </div>
     </div>
 
@@ -1275,6 +1292,11 @@
       <div class="budget-modal-body">
         <label for="loan-friend" data-i18n="common.friend">Friend</label>
         <select id="loan-friend"></select>
+
+        <div id="loan-project-field" hidden>
+          <label for="loan-project" data-i18n="business.loanProject">Project (optional)</label>
+          <select id="loan-project"></select>
+        </div>
 
         <label data-i18n="loanModal.direction">Direction</label>
         <div class="type-tabs budget-period-tabs" id="loan-direction-tabs">
@@ -2074,6 +2096,27 @@
     </div>
   </div>
 
+  <div id="person-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="person-modal-title" data-i18n="people.addTitle">Add person</span>
+        <button type="button" id="person-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="person-name" data-i18n="people.name">Name</label>
+        <input type="text" id="person-name" maxlength="60">
+
+        <label for="person-role" data-i18n="people.role">Role</label>
+        <select id="person-role"></select>
+
+        <p class="hint" id="person-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>
+        <button type="button" class="delete-entry-btn" id="person-delete-btn" hidden data-i18n="people.delete">Delete this person</button>
+      </div>
+    </div>
+  </div>
+
   <div id="project-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -2089,6 +2132,9 @@
 
         <label for="project-emoji" data-i18n="business.emoji">Icon (optional)</label>
         <input type="text" id="project-emoji" maxlength="4" placeholder="🏗️">
+
+        <label for="project-client" data-i18n="business.projectClient">Client (optional)</label>
+        <select id="project-client"></select>
 
         <label data-i18n="business.budgets">Cost budget (optional)</label>
         <div id="project-budgets"></div>
