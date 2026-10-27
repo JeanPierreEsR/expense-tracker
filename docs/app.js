@@ -56,6 +56,7 @@ let selectedType = "expense";
 let expectedPick_ = "";
 let expectedPickTouched_ = false;
 let expectedSeq_ = 0;
+let igvTouched_ = false;   // the IGV amount was typed by hand, so a changed amount no longer recalculates it
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
 let editingEntryId = null;
@@ -2188,6 +2189,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
     // rather than silently losing the label or recording money that has not moved.
     if ((businessLink.project_id || businessLink.company_id) && !editingEntryId && !confirmingPendingId && date > todayLocalISO()) {
@@ -3154,7 +3156,10 @@ function captureEntryDraft_() {
     tagIds: [...selectedTagIds],
     tripId: document.getElementById("entry-trip").value,
     businessPick: document.getElementById("entry-business").value,
-    expectedPick: expectedPick_
+    expectedPick: expectedPick_,
+    igvOn: document.getElementById("igv-toggle").checked,
+    igvAmount: document.getElementById("igv-amount").value,
+    igvTouched: igvTouched_
   };
 }
 
@@ -3219,6 +3224,7 @@ function applyEntryDraft_(d) {
   setTripPick_(d.tripId);
   setBusinessPick_(d.businessPick);
   if (d.expectedPick) setExpectedPick_(d.expectedPick);
+  setIgvState_(d.igvOn, d.igvAmount, d.igvTouched);
 }
 
 (function setupEntryDraft_() {
@@ -3372,6 +3378,7 @@ async function startEditEntry(entry) {
   setTripPick_(entry.trip_id);
   setBusinessPick_(businessPickValue_(entry));
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
+  setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -4808,7 +4815,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -10314,7 +10321,7 @@ function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
 
 // Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
 function rememberBusinessLists_(companies) {
-  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }));
+  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji, igv_enabled: c.igv_enabled || "", tax_id: c.tax_id || "" }));
   meta.projects = [];
   companies.forEach((c) => c.projects.forEach((p) => meta.projects.push({ id: p.id, company_id: c.id, name: p.name, emoji: p.emoji, status: p.status })));
   populateBusinessOptions_();
@@ -10342,6 +10349,7 @@ function businessCurrencyCardsHtml_(currencies) {
         <div class="business-cur-row"><span>${escapeHtml(tr("business.income"))}</span><span>${moneyFmt(c.income)}</span></div>
         <div class="business-cur-row"><span>${escapeHtml(tr("business.costs"))}</span><span>${moneyFmt(c.costs)}</span></div>
         <div class="business-cur-row margin"><span>${escapeHtml(tr("business.margin"))}</span><span class="${marginCls}">${moneyFmt(c.margin)}</span></div>
+        ${c.igv ? `<div class="business-cur-igv">${escapeHtml(tr("igv.cardLine", { collected: moneyFmt(c.igv.collected), credit: moneyFmt(c.igv.credit) }))}</div>` : ""}
         ${budget}
       </div>`;
   }).join("");
@@ -10547,8 +10555,11 @@ function renderBusinessDetail_(d) {
         </div>
         <div class="recurring-row-amount">${businessMarginLinesHtml_(d.companyLevel.currencies)}</div>
       </div>` : "";
+    const co = (meta.companies || []).find((c) => c.id === d.company.id) || d.company;
+    const igvBtn = co.igv_enabled === "yes" || currencies.some((c) => c.igv)
+      ? `<button type="button" class="add-inline" id="business-detail-igv-btn">${escapeHtml(tr("igv.open"))}</button>` : "";
     projectsHtml = `<h3 class="accounts-group-title">${escapeHtml(tr("business.projects"))}</h3>${rows}${level}
-      <button type="button" class="add-inline" id="business-detail-add-project">${escapeHtml(tr("business.addProject"))}</button>`;
+      <button type="button" class="add-inline" id="business-detail-add-project">${escapeHtml(tr("business.addProject"))}</button>${igvBtn}`;
   } else {
     projectsHtml = `<button type="button" class="add-inline" id="business-detail-status-btn">${escapeHtml(tr(d.project.status === "closed" ? "business.reopenProject" : "business.closeProject"))}</button>`;
   }
@@ -10556,6 +10567,7 @@ function renderBusinessDetail_(d) {
   document.getElementById("business-detail-body").innerHTML = `
     ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
     ${businessApproxHtml_(d)}
+    ${currencies.some((c) => c.igv) ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("igv.netNote"))}</p>` : ""}
     ${isProject ? businessOwedHtml_(d.debts || []) : ""}
     ${businessExpectedHtml_(d.expected || [], isProject)}
     ${chips}
@@ -10572,6 +10584,8 @@ function renderBusinessDetail_(d) {
   const addProject = document.getElementById("business-detail-add-project");
   if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
   wireBusinessExpected_(d, isProject);
+  const igvBtn = document.getElementById("business-detail-igv-btn");
+  if (igvBtn) igvBtn.addEventListener("click", () => showIgvScreen_(d.company.id));
   const statusBtn = document.getElementById("business-detail-status-btn");
   if (statusBtn) statusBtn.addEventListener("click", async () => {
     const closing = d.project.status !== "closed";
@@ -10680,7 +10694,8 @@ function startReceivedIncome_(x) {
   applyEntryDraft_({
     v: 1, type: "income", categoryId: "", amount: Number(x.remaining).toFixed(2), description, currency: x.currency,
     paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [], tripId: "",
-    businessPick: "p:" + x.project_id, expectedPick: x.id
+    businessPick: "p:" + x.project_id, expectedPick: x.id,
+    igvOn: !!x.igv_included, igvAmount: "", igvTouched: false   // an invoice that includes IGV: the IGV of what is received is worked out
   });
   entryDateTouched_ = false;
   document.getElementById("date").value = todayLocalISO();
@@ -10713,6 +10728,10 @@ function openExpectedModal_(projectId, payment) {
   document.getElementById("expected-due").value = payment ? payment.due_date : todayLocalISO();
   document.getElementById("expected-invoice").value = payment ? payment.invoice_no : "";
   document.getElementById("expected-note").value = payment ? payment.note : "";
+  // "This amount includes IGV" only where the project's company charges IGV (or the payment already says so).
+  const projectCompany = project ? (meta.companies || []).find((c) => c.id === project.company_id) : null;
+  document.getElementById("expected-igv").checked = !!payment && !!payment.igv_included;
+  document.getElementById("expected-igv-row").hidden = !((projectCompany && projectCompany.igv_enabled === "yes") || (payment && payment.igv_included));
   document.getElementById("expected-delete-btn").hidden = !payment;
   const backdrop = document.getElementById("expected-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -10752,7 +10771,8 @@ document.getElementById("expected-save-btn").addEventListener("click", async () 
       currency: document.getElementById("expected-currency").value.trim().toUpperCase(),
       due_date: document.getElementById("expected-due").value,
       invoice_no: document.getElementById("expected-invoice").value.trim(),
-      note: document.getElementById("expected-note").value.trim()
+      note: document.getElementById("expected-note").value.trim(),
+      igv_included: !document.getElementById("expected-igv-row").hidden && document.getElementById("expected-igv").checked
     };
     if (editingExpected_.payment) await callApi("updateExpectedPayment", Object.assign({ id: editingExpected_.payment.id }, fields));
     else await callApi("addExpectedPayment", fields);
@@ -10811,6 +10831,9 @@ function openCompanyModal_(company) {
   document.getElementById("company-form-error").textContent = "";
   document.getElementById("company-name").value = company ? company.name : "";
   document.getElementById("company-emoji").value = company ? (company.emoji || "") : "";
+  const full = company ? ((meta.companies || []).find((c) => c.id === company.id) || company) : null;   // the phone's copy carries the IGV fields
+  document.getElementById("company-igv").checked = !!full && full.igv_enabled === "yes";
+  document.getElementById("company-tax-id").value = full ? String(full.tax_id || "") : "";
   document.getElementById("company-delete-btn").hidden = !company;
   const backdrop = document.getElementById("company-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -10840,7 +10863,10 @@ document.getElementById("company-save-btn").addEventListener("click", async () =
   const saveBtn = document.getElementById("company-save-btn");
   saveBtn.disabled = true;
   try {
-    const fields = { name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim() };
+    const fields = {
+      name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim(),
+      igv_enabled: document.getElementById("company-igv").checked, tax_id: document.getElementById("company-tax-id").value.trim()
+    };
     if (editingCompanyId_) await callApi("updateCompany", Object.assign({ id: editingCompanyId_ }, fields));
     else await callApi("addCompany", fields);
     closeCompanyModal_();
@@ -10862,6 +10888,164 @@ document.getElementById("company-delete-btn").addEventListener("click", async ()
     await showBusinessScreen();
   } catch (err) {
     document.getElementById("company-form-error").textContent = err.message;
+  }
+});
+
+// ---- The company's IGV screen (step 3B): per month and currency, what was collected, the credit, the position, and a note of payments ----
+
+let igvCompanyId_ = "";
+let igvYear_ = "";
+let igvData_ = null;
+let editingIgvPayment_ = null;   // { companyId, payment | null }
+
+async function showIgvScreen_(companyId) {
+  igvCompanyId_ = companyId;
+  igvYear_ = "";
+  igvData_ = null;
+  showMoreSub_("business-igv");
+  const known = (meta.companies || []).find((c) => c.id === companyId);
+  document.getElementById("igv-title").textContent = known ? companyLabel_(known) : "";
+  document.getElementById("igv-sub").textContent = "";
+  document.getElementById("igv-year").innerHTML = "";
+  document.getElementById("igv-body").innerHTML = loadingHtml_();
+  await refreshIgvScreen_();
+}
+
+async function refreshIgvScreen_() {
+  const errorEl = document.getElementById("igv-error");
+  errorEl.textContent = "";
+  const companyId = igvCompanyId_;
+  try {
+    const data = await callApi("getCompanyIgv", { id: companyId, year: igvYear_ || undefined });
+    if (companyId !== igvCompanyId_) return;   // moved on while loading
+    igvData_ = data;
+    igvYear_ = data.year;
+    renderIgvScreen_();
+  } catch (err) {
+    document.getElementById("igv-body").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function igvMonthLabel_(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${I18n.monthShort(m - 1)} ${y}`;
+}
+
+// A positive position is IGV owed to the tax office (red); a negative one is credit in the company's favour (green).
+function igvPositionHtml_(cur, position) {
+  const cls = position > 0.004 ? "igv-pos" : (position < -0.004 ? "igv-neg" : "");
+  return `<span class="${cls}">${escapeHtml(cur)} ${moneyFmt(position)}</span>`;
+}
+
+function renderIgvScreen_() {
+  const d = igvData_;
+  document.getElementById("igv-title").textContent = companyLabel_(d.company);
+  document.getElementById("igv-sub").textContent = [d.company.tax_id ? tr("igv.taxIdLine", { id: d.company.tax_id }) : "", tr("igv.rateLine", { rate: d.rate })].filter(Boolean).join(" · ");
+  const yearSel = document.getElementById("igv-year");
+  yearSel.innerHTML = "";
+  d.years.forEach((y) => {
+    const o = document.createElement("option");
+    o.value = y;
+    o.textContent = y;
+    yearSel.appendChild(o);
+  });
+  yearSel.value = d.year;
+
+  const totals = d.totals.map((t) => `
+    <div class="business-cur-card">
+      <div class="business-cur-head">${escapeHtml(t.currency)} · ${escapeHtml(d.year)}</div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.collected"))}</span><span>${moneyFmt(t.collected)}</span></div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.credit"))}</span><span>${moneyFmt(t.credit)}</span></div>
+      <div class="business-cur-row margin"><span>${escapeHtml(tr("igv.position"))}</span>${igvPositionHtml_("", t.position)}</div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.paid"))}</span><span>${moneyFmt(t.paid)}</span></div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.balance"))}</span>${igvPositionHtml_("", t.balance)}</div>
+    </div>`).join("");
+  const months = d.months.map((m) => `
+    <div class="igv-month-head">${escapeHtml(igvMonthLabel_(m.month))}</div>
+    ${m.lines.map((l) => `
+      <div class="igv-line"><span>${escapeHtml(tr("igv.monthLine", { cur: l.currency, collected: moneyFmt(l.collected), credit: moneyFmt(l.credit) }))}</span>${igvPositionHtml_("", l.position)}</div>`).join("")}`).join("");
+  const payments = d.payments.map((p) => `
+    <div class="recurring-row igv-payment-row" data-id="${escapeHtml(p.id)}">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(I18n.fmtDateMedium(new Date(p.date + "T00:00:00")))}</div>
+        ${p.note ? `<div class="recurring-row-sub">${escapeHtml(p.note)}</div>` : ""}
+      </div>
+      <div class="recurring-row-amount">${escapeHtml(p.currency)} ${moneyFmt(p.amount)}</div>
+    </div>`).join("");
+
+  document.getElementById("igv-body").innerHTML = `
+    ${totals || `<p class="hint">${escapeHtml(tr("igv.nothingYet"))}</p>`}
+    ${months ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.byMonth"))}</h3>${months}` : ""}
+    ${payments ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.payments"))}</h3>${payments}` : ""}
+    <p class="hint">${escapeHtml(tr("igv.note"))}</p>`;
+  document.querySelectorAll("#igv-body .igv-payment-row").forEach((row) => row.addEventListener("click", () => {
+    openIgvPaymentModal_(d.payments.find((p) => p.id === row.dataset.id) || null);
+  }));
+}
+
+document.getElementById("igv-back-btn").addEventListener("click", () => showBusinessDetail_("company", igvCompanyId_));
+document.getElementById("igv-year").addEventListener("change", (e) => { igvYear_ = e.target.value; refreshIgvScreen_(); });
+document.getElementById("igv-add-payment-btn").addEventListener("click", () => openIgvPaymentModal_(null));
+
+function openIgvPaymentModal_(payment) {
+  editingIgvPayment_ = { companyId: igvCompanyId_, payment };
+  document.getElementById("igv-payment-modal-title").textContent = tr(payment ? "igv.paymentEditTitle" : "igv.paymentAddTitle");
+  document.getElementById("igv-payment-error").textContent = "";
+  document.getElementById("igv-payment-amount").value = payment ? String(payment.amount) : "";
+  document.getElementById("igv-payment-currency").value = payment ? payment.currency : homeCur();
+  document.getElementById("igv-payment-date").value = payment ? payment.date : todayLocalISO();
+  document.getElementById("igv-payment-note").value = payment ? payment.note : "";
+  document.getElementById("igv-payment-delete-btn").hidden = !payment;
+  const backdrop = document.getElementById("igv-payment-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeIgvPaymentModal_() {
+  document.getElementById("igv-payment-modal-backdrop").hidden = true;
+  editingIgvPayment_ = null;
+}
+
+document.getElementById("igv-payment-modal-close").addEventListener("click", closeIgvPaymentModal_);
+document.getElementById("igv-payment-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "igv-payment-modal-backdrop") closeIgvPaymentModal_();
+});
+document.getElementById("igv-payment-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+document.getElementById("igv-payment-save-btn").addEventListener("click", async () => {
+  if (!editingIgvPayment_) return;
+  const errorEl = document.getElementById("igv-payment-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("igv-payment-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = {
+      amount: document.getElementById("igv-payment-amount").value.trim(),
+      currency: document.getElementById("igv-payment-currency").value.trim().toUpperCase(),
+      date: document.getElementById("igv-payment-date").value,
+      note: document.getElementById("igv-payment-note").value.trim()
+    };
+    if (editingIgvPayment_.payment) await callApi("updateIgvPayment", Object.assign({ id: editingIgvPayment_.payment.id }, fields));
+    else await callApi("addIgvPayment", Object.assign({ company_id: editingIgvPayment_.companyId }, fields));
+    closeIgvPaymentModal_();
+    await refreshIgvScreen_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("igv-payment-delete-btn").addEventListener("click", async () => {
+  if (!editingIgvPayment_ || !editingIgvPayment_.payment || !confirm(tr("igv.paymentConfirmDelete"))) return;
+  try {
+    await callApi("deleteIgvPayment", { id: editingIgvPayment_.payment.id });
+    closeIgvPaymentModal_();
+    await refreshIgvScreen_();
+  } catch (err) {
+    document.getElementById("igv-payment-error").textContent = err.message;
   }
 });
 
@@ -11224,6 +11408,8 @@ function populateBusinessOptions_() {
   document.getElementById("business-field").hidden = !canLink;
   syncClientButton_();
   syncExpectedField_();
+  syncIgvField_();
+  syncReceiptField_();
 }
 
 // ---- "Pays expected payment" (an income on a project) ----
@@ -11282,6 +11468,90 @@ document.getElementById("entry-expected").addEventListener("change", (e) => {
   expectedPickTouched_ = true;
 });
 document.getElementById("entry-business").addEventListener("change", () => { expectedPick_ = ""; expectedPickTouched_ = false; syncExpectedField_(); });
+
+// ---- "Includes IGV" (step 3B): the IGV inside an expense's or income's amount ----
+// Shown while the pack is on, for an expense or income whose company charges IGV (or that already carries IGV). The amount the
+// person typed never changes: the switch only records how much of it is IGV (amount − amount ÷ 1.18, editable by hand).
+
+function igvRatePct_() {
+  const n = Number(((meta && meta.settings) || {}).igv_rate);
+  return n > 0 && n < 100 ? n : 18;
+}
+
+function igvFromGross_(amount) {
+  return Math.round((amount - amount / (1 + igvRatePct_() / 100)) * 100) / 100;
+}
+
+// The company the picker points at (directly, or through its project).
+function businessCompanyOfPick_() {
+  const value = document.getElementById("entry-business").value;
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return project ? (meta.companies || []).find((c) => c.id === project.company_id) || null : null;
+  }
+  if (value.startsWith("c:")) return (meta.companies || []).find((c) => c.id === value.slice(2)) || null;
+  return null;
+}
+
+function renderIgvHint_() {
+  const hint = document.getElementById("igv-hint");
+  const amount = parseFloat(document.getElementById("amount").value);
+  const igv = parseFloat(document.getElementById("igv-amount").value);
+  hint.classList.remove("bill-check-bad");
+  if (!(amount > 0) || !(igv > 0)) { hint.textContent = ""; return; }
+  if (igv >= amount) { hint.textContent = tr("business.errIgv"); hint.classList.add("bill-check-bad"); return; }
+  hint.textContent = tr("igv.hint", { cur: document.getElementById("currency").value, net: moneyFmt(amount - igv), igv: moneyFmt(igv) });
+}
+
+function igvAutoFill_() {
+  if (igvTouched_) return;
+  const amount = parseFloat(document.getElementById("amount").value);
+  document.getElementById("igv-amount").value = amount > 0 ? igvFromGross_(amount).toFixed(2) : "";
+}
+
+function syncIgvField_() {
+  const field = document.getElementById("igv-field");
+  if (!field || !meta) return;   // nothing to decide before the app's data has arrived
+  const toggle = document.getElementById("igv-toggle");
+  const company = businessCompanyOfPick_();
+  const typeOk = businessOn() && (selectedType === "expense" || selectedType === "income");
+  const show = typeOk && !!company && (company.igv_enabled === "yes" || toggle.checked);
+  if (!show) { toggle.checked = false; document.getElementById("igv-amount").value = ""; igvTouched_ = false; }
+  field.hidden = !show;
+  document.getElementById("igv-toggle-label").textContent = tr("igv.toggleRate", { rate: igvRatePct_() });
+  document.getElementById("igv-detail").hidden = !(show && toggle.checked);
+  if (show && toggle.checked) { igvAutoFill_(); renderIgvHint_(); }
+}
+
+// Callers that carry IGV (edit, a saved draft, "Received") set it here; everything else leaves it off.
+function setIgvState_(on, amount, touched) {
+  document.getElementById("igv-toggle").checked = !!on;
+  document.getElementById("igv-amount").value = on && Number(amount) > 0 ? Number(amount).toFixed(2) : "";
+  igvTouched_ = !!on && !!touched && Number(amount) > 0;
+  syncIgvField_();
+}
+
+// What the form sends: the IGV amount, or "" (which clears it on an edit).
+function igvValueToSend_() {
+  const field = document.getElementById("igv-field");
+  if (!field || field.hidden || !document.getElementById("igv-toggle").checked) return "";
+  const v = parseFloat(document.getElementById("igv-amount").value);
+  return v > 0 ? v : "";
+}
+
+document.getElementById("igv-toggle").addEventListener("change", () => { igvTouched_ = false; syncIgvField_(); });
+document.getElementById("igv-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+  igvTouched_ = e.target.value.trim() !== "";
+  renderIgvHint_();
+});
+document.getElementById("amount").addEventListener("input", () => {
+  if (!document.getElementById("igv-toggle").checked) return;
+  igvAutoFill_();
+  renderIgvHint_();
+});
+document.getElementById("entry-business").addEventListener("change", syncIgvField_);
 
 // The project a Repayment / New loan on the Entries tab belongs to ("" = none); only a project counts there, never a company alone.
 function businessPickProjectId_() {
@@ -11379,6 +11649,7 @@ function setBusinessPick_(value) {
   }
   expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
   syncExpectedField_();
+  setIgvState_(false);                                // ... and IGV with setIgvState_
 }
 
 // What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else all the keys.
@@ -11387,10 +11658,10 @@ function businessLinkFields_() {
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "" };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_() };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "" };
-  return { project_id: "", company_id: "", expected_payment_id: "" };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" };
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
@@ -11403,7 +11674,9 @@ function businessPillHtml_(entry) {
   // An income that settles an expected payment also carries its invoice number.
   const expected = entry.expected_payment_id ? (meta.expectedPayments || []).find((x) => x.id === entry.expected_payment_id) : null;
   const invoice = expected && expected.invoice_no ? `<span class="entry-tag entry-business">${escapeHtml(tr("xp.pill", { no: expected.invoice_no }))}</span>` : "";
-  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>${invoice}`;
+  // Step 3B: the IGV inside the amount, wherever the entry is listed.
+  const igv = Number(entry.igv_amount) > 0 ? `<span class="entry-tag entry-business">${escapeHtml(tr("igv.pill", { cur: entry.currency, amount: moneyFmt(Number(entry.igv_amount)) }))}</span>` : "";
+  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>${invoice}${igv}`;
 }
 
 // ---- Recurring income/expenses ----
@@ -15935,6 +16208,142 @@ document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   if (file) readBillPhoto_(file);
 });
 
+
+// ---- "📷 Read a receipt or payment" in the entry form (Business pack, step 3B) ----
+// The same on-phone reader as the bill splitter (photo shrunk, read by self-hosted tesseract.js, nothing uploaded or kept); the text
+// goes through ReceiptFields (receipt-fields.js). An expense gets amount, date, business name and the IGV when it is printed; an
+// income gets amount, date, who paid and the invoice number (which also picks the matching expected payment). It only FILLS the
+// form — the person always checks it and taps Save.
+
+function syncReceiptField_() {
+  const field = document.getElementById("receipt-read-field");
+  if (field) field.hidden = !(businessOn() && (selectedType === "expense" || selectedType === "income"));
+}
+
+function receiptReadSay_(text, bad) {
+  const status = document.getElementById("receipt-read-status");
+  status.hidden = false;
+  status.textContent = text;
+  status.className = "hint" + (bad ? " bill-check-bad" : "");
+}
+
+// Tries the photo cropped to the paper first and the whole photo second (they fail on different pictures), as the bill reader does;
+// stops at the first reading that found both an amount and a date.
+async function readReceiptFields_(file, say) {
+  const attempts = [{ crop: true }, { crop: false, maxLong: 2000 }];
+  let best = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const canvas = await prepareReceiptImage_(file, attempts[i]);
+    say(i ? tr("photo.retry") : !window.Tesseract ? tr("photo.loadingReader") : tr("photo.reading"));
+    const text = await recognizeReceiptText_(canvas, (m) => {
+      if (m.status === "recognizing text") say(tr(i ? "photo.readingAgainPct" : "photo.readingPct", { pct: Math.round((m.progress || 0) * 100) }));
+      else if (/loading/i.test(m.status)) say(tr("photo.loadingReader"));
+    });
+    const fields = ReceiptFields.parse(text, { today: todayLocalISO() });
+    const score = (fields.amount ? 4 : 0) + (fields.date ? 2 : 0) + (fields.name || fields.payer ? 1 : 0) + (fields.igv ? 1 : 0);
+    if (!best || score > best.score) best = { text, fields, score };
+    if (fields.amount && fields.date) break;
+  }
+  return best;
+}
+
+const receiptInvoiceKey_ = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^([FBE][A-Z0-9]{3})0+(\d)/, "$1$2");
+
+// Puts what was read into the open form; returns the names of what it filled in (for the message).
+function applyReceiptFields_(f) {
+  const found = [];
+  let igvFromExpected = false;
+  let payerNote = "";
+  const isIncome = selectedType === "income";
+  if (f.currency && f.currency !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === f.currency)) selectCurrency(f.currency, "entry");
+
+  // An income whose invoice number is on one of the expected payments: pick that project and that expected payment.
+  if (isIncome && f.invoice) {
+    const cur = document.getElementById("currency").value;
+    const x = (meta.expectedPayments || []).find((e) => e.status !== "covered" && receiptInvoiceKey_(e.invoice_no) === receiptInvoiceKey_(f.invoice) && e.currency === cur);
+    if (x) {
+      if (!businessProjectOfPick_()) setBusinessPick_("p:" + x.project_id);
+      if (businessProjectOfPick_() && businessProjectOfPick_().id === x.project_id) {
+        setExpectedPick_(x.id);
+        found.push("receipt.f.invoice");
+        if (x.igv_included && !f.igv) igvFromExpected = true;   // that invoice includes IGV: work it out from the amount below
+      }
+    }
+  }
+  if (f.amount) {
+    const el = document.getElementById("amount");
+    el.value = f.amount;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    found.push("receipt.f.amount");
+  }
+  if (f.date) {
+    document.getElementById("date").value = f.date;
+    entryDateTouched_ = true;
+    found.push("receipt.f.date");
+  }
+  const description = document.getElementById("description");
+  if (isIncome) {
+    const payer = f.payer ? f.payer.toLowerCase().replace(/\*+$/, "").trim() : "";
+    const payorId = payer ? (meta.payors || []).find((p) => { const n = p.name.toLowerCase(); return n === payer || n.includes(payer) || payer.includes(n); }) : null;
+    if (payorId) { document.getElementById("paid_by").value = payorId.id; found.push("receipt.f.payer"); }
+    else if (f.payer) payerNote = " " + tr("receipt.payerUnknown", { payer: f.payer });   // read, but not in the person's list: they pick or add them
+    if (!description.value.trim()) {
+      const text = f.invoice ? tr("xp.incomeDescInvoice", { invoice: f.invoice }) : (f.payer ? tr("xp.incomeDescClient", { client: f.payer }) : "");
+      if (text) description.value = text;
+    }
+  } else if (f.name) {
+    if (!description.value.trim()) description.value = f.name;
+    found.push("receipt.f.business");   // read (a description the person already typed is never overwritten)
+  }
+  // The IGV only when the form can record it (a company that charges IGV is picked); otherwise the message says what was printed.
+  let igvNote = "";
+  if (f.igv) {
+    if (!document.getElementById("igv-field").hidden || (businessCompanyOfPick_() && businessCompanyOfPick_().igv_enabled === "yes")) {
+      setIgvState_(true, f.igv, true);
+      found.push("receipt.f.igv");
+    } else {
+      igvNote = " " + tr("receipt.igvNoCompany", { cur: document.getElementById("currency").value, igv: moneyFmt(Number(f.igv)) });
+    }
+  }
+  if (igvFromExpected && !found.includes("receipt.f.igv") && !document.getElementById("igv-field").hidden) {
+    setIgvState_(true, "", false);
+    found.push("receipt.f.igv");
+  }
+  scheduleEntryDraftSave_();
+  return { found, igvNote: igvNote + payerNote };
+}
+
+async function readReceiptPhoto_(file) {
+  const btn = document.getElementById("receipt-read-btn");
+  btn.disabled = true;
+  try {
+    receiptReadSay_(tr("photo.preparing"));
+    const best = await readReceiptFields_(file, receiptReadSay_);
+    document.getElementById("receipt-read-text").value = best.text;
+    document.getElementById("receipt-read-raw").hidden = false;
+    if (!best.score) { receiptReadSay_(tr("receipt.nothing"), true); return; }
+    const { found, igvNote } = applyReceiptFields_(best.fields);
+    // "Couldn't find" means the reader found nothing for it (a payer that was read but is not in the person's list has its own note).
+    const f = best.fields;
+    const wanted = selectedType === "income"
+      ? [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.payer", f.payer]]
+      : [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.business", f.name]];
+    const missing = wanted.filter(([, value]) => !value).map(([key]) => key);
+    receiptReadSay_(tr("receipt.done", { found: found.map((k) => tr(k)).join(", ") || "—" })
+      + (missing.length ? " " + tr("receipt.missing", { missing: missing.map((k) => tr(k)).join(", ") }) : "") + igvNote, missing.length > 0);
+  } catch (err) {
+    receiptReadSay_(err.message || tr("photo.couldntRead"), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("receipt-read-btn").addEventListener("click", () => document.getElementById("receipt-read-input").click());
+document.getElementById("receipt-read-input").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";           // picking the same photo again must work
+  if (file) readReceiptPhoto_(file);
+});
 
 // ---- One calendar for a start AND an end date (2026-10-19) ----
 // Wherever the app asks for "from … to …" (a trip's dates, a Programmed item's start/end, Overview's custom

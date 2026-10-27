@@ -3083,7 +3083,12 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
 
 /* ---- Business pack (specs/business.md) ---- */
-.business-period-select { width: 100%; margin: 6px 0 10px; }
+.business-period-select, .igv-year-select { width: 100%; margin: 6px 0 10px; }
+.business-cur-igv { font-size: 0.8rem; color: var(--muted); padding-top: 2px; }
+.igv-month-head { font-weight: 700; margin: 10px 0 2px; }
+.igv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.9rem; }
+.igv-pos { color: var(--expense); font-weight: 700; }
+.igv-neg { color: var(--income); font-weight: 700; }
 .business-cur-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
 .business-cur-head { font-weight: 700; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 0.95rem; }

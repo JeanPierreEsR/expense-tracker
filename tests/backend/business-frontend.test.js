@@ -136,6 +136,62 @@ test("step 3A: the loan picker shows only while fixing a recorded repayment, and
   assert.match(read("backend", "Strings.gs"), /"repay\.moveBad": \{ en: "[^"]+", es: "[^"]+"/);
 });
 
+test("step 3B: the IGV screen is remembered by the More tab, listed for beta usage, and its year picker is not a period picker", () => {
+  assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-igv"'));
+  assert.ok(html.includes('id="screen-business-igv"'));
+  assert.match(read("backend", "BetaEvents.gs"), /business_igv: 1/);
+  // fillBusinessPeriodSelects_ fills every .business-period-select: the year picker must not carry that class
+  assert.match(html, /<select id="igv-year" class="igv-year-select">/);
+  assert.ok(api.match(/var ONCE_ACTIONS_ = \{([\s\S]*?)\};/)[1].includes("addIgvPayment: 1"));
+});
+
+test("step 3B: the IGV switch is hidden in the page itself, its state is declared before it is used, and it travels with the link", () => {
+  assert.match(html, /<div id="igv-field" hidden>/);
+  assert.match(html, /<div id="igv-detail" hidden>/);
+  assert.ok(app.indexOf("let igvTouched_") < app.indexOf("function setBusinessPick_("), "declared first (a let used before its line throws)");
+  const fn = app.match(/function businessLinkFields_\(\) \{[\s\S]*?\n\}/)[0];
+  assert.equal((fn.match(/igv_amount:/g) || []).length, 3, "every branch sends igv_amount, blank when there is none (that is what clears it on an edit)");
+  assert.match(app, /if \(Number\(businessLink\.igv_amount\) >= amount\) throw new Error\(tr\("business\.errIgv"\)\);/);
+  // a saved draft, an edit and the "Received" button all carry it
+  assert.match(app, /igvOn: document\.getElementById\("igv-toggle"\)\.checked,/);
+  assert.match(app, /setIgvState_\(d\.igvOn, d\.igvAmount, d\.igvTouched\);/);
+  assert.match(app, /setIgvState_\(Number\(entry\.igv_amount\) > 0, entry\.igv_amount, true\);/);
+  assert.match(app, /igvOn: !!x\.igv_included/);
+  // the company list the phone keeps must not drop the IGV fields (the entry form reads them)
+  assert.match(app, /meta\.companies = companies\.map\(\(c\) => \(\{ id: c\.id, name: c\.name, emoji: c\.emoji, igv_enabled: c\.igv_enabled \|\| "", tax_id: c\.tax_id \|\| "" \}\)\);/);
+});
+
+test("step 3B: every igv.* text the app uses exists in English and Spanish", () => {
+  const strings = read("docs", "strings.js");
+  const used = new Set([...app.matchAll(/tr\("(igv\.[A-Za-z.]+|business\.errIgv)"/g)].map((m) => m[1]));
+  for (const key of html.matchAll(/data-i18n="(igv\.[A-Za-z.]+)"/g)) used.add(key[1]);   // the texts written in the page itself
+  assert.ok(used.size > 25, "found " + used.size);
+  for (const key of used) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+  for (const key of ["business.errIgv", "business.igvPaymentNotFound", "export.h.igv"]) {
+    assert.match(read("backend", "Strings.gs"), new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+});
+
+test("step 3B: the receipt reader button is hidden in the page itself, shown only while the pack is on for an expense or income, and nothing is uploaded", () => {
+  assert.match(html, /<div id="receipt-read-field" hidden>/);
+  assert.match(html, /<script src="receipt-fields\.js\?v=[^"]+"><\/script>/, "the pure reader is loaded (ship.sh bumps its ?v= like the others)");
+  assert.match(app, /field\.hidden = !\(businessOn\(\) && \(selectedType === "expense" \|\| selectedType === "income"\)\);/);
+  assert.match(app, /syncReceiptField_\(\);\n\}/, "re-evaluated whenever the type changes (populateBusinessOptions_)");
+  const block = app.slice(app.indexOf("async function readReceiptPhoto_"), app.indexOf("document.getElementById(\"receipt-read-btn\")"));
+  assert.ok(!/callApi\(/.test(block), "the photo never leaves the phone");
+  assert.match(app, /ReceiptFields\.parse\(text, \{ today: todayLocalISO\(\) \}\)/);
+  const strings = read("docs", "strings.js");
+  const used = new Set([...app.matchAll(/tr\("(receipt\.[A-Za-z.]+)"/g)].map((m) => m[1]));
+  for (const key of html.matchAll(/data-i18n="(receipt\.[A-Za-z.]+)"/g)) used.add(key[1]);
+  for (const key of ["receipt.f.amount", "receipt.f.date", "receipt.f.business", "receipt.f.payer", "receipt.f.invoice", "receipt.f.igv"]) used.add(key);   // built from a list in the code
+  assert.ok(used.size >= 12, "found " + used.size);
+  for (const key of used) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+});
+
 test("step 3A: every xp.* / bx.* / settle.choose* text the app uses exists in English and Spanish", () => {
   const strings = read("docs", "strings.js");
   const used = new Set([...app.matchAll(/tr\("((?:xp|bx)\.[A-Za-z.]+|settle\.choose[A-Za-z]*|field\.expected)"/g)].map((m) => m[1]));
