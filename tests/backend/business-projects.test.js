@@ -277,3 +277,20 @@ test("a resent addCompany / addProject with the same request id is applied once"
   assert.equal(again.id, a.id);
   assert.equal(rt.rows("Companies").length, 1);
 });
+
+test("Overview filter: the entry list and the totals use the same scope, so a drill-down adds up", () => {
+  const rt = setup();
+  const a = company(rt, "Studio A");
+  const p = project(rt, a.id);
+  const range = { startDate: "2031-01-01", endDate: "2031-01-31" };
+  entry(rt, "g1", { date: "2031-01-10", amount: 10 });
+  entry(rt, "g2", { date: "2031-01-11", amount: 20, company_id: a.id });
+  entry(rt, "g3", { date: "2031-01-12", amount: 40, company_id: a.id, project_id: p.id });
+  for (const [scope, expected] of [[undefined, 70], ["all", 70], ["personal", 10], ["company:" + a.id, 60], ["project:" + p.id, 40]]) {
+    const listed = rt.api("listEntries", { ...range, scope }).reduce((sum, e) => sum + Number(e.amount), 0);
+    assert.equal(listed, expected, "list for " + scope);
+    assert.equal(rt.api("getPeriodSummary", { ...range, scope }).totals.expense, expected, "totals for " + scope);
+  }
+  rt.api("setBusinessFeatures", { on: false });
+  assert.equal(rt.api("listEntries", { ...range, scope: "personal" }).length, 3, "ignored while the pack is off");
+});

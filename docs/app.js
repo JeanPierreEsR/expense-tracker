@@ -4651,6 +4651,7 @@ function ensurePeriodSelectorIn(screenName) {
   if (card.parentElement !== target) {
     target.insertBefore(card, target.firstChild);
   }
+  populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
 function showScreen(name) {
@@ -5104,7 +5105,7 @@ function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_());
 let overviewShownKey_ = null;
 let overviewReqToken_ = 0;
 const overviewCache_ = {};
-const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}`;
+const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}|${overviewScopeParam_() || ""}`;
 
 function paintOverviewSummary_(data) {
   lastOverviewData = data;
@@ -5144,7 +5145,7 @@ async function refreshOverviewInner_() {
 
   let data;
   try {
-    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
   } catch (err) {
     if (token === overviewReqToken_) screen.classList.remove("overview-stale");
     throw err;
@@ -5167,7 +5168,7 @@ async function loadOverviewEntriesInner_(bounds) {
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
+    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -5416,7 +5417,7 @@ async function openBreakdownDrilldown(kind, item) {
 
   const bounds = getPeriodBounds();
 
-  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
+  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
   if (kind === "category") payload.categoryId = item.id;
   else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
@@ -10606,6 +10607,49 @@ document.getElementById("project-delete-btn").addEventListener("click", async ()
   }
 });
 
+// ---- Overview's "Showing" filter (Business pack) ----
+// all (default: totals still agree with the bank balances) / personal only / one company / one project. In memory only.
+// It applies to Overview's period cards and their drill-downs; Balances, the month cards, Budgets, Projections and Home ignore it.
+
+let overviewScope_ = "all";
+
+function overviewScopeParam_() {
+  return businessOn() && overviewScope_ !== "all" ? overviewScope_ : undefined;
+}
+
+function populateOverviewScope_(onOverview) {
+  const row = document.getElementById("overview-scope-row");
+  const sel = document.getElementById("overview-scope");
+  if (!row || !sel) return;
+  const show = !!onOverview && businessOn() && (meta.companies || []).length > 0;
+  row.hidden = !show;
+  if (!businessOn() || !(meta.companies || []).length) overviewScope_ = "all";
+  if (!show) return;
+  sel.innerHTML = "";
+  const add = (parent, value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    parent.appendChild(o);
+  };
+  add(sel, "all", tr("overview.scopeAll"));
+  add(sel, "personal", tr("overview.scopePersonal"));
+  (meta.companies || []).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    add(group, "company:" + c.id, companyLabel_(c));
+    (meta.projects || []).filter((p) => p.company_id === c.id).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
+    sel.appendChild(group);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === overviewScope_)) overviewScope_ = "all";
+  sel.value = overviewScope_;
+}
+
+document.getElementById("overview-scope").addEventListener("change", (e) => {
+  overviewScope_ = e.target.value;
+  refreshOverview();
+});
+
 // ---- The entry form's "Company / project" picker, and the pill on entry rows ----
 // Values: "" = personal, "c:<id>" = a company only (no project), "p:<id>" = a project (which implies its company).
 
@@ -10658,6 +10702,7 @@ function fillBusinessOptions_(sel, keep) {
 function populateBusinessOptions_() {
   const sel = document.getElementById("entry-business");
   if (!sel) return;
+  populateOverviewScope_(!document.getElementById("screen-overview").hidden);
   const canLink = businessOn() && (meta.companies || []).length > 0 && (selectedType === "expense" || selectedType === "income");
   fillBusinessOptions_(sel, canLink ? sel.value : "");
   document.getElementById("business-field").hidden = !canLink;

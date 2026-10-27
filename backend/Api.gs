@@ -842,6 +842,8 @@ function listEntries(payload) {
   if (payload && payload.companyId && businessOn_()) {
     entries = entries.filter(function (e) { return String(e.company_id || '') === String(payload.companyId); });
   }
+  // Overview's "Showing" filter (personal / one company / one project), so a drill-down adds up to the totals it came from.
+  if (payload && payload.scope) entries = filterEntriesByScope_(entries, payload.scope);
   // The entries one statement upload created ("See what it added" on the Statements screen).
   if (payload && payload.importBatchId) {
     entries = entries.filter(function (e) { return e.import_batch_id === payload.importBatchId; });
@@ -871,7 +873,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
