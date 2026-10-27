@@ -11265,7 +11265,7 @@ function renderProjectionsSummary_(p) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
   if (p.investments > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), programmed: formatPen(p.investmentsProgrammed), expected: formatPen(p.investmentsExpected) }));
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
@@ -11333,7 +11333,7 @@ function projectionRowBreakdown_(c) {
     lines.push(projectionRowLine_("✏️", c.remainingTotalPen, tr("projections.remainingManual")));
   } else {
     lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, tr("projections.programmed")));
-    if (!isIncome) {
+    if (!isIncome && c.category_type !== "investment") {
       lines.push(projectionRowLine_("📈", c.expectedRemainingPen, tr("projections.expected")));
     }
   }

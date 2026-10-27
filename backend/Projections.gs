@@ -203,7 +203,22 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     if (onlyCategoryId && c.id !== onlyCategoryId) return false;
     return c.type === 'income' || c.type === 'expense' || c.type === 'investment';
   });
-  var allEntries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  // An entry of type investment counts as an investment whatever category it is
+  // filed under (Overview does the same): one sitting under a non-investment
+  // category (an old import, before the automation re-files it) moves to the
+  // investment category here, so Actual never misses it.
+  var allCategories = getAllRows('Categories');
+  var investmentCategoryById = {};
+  var fallbackInvestmentCategoryId = '';
+  allCategories.forEach(function (c) {
+    if (c.type !== 'investment') return;
+    investmentCategoryById[c.id] = true;
+    if (!fallbackInvestmentCategoryId || c.key === 'investments') fallbackInvestmentCategoryId = c.id;
+  });
+  var allEntries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; }).map(function (e) {
+    if (e.type !== 'investment' || investmentCategoryById[e.category_id] || !fallbackInvestmentCategoryId) return e;
+    return Object.assign({}, e, { category_id: fallbackInvestmentCategoryId });
+  });
   var entriesInPeriod = allEntries.filter(function (e) { return e.date >= bounds.startDate && e.date <= bounds.endDate; });
   var entriesInPeriodByCategory = {};
   entriesInPeriod.forEach(function (e) {
@@ -353,6 +368,9 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
       ratePerMonth = prediction.ratePerMonth;   // the plain average over the window (what the trace shows)
       levelPerMonth = prediction.level;         // the same with the time of year taken out
       baseAmountPen = forecast.base;
+      // Investments are flows that already happened (CLAUDE.md §3.7): nothing is
+      // guessed for the rest of the period.
+      if (category.type === 'investment') { baseAmountPen = 0; ratePerMonth = 0; levelPerMonth = 0; }
     }
 
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
@@ -405,7 +423,7 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // rule, above); its "Expected" line has never existed.
     // What is still to come = the predictor's months for the remaining part of
     // the period (income never has one).
-    var expectedRemainingPen = forecast ? forecast.expected : 0;
+    var expectedRemainingPen = (forecast && category.type !== 'investment') ? forecast.expected : 0;
     var monthsLeftValue = forecast ? forecast.monthsLeft : 0;
     var seasonalFactor = forecast ? forecast.factor : 1;
 

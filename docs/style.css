@@ -3069,7 +3069,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
-#screen-overview > #period-selector-card { position: sticky; top: 0; z-index: 5; }
+#screen-overview > #period-selector-card,
+#screen-projections > #period-selector-card { position: sticky; top: 0; z-index: 5; }
 /* Cards opened from Home (scrollIntoView) must stop below the pinned picker, not under it. */
 #screen-overview > .card { scroll-margin-top: 150px; }
 
