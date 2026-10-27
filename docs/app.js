@@ -7399,7 +7399,8 @@ function startWelcome_(preview) {
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
-    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
+    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
+    business: false };   // the optional Business pack question at the end of step 3 (off unless chosen)
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-accounts").hidden = true;
@@ -7690,6 +7691,7 @@ const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.pl
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
   waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
+  document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -7756,6 +7758,7 @@ async function finishWelcome_() {
         accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
+    if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     errEl.textContent = tr("wa.error");
@@ -7774,7 +7777,7 @@ async function finishWelcome_() {
   I18n.saveLang(welcome_.lang);
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business;
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -7785,6 +7788,10 @@ async function finishWelcome_() {
 }
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
+document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
+  welcome_.business = b.dataset.welcomeBusiness === "yes";
+  renderWelcomePlatforms_();
+}));
 waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
 waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 

@@ -294,3 +294,28 @@ test("Overview filter: the entry list and the totals use the same scope, so a dr
   rt.api("setBusinessFeatures", { on: false });
   assert.equal(rt.api("listEntries", { ...range, scope: "personal" }).length, 3, "ignored while the pack is off");
 });
+
+test("export: the CSV gains Company and Project columns only while the pack is on; the backup always keeps the tabs", () => {
+  const rt = setup();
+  const a = company(rt, "Studio A");
+  const p = project(rt, a.id, "Casa Lima");
+  entry(rt, "x1", { date: "2032-02-10", amount: 12, company_id: a.id, project_id: p.id });
+  entry(rt, "x2", { date: "2032-02-11", amount: 7 });
+  const files = (cards) => rt.api("exportDownload", { cards, startDate: "2032-02-01", endDate: "2032-02-28" }).files;
+  const csvOn = files(["entries"]).find((f) => /\.csv$/.test(f.name)).text.split(/\r?\n/).filter(Boolean);
+  const head = csvOn[0].split(",");
+  assert.ok(head.includes("Company") && head.includes("Project"));
+  assert.equal(head.indexOf("Project"), head.indexOf("Company") + 1);
+  assert.equal(head.indexOf("Company"), head.indexOf("Trip / event") + 1, "right after Trip / event");
+  const row1 = csvOn.find((l) => l.startsWith("x1"));
+  assert.ok(row1.includes("Studio A,Casa Lima"));
+  assert.equal(csvOn.find((l) => l.startsWith("x2")).split(",").length, head.length, "every row has every column");
+
+  rt.api("setBusinessFeatures", { on: false });
+  const csvOff = files(["entries"]).find((f) => /\.csv$/.test(f.name)).text.split(/\r?\n/)[0];
+  assert.ok(!/Company|Project/.test(csvOff), "a personal-only file is what it always was");
+  const backup = JSON.parse(files(["backup"]).find((f) => /\.json$/.test(f.name)).text);
+  assert.equal(backup.tables["Companies"].length, 1, "the backup keeps the business tabs even while off");
+  assert.equal(backup.tables["Projects"].length, 1);
+  assert.ok(backup.tables["Project Budgets"]);
+});

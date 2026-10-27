@@ -199,6 +199,8 @@ var BACKEND_STRINGS_ = {
   "export.h.linkedAs": { en: "Linked as", es: "Vinculado como" },
   "export.h.tags": { en: "Tags", es: "Etiquetas" },
   "export.h.trip": { en: "Trip / event", es: "Viaje / evento" },
+  "export.h.company": { en: "Company", es: "Empresa" },
+  "export.h.project": { en: "Project", es: "Proyecto" },
   "export.h.status": { en: "Status", es: "Estado" },
   "export.h.source": { en: "Source", es: "Origen" },
   "export.h.created": { en: "Created at", es: "Creado el" },
