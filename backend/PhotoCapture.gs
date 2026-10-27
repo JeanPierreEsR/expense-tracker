@@ -196,6 +196,24 @@ function photoMaskedNameAfter_(lines, markerRe) {
  */
 function parsePhotoReceipt_(text) {
   if (!text) return null;
+  // The Mac helper separates its five reading passes with a form feed. Read
+  // each on its own and keep the amount most passes agree on, so one pass
+  // that misreads the big amount ("S/30.00" as 350.00) is outvoted.
+  var passes = String(text).split('\f').filter(function (p) { return /\S/.test(p); });
+  if (passes.length < 2) return parsePhotoOne_(text);
+  var results = passes.map(parsePhotoOne_).filter(Boolean);
+  var counts = {}, best = null;
+  results.forEach(function (r) {
+    if (r.error || !(r.amount > 0)) return;
+    var k = r.currency + ' ' + r.amount;
+    counts[k] = (counts[k] || 0) + 1;
+    if (!best || counts[k] > counts[best.currency + ' ' + best.amount]) best = r;
+  });
+  return best || results[0] || null;
+}
+
+function parsePhotoOne_(text) {
+  if (!text) return null;
   var clean = String(text).replace(/^﻿/, '');
   var lines = clean.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
   var when = photoDateTime_(clean);

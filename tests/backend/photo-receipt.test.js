@@ -189,3 +189,13 @@ test("plin photo: all reader passes joined (comma pass first) give 12.95", () =>
                   "Interbank\n¡Plineaste!\nAna Lo* C\n334 - Plin\n512.950\nCódigo de operación: 01234567"].join("\n\n");
   assert.equal(parse(rt, joined).amount, 12.95);
 });
+
+// Five Tesseract passes are joined with a form feed; one pass that misreads the
+// big amount ("S/30.00" as 350.00) is outvoted by the others.
+test("plin photo: a single misread pass is outvoted by the other passes", () => {
+  const { rt } = freshApp({ small: true });
+  const pass = (amt) => ["¡Plineaste!", "Ana Lo* C", "334 - Yape", amt, "05 Oct 2026 | 10:30 AM", "Código de operación: 01234567"].join("\n");
+  const text = [pass("s/350.00 4"), pass("s/30.00 4"), pass("s/30.00 v"), pass("s/ 30.00"), pass("30.00 u")].join("\n\f\n");
+  const r = parse(rt, text);
+  assert.equal(r.amount, 30);
+});
