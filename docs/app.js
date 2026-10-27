@@ -14262,6 +14262,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     const metaLines = (acct ? [acct] : []).concat(where);
+    if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${r.date} · ${kind}${r.is_offset ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
@@ -14338,9 +14339,9 @@ function openReassignRepayment_(r) {
     .filter((l) => l.direction === r.direction && l.currency === r.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
     .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  reassignRepayment_ = { id: r.id, amount: r.amount, currency: r.currency, candidates };
+  reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, candidates };
 
-  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.amount)}`, date: r.date });
+  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied)}`, date: r.date });
   const list = document.getElementById("reassign-list");
   list.innerHTML = "";
   candidates.forEach((c) => {

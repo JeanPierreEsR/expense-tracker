@@ -656,6 +656,7 @@
     "history.real": { en: "Repayment", es: "Repago" },
     "history.realIn": { en: "Repayment received", es: "Repago recibido" },
     "history.realOut": { en: "Repayment paid", es: "Repago pagado" },
+    "history.unapplied": { en: "{amount} of it is no longer applied to a loan (a loan it paid was deleted; see the refund loan)", es: "{amount} ya no está aplicado a un préstamo (se eliminó un préstamo que pagó; mira el préstamo de reembolso)" },
     "history.offset": { en: "Canceled out automatically", es: "Compensación automática" },
     "history.on": { en: "On: {loan} ({date})", es: "En: {loan} ({date})" },
     "history.offsetAgainst": { en: "Canceled out against: {loan}", es: "Contra: {loan}" },

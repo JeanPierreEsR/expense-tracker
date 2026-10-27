@@ -1579,13 +1579,24 @@ function getFriendRepaymentHistory(payload) {
       id: s.id, date: s.date, amount: Number(s.amount), currency: loan.currency, direction: loan.direction,
       is_offset: !!s.offset_loan_id, loan_description: label(loan), loan_date: loan.date,
       offset_loan_description: s.offset_loan_id ? label(loanById[s.offset_loan_id]) : '',
-      payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id,
+      payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id, transfer_entry_id: s.transfer_entry_id || '',
       parts: s.offset_loan_id ? [] : [part]
     };
     lines.push(line);
     if (!s.offset_loan_id && s.transfer_entry_id) groups[s.transfer_entry_id] = line;
   });
-  lines.forEach(function (l) { l.amount = Math.round(l.amount * 100) / 100; });
+  // The line shows the money that really arrived (the repayment's transfer entry). The part of it that no longer sits on a
+  // loan (a loan it paid was deleted and the repayment kept as a refund loan) is `unapplied`; `applied` is what loans hold.
+  lines.forEach(function (l) {
+    l.applied = Math.round(l.amount * 100) / 100;
+    l.unapplied = 0;
+    if (!l.is_offset && l.transfer_entry_id) {
+      var te = getEntryById_(l.transfer_entry_id);
+      var teAmount = te ? Math.round(Number(te.amount) * 100) / 100 : 0;
+      if (teAmount - l.applied > 0.004) l.unapplied = Math.round((teAmount - l.applied) * 100) / 100;
+    }
+    l.amount = Math.round((l.applied + l.unapplied) * 100) / 100;
+  });
   lines.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 
   return { loans: loanRows, repayments: lines };
