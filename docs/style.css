@@ -3081,3 +3081,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-matrix td.has { color: #2e9e5b; font-weight: 700; }
 .stmt-matrix td.hole { color: #d64545; font-weight: 700; }
 .stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
+
+/* Projections "By category": a small heading before each type (Income, Expenses, Investments). */
+.projection-type-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 4px; }
+.projection-type-heading:first-child { margin-top: 0; }

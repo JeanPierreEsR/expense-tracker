@@ -11385,7 +11385,21 @@ function renderProjectionCategories_(result) {
   list.innerHTML = "";
   emptyNote.hidden = categories.length > 0;
 
-  categories.forEach((c) => {
+  // Grouped by type (owner, 2026-10-27): Income, Expenses, Investments, each biggest first (the server's order).
+  const typeOrder = [["income", "summary.income"], ["expense", "summary.expenses"], ["investment", "summary.investments"]];
+  const groups = typeOrder.map(([type, key]) => ({ key, items: categories.filter((c) => c.category_type === type) })).filter((g) => g.items.length);
+  const ordered = [];
+  groups.forEach((g) => { ordered.push({ heading: tr(g.key) }); g.items.forEach((c) => ordered.push({ c })); });
+
+  ordered.forEach((entry) => {
+    if (entry.heading) {
+      const h = document.createElement("div");
+      h.className = "projection-type-heading";
+      h.textContent = entry.heading;
+      list.appendChild(h);
+      return;
+    }
+    const c = entry.c;
     const isIncome = c.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row projection-row-expanded";
