@@ -11344,11 +11344,12 @@ function projectionRowLine_(icon, amount, label) {
 
 function projectionRowBreakdown_(c) {
   const isIncome = c.category_type === "income";
-  const lines = [projectionRowLine_("✅", c.actualPen, tr("projections.actual"))];
+  const flip = c.category_type === "investment" ? -1 : 1;   // investments read taken out − put in
+  const lines = [projectionRowLine_("✅", flip * c.actualPen, tr("projections.actual"))];
   if (c.hasOverride) {
     lines.push(projectionRowLine_("✏️", c.remainingTotalPen, tr("projections.remainingManual")));
   } else {
-    lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, tr("projections.programmed")));
+    lines.push(projectionRowLine_("🔁", flip * c.programmedRemainingPen, tr("projections.programmed")));
     if (!isIncome && c.category_type !== "investment") {
       lines.push(projectionRowLine_("📈", c.expectedRemainingPen, tr("projections.expected")));
     }
@@ -11393,7 +11394,7 @@ function renderProjectionCategories_(result) {
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.totalPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.category_type === "investment" ? -c.totalPen : c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
@@ -11509,12 +11510,12 @@ function renderProjectionDrilldownAmount_(detail) {
 
   // Actual, what is left, and their sum: so the numbers add up where they can be seen.
   document.getElementById("drilldown-projection-actual-row").hidden = false;
-  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen(p.actualPen);
+  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.actualPen);
   const annualNote = document.getElementById("drilldown-projection-annual-note");
   annualNote.hidden = !(p.annualInPeriodPen > 0.005);
   annualNote.textContent = p.annualInPeriodPen > 0.005 ? tr("drill.annualAside", { amount: formatPen(p.annualInPeriodPen) }) : "";
   document.getElementById("drilldown-projection-total-row").hidden = false;
-  document.getElementById("drilldown-projection-total-amount").textContent = formatPen(p.totalPen);
+  document.getElementById("drilldown-projection-total-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.totalPen);
 
   renderProjectionSplit_(detail);
 }
@@ -11560,7 +11561,7 @@ function renderProjectionSplit_(detail) {
   }
   if (!show) return;
 
-  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.programmedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;
