@@ -13,10 +13,13 @@ function runAutomation() {
   // turn on. If automatic scanning was never enabled, this line never
   // runs either — check via menu item 12/13's wording, or the Apps
   // Script project's Triggers page, to confirm one of the two is active.
-  pingWebApp_();
+  AUTOMATION_RUN_ = { at: new Date().toISOString(), t0: Date.now(), steps: {} };
+  runAutomationStep_('ping', [], pingWebApp_);
   var failures = [];
   // Each ability that needs an optional Google approval runs only if it was given (Features.gs).
-  var emailResults = featureOn_('gmail') ? runAutomationStep_('emails', failures, processEmails) : null;
+  // The scan is skipped when the app (or an earlier run) scanned a moment ago — see scanEmailsGuarded_.
+  var scan = featureOn_('gmail') ? runAutomationStep_('emails', failures, function () { return scanEmailsGuarded_('timer'); }) : null;
+  var emailResults = scan && scan.ran ? scan.results : null;
   runAutomationStep_('telegram', failures, pollTelegramUpdates);
   runAutomationStep_('budgets', failures, checkBudgets);
   runAutomationStep_('trip budgets', failures, checkTripBudgets);
@@ -30,20 +33,92 @@ function runAutomation() {
       + (emailResults.errors ? ', ' + emailResults.errors + ' errored (will retry)' : '')
       + (emailResults.unparsedSubjects.length ? ' — e.g. "' + emailResults.unparsedSubjects[0] + '"' : ''));
   }
+  recordAutomationTimings_();
   if (failures.length) alertAutomationFailures_(failures);
   else PropertiesService.getScriptProperties().setProperty('LAST_AUTOMATION_OK', new Date().toISOString());
+}
+
+// ---- How long each part of a run takes (read with the owner-only route admin_automationTimings) ----
+// A run is often 20-160 s and once hit the 6-minute limit; this says which step is slow. The last 24 runs are kept in one
+// Script Property (small: step name -> milliseconds), and each run is also written to the log.
+var AUTOMATION_RUN_ = null;
+var AUTOMATION_TIMINGS_KEY_ = 'AUTOMATION_TIMINGS';
+function recordAutomationTimings_() {
+  var run = AUTOMATION_RUN_;
+  AUTOMATION_RUN_ = null;
+  if (!run) return;
+  try {
+    run.total = Date.now() - run.t0;
+    delete run.t0;
+    Logger.log('automation timings: ' + JSON.stringify(run));
+    var props = PropertiesService.getScriptProperties();
+    var list = [];
+    try { list = JSON.parse(props.getProperty(AUTOMATION_TIMINGS_KEY_) || '[]'); } catch (e) { list = []; }
+    list.push(run);
+    props.setProperty(AUTOMATION_TIMINGS_KEY_, JSON.stringify(list.slice(-24)));
+  } catch (err) {
+    console.error('automation timings: ' + err);   // never let measuring break a run
+  }
+}
+function getAutomationTimings_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(AUTOMATION_TIMINGS_KEY_) || '[]'); } catch (e) { return []; }
+}
+
+// ---- Checking e-mail when the app is opened (and by the timer) ----
+// The timer looks every 15 minutes, so a new bank e-mail could wait that long. The app now also asks for a check each time
+// it is opened or brought back (checkEmailsNow), at most one per minute. The scan does NOT hold the script-wide lock while it
+// reads mail (that would block people's saves for up to a minute): a short claim marker keeps two scans apart instead, and
+// processEmails itself never writes the same e-mail twice (external_id).
+var EMAIL_SCAN_RUNNING_KEY_ = 'EMAIL_SCAN_RUNNING_AT';
+var EMAIL_SCAN_LAST_KEY_ = 'EMAIL_SCAN_LAST_AT';
+var EMAIL_SCAN_APP_GAP_MS_ = 60 * 1000;      // the app may ask again after a minute
+var EMAIL_SCAN_TIMER_GAP_MS_ = 120 * 1000;   // the timer skips if anything scanned in the last 2 minutes (saves its run time)
+var EMAIL_SCAN_STALE_MS_ = 7 * 60 * 1000;    // a marker older than a run's 6-minute limit is a crashed scan
+
+// source: 'app' or 'timer'. Returns { ran: false, reason: 'off'|'recent'|'busy' } or { ran: true, results }.
+function scanEmailsGuarded_(source) {
+  if (!featureOn_('gmail')) return { ran: false, reason: 'off' };
+  var props = PropertiesService.getScriptProperties();
+  var gap = source === 'app' ? EMAIL_SCAN_APP_GAP_MS_ : EMAIL_SCAN_TIMER_GAP_MS_;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var now = Date.now();
+    var running = Number(props.getProperty(EMAIL_SCAN_RUNNING_KEY_) || 0);
+    if (running && now - running < EMAIL_SCAN_STALE_MS_) return { ran: false, reason: 'busy' };
+    if (now - Number(props.getProperty(EMAIL_SCAN_LAST_KEY_) || 0) < gap) return { ran: false, reason: 'recent' };
+    props.setProperty(EMAIL_SCAN_RUNNING_KEY_, String(now));
+  } finally {
+    lock.releaseLock();
+  }
+  try {
+    var results = processEmails();
+    props.setProperty(EMAIL_SCAN_LAST_KEY_, String(Date.now()));
+    return { ran: true, results: results };
+  } finally {
+    props.deleteProperty(EMAIL_SCAN_RUNNING_KEY_);
+  }
+}
+
+// The app's "look for new bank e-mails now" call. Never an error for the person: a skipped check just says why.
+function checkEmailsNow() {
+  var scan = scanEmailsGuarded_('app');
+  return scan.ran ? { ran: true, created: scan.results.created || 0 } : { ran: false, reason: scan.reason };
 }
 
 // Runs one automation step so a failure in it can't stop the later ones.
 // Failures are collected and reported (see alertAutomationFailures_)
 // instead of vanishing into the Apps Script log.
 function runAutomationStep_(name, failures, fn) {
+  var t0 = Date.now();
   try {
     return fn();
   } catch (e) {
     console.error('automation step "' + name + '": ' + e);
     failures.push(name + ': ' + (e && e.message ? e.message : e));
     return null;
+  } finally {
+    if (AUTOMATION_RUN_) AUTOMATION_RUN_.steps[name] = Date.now() - t0;
   }
 }
 

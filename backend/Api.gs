@@ -258,6 +258,8 @@ function routeAction(action, payload) {
         triggerCount: triggers.length,
         eventType: triggers.length ? String(triggers[0].getEventType()) : null
       };
+    case 'admin_automationTimings': return getAutomationTimings_();
+    case 'checkEmailsNow': return checkEmailsNow();
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();
