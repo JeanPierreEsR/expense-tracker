@@ -87,6 +87,8 @@ function scanEmailsGuarded_(source) {
     var running = Number(props.getProperty(EMAIL_SCAN_RUNNING_KEY_) || 0);
     if (running && now - running < EMAIL_SCAN_STALE_MS_) return { ran: false, reason: 'busy' };
     if (now - Number(props.getProperty(EMAIL_SCAN_LAST_KEY_) || 0) < gap) return { ran: false, reason: 'recent' };
+    // A claim marker still there after a run's 6 minutes means the last scan was cut off before it could write anything down.
+    if (running) recordEmailScanFailed_('time');
     props.setProperty(EMAIL_SCAN_RUNNING_KEY_, String(now));
   } finally {
     lock.releaseLock();
@@ -94,16 +96,29 @@ function scanEmailsGuarded_(source) {
   try {
     var results = processEmails();
     props.setProperty(EMAIL_SCAN_LAST_KEY_, String(Date.now()));
+    recordEmailScanDone_(results);   // EmailHealth.gs: what the app shows as "last checked" and warns from
     return { ran: true, results: results };
+  } catch (err) {
+    recordEmailScanFailed_(err);
+    throw err;
   } finally {
     props.deleteProperty(EMAIL_SCAN_RUNNING_KEY_);
   }
 }
 
 // The app's "look for new bank e-mails now" call. Never an error for the person: a skipped check just says why.
+// It always carries `health` (EmailHealth.gs) so the app can refresh "last checked" and its warning with what just happened.
 function checkEmailsNow() {
-  var scan = scanEmailsGuarded_('app');
-  return scan.ran ? { ran: true, created: scan.results.created || 0 } : { ran: false, reason: scan.reason };
+  var scan;
+  try {
+    scan = scanEmailsGuarded_('app');
+  } catch (err) {
+    return { ran: false, reason: 'failed', health: emailHealthForApp_(true) };   // already recorded; never an error for the person
+  }
+  if (scan.ran) return { ran: true, created: scan.results.created || 0, health: emailHealthForApp_(true) };
+  var skipped = { ran: false, reason: scan.reason };
+  if (scan.reason !== 'off') skipped.health = emailHealthForApp_(true);   // e-mail reading off: there is nothing to report
+  return skipped;
 }
 
 // Runs one automation step so a failure in it can't stop the later ones.

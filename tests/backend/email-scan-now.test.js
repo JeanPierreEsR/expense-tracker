@@ -21,7 +21,7 @@ test("a second check within a minute is skipped, and a timer run right after is 
   assert.equal(rt.api("checkEmailsNow").ran, true);
   bcpEmail(rt, { amount: "14.00", op: "910002" });
   const again = rt.api("checkEmailsNow");
-  assert.deepEqual(again, { ran: false, reason: "recent" });
+  assert.deepEqual({ ran: again.ran, reason: again.reason }, { ran: false, reason: "recent" });   // (the answer also carries `health`: email-health.test.js)
   rt.run("runAutomation()");
   assert.equal(pendingCount(rt) > 0 && rt.api("listPendingEntries").some((e) => /14\.00|910002/.test(JSON.stringify(e))), false, "the timer also waited");
   // a minute later the app's check goes through and finds it
@@ -34,7 +34,8 @@ test("a second check within a minute is skipped, and a timer run right after is 
 test("a scan that is already running makes the other one stand down; a crashed marker does not block forever", () => {
   const { rt } = freshApp({ small: true });
   rt.svc.props.set("EMAIL_SCAN_RUNNING_AT", String(Date.now() - 10 * 1000));
-  assert.deepEqual(rt.api("checkEmailsNow"), { ran: false, reason: "busy" });
+  const busy = rt.api("checkEmailsNow");
+  assert.deepEqual({ ran: busy.ran, reason: busy.reason }, { ran: false, reason: "busy" });
   rt.svc.props.set("EMAIL_SCAN_RUNNING_AT", String(Date.now() - 8 * 60 * 1000));
   assert.equal(rt.api("checkEmailsNow").ran, true, "a marker older than a run's limit is ignored");
   assert.equal(rt.svc.props.get("EMAIL_SCAN_RUNNING_AT") || "", "", "the marker is cleared afterwards");

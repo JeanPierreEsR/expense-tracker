@@ -649,7 +649,9 @@ function getEmailInfo_() {
   var settings = getSettingsMap();
   // `seen`: the day of the newest e-mail read for each bank ({} until the first one arrives); `since`: when the welcome questions were
   // answered (epoch milliseconds, '' on older copies). The app uses both to tick each bank and to say "no e-mail from X yet".
-  return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || '') };
+  // `health`: is the scan working (EmailHealth.gs); null while e-mail reading is off so the app never warns about it.
+  return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || ''),
+    health: featureOn_('gmail') ? emailHealthForApp_() : null };
 }
 
 // Settings `bank_mail_seen` = JSON {bank: 'yyyy-mm-dd'}: the day of the newest e-mail that became an entry, per bank. It is JSON on
@@ -726,8 +728,10 @@ function processEmails(opts) {
 var BACKCHECK_OVERLAPS_ = null;   // set only while a back-check runs
 
 function processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx) {
+  // The normal scan looks back to just before the last good scan (3–30 days, EmailHealth.gs), so an outage loses no e-mail.
+  var days = opts.days || emailLookbackDays_();
   senders.forEach(function (sender) {
-    gmailSearchMessages_('from:' + sender + ' newer_than:' + (opts.days || 3) + 'd').forEach(function (message) {
+    gmailSearchMessages_('from:' + sender + ' newer_than:' + days + 'd').forEach(function (message) {
       var messageId = String(message.getId());
       if (tracking && handled[messageId]) return;
       // One bad email must not block the rest of the run, and is NOT marked
