@@ -986,6 +986,8 @@
     "business.edit": { en: "Edit", es: "Editar" },
     "business.closeProject": { en: "Close project", es: "Cerrar proyecto" },
     "business.reopenProject": { en: "Reopen project", es: "Reabrir proyecto" },
+    "business.closingProject": { en: "Closing project…", es: "Cerrando proyecto…" },
+    "business.reopeningProject": { en: "Reopening project…", es: "Reabriendo proyecto…" },
     "business.companyAddTitle": { en: "Add company", es: "Agregar empresa" },
     "business.companyEditTitle": { en: "Edit company", es: "Editar empresa" },
     "business.companyName": { en: "Company name", es: "Nombre de la empresa" },

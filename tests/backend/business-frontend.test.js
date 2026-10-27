@@ -54,6 +54,12 @@ test("the period of every Companies & projects screen has a Custom… choice tha
   assert.ok(html.includes('id="business-custom-start"') && html.includes('id="business-custom-end"'));
 });
 
+test("Close / Reopen project says what it is doing while it waits, and goes back to its label if it fails", () => {
+  const handler = app.match(/if \(statusBtn\) statusBtn\.addEventListener\("click", async \(\) => \{[\s\S]*?\n  \}\);/)[0];
+  assert.match(handler, /statusBtn\.textContent = tr\(closing \? "business\.closingProject" : "business\.reopeningProject"\);/);
+  assert.match(handler, /catch \(err\)[\s\S]*statusBtn\.textContent = tr\(closing \? "business\.closeProject" : "business\.reopenProject"\);/);
+});
+
 test("the project budget button says 'Add a budget' in both languages", () => {
   const strings = read("docs", "strings.js");
   assert.match(strings, /"business\.addBudget": \{ en: "\+ Add a budget", es: "\+ Agregar un presupuesto" \}/);

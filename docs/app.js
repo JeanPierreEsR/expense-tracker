@@ -10510,7 +10510,10 @@ function renderBusinessDetail_(d) {
   if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
   const statusBtn = document.getElementById("business-detail-status-btn");
   if (statusBtn) statusBtn.addEventListener("click", async () => {
+    const closing = d.project.status !== "closed";
     statusBtn.disabled = true;
+    // The server and the refresh take a moment: say so right on the button (it stays until the screen redraws).
+    statusBtn.textContent = tr(closing ? "business.closingProject" : "business.reopeningProject");
     try {
       await callApi("updateProject", { id: d.project.id, name: d.project.name, emoji: d.project.emoji, company_id: d.project.company_id, status: d.project.status === "closed" ? "active" : "closed" });
       const p = (meta.projects || []).find((x) => x.id === d.project.id);
@@ -10519,6 +10522,7 @@ function renderBusinessDetail_(d) {
       await refreshBusinessDetail_();
     } catch (err) {
       document.getElementById("business-detail-error").textContent = err.message;
+      statusBtn.textContent = tr(closing ? "business.closeProject" : "business.reopenProject");
       statusBtn.disabled = false;
     }
   });
