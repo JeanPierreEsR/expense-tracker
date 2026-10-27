@@ -1249,12 +1249,25 @@ function updateSettlement(payload) {
   // Remaining balance excluding THIS settlement's own current amount —
   // otherwise editing one down and back up again would always look like
   // it's exceeding the balance it's itself already part of.
+  // Optionally moved to ANOTHER loan of the same person, kind and currency
+  // ("Change which loan this pays"): the balance check then runs against that
+  // loan, and both loans' statuses are refreshed. Nothing else changes: it is
+  // the same cash, so the account transfer is untouched.
+  var target = loan;
+  if (payload.loan_id && payload.loan_id !== existing.loan_id) {
+    target = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
+    if (!target) throw new Error(tr_('err.loanNotFound'));
+    if (target.friend_id !== loan.friend_id || target.direction !== loan.direction ||
+        target.currency !== loan.currency || target.status === 'forgiven') {
+      throw new Error(tr_('repay.moveBad'));
+    }
+  }
   var settledOthers = getAllRows('Settlements')
-    .filter(function (s) { return s.loan_id === existing.loan_id && s.id !== payload.id; })
+    .filter(function (s) { return s.loan_id === target.id && s.id !== payload.id; })
     .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
-  var remaining = Number(loan.amount) - settledOthers;
+  var remaining = Number(target.amount) - settledOthers;
   if (Number(payload.amount) - remaining > 0.004) {
-    throw new Error(tr_('repay.moreThanRemaining', { cur: loan.currency, amount: remaining.toFixed(2) }));
+    throw new Error(tr_('repay.moreThanRemaining', { cur: target.currency, amount: remaining.toFixed(2) }));
   }
 
   var sheet = getSheet('Settlements');
@@ -1264,8 +1277,10 @@ function updateSettlement(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'date', payload.date);
   setCellByRow_(sheet, headers, rowIndex, 'amount', Number(payload.amount));
   setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
+  if (target.id !== existing.loan_id) setCellByRow_(sheet, headers, rowIndex, 'loan_id', target.id);
 
   updateLoanStatusFromSettlements_(existing.loan_id);
+  if (target.id !== existing.loan_id) updateLoanStatusFromSettlements_(target.id);
   recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }

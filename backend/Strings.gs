@@ -126,6 +126,7 @@ var BACKEND_STRINGS_ = {
   "repay.autoOffsetDelete": { en: "That line was created automatically when you recorded a repayment, so it can't be deleted directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede eliminar directamente." },
   "repay.moreThanRemaining": { en: "That's more than the remaining balance ({cur} {amount}).", es: "Eso es más que el saldo restante ({cur} {amount})." },
   "repay.noLoanFromYou": { en: "{friend} has no {cur} loan from you on record, so there is nothing for this to repay. Add the loan first (Loans tab), or use \"Convert to loan\" if they lent you this money.", es: "{friend} no tiene un préstamo tuyo en {cur} registrado, así que no hay nada que repagar. Agrega primero el préstamo (pestaña Préstamos), o usa \"Convertir en préstamo\" si te prestaron este dinero." },
+  "repay.moveBad": { en: "That loan can't take this repayment (it must be the same person, kind and currency, and not forgiven).", es: "Ese préstamo no puede recibir este repago (debe ser de la misma persona, del mismo tipo y moneda, y no estar perdonado)." },
   "repay.allocBad": { en: "Choose each loan once, with an amount above 0.", es: "Elige cada préstamo una sola vez, con un monto mayor que 0." },
   "repay.allocTooMuch": { en: "That's more than this loan still owes ({cur} {amount}).", es: "Eso es más de lo que aún debe este préstamo ({cur} {amount})." },
   "repay.allocOverPayment": { en: "The amounts you chose add up to more than the payment.", es: "Los montos que elegiste suman más que el pago." },

@@ -13625,7 +13625,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // beyond which currency, when there's more than one.
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
-  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding);
+  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
@@ -14069,7 +14069,43 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
   pendingOverpay = null;
+  editingSettlementLoanId_ = "";
+  document.getElementById("settlement-loan-field").hidden = true;
   renderSettlementChoose_();
+}
+
+// ---- "Which loan this pays": fixing a recorded repayment that went to the wrong loan ----
+
+let editingSettlementLoanId_ = "";   // the loan the repayment being edited is on now
+
+// Only shown while editing one recorded repayment, and only when the person has another loan of the same kind and currency
+// to move it to (a fully paid loan can't take more; the current one is always listed, paid or not).
+function renderSettlementLoanField_(s) {
+  editingSettlementLoanId_ = s.loan_id;
+  const field = document.getElementById("settlement-loan-field");
+  const select = document.getElementById("settlement-loan");
+  select.innerHTML = "";
+  const label = (l) => tr("settle.loanOption", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
+  const candidates = repaymentAllLoans_.filter((l) =>
+    l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && (l.id === s.loan_id || l.remaining > 0.004));
+  candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  candidates.forEach((l) => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    // The current loan shows no balance: after this very repayment it often reads "0.00 left", which only confuses.
+    opt.textContent = l.id === s.loan_id
+      ? tr("settle.loanCurrent", { label: `${I18n.fmtDateMedium(new Date(l.date + "T00:00:00"))} · ${l.description || tr("transfer.kind.loan")}` })
+      : label(l);
+    select.appendChild(opt);
+  });
+  if (!candidates.some((l) => l.id === s.loan_id)) {   // current loan outside the screen's scope: still show it, so nothing looks changed
+    const opt = document.createElement("option");
+    opt.value = s.loan_id;
+    opt.textContent = tr("settle.loanCurrent", { label: s.loan_description || tr("transfer.kind.loan") });
+    select.insertBefore(opt, select.firstChild);
+  }
+  select.value = s.loan_id;
+  field.hidden = select.options.length < 2;
 }
 
 // ---- "Choose which loans this pays": FIFO (oldest first) unless the person assigns amounts to particular loans ----
@@ -14151,6 +14187,7 @@ function loadSettlementIntoForm_(s) {
   document.getElementById("settlement-amount").value = s.amount;
   document.getElementById("settlement-date").value = s.date;
   document.getElementById("settlement-payment-method").value = s.payment_method_id || "";
+  renderSettlementLoanField_(s);
 }
 
 function renderSettlementList_(settlements) {
@@ -14209,8 +14246,10 @@ async function switchRepaymentCurrency_(currency) {
 // loan list (see there) — no extra fetch needed just to open this.
 let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
 let repaymentLoans_ = [];       // the person's open loans (in the scope the sheet was opened with), for "Choose which loans this pays"
-async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans) {
+let repaymentAllLoans_ = [];    // the same scope including paid ones, for "Which loan this pays" when fixing a recorded repayment
+async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans, allLoans) {
   repaymentLoans_ = openLoans || [];
+  repaymentAllLoans_ = allLoans || openLoans || [];
   repaymentProjectId_ = projectId || "";
   repaymentFriendId = friendId;
   repaymentFriendName = friendName;
@@ -14266,6 +14305,15 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
   const allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
   if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
+  // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
+  const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
+  if (newLoanId && newLoanId !== editingSettlementLoanId_) {
+    const target = repaymentAllLoans_.find((l) => l.id === newLoanId);
+    if (target && amount > target.remaining + 0.004) {
+      errorEl.textContent = tr("settle.loanTooMuch", { cur: target.currency, amount: moneyFmt(target.remaining) });
+      return;
+    }
+  }
 
   // Everything from here on runs after the modal has closed — the owner
   // doesn't sit and wait for the server. A failure is reported with an alert
@@ -14283,7 +14331,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
       // Loans.gs).
-      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId });
+      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: newLoanId || undefined });
       await refreshAfterSettlementChange_();
       return;
     }

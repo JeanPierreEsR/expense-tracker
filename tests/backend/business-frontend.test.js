@@ -122,6 +122,20 @@ test("step 3A: the repayment sends the chosen loans only when the panel was open
   assert.match(app, /wrap\.hidden = !!editingSettlementId \|\| settlementChoosableLoans_\(\)\.length < 2;/);
 });
 
+test("step 3A: the loan picker shows only while fixing a recorded repayment, and its choice is sent as loan_id", () => {
+  const html = read("docs", "index.html");
+  assert.match(html, /<div id="settlement-loan-field" hidden>/);
+  assert.match(app, /document\.getElementById\("settlement-loan-field"\)\.hidden = true;/);   // closed again whenever the sheet is reset
+  assert.match(app, /const newLoanId = editingSettlementId && !document\.getElementById\("settlement-loan-field"\)\.hidden/);
+  assert.match(app, /loan_id: newLoanId \|\| undefined/);
+  assert.match(app, /openRepaymentModal\(friendId, friendName, netByCurrency, projectId, outstanding, loans\)/);
+  const strings = read("docs", "strings.js");
+  for (const key of ["settle.loanLabel", "settle.loanHint", "settle.loanOption", "settle.loanCurrent", "settle.loanTooMuch"]) {
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
+  }
+  assert.match(read("backend", "Strings.gs"), /"repay\.moveBad": \{ en: "[^"]+", es: "[^"]+"/);
+});
+
 test("step 3A: every xp.* / bx.* / settle.choose* text the app uses exists in English and Spanish", () => {
   const strings = read("docs", "strings.js");
   const used = new Set([...app.matchAll(/tr\("((?:xp|bx)\.[A-Za-z.]+|settle\.choose[A-Za-z]*|field\.expected)"/g)].map((m) => m[1]));

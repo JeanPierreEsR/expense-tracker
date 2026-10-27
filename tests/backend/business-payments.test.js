@@ -232,3 +232,57 @@ test("a choice combined with a project: only that project's loans can be chosen"
   assert.equal(remainingOf(rt, a.id), 50);
   assert.equal(remainingOf(rt, b.id), 100);
 });
+
+// ---- "Which loan this pays": moving a recorded repayment to another loan ----
+
+const statusOf = (rt, id) => rt.rows("Loans").find((l) => l.id === id).status;
+
+test("a recorded repayment can be moved to another loan; both loans' balances and statuses follow", () => {
+  const { rt, ana, l1, l2, l3 } = loansSetup();
+  repay(rt, ana, 100);                                   // FIFO: pays the oldest loan in full
+  assert.equal(statusOf(rt, l1.id), "repaid");
+  const s = rt.rows("Settlements").find((x) => x.loan_id === l1.id);
+  const transferBefore = rt.rows("Entries").filter((e) => e.type === "transfer" && e.date === "2026-10-10" && /Ana Loan/.test(e.description)).map((e) => Number(e.amount));
+
+  rt.api("updateSettlement", { id: s.id, amount: 100, date: "2026-10-10", payment_method_id: "", loan_id: l3.id });
+
+  assert.equal(remainingOf(rt, l1.id), 100, "the oldest loan is owed again");
+  assert.equal(statusOf(rt, l1.id), "outstanding");
+  assert.equal(remainingOf(rt, l3.id), 200);
+  assert.equal(statusOf(rt, l3.id), "partially_repaid");
+  assert.equal(remainingOf(rt, l2.id), 200, "the middle loan was not touched");
+  const transferAfter = rt.rows("Entries").filter((e) => e.type === "transfer" && e.date === "2026-10-10" && /Ana Loan/.test(e.description)).map((e) => Number(e.amount));
+  assert.deepEqual(transferAfter, transferBefore, "it is the same cash: the account transfer is unchanged");
+});
+
+test("moving a repayment checks the other loan's balance and kind", () => {
+  const { rt, ana, l1, l2 } = loansSetup();
+  repay(rt, ana, 150);                                   // 100 on l1, 50 on l2
+  const onL2 = rt.rows("Settlements").find((x) => x.loan_id === l2.id);
+  const onL1 = rt.rows("Settlements").find((x) => x.loan_id === l1.id);
+  // l1 is fully paid by its own 100, so 50 more would not fit there
+  assert.throws(() => rt.api("updateSettlement", { id: onL2.id, amount: 50, date: "2026-10-10", loan_id: l1.id }), /more than the remaining balance/i);
+  // the other direction, another currency, another person: all refused
+  const back = rt.api("addLoan", { friend_id: ana.id, direction: "i_owe_them", amount: 80, currency: "PEN", date: "2026-07-01" });
+  const usd = rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 80, currency: "USD", date: "2026-07-01" });
+  const bea = rt.api("addFriend", { name: "Bea Other" });
+  const beaLoan = rt.api("addLoan", { friend_id: bea.id, direction: "they_owe_me", amount: 80, currency: "PEN", date: "2026-07-01" });
+  [back, usd, beaLoan].forEach((target) => {
+    assert.throws(() => rt.api("updateSettlement", { id: onL1.id, amount: 100, date: "2026-10-10", loan_id: target.id }), /can't take this repayment/i);
+  });
+  // nothing moved
+  assert.equal(rt.rows("Settlements").find((x) => x.id === onL1.id).loan_id, l1.id);
+  assert.equal(rt.rows("Settlements").find((x) => x.id === onL2.id).loan_id, l2.id);
+});
+
+test("without a loan_id, or with the same one, editing a repayment works as before", () => {
+  const { rt, ana, l1 } = loansSetup();
+  repay(rt, ana, 60);
+  const s = rt.rows("Settlements").find((x) => x.loan_id === l1.id);
+  rt.api("updateSettlement", { id: s.id, amount: 70, date: "2026-10-11" });
+  rt.api("updateSettlement", { id: s.id, amount: 80, date: "2026-10-12", loan_id: l1.id });
+  const after = rt.rows("Settlements").find((x) => x.id === s.id);
+  assert.equal(after.loan_id, l1.id);
+  assert.equal(Number(after.amount), 80);
+  assert.equal(statusOf(rt, l1.id), "partially_repaid");
+});

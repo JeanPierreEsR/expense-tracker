@@ -1380,6 +1380,12 @@
           <label for="settlement-description" data-i18n="field.description">Description</label>
           <input type="text" id="settlement-description" data-i18n-placeholder="common.optional" placeholder="Optional">
 
+          <div id="settlement-loan-field" hidden>
+            <label for="settlement-loan" data-i18n="settle.loanLabel">Which loan this pays</label>
+            <select id="settlement-loan"></select>
+            <p class="hint" data-i18n="settle.loanHint">Pick another loan to move this repayment to it. The amount and the account stay the same.</p>
+          </div>
+
           <div id="settlement-choose" hidden>
             <button type="button" class="add-inline" id="settlement-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
             <div id="settlement-choose-panel" hidden>
