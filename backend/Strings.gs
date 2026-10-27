@@ -89,6 +89,9 @@ var BACKEND_STRINGS_ = {
   "business.errPersonExists": { en: "You already have a person with that name.", es: "Ya tienes una persona con ese nombre." },
   "business.errPersonInUse": { en: "This person still has debts, shared expenses or entries. Settle or move them first.", es: "Esta persona todavía tiene deudas, gastos compartidos o movimientos. Salda o muévelos primero." },
   "business.errPersonGroup": { en: "A trip's group can't be changed here.", es: "El grupo de un viaje no se puede cambiar aquí." },
+  "business.expectedNotFound": { en: "Expected payment not found", es: "No se encontró el pago esperado" },
+  "business.errDueDate": { en: "Enter the date the payment is due.", es: "Ingresa la fecha en que vence el pago." },
+  "business.errExpectedMove": { en: "Income is already linked to this payment, so its project and currency can't change.", es: "Ya hay un ingreso vinculado a este pago, así que su proyecto y moneda no se pueden cambiar." },
   "business.errBudgetDuplicate": { en: "Use each currency only once in the budget.", es: "Usa cada moneda solo una vez en el presupuesto." },
   "trip.notFound": { en: "Trip or event not found", es: "No se encontró el viaje o evento" },
   "trip.errDates": { en: "Enter a start date and an end date (the end date can be the same day).", es: "Ingresa una fecha de inicio y una de fin (la de fin puede ser el mismo día)." },
@@ -123,6 +126,9 @@ var BACKEND_STRINGS_ = {
   "repay.autoOffsetDelete": { en: "That line was created automatically when you recorded a repayment, so it can't be deleted directly.", es: "Eso fue una compensación automática de un repago, no un pago real: no se puede eliminar directamente." },
   "repay.moreThanRemaining": { en: "That's more than the remaining balance ({cur} {amount}).", es: "Eso es más que el saldo restante ({cur} {amount})." },
   "repay.noLoanFromYou": { en: "{friend} has no {cur} loan from you on record, so there is nothing for this to repay. Add the loan first (Loans tab), or use \"Convert to loan\" if they lent you this money.", es: "{friend} no tiene un préstamo tuyo en {cur} registrado, así que no hay nada que repagar. Agrega primero el préstamo (pestaña Préstamos), o usa \"Convertir en préstamo\" si te prestaron este dinero." },
+  "repay.allocBad": { en: "Choose each loan once, with an amount above 0.", es: "Elige cada préstamo una sola vez, con un monto mayor que 0." },
+  "repay.allocTooMuch": { en: "That's more than this loan still owes ({cur} {amount}).", es: "Eso es más de lo que aún debe este préstamo ({cur} {amount})." },
+  "repay.allocOverPayment": { en: "The amounts you chose add up to more than the payment.", es: "Los montos que elegiste suman más que el pago." },
   "repay.noDebt": { en: "You have no {cur} debt to {friend} on record, so there is nothing for this to repay.", es: "No tienes una deuda en {cur} con {friend} registrada, así que no hay nada que repagar." },
 
   // ---- budget ----
