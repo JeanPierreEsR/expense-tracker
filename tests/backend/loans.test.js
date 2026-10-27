@@ -128,3 +128,22 @@ test("forgiving a debt I owed books INCOME", () => {
   assert.equal(res.entry.type, "income");
   assert.equal(Number(res.entry.amount), 75);
 });
+
+test("a loan whose expense was deleted can be deleted once nothing is repaid against it", () => {
+  const { rt, data } = freshApp();
+  const { entry, friend } = sharedExpense(rt, data, 100, 40);
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 40, date: today(), currency: "PEN", payment_method_id: data.pms[3].id });
+  const loanId = loansFor(rt, entry.id)[0].id;
+
+  // while the expense exists, the loan can only go with it
+  assert.throws(() => rt.api("deleteLoan", { id: loanId }));
+
+  rt.api("discardEntry", { id: entry.id });
+  assert.ok(rt.rows("Loans").find((l) => l.id === loanId), "kept for its repayment history");
+  assert.throws(() => rt.api("deleteLoan", { id: loanId }), "still refused while a repayment is recorded");
+
+  const settlement = rt.rows("Settlements").find((s) => s.loan_id === loanId);
+  rt.api("deleteSettlement", { id: settlement.id });
+  rt.api("deleteLoan", { id: loanId });
+  assert.equal(rt.rows("Loans").find((l) => l.id === loanId), undefined);
+});

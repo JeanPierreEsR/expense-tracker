@@ -13441,7 +13441,10 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   if (l.origin === "cash") {
     rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
-    rowMain.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+    rowMain.addEventListener("click", () => {
+      if (l.entry_id) openLinkedEntryFromLoan_(l.entry_id);
+      else deleteOrphanLoan_(l, { id: friendId, name: friendName });
+    });
   }
 
   // Forgiving applies to either kind of loan — it doesn't touch the
@@ -13474,6 +13477,19 @@ async function openLinkedEntryFromLoan_(entryId) {
     if (!entry) throw new Error(tr("loanDetail.expenseNotFound"));
     if (blockedWhileSavingEdit_(entry.id)) return;
     openEditPopup(entry);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// A loan kept for its repayment history after its expense was deleted has no
+// expense to open; the only thing left to do with it is delete it.
+async function deleteOrphanLoan_(l, friend) {
+  if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) return;
+  try {
+    await callApi("deleteLoan", { id: l.id });
+    await openLoanDetail(friend.id, friend.name);
+    refreshLoans();
   } catch (err) {
     alert(err.message);
   }

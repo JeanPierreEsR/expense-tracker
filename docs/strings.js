@@ -590,6 +590,7 @@
     "loanDetail.overdueSince": { en: "⚠️ Overdue since {date}", es: "⚠️ Vencido desde el {date}" },
     "loanDetail.repaidSoFar": { en: "{cur} {amount} repaid so far", es: "{cur} {amount} repagados hasta ahora" },
     "loanDetail.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
+    "loanDetail.confirmDeleteOrphan": { en: "The expense behind this loan ({amount}, {date}) was deleted. Delete the loan too?", es: "El gasto de este préstamo ({amount}, {date}) fue eliminado. ¿Eliminar también el préstamo?" },
     "loanDetail.forgive": { en: "🙏 Forgive", es: "🙏 Perdonar" },
     "loanDetail.expenseNotFound": { en: "That expense couldn't be found — it may have been deleted.", es: "No se encontró ese gasto: puede que se haya eliminado." },
 

@@ -447,7 +447,10 @@ function updateLoan(payload) {
 function deleteLoan(loanId) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
   if (!loan) return;
-  if (loan.origin !== 'cash') {
+  // A loan from a shared expense is deleted by deleting that expense — unless
+  // the expense is already gone (the loan was kept for its repayment history
+  // and unlinked), in which case nothing else can ever remove it.
+  if (loan.origin !== 'cash' && !(loan.origin === 'entry' && !getEntryById_(loan.entry_id))) {
     throw new Error(tr_('loan.fromSharedDelete'));
   }
   var hasSettlement = getAllRows('Settlements').some(function (s) { return s.loan_id === loanId; });
