@@ -11281,26 +11281,26 @@ function renderProjectionsSummary_(p) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
         <span class="summary-label">${tr("summary.income")}</span>
-        <span class="summary-value income">${formatPen(p.income)}</span>
+        <span class="summary-value income">${formatPenSigned_(p.income)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.expenses")}</span>
-        <span class="summary-value expense">${formatPen(p.expenses)}</span>
+        <span class="summary-value expense">${formatPenSigned_(-p.expenses)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.investments")}</span>
-        <span class="summary-value investment">${formatPen(p.investments)}</span>
+        <span class="summary-value investment${p.investments > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.investments)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
-        <span class="summary-value">${formatPen(p.net)}</span>
+        <span class="summary-value${p.net > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
@@ -11344,11 +11344,12 @@ function projectionRowLine_(icon, amount, label) {
 
 function projectionRowBreakdown_(c) {
   const isIncome = c.category_type === "income";
-  const lines = [projectionRowLine_("✅", c.actualPen, tr("projections.actual"))];
+  const flip = c.category_type === "investment" ? -1 : 1;   // investments read taken out − put in
+  const lines = [projectionRowLine_("✅", flip * c.actualPen, tr("projections.actual"))];
   if (c.hasOverride) {
     lines.push(projectionRowLine_("✏️", c.remainingTotalPen, tr("projections.remainingManual")));
   } else {
-    lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, tr("projections.programmed")));
+    lines.push(projectionRowLine_("🔁", flip * c.programmedRemainingPen, tr("projections.programmed")));
     if (!isIncome && c.category_type !== "investment") {
       lines.push(projectionRowLine_("📈", c.expectedRemainingPen, tr("projections.expected")));
     }
@@ -11393,7 +11394,7 @@ function renderProjectionCategories_(result) {
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.totalPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${formatPenSigned_(isIncome ? c.totalPen : -c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
@@ -11509,12 +11510,12 @@ function renderProjectionDrilldownAmount_(detail) {
 
   // Actual, what is left, and their sum: so the numbers add up where they can be seen.
   document.getElementById("drilldown-projection-actual-row").hidden = false;
-  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen(p.actualPen);
+  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.actualPen);
   const annualNote = document.getElementById("drilldown-projection-annual-note");
   annualNote.hidden = !(p.annualInPeriodPen > 0.005);
   annualNote.textContent = p.annualInPeriodPen > 0.005 ? tr("drill.annualAside", { amount: formatPen(p.annualInPeriodPen) }) : "";
   document.getElementById("drilldown-projection-total-row").hidden = false;
-  document.getElementById("drilldown-projection-total-amount").textContent = formatPen(p.totalPen);
+  document.getElementById("drilldown-projection-total-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.totalPen);
 
   renderProjectionSplit_(detail);
 }
@@ -11560,7 +11561,7 @@ function renderProjectionSplit_(detail) {
   }
   if (!show) return;
 
-  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.programmedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;

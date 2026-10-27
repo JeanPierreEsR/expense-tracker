@@ -780,7 +780,10 @@ function getProjections(payload) {
   // full-period estimate that ignores how the period's actually going.
   var income = sumByType_('income', 'totalPen');
   var expenses = sumByType_('expense', 'totalPen');
-  var investments = sumByType_('investment', 'totalPen');
+  // Investments read as taken out − put in (owner, 2026-10-27): positive when more came out than went in.
+  // The raw sum (put in − taken out) is what comes off the money left below.
+  var investmentsPutInNet = sumByType_('investment', 'totalPen');
+  var investments = -investmentsPutInNet;
 
   return {
     monthLabel: periodLabel,
@@ -794,11 +797,11 @@ function getProjections(payload) {
     expensesProgrammed: sumByType_('expense', 'programmedRemainingPen'),
     expensesExpected: sumByType_('expense', 'expectedRemainingPen'),
     investments: investments,
-    investmentsActual: sumByType_('investment', 'actualPen'),
+    investmentsActual: -sumByType_('investment', 'actualPen'),
     investmentsIn: sumByType_('investment', 'flowInPen'),
     investmentsOut: sumByType_('investment', 'flowOutPen'),
-    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),
+    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),   // money to be put in
     investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
-    net: income - expenses - investments
+    net: income - expenses - investmentsPutInNet
   };
 }
