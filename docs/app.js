@@ -3418,6 +3418,10 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       alert(tr("delete.isLoan"));
       return false;
     }
+    if (links.refunds && links.refunds.length) {
+      const r = links.refunds[0];
+      confirmText += "\n\n" + tr(r.direction === "they_owe_me" ? "delete.refundTheyOweMe" : "delete.refundIOweThem", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+    }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });

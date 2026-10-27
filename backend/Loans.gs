@@ -160,10 +160,57 @@ function deleteEntrySplitsAndLoansForEntry_(entryId, keepSettledLinked) {
   });
   if (!keepSettledLinked) {
     getAllRows('Loans').forEach(function (l) {
-      if (l.origin === 'entry' && l.entry_id === entryId && settledLoanIds[l.id]) {
-        updateRowFields_('Loans', l.id, { entry_id: '' });
+      if (l.origin !== 'entry' || l.entry_id !== entryId || !settledLoanIds[l.id]) return;
+      if (l.status === 'forgiven') {
+        updateRowFields_('Loans', l.id, { entry_id: '' });   // its forgiveness entry keeps the history
+      } else {
+        refundAndDeleteRepaidLoan_(l);
       }
     });
+  }
+}
+
+// The expense behind a repaid loan is gone (deleted, or no longer shared), so
+// the loan goes too. What the friend REALLY paid back (not auto-offsets) was
+// money for something that no longer exists: it becomes a loan the other way
+// ("you owe them"), which nets against future loans like any other (owner's
+// design, 2026-10-27). The repayment's transfer entry stays: that money did move.
+function refundAndDeleteRepaidLoan_(loan) {
+  ensureSettlementsOffsetColumn_();
+  var mine = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; });
+  var realPaid = mine.reduce(function (sum, s) { return s.offset_loan_id ? sum : sum + Number(s.amount); }, 0);
+
+  // An auto-offset is a pair of rows (one on each loan): remove the other half so that loan owes again.
+  var otherLoanIds = {};
+  mine.forEach(function (s) { if (s.offset_loan_id) otherLoanIds[s.offset_loan_id] = true; });
+  deleteRowsWhere_('Settlements', function (s) {
+    return (s.loan_id === loan.id) || (s.offset_loan_id === loan.id && otherLoanIds[s.loan_id]);
+  });
+  Object.keys(otherLoanIds).forEach(updateLoanStatusFromSettlements_);
+  deleteRowsWhere_('Loans', function (row) { return row.id === loan.id; });
+
+  if (realPaid > 0.004) {
+    var what = loan.description || tr_('label.sharedExpense');
+    var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+    ensureLoansTransferEntryColumn_();
+    var refund = {
+      id: Utilities.getUuid(),
+      friend_id: loan.friend_id,
+      direction: loan.direction === 'they_owe_me' ? 'i_owe_them' : 'they_owe_me',
+      origin: 'cash',
+      entry_id: '',
+      amount: Math.round(realPaid * 100) / 100,
+      currency: loan.currency,
+      date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      due_date: '',
+      payment_method_id: '',
+      description: tr_('loan.refundDescription', { what: what, cur: loan.currency, amount: moneyFmt_(realPaid), friend: friend ? friend.name : '' }),
+      status: 'outstanding',
+      transfer_entry_id: '',   // no new money moved: the repayment's own transfer entry already recorded it
+      project_id: loan.project_id || ''
+    };
+    if (refund.project_id) ensureBusinessSheets_();
+    appendRowObject('Loans', refund);
   }
 }
 
@@ -1027,6 +1074,24 @@ function buildTransferLinkMap_() {
 // money movement. `repayment`: real settlements that reference it as their
 // transfer entry (friend, direction, total); `loan`: it is a cash loan's
 // own money movement (delete that from the Loans tab instead).
+// What friends really paid back on this expense's loans: deleting the expense turns
+// each of these into a refund loan (see refundAndDeleteRepaidLoan_). One row per friend + currency.
+function entryRepaidLoansSummary_(entryId) {
+  var friends = {};
+  getAllRows('Friends').forEach(function (f) { friends[f.id] = f.name; });
+  var settlements = getAllRows('Settlements');
+  var out = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.origin !== 'entry' || l.entry_id !== entryId || l.status === 'forgiven') return;
+    var paid = settlements.reduce(function (sum, s) { return s.loan_id === l.id && !s.offset_loan_id ? sum + Number(s.amount) : sum; }, 0);
+    if (paid <= 0.004) return;
+    var key = l.friend_id + '|' + l.currency + '|' + l.direction;
+    if (!out[key]) out[key] = { friend: friends[l.friend_id] || '', currency: l.currency, direction: l.direction, total: 0 };
+    out[key].total += paid;
+  });
+  return Object.keys(out).map(function (k) { return out[k]; });
+}
+
 function getEntryRepaymentLinks(payload) {
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
@@ -1039,7 +1104,8 @@ function getEntryRepaymentLinks(payload) {
     return { loan: false, repayment: null, forgiveness: { friend: fr ? fr.name : '', direction: forgiven.direction } };
   }
   var linked = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === id; });
-  if (!linked.length) return { loan: false, repayment: null };
+  var refunds = entryRepaidLoansSummary_(id);
+  if (!linked.length) return { loan: false, repayment: null, refunds: refunds };
   var loanById = {};
   loans.forEach(function (l) { loanById[l.id] = l; });
   var friends = {};
@@ -1047,6 +1113,7 @@ function getEntryRepaymentLinks(payload) {
   var first = loanById[linked[0].loan_id];
   return {
     loan: false,
+    refunds: refunds,
     repayment: {
       friend: first ? (friends[first.friend_id] || '') : '',
       direction: first ? first.direction : '',
