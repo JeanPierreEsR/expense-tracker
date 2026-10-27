@@ -203,6 +203,10 @@ function routeAction(action, payload) {
     case 'recordTripSettlement': return recordTripSettlement(payload);
     case 'setBusinessFeatures': return setBusinessFeatures(payload);
     case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
+    case 'listBusinessPeople': return listBusinessPeople();
+    case 'updateFriend': return updateFriend(payload);
+    case 'deleteFriend': return deleteFriend(payload);
+    case 'getProjectDebts': return getProjectDebts(payload);
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
     case 'updateCompany': return updateCompany(payload);
@@ -401,7 +405,7 @@ function routeAction(action, payload) {
     case 'listPaymentMethodBalances': return listPaymentMethodBalances();
     case 'getPaymentMethodMovements': return getPaymentMethodMovements(payload);
     case 'setPaymentMethodOpeningBalance': return setPaymentMethodOpeningBalance(payload);
-    case 'listLoanBalances': return listLoanBalances();
+    case 'listLoanBalances': return listLoanBalances(payload);
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'addLoan': return addLoan(payload);
     case 'updateLoan': return updateLoan(payload);
@@ -1109,6 +1113,8 @@ function updateEntryFields(entryId, fields) {
     // tag the owner removed.
     if (after && categoryChanges && after.category_id !== categoryBefore) autoTagTravelEntry_(after);
   });
+  // Business pack: the debts this entry made follow its project.
+  if (fields && fields.project_id !== undefined) syncEntryLoanProject_(entryId);
 
   return getEntryById_(entryId);
 }
@@ -1306,6 +1312,9 @@ function addFriend(payload) {
   });
   if (existing) return existing;
   var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };
+  // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
+  var role = businessRoleFromPayload_(payload.role);
+  if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
   appendRowObject('Friends', friend);
   return friend;
 }

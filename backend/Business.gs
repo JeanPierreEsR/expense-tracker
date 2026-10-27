@@ -51,6 +51,9 @@ function ensureBusinessSheets_() {
   });
   ensureColumn_('Entries', 'company_id');
   ensureColumn_('Entries', 'project_id');
+  // Step 2: a person's business role and the project a debt belongs to (both created only on first use of the pack).
+  ensureColumn_('Friends', 'role');
+  ensureColumn_('Loans', 'project_id');
 }
 
 // The switch itself (More → Business features, welcome question). Turning it off keeps every row.
@@ -459,4 +462,141 @@ function listCompaniesAndProjects(payload) {
       })
     };
   });
+}
+
+// ---- Step 2: people with a business role, and debts that belong to a project ----
+// A person keeps ONE role (friend by default). It only decides where they are listed; the debts themselves are the ordinary Loans,
+// each now optionally carrying the project it belongs to (Loans.project_id). Everything stays per currency, never converted.
+
+var BUSINESS_ROLES_ = { friend: true, client: true, supplier: true, partner: true };
+
+function friendRoleOf_(f) {
+  var role = f && f.role;
+  return BUSINESS_ROLES_[role] ? role : 'friend';
+}
+
+// The role a request asks for; anything unknown (or while the pack is off) is a plain friend.
+function businessRoleFromPayload_(role) {
+  return businessOn_() && BUSINESS_ROLES_[role] ? role : 'friend';
+}
+
+// A project id a debt may carry: only a real one, only while the pack is on. Anything else = none.
+function projectIdForLoan_(id) {
+  if (!businessOn_() || !id) return '';
+  var project = projectById_(id);
+  return project ? String(project.id) : '';
+}
+
+// '' = every loan (the default), 'personal' = loans with no project, otherwise a project id. Ignored while the pack is off.
+function loanProjectScope_(payload) {
+  if (!businessOn_() || !payload) return '';
+  if (payload.personal) return 'personal';
+  return projectIdForLoan_(payload.project_id);
+}
+
+function loanInProjectScope_(loan, scope) {
+  if (!scope) return true;
+  var mine = String(loan.project_id || '');
+  return scope === 'personal' ? !mine : mine === scope;
+}
+
+// Puts an expense/income entry (an overpayment, a forgiveness) on a project and its company.
+function linkEntryToProject_(entryId, projectId) {
+  if (!businessOn_() || !projectId) return;
+  var project = projectById_(projectId);
+  if (!project) return;
+  updateEntryFields(entryId, { project_id: String(project.id), company_id: String(project.company_id) });
+}
+
+// An entry's debts follow its project (also when it already has repayments: the label moves, the money history does not).
+function syncEntryLoanProject_(entryId) {
+  if (!businessOn_()) return;
+  ensureBusinessSheets_();
+  var entry = getEntryById_(entryId);
+  var projectId = entry ? String(entry.project_id || '') : '';
+  getAllRows('Loans').forEach(function (l) {
+    if (l.origin === 'entry' && String(l.entry_id) === String(entryId) && String(l.project_id || '') !== projectId) {
+      updateRowFields_('Loans', l.id, { project_id: projectId });
+    }
+  });
+}
+
+function netMapToList_(byCur) {
+  return Object.keys(byCur).filter(function (cur) { return Math.abs(byCur[cur]) > 0.004; })
+    .sort(function (a, b) { return a === homeCurrency_() ? -1 : (b === homeCurrency_() ? 1 : (a < b ? -1 : 1)); })
+    .map(function (cur) { return { currency: cur, net: Math.round(byCur[cur] * 100) / 100 }; });
+}
+
+// More → Companies & projects → People: everyone with a business role, with what is still owed per project and in total
+// (net per currency: they owe me positive, I owe them negative).
+function listBusinessPeople() {
+  requireBusiness_();
+  var settled = buildSettlementTotalsByLoan_();
+  var byFriend = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.status === 'forgiven') return;
+    var remaining = Number(l.amount) - (settled[l.id] || 0);
+    if (remaining <= 0.004) return;
+    var slot = byFriend[l.friend_id] || (byFriend[l.friend_id] = {});
+    var key = String(l.project_id || '');
+    var byCur = slot[key] || (slot[key] = {});
+    byCur[l.currency] = (byCur[l.currency] || 0) + (l.direction === 'they_owe_me' ? remaining : -remaining);
+  });
+  return getAllRowsCached_('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) !== 'friend'; }).map(function (f) {
+    var slot = byFriend[f.id] || {};
+    var total = {};
+    var projects = Object.keys(slot).map(function (key) {
+      Object.keys(slot[key]).forEach(function (cur) { total[cur] = (total[cur] || 0) + slot[key][cur]; });
+      return { project_id: key, balances: netMapToList_(slot[key]) };
+    }).filter(function (p) { return p.balances.length; });
+    return { id: f.id, name: f.name, role: friendRoleOf_(f), notes: f.notes || '', projects: projects, totals: netMapToList_(total) };
+  });
+}
+
+// What each person owes (or is owed) on ONE project, per currency — the project screen's "Owed" block.
+function getProjectDebts(payload) {
+  requireBusiness_();
+  var project = projectById_(payload && payload.project_id);
+  if (!project) throw new Error(tr_('business.projectNotFound'));
+  return listLoanBalances({ project_id: String(project.id) });
+}
+
+function personKey_(name) { return searchNormalize_(String(name || '').trim()); }
+
+function updateFriend(payload) {
+  requireBusiness_();
+  ensureBusinessSheets_();
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, payload && payload.id);
+  if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
+  var name = String(payload.name || '').trim();
+  if (!name) throw new Error(tr_('err.enterName'));
+  var role = BUSINESS_ROLES_[payload.role] ? payload.role : 'friend';
+  getAllRows('Friends').forEach(function (f) {
+    if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_('business.errPersonExists'));
+  });
+  var existing = getAllRows('Friends').find(function (f) { return String(f.id) === String(payload.id); });
+  if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
+  withWriteBatch_(function () {
+    setCellByRow_(sheet, headers, rowIndex, 'name', name);
+    setCellByRow_(sheet, headers, rowIndex, 'role', role);
+    if (payload.notes !== undefined) setCellByRow_(sheet, headers, rowIndex, 'notes', String(payload.notes));
+  });
+  return { id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : '') };
+}
+
+// A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).
+function deleteFriend(payload) {
+  requireBusiness_();
+  var id = String((payload && payload.id) || '');
+  var friend = getAllRows('Friends').find(function (f) { return String(f.id) === id; });
+  if (!friend) throw new Error(tr_('err.friendNotFound'));
+  if (friend.trip_id) throw new Error(tr_('business.errPersonGroup'));
+  var used = getAllRows('Loans').some(function (l) { return String(l.friend_id) === id; }) ||
+    getAllRows('Entry Splits').some(function (s) { return String(s.friend_id) === id; }) ||
+    getAllRows('Entries').some(function (e) { return e.type !== 'income' && String(e.paid_by) === id; });
+  if (used) throw new Error(tr_('business.errPersonInUse'));
+  deleteRowsWhere_('Friends', function (row) { return String(row.id) === id; });
+  return { done: true };
 }
