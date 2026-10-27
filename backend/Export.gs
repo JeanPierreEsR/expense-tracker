@@ -30,7 +30,7 @@ var EXPORT_BACKUP_TABS_ = [
   'Exchange Rates', 'Friends', 'Payors', 'Loans', 'Settlements', 'Budgets',
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
   'Projection Overrides', 'Period Templates', 'Import Batches',
-  'Companies', 'Projects', 'Project Budgets'   // Business pack: always included when they exist, whatever the switch says
+  'Companies', 'Projects', 'Project Budgets', 'Expected Payments'   // Business pack: always included when they exist, whatever the switch says
 ];
 
 var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per message

@@ -257,6 +257,11 @@
             <select id="entry-business"></select>
           </div>
 
+          <div id="expected-field" hidden>
+            <label for="entry-expected" data-i18n="field.expected">Pays expected payment</label>
+            <select id="entry-expected"></select>
+          </div>
+
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
@@ -297,6 +302,12 @@
         <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
         <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
         <div id="expected-recurring-groups"></div>
+      </div>
+
+      <div class="card business-expected-card" id="business-expected-card" hidden>
+        <h2 data-i18n="bx.title">💼 Business · expected this month</h2>
+        <p class="hint" data-i18n="bx.hint">Payments clients still owe you, due this month or overdue.</p>
+        <div id="business-expected-list"></div>
       </div>
 
       <div class="card entry-list">
@@ -1369,6 +1380,21 @@
           <label for="settlement-description" data-i18n="field.description">Description</label>
           <input type="text" id="settlement-description" data-i18n-placeholder="common.optional" placeholder="Optional">
 
+          <div id="settlement-loan-field" hidden>
+            <label for="settlement-loan" data-i18n="settle.loanLabel">Which loan this pays</label>
+            <select id="settlement-loan"></select>
+            <p class="hint" data-i18n="settle.loanHint">Pick another loan to move this repayment to it. The amount and the account stay the same.</p>
+          </div>
+
+          <div id="settlement-choose" hidden>
+            <button type="button" class="add-inline" id="settlement-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+            <div id="settlement-choose-panel" hidden>
+              <p class="hint" data-i18n="settle.chooseHint">Type how much goes to each loan. Whatever you leave unassigned is applied to the oldest loans first.</p>
+              <div id="settlement-choose-list"></div>
+              <p class="hint" id="settlement-choose-summary"></p>
+            </div>
+          </div>
+
           <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
           <button type="button" class="primary" id="settlement-save-btn" data-i18n="settle.save">Save repayment</button>
           <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
@@ -2123,6 +2149,38 @@
         <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>
         <button type="button" class="delete-entry-btn" id="person-delete-btn" hidden data-i18n="people.delete">Delete this person</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="expected-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="expected-modal-title" data-i18n="xp.addTitle">Add expected payment</span>
+        <button type="button" id="expected-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="expected-client" data-i18n="xp.client">Client</label>
+        <select id="expected-client"></select>
+
+        <label for="expected-amount" data-i18n="field.amount">Amount</label>
+        <input type="text" inputmode="decimal" id="expected-amount" placeholder="0.00">
+
+        <label for="expected-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="expected-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="expected-due" data-i18n="xp.due">Due date</label>
+        <input type="date" id="expected-due">
+
+        <label for="expected-invoice"><span data-i18n="xp.invoice">Invoice number</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-invoice" maxlength="60">
+
+        <label for="expected-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-note" maxlength="200">
+
+        <p class="hint" id="expected-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="expected-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="expected-delete-btn" hidden data-i18n="xp.delete">Delete this expected payment</button>
       </div>
     </div>
   </div>

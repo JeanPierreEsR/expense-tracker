@@ -668,13 +668,16 @@ function recordRepayment(payload) {
       : tr_('repay.noDebt', { cur: currency, friend: friend.name }));
   }
 
+  // The person chose which loans this pays (optional): { loan_id, amount } rows. Checked before anything is written.
+  var allocations = cleanRepaymentAllocations_(payload.allocations, primary, Number(payload.amount));
+
   // Phase 1 — offset opposite-direction debt first, oldest-first on both
-  // sides.
+  // sides. Skipped when the person chose the loans: they get exactly what was assigned, nothing is netted behind it.
   var primaryLeft = primary.map(function (l) { return l.remaining; });
   var secondaryLeft = secondary.map(function (l) { return l.remaining; });
   var touchedLoanIds = {};
   var pi = 0, si = 0;
-  while (pi < primary.length && si < secondary.length) {
+  while (!allocations.length && pi < primary.length && si < secondary.length) {
     var chunk = Math.min(primaryLeft[pi], secondaryLeft[si]);
     if (chunk > 0.004) {
       recordSettlementRow_(primary[pi].id, payload.date, chunk, '', secondary[si].id);
@@ -714,8 +717,16 @@ function recordRepayment(payload) {
   }
 
   // Phase 2 — apply the real amount, FIFO, continuing from wherever
-  // phase 1 left off.
+  // phase 1 left off. The loans the person chose are paid first, by the amounts assigned; whatever is left of the
+  // payment continues FIFO over the others.
   var cashLeft = Number(payload.amount);
+  allocations.forEach(function (a) {
+    var idx = primary.findIndex(function (l) { return l.id === a.loan_id; });
+    recordSettlementRow_(a.loan_id, payload.date, a.amount, payload.payment_method_id || '', '', transferEntryId);
+    primaryLeft[idx] -= a.amount;
+    cashLeft -= a.amount;
+    touchedLoanIds[a.loan_id] = true;
+  });
   while (cashLeft > 0.004 && pi < primary.length) {
     var loan = primary[pi];
     var applyAmt = Math.min(cashLeft, primaryLeft[pi]);
@@ -759,6 +770,26 @@ function recordRepayment(payload) {
   }
 
   return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };
+}
+
+// "Choose which loans this pays": [{ loan_id, amount }]. Each loan must be one of the person's open loans in the
+// direction being paid down (`primary`), each used once, each amount > 0 and no more than that loan still owes, and the
+// total no more than the payment. Returns the cleaned list ([] = plain FIFO).
+function cleanRepaymentAllocations_(list, primary, paymentAmount) {
+  if (!Array.isArray(list) || !list.length) return [];
+  var seen = {};
+  var total = 0;
+  var out = list.map(function (a) {
+    var loan = primary.find(function (l) { return l.id === String((a && a.loan_id) || ''); });
+    var amount = Math.round(Number(a && a.amount) * 100) / 100;
+    if (!loan || seen[loan.id] || !(amount > 0)) throw new Error(tr_('repay.allocBad'));
+    if (amount > loan.remaining + 0.004) throw new Error(tr_('repay.allocTooMuch', { cur: loan.currency, amount: loan.remaining.toFixed(2) }));
+    seen[loan.id] = true;
+    total += amount;
+    return { loan_id: loan.id, amount: amount };
+  });
+  if (total > paymentAmount + 0.004) throw new Error(tr_('repay.allocOverPayment'));
+  return out;
 }
 
 // The leftover from recordRepayment, above, once nothing more is owed —
@@ -1288,12 +1319,25 @@ function updateSettlement(payload) {
   // Remaining balance excluding THIS settlement's own current amount —
   // otherwise editing one down and back up again would always look like
   // it's exceeding the balance it's itself already part of.
+  // Optionally moved to ANOTHER loan of the same person, kind and currency
+  // ("Change which loan this pays"): the balance check then runs against that
+  // loan, and both loans' statuses are refreshed. Nothing else changes: it is
+  // the same cash, so the account transfer is untouched.
+  var target = loan;
+  if (payload.loan_id && payload.loan_id !== existing.loan_id) {
+    target = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
+    if (!target) throw new Error(tr_('err.loanNotFound'));
+    if (target.friend_id !== loan.friend_id || target.direction !== loan.direction ||
+        target.currency !== loan.currency || target.status === 'forgiven') {
+      throw new Error(tr_('repay.moveBad'));
+    }
+  }
   var settledOthers = getAllRows('Settlements')
-    .filter(function (s) { return s.loan_id === existing.loan_id && s.id !== payload.id; })
+    .filter(function (s) { return s.loan_id === target.id && s.id !== payload.id; })
     .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
-  var remaining = Number(loan.amount) - settledOthers;
+  var remaining = Number(target.amount) - settledOthers;
   if (Number(payload.amount) - remaining > 0.004) {
-    throw new Error(tr_('repay.moreThanRemaining', { cur: loan.currency, amount: remaining.toFixed(2) }));
+    throw new Error(tr_('repay.moreThanRemaining', { cur: target.currency, amount: remaining.toFixed(2) }));
   }
 
   var sheet = getSheet('Settlements');
@@ -1303,8 +1347,10 @@ function updateSettlement(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'date', payload.date);
   setCellByRow_(sheet, headers, rowIndex, 'amount', Number(payload.amount));
   setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', payload.payment_method_id || '');
+  if (target.id !== existing.loan_id) setCellByRow_(sheet, headers, rowIndex, 'loan_id', target.id);
 
   updateLoanStatusFromSettlements_(existing.loan_id);
+  if (target.id !== existing.loan_id) updateLoanStatusFromSettlements_(target.id);
   recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }
