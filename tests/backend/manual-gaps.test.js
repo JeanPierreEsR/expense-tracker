@@ -60,3 +60,13 @@ test("getManualGaps: owner sees the manual share, friends' copies only the list"
   assert.equal(friend.manualShare, undefined);
   friend.kinds.forEach((k) => assert.equal(k.totals, undefined));
 });
+
+test("unread emails: a date Sheets turned into a Date comes back as yyyy-MM-dd (not 'Invalid Date' on screen)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("ensureUnreadEmailsSheet_()");
+  rt.run(`appendRowObject('Unread Emails', { id: 'a@bank.test|hola #|no_rule', sender: 'a@bank.test', subject: 'hola #', kind: 'no_rule', count: 2,
+    first_seen: new Date(2026, 9, 20), last_seen: new Date(2026, 9, 26) })`);
+  const list = JSON.parse(JSON.stringify(rt.run("listUnreadEmails_('2026-10-01')")));
+  assert.equal(list.length, 1);
+  assert.match(list[0].last, /^\d{4}-\d{2}-\d{2}$/);
+});

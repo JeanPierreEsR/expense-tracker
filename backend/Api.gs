@@ -432,6 +432,8 @@ var DATE_FIELD_FORMATS = {
   period_end: 'yyyy-MM-dd',
   processed_at: 'yyyy-MM-dd',
   sent_at: 'yyyy-MM-dd',
+  first_seen: 'yyyy-MM-dd',   // Unread Emails: a Sheets Date back to text (else the screen said "last on Invalid Date")
+  last_seen: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',
   // Full timestamp (not date-only) — lets same-day entries sort by the
