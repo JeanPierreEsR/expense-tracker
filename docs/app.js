@@ -13247,11 +13247,10 @@ async function refreshLoans() {
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
 }
 
-// "PEN 1,200.00" — the "+" only on the owed-to-you side, same convention
-// as income elsewhere; never a "-" on the you-owe side, since the section
-// already says the direction.
+// "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
+// point of view, like the Net line (owner's decision, 2026-10-27).
 function formatLoanAmount_(currency, amount, kind) {
-  return `${kind === "owed-to-me" ? "+" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
+  return `${kind === "owed-to-me" ? "+" : "−"}${currency} ${moneyFmt(Math.abs(amount))}`;
 }
 
 // One line per currency, PEN first (the backend already orders each
@@ -13332,7 +13331,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
     .filter((cur) => Math.abs(netByCurrency[cur]) > 0.004)
     .map((cur) => {
       const n = netByCurrency[cur];
-      return (n > 0 ? "+" : "") + `${cur} ${moneyFmt(n)}`;
+      return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
   document.getElementById("loan-detail-subtitle").textContent = netParts.length
     ? tr("loanDetail.net", { parts: netParts.join(" · ") })
@@ -13409,7 +13408,7 @@ function loanProjectPillHtml_(l) {
 // in differs.
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
-  const sign = l.direction === "they_owe_me" ? "+" : "";
+  const sign = l.direction === "they_owe_me" ? "+" : "−";
   const statusNote = l.status === "forgiven"
     ? (l.forgiveness_entry_id ? tr("loanDetail.forgivenRecorded") : tr("loanDetail.forgiven"))
     : l.remaining <= 0.004
