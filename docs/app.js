@@ -5098,9 +5098,7 @@ function paintOverviewSummary_(data) {
   document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
   document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
-  // Any positive figure reads green.
-  document.getElementById("summary-investment").classList.toggle("pos-green", data.totals.investment < -0.005);
-  document.getElementById("summary-net").classList.toggle("pos-green", data.totals.net > 0.005);
+  // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
   const excludedNote = document.getElementById("overview-excluded-note");
   if (data.excludedCount > 0) {
@@ -11296,11 +11294,11 @@ function renderProjectionsSummary_(p) {
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.investments")}</span>
-        <span class="summary-value investment${p.investments > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.investments)}</span>
+        <span class="summary-value investment">${formatPenSigned_(p.investments)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
-        <span class="summary-value${p.net > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.net)}</span>
+        <span class="summary-value">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
