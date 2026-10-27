@@ -508,7 +508,7 @@ function getProjectDetail(payload) {
   var totals = businessTotals_(rows, budgetsOfProject_(project.id));
   return {
     project: { id: project.id, name: project.name, emoji: project.emoji, status: project.status || 'active', company_id: project.company_id, client_id: project.client_id || '' },
-    company: company ? { id: company.id, name: company.name, emoji: company.emoji } : null,
+    company: company ? { id: company.id, name: company.name, emoji: company.emoji, igv_enabled: String(company.igv_enabled || ''), tax_id: String(company.tax_id || '') } : null,
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
     byCategory: businessByCategory_(rows),
     expected: listExpectedPayments({ project_id: project.id, today: payload.today }).items
@@ -529,7 +529,7 @@ function getCompanyDetail(payload) {
   var levelRows = rows.filter(function (r) { return !r.entry.project_id; });
   var level = businessTotals_(levelRows, null);
   return {
-    company: { id: company.id, name: company.name, emoji: company.emoji },
+    company: { id: company.id, name: company.name, emoji: company.emoji, igv_enabled: String(company.igv_enabled || ''), tax_id: String(company.tax_id || '') },
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
     projects: projects,
     companyLevel: { currencies: level.currencies, approx: level.approx, entryCount: level.entryCount },
@@ -549,7 +549,8 @@ function listCompaniesAndProjects(payload) {
     var mine = rows.filter(function (r) { return String(r.entry.company_id || '') === String(c.id); });
     var t = businessTotals_(mine, null);
     return {
-      id: c.id, name: c.name, emoji: c.emoji, currencies: t.currencies, approx: t.approx, entryCount: t.entryCount,
+      id: c.id, name: c.name, emoji: c.emoji, igv_enabled: String(c.igv_enabled || ''), tax_id: String(c.tax_id || ''),
+      currencies: t.currencies, approx: t.approx, entryCount: t.entryCount,
       projects: projects.filter(function (p) { return String(p.company_id) === String(c.id); }).map(function (p) {
         var pr = mine.filter(function (r) { return String(r.entry.project_id || '') === String(p.id); });
         var pt = businessTotals_(pr, budgetsOfProject_(p.id));

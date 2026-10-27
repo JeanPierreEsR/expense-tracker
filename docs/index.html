@@ -262,6 +262,18 @@
             <select id="entry-expected"></select>
           </div>
 
+          <div id="igv-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="igv-toggle">
+              <span id="igv-toggle-label" data-i18n="igv.toggle">Includes IGV</span>
+            </label>
+            <div id="igv-detail" hidden>
+              <label for="igv-amount" data-i18n="igv.amount">IGV amount</label>
+              <input type="text" inputmode="decimal" id="igv-amount" placeholder="0.00">
+              <p class="hint" id="igv-hint"></p>
+            </div>
+          </div>
+
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
@@ -774,6 +786,20 @@
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
         <p class="hint" id="people-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-igv" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="igv-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="igv-add-payment-btn" data-i18n="igv.addPayment">+ IGV payment</button>
+        </div>
+        <h2 style="margin-top:0;" id="igv-title"></h2>
+        <p class="hint" id="igv-sub"></p>
+        <select id="igv-year" class="igv-year-select"></select>
+        <div id="igv-body"></div>
+        <p class="hint" id="igv-error" style="color:#d64545;"></p>
       </div>
     </div>
 
@@ -2125,9 +2151,46 @@
         <label for="company-emoji" data-i18n="business.emoji">Icon (optional)</label>
         <input type="text" id="company-emoji" maxlength="4" placeholder="🏢">
 
+        <label class="checkbox-row">
+          <input type="checkbox" id="company-igv">
+          <span data-i18n="igv.companyCharges">This company charges IGV</span>
+        </label>
+        <p class="hint" data-i18n="igv.companyHint">Its expenses and income then get an “Includes IGV” switch, and the company gets an IGV screen. Old figures are kept if you switch it off.</p>
+
+        <label for="company-tax-id"><span data-i18n="igv.taxId">Tax ID (RUC)</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="company-tax-id" maxlength="30" inputmode="numeric" autocomplete="off">
+
         <p class="hint" id="company-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="company-delete-btn" hidden data-i18n="business.deleteCompany">Delete this company</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="igv-payment-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="igv-payment-modal-title" data-i18n="igv.paymentAddTitle">Add IGV payment</span>
+        <button type="button" id="igv-payment-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="igv.paymentHint">A note of what you paid the tax office. It is not an expense and does not touch any account.</p>
+
+        <label for="igv-payment-amount" data-i18n="field.amount">Amount</label>
+        <input type="text" inputmode="decimal" id="igv-payment-amount" placeholder="0.00">
+
+        <label for="igv-payment-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="igv-payment-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="igv-payment-date" data-i18n="field.date">Date</label>
+        <input type="date" id="igv-payment-date">
+
+        <label for="igv-payment-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="igv-payment-note" maxlength="200">
+
+        <p class="hint" id="igv-payment-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="igv-payment-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="igv-payment-delete-btn" hidden data-i18n="igv.paymentDelete">Delete this IGV payment</button>
       </div>
     </div>
   </div>
@@ -2177,6 +2240,11 @@
 
         <label for="expected-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
         <input type="text" id="expected-note" maxlength="200">
+
+        <label class="checkbox-row" id="expected-igv-row" hidden>
+          <input type="checkbox" id="expected-igv">
+          <span data-i18n="igv.expectedIncludes">This amount includes IGV</span>
+        </label>
 
         <p class="hint" id="expected-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="expected-save-btn" data-i18n="business.save">Save</button>
