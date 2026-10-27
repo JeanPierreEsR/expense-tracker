@@ -164,6 +164,47 @@ var EMAIL_RULES = [
       };
     }
   },
+  // Money RECEIVED by Yapeo on the BCP account ("Recibiste un yapeo de S/ 250.00 de <who>"). Built from a friend's forwarded copy
+  // (2026-10-26): the subject, the sentence and the "Monto recibido" label were seen; the label of the operation number was not, so
+  // it is tried as in the other BCP constancias and the entry falls back to a generated id when it is absent. Always lands pending.
+  {
+    bank: 'BCP', rail: 'yape', accountByCurrency: BCP_ACCOUNTS, sender: 'notificaciones@notificacionesbcp.com.pe',
+    label: 'Yapeo recibido',
+    match: function (subject) { return /constancia de recepci.n de yapeo/i.test(subject); },
+    extract: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Monto recibido') || body);
+      if (!amt) return null;
+      var m = body.match(/recibiste un yapeo de\s*\*?\s*(?:S\/\.?|US\$|\$)\s*[\d,.]+\s*\*?\s+de\s+([^\r\n]+)/i);
+      var from = m ? cleanText_(m[1]).replace(/\.$/, '') : null;
+      return {
+        type: 'income', needsReview: true,
+        amount: amt.amount, currency: amt.currency, description: from ? 'Yape de ' + from : 'Yape recibido',
+        last4: null,
+        externalId: afterLabel_(body, 'Número de operación')
+      };
+    }
+  },
+  // EBANX is a payment processor many foreign shops use for Peruvian cards (the statement shows "EBN*<SHOP>"). The email does not say
+  // which card paid, so the entry has no account (no `bank`, like the exchange house) and is chosen at review. The shop is read from the
+  // subject ("Pago confirmado del pedido BL123 de Adobe - Braintree" -> Adobe); the order number is the dedup id. If no amount can be
+  // found the email is listed under "Bank emails I couldn't read" instead of guessed.
+  {
+    sender: 'payments@ebanx.com', house: 'EBANX',   // `house`: a name for "Your bank is ready" without being an account (listSupportedSenders)
+    label: 'Pago confirmado (EBANX)',
+    match: function (subject) { return /pago confirmado del pedido/i.test(subject); },
+    extract: function (subject, body) {
+      var amt = extractAmount_(body);
+      if (!amt) return null;
+      var m = subject.match(/pedido\s+(\S+)\s+de\s+(.+)$/i);
+      var shop = m ? cleanText_(m[2]).split(/\s+-\s+/)[0] : null;
+      return {
+        type: 'expense', needsReview: true,
+        amount: amt.amount, currency: amt.currency, description: shop, merchant: shop,
+        last4: null,
+        externalId: m ? 'ebanx-' + m[1] : null
+      };
+    }
+  },
   // ---- Exchange house: one confirmation names BOTH sides of the exchange (CurrencyExchange.gs) ----
   // The sender is the exact address the e-mails really come from (a look-alike of a webmail domain, so it is matched whole, never by domain);
   // the rule also needs the "Enviaste" and "Recibirás" lines, so a spoofed or unrelated mail from that address matches nothing.
