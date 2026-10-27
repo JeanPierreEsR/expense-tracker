@@ -48,6 +48,7 @@ function saveEntrySplits(entryId, splits) {
 
   var splitTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   var ownShare = Number(entry.amount) - splitTotal;
+  var projectId = businessOn_() ? String(entry.project_id || '') : '';   // Business pack: the debt belongs to the entry's project
 
   if (entry.paid_by === 'me') {
     // Owner paid — every friend in the split owes the owner their share.
@@ -58,6 +59,7 @@ function saveEntrySplits(entryId, splits) {
         friend_id: s.friend_id,
         direction: 'they_owe_me',
         origin: 'entry',
+        project_id: projectId,
         entry_id: entryId,
         amount: Number(s.amount),
         currency: entry.currency,
@@ -79,6 +81,7 @@ function saveEntrySplits(entryId, splits) {
       friend_id: entry.paid_by,
       direction: 'i_owe_them',
       origin: 'entry',
+      project_id: projectId,
       entry_id: entryId,
       amount: ownShare,
       currency: entry.currency,
@@ -127,12 +130,14 @@ function upsertEntryLoan_(reusable, fields) {
   // A forgiven loan keeps its amount: the forgiveness expense was booked
   // for that figure, and nothing is owed any more.
   if (match.forgiven) return;
-  updateRowFields_('Loans', match.id, {
+  var update = {
     amount: fields.amount,
     currency: fields.currency,
     date: fields.date,
     description: fields.description
-  });
+  };
+  if (businessOn_()) { ensureBusinessSheets_(); update.project_id = fields.project_id || ''; }
+  updateRowFields_('Loans', match.id, update);
 }
 
 // Only ever touches loans THIS entry created (origin='entry' + matching
@@ -272,8 +277,10 @@ function createLoan_(fields) {
     payment_method_id: fields.payment_method_id || '',
     description: fields.description || '',
     status: 'outstanding',
-    transfer_entry_id: ''
+    transfer_entry_id: '',
+    project_id: fields.project_id || ''   // Business pack: the project this debt belongs to (blank = personal)
   };
+  if (loan.project_id) ensureBusinessSheets_();   // the column is created by the pack's first use, never on a copy that does not opt in
   if (fields.origin === 'cash') {
     var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
     var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : tr_('label.unknownFriend'));
@@ -371,7 +378,8 @@ function addLoan(payload) {
     date: payload.date,
     due_date: payload.due_date || defaultLoanDueDate_(payload.date),
     payment_method_id: payload.payment_method_id || '',
-    description: payload.description || ''
+    description: payload.description || '',
+    project_id: projectIdForLoan_(payload.project_id)
   });
 }
 
@@ -418,6 +426,12 @@ function updateLoan(payload) {
   ['friend_id', 'direction', 'amount', 'currency', 'date', 'due_date', 'payment_method_id', 'description'].forEach(function (field) {
     setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
   });
+  // Business pack: the project label may be moved even after repayments (the money history does not change).
+  if (businessOn_() && payload.project_id !== undefined) {
+    ensureBusinessSheets_();
+    headers = getHeaders(sheet);
+    setCellByRow_(sheet, headers, rowIndex, 'project_id', projectIdForLoan_(payload.project_id));
+  }
 
   var updated = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
   var friend = getAllRows('Friends').find(function (f) { return f.id === updated.friend_id; });
@@ -567,6 +581,9 @@ function recordRepayment(payload) {
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
   var currency = payload.currency || homeCurrency_();
+  // Business pack: from a project screen only THAT project's loans are paid down and offset. Blank = today's behaviour
+  // (every loan of the person, oldest first, project ones included).
+  var projectScope = projectIdForLoan_(payload.project_id);
 
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -574,7 +591,8 @@ function recordRepayment(payload) {
   var settledByLoan = buildSettlementTotalsByLoan_();
   var active = getAllRows('Loans')
     .filter(function (l) {
-      return l.friend_id === payload.friend_id && l.currency === currency && l.status !== 'forgiven';
+      return l.friend_id === payload.friend_id && l.currency === currency && l.status !== 'forgiven' &&
+        (!projectScope || String(l.project_id || '') === projectScope);
     })
     .map(function (l) {
       l.remaining = Number(l.amount) - (settledByLoan[l.id] || 0);
@@ -686,6 +704,8 @@ function recordRepayment(payload) {
       ensureEntriesTripColumn_();
       setEntryField_(overpaymentEntry.id, 'trip_id', friend.trip_id);
     }
+    // Business pack: what a client paid beyond the debt is income of THAT project (and what the owner paid beyond, its cost).
+    if (projectScope) linkEntryToProject_(overpaymentEntry.id, projectScope);
   }
 
   return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };
@@ -1133,6 +1153,8 @@ function forgiveLoan(payload) {
     });
   }
 
+  // Business pack: forgiving a debt of a project books its expense (or income) on that project.
+  if (entry && loan.project_id) linkEntryToProject_(entry.id, String(loan.project_id));
   setCellByRow_(sheet, headers, rowIndex, 'status', 'forgiven');
   if (entry) {
     ensureLoansForgivenessEntryColumn_();
@@ -1268,19 +1290,24 @@ function isLoanOverdue_(loan, remaining) {
 // only a friend with a genuine currency mix falls back to PEN, via the
 // same latest-rate-on-file fallback used everywhere else non-entry-saving
 // FX math happens (see CLAUDE.md's general exchange-rate rule).
-function listLoanBalances() {
-  var loans = getAllRows('Loans').filter(function (l) { return l.status !== 'forgiven'; });
+function listLoanBalances(payload) {
+  // Business pack: optional scope — { project_id } (one project's debts) or { personal: true } (debts with no project). Default: everything.
+  var scope = loanProjectScope_(payload);
+  var loans = getAllRows('Loans').filter(function (l) { return l.status !== 'forgiven' && loanInProjectScope_(l, scope); });
   var settledByLoan = buildSettlementTotalsByLoan_();
   var friendMap = {};
-  getAllRows('Friends').forEach(function (f) { friendMap[f.id] = f.name; });
+  var roleMap = {};
+  getAllRows('Friends').forEach(function (f) { friendMap[f.id] = f.name; roleMap[f.id] = friendRoleOf_(f); });
 
   // friend_id -> currency -> net (they owe me positive, I owe them
   // negative), native amounts, remaining balance after settlements.
   var byFriendCurrency = {};
   var overdueFriendIds = {};
+  var projectsByFriend = {};   // Business pack: which projects a person's open debts belong to
   loans.forEach(function (loan) {
     var remaining = Number(loan.amount) - (settledByLoan[loan.id] || 0);
     if (remaining <= 0.004) return;
+    if (loan.project_id) (projectsByFriend[loan.friend_id] = projectsByFriend[loan.friend_id] || {})[String(loan.project_id)] = true;
 
     if (isLoanOverdue_(loan, remaining)) overdueFriendIds[loan.friend_id] = true;
 
@@ -1313,6 +1340,8 @@ function listLoanBalances() {
     result.push({
       friend_id: friendId,
       friend_name: friendMap[friendId] || tr_('label.unknownFriend'),
+      role: roleMap[friendId] || 'friend',
+      project_ids: Object.keys(projectsByFriend[friendId] || {}),
       balances: balances,
       has_overdue: !!overdueFriendIds[friendId]
     });

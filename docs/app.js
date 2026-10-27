@@ -1110,7 +1110,7 @@ function populatePaidByOptions() {
     plainFriends_().forEach((f) => {
       const opt = document.createElement("option");
       opt.value = f.id;
-      opt.textContent = f.name;
+      opt.textContent = friendLabel_(f);
       select.appendChild(opt);
     });
 
@@ -1363,7 +1363,7 @@ function populateRepaymentFriendOptions_() {
   plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -1409,6 +1409,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
 });
 
 function updateRepaymentUi_() {
+  populateBusinessOptions_();   // a Repayment / New loan can be tied to a project
   const available = repaymentAvailable_();
   document.getElementById("repayment-field").hidden = !available;
   // For a transfer the "Type of transfer" choice stands in for the category
@@ -1514,7 +1515,10 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
-function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f)); }
+// Business pack: a client / supplier / partner is listed (marked 🏢) only while Business features are on; the data stays when it is off.
+function isBusinessPerson_(f) { return !!f.role && f.role !== "friend"; }
+function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + f.name; }
+function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())); }
 // Groups of trips that still exist, the most recent trip first.
 function groupFriendsNewestFirst_() {
   const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
@@ -1524,7 +1528,7 @@ function groupFriendsNewestFirst_() {
 // The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
 function splitFriendsList_() {
   const tripId = document.getElementById("entry-trip").value;
-  return meta.friends.filter((f) => !isGroupFriend_(f) || (tripId && f.trip_id === tripId));
+  return meta.friends.filter((f) => (!isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())) || (tripId && f.trip_id === tripId));
 }
 
 // The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
@@ -1551,7 +1555,7 @@ function renderSplitFriendChips() {
   const chips = sorted.map((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
+    chip.textContent = friendLabel_(f);
     chip.addEventListener("click", () => {
       if (splitFriendIds.has(f.id)) {
         splitFriendIds.delete(f.id);
@@ -2215,6 +2219,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         description
       };
       if (isLoanKind) fields.due_date = document.getElementById("loan-due-date").value;
+      if (businessOn()) fields.project_id = businessPickProjectId_();   // the debt (or the repayment's scope) belongs to this project
       let result;
       let extraNote = "";
       if (editingEntryId) {
@@ -4743,7 +4748,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-features", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -10395,11 +10400,13 @@ async function refreshBusinessDetail_() {
     await waitForEntryEditsToSave_();
     const b = businessBounds_();
     const range = { startDate: b.startDate, endDate: b.endDate };
-    const [detail, entries] = await Promise.all([
+    const [detail, entries, debts] = await Promise.all([
       callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
-      callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range))
+      callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range)),
+      target.kind === "project" ? callApi("getProjectDebts", { project_id: target.id }) : Promise.resolve([])
     ]);
     if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
+    detail.debts = debts || [];
     businessDetailData_ = detail;
     renderBusinessDetail_(detail);
     const shown = applyQueuedEditOverlay_(entries);
@@ -10416,7 +10423,7 @@ function renderBusinessDetail_(d) {
   const title = isProject ? projectLabel_(d.project) : companyLabel_(d.company);
   document.getElementById("business-detail-title").textContent = title;
   document.getElementById("business-detail-sub").textContent = isProject
-    ? [d.company ? companyLabel_(d.company) : "", d.project.status === "closed" ? tr("business.status.closed") : ""].filter(Boolean).join(" · ")
+    ? [d.company ? companyLabel_(d.company) : "", (meta.friends || []).find((f) => f.id === d.project.client_id)?.name || "", d.project.status === "closed" ? tr("business.status.closed") : ""].filter(Boolean).join(" · ")
     : tr("business.projectCount", { n: d.projects.length });
 
   const currencies = d.currencies;
@@ -10461,6 +10468,7 @@ function renderBusinessDetail_(d) {
   document.getElementById("business-detail-body").innerHTML = `
     ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
     ${businessApproxHtml_(d)}
+    ${isProject ? businessOwedHtml_(d.debts || []) : ""}
     ${chips}
     ${costs ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.costsByCategory"))}</h3>${costs}` : ""}
     ${income ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.incomeByCategory"))}</h3>${income}` : ""}
@@ -10471,6 +10479,7 @@ function renderBusinessDetail_(d) {
     renderBusinessDetail_(d);
   }));
   document.querySelectorAll("#business-detail-body .business-project-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.id)));
+  document.querySelectorAll("#business-detail-body .business-owed-row").forEach((row) => row.addEventListener("click", () => openLoanDetail(row.dataset.friend, row.dataset.name, d.project.id)));
   const addProject = document.getElementById("business-detail-add-project");
   if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
   const statusBtn = document.getElementById("business-detail-status-btn");
@@ -10598,6 +10607,19 @@ function openProjectModal_(project, companyId, budgets) {
   sel.value = companyId || meta.companies[0].id;
   document.getElementById("project-name").value = project ? project.name : "";
   document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
+  const clientSel = document.getElementById("project-client");
+  clientSel.innerHTML = "";
+  const noClient = document.createElement("option");
+  noClient.value = "";
+  noClient.textContent = tr("business.noClient");
+  clientSel.appendChild(noClient);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && (f.role === "client" || (project && f.id === project.client_id))).forEach((f) => {
+    const o = document.createElement("option");
+    o.value = f.id;
+    o.textContent = f.name;
+    clientSel.appendChild(o);
+  });
+  clientSel.value = project && project.client_id ? project.client_id : "";
   document.getElementById("project-budgets").innerHTML = "";
   (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
   document.getElementById("project-delete-btn").hidden = !project;
@@ -10630,6 +10652,7 @@ document.getElementById("project-save-btn").addEventListener("click", async () =
       company_id: document.getElementById("project-company").value,
       name: document.getElementById("project-name").value.trim(),
       emoji: document.getElementById("project-emoji").value.trim(),
+      client_id: document.getElementById("project-client").value,
       budgets
     };
     if (editingProjectId_) await callApi("updateProject", Object.assign({ id: editingProjectId_ }, fields));
@@ -10653,6 +10676,154 @@ document.getElementById("project-delete-btn").addEventListener("click", async ()
     await showBusinessScreen();
   } catch (err) {
     document.getElementById("project-form-error").textContent = err.message;
+  }
+});
+
+// ---- Business pack, step 2: People (clients, suppliers, partners) and what is owed per project ----
+
+// The "Owed on this project" block of a project screen: per person, per currency (never converted). Tap = that person's debts on this project.
+function businessOwedHtml_(debts) {
+  if (!debts.length) return "";
+  const rows = debts.map((r) => `
+    <div class="recurring-row business-owed-row" data-friend="${escapeHtml(r.friend_id)}" data-name="${escapeHtml(r.friend_name)}">
+      <div><div class="recurring-row-name">${escapeHtml(r.friend_name)}</div></div>
+      <div class="recurring-row-amount">${r.balances.map((b) => `<div class="primary-amt ${b.net > 0 ? "business-pos" : ""}">${escapeHtml(tr(b.net > 0 ? "business.theyOweYou" : "business.youOwe"))} ${escapeHtml(b.currency)} ${moneyFmt(Math.abs(b.net))}</div>`).join("")}</div>
+    </div>`).join("");
+  return `<h3 class="accounts-group-title">${escapeHtml(tr("business.owed"))}</h3>${rows}`;
+}
+
+let people_ = [];
+
+async function showPeopleScreen_() {
+  showMoreSub_("business-people");
+  await refreshPeopleList_();
+}
+
+async function refreshPeopleList_() {
+  const errorEl = document.getElementById("people-error");
+  errorEl.textContent = "";
+  try {
+    people_ = await callApi("listBusinessPeople", {});
+    renderPeopleList_(people_);
+  } catch (err) {
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function peopleBalancesHtml_(balances) {
+  return balances.map((b) => `<div class="primary-amt ${b.net > 0 ? "business-pos" : ""}">${escapeHtml(tr(b.net > 0 ? "business.theyOweYou" : "business.youOwe"))} ${escapeHtml(b.currency)} ${moneyFmt(Math.abs(b.net))}</div>`).join("");
+}
+
+function renderPeopleList_(people) {
+  const box = document.getElementById("people-list");
+  box.innerHTML = "";
+  document.getElementById("people-empty-note").hidden = people.length > 0;
+  ["client", "supplier", "partner"].forEach((role) => {
+    const group = people.filter((p) => p.role === role);
+    if (!group.length) return;
+    const head = document.createElement("h3");
+    head.className = "accounts-group-title";
+    head.textContent = tr(`people.group.${role}`);
+    box.appendChild(head);
+    group.forEach((p) => {
+      const where = p.projects.map((x) => {
+        const project = x.project_id ? (meta.projects || []).find((q) => q.id === x.project_id) : null;
+        return project ? project.name : tr("people.personal");
+      }).join(" · ");
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(p.name)}</div>
+          <div class="recurring-row-sub">${escapeHtml(where || tr("people.noDebts"))}</div>
+        </div>
+        <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
+      row.addEventListener("click", () => openPersonModal_(p));
+      box.appendChild(row);
+    });
+  });
+}
+
+// ---- Person pop-up ----
+
+let editingPerson_ = null;
+
+function openPersonModal_(person) {
+  editingPerson_ = person || null;
+  document.getElementById("person-modal-title").textContent = tr(person ? "people.editTitle" : "people.addTitle");
+  document.getElementById("person-form-error").textContent = "";
+  document.getElementById("person-name").value = person ? person.name : "";
+  const sel = document.getElementById("person-role");
+  sel.innerHTML = "";
+  ["client", "supplier", "partner", "friend"].forEach((role) => {
+    const o = document.createElement("option");
+    o.value = role;
+    o.textContent = tr(`people.role.${role}`);
+    sel.appendChild(o);
+  });
+  sel.value = person ? person.role : "client";
+  document.getElementById("person-delete-btn").hidden = !person;
+  document.getElementById("person-debts-btn").hidden = !(person && person.totals && person.totals.length);
+  const backdrop = document.getElementById("person-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closePersonModal_() {
+  document.getElementById("person-modal-backdrop").hidden = true;
+  editingPerson_ = null;
+}
+
+// Keeps the app's own list of people (the entry form's pickers read it) in step with what the server just saved.
+function rememberPerson_(friend) {
+  const i = (meta.friends || []).findIndex((f) => f.id === friend.id);
+  if (i === -1) meta.friends.push(Object.assign({ last_used: todayLocalISO() }, friend));
+  else meta.friends[i] = Object.assign({}, meta.friends[i], friend);
+}
+
+document.getElementById("business-people-btn").addEventListener("click", showPeopleScreen_);
+document.getElementById("people-back-btn").addEventListener("click", () => showBusinessScreen());
+document.getElementById("people-add-btn").addEventListener("click", () => openPersonModal_(null));
+document.getElementById("person-modal-close").addEventListener("click", closePersonModal_);
+document.getElementById("person-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "person-modal-backdrop") closePersonModal_();
+});
+document.getElementById("person-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("person-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("person-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const name = document.getElementById("person-name").value.trim();
+    const role = document.getElementById("person-role").value;
+    const friend = editingPerson_
+      ? await callApi("updateFriend", { id: editingPerson_.id, name, role })
+      : await callApi("addFriend", { name, role });
+    rememberPerson_(friend);
+    closePersonModal_();
+    await refreshPeopleList_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("person-debts-btn").addEventListener("click", () => {
+  const person = editingPerson_;
+  if (!person) return;
+  closePersonModal_();
+  openLoanDetail(person.id, person.name, "");
+});
+document.getElementById("person-delete-btn").addEventListener("click", async () => {
+  const person = editingPerson_;
+  if (!person || !confirm(tr("people.confirmDelete", { name: person.name }))) return;
+  try {
+    await callApi("deleteFriend", { id: person.id });
+    meta.friends = (meta.friends || []).filter((f) => f.id !== person.id);
+    closePersonModal_();
+    await refreshPeopleList_();
+  } catch (err) {
+    document.getElementById("person-form-error").textContent = err.message;
   }
 });
 
@@ -10752,10 +10923,93 @@ function populateBusinessOptions_() {
   const sel = document.getElementById("entry-business");
   if (!sel) return;
   populateOverviewScope_(!document.getElementById("screen-overview").hidden);
-  const canLink = businessOn() && (meta.companies || []).length > 0 && (selectedType === "expense" || selectedType === "income");
+  const canLink = businessOn() && (meta.companies || []).length > 0 &&
+    (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
   fillBusinessOptions_(sel, canLink ? sel.value : "");
   document.getElementById("business-field").hidden = !canLink;
+  syncClientButton_();
 }
+
+// The project a Repayment / New loan on the Entries tab belongs to ("" = none); only a project counts there, never a company alone.
+function businessPickProjectId_() {
+  if (!businessOn()) return "";
+  const value = document.getElementById("entry-business").value;
+  return value.startsWith("p:") ? value.slice(2) : "";
+}
+
+// ---- "Client will repay this": an expense I paid for a project that the client will pay back (a 100% split to the client) ----
+
+function businessProjectOfPick_() {
+  const value = document.getElementById("entry-business").value;
+  return value.startsWith("p:") ? (meta.projects || []).find((p) => p.id === value.slice(2)) || null : null;
+}
+
+function syncClientButton_() {
+  const btn = document.getElementById("split-client-btn");
+  if (!btn) return;
+  const show = businessOn() && selectedType === "expense" && !!businessProjectOfPick_();
+  btn.hidden = !show;
+  if (!show) document.getElementById("split-client-select").hidden = true;
+}
+
+// The split becomes: me 0, the client everything. It is the ordinary custom split, so the debt, the repayment and the
+// owner's-share rules are exactly the ones that already exist.
+function applyClientRepays_(personId) {
+  document.getElementById("split-toggle").checked = true;
+  document.getElementById("split-detail").hidden = false;
+  splitFriendIds = new Set([personId]);
+  splitMode = "custom";
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+  customOwnAmount = "0";
+  customSplitAmounts = {};
+  document.getElementById("split-client-select").hidden = true;
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+}
+
+document.getElementById("split-client-btn").addEventListener("click", () => {
+  const project = businessProjectOfPick_();
+  if (!project) return;
+  if (project.client_id && (meta.friends || []).some((f) => f.id === project.client_id)) { applyClientRepays_(project.client_id); return; }
+  // No client on this project: pick who, or add one right here.
+  const sel = document.getElementById("split-client-select");
+  sel.innerHTML = "";
+  const hint = document.createElement("option");
+  hint.value = "";
+  hint.textContent = tr("split.clientPick");
+  sel.appendChild(hint);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && isBusinessPerson_(f))
+    .sort((a, b) => (b.role === "client") - (a.role === "client") || a.name.localeCompare(b.name))
+    .forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = friendLabel_(f);
+      sel.appendChild(o);
+    });
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("business.newClient");
+  sel.appendChild(add);
+  sel.value = "";
+  sel.hidden = false;
+});
+document.getElementById("split-client-select").addEventListener("change", async (e) => {
+  const value = e.target.value;
+  if (!value) return;
+  if (value !== "__new__") { applyClientRepays_(value); return; }
+  const name = prompt(tr("business.newClientPrompt"));
+  if (!name || !name.trim()) { e.target.value = ""; return; }
+  try {
+    const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
+    rememberPerson_(friend);
+    applyClientRepays_(friend.id);
+  } catch (err) {
+    document.getElementById("form-error").textContent = err.message;
+    e.target.value = "";
+  }
+});
+document.getElementById("entry-business").addEventListener("change", syncClientButton_);
 
 function setBusinessPick_(value) {
   const sel = document.getElementById("entry-business");
@@ -11009,7 +11263,7 @@ function renderRecurringSplitFriendChips() {
   plainFriends_().forEach((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = f.name;
+    chip.textContent = friendLabel_(f);
     chip.addEventListener("click", () => {
       if (recurringSplitFriendIds.has(f.id)) {
         recurringSplitFriendIds.delete(f.id);
@@ -12899,8 +13153,41 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
 // forgiving a loan are later Phase 5 steps (see CLAUDE.md's Build phases
 // table); this only reflects loans the split-entry UI already created.
 
+// Business pack: the Loans tab can show everything (default), only debts with no project, or one project's. In memory only.
+let loansScope_ = "";
+
+function populateLoansScope_() {
+  const card = document.getElementById("loans-scope-card");
+  const sel = document.getElementById("loans-scope");
+  const show = businessOn() && (meta.projects || []).length > 0;
+  card.hidden = !show;
+  if (!show) { loansScope_ = ""; return; }
+  sel.innerHTML = "";
+  const add = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  };
+  add("", tr("overview.scopeAll"));
+  add("personal", tr("overview.scopePersonal"));
+  (meta.projects || []).forEach((p) => {
+    const company = (meta.companies || []).find((c) => c.id === p.company_id);
+    add(p.id, company ? `${company.name} › ${p.name}` : p.name);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === loansScope_)) loansScope_ = "";
+  sel.value = loansScope_;
+}
+document.getElementById("loans-scope").addEventListener("change", (e) => { loansScope_ = e.target.value; refreshLoans(); });
+
+function loansScopePayload_() {
+  if (!businessOn() || !loansScope_) return {};
+  return loansScope_ === "personal" ? { personal: true } : { project_id: loansScope_ };
+}
+
 async function refreshLoans() {
-  const balances = await callApi("listLoanBalances", {});
+  populateLoansScope_();
+  const balances = await callApi("listLoanBalances", loansScopePayload_());
 
   // A friend can be owed in one currency and owe in another (e.g. they owe
   // you PEN but you owe them USD), so each section takes only that
@@ -12911,7 +13198,7 @@ async function refreshLoans() {
     .map((b) => {
       const lines = b.balances.filter((l) => sign * l.net > 0);
       const penSize = lines.reduce((sum, l) => sum + (l.net_pen == null ? 0 : Math.abs(l.net_pen)), 0);
-      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, lines, penSize };
+      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, project_ids: b.project_ids || [], lines, penSize };
     })
     .filter((row) => row.lines.length)
     .sort((x, y) => y.penSize - x.penSize);
@@ -12970,16 +13257,25 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
     const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";
+    // Business pack: which projects this person's debts belong to (only while the pack is on).
+    const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}</span>
+      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
-    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name));
+    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name, ""));   // "" = every debt of this person
     list.appendChild(row);
   });
 }
 
-async function openLoanDetail(friendId, friendName) {
+// Business pack: opened from a project screen (projectId set) it shows, and repays, only that project's debts with the person.
+// `undefined` keeps the scope the sheet already had for this person (every internal re-open after a repayment or an edit);
+// the Loans tab passes "" to mean "all of this person's debts".
+let loanDetailScope_ = { friendId: null, projectId: "" };
+
+async function openLoanDetail(friendId, friendName, projectId) {
+  if (projectId === undefined) projectId = loanDetailScope_.friendId === friendId ? loanDetailScope_.projectId : "";
+  loanDetailScope_ = { friendId, projectId };
   // Same pattern every other drill-down uses (see openBudgetDrilldown,
   // openCategoryProjectionDrilldown_) — lets refreshAfterPopupEdit(),
   // below, reload this same friend's sheet after editing a linked
@@ -12987,8 +13283,10 @@ async function openLoanDetail(friendId, friendName) {
   // that a loan detail sheet is what triggered it.
   currentDrilldown = { refetch: () => openLoanDetail(friendId, friendName) };
 
-  const loans = await callApi("getFriendLoanDetail", { friendId });
-  document.getElementById("loan-detail-title").textContent = friendName;
+  let loans = await callApi("getFriendLoanDetail", { friendId });
+  const scopeProject = projectId ? (meta.projects || []).find((p) => p.id === projectId) : null;
+  if (projectId) loans = loans.filter((l) => String(l.project_id || "") === projectId);
+  document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
 
   const outstanding = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
   const netByCurrency = {};
@@ -13012,7 +13310,7 @@ async function openLoanDetail(friendId, friendName) {
   // beyond which currency, when there's more than one.
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
-  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency);
+  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId);
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
@@ -13064,6 +13362,14 @@ async function openLoanDetail(friendId, friendName) {
   backdrop.hidden = false;
 }
 
+// Business pack: the project a debt belongs to, as a small pill after its date. Nothing while the pack is off.
+function loanProjectPillHtml_(l) {
+  if (!businessOn() || !l.project_id) return "";
+  const project = (meta.projects || []).find((p) => p.id === l.project_id);
+  const company = project ? (meta.companies || []).find((c) => c.id === project.company_id) : null;
+  return project ? ` <span class="entry-tag entry-business">${escapeHtml((company ? company.name + " › " : "") + project.name)}</span>` : "";
+}
+
 // Shared by openLoanDetail's two sections (pending / already paid) so a
 // row looks and behaves identically in either — only which list it lands
 // in differs.
@@ -13098,7 +13404,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
@@ -13146,6 +13452,10 @@ async function openLinkedEntryFromLoan_(entryId) {
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
   currentDrilldown = null;
+  loanDetailScope_ = { friendId: null, projectId: "" };
+  // A project screen underneath shows what is owed: it may have just changed.
+  if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+  if (!document.getElementById("screen-business-people").hidden) refreshPeopleList_();
 }
 
 document.getElementById("loan-detail-modal-close").addEventListener("click", closeLoanDetail);
@@ -13174,7 +13484,7 @@ function populateLoanFriendOptions() {
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -13244,10 +13554,32 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
   document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
+  populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
 
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// Business pack: a cash loan may belong to a project (shown only when the pack is on and a project exists).
+function populateLoanProjectOptions_(keep) {
+  const field = document.getElementById("loan-project-field");
+  const sel = document.getElementById("loan-project");
+  const show = businessOn() && (meta.projects || []).length > 0;
+  field.hidden = !show;
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("business.pickNone");
+  sel.appendChild(none);
+  (meta.projects || []).filter((p) => p.status !== "closed" || p.id === keep).forEach((p) => {
+    const company = (meta.companies || []).find((c) => c.id === p.company_id);
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = company ? `${company.name} › ${p.name}` : p.name;
+    sel.appendChild(o);
+  });
+  sel.value = keep || "";
 }
 
 function closeLoanModal() {
@@ -13302,6 +13634,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       payment_method_id: paymentMethodId,
       description
     };
+    if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
     if (editingLoanId) {
       await callApi("updateLoan", { id: editingLoanId, ...fields });
     } else {
@@ -13488,7 +13821,9 @@ async function switchRepaymentCurrency_(currency) {
 
 // `netByCurrency` comes straight from openLoanDetail's own already-loaded
 // loan list (see there) — no extra fetch needed just to open this.
-async function openRepaymentModal(friendId, friendName, netByCurrency) {
+let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
+async function openRepaymentModal(friendId, friendName, netByCurrency, projectId) {
+  repaymentProjectId_ = projectId || "";
   repaymentFriendId = friendId;
   repaymentFriendName = friendName;
   repaymentNetByCurrency = netByCurrency;
@@ -13569,7 +13904,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       currency,
       date,
       payment_method_id: paymentMethodId,
-      description
+      description,
+      project_id: repaymentProjectId_ || undefined   // only that project's debts are paid down (Loans.gs)
     });
 
     refreshEntriesInBackground_();
@@ -13781,7 +14117,7 @@ function populateReviewTransferFriendOptions() {
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
