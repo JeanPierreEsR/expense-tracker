@@ -1530,6 +1530,67 @@ function listLoanBalances(payload) {
   return result;
 }
 
+// Repayment history for one person (owner's request, 2026-10-27): every loan (paid, open, forgiven) with what was
+// really repaid, what was cancelled by an automatic offset and what is left, plus every repayment line, so the
+// balance can be checked by hand. Read-only; amounts stay in each loan's own currency.
+function getFriendRepaymentHistory(payload) {
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var scope = loanProjectScope_(payload);
+  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === payload.friendId && loanInProjectScope_(l, scope); });
+  var loanById = {};
+  loans.forEach(function (l) { loanById[l.id] = l; });
+
+  function label(loan) {
+    if (!loan) return '';
+    return loan.description || (loan.origin === 'entry' ? tr_('label.sharedExpense') : tr_('label.loan'));
+  }
+
+  var settlements = getAllRows('Settlements').filter(function (s) { return loanById[s.loan_id]; });
+  var paidReal = {}, paidOffset = {};
+  settlements.forEach(function (s) {
+    var bucket = s.offset_loan_id ? paidOffset : paidReal;
+    bucket[s.loan_id] = (bucket[s.loan_id] || 0) + Number(s.amount);
+  });
+
+  var loanRows = loans.map(function (l) {
+    var real = paidReal[l.id] || 0, off = paidOffset[l.id] || 0;
+    return {
+      id: l.id, date: l.date, description: label(l), origin: l.origin, direction: l.direction, currency: l.currency,
+      amount: Number(l.amount), paid: real, offset: off, remaining: Math.max(Number(l.amount) - real - off, 0),
+      status: l.status, linked_to_expense: !!(l.origin === 'entry' && l.entry_id)
+    };
+  }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+
+  var lines = settlements.map(function (s) {
+    var loan = loanById[s.loan_id];
+    return {
+      id: s.id, date: s.date, amount: Number(s.amount), currency: loan.currency, direction: loan.direction,
+      is_offset: !!s.offset_loan_id, loan_description: label(loan), loan_date: loan.date,
+      offset_loan_description: s.offset_loan_id ? label(loanById[s.offset_loan_id]) : '',
+      payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id
+    };
+  }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+
+  return { loans: loanRows, repayments: lines };
+}
+
+// People who have loan history but nothing owing either way right now, so they never show on the Loans tab lists.
+function listSettledLoanFriends(payload) {
+  var scope = loanProjectScope_(payload);
+  var active = {};
+  listLoanBalances(payload).forEach(function (b) { active[b.friend_id] = true; });
+  var names = {};
+  getAllRows('Friends').forEach(function (f) { names[f.id] = f.name; });
+  var seen = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (loanInProjectScope_(l, scope) && !active[l.friend_id]) seen[l.friend_id] = true;
+  });
+  return Object.keys(seen)
+    .map(function (id) { return { friend_id: id, friend_name: names[id] || tr_('label.unknownFriend') }; })
+    .sort(function (a, b) { return a.friend_name.toLowerCase() < b.friend_name.toLowerCase() ? -1 : 1; });
+}
+
 // Full loan history for one friend — outstanding, settled, and forgiven —
 // for the Loans tab's per-friend detail. Not filtered or netted; that's
 // what listLoanBalances is for.

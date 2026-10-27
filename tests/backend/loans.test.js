@@ -247,3 +247,51 @@ test("deleting a repaid expense can cancel the repayments instead of keeping the
   assert.equal(loansOf(rt, friend.id).length, 0, "no refund loan");
   assert.equal(rt.rows("Entries").some((e) => e.id === tid), false);
 });
+
+// ---- Repayment history per person ----
+test("repayment history lists every loan and repayment, also for a person who is fully repaid", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const a = cashLoan(rt, data, friend, 50, "2026-01-01");
+  const b = cashLoan(rt, data, friend, 30, "2026-02-01");
+  repay(rt, data, friend, 80);   // pays both, oldest first
+
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.loans.length, 2);
+  assert.equal(h.repayments.length, 2);
+  assert.deepEqual(h.loans.map((l) => [l.amount, l.paid, l.remaining, l.status]).sort(), [[30, 30, 0, "repaid"], [50, 50, 0, "repaid"]]);
+  assert.equal(h.repayments.every((r) => !r.is_offset && r.currency === "PEN"), true);
+  assert.equal(h.repayments.reduce((n, r) => n + r.amount, 0), 80);
+  assert.ok(a.id && b.id);
+});
+
+test("repayment history tells real repayments from automatic offsets", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const owed = cashLoan(rt, data, friend, 50);
+  const iOwe = rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 30, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "I owe" });
+  repay(rt, data, friend, 0.01);   // writes the offset pair between the two loans
+
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  const offsets = h.repayments.filter((r) => r.is_offset);
+  assert.equal(offsets.length, 2, "one offset line on each loan");
+  const owedRow = h.loans.find((l) => l.id === owed.id);
+  assert.equal(owedRow.offset, 30);
+  assert.ok(Math.abs(owedRow.remaining - (50 - 30 - 0.01)) < 0.001);
+  assert.ok(h.loans.find((l) => l.id === iOwe.id).offset === 30);
+});
+
+test("settled people are listed apart from people with a balance", () => {
+  const { rt, data } = freshApp();
+  const settled = newFriend(rt);
+  cashLoan(rt, data, settled, 40);
+  repay(rt, data, settled, 40);
+  const open = newFriend(rt);
+  cashLoan(rt, data, open, 40);
+  const never = newFriend(rt);   // no loans at all: not listed
+
+  const ids = rt.api("listSettledLoanFriends", {}).map((f) => f.friend_id);
+  assert.ok(ids.includes(settled.id));
+  assert.equal(ids.includes(open.id), false);
+  assert.equal(ids.includes(never.id), false);
+});

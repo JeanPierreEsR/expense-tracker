@@ -522,6 +522,11 @@
         <div id="loans-i-owe-list"></div>
         <p class="hint" id="loans-i-owe-empty-note" hidden data-i18n="loans.noneYouOwe">You don't owe anyone right now.</p>
       </div>
+
+      <div class="card" id="loans-settled-card" hidden>
+        <button type="button" class="add-inline loan-detail-paid-toggle" id="loans-settled-toggle"></button>
+        <div id="loans-settled-list" hidden></div>
+      </div>
     </div>
 
     <div id="screen-more" class="screen" hidden>
@@ -1254,11 +1259,29 @@
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
       <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
+      <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
       <div class="currency-option-list" id="loan-detail-list"></div>
       <p class="hint" id="loan-detail-empty-note" hidden data-i18n="loanDetail.empty">No loans with this friend yet.</p>
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+    </div>
+  </div>
+
+  <div id="history-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="history-modal-title"></span>
+        <button type="button" id="history-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="history-net"></p>
+        <h3 data-i18n="history.repayments">Repayments</h3>
+        <div class="currency-option-list" id="history-repayments"></div>
+        <p class="hint" id="history-repayments-empty" hidden data-i18n="history.noRepayments">No repayments recorded with this person yet.</p>
+        <h3 data-i18n="history.loans">Loans</h3>
+        <div class="currency-option-list" id="history-loans"></div>
+      </div>
     </div>
   </div>
 

@@ -13843,6 +13843,7 @@ async function refreshLoans() {
 
   renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
+  renderSettledPeople_();
 }
 
 // "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
@@ -13939,6 +13940,8 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // on its own which loan(s) an amount actually applies to (see
   // openRepaymentModal, below), so there's nothing left to pick here
   // beyond which currency, when there's more than one.
+  document.getElementById("loan-history-btn").onclick = () =>
+    openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
   repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
@@ -14129,6 +14132,102 @@ async function deleteOrphanLoan_(l, friend) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+// ---- Repayment history (owner's request, 2026-10-27) ----
+// Every repayment with one person, newest first, and every loan with what was repaid / offset / left, so the
+// balance on the person's screen can be checked line by line. Opens from that screen, also for fully repaid people.
+async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
+  document.getElementById("history-modal-title").textContent = tr("history.title", { name: friendName });
+  document.getElementById("history-net").textContent = netText || "";
+  const repEl = document.getElementById("history-repayments");
+  const loanEl = document.getElementById("history-loans");
+  repEl.innerHTML = "";
+  loanEl.innerHTML = "";
+  const backdrop = document.getElementById("history-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+
+  let h;
+  try {
+    h = await callApi("getFriendRepaymentHistory", { friendId, project_id: projectId || undefined });
+  } catch (err) {
+    repEl.textContent = err.message;
+    return;
+  }
+  const money = (cur, n) => `${cur} ${moneyFmt(n)}`;
+  const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : ""; };
+
+  document.getElementById("history-repayments-empty").hidden = h.repayments.length > 0;
+  h.repayments.forEach((r) => {
+    const row = document.createElement("div");
+    row.className = "loan-detail-row";
+    const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
+    const where = r.is_offset
+      ? tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })
+      : tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date });
+    const acct = !r.is_offset && r.payment_method_id ? " · " + escapeHtml(pmName(r.payment_method_id)) : "";
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${r.date} · ${kind}</span>
+        <span class="loan-detail-row-amount ${r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${where}${acct}</div>`;
+    repEl.appendChild(row);
+  });
+
+  h.loans.forEach((l) => {
+    const row = document.createElement("div");
+    row.className = "loan-detail-row";
+    const parts = [
+      tr(l.direction === "they_owe_me" ? "history.loanLine" : "history.loanLineOwe", { amount: money(l.currency, l.amount) }),
+      l.paid > 0.004 ? tr("history.repaid", { amount: money(l.currency, l.paid) }) : "",
+      l.offset > 0.004 ? tr("history.offsetAmt", { amount: money(l.currency, l.offset) }) : "",
+      l.status === "forgiven" ? "" : tr("history.left", { amount: money(l.currency, l.remaining) })
+    ].filter(Boolean).join(" · ");
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(l.description)}</span>
+        <span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${tr("history.status." + l.status)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
+    loanEl.appendChild(row);
+  });
+}
+
+document.getElementById("history-modal-close").addEventListener("click", () => {
+  document.getElementById("history-modal-backdrop").hidden = true;
+});
+document.getElementById("history-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "history-modal-backdrop") e.currentTarget.hidden = true;
+});
+
+// People with loan history but nothing owing: a collapsed list at the bottom of the Loans tab, so their history can still be opened.
+async function renderSettledPeople_() {
+  const card = document.getElementById("loans-settled-card");
+  const toggle = document.getElementById("loans-settled-toggle");
+  const list = document.getElementById("loans-settled-list");
+  let people = [];
+  try {
+    people = await callApi("listSettledLoanFriends", loansScopePayload_());
+  } catch (err) {
+    people = [];
+  }
+  card.hidden = people.length === 0;
+  list.innerHTML = "";
+  list.hidden = true;
+  toggle.textContent = tr("loans.settledPeople", { n: people.length });
+  toggle.onclick = () => {
+    list.hidden = !list.hidden;
+    toggle.textContent = list.hidden ? tr("loans.settledPeople", { n: people.length }) : tr("loans.hideSettledPeople");
+  };
+  people.forEach((f) => {
+    const row = document.createElement("div");
+    row.className = "balance-row";
+    row.innerHTML = `<div class="balance-row-name">${escapeHtml(f.friend_name)}<span class="loan-detail-row-chevron">›</span></div>`;
+    row.addEventListener("click", () => openLoanDetail(f.friend_id, f.friend_name));
+    list.appendChild(row);
+  });
 }
 
 function closeLoanDetail() {
