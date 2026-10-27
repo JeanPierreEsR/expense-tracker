@@ -8647,7 +8647,8 @@ function renderNotauto_(data) {
   document.getElementById("notauto-empty").hidden = kinds.length > 0 || unread.length > 0;
   document.getElementById("notauto-unread").hidden = !unread.length;
   document.getElementById("notauto-unread-list").innerHTML = unread.map((u) => {
-    const meta = tr("notauto.unread.count", { n: u.count }) + " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) });
+    // An older backend may still hand the date back in a form that is not yyyy-mm-dd: then say nothing rather than "Invalid Date".
+    const meta = tr("notauto.unread.count", { n: u.count }) + (/^\d{4}-\d{2}-\d{2}$/.test(u.last || "") ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) }) : "");
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(u.subject || u.sender)}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
