@@ -10983,7 +10983,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
-        else openPaidPicker_(item, g.currency);
+        else openPaidPicker_(item, g.currency, isIncome);
       });
     });
 
@@ -11019,7 +11019,7 @@ async function skipRecurringThisMonth_(item) {
 // "Mark as paid…": a manual override for when automatic matching (same
 // category and currency, about the same amount, within a few days) missed the
 // real payment. Pick the entry that paid it; automatic matching stays on.
-async function openPaidPicker_(item, currency) {
+async function openPaidPicker_(item, currency, isIncome) {
   const backdrop = document.getElementById("paid-picker-modal-backdrop");
   const list = document.getElementById("paid-picker-list");
   const errorEl = document.getElementById("paid-picker-error");
@@ -11035,9 +11035,30 @@ async function openPaidPicker_(item, currency) {
   const acct = document.getElementById("paid-new-account");
   acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
     ((meta && meta.paymentMethods) || []).filter((p) => !p.archived).map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  // The item's saved split, if any, is offered ticked; friends' shares scale with the amount typed.
+  let savedSplits = [];
+  const splitRow = document.getElementById("paid-new-split-row");
+  splitRow.hidden = true;
+  document.getElementById("paid-new-split").checked = true;
+  if (!isIncome) {
+    callApi("getRecurringExpenseSplits", { recurringExpenseId: item.id }).then((sp) => {
+      savedSplits = (sp || []).filter((s) => s.amount > 0);
+      if (!savedSplits.length) return;
+      const names = savedSplits.map((s) => ((meta.friends || []).find((f) => f.id === s.friend_id) || {}).name).filter(Boolean).join(", ");
+      document.getElementById("paid-new-split-text").textContent = tr("paid.newSplit", { names });
+      splitRow.hidden = false;
+    }).catch(() => {});
+  }
   document.getElementById("paid-new-save").onclick = async () => {
     try {
+      const typed = Number(document.getElementById("paid-new-amount").value);
+      const savedTotal = savedSplits.reduce((t, s) => t + s.amount, 0);
+      const useSplit = savedSplits.length && document.getElementById("paid-new-split").checked;
+      const splits = useSplit
+        ? savedSplits.map((s) => ({ friend_id: s.friend_id, amount: Math.round(s.amount * Math.min(1, typed / Math.max(item.amount, savedTotal)) * 100) / 100 }))
+        : [];
       await callApi("recordRecurringPayment", {
+        splits,
         recurringExpenseId: item.id,
         amount: Number(document.getElementById("paid-new-amount").value),
         date: document.getElementById("paid-new-date").value,

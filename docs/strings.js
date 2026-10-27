@@ -663,6 +663,7 @@
     "paid.newAccount": { en: "Account (optional)", es: "Cuenta (opcional)" },
     "paid.newNoAccount": { en: "No account", es: "Sin cuenta" },
     "paid.newSave": { en: "Record as paid", es: "Registrar como pagado" },
+    "paid.newSplit": { en: "Split with {names} (same share as the programmed item)", es: "Dividir con {names} (misma parte que el movimiento programado)" },
     "paid.orPick": { en: "Or pick an entry you already logged", es: "O elige un movimiento que ya registraste" },
     "paid.mostSimilar": { en: "Most similar", es: "Más parecidos" },
     "paid.allMonth": { en: "All of the month, by date", es: "Todo el mes, por fecha" },

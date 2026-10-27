@@ -312,3 +312,13 @@ test("Mark as paid can record a brand-new entry from the item and counts it as p
   assert.ok(!expectedIds(rt).includes(r.id), "item now counted as paid");
   assert.throws(() => rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 0, date: ym() + "-03" }));
 });
+
+test("Mark as paid carries the split to the new entry and creates the loan", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data, { day: 28, amount: 100 });
+  const f = rt.api("addFriend", { name: "Ana Lo" });
+  const e = rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 100, date: ym() + "-03", splits: [{ friend_id: f.id, amount: 40 }] });
+  const loans = jr(rt, `getAllRows('Loans').filter(function (l) { return l.entry_id === ${JSON.stringify(e.id)}; })`);
+  assert.equal(loans.length, 1);
+  assert.equal(Number(loans[0].amount), 40);
+});

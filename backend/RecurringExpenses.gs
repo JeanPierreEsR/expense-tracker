@@ -1080,8 +1080,8 @@ function linkEntryToRecurring(payload) {
 // "Mark as paid" when nothing was logged yet: records the payment itself as a
 // confirmed entry made from the item (its category, description, currency and
 // trip; the amount and date the owner confirms) and links it to the item, so
-// the item counts as paid. Splits are not copied (same rule as a confirmed
-// entry from an email — see the Recurring Expense Splits note).
+// the item counts as paid. Splits are carried only when the form sends them (same rule as a confirmed
+// entry from an email). Splits: the form sends the item's saved split (scaled to the amount) unless unticked.
 function recordRecurringPayment(payload) {
   var item = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.recurringExpenseId; });
   if (!item) throw new Error(tr_('err.recurringNotFound'));
@@ -1097,6 +1097,8 @@ function recordRecurringPayment(payload) {
     trip_id: type === 'expense' ? item.trip_id : ''
   });
   adminLinkEntryToRecurring(entry.id, item.id);
+  // The split the owner sees (and may untick) in the form: friends owe their share as for any entry.
+  if (type === 'expense' && payload.splits && payload.splits.length) saveEntrySplits(entry.id, payload.splits);
   return entry;
 }
 
