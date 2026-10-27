@@ -928,6 +928,12 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
   return '';
 }
 
+// True when the text begins with one of the reply field keywords (a lone
+// keyword counts too, so "split" alone stays "not understood").
+function startsWithEditKeyword_(text) {
+  return new RegExp('^' + EDIT_FIELD_KEYWORDS_RE, 'i').test(String(text).trim() + ' ');
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
@@ -937,6 +943,11 @@ function applyEditCommand_(entryId, text) {
   var appliedFields = [];
   var failedSegments = [];
   var statusBefore = (getEntryById_(entryId) || {}).status;
+
+  // No field keyword at the start ("Uber to the airport"): the person meant
+  // the description, so say it for them. A message that DOES start with a
+  // keyword is untouched, so a typo in its value is still reported.
+  if (!startsWithEditKeyword_(text)) text = 'description ' + String(text).trim();
 
   withWriteBatch_(function () {
     var previousField = null;
