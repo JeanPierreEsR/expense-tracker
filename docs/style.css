@@ -3125,7 +3125,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .business-expected-card .business-expected-row.overdue .recurring-row-sub { color: #c77a12; }
 .settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.85rem; }
 .settle-choose-row span { flex: 1; }
-.settle-choose-row input { width: 96px; }
+.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.settle-choose-row span { min-width: 0; }
+.settle-choose-assigned { flex: none !important; font-weight: 600; white-space: nowrap; }
 
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
