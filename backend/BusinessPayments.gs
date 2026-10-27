@@ -71,6 +71,7 @@ function expectedViews_(rows, today) {
       company_id: project.company_id || '', company_name: company.name || '', company_emoji: company.emoji || '',
       client_id: x.client_id || '', client_name: (people[x.client_id] || {}).name || '',
       amount: Number(x.amount), currency: x.currency, due_date: x.due_date, invoice_no: x.invoice_no || '', note: x.note || '',
+      igv_included: String(x.igv_included || '') === 'yes',
       status: x.status || 'open', paid: got, remaining: state === 'open' ? remaining : 0, state: state,
       overdue: state === 'open' && String(x.due_date) < today
     };
@@ -103,7 +104,9 @@ function cleanExpectedInput_(p) {
   return {
     project_id: String(project.id), client_id: clientId, amount: round2_(amount), currency: currency,
     due_date: String(p.due_date), invoice_no: String(p.invoice_no || '').trim().substring(0, 60),
-    note: String(p.note || '').trim().substring(0, 200)
+    note: String(p.note || '').trim().substring(0, 200),
+    // Step 3B: the invoice amount includes IGV. Only a reminder for the income form ("Received" turns its IGV switch on).
+    igv_included: (p.igv_included === true || p.igv_included === 'yes') ? 'yes' : ''
   };
 }
 

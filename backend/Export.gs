@@ -30,7 +30,7 @@ var EXPORT_BACKUP_TABS_ = [
   'Exchange Rates', 'Friends', 'Payors', 'Loans', 'Settlements', 'Budgets',
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
   'Projection Overrides', 'Period Templates', 'Import Batches',
-  'Companies', 'Projects', 'Project Budgets', 'Expected Payments'   // Business pack: always included when they exist, whatever the switch says
+  'Companies', 'Projects', 'Project Budgets', 'Expected Payments', 'IGV Payments'   // Business pack: always included when they exist, whatever the switch says
 ];
 
 var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per message
@@ -180,7 +180,7 @@ function buildEntriesCsv_(opts) {
   // Business pack: two more columns (after Trip / event) only while it is on, so a personal-only file is exactly what it was.
   var business = businessOn_();
   var headers = EXPORT_CSV_HEADERS_.slice();
-  if (business) headers.splice(headers.indexOf('trip') + 1, 0, 'company', 'project');
+  if (business) headers.splice(headers.indexOf('trip') + 1, 0, 'company', 'project', 'igv');
   var companiesById = business ? rowsById_(getCompanyRows_()) : {};
   var projectsById = business ? rowsById_(getProjectRows_()) : {};
   var lines = [headers.map(function (h) { return csvCell_(tr_('export.h.' + h, { home: homeCurrency_() })); }).join(',')];
@@ -232,7 +232,8 @@ function buildEntriesCsv_(opts) {
       var project = projectsById[e.project_id];
       row.splice(headers.indexOf('company'), 0,
         csvCell_(company ? company.name : (project && companiesById[project.company_id] ? companiesById[project.company_id].name : '')),
-        csvCell_(project ? project.name : ''));
+        csvCell_(project ? project.name : ''),
+        Number(e.igv_amount) > 0 ? exportMoney_(Number(e.igv_amount)) : '');   // the IGV inside the amount, in the entry's currency
     }
     lines.push(row.join(','));
   });

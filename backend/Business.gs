@@ -16,11 +16,13 @@
 
 // Created on first use (not in TABLE_DEFINITIONS, so a copy that never opts in never gets these tabs).
 var BUSINESS_TABLES_ = {
-  'Companies': ['id', 'name', 'emoji'],
+  'Companies': ['id', 'name', 'emoji', 'igv_enabled', 'tax_id'],   // step 3B: "Charges IGV" ('yes' or blank) and a text-only Tax ID (RUC)
   'Projects': ['id', 'company_id', 'name', 'emoji', 'status', 'client_id'],
   'Project Budgets': ['id', 'project_id', 'currency', 'amount'],
   // Step 3A: money a client still owes on a project (a reminder, never income). due_date is text (see DATE_LIKE_COLUMNS).
-  'Expected Payments': ['id', 'project_id', 'client_id', 'amount', 'currency', 'due_date', 'invoice_no', 'note', 'status']
+  'Expected Payments': ['id', 'project_id', 'client_id', 'amount', 'currency', 'due_date', 'invoice_no', 'note', 'status', 'igv_included'],
+  // Step 3B: IGV paid to the tax office. Information only (never an expense, never touches an account); `date` is text.
+  'IGV Payments': ['id', 'company_id', 'date', 'amount', 'currency', 'note']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };
@@ -52,7 +54,14 @@ function ensureBusinessSheets_() {
     sheet.setFrozenRows(1);
     // A date written as text must stay text (Sheets would turn "2026-11-15" into a Date).
     if (name === 'Expected Payments') sheet.getRange(1, headers.indexOf('due_date') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    if (name === 'IGV Payments') sheet.getRange(1, headers.indexOf('date') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    if (name === 'Companies') sheet.getRange(1, headers.indexOf('tax_id') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
   });
+  // Step 3B on a copy whose Companies / Expected Payments tabs already existed (the columns are added on first use).
+  ensureBusinessColumn_('Companies', 'igv_enabled', false);
+  ensureBusinessColumn_('Companies', 'tax_id', true);        // a RUC is text: Sheets must never turn it into a number
+  ensureBusinessColumn_('Expected Payments', 'igv_included', false);
+  ensureBusinessColumn_('Entries', 'igv_amount', false);     // the IGV inside an expense's / income's amount (blank = none)
   ensureColumn_('Entries', 'company_id');
   ensureColumn_('Entries', 'expected_payment_id');   // step 3A: the expected payment an income entry settles
   ensureColumn_('Entries', 'project_id');
@@ -60,6 +69,21 @@ function ensureBusinessSheets_() {
   ensureColumn_('Friends', 'role');
   ensureColumn_('Loans', 'project_id');
   ensureColumn_('Projects', 'client_id');   // the person who repays this project's reimbursable costs (optional)
+}
+
+// Adds one column to an existing tab (a text one is formatted as plain text so a number-like value keeps its form).
+function ensureBusinessColumn_(sheetName, header, asText) {
+  var sheet = getSheet(sheetName);
+  var headers = getHeaders(sheet);
+  if (headers.indexOf(header) !== -1) return;
+  ensureColumn_(sheetName, header);
+  if (asText) sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+}
+
+// IGV rate in percent (Peru's is 18). A Settings row `igv_rate` can change it; anything unusable falls back to 18.
+function igvRate_() {
+  var n = Number(getSettingsMap().igv_rate);
+  return isFinite(n) && n > 0 && n < 100 ? n : 18;
 }
 
 // The switch itself (More → Business features, welcome question). Turning it off keeps every row.
@@ -123,12 +147,23 @@ function businessLinkFor_(type, projectId, companyId) {
   return company ? { project_id: '', company_id: String(company.id) } : none;
 }
 
+// The IGV inside an entry's amount: only an expense or income that belongs to a company, a positive number smaller than the
+// amount, rounded to cents. Blank means none. A figure that cannot be right is refused with a plain sentence (never guessed).
+function cleanIgv_(type, amount, link, raw) {
+  if (!businessOn_() || !link || !link.company_id || (type !== 'expense' && type !== 'income')) return '';
+  if (raw === '' || raw === null || raw === undefined) return '';
+  var n = Number(raw);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n >= Math.abs(Number(amount))) throw new Error(tr_('business.errIgv'));
+  return round2_(n);
+}
+
 // The fields of an entry update, with the business link cleaned. The app sends BOTH keys whenever it touches the link
 // (a missing one counts as blank). A conversion to a type that cannot carry a link (transfer, investment) clears it
 // whether or not the pack is on, so a hidden label never survives on the wrong kind of entry.
 function businessFieldsForUpdate_(entryId, fields) {
   fields = fields || {};
-  var touches = fields.project_id !== undefined || fields.company_id !== undefined || fields.expected_payment_id !== undefined;
+  var touches = fields.project_id !== undefined || fields.company_id !== undefined || fields.expected_payment_id !== undefined || fields.igv_amount !== undefined;
   var typeChanges = fields.type !== undefined && fields.type !== 'expense' && fields.type !== 'income';
   var leavesIncome = fields.type !== undefined && fields.type !== 'income';   // an expense / transfer / investment settles nothing
   if (!touches && !typeChanges && !leavesIncome) return fields;
@@ -136,11 +171,13 @@ function businessFieldsForUpdate_(entryId, fields) {
   delete out.project_id;
   delete out.company_id;
   delete out.expected_payment_id;
+  delete out.igv_amount;
   var headers = getHeaders(getSheet('Entries'));
   var hasColumns = headers.indexOf('project_id') !== -1 && headers.indexOf('company_id') !== -1;
   if (typeChanges) {
     if (hasColumns) { out.project_id = ''; out.company_id = ''; }
     if (headers.indexOf('expected_payment_id') !== -1) out.expected_payment_id = '';
+    if (headers.indexOf('igv_amount') !== -1) out.igv_amount = '';   // only an expense or income carries IGV
     return out;
   }
   if (leavesIncome && !touches) {                 // an expense no longer settles anything
@@ -158,6 +195,10 @@ function businessFieldsForUpdate_(entryId, fields) {
   var expectedId = fields.expected_payment_id !== undefined ? fields.expected_payment_id : (existing && existing.expected_payment_id);
   var currency = fields.currency || (existing && existing.currency);
   out.expected_payment_id = leavesIncome ? '' : expectedLinkFor_(type, expectedId, link.project_id, currency);
+  // IGV: what the form sent, else what the entry already had; dropped when the entry is no longer a company's.
+  var igvRaw = fields.igv_amount !== undefined ? fields.igv_amount : (existing && existing.igv_amount);
+  var amount = fields.amount !== undefined ? fields.amount : (existing && existing.amount);
+  out.igv_amount = cleanIgv_(type, amount, link, igvRaw);
   return out;
 }
 
@@ -185,7 +226,15 @@ function cleanCompanyInput_(p, ownId) {
       throw new Error(tr_('business.errCompanyExists'));
     }
   });
-  return { name: name, emoji: String(p.emoji || '').trim() };
+  var out = { name: name, emoji: String(p.emoji || '').trim() };
+  // Step 3B. A key left out of the payload leaves the stored value alone (older phones never send them).
+  if (p.igv_enabled !== undefined) out.igv_enabled = (p.igv_enabled === true || p.igv_enabled === 'yes') ? 'yes' : '';
+  if (p.tax_id !== undefined) out.tax_id = String(p.tax_id || '').trim().replace(/\s+/g, ' ').substring(0, 30);
+  return out;
+}
+
+function companyChargesIgv_(company) {
+  return !!company && String(company.igv_enabled || '') === 'yes';
 }
 
 function cleanBudgetsInput_(list) {
@@ -251,6 +300,8 @@ function deleteCompany(payload) {
   if (!companyById_(id)) throw new Error(tr_('business.companyNotFound'));
   var hasProjects = getProjectRows_().some(function (p) { return String(p.company_id) === id; });
   if (hasProjects || entriesUsing_('company_id', id) > 0) throw new Error(tr_('business.errCompanyInUse'));
+  ensureBusinessSheets_();
+  deleteRowsWhere_('IGV Payments', function (row) { return String(row.company_id) === id; });   // information-only records go with it
   deleteRowsWhere_('Companies', function (row) { return String(row.id) === id; });
   return { done: true };
 }
@@ -351,9 +402,19 @@ function businessRows_(match, startDate, endDate) {
     if (endDate && e.date > endDate) return;
     if (!match(e)) return;
     var own = e.type === 'expense' ? Number(e.amount) - (splitSum[e.id] || 0) : Number(e.amount);
-    rows.push({ entry: e, own: own, currency: e.currency || homeCurrency_() });
+    rows.push({ entry: e, own: own, igv: igvShareOf_(e, own), currency: e.currency || homeCurrency_() });
   });
   return rows;
+}
+
+// The IGV inside the owner's share of an entry: all of it on an income, the owner's fraction of it on a split expense (the
+// client who repays part of a cost carries that part of its IGV too). Never more than the share itself.
+function igvShareOf_(e, own) {
+  var igv = Number(e.igv_amount);
+  var amount = Number(e.amount);
+  if (!isFinite(igv) || igv <= 0 || !(amount > 0)) return 0;
+  var share = e.type === 'expense' ? igv * (own / amount) : igv;
+  return Math.max(0, Math.min(round2_(share), own));
 }
 
 function orderedCurrencies_(map) {
@@ -369,13 +430,15 @@ function orderedCurrencies_(map) {
 function businessTotals_(rows, budgetByCurrency) {
   var cur = {};
   var approx = { income: 0, costs: 0, missing: 0 };
+  // Step 3B: every figure here is WITHOUT IGV (the entry's own amount minus the IGV inside it); the IGV is reported apart.
   rows.forEach(function (r) {
-    var c = cur[r.currency] || (cur[r.currency] = { currency: r.currency, income: 0, costs: 0 });
+    var c = cur[r.currency] || (cur[r.currency] = { currency: r.currency, income: 0, costs: 0, igvIn: 0, igvOut: 0 });
     var isCost = r.entry.type === 'expense';
-    if (isCost) c.costs += r.own; else c.income += r.own;
+    var net = r.own - (r.igv || 0);
+    if (isCost) { c.costs += net; c.igvOut += r.igv || 0; } else { c.income += net; c.igvIn += r.igv || 0; }
     var rate = getRateForEntryCurrency_(r.currency, r.entry.date);
     if (rate == null) { approx.missing++; return; }
-    if (isCost) approx.costs += r.own * rate; else approx.income += r.own * rate;
+    if (isCost) approx.costs += net * rate; else approx.income += net * rate;
   });
   budgetByCurrency = budgetByCurrency || {};
   Object.keys(budgetByCurrency).forEach(function (k) {
@@ -384,6 +447,8 @@ function businessTotals_(rows, budgetByCurrency) {
   var currencies = orderedCurrencies_(cur).map(function (k) {
     var c = cur[k];
     var out = { currency: k, income: round2_(c.income), costs: round2_(c.costs), margin: round2_(c.income - c.costs), budget: null, budgetPct: null };
+    // Only when some entry in this currency carries IGV, so a screen without any looks exactly as before.
+    if (c.igvIn > 0.004 || c.igvOut > 0.004) out.igv = { collected: round2_(c.igvIn), credit: round2_(c.igvOut), position: round2_(c.igvIn - c.igvOut) };
     if (budgetByCurrency[k] > 0) {
       out.budget = budgetByCurrency[k];
       out.budgetPct = Math.round(c.costs / budgetByCurrency[k] * 100);
@@ -404,7 +469,7 @@ function businessByCategory_(rows) {
   rows.forEach(function (r) {
     var byCur = acc[r.entry.type][r.currency] || (acc[r.entry.type][r.currency] = {});
     var id = r.entry.category_id || '';
-    byCur[id] = (byCur[id] || 0) + r.own;
+    byCur[id] = (byCur[id] || 0) + r.own - (r.igv || 0);   // without IGV, like the cards above it
   });
   var out = { expense: {}, income: {} };
   ['expense', 'income'].forEach(function (type) {
