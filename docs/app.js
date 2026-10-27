@@ -901,6 +901,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populateToPaymentMethodOptions();
   populateTags();
   populateTripOptions_();
+  populateBusinessOptions_();
   renderSplitFriendChips();
 }
 
@@ -1480,6 +1481,7 @@ function toggleSplitFieldVisibility() {
   // Only an expense can belong to a trip or event, so the picker follows the same rule.
   document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
   if (!show) document.getElementById("entry-trip").value = "";
+  populateBusinessOptions_();   // an expense or an income may belong to a company / project
 }
 
 function resetSplitState() {
@@ -2174,6 +2176,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
+    // rather than silently losing the label or recording money that has not moved.
+    if ((businessLink.project_id || businessLink.company_id) && !editingEntryId && !confirmingPendingId && date > todayLocalISO()) {
+      throw new Error(tr("business.futureNotYet"));
+    }
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -2262,7 +2270,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           paid_by: paidBy,
           payment_method_id: usesPaymentMethod ? paymentMethodId : "",
           to_payment_method_id: toPaymentMethodId,
-          trip_id: tripId
+          trip_id: tripId,
+          ...businessLink
         }
       });
       const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
@@ -2296,7 +2305,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       };
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -2356,7 +2366,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         tag_ids: tagIds,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       });
       if (created.guessed_category_name) {
         lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
@@ -2404,6 +2415,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
+    setBusinessPick_("");                               // same for the company / project
     repaymentFriendTouched_ = false;
     resetSplitState();
 
@@ -2605,7 +2617,7 @@ function paidByLabel(entryOrPaidBy) {
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
-  const tripPill = tripPillHtml_(entry);
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry);
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -3080,7 +3092,8 @@ function captureEntryDraft_() {
     toPaymentMethodId: document.getElementById("to_payment_method").value,
     date: entryDateTouched_ ? document.getElementById("date").value : "",
     tagIds: [...selectedTagIds],
-    tripId: document.getElementById("entry-trip").value
+    tripId: document.getElementById("entry-trip").value,
+    businessPick: document.getElementById("entry-business").value
   };
 }
 
@@ -3136,6 +3149,7 @@ function restoreEntryDraft_() {
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(d.tripId);
+  setBusinessPick_(d.businessPick);
   showFormNotice_(tr("entry.draftRestored"));
   return true;
 }
@@ -3279,6 +3293,7 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
+  setBusinessPick_(businessPickValue_(entry));
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -3301,6 +3316,7 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
+  setBusinessPick_("");
   resetSplitState();
 }
 
@@ -10590,8 +10606,99 @@ document.getElementById("project-delete-btn").addEventListener("click", async ()
   }
 });
 
-// The entry form's picker arrives in a later slice; until then this only keeps the lists tidy.
-function populateBusinessOptions_() {}
+// ---- The entry form's "Company / project" picker, and the pill on entry rows ----
+// Values: "" = personal, "c:<id>" = a company only (no project), "p:<id>" = a project (which implies its company).
+
+function businessPickValue_(entry) {
+  if (entry.project_id) return "p:" + entry.project_id;
+  return entry.company_id ? "c:" + entry.company_id : "";
+}
+
+// Newest use first, from the phone's own search copy (when it has loaded); alphabetical otherwise.
+function businessLastUsed_() {
+  const last = {};
+  (searchIndex || []).forEach((e) => {
+    [["p:", e.project_id], ["c:", e.company_id]].forEach(([prefix, id]) => {
+      if (id && (!last[prefix + id] || e.date > last[prefix + id])) last[prefix + id] = e.date;
+    });
+  });
+  return last;
+}
+
+// Fills the picker and keeps `keep` chosen (a closed project stays listed only while it is the one chosen).
+function fillBusinessOptions_(sel, keep) {
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("business.pickNone");
+  sel.appendChild(none);
+  const last = businessLastUsed_();
+  const recent = (a, b, key) => (last[key(b)] || "").localeCompare(last[key(a)] || "") || a.name.localeCompare(b.name);
+  (meta.companies || []).slice().sort((a, b) => recent(a, b, (x) => "c:" + x.id)).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    const only = document.createElement("option");
+    only.value = "c:" + c.id;
+    only.textContent = tr("business.companyLevel");
+    group.appendChild(only);
+    (meta.projects || []).filter((p) => p.company_id === c.id && (p.status !== "closed" || keep === "p:" + p.id))
+      .sort((a, b) => recent(a, b, (x) => "p:" + x.id))
+      .forEach((p) => {
+        const o = document.createElement("option");
+        o.value = "p:" + p.id;
+        o.textContent = projectLabel_(p);
+        group.appendChild(o);
+      });
+    sel.appendChild(group);
+  });
+  sel.value = Array.from(sel.options).some((o) => o.value === keep) ? keep : "";
+}
+
+// Rebuilds the picker (keeping what is chosen) and shows it only for an expense or income, once a company exists.
+function populateBusinessOptions_() {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  const canLink = businessOn() && (meta.companies || []).length > 0 && (selectedType === "expense" || selectedType === "income");
+  fillBusinessOptions_(sel, canLink ? sel.value : "");
+  document.getElementById("business-field").hidden = !canLink;
+}
+
+function setBusinessPick_(value) {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  value = value || "";
+  fillBusinessOptions_(sel, value);
+  // A company or project this phone has not heard of yet (made on another device): keep it rather than silently clearing it on save.
+  if (value && !Array.from(sel.options).some((o) => o.value === value)) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = "—";
+    sel.appendChild(o);
+    sel.value = value;
+  }
+}
+
+// What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else both keys.
+function businessLinkFields_() {
+  if (!businessOn() || (selectedType !== "expense" && selectedType !== "income")) return {};
+  const value = document.getElementById("entry-business").value;
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "" };
+  }
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2) };
+  return { project_id: "", company_id: "" };
+}
+
+// The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
+function businessPillHtml_(entry) {
+  if (!businessOn() || !(entry.project_id || entry.company_id)) return "";
+  const project = entry.project_id ? (meta.projects || []).find((p) => p.id === entry.project_id) : null;
+  const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
+  if (!company && !project) return "";
+  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
+  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>`;
+}
 
 // ---- Recurring income/expenses ----
 
