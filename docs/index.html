@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.3.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.4.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-27T17:10:47Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-27T17:27:39Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1389,6 +1389,23 @@
     </div>
   </div>
 
+  <div id="repay-choice-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="repay-choice-title"></span>
+        <button type="button" id="repay-choice-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="repay-choice-text"></p>
+        <button type="button" class="primary" id="repay-choice-keep"></button>
+        <p class="hint" id="repay-choice-keep-hint"></p>
+        <button type="button" class="delete-entry-btn" id="repay-choice-cancel"></button>
+        <p class="hint" id="repay-choice-cancel-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="repay-choice-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -2666,19 +2683,19 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="i18n.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="tour-scenes.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="signin-link.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="bank-sample.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="perf-share.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="receipt-parse.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="receipt-fields.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="bill-split.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="app.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="statement-sample.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="statement-table.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="statement-parsers.js?v=2026-10-27T17:10:47Z"></script>
-  <script src="statements.js?v=2026-10-27T17:10:47Z"></script>
+  <script src="strings.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="i18n.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="tour-scenes.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="signin-link.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="bank-sample.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="perf-share.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="receipt-parse.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="receipt-fields.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="bill-split.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="app.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="statement-sample.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="statement-table.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="statement-parsers.js?v=2026-10-27T17:27:39Z"></script>
+  <script src="statements.js?v=2026-10-27T17:27:39Z"></script>
 </body>
 </html>

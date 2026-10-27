@@ -103,13 +103,13 @@ var BACKEND_STRINGS_ = {
   // ---- loan ----
   "loan.missingFriend": { en: "Missing friend.", es: "Falta el amigo." },
   "loan.fromSharedEdit": { en: "This loan came from a shared expense — edit that entry instead.", es: "Este préstamo viene de un gasto compartido: edita ese movimiento." },
-  "loan.repaymentLocked": { en: "This loan already has a repayment recorded — you can't change its friend, direction or currency.", es: "Este préstamo ya tiene un repago registrado: no puedes cambiar su amigo, dirección ni moneda." },
+  "loan.repaymentLocked": { en: "This loan already has a repayment recorded — to change its friend, direction or currency, first move its repayments to another loan or delete them.", es: "Este préstamo ya tiene un repago registrado: para cambiar su amigo, dirección o moneda, primero mueve sus repagos a otro préstamo o elimínalos." },
   "loan.refundDescription": { en: "Refund: {what} was deleted, {friend} had repaid {cur} {amount}", es: "Reembolso: se eliminó {what}, {friend} había repagado {cur} {amount}" },
   "loan.fromSharedDelete": { en: "This loan came from a shared expense — delete that entry instead.", es: "Este préstamo viene de un gasto compartido: elimina ese movimiento." },
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
   "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
-  "loan.amountBelowSettled": { en: "This loan already has {settled} in repayments — the amount can't be lower than that.", es: "Este préstamo ya tiene {settled} en repagos: el monto no puede ser menor." },
+  "loan.amountBelowSettled": { en: "This loan already has {settled} in repayments — the amount can't be lower than that. Move or lower a repayment first.", es: "Este préstamo ya tiene {settled} en repagos: el monto no puede ser menor. Mueve o baja un repago primero." },
 
   // ---- convert ----
   "convert.gone": { en: "That entry no longer exists — it may already have been converted.", es: "Ese movimiento ya no existe: puede que ya se haya convertido." },
