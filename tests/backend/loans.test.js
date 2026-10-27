@@ -258,10 +258,11 @@ test("repayment history lists every loan and repayment, also for a person who is
 
   const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
   assert.equal(h.loans.length, 2);
-  assert.equal(h.repayments.length, 2);
+  assert.equal(h.repayments.length, 1, "one repayment of 80, however many loans it paid");
+  assert.equal(h.repayments[0].amount, 80);
+  assert.deepEqual(h.repayments[0].parts.map((p) => p.amount).sort(), [30, 50], "listed under it: the loans it paid");
   assert.deepEqual(h.loans.map((l) => [l.amount, l.paid, l.remaining, l.status]).sort(), [[30, 30, 0, "repaid"], [50, 50, 0, "repaid"]]);
   assert.equal(h.repayments.every((r) => !r.is_offset && r.currency === "PEN"), true);
-  assert.equal(h.repayments.reduce((n, r) => n + r.amount, 0), 80);
   assert.ok(a.id && b.id);
 });
 

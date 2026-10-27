@@ -1562,15 +1562,31 @@ function getFriendRepaymentHistory(payload) {
     };
   }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 
-  var lines = settlements.map(function (s) {
+  // One line per repayment the person recorded: its settlement rows (one per loan it paid) share a transfer entry, so they
+  // are grouped by it and listed as `parts`. An automatic cancel-out, or a row from before transfer entries existed, is its own line.
+  var lines = [];
+  var groups = {};
+  settlements.forEach(function (s) {
     var loan = loanById[s.loan_id];
-    return {
+    var part = { loan_description: label(loan), loan_date: loan.date, amount: Number(s.amount) };
+    if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
+      var g = groups[s.transfer_entry_id];
+      g.amount += part.amount;
+      g.parts.push(part);
+      return;
+    }
+    var line = {
       id: s.id, date: s.date, amount: Number(s.amount), currency: loan.currency, direction: loan.direction,
       is_offset: !!s.offset_loan_id, loan_description: label(loan), loan_date: loan.date,
       offset_loan_description: s.offset_loan_id ? label(loanById[s.offset_loan_id]) : '',
-      payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id
+      payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id,
+      parts: s.offset_loan_id ? [] : [part]
     };
-  }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+    lines.push(line);
+    if (!s.offset_loan_id && s.transfer_entry_id) groups[s.transfer_entry_id] = line;
+  });
+  lines.forEach(function (l) { l.amount = Math.round(l.amount * 100) / 100; });
+  lines.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 
   return { loans: loanRows, repayments: lines };
 }

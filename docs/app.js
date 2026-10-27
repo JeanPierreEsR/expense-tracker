@@ -13915,7 +13915,29 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // that a loan detail sheet is what triggered it.
   currentDrilldown = { refetch: () => openLoanDetail(friendId, friendName) };
 
-  let loans = await callApi("getFriendLoanDetail", { friendId });
+  // Loading standard: the screen opens at once with "Loading…" and shows nothing half-drawn; a refresh of an already open
+  // screen keeps what is there until the new data replaces it.
+  const detailBackdrop = document.getElementById("loan-detail-modal-backdrop");
+  const detailActions = document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions");
+  const firstOpen = detailBackdrop.hidden;
+  if (firstOpen) {
+    document.getElementById("loan-detail-title").textContent = friendName;
+    document.getElementById("loan-detail-subtitle").textContent = tr("common.loading");
+    detailActions.hidden = true;
+    document.getElementById("loan-detail-list").innerHTML = "";
+    document.getElementById("loan-detail-empty-note").hidden = true;
+    document.getElementById("loan-detail-paid-toggle").hidden = true;
+    document.getElementById("loan-detail-paid-list").hidden = true;
+    bringModalToFront_(detailBackdrop);
+    detailBackdrop.hidden = false;
+  }
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId });
+  } catch (err) {
+    if (firstOpen) detailBackdrop.hidden = true;
+    throw err;
+  }
   const scopeProject = projectId ? (meta.projects || []).find((p) => p.id === projectId) : null;
   if (projectId) loans = loans.filter((l) => String(l.project_id || "") === projectId);
   document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
@@ -13991,6 +14013,8 @@ async function openLoanDetail(friendId, friendName, projectId) {
     }
   };
 
+  detailActions.hidden = false;
+  if (firstOpen) return;
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -14142,8 +14166,14 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   document.getElementById("history-net").textContent = netText || "";
   const repEl = document.getElementById("history-repayments");
   const loanEl = document.getElementById("history-loans");
+  const loadingEl = document.getElementById("history-loading");
+  const contentEl = document.getElementById("history-content");
   repEl.innerHTML = "";
   loanEl.innerHTML = "";
+  // Loading standard: nothing half-drawn is shown; "Loading…" stays until everything has arrived.
+  loadingEl.textContent = tr("common.loading");
+  loadingEl.hidden = false;
+  contentEl.hidden = true;
   const backdrop = document.getElementById("history-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -14152,7 +14182,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   try {
     h = await callApi("getFriendRepaymentHistory", { friendId, project_id: projectId || undefined });
   } catch (err) {
-    repEl.textContent = err.message;
+    loadingEl.textContent = err.message;
     return;
   }
   const money = (cur, n) => `${cur} ${moneyFmt(n)}`;
@@ -14163,16 +14193,20 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const row = document.createElement("div");
     row.className = "loan-detail-row";
     const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
+    const acct = !r.is_offset && r.payment_method_id ? escapeHtml(pmName(r.payment_method_id)) : "";
+    // A repayment that paid several loans is ONE line; the loans it paid are listed under it.
     const where = r.is_offset
-      ? tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })
-      : tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date });
-    const acct = !r.is_offset && r.payment_method_id ? " · " + escapeHtml(pmName(r.payment_method_id)) : "";
+      ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
+      : r.parts.length > 1
+        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
+        : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
+    const metaLines = (acct ? [acct] : []).concat(where);
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${r.date} · ${kind}</span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${where}${acct}</div>`;
+      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}`;
     repEl.appendChild(row);
   });
 
@@ -14193,6 +14227,8 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
     loanEl.appendChild(row);
   });
+  loadingEl.hidden = true;
+  contentEl.hidden = false;
 }
 
 document.getElementById("history-modal-close").addEventListener("click", () => {
@@ -14594,22 +14630,32 @@ function settlementChoosableLoans_() {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
+// The ticked loans are paid in order (oldest first) until the payment runs out: no amounts to type per loan.
 function settlementAssignments_() {
+  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
+  const open = {};
+  settlementChoosableLoans_().forEach((l) => { open[l.id] = l.remaining; });
   const out = [];
+  let left = paid;
   document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
-    const amount = parseFloat(input.value);
-    if (amount > 0) out.push({ loan_id: input.dataset.loan, amount });
+    if (!input.checked || left <= 0.004) return;
+    const amount = Math.round(Math.min(open[input.dataset.loan] || 0, left) * 100) / 100;
+    if (amount > 0) { out.push({ loan_id: input.dataset.loan, amount }); left -= amount; }
   });
   return out;
 }
 
 function renderSettlementChooseSummary_() {
   const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
-  const assigned = settlementAssignments_().reduce((n, a) => n + a.amount, 0);
-  const el = document.getElementById("settlement-choose-summary");
-  el.textContent = assigned > paid + 0.004
-    ? tr("settle.chooseTooMuch")
-    : tr("settle.chooseSummary", { assigned: `${repaymentCurrency} ${moneyFmt(assigned)}`, rest: `${repaymentCurrency} ${moneyFmt(Math.max(0, paid - assigned))}` });
+  const assignments = settlementAssignments_();
+  const assigned = assignments.reduce((n, a) => n + a.amount, 0);
+  // Each ticked loan shows how much of the payment it takes.
+  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+    const a = assignments.find((x) => x.loan_id === input.dataset.loan);
+    input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${repaymentCurrency} ${moneyFmt(a.amount)}` : "";
+  });
+  document.getElementById("settlement-choose-summary").textContent =
+    tr("settle.chooseSummary", { assigned: `${repaymentCurrency} ${moneyFmt(assigned)}`, rest: `${repaymentCurrency} ${moneyFmt(Math.max(0, paid - assigned))}` });
 }
 
 // Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
@@ -14634,17 +14680,14 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
     const text = document.createElement("span");
     text.textContent = tr("settle.chooseRow", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
     const input = document.createElement("input");
-    input.type = "text";
-    input.inputMode = "decimal";
-    input.placeholder = "0.00";
+    input.type = "checkbox";
     input.dataset.loan = l.id;
-    input.addEventListener("input", () => {
-      const sanitized = sanitizeAmountInputValue(input.value);
-      if (sanitized !== input.value) input.value = sanitized;
-      renderSettlementChooseSummary_();
-    });
-    row.appendChild(text);
+    input.addEventListener("change", renderSettlementChooseSummary_);
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
     row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
     list.appendChild(row);
   });
   panel.hidden = false;

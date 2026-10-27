@@ -1117,7 +1117,7 @@
     "bx.hint": { en: "Payments clients still owe you, due this month or overdue. Kept apart from your personal figures; it only becomes income when the money arrives.", es: "Pagos que los clientes aún te deben, con vencimiento este mes o ya vencidos. Aparte de tus cifras personales; solo es ingreso cuando llega el dinero." },
     "bx.row": { en: "{project} · {when}", es: "{project} · {when}" },
     "settle.chooseLoans": { en: "Choose which loans this pays", es: "Elegir qué préstamos paga" },
-    "settle.chooseHint": { en: "Type how much goes to each loan. Whatever you leave unassigned is applied to the oldest loans first.", es: "Escribe cuánto va a cada préstamo. Lo que no asignes se aplica primero a los préstamos más antiguos." },
+    "settle.chooseHint": { en: "Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.", es: "Selecciona los préstamos que paga este pago. Se pagan del más antiguo al más nuevo, hasta que el pago se acabe. Lo que sobre va a los más antiguos de los demás." },
     "settle.chooseRow": { en: "{date} · {what} · {cur} {amount} left", es: "{date} · {what} · quedan {cur} {amount}" },
     "settle.chooseSummary": { en: "{assigned} assigned · {rest} goes to the oldest first", es: "{assigned} asignado · {rest} va primero a los más antiguos" },
     "settle.chooseOff": { en: "Back to oldest first", es: "Volver a más antiguos primero" },
