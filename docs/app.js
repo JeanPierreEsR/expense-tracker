@@ -2489,26 +2489,40 @@ function exchangeLegSide_(entry) {
   return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
 }
 
+// Which way the money moved for the owner, for the sign on an entry's amount (the app-wide rule, owner 2026-10-27):
+// "in" = cash inflow (green, "+"), "out" = expense or cash disbursement ("−"), "" = a move between the owner's
+// own accounts (no sign). A transfer with a friend is a flow: a loan I give or a repayment I make is out; a loan
+// I receive or a repayment I get back is in.
+function entryFlowDirection_(entry) {
+  if (entry.type === "income") return "in";
+  if (entry.type === "expense") return "out";
+  if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
+  if (entry.type === "transfer" && entry.link && entry.link.friend) {
+    const paidThem = entry.link.direction === "i_owe_them";
+    return (entry.link.kind === "repayment" ? !paidThem : paidThem) ? "in" : "out";
+  }
+  return "";
+}
+
 function renderEntryAmountHtml(entry) {
-  // Income is money coming in: green with a leading +, same as a withdrawal.
-  if (entry.type === "income" && !entry._asIncome) {
-    return renderEntryAmountHtml(Object.assign({}, entry, { _asIncome: true }))
-      .replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
-  if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
-    const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
-    return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
-  // A withdrawal is stored negative; it reads as money coming BACK, so it
-  // shows as a positive green figure with a leading +, like income.
-  if (entry.type === "investment" && Number(entry.amount) < 0) {
-    const abs = (v) => (v == null ? v : Math.abs(Number(v)));
-    const flipped = Object.assign({}, entry, {
-      amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
-      own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
-    });
-    return renderEntryAmountHtml(flipped).replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
+  const dir = entryFlowDirection_(entry);
+  // A withdrawal is stored negative: show its size, the sign comes from the direction.
+  const shown = entry.type === "investment" && Number(entry.amount) < 0
+    ? (() => {
+        const abs = (v) => (v == null ? v : Math.abs(Number(v)));
+        return Object.assign({}, entry, {
+          amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
+          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+        });
+      })()
+    : entry;
+  const html = renderEntryAmountPlain_(shown);
+  if (dir === "in") return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  if (dir === "out") return html.replace('class="primary-amt">', 'class="primary-amt">−');
+  return html;
+}
+
+function renderEntryAmountPlain_(entry) {
   const hasSplit = entry.own_share != null &&
     Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
@@ -3946,7 +3960,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
         </div>
-        <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
+        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -10097,7 +10111,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  const primary = `<span class="primary-amt">${isIncome ? "+" : "−"}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
@@ -10960,7 +10974,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
 
     const isPen = g.currency === homeCur();
     const isIncome = g.type === "income";
-    const sign = isIncome ? "+" : "";
+    const sign = isIncome ? "+" : "−";   // money in is +, money out is −
     let amountHtml;
     if (isPen) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
@@ -11385,7 +11399,21 @@ function renderProjectionCategories_(result) {
   list.innerHTML = "";
   emptyNote.hidden = categories.length > 0;
 
-  categories.forEach((c) => {
+  // Grouped by type (owner, 2026-10-27): Income, Expenses, Investments, each biggest first (the server's order).
+  const typeOrder = [["income", "summary.income"], ["expense", "summary.expenses"], ["investment", "summary.investments"]];
+  const groups = typeOrder.map(([type, key]) => ({ key, items: categories.filter((c) => c.category_type === type) })).filter((g) => g.items.length);
+  const ordered = [];
+  groups.forEach((g) => { ordered.push({ heading: tr(g.key) }); g.items.forEach((c) => ordered.push({ c })); });
+
+  ordered.forEach((entry) => {
+    if (entry.heading) {
+      const h = document.createElement("div");
+      h.className = "projection-type-heading";
+      h.textContent = entry.heading;
+      list.appendChild(h);
+      return;
+    }
+    const c = entry.c;
     const isIncome = c.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row projection-row-expanded";
