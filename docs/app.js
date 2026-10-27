@@ -2490,6 +2490,11 @@ function exchangeLegSide_(entry) {
 }
 
 function renderEntryAmountHtml(entry) {
+  // Income is money coming in: green with a leading +, same as a withdrawal.
+  if (entry.type === "income" && !entry._asIncome) {
+    return renderEntryAmountHtml(Object.assign({}, entry, { _asIncome: true }))
+      .replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  }
   if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
     const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
     return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
