@@ -329,6 +329,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ONCE_ACTIONS = new Set([
   "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
+  "addCompany", "addProject",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
@@ -900,6 +901,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populateToPaymentMethodOptions();
   populateTags();
   populateTripOptions_();
+  populateBusinessOptions_();
   renderSplitFriendChips();
 }
 
@@ -1479,6 +1481,7 @@ function toggleSplitFieldVisibility() {
   // Only an expense can belong to a trip or event, so the picker follows the same rule.
   document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
   if (!show) document.getElementById("entry-trip").value = "";
+  populateBusinessOptions_();   // an expense or an income may belong to a company / project
 }
 
 function resetSplitState() {
@@ -2173,6 +2176,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
+    // rather than silently losing the label or recording money that has not moved.
+    if ((businessLink.project_id || businessLink.company_id) && !editingEntryId && !confirmingPendingId && date > todayLocalISO()) {
+      throw new Error(tr("business.futureNotYet"));
+    }
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -2261,7 +2270,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           paid_by: paidBy,
           payment_method_id: usesPaymentMethod ? paymentMethodId : "",
           to_payment_method_id: toPaymentMethodId,
-          trip_id: tripId
+          trip_id: tripId,
+          ...businessLink
         }
       });
       const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
@@ -2295,7 +2305,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       };
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -2355,7 +2366,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         tag_ids: tagIds,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       });
       if (created.guessed_category_name) {
         lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
@@ -2403,6 +2415,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
+    setBusinessPick_("");                               // same for the company / project
     repaymentFriendTouched_ = false;
     resetSplitState();
 
@@ -2623,7 +2636,7 @@ function paidByLabel(entryOrPaidBy) {
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
-  const tripPill = tripPillHtml_(entry);
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry);
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -3098,7 +3111,8 @@ function captureEntryDraft_() {
     toPaymentMethodId: document.getElementById("to_payment_method").value,
     date: entryDateTouched_ ? document.getElementById("date").value : "",
     tagIds: [...selectedTagIds],
-    tripId: document.getElementById("entry-trip").value
+    tripId: document.getElementById("entry-trip").value,
+    businessPick: document.getElementById("entry-business").value
   };
 }
 
@@ -3154,6 +3168,7 @@ function restoreEntryDraft_() {
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(d.tripId);
+  setBusinessPick_(d.businessPick);
   showFormNotice_(tr("entry.draftRestored"));
   return true;
 }
@@ -3297,6 +3312,7 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
+  setBusinessPick_(businessPickValue_(entry));
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -3319,6 +3335,7 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
+  setBusinessPick_("");
   resetSplitState();
 }
 
@@ -3509,6 +3526,7 @@ async function refreshAfterPopupEdit() {
   }
   // The trip screen is a screen of its own, not a drill-down: refresh it too.
   if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+  if (!document.getElementById("screen-business-detail").hidden) await refreshBusinessDetail_();
 }
 
 document.getElementById("edit-entry-modal-close").addEventListener("click", cancelEdit);
@@ -4652,6 +4670,7 @@ function ensurePeriodSelectorIn(screenName) {
   if (card.parentElement !== target) {
     target.insertBefore(card, target.firstChild);
   }
+  populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
 function showScreen(name) {
@@ -4680,6 +4699,9 @@ function showScreen(name) {
   }
   if (name === "loans") {
     refreshLoans();
+  }
+  if (name === "more") {
+    applyBusinessVisibility_();
   }
 }
 
@@ -4721,7 +4743,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-features", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -5102,7 +5124,7 @@ function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_());
 let overviewShownKey_ = null;
 let overviewReqToken_ = 0;
 const overviewCache_ = {};
-const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}`;
+const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}|${overviewScopeParam_() || ""}`;
 
 function paintOverviewSummary_(data) {
   lastOverviewData = data;
@@ -5143,7 +5165,7 @@ async function refreshOverviewInner_() {
 
   let data;
   try {
-    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
   } catch (err) {
     if (token === overviewReqToken_) screen.classList.remove("overview-stale");
     throw err;
@@ -5166,7 +5188,7 @@ async function loadOverviewEntriesInner_(bounds) {
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
+    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -5415,7 +5437,7 @@ async function openBreakdownDrilldown(kind, item) {
 
   const bounds = getPeriodBounds();
 
-  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
+  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
   if (kind === "category") payload.categoryId = item.id;
   else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
@@ -6728,7 +6750,30 @@ function extrasOff_() {
   if (c.bankEmails === false) off.push(tr("extras.bank"));
   return off;
 }
+// The owner's own copy only (owner's request, 2026-10-27: "as if I had answered yes in the onboarding"). The SERVER decides and does
+// it once (enableBusinessForOwnerOnce in Business.gs): it never overrides a choice, so turning the switch off ("no") sticks even when
+// this phone's saved copy of the settings is out of date. A friend's copy is never switched on this way.
+let ownerBusinessAuto_ = false;
+function maybeEnableBusinessForOwner_() {
+  if (ownerBusinessAuto_ || !meta || !meta.capabilities || !perfIsOwnerCopy_()) return;
+  const saved = meta.settings && meta.settings.business_features;
+  if (saved !== undefined && saved !== "") return;   // a choice is already on record
+  ownerBusinessAuto_ = true;
+  callApi("enableBusinessForOwnerOnce", {}).then((r) => {
+    meta.capabilities = r.capabilities;
+    if (r.changed) {
+      meta.settings = Object.assign({}, meta.settings, { business_features: "yes" });
+      meta.companies = meta.companies || [];
+      meta.projects = meta.projects || [];
+    }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+  }).catch(() => { ownerBusinessAuto_ = false; });
+}
+
 function refreshExtrasRow_() {
+  maybeEnableBusinessForOwner_();
+  applyBusinessVisibility_();
   // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
   document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
   // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
@@ -7396,7 +7441,8 @@ function startWelcome_(preview) {
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
-    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
+    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
+    business: false };   // the optional Business pack question at the end of step 3 (off unless chosen)
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-accounts").hidden = true;
@@ -7687,6 +7733,7 @@ const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.pl
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
   waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
+  document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -7753,6 +7800,7 @@ async function finishWelcome_() {
         accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
+    if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     errEl.textContent = tr("wa.error");
@@ -7771,7 +7819,7 @@ async function finishWelcome_() {
   I18n.saveLang(welcome_.lang);
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business;
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -7782,6 +7830,10 @@ async function finishWelcome_() {
 }
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
+document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
+  welcome_.business = b.dataset.welcomeBusiness === "yes";
+  renderWelcomePlatforms_();
+}));
 waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
 waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 
@@ -10073,6 +10125,674 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
     errorEl.textContent = err.message;
   }
 });
+
+// ---- Business pack (specs/business.md): optional, hidden until the person turns it on ----
+// Nothing here runs or shows while `meta.capabilities.business` is false. A company or project is only a label on
+// entries (never an account); every figure is kept per currency and never converted, except one labelled estimate.
+
+function businessOn() { return !!(meta && meta.capabilities && meta.capabilities.business); }
+
+function applyBusinessVisibility_() {
+  const on = businessOn();
+  document.getElementById("more-business-btn").hidden = !on;
+  document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
+}
+
+// Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
+function showMoreSub_(name) {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  window.scrollTo(0, 0);
+}
+
+// ---- The switch (More → Business features) ----
+
+function showBusinessFeaturesScreen_() {
+  showMoreSub_("business-features");
+  document.getElementById("bf-toggle").checked = businessOn();
+  document.getElementById("bf-error").textContent = "";
+}
+
+document.getElementById("bf-toggle").addEventListener("change", async (e) => {
+  const box = e.target;
+  const errorEl = document.getElementById("bf-error");
+  errorEl.textContent = "";
+  const wanted = box.checked;
+  box.disabled = true;
+  try {
+    const r = await callApi("setBusinessFeatures", { on: wanted });
+    meta.capabilities = r.capabilities;
+    if (!wanted) { meta.companies = []; meta.projects = []; }
+    else { meta.companies = meta.companies || []; meta.projects = meta.projects || []; }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+    // The entry form and rows pick the new fields up on the next reload; the search copy reloads on its own
+    // (changing this setting bumps the structure version on the server).
+  } catch (err) {
+    box.checked = !wanted;
+    errorEl.textContent = tr("bf.saveFailed", { error: err.message });
+  } finally {
+    box.disabled = false;
+  }
+});
+document.getElementById("more-business-features-btn").addEventListener("click", showBusinessFeaturesScreen_);
+document.getElementById("bf-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Period (shared by the list and the detail screen; in memory only) ----
+
+let businessPeriod_ = "alltime";
+
+function businessBounds_() {
+  const now = new Date();
+  if (businessPeriod_ === "month") return monthBounds(now);
+  if (businessPeriod_ === "lastMonth") return monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  if (businessPeriod_ === "year") return yearBounds(now);
+  if (businessPeriod_ === "lastYear") return yearBounds(new Date(now.getFullYear() - 1, 0, 1));
+  return { startDate: null, endDate: null };
+}
+
+function fillBusinessPeriodSelects_() {
+  const options = [["alltime", "business.period.alltime"], ["month", "business.period.month"], ["lastMonth", "business.period.lastMonth"],
+    ["year", "business.period.year"], ["lastYear", "business.period.lastYear"]];
+  document.querySelectorAll(".business-period-select").forEach((sel) => {
+    sel.innerHTML = "";
+    options.forEach(([value, key]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = tr(key);
+      sel.appendChild(o);
+    });
+    sel.value = businessPeriod_;
+  });
+}
+
+document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
+  businessPeriod_ = sel.value;
+  document.querySelectorAll(".business-period-select").forEach((other) => { other.value = businessPeriod_; });
+  if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
+  if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+}));
+
+// ---- Shared pieces ----
+
+function businessEmoji_(item, fallback) { return (item && item.emoji) || fallback; }
+function companyLabel_(c) { return `${businessEmoji_(c, "🏢")} ${c.name}`; }
+function projectLabel_(p) { return `${businessEmoji_(p, "🏗️")} ${p.name}`; }
+function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
+
+// Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
+function rememberBusinessLists_(companies) {
+  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }));
+  meta.projects = [];
+  companies.forEach((c) => c.projects.forEach((p) => meta.projects.push({ id: p.id, company_id: c.id, name: p.name, emoji: p.emoji, status: p.status })));
+  populateBusinessOptions_();
+}
+
+// One small card per currency: income, costs, margin (and the budget bar when a budget was set in that currency).
+function businessCurrencyCardsHtml_(currencies) {
+  return currencies.map((c) => {
+    const marginCls = c.margin < -0.004 ? "business-neg" : (c.margin > 0.004 ? "business-pos" : "");
+    let budget = "";
+    if (c.budget) {
+      const pct = Math.min(100, c.budgetPct || 0);
+      const cls = c.budgetPct > 100 ? " over" : (c.budgetPct >= 80 ? " warn" : "");
+      const diff = c.budget - c.costs;
+      const text = diff < 0
+        ? tr("business.budgetOver", { amount: businessAmount_(c.currency, -diff) })
+        : tr("business.budgetLeft", { amount: businessAmount_(c.currency, diff) });
+      budget = `
+        <div class="budget-progress-track"><div class="budget-progress-fill${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="budget-row-sub"><span>${escapeHtml(text)}</span><span>${escapeHtml(tr("business.ofBudget", { amount: businessAmount_(c.currency, c.budget) }))}</span></div>`;
+    }
+    return `
+      <div class="business-cur-card">
+        <div class="business-cur-head">${escapeHtml(c.currency)}</div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.income"))}</span><span>${moneyFmt(c.income)}</span></div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.costs"))}</span><span>${moneyFmt(c.costs)}</span></div>
+        <div class="business-cur-row margin"><span>${escapeHtml(tr("business.margin"))}</span><span class="${marginCls}">${moneyFmt(c.margin)}</span></div>
+        ${budget}
+      </div>`;
+  }).join("");
+}
+
+// The one converted line, shown only when it says something the cards don't (more than one currency, or a foreign one).
+function businessApproxHtml_(d) {
+  const single = d.currencies.length === 1 && d.currencies[0].currency === d.approx.currency;
+  if (!d.currencies.length || (single && !d.approx.missing)) return "";
+  const missing = d.approx.missing > 0 ? `<p class="hint">${escapeHtml(tr("business.approxMissing", { n: d.approx.missing }))}</p>` : "";
+  const line = single ? "" : `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("business.approx", { cur: d.approx.currency, amount: moneyFmt(d.approx.margin) }))}</p>`;
+  return line + missing;
+}
+
+// A compact "margin per currency" block for list rows.
+function businessMarginLinesHtml_(currencies) {
+  if (!currencies.length) return `<span class="original-amt">—</span>`;
+  return currencies.map((c) => {
+    const cls = c.margin < -0.004 ? "business-neg" : "";
+    return `<div class="primary-amt ${cls}">${escapeHtml(businessAmount_(c.currency, c.margin))}</div>`;
+  }).join("");
+}
+
+// ---- More → Companies & projects ----
+
+let businessList_ = [];
+
+async function showBusinessScreen() {
+  showMoreSub_("business");
+  fillBusinessPeriodSelects_();
+  await refreshBusinessList_();
+}
+
+async function refreshBusinessList_() {
+  const errorEl = document.getElementById("business-error");
+  errorEl.textContent = "";
+  try {
+    const b = businessBounds_();
+    const list = await callApi("listCompaniesAndProjects", { startDate: b.startDate, endDate: b.endDate });
+    businessList_ = list;
+    rememberBusinessLists_(list);
+    renderBusinessList_(list);
+  } catch (err) {
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessList_(companies) {
+  const box = document.getElementById("business-list");
+  box.innerHTML = "";
+  document.getElementById("business-empty-note").hidden = companies.length > 0;
+  document.getElementById("business-first-btn").hidden = companies.length > 0;
+  document.getElementById("business-period").hidden = companies.length === 0;
+  companies.forEach((c) => {
+    const head = document.createElement("div");
+    head.className = "business-company-head";
+    head.innerHTML = `
+      <h3 class="accounts-group-title" style="margin:0;">${escapeHtml(companyLabel_(c))}</h3>
+      <div class="business-mini">${escapeHtml(tr("business.projectCount", { n: c.projects.length }))}</div>`;
+    head.querySelector("h3").addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(head);
+
+    const summary = document.createElement("div");
+    summary.className = "recurring-row";
+    summary.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tr("business.entryCount", { n: c.entryCount || 0 }))}</div>
+      </div>
+      <div class="recurring-row-amount">${businessMarginLinesHtml_(c.currencies)}</div>`;
+    summary.addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(summary);
+
+    const active = c.projects.filter((p) => p.status !== "closed");
+    const closed = c.projects.filter((p) => p.status === "closed");
+    const projectRow = (p) => {
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>`;
+      row.addEventListener("click", () => showBusinessDetail_("project", p.id));
+      return row;
+    };
+    active.forEach((p) => box.appendChild(projectRow(p)));
+    if (closed.length) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "add-inline";
+      toggle.textContent = "▸ " + tr("business.closedProjects", { n: closed.length });
+      const wrap = document.createElement("div");
+      wrap.hidden = true;
+      closed.forEach((p) => wrap.appendChild(projectRow(p)));
+      toggle.addEventListener("click", () => {
+        wrap.hidden = !wrap.hidden;
+        toggle.textContent = (wrap.hidden ? "▸ " : "▾ ") + tr("business.closedProjects", { n: closed.length });
+      });
+      box.appendChild(toggle);
+      box.appendChild(wrap);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline";
+    add.textContent = tr("business.addProject");
+    add.addEventListener("click", () => openProjectModal_(null, c.id, []));
+    box.appendChild(add);
+  });
+}
+
+document.getElementById("more-business-btn").addEventListener("click", showBusinessScreen);
+document.getElementById("business-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("business-add-company-btn").addEventListener("click", () => openCompanyModal_(null));
+document.getElementById("business-first-btn").addEventListener("click", () => openCompanyModal_(null));
+
+// ---- A project's or a company's profit and loss ----
+
+let businessDetail_ = null;        // { kind: "project" | "company", id }
+let businessDetailData_ = null;
+let businessCatCurrency_ = "";     // the currency chip chosen for the category lists
+
+async function showBusinessDetail_(kind, id) {
+  businessDetail_ = { kind, id };
+  businessDetailData_ = null;
+  businessCatCurrency_ = "";
+  showMoreSub_("business-detail");
+  fillBusinessPeriodSelects_();
+  const known = kind === "project" ? (meta.projects || []).find((p) => p.id === id) : (meta.companies || []).find((c) => c.id === id);
+  document.getElementById("business-detail-title").textContent = known ? (kind === "project" ? projectLabel_(known) : companyLabel_(known)) : "";
+  document.getElementById("business-detail-sub").textContent = "";
+  document.getElementById("business-detail-body").innerHTML = loadingHtml_();
+  document.getElementById("business-detail-entries-card").hidden = true;
+  await refreshBusinessDetail_();
+}
+
+async function refreshBusinessDetail_() {
+  const target = businessDetail_;
+  if (!target) return;
+  const errorEl = document.getElementById("business-detail-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const b = businessBounds_();
+    const range = { startDate: b.startDate, endDate: b.endDate };
+    const [detail, entries] = await Promise.all([
+      callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
+      callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range))
+    ]);
+    if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
+    businessDetailData_ = detail;
+    renderBusinessDetail_(detail);
+    const shown = applyQueuedEditOverlay_(entries);
+    document.getElementById("business-detail-entries-card").hidden = false;
+    renderEntriesInto_(document.getElementById("business-detail-entries"), shown, "business.noEntries");
+  } catch (err) {
+    document.getElementById("business-detail-body").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessDetail_(d) {
+  const isProject = businessDetail_.kind === "project";
+  const title = isProject ? projectLabel_(d.project) : companyLabel_(d.company);
+  document.getElementById("business-detail-title").textContent = title;
+  document.getElementById("business-detail-sub").textContent = isProject
+    ? [d.company ? companyLabel_(d.company) : "", d.project.status === "closed" ? tr("business.status.closed") : ""].filter(Boolean).join(" · ")
+    : tr("business.projectCount", { n: d.projects.length });
+
+  const currencies = d.currencies;
+  if (!businessCatCurrency_ || !currencies.some((c) => c.currency === businessCatCurrency_)) {
+    businessCatCurrency_ = currencies.length ? currencies[0].currency : "";
+  }
+  const catRows = (type) => ((d.byCategory[type] || {})[businessCatCurrency_] || []).map((c) => `
+    <div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
+      <div class="recurring-row-amount">${escapeHtml(businessCatCurrency_)} ${moneyFmt(c.amount)} <span class="original-amt">${Math.round(c.pct)}%</span></div>
+    </div>`).join("");
+  const chips = currencies.length > 1
+    ? `<div class="business-chips">${currencies.map((c) => `<button type="button" class="business-chip${c.currency === businessCatCurrency_ ? " active" : ""}" data-cur="${escapeHtml(c.currency)}">${escapeHtml(c.currency)}</button>`).join("")}</div>`
+    : "";
+  const costs = catRows("expense");
+  const income = catRows("income");
+
+  let projectsHtml = "";
+  if (!isProject) {
+    const rows = d.projects.map((p) => `
+      <div class="recurring-row business-project-row" data-id="${escapeHtml(p.id)}">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>
+      </div>`).join("");
+    const level = d.companyLevel.entryCount ? `
+      <div class="recurring-row trip-static-row">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(tr("business.companyLevel"))}</div>
+          <div class="recurring-row-sub">${escapeHtml(tr("business.entryCount", { n: d.companyLevel.entryCount }))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(d.companyLevel.currencies)}</div>
+      </div>` : "";
+    projectsHtml = `<h3 class="accounts-group-title">${escapeHtml(tr("business.projects"))}</h3>${rows}${level}
+      <button type="button" class="add-inline" id="business-detail-add-project">${escapeHtml(tr("business.addProject"))}</button>`;
+  } else {
+    projectsHtml = `<button type="button" class="add-inline" id="business-detail-status-btn">${escapeHtml(tr(d.project.status === "closed" ? "business.reopenProject" : "business.closeProject"))}</button>`;
+  }
+
+  document.getElementById("business-detail-body").innerHTML = `
+    ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
+    ${businessApproxHtml_(d)}
+    ${chips}
+    ${costs ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.costsByCategory"))}</h3>${costs}` : ""}
+    ${income ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.incomeByCategory"))}</h3>${income}` : ""}
+    ${projectsHtml}`;
+
+  document.querySelectorAll("#business-detail-body .business-chip").forEach((chip) => chip.addEventListener("click", () => {
+    businessCatCurrency_ = chip.dataset.cur;
+    renderBusinessDetail_(d);
+  }));
+  document.querySelectorAll("#business-detail-body .business-project-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.id)));
+  const addProject = document.getElementById("business-detail-add-project");
+  if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
+  const statusBtn = document.getElementById("business-detail-status-btn");
+  if (statusBtn) statusBtn.addEventListener("click", async () => {
+    statusBtn.disabled = true;
+    try {
+      await callApi("updateProject", { id: d.project.id, name: d.project.name, emoji: d.project.emoji, company_id: d.project.company_id, status: d.project.status === "closed" ? "active" : "closed" });
+      const p = (meta.projects || []).find((x) => x.id === d.project.id);
+      if (p) p.status = d.project.status === "closed" ? "active" : "closed";
+      populateBusinessOptions_();
+      await refreshBusinessDetail_();
+    } catch (err) {
+      document.getElementById("business-detail-error").textContent = err.message;
+      statusBtn.disabled = false;
+    }
+  });
+}
+
+document.getElementById("business-detail-back-btn").addEventListener("click", () => { businessDetail_ = null; showBusinessScreen(); });
+document.getElementById("business-detail-edit-btn").addEventListener("click", () => {
+  const d = businessDetailData_;
+  if (!d || !businessDetail_) return;
+  if (businessDetail_.kind === "company") openCompanyModal_(d.company);
+  else openProjectModal_(d.project, d.project.company_id, d.currencies.filter((c) => c.budget).map((c) => ({ currency: c.currency, amount: c.budget })));
+});
+
+// ---- Company pop-up ----
+
+let editingCompanyId_ = null;
+
+function openCompanyModal_(company) {
+  editingCompanyId_ = company ? company.id : null;
+  document.getElementById("company-modal-title").textContent = tr(company ? "business.companyEditTitle" : "business.companyAddTitle");
+  document.getElementById("company-form-error").textContent = "";
+  document.getElementById("company-name").value = company ? company.name : "";
+  document.getElementById("company-emoji").value = company ? (company.emoji || "") : "";
+  document.getElementById("company-delete-btn").hidden = !company;
+  const backdrop = document.getElementById("company-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeCompanyModal_() {
+  document.getElementById("company-modal-backdrop").hidden = true;
+  editingCompanyId_ = null;
+}
+
+async function afterBusinessChange_() {
+  if (!document.getElementById("screen-business").hidden) await refreshBusinessList_();
+  else if (!document.getElementById("screen-business-detail").hidden) {
+    await refreshBusinessList_().catch(() => {});   // keeps the app's lists in step
+    await refreshBusinessDetail_();
+  }
+}
+
+document.getElementById("company-modal-close").addEventListener("click", closeCompanyModal_);
+document.getElementById("company-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "company-modal-backdrop") closeCompanyModal_();
+});
+document.getElementById("company-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("company-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("company-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = { name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim() };
+    if (editingCompanyId_) await callApi("updateCompany", Object.assign({ id: editingCompanyId_ }, fields));
+    else await callApi("addCompany", fields);
+    closeCompanyModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("company-delete-btn").addEventListener("click", async () => {
+  if (!editingCompanyId_) return;
+  const company = (meta.companies || []).find((c) => c.id === editingCompanyId_);
+  if (!company || !confirm(tr("business.confirmDeleteCompany", { name: company.name }))) return;
+  try {
+    await callApi("deleteCompany", { id: company.id });
+    closeCompanyModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("company-form-error").textContent = err.message;
+  }
+});
+
+// ---- Project pop-up ----
+
+let editingProjectId_ = null;
+
+function addProjectBudgetRow_(currency, amount) {
+  const row = document.createElement("div");
+  row.className = "business-budget-row";
+  row.innerHTML = `
+    <input type="text" class="budget-cur" maxlength="3" autocapitalize="characters" placeholder="${escapeHtml(tr("business.budgetCurrencyPh"))}">
+    <input type="text" class="budget-amt" inputmode="decimal" placeholder="${escapeHtml(tr("business.budgetAmountPh"))}">
+    <button type="button" class="add-inline" aria-label="${escapeHtml(tr("business.removeBudget"))}">✕</button>`;
+  row.querySelector(".budget-cur").value = currency || "";
+  row.querySelector(".budget-amt").value = amount || "";
+  row.querySelector(".budget-amt").addEventListener("input", (e) => {
+    const sanitized = sanitizeAmountInputValue(e.target.value);
+    if (sanitized !== e.target.value) e.target.value = sanitized;
+  });
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  document.getElementById("project-budgets").appendChild(row);
+}
+
+function openProjectModal_(project, companyId, budgets) {
+  if (!(meta.companies || []).length) { alert(tr("business.needCompany")); return; }
+  editingProjectId_ = project ? project.id : null;
+  document.getElementById("project-modal-title").textContent = tr(project ? "business.projectEditTitle" : "business.projectAddTitle");
+  document.getElementById("project-form-error").textContent = "";
+  const sel = document.getElementById("project-company");
+  sel.innerHTML = "";
+  meta.companies.forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = companyLabel_(c);
+    sel.appendChild(o);
+  });
+  sel.value = companyId || meta.companies[0].id;
+  document.getElementById("project-name").value = project ? project.name : "";
+  document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
+  document.getElementById("project-budgets").innerHTML = "";
+  (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
+  document.getElementById("project-delete-btn").hidden = !project;
+  const backdrop = document.getElementById("project-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeProjectModal_() {
+  document.getElementById("project-modal-backdrop").hidden = true;
+  editingProjectId_ = null;
+}
+
+document.getElementById("project-add-budget-btn").addEventListener("click", () => addProjectBudgetRow_("", ""));
+document.getElementById("project-modal-close").addEventListener("click", closeProjectModal_);
+document.getElementById("project-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "project-modal-backdrop") closeProjectModal_();
+});
+document.getElementById("project-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("project-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("project-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const budgets = Array.from(document.querySelectorAll("#project-budgets .business-budget-row")).map((row) => ({
+      currency: row.querySelector(".budget-cur").value.trim().toUpperCase(),
+      amount: row.querySelector(".budget-amt").value.trim()
+    }));
+    const fields = {
+      company_id: document.getElementById("project-company").value,
+      name: document.getElementById("project-name").value.trim(),
+      emoji: document.getElementById("project-emoji").value.trim(),
+      budgets
+    };
+    if (editingProjectId_) await callApi("updateProject", Object.assign({ id: editingProjectId_ }, fields));
+    else await callApi("addProject", fields);
+    closeProjectModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("project-delete-btn").addEventListener("click", async () => {
+  if (!editingProjectId_) return;
+  const project = (meta.projects || []).find((p) => p.id === editingProjectId_);
+  if (!project || !confirm(tr("business.confirmDeleteProject", { name: project.name }))) return;
+  try {
+    await callApi("deleteProject", { id: project.id });
+    closeProjectModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("project-form-error").textContent = err.message;
+  }
+});
+
+// ---- Overview's "Showing" filter (Business pack) ----
+// all (default: totals still agree with the bank balances) / personal only / one company / one project. In memory only.
+// It applies to Overview's period cards and their drill-downs; Balances, the month cards, Budgets, Projections and Home ignore it.
+
+let overviewScope_ = "all";
+
+function overviewScopeParam_() {
+  return businessOn() && overviewScope_ !== "all" ? overviewScope_ : undefined;
+}
+
+function populateOverviewScope_(onOverview) {
+  const row = document.getElementById("overview-scope-row");
+  const sel = document.getElementById("overview-scope");
+  if (!row || !sel) return;
+  const show = !!onOverview && businessOn() && (meta.companies || []).length > 0;
+  row.hidden = !show;
+  if (!businessOn() || !(meta.companies || []).length) overviewScope_ = "all";
+  if (!show) return;
+  sel.innerHTML = "";
+  const add = (parent, value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    parent.appendChild(o);
+  };
+  add(sel, "all", tr("overview.scopeAll"));
+  add(sel, "personal", tr("overview.scopePersonal"));
+  (meta.companies || []).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    add(group, "company:" + c.id, companyLabel_(c));
+    (meta.projects || []).filter((p) => p.company_id === c.id).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
+    sel.appendChild(group);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === overviewScope_)) overviewScope_ = "all";
+  sel.value = overviewScope_;
+}
+
+document.getElementById("overview-scope").addEventListener("change", (e) => {
+  overviewScope_ = e.target.value;
+  refreshOverview();
+});
+
+// ---- The entry form's "Company / project" picker, and the pill on entry rows ----
+// Values: "" = personal, "c:<id>" = a company only (no project), "p:<id>" = a project (which implies its company).
+
+function businessPickValue_(entry) {
+  if (entry.project_id) return "p:" + entry.project_id;
+  return entry.company_id ? "c:" + entry.company_id : "";
+}
+
+// Newest use first, from the phone's own search copy (when it has loaded); alphabetical otherwise.
+function businessLastUsed_() {
+  const last = {};
+  (searchIndex || []).forEach((e) => {
+    [["p:", e.project_id], ["c:", e.company_id]].forEach(([prefix, id]) => {
+      if (id && (!last[prefix + id] || e.date > last[prefix + id])) last[prefix + id] = e.date;
+    });
+  });
+  return last;
+}
+
+// Fills the picker and keeps `keep` chosen (a closed project stays listed only while it is the one chosen).
+function fillBusinessOptions_(sel, keep) {
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("business.pickNone");
+  sel.appendChild(none);
+  const last = businessLastUsed_();
+  const recent = (a, b, key) => (last[key(b)] || "").localeCompare(last[key(a)] || "") || a.name.localeCompare(b.name);
+  (meta.companies || []).slice().sort((a, b) => recent(a, b, (x) => "c:" + x.id)).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    const only = document.createElement("option");
+    only.value = "c:" + c.id;
+    only.textContent = tr("business.companyLevel");
+    group.appendChild(only);
+    (meta.projects || []).filter((p) => p.company_id === c.id && (p.status !== "closed" || keep === "p:" + p.id))
+      .sort((a, b) => recent(a, b, (x) => "p:" + x.id))
+      .forEach((p) => {
+        const o = document.createElement("option");
+        o.value = "p:" + p.id;
+        o.textContent = projectLabel_(p);
+        group.appendChild(o);
+      });
+    sel.appendChild(group);
+  });
+  sel.value = Array.from(sel.options).some((o) => o.value === keep) ? keep : "";
+}
+
+// Rebuilds the picker (keeping what is chosen) and shows it only for an expense or income, once a company exists.
+function populateBusinessOptions_() {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  populateOverviewScope_(!document.getElementById("screen-overview").hidden);
+  const canLink = businessOn() && (meta.companies || []).length > 0 && (selectedType === "expense" || selectedType === "income");
+  fillBusinessOptions_(sel, canLink ? sel.value : "");
+  document.getElementById("business-field").hidden = !canLink;
+}
+
+function setBusinessPick_(value) {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  value = value || "";
+  fillBusinessOptions_(sel, value);
+  // A company or project this phone has not heard of yet (made on another device): keep it rather than silently clearing it on save.
+  if (value && !Array.from(sel.options).some((o) => o.value === value)) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = "—";
+    sel.appendChild(o);
+    sel.value = value;
+  }
+}
+
+// What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else both keys.
+function businessLinkFields_() {
+  if (!businessOn() || (selectedType !== "expense" && selectedType !== "income")) return {};
+  const value = document.getElementById("entry-business").value;
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "" };
+  }
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2) };
+  return { project_id: "", company_id: "" };
+}
+
+// The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
+function businessPillHtml_(entry) {
+  if (!businessOn() || !(entry.project_id || entry.company_id)) return "";
+  const project = entry.project_id ? (meta.projects || []).find((p) => p.id === entry.project_id) : null;
+  const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
+  if (!company && !project) return "";
+  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
+  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>`;
+}
 
 // ---- Recurring income/expenses ----
 

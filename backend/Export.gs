@@ -29,7 +29,8 @@ var EXPORT_BACKUP_TABS_ = [
   'Categories', 'Tags', 'Trips', 'Payment Methods', 'Banks', 'Account Opening Balances',
   'Exchange Rates', 'Friends', 'Payors', 'Loans', 'Settlements', 'Budgets',
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
-  'Projection Overrides', 'Period Templates', 'Import Batches'
+  'Projection Overrides', 'Period Templates', 'Import Batches',
+  'Companies', 'Projects', 'Project Budgets'   // Business pack: always included when they exist, whatever the switch says
 ];
 
 var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per message
@@ -176,7 +177,13 @@ function buildEntriesCsv_(opts) {
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push(s);
   });
 
-  var lines = [EXPORT_CSV_HEADERS_.map(function (h) { return csvCell_(tr_('export.h.' + h, { home: homeCurrency_() })); }).join(',')];
+  // Business pack: two more columns (after Trip / event) only while it is on, so a personal-only file is exactly what it was.
+  var business = businessOn_();
+  var headers = EXPORT_CSV_HEADERS_.slice();
+  if (business) headers.splice(headers.indexOf('trip') + 1, 0, 'company', 'project');
+  var companiesById = business ? rowsById_(getCompanyRows_()) : {};
+  var projectsById = business ? rowsById_(getProjectRows_()) : {};
+  var lines = [headers.map(function (h) { return csvCell_(tr_('export.h.' + h, { home: homeCurrency_() })); }).join(',')];
   entries.forEach(function (e) {
     var amount = Number(e.amount);
     var splits = splitsByEntry[e.id] || [];
@@ -211,7 +218,7 @@ function buildEntriesCsv_(opts) {
         (link.direction === 'they_owe_me' ? tr_('export.linked.theyOwe') : link.direction === 'i_owe_them' ? tr_('export.linked.iOwe') : '');
     }
 
-    lines.push([
+    var row = [
       csvCell_(e.id), csvCell_(e.date), csvCell_(e.type), csvCell_(e.description), csvCell_(e.merchant), csvCell_(category),
       amount, csvCell_(e.currency), amountPen == null ? '' : exportMoney_(amountPen), exportMoney_(share), sharePen == null ? '' : exportMoney_(sharePen),
       csvCell_(splitWith),
@@ -219,7 +226,15 @@ function buildEntriesCsv_(opts) {
       csvCell_(link ? link.friend : ''), csvCell_(linkedAs),
       csvCell_((lk.tagNamesByEntry[e.id] || []).join('; ')),
       csvCell_(e.trip_id && lk.tripsById[e.trip_id] ? lk.tripsById[e.trip_id].name : ''), csvCell_(e.status), csvCell_(e.source), csvCell_(e.created_at)
-    ].join(','));
+    ];
+    if (business) {
+      var company = companiesById[e.company_id];
+      var project = projectsById[e.project_id];
+      row.splice(headers.indexOf('company'), 0,
+        csvCell_(company ? company.name : (project && companiesById[project.company_id] ? companiesById[project.company_id].name : '')),
+        csvCell_(project ? project.name : ''));
+    }
+    lines.push(row.join(','));
   });
   return { text: lines.join('\r\n') + '\r\n', rows: entries.length };
 }

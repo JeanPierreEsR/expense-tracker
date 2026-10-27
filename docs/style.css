@@ -3082,6 +3082,26 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-matrix td.hole { color: #d64545; font-weight: 700; }
 .stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
 
+/* ---- Business pack (specs/business.md) ---- */
+.business-period-select { width: 100%; margin: 6px 0 10px; }
+.business-cur-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.business-cur-head { font-weight: 700; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+.business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 0.95rem; }
+.business-cur-row.margin { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.business-neg { color: var(--expense); }
+.business-pos { color: var(--income); }
+.business-company-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 4px; }
+.business-company-head h3 { margin: 0; cursor: pointer; }
+.business-mini { font-size: 0.78rem; color: var(--muted); text-align: right; }
+.business-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.business-chip { border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 0.82rem; background: transparent; color: var(--text); cursor: pointer; }
+.business-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.business-budget-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.business-budget-row input { margin: 0; }
+.business-budget-row .budget-cur { width: 74px; text-transform: uppercase; }
+.business-budget-row .budget-amt { flex: 1; }
+.entry-business { border-color: #7b5ea7; color: #7b5ea7; }
+
 /* Projections "By category": a small heading before each type (Income, Expenses, Investments). */
 .projection-type-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 4px; }
 .projection-type-heading:first-child { margin-top: 0; }

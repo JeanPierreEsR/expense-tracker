@@ -71,6 +71,8 @@ function getCapabilities_() {
     perfLog: !isFriendCopy_(),
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,
+    // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.
+    business: businessOn_(),
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };

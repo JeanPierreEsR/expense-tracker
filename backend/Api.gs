@@ -118,6 +118,7 @@ function doPost(e) {
 var ONCE_ACTIONS_ = {
   createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
+  addCompany: 1, addProject: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
@@ -200,6 +201,17 @@ function routeAction(action, payload) {
     case 'findTripCandidates': return findTripCandidates(payload);
     case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
     case 'recordTripSettlement': return recordTripSettlement(payload);
+    case 'setBusinessFeatures': return setBusinessFeatures(payload);
+    case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
+    case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
+    case 'addCompany': return addCompany(payload);
+    case 'updateCompany': return updateCompany(payload);
+    case 'deleteCompany': return deleteCompany(payload);
+    case 'addProject': return addProject(payload);
+    case 'updateProject': return updateProject(payload);
+    case 'deleteProject': return deleteProject(payload);
+    case 'getProjectDetail': return getProjectDetail(payload);
+    case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
@@ -553,6 +565,9 @@ function getMeta() {
     paymentMethods: getAllRowsCached_('Payment Methods'),
     tags: localizeTags_(getAllRowsCached_('Tags')),
     trips: getTripRows_(),
+    // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
+    companies: getCompanyRows_(),
+    projects: getProjectRows_(),
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
     settings: getSettingsMap(),
@@ -693,6 +708,13 @@ function createEntry(payload) {
     ensureEntriesTripColumn_();
     entry.trip_id = tripId;
   }
+  // Business pack: an expense or income may belong to a company / project (ignored while the pack is off).
+  var businessLink = businessLinkFor_(entry.type, payload.project_id, payload.company_id);
+  if (businessLink.company_id) {
+    ensureBusinessSheets_();
+    entry.company_id = businessLink.company_id;
+    entry.project_id = businessLink.project_id;
+  }
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
   var guessedCategory = '';
@@ -814,6 +836,15 @@ function listEntries(payload) {
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
   }
+  // Business pack: one project's or one company's entries (a company includes its projects'). Ignored while off.
+  if (payload && payload.projectId && businessOn_()) {
+    entries = entries.filter(function (e) { return String(e.project_id || '') === String(payload.projectId); });
+  }
+  if (payload && payload.companyId && businessOn_()) {
+    entries = entries.filter(function (e) { return String(e.company_id || '') === String(payload.companyId); });
+  }
+  // Overview's "Showing" filter (personal / one company / one project), so a drill-down adds up to the totals it came from.
+  if (payload && payload.scope) entries = filterEntriesByScope_(entries, payload.scope);
   // The entries one statement upload created ("See what it added" on the Statements screen).
   if (payload && payload.importBatchId) {
     entries = entries.filter(function (e) { return e.import_batch_id === payload.importBatchId; });
@@ -843,7 +874,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
@@ -907,6 +938,8 @@ function buildSearchLookups_() {
   });
   return {
     tripsById: rowsById_(getTripRows_()),
+    companiesById: rowsById_(getCompanyRows_()),     // empty (and nothing read) while the Business pack is off
+    projectsById: rowsById_(getProjectRows_()),
     categoriesById: rowsById_(getAllRows('Categories')),
     methodsById: rowsById_(getAllRows('Payment Methods')),
     friendsById: rowsById_(getAllRows('Friends')),
@@ -938,6 +971,8 @@ function entrySearchText_(e, lk) {
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
     (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
+    e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
+    e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,
     lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
@@ -985,9 +1020,10 @@ function buildSearchIndexRows_(entries) {
     var rate = rateToMain_(ratesByCurrency, currency, String(date).substring(0, 7));
     return rate != null ? amount * rate : null;
   };
+  var business = businessOn_();
   return entries.map(function (e) {
     var ownShare = e.type === 'expense' ? Number(e.amount) - (splitSumByEntry[e.id] || 0) : Number(e.amount);
-    return {
+    var row = {
       id: e.id, type: e.type, date: e.date, amount: e.amount, currency: e.currency,
       category_id: e.category_id, description: e.description,
       payment_method_id: e.payment_method_id, to_payment_method_id: e.to_payment_method_id,
@@ -1001,6 +1037,9 @@ function buildSearchIndexRows_(entries) {
       exchange: e.exchange ? '1' : '',
       _s: entrySearchText_(e, lk)
     };
+    // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
+    if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; }
+    return row;
   });
 }
 
@@ -1042,6 +1081,7 @@ function listPendingEntries() {
 }
 
 function updateEntryFields(entryId, fields) {
+  fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
   if (fields && fields.trip_id !== undefined) {
     fields = Object.assign({}, fields, { trip_id: validTripIdOrBlank_(fields.trip_id) });

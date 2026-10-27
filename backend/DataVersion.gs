@@ -27,7 +27,8 @@
 // Sheets whose contents feed entries' search text / PEN amounts.
 var STRUCTURE_SHEETS_ = {
   'Categories': true, 'Payment Methods': true, 'Friends': true, 'Payors': true,
-  'Tags': true, 'Exchange Rates': true, 'Banks': true, 'Trips': true
+  'Tags': true, 'Exchange Rates': true, 'Banks': true, 'Trips': true,
+  'Companies': true, 'Projects': true, 'Project Budgets': true   // Business pack (Business.gs)
 };
 // Per-entry side tables — a change touches the entry they belong to.
 var ENTRY_CHILD_SHEETS_ = { 'Entry Splits': true, 'Entry Tags': true };
