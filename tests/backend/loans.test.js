@@ -366,3 +366,27 @@ test("an automatic cancel-out line cannot be re-pointed", () => {
   const offset = rt.rows("Settlements").find((s) => s.offset_loan_id);
   assert.throws(() => rt.api("reassignRepayment", { id: offset.id, loan_ids: [] }));
 });
+
+test("history: a repayment shows the full amount that arrived, and what no longer sits on a loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const keep = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const gone = cashLoan(rt, data, friend, 300, "2026-02-01");
+  repay(rt, data, friend, 250);   // 100 on `keep`, 150 on `gone`: one money movement of 250
+
+  rt.api("deleteLoan", { id: gone.id, repayments: "keep" });   // the 150 stays as a refund loan, the money movement stays 250
+
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.repayments.length, 1);
+  const r = h.repayments[0];
+  assert.equal(r.amount, 250, "the money that really arrived");
+  assert.equal(r.applied, 100, "what loans still hold");
+  assert.equal(r.unapplied, 150);
+  assert.deepEqual(r.parts.map((p) => p.amount), [100]);
+
+  // re-pointing works on the part loans hold, never on the refund
+  const other = cashLoan(rt, data, friend, 500, "2026-03-01");
+  rt.api("reassignRepayment", { id: rt.rows("Settlements").find((s) => s.loan_id === keep.id).id, loan_ids: [other.id] });
+  assert.equal(paidOn(rt, other.id), 100);
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 150);
+});
