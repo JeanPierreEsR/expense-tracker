@@ -11281,26 +11281,26 @@ function renderProjectionsSummary_(p) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
         <span class="summary-label">${tr("summary.income")}</span>
-        <span class="summary-value income">${formatPen(p.income)}</span>
+        <span class="summary-value income">${formatPenSigned_(p.income)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.expenses")}</span>
-        <span class="summary-value expense">${formatPen(p.expenses)}</span>
+        <span class="summary-value expense">${formatPenSigned_(-p.expenses)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.investments")}</span>
-        <span class="summary-value investment">${formatPen(p.investments)}</span>
+        <span class="summary-value investment${p.investments > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.investments)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
-        <span class="summary-value">${formatPen(p.net)}</span>
+        <span class="summary-value${p.net > 0.005 ? " pos-green" : ""}">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
@@ -11394,7 +11394,7 @@ function renderProjectionCategories_(result) {
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.category_type === "investment" ? -c.totalPen : c.totalPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${formatPenSigned_(isIncome ? c.totalPen : -c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
