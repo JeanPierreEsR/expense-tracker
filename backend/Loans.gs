@@ -1754,7 +1754,15 @@ function reassignRepayment(payload) {
   var anchorLoan = getAllRows('Loans').find(function (l) { return l.id === first.loan_id; });
   if (!anchorLoan) throw new Error(tr_('err.loanNotFound'));
 
-  var total = group.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+  var oldTotal = Math.round(group.reduce(function (sum, s) { return sum + Number(s.amount); }, 0) * 100) / 100;
+  // Optional: a new amount, date and account for the repayment itself (owner's request, 2026-10-27).
+  var total = oldTotal;
+  if (payload.amount !== undefined && payload.amount !== null && payload.amount !== '') {
+    total = Math.round(Number(payload.amount) * 100) / 100;
+    if (!(total > 0)) throw new Error(tr_('err.validAmount'));
+  }
+  var newDate = payload.date ? String(payload.date) : first.date;
+  var newPm = payload.payment_method_id !== undefined ? (payload.payment_method_id || '') : (first.payment_method_id || '');
   var settledByLoan = buildSettlementTotalsByLoan_();
   group.forEach(function (s) { settledByLoan[s.loan_id] = (settledByLoan[s.loan_id] || 0) - Number(s.amount); });
 
@@ -1788,10 +1796,21 @@ function reassignRepayment(payload) {
   group.forEach(function (s) { ids[s.id] = true; });
   deleteRowsWhere_('Settlements', function (s) { return ids[s.id]; });
   plan.forEach(function (item) {
-    recordSettlementRow_(item.loan_id, first.date, item.amount, first.payment_method_id || '', '', first.transfer_entry_id || '');
+    recordSettlementRow_(item.loan_id, newDate, item.amount, newPm, '', first.transfer_entry_id || '');
     touched[item.loan_id] = true;
   });
   Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
+  // The repayment's money movement follows: new date and account, and the new amount plus any part that still
+  // sits on a "paid earlier, no loan" row (that part is not changed here).
+  if (first.transfer_entry_id) {
+    var te = getEntryById_(first.transfer_entry_id);
+    if (te) {
+      var extra = Math.max(Math.round((Number(te.amount) - oldTotal) * 100) / 100, 0);
+      setEntryField_(first.transfer_entry_id, 'amount', Math.round((total + extra) * 100) / 100);
+      setEntryField_(first.transfer_entry_id, 'date', newDate);
+      setEntryField_(first.transfer_entry_id, 'payment_method_id', newPm);
+    }
+  }
   return { done: true, parts: plan.length };
 }
 

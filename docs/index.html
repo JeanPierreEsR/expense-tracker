@@ -1279,12 +1279,20 @@
   <div id="reassign-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="reassign-title" data-i18n="reassign.title">Change which loans this pays</span>
+        <span id="reassign-title" data-i18n="reassign.title">Edit this repayment</span>
         <button type="button" id="reassign-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="reassign-info"></p>
         <p class="hint" id="reassign-hint" data-i18n="reassign.hint">Select the loans this repayment is for. They are paid oldest first, until the repayment runs out. Whatever is left goes to the oldest of the others.</p>
+        <div id="reassign-fields">
+          <label for="reassign-amount" data-i18n="field.amount">Amount</label>
+          <input type="text" inputmode="decimal" id="reassign-amount" placeholder="0.00">
+          <label for="reassign-date" data-i18n="field.date">Date</label>
+          <input type="date" id="reassign-date">
+          <label for="reassign-pm" data-i18n="field.paymentMethod">Payment method</label>
+          <select id="reassign-pm"></select>
+        </div>
         <div id="reassign-list"></div>
         <p class="hint" id="reassign-summary"></p>
         <p class="hint" id="reassign-error" style="color:#d64545;"></p>

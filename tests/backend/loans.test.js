@@ -510,3 +510,25 @@ test("a 'Refund:' loan made by an earlier release is reworded and matched to its
   rt.api("applyUnappliedPayment", { id: "old-refund", loan_ids: [target.id] });
   assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 0);
 });
+
+test("a recorded repayment can get a new amount and date from the history", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  repay(rt, data, friend, 150);
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  const tid = row.transfer_entry_id;
+
+  rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 180, date: "2026-03-05", payment_method_id: "" });
+
+  assert.equal(paidOn(rt, one.id) + paidOn(rt, two.id), 180);
+  const lines = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments;
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].amount, 180);
+  assert.equal(lines[0].date, "2026-03-05");
+  const te = rt.rows("Entries").find((e) => e.id === tid);
+  assert.equal(Number(te.amount), 180, "the money movement follows");
+  assert.equal(String(te.date).slice(0, 10), "2026-03-05");
+  assert.throws(() => rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 999 }), "more than the loans hold");
+});
