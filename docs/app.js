@@ -4366,7 +4366,19 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       }
     });
 
-    discardBtn.addEventListener("click", () => {
+    discardBtn.addEventListener("click", async () => {
+      // A repayment's extra (waiting for a category) is part of that repayment: never discarded on its own. Offer the
+      // repayment's screen, where the whole repayment can be deleted.
+      const partOf = entry.link && (entry.link.kind === "repaymentExtra" || entry.link.kind === "repayment") ? entry.link : null;
+      if (partOf) {
+        const transferId = partOf.kind === "repayment" ? entry.id : partOf.transfer_entry_id;
+        if (partOf.friend_id && transferId && confirm(tr("delete.openRepaymentAsk", { friend: partOf.friend }))) {
+          await openRepaymentEditorForEntry_(partOf.friend_id, partOf.friend, transferId);
+        } else if (!partOf.friend_id || !transferId) {
+          alert(tr("review.partOfRepayment"));
+        }
+        return;
+      }
       if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
 
       betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));

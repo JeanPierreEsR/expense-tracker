@@ -1396,6 +1396,9 @@ function convertEntryInto_(payload, kind) {
   if (entry.type !== 'expense' && entry.type !== 'income' && entry.type !== 'transfer') {
     throw new Error(tr_(kind === 'loan' ? 'convert.onlyLoan' : 'convert.onlyRepayment'));
   }
+  // A repayment's extra income / expense is part of that repayment: converting it would delete it on its own.
+  var asPart = repaymentPartInfo_(entry.id);
+  if (asPart && asPart.kind === 'gap') throw new Error(tr_('typeChange.isRepaymentExtra'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
   if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
@@ -1654,6 +1657,25 @@ function repaymentOfEntry_(entryId) {
   var asGap = rows.filter(function (s) { return s.gap_entry_id === entryId; });
   if (asGap.length) return { kind: 'gap', rows: asGap, transferId: asGap[0].transfer_entry_id || '', gapId: entryId };
   return null;
+}
+
+// Is this entry one of a repayment's two entries (its money movement or its extra income / expense)? Those are never deleted
+// or converted on their own (owner's rule, 2026-10-28): a repayment is ONE total, deleted as a whole from the person's
+// repayment screen. Returns { kind: 'transfer' | 'gap', settlementId, friend } or null. `settlementId` is the id
+// deleteRepayment takes.
+function repaymentPartInfo_(entryId) {
+  var link = repaymentOfEntry_(entryId);
+  if (!link) return null;
+  var loan = getAllRows('Loans').find(function (l) { return l.id === link.rows[0].loan_id; });
+  var friend = loan && getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  return { kind: link.kind, settlementId: link.rows[0].id, friend: friend ? friend.name : '' };
+}
+
+// The app's `discardEntry` action (and Telegram's Discard button) refuse a repayment's entries with the way out spelled out.
+// Internal callers (the conversions that cancel a repayment, deleteRepayment) use discardEntryWithRepayments_ directly.
+function refuseRepaymentPartDiscard_(entryId) {
+  var part = repaymentPartInfo_(entryId);
+  if (part) throw new Error(tr_('repay.deleteInRepaymentScreen', { friend: part.friend }));
 }
 
 // The extra (income / expense) entries that still exist behind these repayment rows (`gap_entry_id`). Turning a repayment into

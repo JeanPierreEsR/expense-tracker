@@ -399,7 +399,7 @@ function routeAction(action, payload) {
       try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
       return followed ? { done: true, follow: followed } : { done: true };
     }
-    case 'discardEntry': return discardEntryWithRepayments_(payload.id, payload.repayments);
+    case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);
     case 'releaseEntryRepaidLoans': return releaseEntryRepaidLoans(payload);
@@ -1107,7 +1107,11 @@ function listPendingEntries() {
   var all = getAllRows('Entries');
   var entries = all.filter(function (e) { return e.status === 'pending'; });
   var trips = getTripRows_();
+  // A waiting entry can be a repayment's extra (income / expense with no category yet): it carries `link` like a confirmed one
+  // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
+  var transferLinks = entries.length ? buildTransferLinkMap_() : {};
   entries.forEach(function (entry) {
+    if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     entry.twins = findSameDayTwins_(entry, all);
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).

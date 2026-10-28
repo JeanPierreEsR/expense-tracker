@@ -509,6 +509,7 @@ function handleTelegramCallback_(cb) {
   // on an already-handled entry with a note instead of "Confirmed." again.
   var entry = action === 'confirm' || action === 'discard' ? getEntryById_(entryId) : null;
   var reply = null;
+  var replyMarkup = null;   // buttons on the bot's own reply (only the "delete the whole repayment" offer has any)
   var keepButtons = false;
   if (action === 'confirm') {
     if (entry && entry.status === 'confirmed') {
@@ -537,6 +538,12 @@ function handleTelegramCallback_(cb) {
       // Confirmed from the app after this card was sent — a late tap on
       // an old card must never delete a real, confirmed entry.
       reply = tr_('bot.alreadyConfirmedDelete');
+    } else if (repaymentPartInfo_(entryId)) {
+      // One of a repayment's two entries (e.g. its extra, waiting for a category): never deleted on its own. Point to the
+      // app, or let the owner choose to delete the WHOLE repayment (both entries) with one more tap. The card keeps its buttons.
+      reply = tr_('bot.repaymentPart', { friend: repaymentPartInfo_(entryId).friend });
+      replyMarkup = { inline_keyboard: [[{ text: tr_('bot.deleteRepaymentButton'), callback_data: 'delrep:' + entryId }]] };
+      keepButtons = true;
     } else {
       try {
         discardEntryWithRepayments_(entryId);
@@ -545,12 +552,27 @@ function handleTelegramCallback_(cb) {
         reply = tr_('bot.notDiscarded', { error: err.message });
       }
     }
+  } else if (action === 'delrep') {
+    // The owner chose to delete the whole repayment: loans part, money entry and extra entry together (deleteRepayment).
+    var part = repaymentPartInfo_(entryId);
+    if (!part) {
+      reply = tr_('bot.repaymentGone');
+    } else {
+      try {
+        deleteRepayment({ id: part.settlementId });
+        reply = tr_('bot.repaymentDeleted', { friend: part.friend });
+      } catch (err) {
+        reply = tr_('bot.notDiscarded', { error: err.message });
+      }
+    }
   }
   if (reply) {
-    telegramApi_('sendMessage', {
+    var replyPayload = {
       chat_id: cb.message.chat.id, text: reply,
       reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true
-    });
+    };
+    if (replyMarkup) replyPayload.reply_markup = replyMarkup;
+    telegramApi_('sendMessage', replyPayload);
     if (!keepButtons) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
 
