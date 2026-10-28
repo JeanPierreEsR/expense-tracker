@@ -136,6 +136,7 @@ function stmtFromStatement_(e) { return String(e.external_id || '').indexOf('stm
 function matchStatements_(statements, entries, opts) {
   opts = opts || {};
   var loanTransferIds = opts.loanTransferIds || {};
+  var repaymentTotals = opts.repaymentTotals || {};   // transfer entry id -> { gapEntryId, total }: a repayment that came in two entries
   var used = {};
   var perLine = {};
   var index = stmtEntryDayIndex_(entries);
@@ -167,8 +168,15 @@ function matchStatements_(statements, entries, opts) {
           var alt = t ? stmtEntryEffects_(e, st.pmId, t) : null;
           if (alt && alt.some(function (x) { return Math.abs(x - l.amount) < 0.005; })) { ok = true; viaTotal = true; }
         }
+        // One bank line for a repayment that is two entries (what the loans took + its extra income/expense): the line is their sum.
+        var viaRepayment = false, gapId = '';
+        var rep = repaymentTotals[e.id];
+        if (!ok && rep && !used[rep.gapEntryId]) {
+          var sumEffects = stmtEntryEffects_(e, st.pmId, rep.total);
+          if (sumEffects && sumEffects.some(function (x) { return Math.abs(x - l.amount) < 0.005; })) { ok = true; viaRepayment = true; gapId = rep.gapEntryId; }
+        }
         if (!ok) return;
-        pairs.push({ viaTotal: viaTotal,
+        pairs.push({ viaTotal: viaTotal, viaRepayment: viaRepayment, gapId: gapId,
           li: li, e: e, dd: dd,
           sim: stmtSimilarity_(l.description, e.description + ' ' + (e.merchant || '')),
           own: (e.payment_method_id === st.pmId || e.to_payment_method_id === st.pmId) ? 1 : 0
@@ -178,11 +186,14 @@ function matchStatements_(statements, entries, opts) {
     pairs.sort(function (a, b) { return (a.dd - b.dd) || (b.sim - a.sim) || (b.own - a.own); });
     pairs.forEach(function (p) {
       if (res[p.li].status === 'matched' || used[stmtUsedKey_(p.e, st.pmId)]) return;
+      if (p.gapId && used[p.gapId]) return;
       used[stmtUsedKey_(p.e, st.pmId)] = true;
+      if (p.gapId) used[p.gapId] = true;   // the extra entry is explained by the same bank line
       res[p.li] = {
         status: 'matched', entryId: p.e.id, dayDiff: p.dd,
         entryHadNoAccount: !p.e.payment_method_id && !p.e.to_payment_method_id,
         viaTotal: !!p.viaTotal,
+        viaRepayment: !!p.viaRepayment,
         guess: res[p.li].guess
       };
     });

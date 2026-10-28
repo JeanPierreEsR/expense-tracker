@@ -936,7 +936,7 @@ function listEntries(payload) {
   // Transfers that are a repayment / cash loan with a friend carry `link`
   // (see buildTransferLinkMap_) so the app can name the friend instead of
   // saying "Between Accounts".
-  var transferLinks = entries.some(function (e) { return e.type === 'transfer'; }) ? buildTransferLinkMap_() : {};
+  var transferLinks = entries.some(function (e) { return e.type === 'transfer' || e.type === 'income' || e.type === 'expense'; }) ? buildTransferLinkMap_() : {};
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];

@@ -3154,3 +3154,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
 .loan-detail-actions[hidden] { display: none; }
+
+/* repayment history: the loans a repayment paid, as detail under "On loans" */
+.loan-detail-row-meta.history-sub { padding-left: 16px; }
+
+/* "Edit this repayment" opened before its data has arrived: only the title and "Loading…" show (Loading standard) */
+.reassign-loading #reassign-fields, .reassign-loading #reassign-list, .reassign-loading #reassign-limit-row, .reassign-loading #reassign-gap,
+.reassign-loading #reassign-summary, .reassign-loading #reassign-hint, .reassign-loading #reassign-record, .reassign-loading #reassign-error,
+.reassign-loading #reassign-save { display: none; }

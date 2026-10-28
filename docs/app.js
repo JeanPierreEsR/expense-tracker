@@ -86,6 +86,7 @@ let splitInputEls = {};
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
+let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
@@ -2401,6 +2402,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       exitEditMode();
       refreshLoans().catch(() => {});
       showFormNotice_(tr(selectedType === "expense" ? "loanConv.doneExpense" : "loanConv.doneIncome"));
+    } else if (editingEntryId && (
+        (editingRepayment_ && selectedType === "transfer" && editingRepayment_.friend_id && Math.abs(Number(amount) - Number(editingRepayment_.total)) > 0.004) ||
+        (editingRepaymentExtra_ && editingRepaymentExtra_.transfer_entry_id && selectedType === editingEntryOriginalType && Math.abs(Number(amount) - Number(editingRepaymentExtra_.total)) > 0.004))) {
+      // The amount of a repayment's money movement, or of its extra income/expense, is changed in the repayment's editor (where
+      // the loans and the extra are split): offer to go straight there instead of refusing.
+      const target = editingRepayment_ || editingRepaymentExtra_;
+      const entryOfRepayment = editingRepayment_ ? editingRepayment_.entry_id : editingRepaymentExtra_.transfer_entry_id;
+      if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(target.friend_id, target.friend, entryOfRepayment);
+      return;
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -3431,7 +3443,7 @@ async function startEditEntry(entry) {
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
-    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", total: entry.amount, currency: entry.currency } : null;
+    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
   // If this turns out to be a repayment / loan, start from the way the money
   // moved: an income came in (they paid me); an expense went out (I paid them);
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
@@ -3439,6 +3451,9 @@ async function startEditEntry(entry) {
   else if (entry.type === "expense") repaymentDirectionChoice = "i_owe_them";
   else if (entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id) repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
+  // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
+  editingRepaymentExtra_ = (entry.type === "income" || entry.type === "expense") && !!entry.link && entry.link.kind === "repaymentExtra"
+    ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
 
@@ -3535,6 +3550,7 @@ function exitEditMode() {
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
   editingRepayment_ = null;
+  editingRepaymentExtra_ = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
@@ -3626,6 +3642,10 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
     if (links.refunds && links.refunds.length) {
       repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
       if (!repaymentsChoice) return false;
+    }
+    if (links.repaymentExtra) {
+      const x = links.repaymentExtra;
+      confirmText = tr("delete.repaymentExtra", { friend: x.friend, cur: x.currency, amount: moneyFmt(x.amount) });
     }
     if (links.repayment) {
       const r = links.repayment;
@@ -14556,17 +14576,18 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     // One total, split in what sits on loans and what is its own income/expense entry.
-    const split = r.gap
-      ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) }), tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) })]
-      : [];
-    const metaLines = (acct ? [acct] : []).concat(split, where);
-    if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
+    const split = r.gap ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) })] : [];
+    const metaLines = (acct ? [acct] : []).concat(split);
+    // The loans it paid sit right under "On loans", slightly indented, as its detail; the income/expense part comes last.
+    const whereHtml = where.map((m) => (r.gap ? `<div class="loan-detail-row-meta history-sub">${m}</div>` : `<div class="loan-detail-row-meta">${m}</div>`)).join("");
+    const gapHtml = r.gap ? `<div class="loan-detail-row-meta">${tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) })}</div>` : "";
+    const unappliedHtml = r.unapplied > 0.004 ? `<div class="loan-detail-row-meta"><em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em></div>` : "";
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
-      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}`;
+      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}${whereHtml}${gapHtml}${unappliedHtml}`;
     repEl.appendChild(row);
   });
 
@@ -14589,6 +14610,47 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   });
   loadingEl.hidden = true;
   contentEl.hidden = false;
+}
+
+// From a repayment's entry in Home straight to "Edit this repayment": the person's screen, then their repayment history,
+// then that repayment's edit sheet (each opens over the last, so closing one lands on the one before).
+async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryId) {
+  // 1. The sheet the person needs opens first, after ONE call (it shows "Loading…" at once).
+  const sheet = document.getElementById("reassign-modal-backdrop");
+  sheet.classList.add("reassign-loading");
+  document.getElementById("reassign-title").textContent = tr("reassign.title");
+  document.getElementById("reassign-info").textContent = tr("common.loading");
+  bringModalToFront_(sheet);
+  sheet.hidden = false;
+  let h;
+  try {
+    h = await callApi("getFriendRepaymentHistory", { friendId });
+  } catch (err) {
+    sheet.hidden = true;
+    sheet.classList.remove("reassign-loading");
+    alert(err.message);
+    return;
+  }
+  const line = h.repayments.find((r) => r.transfer_entry_id === transferEntryId);
+  if (!line) {
+    sheet.hidden = true;
+    sheet.classList.remove("reassign-loading");
+    return;
+  }
+  historyCtx_ = { friendId, friendName, projectId: "", netText: "", data: h };
+  openReassignRepayment_(line);
+  // 2. The person's screen and their repayment history are loaded UNDER the sheet, in the background: the next two modals
+  // are given lower layers than the sheet, so closing the sheet lands on them already there.
+  const z = Number(sheet.style.zIndex) || topModalZIndex;
+  topModalZIndex = z - 3;
+  try {
+    await openLoanDetail(friendId, friendName);
+    await openRepaymentHistory_(friendId, friendName, "", document.getElementById("loan-detail-subtitle").textContent);
+  } catch (err) {
+    // the sheet is what was asked for: a failure of the screens behind it is not worth interrupting it
+  } finally {
+    topModalZIndex = Math.max(topModalZIndex, z);
+  }
 }
 
 // Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
@@ -14696,6 +14758,7 @@ function openReassignRepayment_(r) {
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
   document.getElementById("reassign-date").value = r.date;
 
+  document.getElementById("reassign-modal-backdrop").classList.remove("reassign-loading");
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
   document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied + (r.gap ? r.gap.amount : 0))}`, date: r.date });
