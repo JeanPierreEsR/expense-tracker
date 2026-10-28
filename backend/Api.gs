@@ -401,6 +401,8 @@ function routeAction(action, payload) {
     }
     case 'discardEntry': return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
+    case 'checkEntryTypeChange': return checkEntryTypeChange(payload);
+    case 'releaseEntryRepaidLoans': return releaseEntryRepaidLoans(payload);
     case 'updateEntry': return updateEntryFromApp_(payload);
     case 'convertPendingToTransfer': return convertPendingToTransfer(payload);
     case 'undoCategoryFollow': return undoCategoryFollow(payload);
