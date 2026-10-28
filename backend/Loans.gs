@@ -1989,8 +1989,36 @@ function entryTypeChangeBlock_(entryId, newType) {
   if (getAllRows('Settlements').some(function (s) { return s.gap_entry_id === entryId && !s.offset_loan_id; })) return tr_('typeChange.isRepaymentExtra');
   if (loans.some(function (l) { return l.transfer_entry_id === entryId; })) return tr_('typeChange.isLoan');
   if (loans.some(function (l) { return l.forgiveness_entry_id === entryId; })) return tr_('typeChange.isForgiveness');
-  if (entry.exchange) return tr_('typeChange.isExchange');
+  // One side of a currency exchange: the money that left can become an expense (or an investment deposit), the money that
+  // arrived an income (or an investment withdrawal). The exchange is two separate entries, so the other side is not touched here.
+  var side = exchangeLegSide_(entry);
+  if (side && ['investment', side === 'out' ? 'expense' : 'income'].indexOf(newType) === -1) {
+    return tr_(side === 'out' ? 'typeChange.exchangeOut' : 'typeChange.exchangeIn');
+  }
   return '';
+}
+
+// 'out' (money left, From only) / 'in' (money arrived, To only) for one side of a currency exchange, '' for anything else.
+// The marker is set by the exchange form, e-mails and the pending card; statement-made legs have none, so their description counts too.
+function exchangeLegSide_(entry) {
+  if (!entry || entry.type !== 'transfer') return '';
+  if (!entry.exchange && !EXCHANGE_DESCRIPTION_RE_.test(String(entry.description || ''))) return '';
+  if (!!entry.payment_method_id === !!entry.to_payment_method_id) return '';
+  return entry.payment_method_id ? 'out' : 'in';
+}
+
+// The other side of an exchange, as far as the app can tell (the two sides are not linked): an exchange leg on the opposite
+// side, in another currency, within 3 days (the same rule unpairedExchangeLegs_ pairs by); the closest date wins. null if none.
+function exchangeLegPartner_(entry) {
+  var side = exchangeLegSide_(entry);
+  if (!side) return null;
+  var best = null, bestDiff = 99;
+  getAllRows('Entries').forEach(function (x) {
+    if (x.id === entry.id || x.currency === entry.currency || exchangeLegSide_(x) === side || !exchangeLegSide_(x)) return;
+    var diff = exchangeDayDiff_(x.date, entry.date);
+    if (diff <= 3 && diff < bestDiff) { best = x; bestDiff = diff; }
+  });
+  return best;
 }
 
 // A shared expense (a friend paid, or it was split) turned into another type no longer exists as an expense, so the
@@ -2013,9 +2041,12 @@ function entryTypeChangeRepaidLoanIds_(entryId, newType) {
 // What the phone asks before a type change: the refusal (if any), and whether the entry's repaid debts need the
 // keep / cancel decision first (`repaid` = the real money friends paid back, per friend and currency, for the sheet).
 function checkEntryTypeChange(payload) {
+  var entry = getEntryById_(payload.id);
+  var blocked = entryTypeChangeBlock_(payload.id, payload.type);
   var ids = entryTypeChangeRepaidLoanIds_(payload.id, payload.type);
   return {
-    blocked: entryTypeChangeBlock_(payload.id, payload.type),
+    blocked: blocked,
+    exchangePartner: !blocked && payload.type !== (entry && entry.type) ? exchangeLegPartner_(entry) : null,
     needsRelease: ids.length > 0,
     repaid: ids.length ? entryRepaidLoansSummary_(payload.id) : []
   };

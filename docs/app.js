@@ -87,6 +87,9 @@ let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
 let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
+var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
+let editingExchangeAccount_ = "";   // that exchange side's own account (the one it arrived in, for "in")
+let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
@@ -1914,6 +1917,16 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
       showDetailForm(null);
     }
     syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
+    // The money-in side of an exchange has only a "To" account; as income it is the account it was received at.
+    if (editingExchangeLeg_ === "in" && selectedType === "income") {
+      document.getElementById("payment_method").value = editingExchangeAccount_;
+    }
+    // Money that arrived, taken out of an investment platform: a withdrawal into that account; the platform is for the person to pick.
+    if (editingExchangeLeg_ === "in" && selectedType === "investment") {
+      setInvestmentDirection("withdrawal");
+      document.getElementById("payment_method").value = editingExchangeAccount_;
+      document.getElementById("to_payment_method").value = "";
+    }
   });
 });
 
@@ -2518,6 +2531,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (selectedType !== editingEntryOriginalType) {
         const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
         if (check.blocked) throw new Error(check.blocked);
+        // One side of a currency exchange is a separate entry: only this one changes. If the app can tell where the other
+        // side is, the person may change it too, right after this one is saved.
+        exchangePartnerToOpen_ = null;
+        if (check.exchangePartner) {
+          const p = check.exchangePartner;
+          if (confirm(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: p.date }))) exchangePartnerToOpen_ = p;
+        }
         // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
         // repayments, as when deleting the expense; its splits and debts are cleared before the new type is saved.
         if (check.needsRelease) {
@@ -2588,6 +2608,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         await refreshAfterPopupEdit();
       } else {
         resetToFreshEntryScreen_();
+      }
+      if (exchangePartnerToOpen_) {   // the person chose to change the other side of the exchange too
+        const partner = exchangePartnerToOpen_;
+        exchangePartnerToOpen_ = null;
+        openEditPopup(partner);
       }
       return;
     } else if (canProgram) {
@@ -3549,6 +3574,8 @@ async function startEditEntry(entry) {
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
+  editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingExchangeAccount_ = editingExchangeLeg_ === "in" ? (entry.to_payment_method_id || "") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
     ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
@@ -3675,6 +3702,7 @@ function exitEditMode() {
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
+  editingExchangeLeg_ = "";
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
