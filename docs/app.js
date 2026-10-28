@@ -88,7 +88,7 @@ let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
 let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
 var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
-let editingExchangeAccount_ = "";   // that exchange side's own account (the one it arrived in, for "in")
+let editingExchangeAccount_ = "";   // the account a money-in transfer arrived in ("" when it is not one)
 let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
@@ -1919,11 +1919,11 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     }
     syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
     // The money-in side of an exchange has only a "To" account; as income it is the account it was received at.
-    if (editingExchangeLeg_ === "in" && selectedType === "income") {
+    if (editingExchangeAccount_ && (selectedType === "income" || selectedType === "expense")) {
       document.getElementById("payment_method").value = editingExchangeAccount_;
     }
     // Money that arrived, taken out of an investment platform: a withdrawal into that account; the platform is for the person to pick.
-    if (editingExchangeLeg_ === "in" && selectedType === "investment") {
+    if (editingExchangeAccount_ && selectedType === "investment") {
       setInvestmentDirection("withdrawal");
       document.getElementById("payment_method").value = editingExchangeAccount_;
       document.getElementById("to_payment_method").value = "";
@@ -3584,7 +3584,9 @@ async function startEditEntry(entry) {
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   editingExchangeLeg_ = exchangeLegSide_(entry);
   editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
-  editingExchangeAccount_ = editingExchangeLeg_ === "in" ? (entry.to_payment_method_id || "") : "";
+  // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
+  // becomes another type: income's "Received at", or the withdrawal's account.
+  editingExchangeAccount_ = entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id ? entry.to_payment_method_id : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
     ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
@@ -4431,7 +4433,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
-        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
+        ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
       </div>` : ""}
     `;
@@ -16131,6 +16133,11 @@ function populateReviewTransferPaymentMethodOptions() {
   });
 }
 
+// Did the money of this waiting entry ARRIVE (an income, an investment withdrawal)? Otherwise it left.
+function reviewEntryArrived_(entry) {
+  return entry.type === "income" || (entry.type === "investment" && Number(entry.amount) < 0);
+}
+
 function openReviewTransferModal(entry, mode) {
   reviewTransferEntry = entry;
   reviewTransferMode = mode;
@@ -16139,7 +16146,7 @@ function openReviewTransferModal(entry, mode) {
     mode === "repay" ? tr("review.repayTitle") : tr("review.loanTitle");
   // Say which way the money moves — it follows the entry's type (an income
   // is money that came IN, so the friend is the one paying/lending).
-  const incoming = entry.type === "income";
+  const incoming = reviewEntryArrived_(entry);
   document.getElementById("review-transfer-context").textContent =
     `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` +
     (incoming
@@ -16150,9 +16157,10 @@ function openReviewTransferModal(entry, mode) {
   populateReviewTransferFriendOptions();
   populateReviewTransferPaymentMethodOptions();
   document.getElementById("review-transfer-friend").value = meta.friends.length ? meta.friends[0].id : "";
-  document.getElementById("review-transfer-amount").value = entry.amount;
+  document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
-  document.getElementById("review-transfer-payment-method").value = "";
+  // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
+  document.getElementById("review-transfer-payment-method").value = entry.payment_method_id || "";
   // Both modes now generate a `transfer` Entry for the real money moved
   // (see CLAUDE.md's Loans/Settlements sections) — this description feeds
   // that entry either way, pre-filled from the original pending
@@ -16205,9 +16213,13 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     // — the friend is then the one repaying (they_owe_me paid down) or
     // lending (i_owe_them). An income with no debt on record is refused by the
     // backend (require_owed) before anything is written, so the entry stays.
-    const incoming = reviewTransferEntry.type === "income";
+    // One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked first and the waiting
+    // entry is put back if anything fails, instead of recording first and discarding afterwards (a failed discard used to
+    // leave both). A repayment's extra waits in this queue (overpay_pending_ok), as before.
+    const incoming = reviewEntryArrived_(reviewTransferEntry);
     if (reviewTransferMode === "repay") {
-      const result = await callApi("recordRepayment", {
+      const result = await callApi("convertEntryToRepayment", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "they_owe_me" : "i_owe_them",
         amount,
@@ -16215,14 +16227,15 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         date,
         payment_method_id: paymentMethodId,
         description,
-        require_owed: incoming
+        require_owed: incoming,
+        overpay_pending_ok: true
       });
-      await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
         alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
-      await callApi("addLoan", {
+      await callApi("convertEntryToLoan", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "i_owe_them" : "they_owe_me",
         amount,
@@ -16231,7 +16244,6 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         payment_method_id: paymentMethodId,
         description
       });
-      await callApi("discardEntry", { id: entryId });
     }
 
     closeReviewTransferModal();

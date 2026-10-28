@@ -123,6 +123,24 @@ function seedData(rt, options = {}) {
     }
   }
 
+  // One waiting entry of every kind a card can show, for clicking through Needs review (all described "MX …").
+  {
+    const debit = pms.find((p) => p.type === "debit"), platform = pms[9];
+    for (let k = 1; k <= 8; k++) {   // eight of each: one per type it can be changed into, the rest for the card buttons
+    const waiting = (fields) => entries.push(Object.assign({
+      id: uuid(), date: "2026-10-27", status: "pending", source: "email", paid_by: "me", currency: "PEN", category_id: "",
+      created_at: "2026-10-27T10:00:00", updated_at: "2026-10-27T10:00:00", merchant: "", external_id: uuid(), import_batch_id: ""
+    }, fields));
+    waiting({ type: "income", amount: 410, description: "MX income " + k, payment_method_id: debit.id });
+    waiting({ type: "transfer", amount: 120, description: "MX transfer out only " + k, category_id: transferCat ? transferCat.id : "", payment_method_id: debit.id });
+    waiting({ type: "transfer", amount: 130, description: "MX transfer in only " + k, category_id: transferCat ? transferCat.id : "", to_payment_method_id: debit.id });
+    waiting({ type: "transfer", amount: 140, description: "MX transfer both " + k, category_id: transferCat ? transferCat.id : "", payment_method_id: debit.id, to_payment_method_id: pms[1].id });
+    waiting({ type: "investment", amount: 150, description: "MX investment deposit " + k, payment_method_id: debit.id, to_payment_method_id: platform.id });
+    waiting({ type: "investment", amount: -160, description: "MX investment withdrawal " + k, payment_method_id: debit.id, to_payment_method_id: platform.id });
+    waiting({ type: "expense", amount: 170, description: "MX expense " + k, payment_method_id: debit.id });
+    }
+  }
+
   // Shared expenses -> splits + entry-origin loans, some repaid / forgiven
   const sharable = entries.filter((e) => e.type === "expense" && e.status === "confirmed" && e.currency === "PEN" && e.amount > 40);
   for (let i = 0; i < o.loans && i < sharable.length; i++) {
