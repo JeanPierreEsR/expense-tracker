@@ -499,12 +499,12 @@ test("a 'Refund:' loan made by an earlier release is reworded and matched to its
   repay(rt, data, friend, 465.70);
   // what the earlier release left: Bao and its repayment rows gone, a plain "Refund: …" loan, no flag column yet
   rt.run(`deleteRowsWhere_('Settlements', function (s) { return s.loan_id === ${JSON.stringify(bao.id)}; }); deleteRowsWhere_('Loans', function (l) { return l.id === ${JSON.stringify(bao.id)}; });`);
-  rt.run(`appendRowObject('Loans', { id: 'old-refund', friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 301.56, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: 'Refund: Rappi Bao was deleted, Nexus Group had repaid PEN 301.56', status: 'outstanding', transfer_entry_id: '' })`);
+  rt.run(`appendRowObject('Loans', { id: 'old-refund', friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 301.56, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: 'Refund: Taxi ride was deleted, Ana Lo* had repaid PEN 301.56', status: 'outstanding', transfer_entry_id: '' })`);
 
   const loans = rt.api("getFriendLoanDetail", { friendId: friend.id });   // first read creates the column and upgrades the row
 
   const old = loans.find((l) => l.id === "old-refund");
-  assert.equal(old.description, "Paid earlier, no loan: Rappi Bao (deleted). Nexus Group had paid PEN 301.56");
+  assert.equal(old.description, "Paid earlier, no loan: Taxi ride (deleted). Ana Lo* had paid PEN 301.56");
   assert.equal(Object.keys(JSON.parse(old.unapplied_sources)).length, 1, "matched to the 465.70 repayment");
   const target = cashLoan(rt, data, friend, 400, "2026-09-22");
   rt.api("applyUnappliedPayment", { id: "old-refund", loan_ids: [target.id] });
