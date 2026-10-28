@@ -90,6 +90,7 @@ let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → N
 var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
 let editingExchangeAccount_ = "";   // the account a money-in transfer arrived in ("" when it is not one)
 let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
+let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
@@ -2536,6 +2537,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
       // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
       // and again by the server on the queued save.
+      // What a forgiveness booked keeps its amount and currency (the loan's balance moved by exactly that); the server says
+      // the same, but asked HERE the reason shows before the form closes.
+      if (editingForgiveness_ && (Math.abs(Number(amount) - editingForgiveness_.amount) > 0.004 || currency !== editingForgiveness_.currency)) {
+        throw new Error(tr("forgive.entryLocked"));
+      }
       if (selectedType !== editingEntryOriginalType) {
         const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
         if (check.blocked) throw new Error(check.blocked);
@@ -3583,6 +3589,7 @@ async function startEditEntry(entry) {
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingForgiveness_ = entry.link && entry.link.kind === "forgiveness" ? { amount: Number(entry.amount), currency: entry.currency } : null;
   editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
   // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
   // becomes another type: income's "Received at", or the withdrawal's account.
@@ -3715,6 +3722,7 @@ function exitEditMode() {
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
   editingExchangeLeg_ = "";
+  editingForgiveness_ = null;
   editingInvestmentLeft_ = null;
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;

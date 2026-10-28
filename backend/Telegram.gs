@@ -1001,6 +1001,18 @@ function syncRepaymentAfterTelegramEdit_(entryId, before) {
   return '';
 }
 
+// A forgiveness entry's amount and currency are not editable (forgivenessEditBlock_): put back, with the reason.
+function syncForgivenessAfterTelegramEdit_(entryId, before) {
+  var now = getEntryById_(entryId);
+  if (!now || !before || !forgivenessOfEntry_(entryId)) return '';
+  var amountChanged = Math.abs(Number(now.amount) - Number(before.amount)) > 0.004;
+  var currencyChanged = String(now.currency) !== String(before.currency);
+  if (!amountChanged && !currencyChanged) return '';
+  if (amountChanged) setEntryField_(entryId, 'amount', before.amount);
+  if (currencyChanged) setEntryField_(entryId, 'currency', before.currency);
+  return tr_('bot.repaymentRefused', { reason: tr_('forgive.entryLocked') });
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
@@ -1048,7 +1060,9 @@ function applyEditCommand_(entryId, text) {
   // Same for a repayment's two entries: date / account follow, an amount change is refused (see syncRepaymentAfterTelegramEdit_).
   var repaymentRefusal = loanRefusal ? '' : syncRepaymentAfterTelegramEdit_(entryId, entryBefore);
   if (repaymentRefusal) appliedFields = appliedFields.filter(function (f) { return f !== 'amount'; });
-  loanRefusal = loanRefusal || repaymentRefusal;   // one note, whichever record said no
+  var forgivenessRefusal = syncForgivenessAfterTelegramEdit_(entryId, entryBefore);
+  if (forgivenessRefusal) appliedFields = appliedFields.filter(function (f) { return f !== 'amount' && f !== 'currency'; });
+  loanRefusal = loanRefusal || repaymentRefusal || forgivenessRefusal;   // one note, whichever record said no
   if (loanRefusal && !appliedFields.length) {
     return { message: loanRefusal, entry: getEntryById_(entryId), categoryName: null };
   }

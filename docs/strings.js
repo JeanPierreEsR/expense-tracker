@@ -771,6 +771,7 @@
     "paid.loadFailed": { en: "Couldn't load entries: {error}", es: "No se pudieron cargar los movimientos: {error}" },
 
     // ---- forgive ----
+    "forgive.entryLocked": { en: "This entry records a forgiven debt, so its amount and currency can't be changed. Delete it to undo the forgiveness, then forgive the amount you mean.", es: "Este movimiento registra una deuda perdonada, así que no se puede cambiar su monto ni su moneda. Elimínalo para deshacer el perdón y luego perdona el monto que quieras." },
     "forgive.amountLabel": { en: "How much to forgive", es: "Cuánto perdonar" },
     "forgive.amountHint": { en: "The full amount forgives the whole debt. A smaller amount forgives only that part, and the rest stays owed.", es: "El monto completo perdona toda la deuda. Un monto menor perdona solo esa parte y el resto sigue pendiente." },
     "loanDetail.forgivenSoFar": { en: "Forgiven {cur} {amount}", es: "Perdonado {cur} {amount}" },

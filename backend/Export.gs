@@ -213,7 +213,7 @@ function buildEntriesCsv_(opts) {
     }).join('; ');
 
     var linkedAs = '';
-    if (link) {
+    if (link && (link.kind === 'loan' || link.kind === 'repayment')) {
       linkedAs = tr_(link.kind === 'repayment' ? 'export.linked.repayment' : 'export.linked.loan') +
         (link.direction === 'they_owe_me' ? tr_('export.linked.theyOwe') : link.direction === 'i_owe_them' ? tr_('export.linked.iOwe') : '');
     }

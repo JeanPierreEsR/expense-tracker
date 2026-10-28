@@ -1892,6 +1892,14 @@ function buildTransferLinkMap_() {
     var loan = loanById[s.loan_id];
     if (loan) map[s.gap_entry_id] = { kind: 'repaymentExtra', friend: friends[loan.friend_id] || '', friend_id: loan.friend_id, direction: loan.direction, transfer_entry_id: s.transfer_entry_id || '' };
   });
+  // the expense / income a forgiveness booked (whole or a part): the app locks its amount before the form closes
+  loans.forEach(function (l) {
+    var ids = loanForgivenParts_(l).map(function (p) { return p.entry_id; });
+    if (l.forgiveness_entry_id) ids.push(l.forgiveness_entry_id);
+    ids.forEach(function (id) {
+      if (!map[id]) map[id] = { kind: 'forgiveness', friend: friends[l.friend_id] || '', friend_id: l.friend_id, direction: l.direction };
+    });
+  });
   return map;
 }
 
@@ -1975,6 +1983,19 @@ function guardRepaymentEntryEdit_(entryId, fields) {
   if (entry && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004) {
     throw new Error(tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory'));
   }
+}
+
+// A forgiveness entry's amount and currency ARE what was forgiven (the loan's balance moved by exactly that), so they are not
+// editable on the entry: delete it to undo the forgiveness, then forgive what was meant. Category, description, date, account
+// and the rest stay editable. Returns the refusal text, or ''.
+function forgivenessEditBlock_(entryId, fields) {
+  if (!fields || (fields.amount === undefined && fields.currency === undefined)) return '';
+  if (!forgivenessOfEntry_(entryId)) return '';
+  var entry = getEntryById_(entryId);
+  if (!entry) return '';
+  var amountChanged = fields.amount !== undefined && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004;
+  var currencyChanged = fields.currency !== undefined && String(fields.currency) !== String(entry.currency);
+  return amountChanged || currencyChanged ? tr_('forgive.entryLocked') : '';
 }
 
 // After an app edit is written: a new date or account of either entry carries over to the other one and to the repayment
