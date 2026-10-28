@@ -602,10 +602,13 @@ test("'pay only the selected loans' leaves the others alone and records the gap 
   assert.ok(income, "the gap became income");
   assert.equal(Number(income.amount), 150);
   assert.equal(income.category_id, incomeCat);
-  // without a category it waits in the review queue
+  // saving again changes the SAME income entry (total 250 -> 130: the gap is now 30), it does not add a second one
   const row2 = rt.rows("Settlements").find((s) => s.loan_id === one.id);
   rt.api("reassignRepayment", { id: row2.id, loan_ids: [one.id], limit: true, amount: 130 });
-  assert.equal(rt.rows("Entries").filter((e) => e.type === "income" && e.status === "pending").length >= 1, true);
+  const incomes = rt.rows("Entries").slice(entriesBefore).filter((e) => e.type === "income");
+  assert.equal(incomes.length, 1);
+  assert.equal(Number(incomes[0].amount), 30);
+  assert.equal(incomes[0].category_id, incomeCat);
   assert.throws(() => rt.api("reassignRepayment", { id: row2.id, loan_ids: [], limit: true }), "nothing selected");
 });
 
@@ -635,4 +638,46 @@ test("a repayment set to 'pay only the selected loans' remembers it", () => {
   assert.equal(line().limited, true, "still limited when reopened");
   rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id, two.id], amount: 100 });
   assert.equal(line().limited, false, "saving without the option clears it");
+});
+
+test("history shows one total (loans + income), a new overpayment is linked, and the sheet edits it as one", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const cat = rt.rows("Categories").find((c) => c.type === "income").id;
+  // 130 arrives, the debt is 100: the extra 30 becomes income, tied to this repayment
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: data.pms[3].id, overpay_category_id: cat });
+  const line = () => rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0];
+  assert.equal(line().amount, 130, "the total that arrived");
+  assert.equal(line().applied, 100);
+  assert.equal(line().gap.amount, 30);
+  assert.equal(line().gap.type, "income");
+
+  // editing the income entry (as in the Entries tab) is reflected in the total at once
+  rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 35 } });
+  assert.equal(line().amount, 135);
+
+  // the sheet edits the total: 130 with the loan limited -> the same income entry becomes 30
+  const incomeCount = () => rt.rows("Entries").filter((e) => e.type === "income").length;
+  const before = incomeCount();
+  rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id], limit: true, amount: 130 });
+  assert.equal(incomeCount(), before, "no second income entry");
+  assert.equal(line().gap.amount, 30);
+  // the loans take everything: the income entry goes away
+  rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id], limit: true, amount: 100 });
+  assert.equal(line().gap, null);
+  assert.equal(incomeCount(), before - 1);
+});
+
+test("an earlier overpayment entry is linked to its repayment only when it fits exactly one", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 100, "2026-01-01");
+  const cat = rt.rows("Categories").find((c) => c.type === "income").id;
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: data.pms[3].id, overpay_category_id: cat });
+  // forget the link, as repayments saved before this release
+  rt.run(`var sh = getSheet('Settlements'); var h = getHeaders(sh); getAllRows('Settlements').forEach(function (r) { setCellByRow_(sh, h, findRowIndexById(sh, h, r.id), 'gap_entry_id', ''); });`);
+  const line = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0];
+  assert.equal(line.gap && line.gap.amount, 30, "matched to the one income entry");
+  assert.equal(line.amount, 130);
 });

@@ -14487,7 +14487,11 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       : r.parts.length > 1
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
-    const metaLines = (acct ? [acct] : []).concat(where);
+    // One total, split in what sits on loans and what is its own income/expense entry.
+    const split = r.gap
+      ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) }), tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) })]
+      : [];
+    const metaLines = (acct ? [acct] : []).concat(split, where);
     if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
     row.innerHTML = `
       <div class="loan-detail-row-top">
@@ -14601,9 +14605,9 @@ function openReassignRepayment_(r) {
     .filter((l) => l.direction === r.direction && l.currency === r.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
     .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, direction: r.direction, candidates };
+  reassignRepayment_ = { id: r.id, amount: r.applied + (r.gap ? r.gap.amount : 0), currency: r.currency, direction: r.direction, candidates };
   document.getElementById("reassign-limit-row").hidden = false;
-  document.getElementById("reassign-limit").checked = !!r.limited;   // remembered from when it was saved
+  document.getElementById("reassign-limit").checked = !!r.limited || !!r.gap;   // remembered; a repayment with its own income/expense entry is by nature limited
   const gapIncome = r.direction === "they_owe_me";
   populateCategoryOptionsForSelect_("reassign-gap-category", gapIncome ? "income" : "expense");
   const laterOpt = document.createElement("option");
@@ -14621,12 +14625,12 @@ function openReassignRepayment_(r) {
   pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
   pmSel.value = r.payment_method_id || "";
   document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
-  document.getElementById("reassign-amount").value = r.applied.toFixed(2);
+  document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
   document.getElementById("reassign-date").value = r.date;
 
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
-  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied)}`, date: r.date });
+  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied + (r.gap ? r.gap.amount : 0))}`, date: r.date });
   const list = document.getElementById("reassign-list");
   list.innerHTML = "";
   candidates.forEach((c) => {

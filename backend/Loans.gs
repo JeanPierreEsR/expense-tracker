@@ -396,6 +396,25 @@ function ensureSettlementsTransferEntryColumn_() {
   }
 }
 
+// gap_entry_id = the income (or expense) entry holding the part of this repayment that is not on any loan, so the
+// repayment can be shown and edited as ONE total (owner's request, 2026-10-27).
+function ensureSettlementsGapColumn_() {
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('gap_entry_id') === -1) sheet.getRange(1, headers.length + 1).setValue('gap_entry_id');
+}
+
+// The live gap entry of a repayment's rows (null when none, or when the entry was deleted).
+function gapEntryOfRows_(rows) {
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].gap_entry_id) {
+      var e = getEntryById_(rows[i].gap_entry_id);
+      if (e) return e;
+    }
+  }
+  return null;
+}
+
 // "limited" = this repayment was set to pay ONLY its selected loans (1), so reopening it shows that choice again.
 function ensureSettlementsLimitedColumn_() {
   var sheet = getSheet('Settlements');
@@ -762,9 +781,10 @@ function updateLoanStatusFromSettlements_(loanId) {
   if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
 }
 
-function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId, limited) {
+function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId, limited, gapEntryId) {
   appendRowObject('Settlements', {
     limited: limited ? 1 : '',
+    gap_entry_id: gapEntryId || '',
     id: Utilities.getUuid(),
     loan_id: loanId,
     date: date,
@@ -969,6 +989,15 @@ function recordRepayment(payload) {
     }
     // Business pack: what a client paid beyond the debt is income of THAT project (and what the owner paid beyond, its cost).
     if (projectScope) linkEntryToProject_(overpaymentEntry.id, projectScope);
+    // The extra belongs to this repayment: remember it, so the history shows one total and the sheet edits it as one.
+    if (transferEntryId) {
+      ensureSettlementsGapColumn_();
+      var gapSheet = getSheet('Settlements');
+      var gapHeaders = getHeaders(gapSheet);
+      getAllRows('Settlements').filter(function (st) { return st.transfer_entry_id === transferEntryId; }).forEach(function (st) {
+        setCellByRow_(gapSheet, gapHeaders, findRowIndexById(gapSheet, gapHeaders, st.id), 'gap_entry_id', overpaymentEntry.id);
+      });
+    }
   }
 
   return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };
@@ -1805,6 +1834,7 @@ function listLoanBalances(payload) {
 // really repaid, what was cancelled by an automatic offset and what is left, plus every repayment line, so the
 // balance can be checked by hand. Read-only; amounts stay in each loan's own currency.
 function getFriendRepaymentHistory(payload) {
+  ensureSettlementsGapColumn_();
   ensureSettlementsLimitedColumn_();
   ensureLoansUnappliedColumn_();
   ensureSettlementsOffsetColumn_();
@@ -1846,6 +1876,7 @@ function getFriendRepaymentHistory(payload) {
       var g = groups[s.transfer_entry_id];
       g.amount += part.amount;
       if (s.limited) g.limited = true;
+      if (s.gap_entry_id && !g.gap_entry_id) g.gap_entry_id = s.gap_entry_id;
       // one loan paid in two pieces by the same repayment (e.g. after "Apply to a loan") is still ONE loan on the line
       var same = g.parts.find(function (x) { return x.loan_id === part.loan_id; });
       if (same) same.amount = Math.round((same.amount + part.amount) * 100) / 100; else g.parts.push(part);
@@ -1857,11 +1888,13 @@ function getFriendRepaymentHistory(payload) {
       offset_loan_description: s.offset_loan_id ? label(loanById[s.offset_loan_id]) : '',
       payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id, transfer_entry_id: s.transfer_entry_id || '',
       parts: s.offset_loan_id ? [] : [part],
-      limited: !!s.limited && !s.offset_loan_id
+      limited: !!s.limited && !s.offset_loan_id,
+      gap_entry_id: (!s.offset_loan_id && s.gap_entry_id) || ''
     };
     lines.push(line);
     if (!s.offset_loan_id && s.transfer_entry_id) groups[s.transfer_entry_id] = line;
   });
+  linkEarlierGapEntries_(lines, loans);
   // The line shows the money that really arrived (the repayment's transfer entry). The part of it that no longer sits on a
   // loan (a loan it paid was deleted and the repayment kept as a refund loan) is `unapplied`; `applied` is what loans hold.
   lines.forEach(function (l) {
@@ -1872,11 +1905,56 @@ function getFriendRepaymentHistory(payload) {
       var teAmount = te ? Math.round(Number(te.amount) * 100) / 100 : 0;
       if (teAmount - l.applied > 0.004) l.unapplied = Math.round((teAmount - l.applied) * 100) / 100;
     }
-    l.amount = Math.round((l.applied + l.unapplied) * 100) / 100;
+    // the part of the money that is not on a loan but in its own income/expense entry
+    l.gap = null;
+    if (!l.is_offset && l.gap_entry_id) {
+      var ge = getEntryById_(l.gap_entry_id);
+      if (ge) l.gap = { entry_id: ge.id, amount: Math.round(Number(ge.amount) * 100) / 100, type: ge.type, status: ge.status };
+    }
+    l.amount = Math.round((l.applied + l.unapplied + (l.gap ? l.gap.amount : 0)) * 100) / 100;
   });
   lines.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 
   return { loans: loanRows, repayments: lines };
+}
+
+// Repayments saved before gap entries were linked: when a repayment line has no linked entry and exactly ONE income/expense
+// entry fits (the "paid more than owed" wording for that person, same date and account) and nothing else claims it, it is linked.
+// Anything ambiguous is left alone.
+function linkEarlierGapEntries_(lines, loans) {
+  var byFriend = {};
+  loans.forEach(function (l) { byFriend[l.friend_id] = l; });
+  var friends = getAllRows('Friends');
+  var gapSheet = null, gapHeaders = null;
+  var claimed = {};
+  getAllRows('Settlements').forEach(function (st) { if (st.gap_entry_id) claimed[st.gap_entry_id] = true; });
+  var candidates = lines.filter(function (l) { return !l.is_offset && !l.gap_entry_id && l.transfer_entry_id; });
+  if (!candidates.length) return;
+  var entries = getAllRows('Entries');
+  candidates.forEach(function (line) {
+    var loan = loans.find(function (x) { return x.id === line.parts[0].loan_id; });
+    var friend = loan && friends.find(function (f) { return f.id === loan.friend_id; });
+    if (!friend) return;
+    var type = line.direction === 'they_owe_me' ? 'income' : 'expense';
+    var key = line.direction === 'they_owe_me' ? 'desc.overpaymentFrom' : 'desc.overpaymentTo';
+    var wording = [tr_(key, { name: friend.name }, 'en'), tr_(key, { name: friend.name }, 'es')];
+    var fits = entries.filter(function (e) {
+      return e.type === type && !claimed[e.id] && wording.indexOf(String(e.description)) !== -1 &&
+        String(e.date).slice(0, 10) === String(line.date).slice(0, 10) && (e.payment_method_id || '') === (line.payment_method_id || '');
+    });
+    var rivals = candidates.filter(function (o) {
+      return o !== line && o.direction === line.direction && String(o.date).slice(0, 10) === String(line.date).slice(0, 10) &&
+        (o.payment_method_id || '') === (line.payment_method_id || '');
+    });
+    if (fits.length !== 1 || rivals.length) return;
+    ensureSettlementsGapColumn_();
+    if (!gapSheet) { gapSheet = getSheet('Settlements'); gapHeaders = getHeaders(gapSheet); }
+    getAllRows('Settlements').filter(function (st) { return st.transfer_entry_id === line.transfer_entry_id && !st.offset_loan_id; }).forEach(function (st) {
+      setCellByRow_(gapSheet, gapHeaders, findRowIndexById(gapSheet, gapHeaders, st.id), 'gap_entry_id', fits[0].id);
+    });
+    line.gap_entry_id = fits[0].id;
+    claimed[fits[0].id] = true;
+  });
 }
 
 // Changes which loans a recorded repayment paid (owner's request, 2026-10-27). `id` is any settlement row of the repayment
@@ -1886,6 +1964,7 @@ function getFriendRepaymentHistory(payload) {
 // All-or-nothing: when the open loans cannot take the whole amount nothing is changed. The repayment's money movement
 // (its transfer entry), date and account stay as they are.
 function reassignRepayment(payload) {
+  ensureSettlementsGapColumn_();
   ensureSettlementsLimitedColumn_();
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -1900,8 +1979,11 @@ function reassignRepayment(payload) {
   if (!anchorLoan) throw new Error(tr_('err.loanNotFound'));
 
   var oldTotal = Math.round(group.reduce(function (sum, s) { return sum + Number(s.amount); }, 0) * 100) / 100;
+  // The total that arrived = what sits on loans + the part held in its income/expense entry (if any).
+  var oldGapEntry = gapEntryOfRows_(group);
+  var oldGapAmount = oldGapEntry ? Math.round(Number(oldGapEntry.amount) * 100) / 100 : 0;
   // Optional: a new amount, date and account for the repayment itself (owner's request, 2026-10-27).
-  var total = oldTotal;
+  var total = Math.round((oldTotal + oldGapAmount) * 100) / 100;
   if (payload.amount !== undefined && payload.amount !== null && payload.amount !== '') {
     total = Math.round(Number(payload.amount) * 100) / 100;
     if (!(total > 0)) throw new Error(tr_('err.validAmount'));
@@ -1944,13 +2026,45 @@ function reassignRepayment(payload) {
     throw new Error(tr_('repay.reassignNoRoom'));
   }
 
+  // The part not on any loan lives in ONE income/expense entry: updated if it exists, created if needed, deleted when
+  // the loans now take everything.
+  var gapEntryId = '';
+  if (gap > 0.004) {
+    var gapType = anchorLoan.direction === 'they_owe_me' ? 'income' : 'expense';
+    if (oldGapEntry) {
+      var gapFields = { amount: gap, date: newDate, payment_method_id: newPm };
+      if (payload.overpay_category_id) { gapFields.category_id = payload.overpay_category_id; gapFields.status = 'confirmed'; }
+      updateEntryFields(oldGapEntry.id, gapFields);
+      gapEntryId = oldGapEntry.id;
+    } else {
+      var gapEntry = createOverpaymentEntry_(gapType, {
+        friend_id: anchorLoan.friend_id,
+        amount: gap,
+        currency: anchorLoan.currency,
+        date: newDate,
+        payment_method_id: newPm,
+        category_id: payload.overpay_category_id || '',
+        pending: !payload.overpay_category_id
+      });
+      var gapFriend = getAllRows('Friends').find(function (f) { return f.id === anchorLoan.friend_id; });
+      if (anchorLoan.direction === 'i_owe_them' && gapFriend && gapFriend.trip_id && tripById_(gapFriend.trip_id)) {
+        ensureEntriesTripColumn_();
+        setEntryField_(gapEntry.id, 'trip_id', gapFriend.trip_id);
+      }
+      if (anchorLoan.project_id) linkEntryToProject_(gapEntry.id, anchorLoan.project_id);
+      gapEntryId = gapEntry.id;
+    }
+  } else if (oldGapEntry) {
+    deleteEntry_(oldGapEntry.id);
+  }
+
   var touched = {};
   group.forEach(function (s) { touched[s.loan_id] = true; });
   var ids = {};
   group.forEach(function (s) { ids[s.id] = true; });
   deleteRowsWhere_('Settlements', function (s) { return ids[s.id]; });
   plan.forEach(function (item) {
-    recordSettlementRow_(item.loan_id, newDate, item.amount, newPm, '', first.transfer_entry_id || '', limit);
+    recordSettlementRow_(item.loan_id, newDate, item.amount, newPm, '', first.transfer_entry_id || '', limit, gapEntryId);
     touched[item.loan_id] = true;
   });
   Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
@@ -1964,23 +2078,6 @@ function reassignRepayment(payload) {
       setEntryField_(first.transfer_entry_id, 'date', newDate);
       setEntryField_(first.transfer_entry_id, 'payment_method_id', newPm);
     }
-  }
-  if (gap > 0.004) {
-    var gapEntry = createOverpaymentEntry_(anchorLoan.direction === 'they_owe_me' ? 'income' : 'expense', {
-      friend_id: anchorLoan.friend_id,
-      amount: gap,
-      currency: anchorLoan.currency,
-      date: newDate,
-      payment_method_id: newPm,
-      category_id: payload.overpay_category_id || '',
-      pending: !payload.overpay_category_id
-    });
-    var gapFriend = getAllRows('Friends').find(function (f) { return f.id === anchorLoan.friend_id; });
-    if (anchorLoan.direction === 'i_owe_them' && gapFriend && gapFriend.trip_id && tripById_(gapFriend.trip_id)) {
-      ensureEntriesTripColumn_();
-      setEntryField_(gapEntry.id, 'trip_id', gapFriend.trip_id);
-    }
-    if (anchorLoan.project_id) linkEntryToProject_(gapEntry.id, anchorLoan.project_id);
   }
   return { done: true, parts: plan.length, gap: gap };
 }
