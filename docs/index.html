@@ -633,7 +633,7 @@
             <span data-i18n="more.extras">⚡ Extra features</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-business-features-btn">
+          <button type="button" class="more-list-item" id="more-business-features-btn" hidden>
             <span><span data-i18n="more.businessFeatures">🏢 Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
             <span class="more-list-chevron">›</span>
           </button>
@@ -1686,11 +1686,13 @@
           <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
           <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
         </div>
-        <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
-        <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
-        <div class="welcome-choices">
-          <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
-          <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
+        <div id="wb-block" hidden>
+          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
+          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
+          <div class="welcome-choices">
+            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
+            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
+          </div>
         </div>
         <p class="hint" id="wp-error" style="color:#d64545;"></p>
         <div class="welcome-tour-buttons">

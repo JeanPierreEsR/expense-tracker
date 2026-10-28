@@ -78,6 +78,7 @@ var BACKEND_STRINGS_ = {
   "trip.settlementPaid": { en: "Group settlement paid — {trip}", es: "Liquidación del grupo pagada — {trip}" },
   "trip.cashBorrowed": { en: "Cash borrowed from the group — {trip}", es: "Efectivo prestado por el grupo — {trip}" },
   "trip.cashLent": { en: "Cash lent to the group — {trip}", es: "Efectivo prestado al grupo — {trip}" },
+  "business.notOffered": { en: "Business features are not available yet.", es: "Las funciones de negocio aún no están disponibles." },
   "business.off": { en: "Business features are turned off. Turn them on in More → Business features.", es: "Las funciones de negocio están desactivadas. Actívalas en Más → Funciones de negocio." },
   "business.companyNotFound": { en: "Company not found", es: "No se encontró la empresa" },
   "business.projectNotFound": { en: "Project not found", es: "No se encontró el proyecto" },

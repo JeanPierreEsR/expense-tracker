@@ -28,8 +28,21 @@ var BUSINESS_TABLES_ = {
 var PROJECT_STATUSES_ = { active: true, closed: true };
 var businessEnsured_ = false;   // per execution: the tabs/columns are checked once
 
+// OWNER'S RULE (2026-10-27): the Business pack is HIDDEN FROM NEW PEOPLE until the owner says otherwise. "New people" = a copy made by
+// the installer (isFriendCopy_). On such a copy the pack does not exist: no welcome question, no More row, every business action
+// refuses, and businessOn_() is false even if a Settings row says yes — one choke point, so nothing else in the backend needs to know.
+// The owner's own copy is always offered. To open it:
+//   - to everyone: set BUSINESS_OPEN_TO_FRIENDS_ to true (a code change, only when the owner says so; it ships with a "promote"), or
+//   - to ONE friend's copy (a prospect who is trying it): add the Settings row `business_offered` = `yes` in that copy's sheet.
+var BUSINESS_OPEN_TO_FRIENDS_ = false;
+
+function businessOffered_() {
+  if (!isFriendCopy_() || BUSINESS_OPEN_TO_FRIENDS_) return true;
+  return String(getSettingsMap().business_offered || '') === 'yes';
+}
+
 function businessOn_() {
-  return String(getSettingsMap().business_features || '') === 'yes';
+  return businessOffered_() && String(getSettingsMap().business_features || '') === 'yes';
 }
 
 // Business actions answer with a plain sentence while the pack is off (like requireFeature_).
@@ -89,6 +102,11 @@ function igvRate_() {
 // The switch itself (More → Business features, welcome question). Turning it off keeps every row.
 function setBusinessFeatures(payload) {
   var on = !!payload && (payload.on === true || payload.on === 'yes');
+  if (on && !businessOffered_()) {   // switching OFF is always allowed; switching ON is refused where the pack is not offered yet
+    var notOffered = new Error(tr_('business.notOffered'));
+    notOffered.code = 'feature_off';
+    throw notOffered;
+  }
   setSetting_('business_features', on ? 'yes' : 'no');
   if (on) ensureBusinessSheets_();
   return { business: on, capabilities: getCapabilities_() };
