@@ -49,15 +49,16 @@ test("Home: the amount of the money movement is changed from the repayment histo
   assert.equal(links[line().gap.entry_id].transfer_entry_id, line().transfer_entry_id);
 });
 
-test("Home: the extra entry cannot be turned into another type, and deleting it is announced first", () => {
+test("Home: the extra entry cannot be turned into another type, and it is never deleted on its own (owner's rule, 2026-10-28)", () => {
   const { rt, line } = setup();
   assert.throws(() => rt.api("updateEntry", { id: line().gap.entry_id, fields: { type: "expense" } }), /extra part of a repayment/);
   const links = rt.api("getEntryRepaymentLinks", { id: line().gap.entry_id });
   assert.equal(links.repaymentExtra.amount, 30);
   assert.equal(links.repaymentExtra.direction, "they_owe_me");
-  rt.api("discardEntry", { id: line().gap.entry_id });
-  assert.equal(line().gap, null, "gone from the total");
-  assert.equal(line().amount, 100);
+  // Before 2026-10-28 deleting the extra took it out of the total; now neither entry is deleted alone (see delete-repayment.test.js).
+  assert.throws(() => rt.api("discardEntry", { id: line().gap.entry_id }), /part of a repayment/);
+  assert.equal(line().gap.amount, 30, "still part of the total");
+  assert.equal(line().amount, 130);
 });
 
 test("statement: one bank line for the repayment total matches the money movement, and the extra is explained too", () => {
