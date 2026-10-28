@@ -86,6 +86,7 @@ let splitInputEls = {};
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
+let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
 // "Split" action. Distinct from editingEntryId (which the popup's own
@@ -338,7 +339,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -356,7 +357,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -2260,13 +2261,21 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
           }
         }
+        // A repayment's own money entry turned into a NEW LOAN: the repayment is cancelled (convertRepaymentToLoan).
+        // Money that arrived can only be a loan the friend gave, money that left only one the owner gave.
+        const fromRepayment = isLoanKind && !!editingRepayment_;
+        if (fromRepayment) {
+          const moneyIn = editingRepayment_.direction === "they_owe_me";
+          if (direction !== (moneyIn ? "i_owe_them" : "they_owe_me")) throw new Error(tr(moneyIn ? "repayConv.loanIn" : "repayConv.loanOut"));
+          if (!confirm(repaymentCancelText_())) return;
+        }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callApi(isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callApi(fromRepayment ? "convertRepaymentToLoan" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2320,6 +2329,36 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
       if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
+    } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
+      // "I recorded this as a repayment, but it was really an expense / income": one server call that cancels the
+      // repayment (what it paid is owed again) and writes the entry (convertRepaymentToEntry). Money that arrived can
+      // only become an income, money that left only an expense.
+      const moneyIn = editingRepayment_.direction === "they_owe_me";
+      if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("repayConv.onlyThese"));
+      if (selectedType !== (moneyIn ? "income" : "expense")) throw new Error(tr(moneyIn ? "repayConv.incomeOnly" : "repayConv.expenseOnly"));
+      if (!confirm(repaymentCancelText_())) return;   // backed out: nothing changed, the form stays open
+      await ensureExchangeRate(currency, date);
+      if (editingViaPopup) {
+        document.getElementById("edit-entry-modal-backdrop").hidden = true;
+        popupHiddenEarly = true;
+      }
+      await callApi("convertRepaymentToEntry", {
+        entry_id: editingEntryId,
+        type: selectedType,
+        date,
+        amount,
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        tag_ids: tagIds,
+        trip_id: tripId,
+        ...businessLink
+      });
+      exitEditMode();
+      refreshLoans().catch(() => {});
+      showFormNotice_(tr(selectedType === "expense" ? "repayConv.doneExpense" : "repayConv.doneIncome"));
     } else if (editingEntryId && editingLoanMovement_ && selectedType !== "transfer") {
       // "I saved this as a loan, but it was really an expense / income": one server call that removes the loan and
       // writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the same two
@@ -3386,6 +3425,9 @@ async function startEditEntry(entry) {
   editingEntryOriginalType = entry.type;
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
+  // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
+  editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
+    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", total: entry.amount, currency: entry.currency } : null;
   // If this turns out to be a repayment / loan, start from the way the money
   // moved: an income came in (they paid me); an expense went out (I paid them);
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
@@ -3393,6 +3435,8 @@ async function startEditEntry(entry) {
   else if (entry.type === "expense") repaymentDirectionChoice = "i_owe_them";
   else if (entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id) repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
+  // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
+  if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -3486,6 +3530,7 @@ function exitEditMode() {
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
+  editingRepayment_ = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
@@ -14403,6 +14448,13 @@ async function openLinkedEntryFromLoan_(entryId) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+// The warning before a repayment's money entry is turned into something else: the repayment is cancelled, so what it
+// paid is owed again.
+function repaymentCancelText_() {
+  const r = editingRepayment_ || {};
+  return tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
 }
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
