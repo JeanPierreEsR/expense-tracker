@@ -2050,22 +2050,14 @@ function updateSettlement(payload) {
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }
 
+// Deleting a repayment is ONE rule since 2026-10-28 (owner's request): the whole repayment goes — every settlement row that
+// shares its money entry, the money entry and its extra income / expense entry — see deleteRepayment. This used to remove just
+// the one row and shrink the money entry; it now delegates, so no caller can leave half a repayment behind. An automatic
+// cancel-out is still refused (deleteRepaymentInto_), and a row that is already gone is not an error.
 function deleteSettlement(id) {
-  ensureSettlementsOffsetColumn_();
-  ensureSettlementsTransferEntryColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
   if (!existing) return;
-  if (existing.offset_loan_id) {
-    throw new Error(tr_('repay.autoOffsetDelete'));
-  }
-
-  var sheet = getSheet('Settlements');
-  var headers = getHeaders(sheet);
-  var rowIndex = findRowIndexById(sheet, headers, id);
-  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
-
-  updateLoanStatusFromSettlements_(existing.loan_id);
-  recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
+  deleteRepayment({ id: id });
 }
 
 // ---- Loans screen (Phase 5.2) ----

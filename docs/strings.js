@@ -737,7 +737,7 @@
     "settle.overpaidIncome": { en: "{name} paid {cur} {amount} more than they owed — recording it as income. Pick a category now, or close this and categorize it later from “Needs review” (it's already saved there).", es: "{name} pagó {cur} {amount} más de lo que debía: se registra como ingreso. Elige una categoría ahora, o cierra esto y categorízalo después desde “Por revisar” (ya está guardado ahí)." },
     "settle.overpaidExpense": { en: "You paid {name} {cur} {amount} more than you owed — recording it as an expense. Pick a category now, or close this and categorize it later from “Needs review” (it's already saved there).", es: "Le pagaste a {name} {cur} {amount} más de lo que debías: se registra como gasto. Elige una categoría ahora, o cierra esto y categorízalo después desde “Por revisar” (ya está guardado ahí)." },
     "settle.saveFailed": { en: "Couldn't save the repayment: {error}", es: "No se pudo guardar el repago: {error}" },
-    "settle.confirmDelete": { en: "Delete the repayment with {what}? This can't be undone.", es: "¿Eliminar el repago con {what}? No se puede deshacer." },
+    "settle.confirmDelete": { en: "Delete the repayment with {what}? It is canceled, so what it paid is owed again, and everything recorded for it (its money entry and any extra entry) is removed. This can't be undone.", es: "¿Eliminar el repago con {what}? Se cancela, así que lo que había pagado vuelve a deberse, y se quita todo lo registrado para él (su movimiento de dinero y cualquier movimiento extra). No se puede deshacer." },
 
     // ---- paid ----
     "paid.title": { en: "Mark as paid", es: "Marcar como pagado" },

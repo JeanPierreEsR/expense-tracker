@@ -15709,7 +15709,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   const settlementId = editingSettlementId;
   closeSettlementModal();
   try {
-    await callApi("deleteSettlement", { id: settlementId });
+    await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
   } catch (err) {
     alert(tr("settle.saveFailed", { error: err.message }));

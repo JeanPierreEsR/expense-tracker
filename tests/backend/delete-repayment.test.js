@@ -39,6 +39,22 @@ test("a repayment with no extra is deleted the same way", () => {
   assert.equal(owed(), 30);
 });
 
+test("the old per-repayment delete (deleteSettlement) now follows the same rule: the WHOLE repayment goes, never half", () => {
+  const { rt, f, pm, loan } = setup(50);
+  // a second repayment that pays two loans with one money entry (two settlement rows)
+  const l2 = rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: "2026-02-01", payment_method_id: pm });
+  const l3 = rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: "2026-02-02", payment_method_id: pm });
+  rt.api("recordRepayment", { friend_id: f.id, direction: "they_owe_me", amount: 60, currency: "PEN", date: today(), payment_method_id: pm });
+  const rows = rt.rows("Settlements").filter((s) => s.loan_id === l2.id || s.loan_id === l3.id);
+  assert.equal(rows.length, 2, "one repayment, two rows, one money entry");
+  const movement = rows[0].transfer_entry_id;
+  rt.api("deleteSettlement", { id: rows[0].id });
+  assert.equal(rt.rows("Settlements").some((s) => s.transfer_entry_id === movement), false, "the other row went too");
+  assert.equal(rt.rows("Entries").some((e) => e.id === movement), false, "and the money entry, not shrunk but removed");
+  assert.equal(rt.rows("Settlements").some((s) => s.loan_id === loan.id), true, "an unrelated repayment is untouched");
+  rt.api("deleteSettlement", { id: rows[0].id });   // already gone: not an error
+});
+
 test("an automatic cancel-out line cannot be deleted this way, and something that is not a repayment is refused", () => {
   const { rt } = setup(20);
   assert.throws(() => rt.api("deleteRepayment", { id: "nope" }), /not a repayment/i);
