@@ -110,6 +110,28 @@ function listSupportedSenders() {
 
 // ---- owner's copy: receive a redacted sample ----
 
+// One line for the owner's heads-up: how many DIFFERENT phones have now sent e-mails from this sender (this one included, a phone counts once),
+// and whether the app already has a rule for it. The owner builds in order of demand; nothing is stored for this, it is counted from the tab.
+// Never throws: a failure here must not lose the heads-up.
+function bankSampleDemandLine_(sheet, sender) {
+  try {
+    var last = sheet.getLastRow();
+    var phones = {};
+    if (last >= 2) {
+      sheet.getRange(2, 2, last - 1, 3).getValues().forEach(function (v) {   // install_id, label, sender
+        if (String(v[2]).toLowerCase() === sender) phones[String(v[0])] = true;
+      });
+    }
+    var n = Object.keys(phones).length;
+    var line = n > 1 ? tr_('bankSample.demandMany', { n: n }) : tr_('bankSample.demandFirst');
+    var supported = listSupportedSenders().some(function (x) { return x.sender === sender; });
+    return supported ? line + ' ' + tr_('bankSample.demandSupported') : line;
+  } catch (err) {
+    console.error('bank sample demand: ' + err);
+    return '';
+  }
+}
+
 function reportBankSample_(p) {
   if (isFriendCopy_()) throw codedError_('sample_not_collected', 'This copy does not collect bank samples.');
   p = p || {};
@@ -146,7 +168,7 @@ function reportBankSample_(p) {
   // The Sheet row is the record; the Telegram message is the heads-up. A Telegram failure never loses the sample.
   try {
     var shown = text.length > BANK_SAMPLE_TELEGRAM_CHARS_ ? text.substring(0, BANK_SAMPLE_TELEGRAM_CHARS_) + '\n[…]' : text;
-    sendTelegramText_(tr_('bankSample.notice', { label: label, sender: sender, subject: subject || '-', text: shown }));
+    sendTelegramText_(tr_('bankSample.notice', { label: label, sender: sender, subject: subject || '-', text: shown, demand: bankSampleDemandLine_(sheet, sender) }));
   } catch (err) {
     console.error('bank sample notice: ' + err);
   }

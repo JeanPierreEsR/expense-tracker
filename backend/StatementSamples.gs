@@ -61,6 +61,26 @@ function statementSampleParts_(text) {
   return parts;
 }
 
+// Same idea as bankSampleDemandLine_ (BankSamples.gs): how many different phones have sent a statement of this bank. A statement is several
+// rows (parts), so phones are counted, not rows. Never throws.
+function statementSampleDemandLine_(sheet, bank) {
+  try {
+    var last = sheet.getLastRow();
+    var phones = {};
+    var want = String(bank).trim().toLowerCase();
+    if (last >= 2) {
+      sheet.getRange(2, 2, last - 1, 3).getValues().forEach(function (v) {   // install_id, label, bank
+        if (String(v[2]).trim().toLowerCase() === want) phones[String(v[0])] = true;
+      });
+    }
+    var n = Object.keys(phones).length;
+    return n > 1 ? tr_('statementSample.demandMany', { n: n }) : tr_('statementSample.demandFirst');
+  } catch (err) {
+    console.error('statement sample demand: ' + err);
+    return '';
+  }
+}
+
 function reportStatementSample_(p) {
   if (isFriendCopy_()) throw codedError_('sample_not_collected', 'This copy does not collect statement samples.');
   p = p || {};
@@ -80,14 +100,14 @@ function reportStatementSample_(p) {
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(8000)) throw codedError_('sample_busy', 'Busy, try again in a moment.');
-  var receivedAt;
+  var receivedAt, sheet;
   try {
     var cache = CacheService.getScriptCache();
     receivedAt = perfIso_(Date.now());
     var dayKey = 'stmtsampleday:' + install + ':' + receivedAt.substring(0, 10);
     var today = Number(cache.get(dayKey) || 0);
     if (today >= STATEMENT_SAMPLE_MAX_PER_INSTALL_PER_DAY_) throw codedError_('sample_busy', 'Too many samples today, try again tomorrow.');
-    var sheet = ensureStatementSamplesSheet_();
+    sheet = ensureStatementSamplesSheet_();
     if (sheet.getLastRow() - 1 + parts.length > STATEMENT_SAMPLE_MAX_ROWS_) throw codedError_('sample_full', 'The statement samples tab is full.');
     var rows = parts.map(function (part, i) {
       return [receivedAt, install, label, bank, kind, language, app, String(i + 1), String(parts.length), String(part.length), part];
@@ -100,7 +120,7 @@ function reportStatementSample_(p) {
 
   // The Sheet rows are the record; Telegram only says that one arrived (a statement is far too long for a message).
   try {
-    sendTelegramText_(tr_(full ? 'statementSample.noticeFull' : 'statementSample.notice', { label: label, bank: bank, kind: kind, chars: text.length, parts: parts.length }));
+    sendTelegramText_(tr_(full ? 'statementSample.noticeFull' : 'statementSample.notice', { label: label, bank: bank, kind: kind, chars: text.length, parts: parts.length, demand: statementSampleDemandLine_(sheet, bank) }));
   } catch (err) {
     console.error('statement sample notice: ' + err);
   }

@@ -2491,6 +2491,7 @@ body.income-revealed .sens-mask { display: none; }
 .wa-bank { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; width: 100%; }
 .wa-bank.has { border-color: var(--income); background: rgba(46, 158, 91, 0.08); }
 .wa-bank-count { color: var(--muted); font-size: 0.9em; font-weight: 600; }
+.wa-bank-ticks { display: block; color: var(--income); font-size: 0.8em; font-weight: 600; margin-top: 2px; }
 .wa-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border, #d9d9d4); }
 .wa-account-name { font-weight: 700; }
 .wa-account-sub { color: var(--muted); font-size: 0.9em; }
