@@ -510,3 +510,44 @@ test("a 'Refund:' loan made by an earlier release is reworded and matched to its
   rt.api("applyUnappliedPayment", { id: "old-refund", loan_ids: [target.id] });
   assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 0);
 });
+
+test("a recorded repayment can get a new amount and date from the history", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  repay(rt, data, friend, 150);
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  const tid = row.transfer_entry_id;
+
+  rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 180, date: "2026-03-05", payment_method_id: "" });
+
+  assert.equal(paidOn(rt, one.id) + paidOn(rt, two.id), 180);
+  const lines = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments;
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].amount, 180);
+  assert.equal(lines[0].date, "2026-03-05");
+  const te = rt.rows("Entries").find((e) => e.id === tid);
+  assert.equal(Number(te.amount), 180, "the money movement follows");
+  assert.equal(String(te.date).slice(0, 10), "2026-03-05");
+  assert.throws(() => rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 999 }), "more than the loans hold");
+});
+
+test("a 'paid earlier' loan is recognised even if the column already existed or its flag is missing", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  rt.api("getFriendLoanDetail", { friendId: friend.id });   // the column exists now, so no first-time upgrade will run
+  const mk = (id, description) => rt.run(`appendRowObject('Loans', { id: ${JSON.stringify(id)}, friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 50, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: ${JSON.stringify(description)}, status: 'outstanding', transfer_entry_id: '' })`);
+  mk("old-1", "Refund: Taxi ride was deleted, Ana Lo* had repaid PEN 50");   // no decimals
+  mk("new-1", "Paid earlier, no loan: Lunch (deleted). Ana Lo* had paid PEN 50.00");   // new wording, flag missing
+  const target = cashLoan(rt, data, friend, 100, "2026-09-22");
+
+  const loans = rt.api("getFriendLoanDetail", { friendId: friend.id });
+  assert.equal(loans.find((l) => l.id === "old-1").description, "Paid earlier, no loan: Taxi ride (deleted). Ana Lo* had paid PEN 50.00");
+  assert.equal(loans.find((l) => l.id === "old-1").unapplied, true);
+  assert.equal(loans.find((l) => l.id === "new-1").unapplied, true);
+  assert.equal(loans.find((l) => l.id === target.id).unapplied, false);
+
+  rt.api("applyUnappliedPayment", { id: "new-1", loan_ids: [target.id] });
+  assert.equal(paidOn(rt, target.id), 50);
+});

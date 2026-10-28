@@ -14137,7 +14137,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // written off, so it isn't restricted by origin the way editing is.
   // Not shown once nothing's left to forgive, or it's already
   // forgiven.
-  if (l.status !== "forgiven" && l.remaining > 0.004 && l.unapplied_sources) {
+  if (l.status !== "forgiven" && l.remaining > 0.004 && (l.unapplied || l.unapplied_sources)) {
     const applyBtn = document.createElement("button");
     applyBtn.type = "button";
     applyBtn.className = "add-inline loan-detail-forgive-btn";
@@ -14331,7 +14331,8 @@ function reassignPlan_() {
   const checked = new Set([...document.querySelectorAll("#reassign-list input[data-loan]")].filter((i) => i.checked).map((i) => i.dataset.loan));
   const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(r.mode === "apply" ? [] : r.candidates.filter((c) => !checked.has(c.id)));
   const plan = [];
-  let left = r.amount;
+  const typed = r.mode === "apply" ? NaN : parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+  let left = typed > 0 ? Math.round(typed * 100) / 100 : r.amount;
   ordered.forEach((c) => {
     if (left <= 0.004) return;
     const take = Math.round(Math.min(c.room, left) * 100) / 100;
@@ -14374,6 +14375,15 @@ function openReassignRepayment_(r) {
     .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, candidates };
+
+  // Amount, date and account of the repayment itself can be changed here too.
+  document.getElementById("reassign-fields").hidden = false;
+  populateSettlementPaymentMethodOptions();
+  const pmSel = document.getElementById("reassign-pm");
+  pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
+  pmSel.value = r.payment_method_id || "";
+  document.getElementById("reassign-amount").value = r.applied.toFixed(2);
+  document.getElementById("reassign-date").value = r.date;
 
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
@@ -14419,6 +14429,7 @@ async function openApplyUnapplied_(l, friend) {
     .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+  document.getElementById("reassign-fields").hidden = true;
 
   document.getElementById("reassign-title").textContent = tr("apply.title");
   document.getElementById("reassign-hint").textContent = tr("apply.hint");
@@ -14451,6 +14462,7 @@ async function openApplyUnapplied_(l, friend) {
 function closeReassign_() {
   document.getElementById("reassign-modal-backdrop").hidden = true;
 }
+document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
 document.getElementById("reassign-close").addEventListener("click", closeReassign_);
 document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
 document.getElementById("reassign-save").addEventListener("click", async () => {
@@ -14462,7 +14474,13 @@ document.getElementById("reassign-save").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = tr("common.loading");
   try {
-    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", { id: reassignRepayment_.id, loan_ids: [...checked] });
+    const body = { id: reassignRepayment_.id, loan_ids: [...checked] };
+    if (!applying) {
+      body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+      body.date = document.getElementById("reassign-date").value;
+      body.payment_method_id = document.getElementById("reassign-pm").value;
+    }
+    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body);
   } catch (err) {
     document.getElementById("reassign-error").textContent = err.message;
     btn.textContent = tr("common.save");
