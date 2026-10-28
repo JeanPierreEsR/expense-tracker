@@ -708,6 +708,7 @@
     "reassign.limitLater": { en: "Decide later (goes to Needs review)", es: "Decidir después (va a Por revisar)" },
     "reassign.limitNone": { en: "Select at least one loan that still has something left.", es: "Selecciona al menos un préstamo al que todavía le falte algo." },
     "delete.repaymentExtra": { en: "This {cur} {amount} is part of a repayment from {friend} (the part that was not on a loan). Deleting it takes it out of that repayment's total. Delete it?", es: "Estos {cur} {amount} son parte de un repago de {friend} (la parte que no estaba en un préstamo). Al borrarlos salen del total de ese repago. ¿Borrarlos?" },
+    "repay.openHistoryAsk": { en: "The amount of this repayment is changed from {friend}'s repayment history, where it is split between loans and the extra income/expense. Open that repayment now?", es: "El monto de este repago se cambia desde el historial de repagos de {friend}, donde se reparte entre préstamos y el ingreso/gasto extra. ¿Abrir ese repago ahora?" },
     "history.splitLoans": { en: "On loans: {amount}", es: "En préstamos: {amount}" },
     "history.splitIncome": { en: "Income: {amount}", es: "Ingreso: {amount}" },
     "history.splitExpense": { en: "Expense: {amount}", es: "Gasto: {amount}" },

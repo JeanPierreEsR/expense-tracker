@@ -1486,7 +1486,7 @@ function buildTransferLinkMap_() {
   getAllRows('Settlements').forEach(function (s) {
     if (!s.transfer_entry_id || s.offset_loan_id) return;
     var loan = loanById[s.loan_id];
-    if (loan) map[s.transfer_entry_id] = { kind: 'repayment', friend: friends[loan.friend_id] || '', direction: loan.direction };
+    if (loan) map[s.transfer_entry_id] = { kind: 'repayment', friend: friends[loan.friend_id] || '', friend_id: loan.friend_id, direction: loan.direction };
   });
   return map;
 }

@@ -87,3 +87,55 @@ test("statement: the extra entry is not matched a second time by another line of
   assert.equal(result.perLine.s[0].status, "matched");
   assert.equal(result.perLine.s[1].status, "unregistered", "the 30 extra already belongs to the 130 line");
 });
+
+// The whole statement path (analyzeStatements), not just the matcher: what the owner sees when he uploads the bank's file.
+const analyse = (rt, pm, lines) => {
+  const stmt = { key: pm.last_4, kind: "savings", verified: true, period: { start: "2026-03-01", end: "2026-03-31" }, balances: { PEN: { closing: 1000 } }, file_name: "x.pdf", lines };
+  return JSON.parse(rt.run(`JSON.stringify(analyzeStatements(${JSON.stringify({ statements: [stmt] })}))`)).statements[0].lines;
+};
+
+test("statement upload: the bank's single line for what a friend sent matches the repayment, loans + extra", () => {
+  const { rt, data } = freshApp({ entries: 5 });
+  const pm = data.pms[3];
+  const friend = rt.api("addFriend", { name: "Test Friend " + Math.random().toString(36).slice(2, 7) });
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2026-01-01", payment_method_id: pm.id, description: "Cash loan" });
+  const cat = rt.rows("Categories").find((c) => c.type === "income").id;
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: pm.id, overpay_category_id: cat });
+
+  const [line] = analyse(rt, pm, [{ date: "2026-03-02", description: "TRANSF RECIBIDA", amount: 130, currency: "PEN" }]);   // the bank posts a day later
+  assert.equal(line.status, "matched");
+  assert.equal(line.viaRepayment, true);
+
+  // the owner then corrects the extra in Home (30 -> 35): the bank must show 135 to match
+  const extraId = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].gap.entry_id;
+  rt.api("updateEntry", { id: extraId, fields: { amount: 35 } });
+  assert.equal(analyse(rt, pm, [{ date: "2026-03-01", description: "TRANSF RECIBIDA", amount: 135, currency: "PEN" }])[0].status, "matched");
+  assert.notEqual(analyse(rt, pm, [{ date: "2026-03-01", description: "TRANSF RECIBIDA", amount: 130, currency: "PEN" }])[0].status, "matched");
+});
+
+test("statement upload: money the owner paid a friend (loans + extra expense) matches one outgoing bank line", () => {
+  const { rt, data } = freshApp({ entries: 5 });
+  const pm = data.pms[3];
+  const friend = rt.api("addFriend", { name: "Test Friend " + Math.random().toString(36).slice(2, 7) });
+  rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 100, currency: "PEN", date: "2026-01-01", payment_method_id: pm.id, description: "Borrowed" });
+  const cat = rt.rows("Categories").find((c) => c.type === "expense").id;
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "i_owe_them", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: pm.id, overpay_category_id: cat });
+
+  const [line] = analyse(rt, pm, [{ date: "2026-03-01", description: "TRANSF ENVIADA", amount: -130, currency: "PEN" }]);
+  assert.equal(line.status, "matched");
+  assert.equal(line.viaRepayment, true);
+});
+
+test("statement upload: two bank lines (loans part and extra part) still match one each", () => {
+  const { rt, data } = freshApp({ entries: 5 });
+  const pm = data.pms[3];
+  const friend = rt.api("addFriend", { name: "Test Friend " + Math.random().toString(36).slice(2, 7) });
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2026-01-01", payment_method_id: pm.id, description: "Cash loan" });
+  const cat = rt.rows("Categories").find((c) => c.type === "income").id;
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: pm.id, overpay_category_id: cat });
+  const lines = analyse(rt, pm, [
+    { date: "2026-03-01", description: "TRANSF 1", amount: 100, currency: "PEN" },
+    { date: "2026-03-01", description: "TRANSF 2", amount: 30, currency: "PEN" }
+  ]);
+  assert.deepEqual(lines.map((l) => l.status), ["matched", "matched"]);
+});

@@ -2397,6 +2397,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       exitEditMode();
       refreshLoans().catch(() => {});
       showFormNotice_(tr(selectedType === "expense" ? "loanConv.doneExpense" : "loanConv.doneIncome"));
+    } else if (editingEntryId && editingRepayment_ && selectedType === "transfer" && editingRepayment_.friend_id &&
+               Math.abs(Number(amount) - Number(editingRepayment_.total)) > 0.004) {
+      // The amount of a repayment's money movement is changed in the repayment history (where it is split between loans and
+      // its income/expense): offer to go straight there instead of refusing.
+      const target = editingRepayment_;
+      if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
+      return;
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -3427,7 +3436,7 @@ async function startEditEntry(entry) {
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
-    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", total: entry.amount, currency: entry.currency } : null;
+    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
   // If this turns out to be a repayment / loan, start from the way the money
   // moved: an income came in (they paid me); an expense went out (I paid them);
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
@@ -14590,6 +14599,16 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   });
   loadingEl.hidden = true;
   contentEl.hidden = false;
+}
+
+// From a repayment's entry in Home straight to "Edit this repayment": the person's screen, then their repayment history,
+// then that repayment's edit sheet (each opens over the last, so closing one lands on the one before).
+async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryId) {
+  await openLoanDetail(friendId, friendName);
+  await openRepaymentHistory_(friendId, friendName, "", document.getElementById("loan-detail-subtitle").textContent);
+  const lines = (historyCtx_ && historyCtx_.data && historyCtx_.data.repayments) || [];
+  const line = lines.find((r) => r.transfer_entry_id === transferEntryId);
+  if (line) openReassignRepayment_(line);
 }
 
 // Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
