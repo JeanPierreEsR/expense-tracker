@@ -33,8 +33,8 @@ test("the More card is hidden in the page itself, so a copy that never opts in n
 test("the entry form sends the business link only through businessLinkFields_ (nothing while the pack is off)", () => {
   const fn = app.match(/function businessLinkFields_\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(fn, /if \(!businessOn\(\)[^\n]*return \{\};/);
-  // all three save paths spread it (new entry, edit, confirm-from-review)
-  assert.equal((app.match(/\.\.\.businessLink\b/g) || []).length, 3);
+  // all four save paths spread it (new entry, edit, confirm-from-review, loan turned into an expense / income)
+  assert.equal((app.match(/\.\.\.businessLink\b/g) || []).length, 4);
 });
 
 test("the owner's own copy is switched on once, and only when nothing was ever chosen (friends' copies never)", () => {

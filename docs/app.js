@@ -85,6 +85,7 @@ let splitInputEls = {};
 // the time they hit Save.
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
+let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
 // "Split" action. Distinct from editingEntryId (which the popup's own
@@ -335,7 +336,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -353,7 +354,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -2305,6 +2306,44 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
       if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
+    } else if (editingEntryId && editingLoanMovement_ && selectedType !== "transfer") {
+      // "I saved this as a loan, but it was really an expense / income": one server call that removes the loan and
+      // writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the same two
+      // choices as deleting it. Blocking, like the other conversions.
+      if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("loanConv.onlyExpenseIncome"));
+      // Checked before the repayments question, so nothing is asked for a conversion that would be refused anyway.
+      if (selectedType === "expense" && editingLoanMovement_ === "i_owe_them") throw new Error(tr("loanConv.borrowedIsIncome"));
+      if (selectedType === "income" && editingLoanMovement_ === "they_owe_me") throw new Error(tr("loanConv.lentIsExpense"));
+      const info = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
+      let repayments;
+      if (info && info.hasRepayments) {
+        repayments = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: info.friend, currency: info.currency, total: info.paid }],
+          { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+        if (!repayments) return;   // backed out: nothing changed, the form stays open
+      }
+      await ensureExchangeRate(currency, date);
+      if (editingViaPopup) {
+        document.getElementById("edit-entry-modal-backdrop").hidden = true;
+        popupHiddenEarly = true;
+      }
+      await callApi("convertLoanToEntry", {
+        entry_id: editingEntryId,
+        type: selectedType,
+        date,
+        amount,
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        tag_ids: tagIds,
+        trip_id: tripId,
+        ...businessLink,
+        repayments
+      });
+      exitEditMode();
+      refreshLoans().catch(() => {});
+      showFormNotice_(tr(selectedType === "expense" ? "loanConv.doneExpense" : "loanConv.doneIncome"));
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -3304,6 +3343,8 @@ async function startEditEntry(entry) {
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
+  // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
+  editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   // If this turns out to be a repayment / loan, start from the way the money
   // moved: an income came in (they paid me); an expense went out (I paid them);
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
@@ -3403,6 +3444,7 @@ function exitEditMode() {
   editingEntryId = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
+  editingLoanMovement_ = "";
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
@@ -14287,15 +14329,15 @@ async function openLinkedEntryFromLoan_(entryId) {
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
 // other way), "cancel" (they are cancelled too) or null (the person backed out). `rows` = [{friend, currency, total}].
-function askRepaymentChoice_(titleKey, rows) {
+function askRepaymentChoice_(titleKey, rows, labelKeys) {
   return new Promise((resolve) => {
     const backdrop = document.getElementById("repay-choice-backdrop");
     const list = rows.map((r) => `${r.friend} (${r.currency} ${moneyFmt(r.total)})`).join(", ");
     document.getElementById("repay-choice-title").textContent = tr(titleKey);
     document.getElementById("repay-choice-text").textContent = tr("repayChoice.text", { list });
-    document.getElementById("repay-choice-keep").textContent = tr("repayChoice.keep");
+    document.getElementById("repay-choice-keep").textContent = tr(labelKeys ? labelKeys.keep : "repayChoice.keep");
     document.getElementById("repay-choice-keep-hint").textContent = tr("repayChoice.keepHint");
-    document.getElementById("repay-choice-cancel").textContent = tr("repayChoice.cancel");
+    document.getElementById("repay-choice-cancel").textContent = tr(labelKeys ? labelKeys.cancel : "repayChoice.cancel");
     document.getElementById("repay-choice-cancel-hint").textContent = tr("repayChoice.cancelHint");
     const done = (value) => {
       backdrop.hidden = true;

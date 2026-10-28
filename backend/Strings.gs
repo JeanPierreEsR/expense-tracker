@@ -127,6 +127,12 @@ var BACKEND_STRINGS_ = {
   "convert.onlyLoan": { en: "Only an expense, an income or a transfer can be turned into a loan.", es: "Solo un gasto, un ingreso o una transferencia se puede convertir en un préstamo." },
   "convert.onlyRepayment": { en: "Only an expense, an income or a transfer can be turned into a repayment.", es: "Solo un gasto, un ingreso o una transferencia se puede convertir en un repago." },
   "convert.undoFailed": { en: "Something went wrong AND putting the original back failed — entry \"{what}\" ({date}, {amount}) needs re-entering. {error}", es: "Algo salió mal y además no se pudo restaurar el original: el movimiento \"{what}\" ({date}, {amount}) hay que volver a ingresarlo. {error}" },
+  "convert.notLoanMovement": { en: "That entry is not a loan's money movement, so there is no loan to convert.", es: "Ese movimiento no es el traspaso de dinero de un préstamo, así que no hay préstamo que convertir." },
+  "convert.loanOnlyExpenseIncome": { en: "A loan can only be turned into an expense or an income.", es: "Un préstamo solo se puede convertir en un gasto o un ingreso." },
+  "convert.lentIsExpense": { en: "You lent this money, so it can only become an expense.", es: "Prestaste este dinero, así que solo puede convertirse en un gasto." },
+  "convert.borrowedIsIncome": { en: "You borrowed this money, so it can only become an income.", es: "Te prestaron este dinero, así que solo puede convertirse en un ingreso." },
+  "convert.loanForgiven": { en: "This loan was forgiven, and the forgiveness already booked its own entry — undo that first.", es: "Este préstamo fue perdonado y el perdón ya registró su propio movimiento: deshazlo primero." },
+  "convert.pickRepayments": { en: "This loan already has repayments — choose whether to keep them or cancel them.", es: "Este préstamo ya tiene repagos: elige si los conservas o los cancelas." },
   "convert.nothingChanged": { en: "Nothing was changed — {error}", es: "No se cambió nada: {error}" },
 
   // ---- forgive ----
