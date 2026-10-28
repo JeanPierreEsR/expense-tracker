@@ -645,13 +645,14 @@ function mailboxAddress_() {
 function getEmailInfo_() {
   var address = featureOn_('gmail') ? mailboxAddress_() : '';
   var seen = {};
-  EMAIL_RULES.forEach(function (r) { if (r.bank) seen[r.bank] = true; });
+  emailRules_().forEach(function (r) { if (r.bank) seen[r.bank] = true; });
   var settings = getSettingsMap();
   // `seen`: the day of the newest e-mail read for each bank ({} until the first one arrives); `since`: when the welcome questions were
   // answered (epoch milliseconds, '' on older copies). The app uses both to tick each bank and to say "no e-mail from X yet".
   // `health`: is the scan working (EmailHealth.gs); null while e-mail reading is off so the app never warns about it.
   return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || ''),
-    health: featureOn_('gmail') ? emailHealthForApp_() : null };
+    health: featureOn_('gmail') ? emailHealthForApp_() : null,
+    rulePack: rulePackStatus_() };
 }
 
 // Settings `bank_mail_seen` = JSON {bank: 'yyyy-mm-dd'}: the day of the newest e-mail that became an entry, per bank. It is JSON on
@@ -673,7 +674,7 @@ function noteBankMailSeen_(bank, dateStr) {
 
 function uniqueSenders_() {
   var seen = {};
-  EMAIL_RULES.forEach(function (r) { seen[r.sender] = true; });
+  emailRules_().forEach(function (r) { seen[r.sender] = true; });
   return Object.keys(seen);
 }
 
@@ -809,7 +810,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   // happened and is what same-day entries sort by.
   var createdAt = Utilities.formatDate(message.getDate(), tz, "yyyy-MM-dd'T'HH:mm:ss");
 
-  var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+  var rule = emailRules_().filter(function (r) { return r.sender === sender; })
     .find(function (r) { return r.match(subject, body); });
 
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
@@ -969,7 +970,7 @@ function debugGmailSearch_(query) {
  */
 function seedParsingRulesDoc() {
   var banks = getAllRows('Banks');
-  var rows = EMAIL_RULES.map(function (r) {
+  var rows = emailRules_().map(function (r) {
     var bank = banks.find(function (b) { return b.name === r.bank; });
     return {
       id: Utilities.getUuid(),
@@ -1003,7 +1004,7 @@ function debugListEmails_(senders, days) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + (days || 7) + 'd', { max: 50 }).forEach(function (message) {
       var subject = message.getSubject();
       var body = message.getPlainBody();
-      var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+      var rule = emailRules_().filter(function (r) { return r.sender === sender; })
         .find(function (r) { return r.match(subject, body); });
       out.push({
         sender: sender,

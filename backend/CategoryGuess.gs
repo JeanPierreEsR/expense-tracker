@@ -208,7 +208,7 @@ function backfillEntryMerchants(payload) {
       result.messagesScanned++;
       var subject = message.getSubject();
       var body = message.getPlainBody();
-      var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; })
+      var rule = emailRules_().filter(function (r) { return r.sender === sender; })
         .find(function (r) { return r.match(subject, body); });
       if (!rule || rule.skip) continue;
       var fields = rule.extract(subject, body);

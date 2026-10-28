@@ -267,7 +267,7 @@ function compareGmailReaders(opts) {
       if (oBody === nBody) summary.bodiesIdentical++;
       else if (squash(oBody) === squash(nBody)) summary.bodiesDifferOnlyInSpacing++;
       else summary.bodiesDiffer++;
-      var rules = EMAIL_RULES.filter(function (r) { return r.sender === sender; });
+      var rules = emailRules_().filter(function (r) { return r.sender === sender; });
       var rOld = rules.filter(function (r) { return r.match(oSub, oBody); })[0];
       var rNew = rules.filter(function (r) { return r.match(nSub, nBody); })[0];
       if (!rOld && !rNew) return;

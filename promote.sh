@@ -17,7 +17,8 @@
 #   2. checks the chosen release can run from stable/ and passes the backend tests (both e-mail readers)
 #   3. copies its screens into docs/stable/ (not setup/, setup-test/, vendor/) and marks them "stable"; if the backend pin moves, the screens
 #      friends had until now are first kept as docs/stable-<pin>/ ("paired screens": a friend whose backend is not updated yet keeps the screens tested with it)
-#   4. sets docs/setup/pin.json to the last commit that changed backend/ at that release
+#   4. sets docs/setup/pin.json to the last commit that changed backend/ at that release, and copies that release's e-mail rule pack
+#      (docs/rules/email-rules.json) to docs/setup/rules.json — the only way a friend's phone gets a rule you have not approved
 #   5. commits, pushes, tags stable-vX.Y.Z and adds a line to ../FRIENDS_VERSIONS.md
 set -euo pipefail
 
@@ -214,7 +215,7 @@ if [ -z "$RESUME" ]; then
   fi
   rm -rf "$W/docs/stable-$(echo "$PIN" | cut -c1-7)"   # the copy for the pin being promoted is stable/ itself
   rm -rf "$W/docs/stable"; mkdir -p "$W/docs/stable"
-  rsync -a --exclude='/setup/' --exclude='/setup-test/' --exclude='/vendor/' --exclude='/stable/' --exclude='/stable-*/' "$SRC/docs/" "$W/docs/stable/"
+  rsync -a --exclude='/setup/' --exclude='/setup-test/' --exclude='/vendor/' --exclude='/rules/' --exclude='/stable/' --exclude='/stable-*/' "$SRC/docs/" "$W/docs/stable/"
   sed -i '' -E 's/(<meta name="app-channel" content=")[^"]*"/\1stable"/' "$W/docs/stable/index.html"
   grep -q '<meta name="app-channel" content="stable">' "$W/docs/stable/index.html" || die "Could not mark stable/index.html as the stable copy — nothing was published."
   [ -f "$W/docs/stable/version.json" ] && [ -f "$W/docs/stable/app.js" ] || die "The copy in stable/ is incomplete — nothing was published."
@@ -236,10 +237,17 @@ if [ -z "$RESUME" ]; then
 
   # ------------------------------------------------- 4. the matching backend
   printf '{ "pin": "%s" }\n' "$PIN" > "$W/docs/setup/pin.json"
+  # The e-mail rule pack (backend/RulePack.gs): the phones of friends read THIS copy, never the live docs/rules/ file. A release from before the
+  # pack existed has none, and then the copy friends already have stays as it is.
+  if [ -f "$SRC/docs/rules/email-rules.json" ]; then
+    cp "$SRC/docs/rules/email-rules.json" "$W/docs/setup/rules.json"
+    say "Rule pack for friends: version $(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('version','?'))" "$W/docs/setup/rules.json"), $(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1])).get('rules',[])))" "$W/docs/setup/rules.json") rule(s)."
+  fi
 
   # 'docs/stable-*' (a pattern, not a list of folders) also stages the copies kept_pairs just pruned: a folder that no longer exists cannot be
   # listed by name, and without this the removal stayed on disk as loose changes in the main folder after every promote (found 2026-10-24).
   PATHS=(docs/stable docs/setup/pin.json)
+  [ -f "$W/docs/setup/rules.json" ] && PATHS+=(docs/setup/rules.json)
   # (git refuses a pattern that matches nothing at all, e.g. the very first promote, so it is added only when some copy exists or existed.)
   if [ -n "$(G ls-files -- 'docs/stable-*')" ] || ls -d "$W"/docs/stable-*/ >/dev/null 2>&1; then PATHS+=('docs/stable-*'); fi
   G add -A -- "${PATHS[@]}"

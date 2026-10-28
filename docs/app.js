@@ -7178,6 +7178,7 @@ function refreshExtrasRow_() {
   document.getElementById("more-bank-mail-btn").hidden = owner && !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
   checkBackendUpdate_();
+  syncRulePack_();
   checkBankReady_();
   renderFirstSteps_();
   renderMailHealth_();
@@ -7329,6 +7330,40 @@ function syncPairWithBackend_() {
 }
 // An app kept alive in the background is checked again when it comes back to the front, so a promote reaches it without a full relaunch.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateChecked_ = false; checkBackendUpdate_(); } });
+// ---- Rule pack: new banks without an update (specs/review-telegram-email.md § Rule pack) ----
+// Simple bank e-mail rules live in a public data file. The PHONE reads it (like pin.json: friends get the copy `./ship.sh --promote` put in setup/,
+// the owner's own copy the live one) and hands it to the person's own backend, which checks it and keeps it. No outside-connection permission is
+// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent for 6 hours.
+// Nothing here ever bothers the person: the rules written in the backend keep working whatever happens.
+const RULE_PACK_TRIED_KEY = "etRulePackTried";
+let rulePackSyncing_ = false, rulePackSyncedAt_ = 0;
+async function syncRulePack_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!caps.rulePack || rulePackSyncing_ || Date.now() - rulePackSyncedAt_ < 10 * 60 * 1000) return;   // an older backend lacks the door
+  rulePackSyncing_ = true;
+  try {
+    const res = await fetch(siteUrl_(perfIsOwnerCopy_() ? "rules/email-rules.json" : "setup/rules.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const text = await res.text();
+    let file = null;
+    try { file = JSON.parse(text); } catch (e) { return; }
+    const version = file && file.version;
+    if (typeof version !== "number") return;
+    rulePackSyncedAt_ = Date.now();
+    const have = meta && meta.emailInfo && meta.emailInfo.rulePack;
+    if (have && have.version === version) return;
+    let tried = null;
+    try { tried = JSON.parse(localStorage.getItem(RULE_PACK_TRIED_KEY)); } catch (e) { /* no memory of an earlier try */ }
+    if (tried && tried.version === version && Date.now() - tried.at < 6 * 3600 * 1000) return;
+    try {
+      const done = await callApi("setRulePack", { text });
+      meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { rulePack: { version: done.version, count: done.count, at: new Date().toISOString(), error: "" } });
+    } catch (err) {
+      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, at: Date.now() })); } catch (e) { /* ignore */ }
+    }
+  } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRulePack_(); });   // an app kept alive in the background is checked when it comes back to the front
 function updatePageUrl_() { return siteUrl_("setup/#update"); }
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
