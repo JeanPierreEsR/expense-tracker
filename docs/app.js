@@ -88,7 +88,7 @@ let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
 let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
 var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
-let editingExchangeAccount_ = "";   // that exchange side's own account (the one it arrived in, for "in")
+let editingExchangeAccount_ = "";   // the account a money-in transfer arrived in ("" when it is not one)
 let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
@@ -1919,11 +1919,11 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     }
     syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
     // The money-in side of an exchange has only a "To" account; as income it is the account it was received at.
-    if (editingExchangeLeg_ === "in" && selectedType === "income") {
+    if (editingExchangeAccount_ && (selectedType === "income" || selectedType === "expense")) {
       document.getElementById("payment_method").value = editingExchangeAccount_;
     }
     // Money that arrived, taken out of an investment platform: a withdrawal into that account; the platform is for the person to pick.
-    if (editingExchangeLeg_ === "in" && selectedType === "investment") {
+    if (editingExchangeAccount_ && selectedType === "investment") {
       setInvestmentDirection("withdrawal");
       document.getElementById("payment_method").value = editingExchangeAccount_;
       document.getElementById("to_payment_method").value = "";
@@ -3584,7 +3584,9 @@ async function startEditEntry(entry) {
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   editingExchangeLeg_ = exchangeLegSide_(entry);
   editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
-  editingExchangeAccount_ = editingExchangeLeg_ === "in" ? (entry.to_payment_method_id || "") : "";
+  // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
+  // becomes another type: income's "Received at", or the withdrawal's account.
+  editingExchangeAccount_ = entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id ? entry.to_payment_method_id : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
     ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
@@ -4425,13 +4427,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
-      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" ? `
+      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <div class="review-item-secondary-actions">
+        <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
-        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
-        <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
+        ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
+        ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
       </div>` : ""}
     `;
 
@@ -4543,7 +4546,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer") {
+    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -4564,7 +4567,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           return null;
         }
         const amt = parseFloat(amountInput.value.trim());
-        const rowCategory = item.querySelector(".review-category").value;
+        const rowCategoryEl = item.querySelector(".review-category");   // an investment has none
+        const rowCategory = rowCategoryEl ? rowCategoryEl.value : "";
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
         const rowTripEl = item.querySelector(".review-trip");
@@ -4579,6 +4583,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
+      // Any waiting entry can be opened in the full form to pick another type (Expense / Income / Investment / Transfer);
+      // saving there confirms it as that type. The Split button above does the same for an expense.
+      item.querySelector(".review-type-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const splitBtn = item.querySelector(".review-split-btn"); // expenses only
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
@@ -4607,7 +4614,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
-      item.querySelector(".review-exchange-btn").addEventListener("click", withRowEdits((e) =>
+      const exchangeBtn = item.querySelector(".review-exchange-btn");
+      if (exchangeBtn) exchangeBtn.addEventListener("click", withRowEdits((e) =>
         openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
@@ -16125,6 +16133,11 @@ function populateReviewTransferPaymentMethodOptions() {
   });
 }
 
+// Did the money of this waiting entry ARRIVE (an income, an investment withdrawal)? Otherwise it left.
+function reviewEntryArrived_(entry) {
+  return entry.type === "income" || (entry.type === "investment" && Number(entry.amount) < 0);
+}
+
 function openReviewTransferModal(entry, mode) {
   reviewTransferEntry = entry;
   reviewTransferMode = mode;
@@ -16133,7 +16146,7 @@ function openReviewTransferModal(entry, mode) {
     mode === "repay" ? tr("review.repayTitle") : tr("review.loanTitle");
   // Say which way the money moves — it follows the entry's type (an income
   // is money that came IN, so the friend is the one paying/lending).
-  const incoming = entry.type === "income";
+  const incoming = reviewEntryArrived_(entry);
   document.getElementById("review-transfer-context").textContent =
     `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` +
     (incoming
@@ -16144,9 +16157,10 @@ function openReviewTransferModal(entry, mode) {
   populateReviewTransferFriendOptions();
   populateReviewTransferPaymentMethodOptions();
   document.getElementById("review-transfer-friend").value = meta.friends.length ? meta.friends[0].id : "";
-  document.getElementById("review-transfer-amount").value = entry.amount;
+  document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
-  document.getElementById("review-transfer-payment-method").value = "";
+  // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
+  document.getElementById("review-transfer-payment-method").value = entry.payment_method_id || "";
   // Both modes now generate a `transfer` Entry for the real money moved
   // (see CLAUDE.md's Loans/Settlements sections) — this description feeds
   // that entry either way, pre-filled from the original pending
@@ -16199,9 +16213,13 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     // — the friend is then the one repaying (they_owe_me paid down) or
     // lending (i_owe_them). An income with no debt on record is refused by the
     // backend (require_owed) before anything is written, so the entry stays.
-    const incoming = reviewTransferEntry.type === "income";
+    // One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked first and the waiting
+    // entry is put back if anything fails, instead of recording first and discarding afterwards (a failed discard used to
+    // leave both). A repayment's extra waits in this queue (overpay_pending_ok), as before.
+    const incoming = reviewEntryArrived_(reviewTransferEntry);
     if (reviewTransferMode === "repay") {
-      const result = await callApi("recordRepayment", {
+      const result = await callApi("convertEntryToRepayment", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "they_owe_me" : "i_owe_them",
         amount,
@@ -16209,14 +16227,15 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         date,
         payment_method_id: paymentMethodId,
         description,
-        require_owed: incoming
+        require_owed: incoming,
+        overpay_pending_ok: true
       });
-      await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
         alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
-      await callApi("addLoan", {
+      await callApi("convertEntryToLoan", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "i_owe_them" : "they_owe_me",
         amount,
@@ -16225,7 +16244,6 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         payment_method_id: paymentMethodId,
         description
       });
-      await callApi("discardEntry", { id: entryId });
     }
 
     closeReviewTransferModal();

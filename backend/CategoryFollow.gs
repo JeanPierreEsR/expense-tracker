@@ -243,6 +243,12 @@ function updateEntryFromApp_(payload) {
     // Repaid debts of a shared expense are settled first (releaseEntryRepaidLoans); never leave them open and orphaned.
     if (entryTypeChangeRepaidLoanIds_(payload.id, payload.fields.type).length) throw new Error(tr_('typeChange.pickRepayments'));
   }
+  // A withdrawal is stored negative; whatever else it becomes, the amount is positive (the form always sends it; this keeps
+  // any other caller from leaving a negative expense / income / transfer behind).
+  if (payload.fields && payload.fields.type && payload.fields.type !== 'investment' && payload.fields.amount === undefined) {
+    var before_ = getEntryById_(payload.id);
+    if (before_ && before_.type === 'investment' && Number(before_.amount) < 0) payload.fields.amount = Math.abs(Number(before_.amount));
+  }
   guardRepaymentEntryEdit_(payload.id, payload.fields);
   syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;

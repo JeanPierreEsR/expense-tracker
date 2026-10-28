@@ -220,6 +220,7 @@
     "review.exchange": { en: "💱 Currency exchange", es: "💱 Cambio de moneda" },
     "review.makeTransfer": { en: "🔁 Make it a transfer", es: "🔁 Pasar a transferencia" },
     "review.makeTransferConfirm": { en: "Turn this into a transfer between your own accounts? It will stop counting as an expense or income. You'll pick the other account next.", es: "¿Pasar esto a una transferencia entre tus propias cuentas? Dejará de contar como gasto o ingreso. Después eliges la otra cuenta." },
+    "review.changeType": { en: "✏️ Change type", es: "✏️ Cambiar tipo" },
     "review.split": { en: "🔀 Split", es: "🔀 Repartir" },
     "review.markRepayment": { en: "💰 Mark as repayment", es: "💰 Marcar como repago" },
     "review.convertLoan": { en: "🤝 Convert to loan", es: "🤝 Convertir en préstamo" },
