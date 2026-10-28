@@ -66,3 +66,18 @@ test("each run records how long its steps took (last 24 kept)", () => {
   for (let i = 0; i < 30; i++) rt.run("runAutomation()");
   assert.equal(rt.api("admin_automationTimings").length, 24);
 });
+
+test("the heavy steps run on the first timer run and then only about once an hour; e-mail and Telegram run every time", () => {
+  const { rt } = freshApp({ small: true });
+  const steps = () => rt.api("admin_automationTimings").map((r) => Object.keys(r.steps));
+  rt.run("runAutomation()");
+  rt.svc.props.set("EMAIL_SCAN_LAST_AT", "0");
+  rt.run("runAutomation()");
+  const [first, second] = steps();
+  assert.ok(first.includes("budgets") && first.includes("trip budgets") && first.includes("loan reminders") && first.includes("investment categories"));
+  assert.ok(!second.includes("budgets") && !second.includes("trip budgets") && !second.includes("loan reminders") && !second.includes("investment categories"), "heavy steps skipped 15 minutes later");
+  assert.ok(second.includes("telegram") && second.includes("statement inbox"), "the cheap steps still run every time");
+  rt.svc.props.set("HEAVY_STEPS_LAST_AT", String(Date.now() - 51 * 60 * 1000));
+  rt.run("runAutomation()");
+  assert.ok(steps()[2].includes("budgets"), "an hour later they run again");
+});
