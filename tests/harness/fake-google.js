@@ -88,6 +88,7 @@ class FakeRange {
   getColumn() { return this.col; }
   getNumRows() { return this.nrows; }
   getNumColumns() { return this.ncols; }
+  getSheet() { return this.sheet; }
   setNumberFormat(fmt) {
     if (fmt === "@") for (let c = this.col; c < this.col + this.ncols; c++) this.sheet.textCols.add(c);
     return this;
@@ -343,8 +344,12 @@ function buildServices(state) {
   });
 
   const gmail = buildGmail();
+  // Sheets "toast" notices (what a trigger can show, since it cannot open a dialog) are recorded, never displayed.
+  const toastLog = [];
+  const triggers = [];
+  ss.toast = (message, title, seconds) => { toastLog.push({ message, title, seconds }); };
   return {
-    ss, props, cache, fetchLog, uiLog, mailLog, gmail,
+    ss, props, cache, fetchLog, uiLog, toastLog, mailLog, gmail,
     SpreadsheetApp: {
       getActiveSpreadsheet: () => Object.assign(ss, { getSpreadsheetTimeZone: () => sheetTz }),
       getUi: () => uiChain
@@ -408,10 +413,21 @@ function buildServices(state) {
       }
     },
     ScriptApp: {
-      getProjectTriggers: () => [],
-      deleteTrigger() {},
+      // Triggers are only recorded (a real one would fire later): enough to see which handlers a copy has installed.
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger(t) { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
       invalidateAuth() { state.authInvalidated = (state.authInvalidated || 0) + 1; },
-      newTrigger: () => unsupported("ScriptApp.newTrigger"),
+      newTrigger(fn) {
+        const t = { fn, kind: "", every: 0, getHandlerFunction: () => fn, getEventType: () => t.kind };
+        const b = {
+          timeBased: () => { t.kind = "CLOCK"; return b; },
+          everyMinutes: (n) => { t.every = n; return b; },
+          forSpreadsheet: () => b,
+          onEdit: () => { t.kind = "ON_EDIT"; return b; },
+          create: () => { triggers.push(t); return t; }
+        };
+        return b;
+      },
       getService: () => ({ getUrl: () => "http://localhost/fake-exec" })
     },
     // Outgoing mail is recorded in mailLog; quota is whatever state.mailQuota says (default plenty).

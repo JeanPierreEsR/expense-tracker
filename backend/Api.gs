@@ -155,7 +155,7 @@ function routeAction(action, payload) {
     case 'listSessions': return listSessions();
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
-    case 'getMeta': return getMeta();
+    case 'getMeta': ensureEntriesEditTrigger_(); return getMeta();   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
     case 'setLanguage': return setLanguage(payload);
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
