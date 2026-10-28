@@ -3141,6 +3141,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .settle-choose-row span { flex: 1; }
 .settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
 .settle-choose-row span { min-width: 0; }
+/* "Pay only the selected loans": a separate option under the loan list, not one more loan row */
+.reassign-limit-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px solid var(--border, #d9d9de); border-radius: 12px; background: var(--card-alt, rgba(120,120,128,0.08)); }
+.reassign-limit-box[hidden] { display: none; }
+.reassign-limit-label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; margin: 0; }
+.reassign-limit-label span { flex: 1; min-width: 0; }
+.reassign-limit-label input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.reassign-limit-box #reassign-gap { margin-top: 10px; }
 .settle-choose-assigned { flex: none !important; font-weight: 600; white-space: nowrap; }
 
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
