@@ -678,6 +678,8 @@
     "apply.hint": { en: "Select the loans this payment is for. They are paid oldest first, until the payment runs out.", es: "Selecciona los préstamos que paga este pago. Se pagan del más antiguo al más nuevo, hasta que el pago se acabe." },
     "apply.leftStays": { en: "{amount} stays as paid earlier, no loan", es: "{amount} queda como pagado antes, sin préstamo" },
     "apply.nothing": { en: "Select at least one loan that still has something left.", es: "Selecciona al menos un préstamo al que todavía le falte algo." },
+    "reassign.recordEntry": { en: "Record in my accounts", es: "Registrar en mis cuentas" },
+    "reassign.recordEntryHint": { en: "This repayment has no entry in your accounts, so it is not in Home and no balance counts it. Choose the account and date above, then record it.", es: "Este repago no tiene movimiento en tus cuentas, así que no aparece en Inicio y ningún saldo lo cuenta. Elige arriba la cuenta y la fecha, y luego regístralo." },
     "reassign.title": { en: "Edit this repayment", es: "Editar este repago" },
     "reassign.info": { en: "Repayment of {amount} on {date}", es: "Repago de {amount} del {date}" },
     "reassign.hint": { en: "Select the loans this repayment is for. They are paid oldest first, until the repayment runs out. Whatever is left goes to the oldest of the others.", es: "Selecciona los préstamos que paga este repago. Se pagan del más antiguo al más nuevo, hasta que el repago se acabe. Lo que sobre va a los más antiguos de los demás." },

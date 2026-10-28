@@ -108,6 +108,7 @@ var BACKEND_STRINGS_ = {
   "loan.unappliedDescOut": { en: "Paid earlier, no loan: {what} (deleted). You had paid {friend} {cur} {amount}", es: "Pagado antes, sin préstamo: {what} (eliminado). Le habías pagado {cur} {amount} a {friend}" },
   "repay.chosenLoanNotOpen": { en: "That loan has nothing left to repay (or is not in this direction).", es: "Ese préstamo ya no tiene nada por repagar (o no es en este sentido)." },
   "repay.notCancelOut": { en: "That line is a real repayment, not an automatic cancel-out.", es: "Esa línea es un repago real, no una compensación automática." },
+  "repay.hasEntry": { en: "This repayment already has its entry in your accounts.", es: "Este repago ya tiene su movimiento en tus cuentas." },
   "repay.notUnapplied": { en: "That is not a \"paid earlier, no loan\" payment.", es: "Eso no es un pago \"pagado antes, sin préstamo\"." },
   "repay.unappliedHasLines": { en: "This payment has lines of its own (a cancel-out). Undo them in the repayment history first.", es: "Este pago tiene líneas propias (una compensación). Deshazlas primero en el historial de repagos." },
   "repay.applyNoRoom": { en: "The selected loans have nothing left to repay.", es: "Los préstamos seleccionados no tienen nada por repagar." },

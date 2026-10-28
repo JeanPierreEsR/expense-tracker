@@ -14382,6 +14382,7 @@ function openReassignRepayment_(r) {
   const pmSel = document.getElementById("reassign-pm");
   pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
   pmSel.value = r.payment_method_id || "";
+  document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
   document.getElementById("reassign-amount").value = r.applied.toFixed(2);
   document.getElementById("reassign-date").value = r.date;
 
@@ -14430,6 +14431,7 @@ async function openApplyUnapplied_(l, friend) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
   document.getElementById("reassign-fields").hidden = true;
+  document.getElementById("reassign-record").hidden = true;
 
   document.getElementById("reassign-title").textContent = tr("apply.title");
   document.getElementById("reassign-hint").textContent = tr("apply.hint");
@@ -14462,6 +14464,28 @@ async function openApplyUnapplied_(l, friend) {
 function closeReassign_() {
   document.getElementById("reassign-modal-backdrop").hidden = true;
 }
+document.getElementById("reassign-record-btn").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const btn = document.getElementById("reassign-record-btn");
+  btn.disabled = true;
+  try {
+    await callApi("recordRepaymentEntry", {
+      id: reassignRepayment_.id,
+      date: document.getElementById("reassign-date").value,
+      payment_method_id: document.getElementById("reassign-pm").value
+    });
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  closeReassign_();
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
 document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
 document.getElementById("reassign-close").addEventListener("click", closeReassign_);
 document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);

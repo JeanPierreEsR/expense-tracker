@@ -1819,6 +1819,37 @@ function reassignRepayment(payload) {
   return { done: true, parts: plan.length };
 }
 
+// Gives an old repayment (recorded before repayments created a money-movement entry) its entry, so it shows in Home and
+// moves the chosen account's balance (owner's request, 2026-10-27). `id` is its settlement row; only a real repayment with
+// no entry yet qualifies. The entry takes the date and account chosen here, which are also stored on the repayment row.
+function recordRepaymentEntry(payload) {
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var row = getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
+  if (!row) throw new Error(tr_('err.repaymentNotFound'));
+  if (row.offset_loan_id) throw new Error(tr_('repay.autoOffsetEdit'));
+  if (row.transfer_entry_id) throw new Error(tr_('repay.hasEntry'));
+  var loan = getAllRows('Loans').find(function (l) { return l.id === row.loan_id; });
+  if (!loan) throw new Error(tr_('err.loanNotFound'));
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var date = payload.date ? String(payload.date) : String(row.date);
+  var pm = payload.payment_method_id || '';
+  var entry = createTransferEntry_({
+    date: date,
+    amount: Number(row.amount),
+    currency: loan.currency,
+    payment_method_id: pm,
+    description: tr_(loan.direction === 'they_owe_me' ? 'desc.repaymentFrom' : 'desc.repaymentTo', { name: friend ? friend.name : '' })
+  });
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, row.id);
+  setCellByRow_(sheet, headers, rowIndex, 'transfer_entry_id', entry.id);
+  setCellByRow_(sheet, headers, rowIndex, 'date', date);
+  setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', pm);
+  return { done: true, entry_id: entry.id };
+}
+
 // Undoes an automatic cancel-out (owner's request, 2026-10-27): the two matching rows (one on each loan) are removed, so
 // both loans owe that amount again. `id` is either half. Nothing else changes: no money moved when it was written.
 function undoCancelOut(payload) {
