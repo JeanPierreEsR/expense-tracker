@@ -1150,12 +1150,22 @@ function convertLoanEntryInto_(payload) {
   ensureLoansTransferEntryColumn_();
   var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
   if (!loan) throw new Error(tr_('convert.notLoanMovement'));
-  if (payload.type !== 'expense' && payload.type !== 'income') throw new Error(tr_('convert.loanOnlyExpenseIncome'));
-  if ((loan.direction === 'they_owe_me') !== (payload.type === 'expense')) {
-    throw new Error(tr_(loan.direction === 'they_owe_me' ? 'convert.lentIsExpense' : 'convert.borrowedIsIncome'));
+  if (['expense', 'income', 'investment', 'transfer'].indexOf(payload.type) === -1) throw new Error(tr_('convert.loanOnlyExpenseIncome'));
+  // Money that LEFT (a loan the owner gave) can only be an expense or an investment deposit; money that ARRIVED (a loan the
+  // owner received) only an income or an investment withdrawal (a negative amount, the way investments store it). A plain
+  // transfer between the owner's own accounts is either way — "this was never a loan".
+  var lent = loan.direction === 'they_owe_me';
+  if (payload.type === 'expense' || payload.type === 'income') {
+    if (lent !== (payload.type === 'expense')) throw new Error(tr_(lent ? 'convert.lentIsExpense' : 'convert.borrowedIsIncome'));
+  } else if (payload.type === 'investment') {
+    var withdrawal = Number(payload.amount) < 0;
+    if (lent === withdrawal) throw new Error(tr_(lent ? 'convert.lentIsDeposit' : 'convert.borrowedIsWithdrawal'));
+    if (!payload.to_payment_method_id) throw new Error(tr_('err.pickPlatform'));
+  } else if (payload.type === 'transfer' && !payload.payment_method_id && !payload.to_payment_method_id) {
+    throw new Error(tr_('err.pickAccount'));
   }
   if (loan.status === 'forgiven') throw new Error(tr_('convert.loanForgiven'));
-  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!(Math.abs(Number(payload.amount)) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
   ensureSettlementsOffsetColumn_();
   var hasRepayments = getAllRows('Settlements').some(function (s) { return s.loan_id === loan.id; });
@@ -1170,8 +1180,9 @@ function convertLoanEntryInto_(payload) {
     currency: payload.currency,
     category_id: payload.category_id,
     description: payload.description,
-    paid_by: payload.paid_by,
+    paid_by: payload.paid_by || (payload.type === 'income' ? undefined : 'me'),   // the owner's own money: an account only counts when 'me'
     payment_method_id: payload.payment_method_id,
+    to_payment_method_id: payload.to_payment_method_id,   // a transfer's other account / an investment's platform
     tag_ids: payload.tag_ids,
     trip_id: payload.trip_id,
     project_id: payload.project_id,
@@ -1185,6 +1196,220 @@ function convertLoanEntryInto_(payload) {
     throw new Error(tr_('convert.nothingChanged', { error: err.message }));
   }
   return { entry: created, kept_repayments: hasRepayments && payload.repayments === 'keep' };
+}
+
+// "I recorded this as a loan, but it was really a REPAYMENT" (entry-type conversions, step 4). The loan's money entry is what
+// the person edits, as Transfer → Repayment. The loan is deleted (with keep / cancel for ITS repayments, as deleteLoan) and the
+// repayment recorded — in that order, so the repayment's FIFO sees the right debts. Money that LEFT (a loan the owner gave) can
+// only be a repayment the owner made ("I paid them"); money that ARRIVED (a loan received) only a repayment received.
+// Any failure puts the loan, its money entry and its repayments back exactly. payload as recordRepayment (+ overpay_category_id
+// or overpay_pending_ok) + entry_id + repayments ('keep' | 'cancel', only when the loan has real repayments).
+function convertLoanToRepayment(payload) {
+  return withScriptLockOnce_(function () { return convertLoanToRepaymentInto_(payload); });
+}
+
+function convertLoanToRepaymentInto_(payload) {
+  ensureLoansTransferEntryColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  var loansBefore = getAllRows('Loans');
+  var loan = loansBefore.find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  var expected = loan.direction === 'they_owe_me' ? 'i_owe_them' : 'they_owe_me';
+  if (payload.direction !== expected) throw new Error(tr_(loan.direction === 'they_owe_me' ? 'convert.loanToRepaymentOut' : 'convert.loanToRepaymentIn'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (!payload.overpay_category_id && !payload.overpay_pending_ok) throw new Error(tr_('convert.pickExtraCategory'));
+  if (loan.status === 'forgiven') throw new Error(tr_('convert.loanForgiven'));
+
+  var settlementsBefore = getAllRows('Settlements');
+  var own = settlementsBefore.filter(function (s) { return s.loan_id === loan.id; });
+  var realRepayments = own.some(function (s) { return !s.offset_loan_id; });
+  if (realRepayments && payload.repayments !== 'keep' && payload.repayments !== 'cancel') throw new Error(tr_('convert.pickRepayments'));
+
+  var guard = captureLoanRelease_(loan, payload.entry_id, payload.friend_id);
+
+  try {
+    deleteLoan(loan.id, own.length ? (payload.repayments || 'keep') : undefined);
+    var result = recordRepayment({
+      friend_id: payload.friend_id,
+      direction: payload.direction,
+      amount: payload.amount,
+      currency: payload.currency,
+      date: payload.date,
+      payment_method_id: payload.payment_method_id,
+      description: withoutAutoLoanDescription_(loan, payload.description),   // the old loan's default text is not the repayment's own
+      overpay_category_id: payload.overpay_category_id,
+      overpay_pending_ok: payload.overpay_pending_ok
+    });
+    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
+  } catch (err) {
+    guard.rollback(err);
+  }
+}
+
+// The description a loan shows by default when it has none of its own: "Loan to {friend}" / "Loan from {friend}". It is NEVER
+// stored as the loan's own description, so it follows the loan — change the person or the direction and it reads right again.
+// The entry and the forms show it as the default text, and the person can type their own, which is then kept.
+function autoLoanDescription_(loan) {
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var name = friend ? friend.name : tr_('label.unknownFriend');
+  return loan.direction === 'they_owe_me' ? tr_('desc.loanTo', { name: name }) : tr_('desc.loanFrom', { name: name });
+}
+
+// Same idea for a repayment: "Repayment from / to {friend}" is the default its money entry shows, never "my own" text.
+function withoutAutoRepaymentDescription_(loan, typed) {
+  var friend = loan && getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var auto = loan ? tr_(loan.direction === 'they_owe_me' ? 'desc.repaymentFrom' : 'desc.repaymentTo', { name: friend ? friend.name : '' }) : '';
+  return String(typed === undefined || typed === null ? '' : typed).trim() === String(auto).trim() ? '' : String(typed || '');
+}
+
+// `typed` is what the entry / form carried. If it is just the loan's default text it means "no description of my own": ''.
+function withoutAutoLoanDescription_(loan, typed) {
+  return String(typed === undefined || typed === null ? '' : typed).trim() === String(autoLoanDescription_(loan)).trim() ? '' : String(typed || '');
+}
+
+// A loan's money entry and the loan are ONE thing (owner's rule, 2026-10-28): editing the entry in the app updates the loan
+// itself, the reverse of syncLoanTransferEntry_. Called by `updateEntryFromApp_` BEFORE the entry is written, and through
+// `updateLoan`, so the loan's own rules apply and a refusal ("a repaid loan's friend / currency stay", "not below what is
+// repaid") stops the whole edit with nothing changed. Only what both records share travels: date, amount, currency, the
+// account and the description (an auto-made "Loan to {friend}" text is not stored as the loan's own description).
+function syncLoanBeforeEntryEdit_(entryId, fields) {
+  if (!fields) return;
+  var shared = ['date', 'amount', 'currency', 'payment_method_id', 'description'];
+  if (!shared.some(function (k) { return fields[k] !== undefined; })) return;
+  ensureLoansTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === entryId; });
+  if (!loan) return;
+  var description = loan.description || '';
+  if (fields.description !== undefined) description = withoutAutoLoanDescription_(loan, fields.description);
+  var next = {
+    id: loan.id,
+    friend_id: loan.friend_id,
+    direction: loan.direction,
+    amount: fields.amount !== undefined ? Math.abs(Number(fields.amount)) : Number(loan.amount),
+    currency: fields.currency || loan.currency,
+    date: fields.date || loan.date,
+    due_date: loan.due_date,
+    payment_method_id: fields.payment_method_id !== undefined ? fields.payment_method_id : (loan.payment_method_id || ''),
+    description: description
+  };
+  var unchanged = Number(next.amount) === Number(loan.amount) && next.currency === loan.currency && next.date === loan.date &&
+    String(next.payment_method_id || '') === String(loan.payment_method_id || '') && String(next.description) === String(loan.description || '');
+  if (unchanged) return;
+  updateLoan(next);
+}
+
+// "I recorded this loan wrongly": a loan's money entry opened as Transfer → New loan (entry-type conversions). Changing only
+// what updateLoan allows (date, account, description, due date, amount not below what is repaid; anything while nothing is
+// repaid) edits the loan IN PLACE and keeps it. Changing the person, the direction or the currency of a loan that already has
+// repayments, or an amount below them, REPLACES it: the old loan is deleted (keep / cancel for its repayments, as deleteLoan)
+// and the new one added, with everything put back if that fails. `loanToLoanPlan_` is the one place that decides which.
+function loanToLoanPlan_(loan, payload) {
+  ensureSettlementsOffsetColumn_();
+  var rows = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; });
+  var settled = rows.reduce(function (n, s) { return n + Number(s.amount); }, 0);
+  var realPaid = rows.reduce(function (n, s) { return s.offset_loan_id ? n : n + Number(s.amount); }, 0);
+  var identityChanged = payload.friend_id !== loan.friend_id || payload.direction !== loan.direction ||
+    (payload.currency || homeCurrency_()) !== loan.currency;
+  var tooLow = Number(payload.amount) < settled - 0.004;
+  var inPlace = !(settled > 0.004 && (identityChanged || tooLow));
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  return { inPlace: inPlace, paid: realPaid, rows: rows.length, currency: loan.currency, friend: friend ? friend.name : '' };
+}
+
+// What the phone asks before saving a loan as another loan: does it need the keep / cancel decision?
+function checkLoanToLoan(payload) {
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  var plan = loanToLoanPlan_(loan, payload);
+  return { needsRelease: !plan.inPlace, paid: plan.paid, currency: plan.currency, friend: plan.friend };
+}
+
+function convertLoanToLoan(payload) {
+  return withScriptLockOnce_(function () { return convertLoanToLoanInto_(payload); });
+}
+
+function convertLoanToLoanInto_(payload) {
+  ensureLoansTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (loan.status === 'forgiven') throw new Error(tr_('convert.loanForgiven'));
+  var plan = loanToLoanPlan_(loan, payload);
+  var fields = {
+    friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount,
+    currency: payload.currency || homeCurrency_(), date: payload.date,
+    due_date: payload.due_date || (plan.inPlace ? loan.due_date : ''),   // a blank due date must not erase the loan's own
+    payment_method_id: payload.payment_method_id,
+    // The form still carries the OLD "Loan to {person}" default: that is "no description of my own", so the new loan's default
+    // ("Loan from {new person}") is generated, instead of freezing the old person's name into it.
+    description: withoutAutoLoanDescription_(loan, payload.description)
+  };
+  if (plan.inPlace) {
+    var edited = updateLoan(Object.assign({ id: loan.id, project_id: payload.project_id }, fields));
+    return { loan: edited, in_place: true };
+  }
+  if (plan.paid > 0.004 && payload.repayments !== 'keep' && payload.repayments !== 'cancel') throw new Error(tr_('convert.pickRepayments'));
+  var guard = captureLoanRelease_(loan, payload.entry_id, payload.friend_id);
+  try {
+    deleteLoan(loan.id, payload.repayments || 'keep');
+    var created = addLoan(Object.assign({ project_id: payload.project_id }, fields));
+    return { loan: created, in_place: false };
+  } catch (err) {
+    guard.rollback(err);
+  }
+}
+
+// Taken BEFORE a loan is deleted so everything deleting it can touch can be put back exactly if what comes next fails: the
+// loan, its money entry, its repayment rows (and the other half of any cancel-out), the money entries behind them (shrunk or
+// removed by "cancel"), and the status of every involved loan. `rollback(err)` always throws: "Nothing was changed — …", or,
+// if even the undo fails, the message that spells out the original entry so it can be re-entered.
+function captureLoanRelease_(loan, entryId, otherFriendId) {
+  var settlementsBefore = getAllRows('Settlements');
+  var loansBefore = getAllRows('Loans');
+  var own = settlementsBefore.filter(function (s) { return s.loan_id === loan.id; });
+  var involved = {};
+  involved[loan.id] = true;
+  own.forEach(function (s) { if (s.offset_loan_id) involved[s.offset_loan_id] = true; });
+  var snapSettlements = settlementsBefore.filter(function (s) { return involved[s.loan_id] || (s.offset_loan_id && involved[s.offset_loan_id]); });
+  var snapEntryIds = {};
+  snapEntryIds[entryId] = true;
+  snapSettlements.forEach(function (s) { if (s.transfer_entry_id) snapEntryIds[s.transfer_entry_id] = true; });
+  var snapEntries = getAllRows('Entries').filter(function (e) { return snapEntryIds[e.id]; });
+  var settlementIdsBefore = {}, loanIdsBefore = {}, entryIdsBefore = {};
+  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
+  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+  var friendIds = {};
+  friendIds[loan.friend_id] = true;
+  if (otherFriendId) friendIds[otherFriendId] = true;
+  return {
+    rollback: function (err) {
+      try {
+        deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+        deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
+        getAllRows('Entries').forEach(function (e) { if (!entryIdsBefore[e.id]) deleteEntry_(e.id); });
+        if (!getAllRows('Loans').some(function (l) { return l.id === loan.id; })) appendRowObject('Loans', loan);
+        var present = {};
+        getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+        snapSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+        snapEntries.forEach(function (e) {
+          if (getEntryById_(e.id)) setEntryField_(e.id, 'amount', e.amount); else appendRowObject('Entries', e);
+        });
+        getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
+          .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
+      } catch (undoErr) {
+        var movement = snapEntries.find(function (e) { return e.id === entryId; }) || {};
+        throw new Error(tr_('convert.undoFailed', { what: movement.description || entryId, date: movement.date || '', amount: movement.amount || '', error: err.message }));
+      }
+      throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+    }
+  };
 }
 
 // "I recorded this as a repayment, but it was really an expense / income / a loan" (entry-type conversions, step 3).
@@ -1232,7 +1457,8 @@ function convertRepaymentEntryInto_(payload, kind) {
   } else {
     newLoan = addLoan({
       friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount, currency: payload.currency,
-      date: payload.date, due_date: payload.due_date, payment_method_id: payload.payment_method_id, description: payload.description
+      date: payload.date, due_date: payload.due_date, payment_method_id: payload.payment_method_id,
+      description: withoutAutoRepaymentDescription_(firstLoan, payload.description)   // the old repayment's default text is not the loan's own
     });
   }
   try {
@@ -1287,6 +1513,7 @@ function convertRepaymentToRepaymentInto_(payload) {
   getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
   var entrySnap = getEntryById_(payload.entry_id);
   var extraSnaps = repaymentExtraEntries_(oldSettlements);   // the old repayment's extra income / expense goes with it
+  var oldLoan = loansBefore.find(function (l) { return oldSettlements[0] && l.id === oldSettlements[0].loan_id; });
   var friendIds = {};
   friendIds[payload.friend_id] = true;
   oldSettlements.forEach(function (s) {
@@ -1304,7 +1531,7 @@ function convertRepaymentToRepaymentInto_(payload) {
       currency: payload.currency,
       date: payload.date,
       payment_method_id: payload.payment_method_id,
-      description: payload.description,
+      description: withoutAutoRepaymentDescription_(oldLoan, payload.description),   // the old repayment's default text is not the new one's own
       overpay_category_id: payload.overpay_category_id,
       overpay_pending_ok: payload.overpay_pending_ok
     });
@@ -1605,7 +1832,7 @@ function buildTransferLinkMap_() {
   loans.forEach(function (l) {
     loanById[l.id] = l;
     if (l.transfer_entry_id) {
-      map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', direction: l.direction };
+      map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', friend_id: l.friend_id, direction: l.direction };
     }
   });
   getAllRows('Settlements').forEach(function (s) {

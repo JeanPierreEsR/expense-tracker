@@ -86,6 +86,7 @@ let splitInputEls = {};
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
+let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
@@ -340,7 +341,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -358,7 +359,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1252,10 +1253,36 @@ function updatePaidByFriendHint_() {
 // here — anything typed by hand is never overwritten. Not for repayments /
 // loans (they name the friend), nor when editing an existing entry.
 let lastAutoDescription = "";
+// The text a loan or repayment shows by default when it has no description of its own ("Loan to Ana", "Repayment from Ana").
+// Same wording as the server (desc.loanTo / loanFrom / repaymentFrom / repaymentTo in Strings.gs).
+function defaultDebtDescription_(kind, direction, name) {
+  if (!name) return "";
+  if (kind === "loan") return tr(direction === "they_owe_me" ? "desc.loanTo" : "desc.loanFrom", { name });
+  return tr(direction === "they_owe_me" ? "desc.repaymentFrom" : "desc.repaymentTo", { name });
+}
+
+// A loan's or repayment's own entry being saved as a loan / repayment (Transfer → New loan / Repayments): the default text
+// for the person and direction chosen NOW, or null when this is not that case.
+function conversionDefaultDescription_() {
+  if (!editingEntryId || !(editingLoanMovement_ || editingRepayment_) || selectedType !== "transfer") return null;
+  const kind = transferKind_();
+  if (kind !== "loan" && kind !== "repayment") return null;
+  const friend = meta.friends.find((f) => f.id === document.getElementById("repayment-friend").value);
+  return friend ? defaultDebtDescription_(kind, debtDirection_(), friend.name) : null;
+}
+
 function updateAutoTransferDescription_() {
   const desc = document.getElementById("description");
   const typedByHand = desc.value.trim() !== "" && desc.value !== lastAutoDescription;
   if (typedByHand) { lastAutoDescription = ""; return; }
+  // Editing a loan's / repayment's own entry whose description is still the AUTOMATIC one (the person has not typed their
+  // own): it is worked out again for the person and direction chosen now, the same way it was first made. Custom text is
+  // "typed by hand" above and is never touched; a plain edit (no conversion) leaves the text alone.
+  if (editingEntryId) {
+    const conv = conversionDefaultDescription_();
+    if (conv !== null && lastAutoDescription) { desc.value = conv; lastAutoDescription = conv; }
+    return;
+  }
   let text = "";
   if (selectedType === "transfer" && !editingEntryId && !confirmingPendingId && transferKind_() === "between") {
     const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname.replace(/\s*\(\s*\d+\s*\)\s*$/, "") : ""; };  // nickname only, never the account digits
@@ -1420,7 +1447,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
-  if (e.target.value !== "__add__") return;
+  if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
   const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
@@ -1429,6 +1456,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
     refreshFriendChips_();
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = friend.id;
+    updateAutoTransferDescription_();
   }
 });
 
@@ -1443,10 +1471,11 @@ function updateRepaymentUi_() {
   const kindSelect = document.getElementById("transfer-kind");
   if (!available) kindSelect.value = "between";
   syncExchangeKindOption_(kindSelect);
+  syncUnloanKindOption_(kindSelect);
   const kind = transferKind_();
   syncExchangeInline_();
-  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange";
-  if (kind === "between" || kind === "exchange") return;
+  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange" || kind === "unloan";
+  if (kind === "between" || kind === "exchange" || kind === "unloan") return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -1483,15 +1512,21 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
   if (repaymentActive_() && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = paidBy;
+  } else if (repaymentActive_() && editingEntryId && editingLoanFriendId_ && !repaymentFriendTouched_ && meta.friends.some((f) => f.id === editingLoanFriendId_)) {
+    // A loan's own entry: Transfer → New loan / Repayments starts on that loan's person (changeable).
+    populateRepaymentFriendOptions_();
+    document.getElementById("repayment-friend").value = editingLoanFriendId_;
   }
   togglePaymentMethodVisibility();
   syncConversionAmount_();
+  updateAutoTransferDescription_();   // the automatic description follows the kind (loan / repayment) and the person
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
+    updateAutoTransferDescription_();   // ...and the direction
   });
 });
 
@@ -2267,6 +2302,35 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
           }
         }
+        // A loan's own money entry turned into a REPAYMENT (Transfer → Repayments): the loan is deleted and the repayment
+        // recorded (convertLoanToRepayment). Money that left (a loan the owner gave) can only be a repayment the owner paid,
+        // money that arrived only one received; a loan with real repayments asks keep / cancel first.
+        const loanToRepayment = !isLoanKind && !!editingLoanMovement_;
+        if (loanToRepayment) {
+          const expectedDirection = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+          if (direction !== expectedDirection) throw new Error(tr(editingLoanMovement_ === "they_owe_me" ? "loanConv.repayOut" : "loanConv.repayIn"));
+          const loanInfo = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
+          if (loanInfo && Number(loanInfo.paid) > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: loanInfo.friend, currency: loanInfo.currency, total: loanInfo.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          } else if (!confirm(tr("loanConv.confirmToRepayment"))) {
+            return;
+          }
+        }
+        // A loan's own money entry saved as a loan again (Transfer → New loan): another person, direction, amount, currency,
+        // date, account or description (convertLoanToLoan). The loan is edited IN PLACE when its rules allow; a repaid loan
+        // whose person / direction / currency changes (or whose amount goes below what is repaid) is REPLACED, and then the
+        // person chooses what happens to its repayments — the server says which (checkLoanToLoan).
+        const loanToLoan = isLoanKind && !!editingLoanMovement_;
+        if (loanToLoan) {
+          const plan = await callApi("checkLoanToLoan", { entry_id: editingEntryId, friend_id: friendId, direction, amount, currency });
+          if (plan.needsRelease && plan.paid > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: plan.friend, currency: plan.currency, total: plan.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          }
+        }
         // A repayment's own money entry turned into a NEW LOAN: the repayment is cancelled (convertRepaymentToLoan).
         // Money that arrived can only be a loan the friend gave, money that left only one the owner gave.
         const fromRepayment = isLoanKind && !!editingRepayment_;
@@ -2296,7 +2360,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2380,14 +2444,19 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       exitEditMode();
       refreshLoans().catch(() => {});
       showFormNotice_(tr(selectedType === "expense" ? "repayConv.doneExpense" : "repayConv.doneIncome"));
-    } else if (editingEntryId && editingLoanMovement_ && selectedType !== "transfer") {
-      // "I saved this as a loan, but it was really an expense / income": one server call that removes the loan and
-      // writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the same two
-      // choices as deleting it. Blocking, like the other conversions.
-      if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("loanConv.onlyExpenseIncome"));
+    } else if (editingEntryId && editingLoanMovement_ && (selectedType !== "transfer" || transferKind_() === "unloan")) {
+      // "I saved this as a loan, but it was really an expense / income / investment / my own transfer": one server call that
+      // removes the loan and writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the
+      // same two choices as deleting it. Blocking, like the other conversions. (Transfer → "Not a loan: my own transfer".)
       // Checked before the repayments question, so nothing is asked for a conversion that would be refused anyway.
       if (selectedType === "expense" && editingLoanMovement_ === "i_owe_them") throw new Error(tr("loanConv.borrowedIsIncome"));
       if (selectedType === "income" && editingLoanMovement_ === "they_owe_me") throw new Error(tr("loanConv.lentIsExpense"));
+      // An investment follows how the money moved: a loan the owner gave left the account (a deposit), one received arrived (a withdrawal).
+      if (selectedType === "investment") {
+        if (!toPaymentMethodId) throw new Error(tr("error.pickPlatform"));
+        if (editingLoanMovement_ === "they_owe_me" && isWithdrawal) throw new Error(tr("loanConv.lentIsDeposit"));
+        if (editingLoanMovement_ === "i_owe_them" && !isWithdrawal) throw new Error(tr("loanConv.borrowedIsWithdrawal"));
+      }
       const info = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
       let repayments;
       if (info && info.hasRepayments) {
@@ -2404,12 +2473,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         entry_id: editingEntryId,
         type: selectedType,
         date,
-        amount,
+        amount: isWithdrawal ? -amount : amount,   // a withdrawal is stored negative
         currency,
         ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,   // a transfer's other account / an investment's platform ("" otherwise)
         tag_ids: tagIds,
         trip_id: tripId,
         ...businessLink,
@@ -2417,7 +2487,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       });
       exitEditMode();
       refreshLoans().catch(() => {});
-      showFormNotice_(tr(selectedType === "expense" ? "loanConv.doneExpense" : "loanConv.doneIncome"));
+      showFormNotice_(tr({ expense: "loanConv.doneExpense", income: "loanConv.doneIncome", investment: "loanConv.doneInvestment", transfer: "loanConv.doneTransfer" }[selectedType]));
     } else if (editingEntryId && (
         (editingRepayment_ && selectedType === "transfer" && editingRepayment_.friend_id && Math.abs(Number(amount) - Number(editingRepayment_.total)) > 0.004) ||
         (editingRepaymentExtra_ && editingRepaymentExtra_.transfer_entry_id && selectedType === editingEntryOriginalType && Math.abs(Number(amount) - Number(editingRepaymentExtra_.total)) > 0.004))) {
@@ -2487,6 +2557,23 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // The bill behind the split is saved only when it was (re)applied in this
       // edit and a split still exists; undefined = leave the stored bill alone.
       const billToSave = billApplied && splits && splits.length ? billToJSON_() : undefined;
+      // A loan's money entry and the loan are ONE thing: the server updates the loan from this edit, and the loan can refuse
+      // (an amount below what is repaid, another currency once repaid). So this save is NOT queued in the background: it is
+      // sent now, and a refusal shows in the form with nothing changed.
+      if (editingLoanMovement_) {
+        await callApi("updateEntry", { id, fields });
+        await callApi("saveEntryTags", { entryId: id, tagIds });
+        exitEditMode();
+        refreshLoans().catch(() => {});
+        await refreshEntryList();
+        if (wasPopup) {
+          resetEntryFormFields_();
+          await refreshAfterPopupEdit();
+        } else {
+          resetToFreshEntryScreen_();
+        }
+        return;
+      }
       queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
@@ -3451,12 +3538,17 @@ function syncCancelNewEntryButton_() {
 let editingEntrySummary_ = "";
 
 async function startEditEntry(entry) {
+  // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
+  // form that was cancelled half-way (it would silently start a loan / repayment conversion).
+  document.getElementById("transfer-kind").value = "between";
+  repaymentFriendTouched_ = false;
   editingEntryId = entry.id;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
+  editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
     ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
@@ -3470,6 +3562,8 @@ async function startEditEntry(entry) {
   // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
   editingRepaymentExtra_ = (entry.type === "income" || entry.type === "expense") && !!entry.link && entry.link.kind === "repaymentExtra"
     ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
+  // A loan's own entry knows how the money moved too: a loan I gave left my account ("I paid them"), one I received arrived.
+  if (editingLoanMovement_) repaymentDirectionChoice = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
   // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
@@ -3499,6 +3593,13 @@ async function startEditEntry(entry) {
   document.getElementById("amount").value = entryIsWithdrawal ? Math.abs(Number(entry.amount)) : entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
+  // A loan's / repayment's own entry whose description is still the automatic one stays "automatic" until the person types
+  // their own: changing the person or direction then rewrites it (see updateAutoTransferDescription_).
+  lastAutoDescription = "";
+  if (entry.type === "transfer" && entry.link && (entry.link.kind === "loan" || entry.link.kind === "repayment") &&
+      entry.description === defaultDebtDescription_(entry.link.kind, entry.link.direction, entry.link.friend)) {
+    lastAutoDescription = entry.description;
+  }
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
@@ -3573,6 +3674,7 @@ function exitEditMode() {
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
+  editingLoanFriendId_ = "";
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
@@ -4505,6 +4607,26 @@ function updateExchangeRateLine_() {
 
 // "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
 var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
+// "Not a loan: my own transfer" — offered only while editing a loan's own money entry (the loan is deleted and the entry
+// becomes a plain transfer between the owner's accounts). Added / removed like the exchange option, never shown for other entries.
+let unloanKindOption_ = null;
+function syncUnloanKindOption_(kindSelect) {
+  const want = !!editingLoanMovement_;
+  const has = !!kindSelect.querySelector('option[value="unloan"]');
+  if (want && !has) {
+    if (!unloanKindOption_) {
+      unloanKindOption_ = document.createElement("option");
+      unloanKindOption_.value = "unloan";
+      unloanKindOption_.setAttribute("data-i18n", "transfer.kind.unloan");
+      unloanKindOption_.textContent = tr("transfer.kind.unloan");
+    }
+    kindSelect.appendChild(unloanKindOption_);
+  } else if (!want && has) {
+    if (kindSelect.value === "unloan") kindSelect.value = "between";
+    unloanKindOption_.remove();
+  }
+}
+
 function syncExchangeKindOption_(kindSelect) {
   if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
   const has = !!kindSelect.querySelector('option[value="exchange"]');

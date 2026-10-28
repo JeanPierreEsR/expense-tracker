@@ -116,7 +116,7 @@ function doPost(e) {
 // The lock makes a repeat that arrives WHILE the first is still running
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
-  createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, convertLoanToEntry: 1, convertRepaymentToEntry: 1, convertRepaymentToLoan: 1, convertRepaymentToRepayment: 1,
+  createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, convertLoanToEntry: 1, convertLoanToRepayment: 1, convertLoanToLoan: 1, convertRepaymentToEntry: 1, convertRepaymentToLoan: 1, convertRepaymentToRepayment: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
@@ -155,7 +155,7 @@ function routeAction(action, payload) {
     case 'listSessions': return listSessions();
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
-    case 'getMeta': return getMeta();
+    case 'getMeta': ensureEntriesEditTrigger_(); return getMeta();   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
     case 'setLanguage': return setLanguage(payload);
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
@@ -438,6 +438,9 @@ function routeAction(action, payload) {
     case 'convertEntryToRepayment': return convertEntryToRepayment(payload);
     case 'convertEntryToLoan': return convertEntryToLoan(payload);
     case 'convertLoanToEntry': return convertLoanToEntry(payload);
+    case 'convertLoanToRepayment': return convertLoanToRepayment(payload);
+    case 'convertLoanToLoan': return convertLoanToLoan(payload);
+    case 'checkLoanToLoan': return checkLoanToLoan(payload);
     case 'convertRepaymentToEntry': return convertRepaymentToEntry(payload);
     case 'convertRepaymentToLoan': return convertRepaymentToLoan(payload);
     case 'convertRepaymentToRepayment': return convertRepaymentToRepayment(payload);
