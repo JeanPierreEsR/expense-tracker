@@ -1220,6 +1220,7 @@ function convertRepaymentEntryInto_(payload, kind) {
 
   var settlementsSnap = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === payload.entry_id; });
   var entrySnap = getEntryById_(payload.entry_id);
+  var extraSnaps = repaymentExtraEntries_(settlementsSnap);   // the repayment's extra income / expense goes with it
   var created, newLoan;
   if (kind === 'entry') {
     created = createEntry({
@@ -1236,8 +1237,9 @@ function convertRepaymentEntryInto_(payload, kind) {
   }
   try {
     discardEntryWithRepayments_(payload.entry_id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });
   } catch (err) {
-    // Take the new one back and put the repayment back as it was.
+    // Take the new one back and put the repayment (and its extra entry) back as it was.
     try {
       if (created) deleteEntry_(created.id);
       if (newLoan) deleteLoan(newLoan.id);
@@ -1245,6 +1247,7 @@ function convertRepaymentEntryInto_(payload, kind) {
       getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
       settlementsSnap.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
       if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
       settlementsSnap.forEach(function (s) { updateLoanStatusFromSettlements_(s.loan_id); });
     } catch (undoErr) {
       throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || payload.entry_id,
@@ -1253,6 +1256,124 @@ function convertRepaymentEntryInto_(payload, kind) {
     throw new Error(tr_('convert.nothingChanged', { error: err.message }));
   }
   return kind === 'entry' ? { entry: created } : { loan: newLoan };
+}
+
+// "I recorded this repayment against the wrong person / amount / account / direction": the repayment's money entry is
+// edited as a repayment and re-recorded (entry-type conversions, step 3b). Cancel first, then record — FIFO has to see the
+// debts the old repayment had paid as owed again — so the order is the reverse of convertRepaymentToEntry, and a failure
+// at any point puts the old repayment back exactly (its settlement rows, its money entry, the loans' statuses) and takes
+// back whatever the new recording wrote. payload as recordRepayment (+ overpay_category_id or overpay_pending_ok) + entry_id.
+function convertRepaymentToRepayment(payload) {
+  return withScriptLockOnce_(function () { return convertRepaymentToRepaymentInto_(payload); });
+}
+
+function convertRepaymentToRepaymentInto_(payload) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  ensureLoansTransferEntryColumn_();
+  var settlementsBefore = getAllRows('Settlements');
+  var oldSettlements = settlementsBefore.filter(function (s) { return s.transfer_entry_id === payload.entry_id; });
+  if (!oldSettlements.some(function (s) { return !s.offset_loan_id; })) throw new Error(tr_('convert.notRepaymentMovement'));
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (!payload.overpay_category_id && !payload.overpay_pending_ok) throw new Error(tr_('convert.pickExtraCategory'));
+
+  var loansBefore = getAllRows('Loans');
+  var settlementIdsBefore = {}, loanIdsBefore = {}, entryIdsBefore = {};
+  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
+  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+  var entrySnap = getEntryById_(payload.entry_id);
+  var extraSnaps = repaymentExtraEntries_(oldSettlements);   // the old repayment's extra income / expense goes with it
+  var friendIds = {};
+  friendIds[payload.friend_id] = true;
+  oldSettlements.forEach(function (s) {
+    var l = loansBefore.find(function (x) { return x.id === s.loan_id; });
+    if (l) friendIds[l.friend_id] = true;
+  });
+
+  try {
+    discardEntryWithRepayments_(payload.entry_id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });   // the new recording books its own extra if one is needed
+    var result = recordRepayment({
+      friend_id: payload.friend_id,
+      direction: payload.direction,
+      amount: payload.amount,
+      currency: payload.currency,
+      date: payload.date,
+      payment_method_id: payload.payment_method_id,
+      description: payload.description,
+      overpay_category_id: payload.overpay_category_id,
+      overpay_pending_ok: payload.overpay_pending_ok
+    });
+    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
+  } catch (err) {
+    try {
+      deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+      deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
+      getAllRows('Entries').forEach(function (e) { if (!entryIdsBefore[e.id]) deleteEntry_(e.id); });
+      var present = {};
+      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+      oldSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+      if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
+      getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
+        .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
+    } catch (undoErr) {
+      throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || payload.entry_id,
+        date: entrySnap ? entrySnap.date : '', amount: entrySnap ? entrySnap.amount : '', error: err.message }));
+    }
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+}
+
+// Deleting a WHOLE repayment from the person's repayment screen (owner's rule, 2026-10-28): the app no longer deletes a
+// repayment's money movement or its extra entry in Home — it takes the person to the repayment's own screen, and this is
+// what that screen's "Delete this repayment" calls. A repayment is ONE total, so everything goes together: its settlement
+// rows (the debts it paid are owed again), its money movement and its extra income / expense entry. `id` = a settlement row
+// of the repayment (the history line's id). All or nothing: on a failure everything is put back and the message says so.
+function deleteRepayment(payload) {
+  return withScriptLockOnce_(function () { return deleteRepaymentInto_(payload); });
+}
+
+function deleteRepaymentInto_(payload) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  var all = getAllRows('Settlements');
+  var first = all.find(function (s) { return s.id === payload.id; });
+  if (!first) throw new Error(tr_('convert.notRepaymentMovement'));
+  if (first.offset_loan_id) throw new Error(tr_('repay.autoOffsetDelete'));
+  var rows = first.transfer_entry_id
+    ? all.filter(function (s) { return s.transfer_entry_id === first.transfer_entry_id && !s.offset_loan_id; })
+    : [first];   // a repayment from before money entries existed is its one row
+  var rowIds = {};
+  rows.forEach(function (s) { rowIds[s.id] = true; });
+  var entrySnap = first.transfer_entry_id ? getEntryById_(first.transfer_entry_id) : null;
+  var extraSnaps = repaymentExtraEntries_(rows);
+  var loanIds = {};
+  rows.forEach(function (s) { loanIds[s.loan_id] = true; });
+  try {
+    deleteRowsWhere_('Settlements', function (s) { return rowIds[s.id]; });
+    Object.keys(loanIds).forEach(updateLoanStatusFromSettlements_);
+    if (entrySnap) deleteEntry_(entrySnap.id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });
+  } catch (err) {
+    try {
+      var present = {};
+      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+      rows.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+      if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
+      Object.keys(loanIds).forEach(updateLoanStatusFromSettlements_);
+    } catch (undoErr) {
+      throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || first.id,
+        date: entrySnap ? entrySnap.date : first.date, amount: entrySnap ? entrySnap.amount : first.amount, error: err.message }));
+    }
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+  return { done: true };
 }
 
 // May already be inside routeActionOnce_'s lock (same execution) — only
@@ -1535,6 +1656,20 @@ function repaymentOfEntry_(entryId) {
   return null;
 }
 
+// The extra (income / expense) entries that still exist behind these repayment rows (`gap_entry_id`). Turning a repayment into
+// something else replaces the WHOLE repayment — loans and extra, one total — so the conversions remove them with it.
+function repaymentExtraEntries_(settlementRows) {
+  ensureSettlementsGapColumn_();
+  var seen = {}, out = [];
+  (settlementRows || []).forEach(function (s) {
+    if (!s.gap_entry_id || seen[s.gap_entry_id]) return;
+    seen[s.gap_entry_id] = true;
+    var e = getEntryById_(s.gap_entry_id);
+    if (e) out.push(e);
+  });
+  return out;
+}
+
 // Before an app edit is written: the amount of a repayment's money movement is changed from the person's repayment history
 // (where the loans and the extra are split), never straight here.
 function guardRepaymentEntryEdit_(entryId, fields) {
@@ -1679,7 +1814,8 @@ function getEntryRepaymentLinks(payload) {
       var exLoan = loans.find(function (l) { return l.id === ofRepayment.rows[0].loan_id; });
       var exFriend = exLoan && getAllRows('Friends').find(function (f) { return f.id === exLoan.friend_id; });
       var exEntry = getEntryById_(id);
-      extra = { friend: exFriend ? exFriend.name : '', currency: exEntry ? exEntry.currency : '', amount: exEntry ? Number(exEntry.amount) : 0, direction: exLoan ? exLoan.direction : '' };
+      extra = { friend: exFriend ? exFriend.name : '', currency: exEntry ? exEntry.currency : '', amount: exEntry ? Number(exEntry.amount) : 0, direction: exLoan ? exLoan.direction : '',
+        friend_id: exLoan ? exLoan.friend_id : '', transfer_entry_id: ofRepayment.transferId || '' };
     }
     return { loan: false, repayment: null, refunds: refunds, repaymentExtra: extra };
   }
@@ -1688,14 +1824,20 @@ function getEntryRepaymentLinks(payload) {
   var friends = {};
   getAllRows('Friends').forEach(function (f) { friends[f.id] = f.name; });
   var first = loanById[linked[0].loan_id];
+  // The repayment's extra (income / expense) entry, if it has one: turning the repayment into something else replaces the
+  // WHOLE repayment (loans + extra), so the phone needs its amount (see repaymentExtraEntries_).
+  var extraEntry = repaymentExtraEntries_(linked)[0] || null;
   return {
     loan: false,
     refunds: refunds,
     repayment: {
       friend: first ? (friends[first.friend_id] || '') : '',
+      friend_id: first ? first.friend_id : '',
+      entry_id: id,
       direction: first ? first.direction : '',
       currency: first ? first.currency : '',
-      total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0)
+      total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0),
+      extra: extraEntry ? { id: extraEntry.id, type: extraEntry.type, amount: Number(extraEntry.amount) } : null
     }
   };
 }
@@ -1908,22 +2050,14 @@ function updateSettlement(payload) {
   return getAllRows('Settlements').find(function (s) { return s.id === payload.id; });
 }
 
+// Deleting a repayment is ONE rule since 2026-10-28 (owner's request): the whole repayment goes — every settlement row that
+// shares its money entry, the money entry and its extra income / expense entry — see deleteRepayment. This used to remove just
+// the one row and shrink the money entry; it now delegates, so no caller can leave half a repayment behind. An automatic
+// cancel-out is still refused (deleteRepaymentInto_), and a row that is already gone is not an error.
 function deleteSettlement(id) {
-  ensureSettlementsOffsetColumn_();
-  ensureSettlementsTransferEntryColumn_();
   var existing = getAllRows('Settlements').find(function (s) { return s.id === id; });
   if (!existing) return;
-  if (existing.offset_loan_id) {
-    throw new Error(tr_('repay.autoOffsetDelete'));
-  }
-
-  var sheet = getSheet('Settlements');
-  var headers = getHeaders(sheet);
-  var rowIndex = findRowIndexById(sheet, headers, id);
-  if (rowIndex !== -1) deleteSheetRows_(sheet, rowIndex, 1);
-
-  updateLoanStatusFromSettlements_(existing.loan_id);
-  recalculateRepaymentTransferEntry_(existing.transfer_entry_id);
+  deleteRepayment({ id: id });
 }
 
 // ---- Loans screen (Phase 5.2) ----

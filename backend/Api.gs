@@ -116,7 +116,7 @@ function doPost(e) {
 // The lock makes a repeat that arrives WHILE the first is still running
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
-  createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, convertLoanToEntry: 1, convertRepaymentToEntry: 1, convertRepaymentToLoan: 1,
+  createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, convertLoanToEntry: 1, convertRepaymentToEntry: 1, convertRepaymentToLoan: 1, convertRepaymentToRepayment: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
@@ -438,6 +438,8 @@ function routeAction(action, payload) {
     case 'convertLoanToEntry': return convertLoanToEntry(payload);
     case 'convertRepaymentToEntry': return convertRepaymentToEntry(payload);
     case 'convertRepaymentToLoan': return convertRepaymentToLoan(payload);
+    case 'convertRepaymentToRepayment': return convertRepaymentToRepayment(payload);
+    case 'deleteRepayment': return deleteRepayment(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
     case 'forgiveLoan': return forgiveLoan(payload);

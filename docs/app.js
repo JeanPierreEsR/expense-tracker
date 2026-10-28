@@ -340,7 +340,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -358,7 +358,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1485,6 +1485,7 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
     document.getElementById("repayment-friend").value = paidBy;
   }
   togglePaymentMethodVisibility();
+  syncConversionAmount_();
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
@@ -1877,6 +1878,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     } else {
       showDetailForm(null);
     }
+    syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
   });
 });
 
@@ -2159,6 +2161,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let popupHiddenEarly = false;
 
   try {
+    // A repayment's extra entry arrives in the background after the form opens; the amount shown (the whole repayment,
+    // when it is being converted) must be settled before anything is read.
+    if (editingRepayment_ && editingRepayment_.extraPromise) await editingRepayment_.extraPromise;
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
@@ -2270,13 +2275,28 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           if (direction !== (moneyIn ? "i_owe_them" : "they_owe_me")) throw new Error(tr(moneyIn ? "repayConv.loanIn" : "repayConv.loanOut"));
           if (!confirm(repaymentCancelText_())) return;
         }
+        // A repayment's own entry edited as a repayment again (another person, amount, account, direction): the old
+        // one is cancelled and the new one recorded in its place (convertRepaymentToRepayment).
+        const rerecordRepayment = !isLoanKind && !!editingRepayment_;
+        if (rerecordRepayment) {
+          // The same person and direction: only the amount / loans can differ, and that is changed in the repayment's editor
+          // (where the loans and the extra are split) — go straight there, as for any amount change from Home.
+          if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction) {
+            const target = editingRepayment_;   // cancelEdit() clears it, so keep what the editor needs
+            if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+            cancelEdit();
+            await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
+            return;
+          }
+          if (!confirm(repaymentCancelText_(true))) return;
+        }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callApi(fromRepayment ? "convertRepaymentToLoan" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2343,7 +2363,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
       }
-      await callApi("convertRepaymentToEntry", {
+      await callConversion_("convertRepaymentToEntry", {
         entry_id: editingEntryId,
         type: selectedType,
         date,
@@ -2380,7 +2400,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
       }
-      await callApi("convertLoanToEntry", {
+      await callConversion_("convertLoanToEntry", {
         entry_id: editingEntryId,
         type: selectedType,
         date,
@@ -3452,6 +3472,14 @@ async function startEditEntry(entry) {
     ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
+  // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
+  // repayment is converted is the whole thing. Saving waits for it (see the top of the save handler).
+  if (editingRepayment_) {
+    const rp = editingRepayment_;
+    rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
+      .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
+      .catch(() => {});
+  }
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -3638,6 +3666,19 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
     if (links.refunds && links.refunds.length) {
       repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
       if (!repaymentsChoice) return false;
+    }
+    // A repayment is ONE total (money movement + extra entry), so neither entry is deleted on its own here: the person is
+    // taken to the repayment's own screen (as for a change of amount), where "Delete this repayment" removes both together.
+    const ofRepayment = links.repayment
+      ? { friend: links.repayment.friend, friendId: links.repayment.friend_id, transferId: links.repayment.entry_id }
+      : links.repaymentExtra
+        ? { friend: links.repaymentExtra.friend, friendId: links.repaymentExtra.friend_id, transferId: links.repaymentExtra.transfer_entry_id }
+        : null;
+    if (ofRepayment && ofRepayment.friendId && ofRepayment.transferId) {
+      if (!confirm(tr("delete.openRepaymentAsk", { friend: ofRepayment.friend }))) return false;   // nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(ofRepayment.friendId, ofRepayment.friend, ofRepayment.transferId);
+      return false;   // nothing was deleted here
     }
     if (links.repaymentExtra) {
       const x = links.repaymentExtra;
@@ -14470,11 +14511,45 @@ async function openLinkedEntryFromLoan_(entryId) {
   }
 }
 
+// A conversion that fails is undone by the server exactly ("Nothing was changed — …"; or, if even the undo failed, a message
+// spelling out the original entry so it can be re-entered). The person must KNOW: besides the red line under the form, a
+// message they cannot miss. Used by every conversion that deletes and re-creates (loan / repayment → entry, loan, repayment).
+async function callConversion_(action, payload) {
+  try {
+    return await callApi(action, payload);
+  } catch (err) {
+    alert(err.message);
+    throw err;
+  }
+}
+
 // The warning before a repayment's money entry is turned into something else: the repayment is cancelled, so what it
 // paid is owed again.
-function repaymentCancelText_() {
+function repaymentCancelText_(rerecord) {
   const r = editingRepayment_ || {};
-  return tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+  const extra = r.extra && Number(r.extra.amount) > 0 ? Number(r.extra.amount) : 0;
+  // A repayment is one total: loans plus its extra income / expense entry. Converting replaces ALL of it.
+  if (extra) {
+    return tr(rerecord ? "repayConv.confirmRerecordWithExtra" : "repayConv.confirmWithExtra",
+      { friend: r.friend, cur: r.currency, total: moneyFmt(r.total), extra: moneyFmt(extra), all: moneyFmt(Number(r.total) + extra) });
+  }
+  return rerecord
+    ? tr("repayConv.confirmRerecord", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) })
+    : tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+}
+
+// When a repayment's entry is being turned into something else (another tab, or Transfer → Repayment / New loan) the
+// amount shown is the WHOLE repayment (loans + its extra entry); for a plain edit it stays the money movement's own amount.
+function syncConversionAmount_() {
+  const r = editingRepayment_;
+  if (!r || !r.extra || !(Number(r.extra.amount) > 0)) return;
+  const kind = document.getElementById("transfer-kind").value;
+  const converting = selectedType !== "transfer" || kind === "repayment" || kind === "loan";
+  const own = String(Number(r.total));
+  const whole = String(Math.round((Number(r.total) + Number(r.extra.amount)) * 100) / 100);
+  const field = document.getElementById("amount");
+  const from = converting ? own : whole;
+  if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
 }
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
@@ -14754,6 +14829,11 @@ function openReassignRepayment_(r) {
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
   document.getElementById("reassign-date").value = r.date;
 
+  // A real repayment (not an automatic cancel-out) can be deleted here, as a whole: loans part, money entry and extra together.
+  reassignRepayment_.gapAmount = r.gap ? r.gap.amount : 0;
+  reassignRepayment_.applied = r.applied;
+  document.getElementById("reassign-delete").hidden = !!r.is_offset;
+
   document.getElementById("reassign-modal-backdrop").classList.remove("reassign-loading");
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
@@ -14799,6 +14879,7 @@ async function openApplyUnapplied_(l, friend) {
     .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+  document.getElementById("reassign-delete").hidden = true;   // applying a payment to a loan, not a repayment line
   document.getElementById("reassign-fields").hidden = true;
   document.getElementById("reassign-limit-row").hidden = true;
   document.getElementById("reassign-limit").checked = false;
@@ -14862,6 +14943,33 @@ document.getElementById("reassign-amount").addEventListener("input", renderReass
 document.getElementById("reassign-limit").addEventListener("change", renderReassign_);
 document.getElementById("reassign-close").addEventListener("click", closeReassign_);
 document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
+// Deletes the WHOLE repayment (loans part, money entry and extra entry together) — the only place a repayment is deleted.
+document.getElementById("reassign-delete").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const r = reassignRepayment_;
+  if (!r || r.mode === "apply") return;
+  const total = moneyFmt((Number(r.applied) || 0) + (Number(r.gapAmount) || 0));
+  const text = r.gapAmount > 0.004
+    ? tr("reassign.confirmDeleteWithExtra", { friend: ctx.friendName, cur: r.currency, total, loans: moneyFmt(r.applied), extra: moneyFmt(r.gapAmount) })
+    : tr("reassign.confirmDelete", { friend: ctx.friendName, cur: r.currency, total });
+  if (!confirm(text)) return;
+  const btn = document.getElementById("reassign-delete");
+  btn.disabled = true;
+  document.getElementById("reassign-error").textContent = "";
+  try {
+    await callConversion_("deleteRepayment", { id: r.id });   // a failure is undone by the server and announced
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  closeReassign_();
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
 document.getElementById("reassign-save").addEventListener("click", async () => {
   const ctx = historyCtx_;
   const btn = document.getElementById("reassign-save");
@@ -15601,7 +15709,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   const settlementId = editingSettlementId;
   closeSettlementModal();
   try {
-    await callApi("deleteSettlement", { id: settlementId });
+    await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
   } catch (err) {
     alert(tr("settle.saveFailed", { error: err.message }));

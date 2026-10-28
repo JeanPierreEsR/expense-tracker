@@ -110,3 +110,68 @@ test("a failure while removing the repayment takes the new entry back and puts t
   assert.equal(JSON.stringify({ settlements: rt.rows("Settlements").map((s) => [s.id, s.amount]).sort(), n: rt.rows("Entries").length }), before);
   assert.equal(owed(l.id), 60, "the repayment still counts");
 });
+
+test("every conversion that deletes and re-creates goes through callConversion_, so a failure is announced to the person", () => {
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../docs/app.js"), "utf8");
+  for (const action of ["convertLoanToEntry", "convertRepaymentToEntry"]) {
+    assert.match(app, new RegExp(`callConversion_\\("${action}"`), action + " is called through callConversion_");
+    assert.doesNotMatch(app, new RegExp(`callApi\\("${action}"`), action + " is never called raw");
+  }
+  assert.match(app, /result = await callConversion_\(fromRepayment \? "convertRepaymentToLoan"/);
+  assert.match(app, /async function callConversion_[\s\S]{0,200}alert\(err\.message\)/, "a failure is shown as a message, not only a red line");
+});
+
+// ---- A repayment with an EXTRA entry (the part beyond the debt): it is ONE total, so it all goes together ----
+
+function withExtra() {
+  const { rt, data, f, pm, cat } = setup();
+  const income = cat("income");
+  rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-01", payment_method_id: pm });
+  rt.api("recordRepayment", { friend_id: f.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: today(), payment_method_id: pm, overpay_category_id: income.id });
+  const row = rt.rows("Settlements").find((s) => s.transfer_entry_id);
+  return { rt, data, f, pm, cat, movementId: row.transfer_entry_id, extraId: row.gap_entry_id };
+}
+
+test("getEntryRepaymentLinks tells the screen about the extra entry", () => {
+  const { rt, movementId, extraId } = withExtra();
+  assert.ok(extraId, "the repayment has an extra entry");
+  const links = rt.api("getEntryRepaymentLinks", { id: movementId });
+  assert.equal(links.repayment.total, 30);
+  assert.equal(links.repayment.extra.id, extraId);
+  assert.equal(links.repayment.extra.amount, 20);
+});
+
+test("converting to an income replaces the WHOLE repayment: the money entry and the extra both go", () => {
+  const { rt, data, pm, cat, movementId, extraId } = withExtra();
+  const out = rt.api("convertRepaymentToEntry", {
+    entry_id: movementId, type: "income", date: today(), amount: 50, currency: "PEN", category_id: cat("income").id,
+    description: "Really income", payment_method_id: pm, paid_by: data.payors[0].id
+  });
+  const ids = rt.rows("Entries").map((e) => e.id);
+  assert.equal(ids.includes(movementId), false);
+  assert.equal(ids.includes(extraId), false, "the extra does not stay behind as a second income");
+  assert.equal(Number(out.entry.amount), 50);
+});
+
+test("converting to a loan also takes the extra with it", () => {
+  const { rt, f, pm, movementId, extraId } = withExtra();
+  rt.api("convertRepaymentToLoan", { entry_id: movementId, friend_id: f.id, direction: "i_owe_them", amount: 50, currency: "PEN", date: today(), payment_method_id: pm, description: "They lent me this" });
+  assert.equal(rt.rows("Entries").some((e) => e.id === extraId), false);
+  assert.equal(Number(rt.rows("Loans").find((l) => l.direction === "i_owe_them" && l.friend_id === f.id).amount), 50);
+});
+
+test("a failure puts the extra entry back too", () => {
+  const { rt, data, pm, cat, movementId, extraId } = withExtra();
+  rt.run("globalThis.__origDiscard2 = discardEntryWithRepayments_; discardEntryWithRepayments_ = function (id) { deleteRowsWhere_('Settlements', function (s) { return s.transfer_entry_id === id; }); deleteEntry_(id); throw new Error('boom'); };");
+  try {
+    assert.throws(() => rt.api("convertRepaymentToEntry", {
+      entry_id: movementId, type: "income", date: today(), amount: 50, currency: "PEN", category_id: cat("income").id,
+      description: "x", payment_method_id: pm, paid_by: data.payors[0].id
+    }), /Nothing was changed/i);
+  } finally {
+    rt.run("discardEntryWithRepayments_ = globalThis.__origDiscard2;");
+  }
+  const ids = rt.rows("Entries").map((e) => e.id);
+  assert.equal(ids.includes(movementId), true);
+  assert.equal(ids.includes(extraId), true);
+});
