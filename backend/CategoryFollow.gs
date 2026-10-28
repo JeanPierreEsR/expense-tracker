@@ -236,6 +236,13 @@ function categoryFollowAfterEdit_(entryId) {
 
 // updateEntry as the app calls it: same write, plus the "other entries followed" answer when the category changed.
 function updateEntryFromApp_(payload) {
+  // A plain edit must never change the type of an entry other records hang on (see entryTypeChangeBlock_).
+  if (payload.fields && payload.fields.type !== undefined) {
+    var blocked = entryTypeChangeBlock_(payload.id, payload.fields.type);
+    if (blocked) throw new Error(blocked);
+    // Repaid debts of a shared expense are settled first (releaseEntryRepaidLoans); never leave them open and orphaned.
+    if (entryTypeChangeRepaidLoanIds_(payload.id, payload.fields.type).length) throw new Error(tr_('typeChange.pickRepayments'));
+  }
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var entry = updateEntryFields(payload.id, payload.fields);
   if (before !== null && entry && entry.category_id && entry.category_id !== before) {

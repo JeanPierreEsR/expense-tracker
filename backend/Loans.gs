@@ -1380,6 +1380,71 @@ function entryRepaidLoansSummary_(entryId) {
   return Object.keys(out).map(function (k) { return out[k]; });
 }
 
+// Why a plain edit may NOT change this entry's type, or '' when it may (entry-type conversions plan, step 0).
+// Some entries are the money movement of something else: a repayment's transfer entry, a cash loan's, the entry a
+// forgiveness booked, one side of a currency exchange. Switching their type through the ordinary update would leave
+// that record pointing at an entry that is no longer what it expects, so each of them gets its own conversion (the
+// loan's is convertLoanToEntry) and until one exists the change is refused with the way out spelled out.
+// Only a CONFIRMED entry is checked: a waiting one is still being decided (e.g. a pending exchange leg that is not an
+// exchange after all). The same type is never a change.
+function entryTypeChangeBlock_(entryId, newType) {
+  var entry = getEntryById_(entryId);
+  if (!entry || entry.type === newType || entry.status === 'pending') return '';
+  ensureSettlementsTransferEntryColumn_();
+  ensureLoansTransferEntryColumn_();
+  if (getAllRows('Settlements').some(function (s) { return s.transfer_entry_id === entryId && !s.offset_loan_id; })) {
+    return tr_('typeChange.isRepayment');
+  }
+  var loans = getAllRows('Loans');
+  if (loans.some(function (l) { return l.transfer_entry_id === entryId; })) return tr_('typeChange.isLoan');
+  if (loans.some(function (l) { return l.forgiveness_entry_id === entryId; })) return tr_('typeChange.isForgiveness');
+  if (entry.exchange) return tr_('typeChange.isExchange');
+  return '';
+}
+
+// A shared expense (a friend paid, or it was split) turned into another type no longer exists as an expense, so the
+// debts it made have to go. A debt nobody has repaid simply goes with the splits (saveEntrySplits does that). One that
+// already has repayments is protected there, and would stay open with no expense behind it — so the person decides first
+// what happens to those repayments, exactly as when deleting the expense (keep: they become a "paid earlier, no loan"
+// credit; cancel: they are cancelled). Returns the ids of this entry's loans that have any repayment (forgiven ones
+// excepted: forgiveness keeps their history); [] when nothing is in the way.
+function entryTypeChangeRepaidLoanIds_(entryId, newType) {
+  var entry = getEntryById_(entryId);
+  if (!entry || entry.type !== 'expense' || newType === 'expense') return [];
+  ensureSettlementsOffsetColumn_();
+  var settled = {};
+  getAllRows('Settlements').forEach(function (s) { settled[s.loan_id] = true; });
+  return getAllRows('Loans').filter(function (l) {
+    return l.origin === 'entry' && l.entry_id === entryId && l.status !== 'forgiven' && settled[l.id];
+  }).map(function (l) { return l.id; });
+}
+
+// What the phone asks before a type change: the refusal (if any), and whether the entry's repaid debts need the
+// keep / cancel decision first (`repaid` = the real money friends paid back, per friend and currency, for the sheet).
+function checkEntryTypeChange(payload) {
+  var ids = entryTypeChangeRepaidLoanIds_(payload.id, payload.type);
+  return {
+    blocked: entryTypeChangeBlock_(payload.id, payload.type),
+    needsRelease: ids.length > 0,
+    repaid: ids.length ? entryRepaidLoansSummary_(payload.id) : []
+  };
+}
+
+// Run by the phone after the person chose, just before it saves the new type: clears this expense's splits and debts the
+// way deleting the expense would. repayments: 'keep' | 'cancel' — required only when friends really paid something back.
+function releaseEntryRepaidLoans(payload) {
+  return withScriptLockOnce_(function () {
+    var ids = entryTypeChangeRepaidLoanIds_(payload.id, payload.type || 'income');
+    if (!ids.length) return { done: true };
+    if (entryRepaidLoansSummary_(payload.id).length && payload.repayments !== 'keep' && payload.repayments !== 'cancel') {
+      throw new Error(tr_('typeChange.pickRepayments'));
+    }
+    if (payload.repayments === 'cancel') ids.forEach(cancelLoanRepayments_);
+    deleteEntrySplitsAndLoansForEntry_(payload.id, false);
+    return { done: true };
+  });
+}
+
 function getEntryRepaymentLinks(payload) {
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();

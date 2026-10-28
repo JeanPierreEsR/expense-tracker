@@ -2359,6 +2359,24 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // (below, under confirmingPendingId) — both stay blocking, being
       // less frequent and already more involved than a plain edit.
       await ensureExchangeRate(currency, date);
+      // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
+      // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
+      // and again by the server on the queued save.
+      if (selectedType !== editingEntryOriginalType) {
+        const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
+        if (check.blocked) throw new Error(check.blocked);
+        // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
+        // repayments, as when deleting the expense; its splits and debts are cleared before the new type is saved.
+        if (check.needsRelease) {
+          let repayments;
+          if (check.repaid.length) {
+            repayments = await askRepaymentChoice_("repayChoice.typeChangeTitle", check.repaid,
+              { keep: "repayChoice.typeChangeKeep", cancel: "repayChoice.typeChangeCancel" });
+            if (!repayments) return;   // backed out: nothing changed, the form stays open
+          }
+          await callApi("releaseEntryRepaidLoans", { id: editingEntryId, type: selectedType, repayments });
+        }
+      }
       const id = editingEntryId;
       const wasPopup = editingViaPopup;
       const fields = {
