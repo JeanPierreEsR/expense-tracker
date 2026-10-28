@@ -14216,6 +14216,17 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // written off, so it isn't restricted by origin the way editing is.
   // Not shown once nothing's left to forgive, or it's already
   // forgiven.
+  if (l.status !== "forgiven" && l.remaining > 0.004 && (l.unapplied || l.unapplied_sources)) {
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "add-inline loan-detail-forgive-btn";
+    applyBtn.textContent = tr("apply.button");
+    applyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openApplyUnapplied_(l, { id: friendId, name: friendName });
+    });
+    row.appendChild(applyBtn);
+  }
   if (l.status !== "forgiven" && l.remaining > 0.004) {
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
@@ -14297,7 +14308,9 @@ async function deleteOrphanLoan_(l, friend) {
 // ---- Repayment history (owner's request, 2026-10-27) ----
 // Every repayment with one person, newest first, and every loan with what was repaid / offset / left, so the
 // balance on the person's screen can be checked line by line. Opens from that screen, also for fully repaid people.
+let historyCtx_ = null;   // what the open history screen shows, so a repayment tapped in it can be re-pointed and the screen reloaded
 async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
+  historyCtx_ = { friendId, friendName, projectId, netText, data: null };
   document.getElementById("history-modal-title").textContent = tr("history.title", { name: friendName });
   document.getElementById("history-net").textContent = netText || "";
   const repEl = document.getElementById("history-repayments");
@@ -14321,13 +14334,15 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     loadingEl.textContent = err.message;
     return;
   }
+  historyCtx_.data = h;
   const money = (cur, n) => `${cur} ${moneyFmt(n)}`;
   const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : ""; };
 
   document.getElementById("history-repayments-empty").hidden = h.repayments.length > 0;
   h.repayments.forEach((r) => {
     const row = document.createElement("div");
-    row.className = "loan-detail-row";
+    row.className = "loan-detail-row editable";
+    row.addEventListener("click", () => (r.is_offset ? undoCancelOut_(r) : openReassignRepayment_(r)));
     const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
     const acct = !r.is_offset && r.payment_method_id ? escapeHtml(pmName(r.payment_method_id)) : "";
     // A repayment that paid several loans is ONE line; the loans it paid are listed under it.
@@ -14337,9 +14352,10 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     const metaLines = (acct ? [acct] : []).concat(where);
+    if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
     row.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${r.date} · ${kind}</span>
+        <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
       ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}`;
@@ -14366,6 +14382,201 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
   loadingEl.hidden = true;
   contentEl.hidden = false;
 }
+
+// Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
+async function undoCancelOut_(r) {
+  const ctx = historyCtx_;
+  if (!confirm(tr("history.undoConfirm", { amount: `${r.currency} ${moneyFmt(r.amount)}`, a: r.loan_description, b: r.offset_loan_description }))) return;
+  try {
+    await callApi("undoCancelOut", { id: r.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+}
+
+// ---- Change which loans a recorded repayment paid ----
+// Same idea as recording one: select the loans, they are paid oldest first until the repayment runs out, the rest goes to
+// the oldest others. This repayment's own earlier share counts as free again. Mirrors reassignRepayment (Loans.gs), which
+// does the real work all-or-nothing.
+let reassignRepayment_ = null;
+
+function reassignPlan_() {
+  const r = reassignRepayment_;
+  const checked = new Set([...document.querySelectorAll("#reassign-list input[data-loan]")].filter((i) => i.checked).map((i) => i.dataset.loan));
+  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(r.mode === "apply" ? [] : r.candidates.filter((c) => !checked.has(c.id)));
+  const plan = [];
+  const typed = r.mode === "apply" ? NaN : parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+  let left = typed > 0 ? Math.round(typed * 100) / 100 : r.amount;
+  ordered.forEach((c) => {
+    if (left <= 0.004) return;
+    const take = Math.round(Math.min(c.room, left) * 100) / 100;
+    if (take > 0.004) { plan.push({ id: c.id, take, selected: checked.has(c.id), what: c.description }); left = Math.round((left - take) * 100) / 100; }
+  });
+  return { plan, left, checked };
+}
+
+function renderReassign_() {
+  const r = reassignRepayment_;
+  const { plan, left } = reassignPlan_();
+  document.querySelectorAll("#reassign-list input[data-loan]").forEach((input) => {
+    const item = plan.find((x) => x.id === input.dataset.loan);
+    input.closest("label").querySelector(".settle-choose-assigned").textContent = item ? `${r.currency} ${moneyFmt(item.take)}` : "";
+  });
+  const parts = [];
+  const sel = plan.filter((x) => x.selected);
+  const others = plan.filter((x) => !x.selected);
+  if (sel.length) parts.push(tr("settle.chooseAssigned", { assigned: `${r.currency} ${moneyFmt(sel.reduce((n, x) => n + x.take, 0))}` }));
+  if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.map((x) => `${x.what} (${r.currency} ${moneyFmt(x.take)})`).join(", ") }));
+  if (r.mode === "apply") {
+    if (left > 0.004 && plan.length) parts.push(tr("apply.leftStays", { amount: `${r.currency} ${moneyFmt(left)}` }));
+    document.getElementById("reassign-summary").textContent = plan.length ? parts.join(" · ") : tr("apply.nothing");
+    document.getElementById("reassign-error").textContent = "";
+    document.getElementById("reassign-save").disabled = !plan.length;
+    return;
+  }
+  document.getElementById("reassign-summary").textContent = parts.join(" · ");
+  document.getElementById("reassign-error").textContent = left > 0.01 ? tr("reassign.noRoom") : "";
+  document.getElementById("reassign-save").disabled = left > 0.01;
+}
+
+function openReassignRepayment_(r) {
+  const h = historyCtx_ && historyCtx_.data;
+  if (!h) return;
+  const current = {};
+  r.parts.forEach((pt) => { current[pt.loan_id] = (current[pt.loan_id] || 0) + pt.amount; });
+  const candidates = h.loans
+    .filter((l) => l.direction === r.direction && l.currency === r.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
+    .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, candidates };
+
+  // Amount, date and account of the repayment itself can be changed here too.
+  document.getElementById("reassign-fields").hidden = false;
+  populateSettlementPaymentMethodOptions();
+  const pmSel = document.getElementById("reassign-pm");
+  pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
+  pmSel.value = r.payment_method_id || "";
+  document.getElementById("reassign-amount").value = r.applied.toFixed(2);
+  document.getElementById("reassign-date").value = r.date;
+
+  document.getElementById("reassign-title").textContent = tr("reassign.title");
+  document.getElementById("reassign-hint").textContent = tr("reassign.hint");
+  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied)}`, date: r.date });
+  const list = document.getElementById("reassign-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = c.id;
+    input.checked = !!current[c.id];
+    input.addEventListener("change", renderReassign_);
+    const text = document.createElement("span");
+    text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: r.currency, amount: moneyFmt(c.room) });
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  document.getElementById("reassign-save").textContent = tr("common.save");
+  renderReassign_();
+  const backdrop = document.getElementById("reassign-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+// "Apply to a loan": a payment kept from a deleted loan ("paid earlier, no loan") is put on the loans the person selects.
+async function openApplyUnapplied_(l, friend) {
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId: friend.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const targetDir = l.direction === "i_owe_them" ? "they_owe_me" : "i_owe_them";
+  const candidates = loans
+    .filter((x) => x.currency === l.currency && x.direction === targetDir && x.status !== "forgiven" && x.remaining > 0.004)
+    .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+  document.getElementById("reassign-fields").hidden = true;
+
+  document.getElementById("reassign-title").textContent = tr("apply.title");
+  document.getElementById("reassign-hint").textContent = tr("apply.hint");
+  document.getElementById("reassign-info").textContent = tr("apply.info", { amount: `${l.currency} ${moneyFmt(l.remaining)}` });
+  const list = document.getElementById("reassign-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = c.id;
+    input.addEventListener("change", renderReassign_);
+    const text = document.createElement("span");
+    text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: l.currency, amount: moneyFmt(c.room) });
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  document.getElementById("reassign-save").textContent = tr("common.save");
+  renderReassign_();
+  const backdrop = document.getElementById("reassign-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeReassign_() {
+  document.getElementById("reassign-modal-backdrop").hidden = true;
+}
+document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
+document.getElementById("reassign-close").addEventListener("click", closeReassign_);
+document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
+document.getElementById("reassign-save").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const btn = document.getElementById("reassign-save");
+  const { checked } = reassignPlan_();
+  const applying = reassignRepayment_.mode === "apply";
+  const applyFriend = reassignRepayment_.friend;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  try {
+    const body = { id: reassignRepayment_.id, loan_ids: [...checked] };
+    if (!applying) {
+      body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+      body.date = document.getElementById("reassign-date").value;
+      body.payment_method_id = document.getElementById("reassign-pm").value;
+    }
+    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body);
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.textContent = tr("common.save");
+    btn.disabled = false;
+    return;
+  }
+  closeReassign_();
+  // Everything behind this sheet may have changed: the Loans tab, the person's screen, and this history.
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  if (applying) {   // opened from the person's screen, not from the history
+    await openLoanDetail(applyFriend.id, applyFriend.name);
+    return;
+  }
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
 
 document.getElementById("history-modal-close").addEventListener("click", () => {
   document.getElementById("history-modal-backdrop").hidden = true;

@@ -296,3 +296,258 @@ test("settled people are listed apart from people with a balance", () => {
   assert.equal(ids.includes(open.id), false);
   assert.equal(ids.includes(never.id), false);
 });
+
+// ---- Changing which loans a recorded repayment paid ----
+const paidOn = (rt, loanId) => rt.rows("Settlements").filter((s) => s.loan_id === loanId).reduce((a, s) => a + Number(s.amount), 0);
+
+test("a whole repayment can be re-pointed at other loans", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  const three = cashLoan(rt, data, friend, 300, "2026-03-01");
+  repay(rt, data, friend, 250);   // oldest first: 100 on one, 150 on two
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  assert.equal(paidOn(rt, two.id), 150);
+
+  rt.api("reassignRepayment", { id: row.id, loan_ids: [three.id] });
+
+  assert.equal(paidOn(rt, three.id), 250, "all of it on the selected loan");
+  assert.equal(paidOn(rt, one.id), 0);
+  assert.equal(paidOn(rt, two.id), 0);
+  const status = (id) => rt.rows("Loans").find((l) => l.id === id).status;
+  assert.deepEqual([status(one.id), status(two.id), status(three.id)], ["outstanding", "outstanding", "partially_repaid"]);
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.repayments.length, 1);
+  assert.equal(h.repayments[0].amount, 250, "still one repayment of 250");
+  const mine = [one.id, two.id, three.id];
+  const transfers = new Set(rt.rows("Settlements").filter((s) => mine.includes(s.loan_id)).map((s) => s.transfer_entry_id));
+  assert.equal(transfers.size, 1, "the money movement is untouched");
+});
+
+test("selected loans are paid first, the rest goes to the oldest others", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  const three = cashLoan(rt, data, friend, 300, "2026-03-01");
+  repay(rt, data, friend, 250);
+  const mine = [one.id, two.id, three.id];
+  const anyRow = () => rt.rows("Settlements").find((s) => mine.includes(s.loan_id));
+
+  rt.api("reassignRepayment", { id: anyRow().id, loan_ids: [three.id] });   // 250 < 300: all fits on three
+  rt.api("reassignRepayment", { id: anyRow().id, loan_ids: [two.id] });   // 200 on two, 50 to the oldest other (one)
+
+  assert.equal(paidOn(rt, two.id), 200);
+  assert.equal(paidOn(rt, one.id), 50);
+  assert.equal(paidOn(rt, three.id), 0);
+});
+
+test("re-pointing a repayment that cannot fit changes nothing", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  repay(rt, data, friend, 100);
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  const other = newFriend(rt);
+  const theirs = cashLoan(rt, data, other, 100);
+
+  assert.throws(() => rt.api("reassignRepayment", { id: row.id, loan_ids: [theirs.id] }), "another person's loan");
+  assert.equal(paidOn(rt, one.id), 100, "untouched");
+  assert.equal(rt.rows("Loans").find((l) => l.id === one.id).status, "repaid");
+});
+
+test("an automatic cancel-out line cannot be re-pointed", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 50);
+  rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 30, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "I owe" });
+  repay(rt, data, friend, 0.01);
+  const offset = rt.rows("Settlements").find((s) => s.offset_loan_id);
+  assert.throws(() => rt.api("reassignRepayment", { id: offset.id, loan_ids: [] }));
+});
+
+test("history: a repayment shows the full amount that arrived, and what no longer sits on a loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const keep = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const gone = cashLoan(rt, data, friend, 300, "2026-02-01");
+  repay(rt, data, friend, 250);   // 100 on `keep`, 150 on `gone`: one money movement of 250
+
+  rt.api("deleteLoan", { id: gone.id, repayments: "keep" });   // the 150 stays as a refund loan, the money movement stays 250
+
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.repayments.length, 1);
+  const r = h.repayments[0];
+  assert.equal(r.amount, 250, "the money that really arrived");
+  assert.equal(r.applied, 100, "what loans still hold");
+  assert.equal(r.unapplied, 150);
+  assert.deepEqual(r.parts.map((p) => p.amount), [100]);
+
+  // re-pointing works on the part loans hold, never on the refund
+  const other = cashLoan(rt, data, friend, 500, "2026-03-01");
+  rt.api("reassignRepayment", { id: rt.rows("Settlements").find((s) => s.loan_id === keep.id).id, loan_ids: [other.id] });
+  assert.equal(paidOn(rt, other.id), 100);
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 150);
+});
+
+test("an automatic cancel-out can be undone from either half: both loans owe again", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const owed = cashLoan(rt, data, friend, 50);
+  const refund = rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 30, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "Refund" });
+  repay(rt, data, friend, 0.01);   // writes the cancel-out pair between the two loans
+  const status = (id) => rt.rows("Loans").find((l) => l.id === id).status;
+  assert.equal(status(refund.id), "repaid");
+  const half = rt.rows("Settlements").find((s) => s.loan_id === refund.id && s.offset_loan_id);
+
+  const out = rt.api("undoCancelOut", { id: half.id });
+
+  assert.equal(out.both, true);
+  assert.equal(rt.rows("Settlements").some((s) => s.offset_loan_id && [owed.id, refund.id].includes(s.loan_id)), false, "both halves gone");
+  assert.equal(status(refund.id), "outstanding");
+  assert.equal(status(owed.id), "partially_repaid", "still holds the 0.01 real repayment");
+  assert.throws(() => rt.api("undoCancelOut", { id: rt.rows("Settlements").find((s) => s.loan_id === owed.id && !s.offset_loan_id).id }), "a real repayment is not a cancel-out");
+});
+
+test("undoing the cancel-out of a refund loan reopens room, so a repayment can then be moved onto that loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-01");
+  const sar = cashLoan(rt, data, friend, 171.32, "2026-09-10");
+  rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 301.56, currency: "PEN", date: today(), payment_method_id: data.pms[3].id, description: "Refund" });
+  repay(rt, data, friend, 0.01);   // the oldest open loan (Bao) is canceled out against the refund: 301.56 of its room is used up
+  assert.equal(paidOn(rt, bao.id), 301.57);
+  // a repayment of 171.32 that the person assigned entirely to Sarcletti
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 171.32, date: today(), currency: "PEN", payment_method_id: data.pms[3].id, allocations: [{ loan_id: sar.id, amount: 171.32 }] });
+  const onSar = () => rt.rows("Settlements").find((s) => s.loan_id === sar.id && !s.offset_loan_id);
+
+  // Bao has only 155.43 of room, so moving the repayment onto Bao alone still leaves part on Sarcletti
+  rt.api("reassignRepayment", { id: onSar().id, loan_ids: [bao.id] });
+  assert.ok(paidOn(rt, sar.id) > 15, "the rest had nowhere else to go");
+
+  // undo the cancel-out: Bao has room again, and the whole repayment fits on it
+  const half = rt.rows("Settlements").find((s) => s.loan_id === bao.id && s.offset_loan_id);
+  rt.api("undoCancelOut", { id: half.id });
+  rt.api("reassignRepayment", { id: onSar().id, loan_ids: [bao.id] });
+  assert.equal(paidOn(rt, sar.id), 0, "Sarcletti is free of it");
+  assert.ok(Math.abs(paidOn(rt, bao.id) - (0.01 + 171.32)) < 0.005);
+});
+
+// ---- "Paid earlier, no loan": wording, flag, and applying it to a loan ----
+test("a payment kept from a deleted loan is worded 'Paid earlier, no loan' and remembers its repayment", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);   // 164.14 on the first loan, 301.56 on Bao
+
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+  assert.match(held.description, /^Paid earlier, no loan: Cash loan 457 \(deleted\)\. .* had paid PEN 301\.56$/);
+  const sources = JSON.parse(held.unapplied_sources);
+  assert.equal(Object.keys(sources).length, 1, "tied to the one repayment it came from");
+  assert.equal(Object.values(sources)[0], 301.56);
+});
+
+test("'Apply to a loan' attaches the payment to the selected loans and the history shows it applied again", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+  const newBao = cashLoan(rt, data, friend, 457, "2026-09-22");   // re-registered
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 301.56);
+
+  const out = rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [newBao.id] });
+
+  assert.equal(out.applied, 301.56);
+  assert.equal(paidOn(rt, newBao.id), 301.56);
+  assert.equal(loansOf(rt, friend.id).some((l) => l.id === held.id), false, "nothing left, so the 'paid earlier' loan is gone");
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.repayments.length, 1, "still one repayment of 465.70");
+  assert.equal(h.repayments[0].amount, 465.70);
+  assert.equal(h.repayments[0].unapplied, 0);
+});
+
+test("applying only part leaves the rest as 'paid earlier'; a loan with room is required", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const bao = cashLoan(rt, data, friend, 300, "2026-09-22");
+  repay(rt, data, friend, 300);
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+  const small = cashLoan(rt, data, friend, 100, "2026-10-01");
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+
+  const out = rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [small.id] });
+
+  assert.equal(out.applied, 100);
+  assert.equal(out.left, 200);
+  assert.equal(Number(rt.rows("Loans").find((l) => l.id === held.id).amount), 200);
+  assert.throws(() => rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [small.id] }), "the loan is full now");
+  assert.throws(() => rt.api("applyUnappliedPayment", { id: small.id, loan_ids: [] }), "an ordinary loan is not a payment");
+});
+
+test("a 'Refund:' loan made by an earlier release is reworded and matched to its repayment", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);
+  // what the earlier release left: Bao and its repayment rows gone, a plain "Refund: …" loan, no flag column yet
+  rt.run(`deleteRowsWhere_('Settlements', function (s) { return s.loan_id === ${JSON.stringify(bao.id)}; }); deleteRowsWhere_('Loans', function (l) { return l.id === ${JSON.stringify(bao.id)}; });`);
+  rt.run(`appendRowObject('Loans', { id: 'old-refund', friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 301.56, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: 'Refund: Taxi ride was deleted, Ana Lo* had repaid PEN 301.56', status: 'outstanding', transfer_entry_id: '' })`);
+
+  const loans = rt.api("getFriendLoanDetail", { friendId: friend.id });   // first read creates the column and upgrades the row
+
+  const old = loans.find((l) => l.id === "old-refund");
+  assert.equal(old.description, "Paid earlier, no loan: Taxi ride (deleted). Ana Lo* had paid PEN 301.56");
+  assert.equal(Object.keys(JSON.parse(old.unapplied_sources)).length, 1, "matched to the 465.70 repayment");
+  const target = cashLoan(rt, data, friend, 400, "2026-09-22");
+  rt.api("applyUnappliedPayment", { id: "old-refund", loan_ids: [target.id] });
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 0);
+});
+
+test("a recorded repayment can get a new amount and date from the history", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  repay(rt, data, friend, 150);
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  const tid = row.transfer_entry_id;
+
+  rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 180, date: "2026-03-05", payment_method_id: "" });
+
+  assert.equal(paidOn(rt, one.id) + paidOn(rt, two.id), 180);
+  const lines = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments;
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].amount, 180);
+  assert.equal(lines[0].date, "2026-03-05");
+  const te = rt.rows("Entries").find((e) => e.id === tid);
+  assert.equal(Number(te.amount), 180, "the money movement follows");
+  assert.equal(String(te.date).slice(0, 10), "2026-03-05");
+  assert.throws(() => rt.api("reassignRepayment", { id: row.id, loan_ids: [], amount: 999 }), "more than the loans hold");
+});
+
+test("a 'paid earlier' loan is recognised even if the column already existed or its flag is missing", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  rt.api("getFriendLoanDetail", { friendId: friend.id });   // the column exists now, so no first-time upgrade will run
+  const mk = (id, description) => rt.run(`appendRowObject('Loans', { id: ${JSON.stringify(id)}, friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 50, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: ${JSON.stringify(description)}, status: 'outstanding', transfer_entry_id: '' })`);
+  mk("old-1", "Refund: Taxi ride was deleted, Ana Lo* had repaid PEN 50");   // no decimals
+  mk("new-1", "Paid earlier, no loan: Lunch (deleted). Ana Lo* had paid PEN 50.00");   // new wording, flag missing
+  const target = cashLoan(rt, data, friend, 100, "2026-09-22");
+
+  const loans = rt.api("getFriendLoanDetail", { friendId: friend.id });
+  assert.equal(loans.find((l) => l.id === "old-1").description, "Paid earlier, no loan: Taxi ride (deleted). Ana Lo* had paid PEN 50.00");
+  assert.equal(loans.find((l) => l.id === "old-1").unapplied, true);
+  assert.equal(loans.find((l) => l.id === "new-1").unapplied, true);
+  assert.equal(loans.find((l) => l.id === target.id).unapplied, false);
+
+  rt.api("applyUnappliedPayment", { id: "new-1", loan_ids: [target.id] });
+  assert.equal(paidOn(rt, target.id), 50);
+});
