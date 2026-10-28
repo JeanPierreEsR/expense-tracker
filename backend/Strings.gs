@@ -120,7 +120,7 @@ var BACKEND_STRINGS_ = {
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
   "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
-  "loan.amountBelowSettled": { en: "This loan already has {settled} in repayments — the amount can't be lower than that. Move or lower a repayment first.", es: "Este préstamo ya tiene {settled} en repagos: el monto no puede ser menor. Mueve o baja un repago primero." },
+  "loan.amountBelowSettled": { en: "This loan already has {settled} repaid or forgiven — the amount can't be lower than that. Move or lower a repayment, or undo a forgiveness, first.", es: "Este préstamo ya tiene {settled} repagado o perdonado: el monto no puede ser menor. Mueve o baja un repago, o deshaz un perdón, primero." },
 
   // ---- convert ----
   "convert.gone": { en: "That entry no longer exists — it may already have been converted.", es: "Ese movimiento ya no existe: puede que ya se haya convertido." },
@@ -161,6 +161,10 @@ var BACKEND_STRINGS_ = {
   "convert.nothingChanged": { en: "Nothing was changed — {error}", es: "No se cambió nada: {error}" },
 
   // ---- forgive ----
+  "forgive.entryLocked": { en: "This entry records a forgiven debt, so its amount and currency can't be changed. Delete it to undo the forgiveness, then forgive the amount you mean.", es: "Este movimiento registra una deuda perdonada, así que no se puede cambiar su monto ni su moneda. Elimínalo para deshacer el perdón y luego perdona el monto que quieras." },
+  "sheet.forgivenessLocked": { en: "The amount of a forgiven debt can't be changed here — it was put back. Delete the entry to undo the forgiveness, then forgive the amount you mean.", es: "El monto de una deuda perdonada no se puede cambiar aquí: se devolvió a como estaba. Elimina el movimiento para deshacer el perdón y luego perdona el monto que quieras." },
+  "sheet.forgivenessCheck": { en: "Several cells changed at once, so a forgiven debt's amount could not be put back automatically — check that entry (it should match what was forgiven).", es: "Se cambiaron varias celdas a la vez, así que el monto de una deuda perdonada no se pudo devolver automáticamente: revisa ese movimiento (debe coincidir con lo perdonado)." },
+  "forgive.tooMuch": { en: "That is more than is still owed ({remaining}). Forgive up to that amount.", es: "Eso es más de lo que aún se debe ({remaining}). Perdona hasta ese monto." },
   "forgive.already": { en: "This loan is already forgiven.", es: "Este préstamo ya está perdonado." },
 
   // ---- repay ----

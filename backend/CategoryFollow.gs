@@ -250,6 +250,8 @@ function updateEntryFromApp_(payload) {
     if (before_ && before_.type === 'investment' && Number(before_.amount) < 0) payload.fields.amount = Math.abs(Number(before_.amount));
   }
   guardRepaymentEntryEdit_(payload.id, payload.fields);
+  var forgivenessBlock = forgivenessEditBlock_(payload.id, payload.fields);   // what was forgiven is not editable on its entry
+  if (forgivenessBlock) throw new Error(forgivenessBlock);
   syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var wasExchangeLeg = !!exchangeLegSide_(getEntryById_(payload.id));

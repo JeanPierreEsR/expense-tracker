@@ -93,6 +93,16 @@ function syncManualEntryEdit_(entryId, touched, single) {
       return tr_('sheet.loanRefused', { error: err.message });
     }
   }
+  if (forgivenessOfEntry_(entryId) && (touched.indexOf('amount') !== -1 || touched.indexOf('currency') !== -1)) {
+    // What was forgiven is not editable on its entry: put back by value when ONE cell was edited, else ask to check.
+    var col = single && single.column;
+    var was = single && single.oldValue !== undefined ? String(single.oldValue).replace(/,/g, '') : '';
+    if ((col === 'amount' || col === 'currency') && was !== '') {
+      setEntryField_(entryId, col, col === 'amount' ? Number(was) : was);
+      return tr_('sheet.forgivenessLocked');
+    }
+    return tr_('sheet.forgivenessCheck');
+  }
   var link = repaymentOfEntry_(entryId);
   if (!link) return '';
   var notes = [];

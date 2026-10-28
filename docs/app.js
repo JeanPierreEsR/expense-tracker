@@ -90,6 +90,7 @@ let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → N
 var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
 let editingExchangeAccount_ = "";   // the account a money-in transfer arrived in ("" when it is not one)
 let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
+let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
@@ -2536,6 +2537,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
       // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
       // and again by the server on the queued save.
+      // What a forgiveness booked keeps its amount and currency (the loan's balance moved by exactly that); the server says
+      // the same, but asked HERE the reason shows before the form closes.
+      if (editingForgiveness_ && (Math.abs(Number(amount) - editingForgiveness_.amount) > 0.004 || currency !== editingForgiveness_.currency)) {
+        throw new Error(tr("forgive.entryLocked"));
+      }
       if (selectedType !== editingEntryOriginalType) {
         const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
         if (check.blocked) throw new Error(check.blocked);
@@ -3583,6 +3589,7 @@ async function startEditEntry(entry) {
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingForgiveness_ = entry.link && entry.link.kind === "forgiveness" ? { amount: Number(entry.amount), currency: entry.currency } : null;
   editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
   // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
   // becomes another type: income's "Received at", or the withdrawal's account.
@@ -3715,6 +3722,7 @@ function exitEditMode() {
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
   editingExchangeLeg_ = "";
+  editingForgiveness_ = null;
   editingInvestmentLeft_ = null;
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;
@@ -14646,7 +14654,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
       ? tr("loanDetail.fullyRepaid")
       : [
           l.overdue ? tr("loanDetail.overdueSince", { date: l.due_date }) : "",
-          l.settled > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled) }) : ""
+          l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
+          l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
 
   // Every row is tappable, but to different places: a standalone cash
@@ -14885,6 +14894,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       tr(l.direction === "they_owe_me" ? "history.loanLine" : "history.loanLineOwe", { amount: money(l.currency, l.amount) }),
       l.paid > 0.004 ? tr("history.repaid", { amount: money(l.currency, l.paid) }) : "",
       l.offset > 0.004 ? tr("history.offsetAmt", { amount: money(l.currency, l.offset) }) : "",
+      l.forgiven_part > 0.004 ? tr("history.forgivenAmt", { amount: money(l.currency, l.forgiven_part) }) : "",
       l.status === "forgiven" ? "" : tr("history.left", { amount: money(l.currency, l.remaining) })
     ].filter(Boolean).join(" · ");
     row.innerHTML = `
@@ -15994,6 +16004,9 @@ function openForgiveModal(loan, returnFriend) {
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
 
   const hasBalance = loan.remaining > 0.004;
+  // The whole balance to start with; a smaller amount forgives only that part (forgiveLoan, `amount`).
+  document.getElementById("forgive-amount-field").hidden = !hasBalance;
+  document.getElementById("forgive-amount").value = hasBalance ? String(Math.round(loan.remaining * 100) / 100) : "";
   const checkbox = document.getElementById("forgive-convert-checkbox");
   // No opt-out any more: forgiving a debt always registers what was still
   // owed as an expense/income entry (see forgiveLoan in Loans.gs), so the
@@ -16043,6 +16056,8 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const convert = forgiveLoanTarget.remaining > 0.004;
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
+  const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
+  if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (convert && !categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
   if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
@@ -16052,6 +16067,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
     await callApi("forgiveLoan", {
       id: forgiveLoanTarget.id,
       convert,
+      ...(convert ? { amount } : {}),
       category_id: categoryId,
       date
     });
