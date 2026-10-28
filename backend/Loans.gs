@@ -1094,6 +1094,61 @@ function convertEntryToLoan(payload) {
   return withScriptLockOnce_(function () { return convertEntryInto_(payload, 'loan'); });
 }
 
+// The other way round: "I saved this as a loan, but it was really an expense
+// (or income)". The loan's linked transfer entry is what the person edits, and
+// the Expense / Income tab says what it really was. payload = the new entry's
+// fields (as createEntry) + entry_id (the loan's transfer entry) + repayments
+// ('keep' | 'cancel', needed only when the loan already has repayments — the
+// same two choices as deleting such a loan, see deleteLoan).
+// The new entry is written FIRST and the loan removed after, so a refusal or
+// failure leaves the loan exactly as it was (the new entry is taken back).
+// A lent loan (they_owe_me) can only become an expense and a borrowed one
+// (i_owe_them) only an income, matching how the money moved.
+function convertLoanToEntry(payload) {
+  return withScriptLockOnce_(function () { return convertLoanEntryInto_(payload); });
+}
+
+function convertLoanEntryInto_(payload) {
+  ensureLoansTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  if (payload.type !== 'expense' && payload.type !== 'income') throw new Error(tr_('convert.loanOnlyExpenseIncome'));
+  if ((loan.direction === 'they_owe_me') !== (payload.type === 'expense')) {
+    throw new Error(tr_(loan.direction === 'they_owe_me' ? 'convert.lentIsExpense' : 'convert.borrowedIsIncome'));
+  }
+  if (loan.status === 'forgiven') throw new Error(tr_('convert.loanForgiven'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  ensureSettlementsOffsetColumn_();
+  var hasRepayments = getAllRows('Settlements').some(function (s) { return s.loan_id === loan.id; });
+  if (hasRepayments && payload.repayments !== 'keep' && payload.repayments !== 'cancel') {
+    throw new Error(tr_('convert.pickRepayments'));
+  }
+
+  var created = createEntry({
+    type: payload.type,
+    date: payload.date,
+    amount: payload.amount,
+    currency: payload.currency,
+    category_id: payload.category_id,
+    description: payload.description,
+    paid_by: payload.paid_by,
+    payment_method_id: payload.payment_method_id,
+    tag_ids: payload.tag_ids,
+    trip_id: payload.trip_id,
+    project_id: payload.project_id,
+    company_id: payload.company_id,
+    igv_amount: payload.igv_amount
+  });
+  try {
+    deleteLoan(loan.id, payload.repayments);
+  } catch (err) {
+    deleteEntry_(created.id);
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+  return { entry: created, kept_repayments: hasRepayments && payload.repayments === 'keep' };
+}
+
 // May already be inside routeActionOnce_'s lock (same execution) — only
 // take and release it here when nobody up the stack has.
 function withScriptLockOnce_(fn) {
@@ -1322,7 +1377,13 @@ function getEntryRepaymentLinks(payload) {
   ensureLoansTransferEntryColumn_();
   var id = payload.id;
   var loans = getAllRows('Loans');
-  if (loans.some(function (l) { return l.transfer_entry_id === id; })) return { loan: true, repayment: null };
+  var ownLoan = loans.find(function (l) { return l.transfer_entry_id === id; });
+  if (ownLoan) {
+    // loanInfo lets the edit screen ask "keep or cancel the repayments?" before converting this loan to an expense / income.
+    var loanInfo = getLoanDeleteInfo({ id: ownLoan.id });
+    loanInfo.status = ownLoan.status;
+    return { loan: true, repayment: null, loanInfo: loanInfo };
+  }
   var forgiven = loans.find(function (l) { return l.forgiveness_entry_id === id; });
   if (forgiven) {
     var fr = getAllRows('Friends').find(function (f) { return f.id === forgiven.friend_id; });
