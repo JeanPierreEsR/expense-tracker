@@ -21,10 +21,14 @@ function runAutomation() {
   var scan = featureOn_('gmail') ? runAutomationStep_('emails', failures, function () { return scanEmailsGuarded_('timer'); }) : null;
   var emailResults = scan && scan.ran ? scan.results : null;
   runAutomationStep_('telegram', failures, pollTelegramUpdates);
-  runAutomationStep_('budgets', failures, checkBudgets);
-  runAutomationStep_('trip budgets', failures, checkTripBudgets);
-  runAutomationStep_('loan reminders', failures, checkOverdueLoans);
-  runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
+  // The slower housekeeping (budget alerts, trip budgets, loan reminders, investment categories) takes 15-25 s a run and
+  // changes little within 15 minutes, so it runs about once an hour; e-mail, Telegram and the statement inbox stay every run.
+  if (heavyStepsDue_()) {
+    runAutomationStep_('budgets', failures, checkBudgets);
+    runAutomationStep_('trip budgets', failures, checkTripBudgets);
+    runAutomationStep_('loan reminders', failures, checkOverdueLoans);
+    runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
+  }
   if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
   else runAutomationStep_('statement inbox', failures, retryStatementInboxNudges_);
 
@@ -36,6 +40,20 @@ function runAutomation() {
   recordAutomationTimings_();
   if (failures.length) alertAutomationFailures_(failures);
   else PropertiesService.getScriptProperties().setProperty('LAST_AUTOMATION_OK', new Date().toISOString());
+}
+
+// ---- The hourly part of the timer ----
+// True when the heavy steps should run now: the last time they ran was HEAVY_STEPS_GAP_MS_ ago or more (or never). The gap is a
+// little under an hour so the 15-minute timer's small start-time jitter never pushes it to every 75 minutes. The time is noted
+// BEFORE they run, so a crash or a failure waits for the next hour instead of repeating every 15 minutes (failures are reported).
+var HEAVY_STEPS_LAST_KEY_ = 'HEAVY_STEPS_LAST_AT';
+var HEAVY_STEPS_GAP_MS_ = 50 * 60 * 1000;
+function heavyStepsDue_() {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty(HEAVY_STEPS_LAST_KEY_) || 0);
+  if (last && Date.now() - last < HEAVY_STEPS_GAP_MS_) return false;
+  props.setProperty(HEAVY_STEPS_LAST_KEY_, String(Date.now()));
+  return true;
 }
 
 // ---- How long each part of a run takes (read with the owner-only route admin_automationTimings) ----
