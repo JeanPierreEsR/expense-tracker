@@ -3667,6 +3667,19 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
       if (!repaymentsChoice) return false;
     }
+    // A repayment is ONE total (money movement + extra entry), so neither entry is deleted on its own here: the person is
+    // taken to the repayment's own screen (as for a change of amount), where "Delete this repayment" removes both together.
+    const ofRepayment = links.repayment
+      ? { friend: links.repayment.friend, friendId: links.repayment.friend_id, transferId: links.repayment.entry_id }
+      : links.repaymentExtra
+        ? { friend: links.repaymentExtra.friend, friendId: links.repaymentExtra.friend_id, transferId: links.repaymentExtra.transfer_entry_id }
+        : null;
+    if (ofRepayment && ofRepayment.friendId && ofRepayment.transferId) {
+      if (!confirm(tr("delete.openRepaymentAsk", { friend: ofRepayment.friend }))) return false;   // nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(ofRepayment.friendId, ofRepayment.friend, ofRepayment.transferId);
+      return false;   // nothing was deleted here
+    }
     if (links.repaymentExtra) {
       const x = links.repaymentExtra;
       confirmText = tr("delete.repaymentExtra", { friend: x.friend, cur: x.currency, amount: moneyFmt(x.amount) });
@@ -14816,6 +14829,11 @@ function openReassignRepayment_(r) {
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
   document.getElementById("reassign-date").value = r.date;
 
+  // A real repayment (not an automatic cancel-out) can be deleted here, as a whole: loans part, money entry and extra together.
+  reassignRepayment_.gapAmount = r.gap ? r.gap.amount : 0;
+  reassignRepayment_.applied = r.applied;
+  document.getElementById("reassign-delete").hidden = !!r.is_offset;
+
   document.getElementById("reassign-modal-backdrop").classList.remove("reassign-loading");
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
@@ -14861,6 +14879,7 @@ async function openApplyUnapplied_(l, friend) {
     .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+  document.getElementById("reassign-delete").hidden = true;   // applying a payment to a loan, not a repayment line
   document.getElementById("reassign-fields").hidden = true;
   document.getElementById("reassign-limit-row").hidden = true;
   document.getElementById("reassign-limit").checked = false;
@@ -14924,6 +14943,33 @@ document.getElementById("reassign-amount").addEventListener("input", renderReass
 document.getElementById("reassign-limit").addEventListener("change", renderReassign_);
 document.getElementById("reassign-close").addEventListener("click", closeReassign_);
 document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
+// Deletes the WHOLE repayment (loans part, money entry and extra entry together) — the only place a repayment is deleted.
+document.getElementById("reassign-delete").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const r = reassignRepayment_;
+  if (!r || r.mode === "apply") return;
+  const total = moneyFmt((Number(r.applied) || 0) + (Number(r.gapAmount) || 0));
+  const text = r.gapAmount > 0.004
+    ? tr("reassign.confirmDeleteWithExtra", { friend: ctx.friendName, cur: r.currency, total, loans: moneyFmt(r.applied), extra: moneyFmt(r.gapAmount) })
+    : tr("reassign.confirmDelete", { friend: ctx.friendName, cur: r.currency, total });
+  if (!confirm(text)) return;
+  const btn = document.getElementById("reassign-delete");
+  btn.disabled = true;
+  document.getElementById("reassign-error").textContent = "";
+  try {
+    await callConversion_("deleteRepayment", { id: r.id });   // a failure is undone by the server and announced
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  closeReassign_();
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
 document.getElementById("reassign-save").addEventListener("click", async () => {
   const ctx = historyCtx_;
   const btn = document.getElementById("reassign-save");

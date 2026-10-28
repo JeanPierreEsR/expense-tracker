@@ -1329,6 +1329,53 @@ function convertRepaymentToRepaymentInto_(payload) {
   }
 }
 
+// Deleting a WHOLE repayment from the person's repayment screen (owner's rule, 2026-10-28): the app no longer deletes a
+// repayment's money movement or its extra entry in Home — it takes the person to the repayment's own screen, and this is
+// what that screen's "Delete this repayment" calls. A repayment is ONE total, so everything goes together: its settlement
+// rows (the debts it paid are owed again), its money movement and its extra income / expense entry. `id` = a settlement row
+// of the repayment (the history line's id). All or nothing: on a failure everything is put back and the message says so.
+function deleteRepayment(payload) {
+  return withScriptLockOnce_(function () { return deleteRepaymentInto_(payload); });
+}
+
+function deleteRepaymentInto_(payload) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  var all = getAllRows('Settlements');
+  var first = all.find(function (s) { return s.id === payload.id; });
+  if (!first) throw new Error(tr_('convert.notRepaymentMovement'));
+  if (first.offset_loan_id) throw new Error(tr_('repay.autoOffsetDelete'));
+  var rows = first.transfer_entry_id
+    ? all.filter(function (s) { return s.transfer_entry_id === first.transfer_entry_id && !s.offset_loan_id; })
+    : [first];   // a repayment from before money entries existed is its one row
+  var rowIds = {};
+  rows.forEach(function (s) { rowIds[s.id] = true; });
+  var entrySnap = first.transfer_entry_id ? getEntryById_(first.transfer_entry_id) : null;
+  var extraSnaps = repaymentExtraEntries_(rows);
+  var loanIds = {};
+  rows.forEach(function (s) { loanIds[s.loan_id] = true; });
+  try {
+    deleteRowsWhere_('Settlements', function (s) { return rowIds[s.id]; });
+    Object.keys(loanIds).forEach(updateLoanStatusFromSettlements_);
+    if (entrySnap) deleteEntry_(entrySnap.id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });
+  } catch (err) {
+    try {
+      var present = {};
+      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+      rows.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+      if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
+      Object.keys(loanIds).forEach(updateLoanStatusFromSettlements_);
+    } catch (undoErr) {
+      throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || first.id,
+        date: entrySnap ? entrySnap.date : first.date, amount: entrySnap ? entrySnap.amount : first.amount, error: err.message }));
+    }
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+  return { done: true };
+}
+
 // May already be inside routeActionOnce_'s lock (same execution) — only
 // take and release it here when nobody up the stack has.
 function withScriptLockOnce_(fn) {
@@ -1767,7 +1814,8 @@ function getEntryRepaymentLinks(payload) {
       var exLoan = loans.find(function (l) { return l.id === ofRepayment.rows[0].loan_id; });
       var exFriend = exLoan && getAllRows('Friends').find(function (f) { return f.id === exLoan.friend_id; });
       var exEntry = getEntryById_(id);
-      extra = { friend: exFriend ? exFriend.name : '', currency: exEntry ? exEntry.currency : '', amount: exEntry ? Number(exEntry.amount) : 0, direction: exLoan ? exLoan.direction : '' };
+      extra = { friend: exFriend ? exFriend.name : '', currency: exEntry ? exEntry.currency : '', amount: exEntry ? Number(exEntry.amount) : 0, direction: exLoan ? exLoan.direction : '',
+        friend_id: exLoan ? exLoan.friend_id : '', transfer_entry_id: ofRepayment.transferId || '' };
     }
     return { loan: false, repayment: null, refunds: refunds, repaymentExtra: extra };
   }
@@ -1784,6 +1832,8 @@ function getEntryRepaymentLinks(payload) {
     refunds: refunds,
     repayment: {
       friend: first ? (friends[first.friend_id] || '') : '',
+      friend_id: first ? first.friend_id : '',
+      entry_id: id,
       direction: first ? first.direction : '',
       currency: first ? first.currency : '',
       total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0),

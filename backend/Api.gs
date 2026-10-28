@@ -439,6 +439,7 @@ function routeAction(action, payload) {
     case 'convertRepaymentToEntry': return convertRepaymentToEntry(payload);
     case 'convertRepaymentToLoan': return convertRepaymentToLoan(payload);
     case 'convertRepaymentToRepayment': return convertRepaymentToRepayment(payload);
+    case 'deleteRepayment': return deleteRepayment(payload);
     case 'recordOverpaymentIncome': return recordOverpaymentIncome(payload);
     case 'recordOverpaymentExpense': return recordOverpaymentExpense(payload);
     case 'forgiveLoan': return forgiveLoan(payload);
