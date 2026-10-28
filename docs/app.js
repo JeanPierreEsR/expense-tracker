@@ -14558,6 +14558,7 @@ document.getElementById("loan-detail-modal-backdrop").addEventListener("click", 
 
 let loanDirection = "they_owe_me";
 let editingLoanId = null;
+let loanModalApplyLoan_ = null;   // the loan being edited, kept for its "Apply to a loan" button
 // Set when this modal was opened from a friend's loan-detail sheet, so a
 // save/delete can refresh that sheet's contents too, not just the main
 // Loans tab list underneath it.
@@ -14623,9 +14624,12 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 function openLoanModal(loan, returnFriend) {
   editingLoanId = loan ? loan.id : null;
   loanModalReturnFriend = returnFriend || null;
+  loanModalApplyLoan_ = loan || null;
 
   document.getElementById("loan-modal-title").textContent = loan ? tr("loanModal.edit") : tr("loanModal.add");
   document.getElementById("loan-delete-btn").hidden = !loan;
+  // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
+  document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
   document.getElementById("loan-form-error").textContent = "";
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
@@ -14684,6 +14688,13 @@ async function refreshAfterLoanModalChange_() {
   }
 }
 
+document.getElementById("loan-apply-btn").addEventListener("click", () => {
+  const loan = loanModalApplyLoan_;
+  const friend = loanModalReturnFriend;
+  if (!loan || !friend) return;
+  closeLoanModal();
+  openApplyUnapplied_(loan, friend);
+});
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
 document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
 document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
