@@ -1187,6 +1187,74 @@ function convertLoanEntryInto_(payload) {
   return { entry: created, kept_repayments: hasRepayments && payload.repayments === 'keep' };
 }
 
+// "I recorded this as a repayment, but it was really an expense / income / a loan" (entry-type conversions, step 3).
+// The repayment's money entry is what the person edits. The repayment is CANCELLED (the debts it paid are owed again,
+// exactly as when deleting that entry — discardEntryWithRepayments_) and the new thing takes its place. As for a loan
+// (convertLoanToEntry) the new entry / loan is written FIRST and the repayment removed after; if that fails the new one
+// is taken back and the repayment's rows put back. Money that arrived (the repaid debts were owed TO the owner) can only
+// become an income or a loan the other person gave; money that left, only an expense or a loan the owner gave.
+// payload: the fields of createEntry (convertRepaymentToEntry) or of addLoan (convertRepaymentToLoan) + entry_id.
+function convertRepaymentToEntry(payload) {
+  return withScriptLockOnce_(function () { return convertRepaymentEntryInto_(payload, 'entry'); });
+}
+
+function convertRepaymentToLoan(payload) {
+  return withScriptLockOnce_(function () { return convertRepaymentEntryInto_(payload, 'loan'); });
+}
+
+function convertRepaymentEntryInto_(payload, kind) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  var mine = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === payload.entry_id && !s.offset_loan_id; });
+  if (!mine.length) throw new Error(tr_('convert.notRepaymentMovement'));
+  var firstLoan = getAllRows('Loans').find(function (l) { return l.id === mine[0].loan_id; });
+  var moneyIn = !!firstLoan && firstLoan.direction === 'they_owe_me';   // the debts repaid were owed TO the owner: money arrived
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (kind === 'entry') {
+    if (payload.type !== 'expense' && payload.type !== 'income') throw new Error(tr_('convert.repaymentOnlyThese'));
+    if (moneyIn !== (payload.type === 'income')) throw new Error(tr_(moneyIn ? 'convert.repaymentIncomeOnly' : 'convert.repaymentExpenseOnly'));
+  } else if (payload.direction !== (moneyIn ? 'i_owe_them' : 'they_owe_me')) {
+    throw new Error(tr_(moneyIn ? 'convert.repaymentLoanIn' : 'convert.repaymentLoanOut'));
+  }
+
+  var settlementsSnap = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === payload.entry_id; });
+  var entrySnap = getEntryById_(payload.entry_id);
+  var created, newLoan;
+  if (kind === 'entry') {
+    created = createEntry({
+      type: payload.type, date: payload.date, amount: payload.amount, currency: payload.currency,
+      category_id: payload.category_id, description: payload.description, paid_by: payload.paid_by,
+      payment_method_id: payload.payment_method_id, tag_ids: payload.tag_ids, trip_id: payload.trip_id,
+      project_id: payload.project_id, company_id: payload.company_id, igv_amount: payload.igv_amount
+    });
+  } else {
+    newLoan = addLoan({
+      friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount, currency: payload.currency,
+      date: payload.date, due_date: payload.due_date, payment_method_id: payload.payment_method_id, description: payload.description
+    });
+  }
+  try {
+    discardEntryWithRepayments_(payload.entry_id);
+  } catch (err) {
+    // Take the new one back and put the repayment back as it was.
+    try {
+      if (created) deleteEntry_(created.id);
+      if (newLoan) deleteLoan(newLoan.id);
+      var present = {};
+      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+      settlementsSnap.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+      if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      settlementsSnap.forEach(function (s) { updateLoanStatusFromSettlements_(s.loan_id); });
+    } catch (undoErr) {
+      throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || payload.entry_id,
+        date: entrySnap ? entrySnap.date : '', amount: entrySnap ? entrySnap.amount : '', error: err.message }));
+    }
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+  return kind === 'entry' ? { entry: created } : { loan: newLoan };
+}
+
 // May already be inside routeActionOnce_'s lock (same execution) — only
 // take and release it here when nobody up the stack has.
 function withScriptLockOnce_(fn) {
