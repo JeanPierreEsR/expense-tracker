@@ -396,6 +396,13 @@ function ensureSettlementsTransferEntryColumn_() {
   }
 }
 
+// "limited" = this repayment was set to pay ONLY its selected loans (1), so reopening it shows that choice again.
+function ensureSettlementsLimitedColumn_() {
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('limited') === -1) sheet.getRange(1, headers.length + 1).setValue('limited');
+}
+
 function createTransferEntry_(fields) {
   var entry = {
     id: Utilities.getUuid(),
@@ -755,8 +762,9 @@ function updateLoanStatusFromSettlements_(loanId) {
   if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
 }
 
-function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId) {
+function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId, limited) {
   appendRowObject('Settlements', {
+    limited: limited ? 1 : '',
     id: Utilities.getUuid(),
     loan_id: loanId,
     date: date,
@@ -1732,6 +1740,7 @@ function listLoanBalances(payload) {
 // really repaid, what was cancelled by an automatic offset and what is left, plus every repayment line, so the
 // balance can be checked by hand. Read-only; amounts stay in each loan's own currency.
 function getFriendRepaymentHistory(payload) {
+  ensureSettlementsLimitedColumn_();
   ensureLoansUnappliedColumn_();
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
@@ -1771,6 +1780,7 @@ function getFriendRepaymentHistory(payload) {
     if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
       var g = groups[s.transfer_entry_id];
       g.amount += part.amount;
+      if (s.limited) g.limited = true;
       // one loan paid in two pieces by the same repayment (e.g. after "Apply to a loan") is still ONE loan on the line
       var same = g.parts.find(function (x) { return x.loan_id === part.loan_id; });
       if (same) same.amount = Math.round((same.amount + part.amount) * 100) / 100; else g.parts.push(part);
@@ -1781,7 +1791,8 @@ function getFriendRepaymentHistory(payload) {
       is_offset: !!s.offset_loan_id, loan_description: label(loan), loan_date: loan.date,
       offset_loan_description: s.offset_loan_id ? label(loanById[s.offset_loan_id]) : '',
       payment_method_id: s.payment_method_id || '', has_transfer_entry: !!s.transfer_entry_id, transfer_entry_id: s.transfer_entry_id || '',
-      parts: s.offset_loan_id ? [] : [part]
+      parts: s.offset_loan_id ? [] : [part],
+      limited: !!s.limited && !s.offset_loan_id
     };
     lines.push(line);
     if (!s.offset_loan_id && s.transfer_entry_id) groups[s.transfer_entry_id] = line;
@@ -1810,6 +1821,7 @@ function getFriendRepaymentHistory(payload) {
 // All-or-nothing: when the open loans cannot take the whole amount nothing is changed. The repayment's money movement
 // (its transfer entry), date and account stay as they are.
 function reassignRepayment(payload) {
+  ensureSettlementsLimitedColumn_();
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
   var all = getAllRows('Settlements');
@@ -1873,7 +1885,7 @@ function reassignRepayment(payload) {
   group.forEach(function (s) { ids[s.id] = true; });
   deleteRowsWhere_('Settlements', function (s) { return ids[s.id]; });
   plan.forEach(function (item) {
-    recordSettlementRow_(item.loan_id, newDate, item.amount, newPm, '', first.transfer_entry_id || '');
+    recordSettlementRow_(item.loan_id, newDate, item.amount, newPm, '', first.transfer_entry_id || '', limit);
     touched[item.loan_id] = true;
   });
   Object.keys(touched).forEach(updateLoanStatusFromSettlements_);

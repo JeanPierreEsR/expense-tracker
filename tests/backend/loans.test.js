@@ -622,3 +622,17 @@ test("history: one loan paid in two pieces by the same repayment is one line, no
   assert.equal(line.parts.length, 2, "two loans, not three lines");
   assert.equal(line.parts.find((x) => x.loan_id === two.id).amount, 75);
 });
+
+test("a repayment set to 'pay only the selected loans' remembers it", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  repay(rt, data, friend, 250);
+  const line = () => rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0];
+  assert.equal(line().limited, false);
+  rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id], limit: true });
+  assert.equal(line().limited, true, "still limited when reopened");
+  rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id, two.id], amount: 100 });
+  assert.equal(line().limited, false, "saving without the option clears it");
+});
