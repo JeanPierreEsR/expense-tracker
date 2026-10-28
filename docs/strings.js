@@ -60,6 +60,7 @@
     "entry.investmentCategory": { en: "Investment — {category}", es: "Inversión — {category}" },
     "entry.receivedAt": { en: "received in {account}", es: "recibido en {account}" },
     "entry.fromAccount": { en: "from {account}", es: "desde {account}" },
+    "exchangeConv.askPartner": { en: "The other side of this exchange ({amount}, {date}) stays as it is. Change it too, right after saving this one?", es: "El otro lado de este cambio de moneda ({amount}, {date}) se queda como está. ¿Cambiarlo también, justo después de guardar este?" },
     "entry.confirmNoAccount": { en: "No account or card is picked. Save this entry without one? You can add it later by editing the entry.", es: "No elegiste una cuenta o tarjeta. ¿Guardar este movimiento sin una? Puedes añadirla después editando el movimiento." },
     "entry.noAccount": { en: "no account set", es: "sin cuenta asignada" },
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },

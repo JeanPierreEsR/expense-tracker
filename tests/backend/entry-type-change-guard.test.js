@@ -37,13 +37,14 @@ test("the entry a forgiveness booked cannot change type", () => {
   assert.equal(rt.rows("Entries").find((e) => e.id === res.entry.id).type, "expense");
 });
 
-test("one side of a currency exchange cannot change type", () => {
-  const { rt, data, changeType } = setup();
+test("one side of a currency exchange only changes into the type that fits its direction", () => {
+  const { rt, changeType } = setup();
   const pen = rt.api("addPaymentMethod", { nickname: "Guard PEN", type: "debit" });
   const usd = rt.api("addPaymentMethod", { nickname: "Guard USD", type: "debit" });
   const res = rt.api("recordCurrencyExchange", { date: today(), out: { payment_method_id: pen.id, amount: 370, currency: "PEN" }, in: { payment_method_id: usd.id, amount: 100, currency: "USD" } });
-  assert.throws(() => changeType(res.out.id, "expense"), /currency exchange/i);
-  assert.throws(() => changeType(res.in.id, "income"), /currency exchange/i);
+  assert.throws(() => changeType(res.out.id, "income"), /money-out side of a currency exchange/i);
+  assert.throws(() => changeType(res.in.id, "expense"), /money-in side of a currency exchange/i);
+  assert.equal(rt.rows("Entries").find((e) => e.id === res.out.id).type, "transfer");
 });
 
 test("ordinary entries still change type freely, and the same type is never a change", () => {
