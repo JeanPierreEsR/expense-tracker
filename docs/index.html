@@ -314,6 +314,15 @@
         <button type="button" class="add-inline" id="mail-health-check" data-i18n="mailHealth.checkNow">Check now</button>
       </div>
 
+      <div class="card notices-card" id="notices-card" hidden>
+        <div class="first-steps-head">
+          <h2 data-i18n="notices.title">Alerts</h2>
+          <button type="button" class="add-inline" id="notices-dismiss-all" data-i18n="notices.dismissAll">Dismiss all</button>
+        </div>
+        <ul class="notices-list" id="notices-list"></ul>
+        <p class="hint" id="notices-more" hidden></p>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
@@ -2175,7 +2184,7 @@
 <div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
-        <p class="hint" data-i18n="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
+        <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
@@ -2223,7 +2232,7 @@
 <div id="trip-alert-fields">
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
-        <p class="hint" data-i18n="trips.alertHint">Comma-separated percentages of the budget.</p>
+        <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>

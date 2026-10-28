@@ -285,6 +285,9 @@ function routeAction(action, payload) {
       };
     case 'admin_automationTimings': return getAutomationTimings_();
     case 'checkEmailsNow': return checkEmailsNow();
+    case 'listNotices': return listNotices();
+    case 'checkAlertsNow': return checkAlertsNow(payload);
+    case 'markNoticesSeen': return markNoticesSeen(payload);
     case 'admin_setupSpreadsheet': setupSpreadsheet(); return { done: true };
     case 'admin_addCreatedAtColumnToEntries': return addCreatedAtColumnToEntries();
     case 'admin_addCurrencyColumnToBudgets': return addCurrencyColumnToBudgets();

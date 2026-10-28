@@ -67,6 +67,12 @@ function getCapabilities_() {
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
     telegram: !!getTelegramToken_(),
+    // A chat is actually linked (the token alone sends nothing): the app mentions Telegram in alert hints only then.
+    telegramLinked: telegramLinked_(),
+    // This backend keeps in-app alerts (Notices.gs); an older one lacks it and the app then never asks for them.
+    notices: true,
+    // This backend checks alerts when asked (checkAlertsNow), so a copy without a timer still gets them; an older one lacks it.
+    alertCheck: true,
     // More → Performance log is a diagnostic for the owner only; a copy made by the installer never shows it.
     perfLog: !isFriendCopy_(),
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".

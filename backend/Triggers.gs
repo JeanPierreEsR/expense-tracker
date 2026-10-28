@@ -220,6 +220,12 @@ function pingWebApp_() {
     // Best-effort — a failed ping just means the next real request pays
     // the usual cold-start cost, same as before this existed.
   }
+  // This timer is the one most copies have (the "open faster" extra), so it also looks at the alerts (Notices.gs § Checking alerts when the
+  // app is used), at most about once an hour. Inside runAutomation (which has its own hourly alert steps) and on a copy where that job runs,
+  // it stays out so nothing is checked twice.
+  if (!AUTOMATION_RUN_ && !featureOn_('gmail')) {
+    try { checkAlertsGuarded_('timer'); } catch (err) { console.error('ping alerts: ' + err); }
+  }
 }
 
 function enableKeepWarmPing() {

@@ -2949,6 +2949,15 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.notices-card { border-left: 4px solid #b26a00; }
+.notices-card h2 { margin: 0; font-size: 1rem; }
+.notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.notices-list li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.notices-list li:first-child { border-top: 0; }
+.notice-body { flex: 1; min-width: 0; }
+.notice-text { overflow-wrap: anywhere; }
+.notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
 .mail-health { border-left: 4px solid #b26a00; }
 .mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
 .mail-health .hint { margin: 4px 0 6px; }

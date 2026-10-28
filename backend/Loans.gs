@@ -1932,6 +1932,12 @@ function ensureLoanAlertLogSheet_() {
 // date to something new makes it alert-worthy again on its own, with no
 // separate "reset" step needed.
 function checkOverdueLoans() {
+  // The timer and the app (checkAlertsNow) can overlap; without the lock both read the alert log before either writes and the reminder
+  // goes out twice (checkBudgets and checkTripBudgets do the same).
+  return withScriptLockOnce_(checkOverdueLoansLocked_);
+}
+
+function checkOverdueLoansLocked_() {
   ensureLoanAlertLogSheet_();
 
   var settledByLoan = buildSettlementTotalsByLoan_();
@@ -1942,7 +1948,12 @@ function checkOverdueLoans() {
     })
     .filter(function (l) { return isLoanOverdue_(l, l.remaining); });
 
-  if (!overdueLoans.length) return { checked: 0, alertsSent: 0 };
+  // The first run on an existing copy only writes down what is already overdue, without alerting (Notices.gs § Alerts only from now on).
+  var baseline = alertBaselinePending_('loans');
+  if (!overdueLoans.length) {
+    if (baseline) markAlertBaselineDone_('loans');
+    return { checked: 0, alertsSent: 0 };
+  }
 
   var alertedSet = {};
   getAllRows('Loan Alert Log').forEach(function (a) {
@@ -1958,8 +1969,8 @@ function checkOverdueLoans() {
     if (alertedSet[key]) return;
 
     var friendName = friendNameById[loan.friend_id] || tr_('label.unknownFriend');
-    var sent = sendTelegramLoanOverdueAlert_(loan, friendName);
-    if (!sent) return; // Telegram not configured — try again next cycle
+    var sent = baseline ? true : deliverNotice_('loan', 'loan|' + loan.id + '|' + loan.due_date, loanOverdueAlertText_(loan, friendName));
+    if (!sent) return; // a linked Telegram refused — try again next cycle (Notices.gs)
 
     appendRowObject('Loan Alert Log', {
       id: Utilities.getUuid(),
@@ -1968,8 +1979,9 @@ function checkOverdueLoans() {
       sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
     });
     alertedSet[key] = true;
-    alertsSent++;
+    if (!baseline) alertsSent++;
   });
 
+  if (baseline) markAlertBaselineDone_('loans');
   return { checked: overdueLoans.length, alertsSent: alertsSent };
 }

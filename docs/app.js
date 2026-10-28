@@ -346,7 +346,14 @@ const ONCE_ACTIONS = new Set([
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
-  checkEmailsNow: 120000 };   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
+
+// Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
+// look at the alerts (checkAlertsSoon_, in the Alerts section below).
+const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+  "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -357,7 +364,11 @@ function newRequestId_() {
 let perfInflight_ = 0;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
   perfInflight_++;
-  try { return await callApiOnce_(action, payload, attempt, startedAt); } finally { perfInflight_--; }
+  try {
+    const out = await callApiOnce_(action, payload, attempt, startedAt);
+    if (ALERT_CHANGING_ACTIONS.has(action)) checkAlertsSoon_();   // something that can cross a budget, trip or loan alert was just saved
+    return out;
+  } finally { perfInflight_--; }
 }
 
 async function callApiOnce_(action, payload, attempt, startedAt) {
@@ -6185,6 +6196,7 @@ document.getElementById("budget-rate-warning-link").addEventListener("click", as
 });
 
 function openBudgetModal(budget) {
+  refreshAlertHints_();
   editingBudgetId = budget ? budget.id : null;
   document.getElementById("budget-modal-title").textContent = budget ? tr("budgetModal.edit") : tr("budgetModal.add");
   document.getElementById("budget-form-error").textContent = "";
@@ -6457,7 +6469,7 @@ async function checkEmailsNow_(force) {
   }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(true); }
 });
 
 // ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----
@@ -6481,7 +6493,10 @@ function mailAgo_(health, at) {
 }
 function mailHealthProblemText_(health) {
   const known = ["stale", "quota", "auth", "read_errors", "time"].indexOf(health.problem) !== -1;
-  let text = tr("mailHealth.problem." + (known ? health.problem : "other"), { ago: mailAgo_(health, health.lastOk) });
+  const kind = known ? health.problem : "other";
+  // "auth": a friend's copy re-approves through More → Extra features; the owner's has no such screen (specs/review-telegram-email.md § E-mail health).
+  const key = kind === "auth" && perfIsOwnerCopy_() ? "mailHealth.problem.authOwner" : "mailHealth.problem." + kind;
+  let text = tr(key, { ago: mailAgo_(health, health.lastOk) });
   if (Number(health.lookbackDays) > 3) text += " " + tr("mailHealth.catchUp", { n: health.lookbackDays });
   return text;
 }
@@ -6511,6 +6526,95 @@ async function mailCheckNowClicked_(btn) {
 }
 document.getElementById("mail-health-check").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
 document.getElementById("bm-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+
+// ---- Alerts: budget, trip and loan alerts land here (backend/Notices.gs); Telegram is an extra channel, not the only one ----
+// The Home "Alerts" card lists the notices not yet dismissed. Asked for in the background when the app opens, comes back to the front or is
+// pulled down, only when this backend has them (capabilities.notices; an older one would answer "Unknown action" and make the app think it
+// needs an update). Where the backend can also LOOK for new alerts when asked (capabilities.alertCheck), those asks are a check instead:
+// a copy with no timer gets its alerts this way, and one with a timer gets them sooner. The same reply carries the notices.
+// `check`: false = just list; true = open / come back / pull down; "change" = a few seconds after a save (the server waits less between those).
+let notices_ = [], noticesMore_ = 0, alertCheckBusy_ = false;
+async function loadNotices_(check) {
+  const caps = meta && meta.capabilities;
+  if (!caps || !caps.notices) return;
+  const asking = !!check && !!caps.alertCheck;
+  if (asking) {
+    if (alertCheckBusy_) return;
+    alertCheckBusy_ = true;
+  }
+  try {
+    const out = await callApi(asking ? "checkAlertsNow" : "listNotices", check === "change" && asking ? { after_change: true } : {});
+    notices_ = (out && out.notices) || [];
+    noticesMore_ = (out && out.more) || 0;
+  } catch (err) { return; }   // a background extra: the card just stays as it was
+  finally { if (asking) alertCheckBusy_ = false; }
+  renderNotices_();
+}
+// After a save that can cross an alert (ALERT_CHANGING_ACTIONS, next to LONG_ACTIONS) a check follows a few seconds later: bursts of saves
+// become one check, and the server still limits how often it really looks.
+let alertCheckTimer_ = null;
+function checkAlertsSoon_() {
+  if (!meta || !(meta.capabilities && meta.capabilities.alertCheck)) return;
+  clearTimeout(alertCheckTimer_);
+  alertCheckTimer_ = setTimeout(() => loadNotices_("change"), 5000);
+}
+function renderNotices_() {
+  const card = document.getElementById("notices-card");
+  if (!card) return;
+  card.hidden = !notices_.length;
+  const list = document.getElementById("notices-list");
+  list.innerHTML = "";
+  notices_.forEach((n) => {
+    const li = document.createElement("li");
+    const body = document.createElement("div");
+    body.className = "notice-body";
+    const text = document.createElement("span");
+    text.className = "notice-text";
+    text.textContent = n.text;   // already written by the server; may hold a person's or a category's name
+    body.appendChild(text);
+    const day = String(n.created_at || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      const when = document.createElement("span");
+      when.className = "notice-date";
+      when.textContent = I18n.fmtDateMedium(new Date(day + "T00:00:00"));
+      body.appendChild(when);
+    }
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "notice-x";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", tr("notices.dismiss"));
+    x.addEventListener("click", () => dismissNotices_({ ids: [n.id] }));
+    li.appendChild(body);
+    li.appendChild(x);
+    list.appendChild(li);
+  });
+  const more = document.getElementById("notices-more");
+  more.hidden = !noticesMore_;
+  if (noticesMore_) more.textContent = tr("notices.more", { n: noticesMore_ });
+}
+async function dismissNotices_(payload) {
+  // Gone from the screen at once; the server catches up (and if it cannot, the next load brings them back).
+  notices_ = payload.all ? [] : notices_.filter((n) => payload.ids.indexOf(n.id) === -1);
+  renderNotices_();
+  try { await callApi("markNoticesSeen", payload); } catch (err) { /* shown again by the next load */ }
+  if (noticesMore_) loadNotices_();   // dismissing may let notices beyond the first 20 appear
+}
+document.getElementById("notices-dismiss-all").addEventListener("click", () => dismissNotices_({ all: true }));
+
+// An alert hint says "It also arrives on Telegram" only when a Telegram chat is linked; a friend's copy has none.
+function refreshAlertHints_() {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  document.querySelectorAll("[data-alert-hint]").forEach((el) => {
+    el.textContent = tr(el.dataset.alertHint) + (linked ? tr("alert.alsoTelegram") : "");
+  });
+}
+// "Not captured automatically" tips that send the person to the Telegram bot read differently when there is none.
+const NOTAUTO_NO_BOT_TIPS_ = ["plin_out_whatsapp", "yape_in", "yape_out", "plin_out"];
+function notAutoTip_(key) {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  return tr(!linked && NOTAUTO_NO_BOT_TIPS_.indexOf(key) !== -1 ? "notauto.tipNoBot." + key : "notauto.tip." + key);
+}
 
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
@@ -6685,6 +6789,7 @@ async function init() {
       perfRecordStartup_("open→usable", performance.now());
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
+    loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6756,6 +6861,7 @@ async function init() {
       await refreshEntryList();
       await refreshReviewQueue();
       checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
+      loadNotices_(true);
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
@@ -8907,7 +9013,7 @@ function renderNotauto_(data) {
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(notAutoTip_(k.key))}</div>
     </div>`;
   }).join("");
 }
@@ -10045,6 +10151,7 @@ function renderTripEstimates_(d) {
 }
 
 function openTripModal_(trip) {
+  refreshAlertHints_();
   editingTripId_ = trip ? trip.id : null;
   tripKind_ = trip && trip.kind === "event" ? "event" : "trip";
   document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.kind === tripKind_));
