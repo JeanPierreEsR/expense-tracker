@@ -86,7 +86,45 @@ function deliverNotice_(kind, key, text) {
   return sendTelegramText_(text);
 }
 
+// ---- Checking alerts when the app is used (and by the "open faster" timer) ----
+// The three alert checks (budgets, trip budgets, overdue loans) used to run only inside the bank-e-mail job (runAutomation, about once an
+// hour for these steps), which a copy gets only if its person took the bank-e-mail extra. Without it nothing ever looked, so a friend's Alerts
+// card stayed empty. Now the app asks for a check when it is opened, brought back, pulled down, and a few seconds after a change that can cross
+// an alert (checkAlertsNow), and the "open faster" timer (pingWebApp_) runs it at most every 50 minutes. No Google approval is needed: the
+// checks only read and write the Sheet (and send to Telegram when linked). Each check takes the script lock itself and reads its own alert log
+// inside it, so the timer, the app and a second phone can overlap without alerting twice. Script Property ALERT_CHECK_LAST_AT is written BEFORE
+// the checks run, so two near-simultaneous callers do the work once. The checks are slow on a real Google Sheet (seconds, not milliseconds),
+// hence the gaps; the app asks in the background and never waits for the answer to show itself.
+var ALERT_CHECK_LAST_KEY_ = 'ALERT_CHECK_LAST_AT';
+var ALERT_CHECK_APP_GAP_MS_ = 2 * 60 * 1000;
+var ALERT_CHECK_TIMER_GAP_MS_ = 50 * 60 * 1000;   // the same rhythm as runAutomation's hourly steps (Triggers.gs heavyStepsDue_)
+
+// source: 'app' or 'timer'. Returns { ran: false, reason: 'recent' } or { ran: true, failed: <how many of the three threw> }; never throws.
+function checkAlertsGuarded_(source) {
+  var props = PropertiesService.getScriptProperties();
+  var gap = source === 'app' ? ALERT_CHECK_APP_GAP_MS_ : ALERT_CHECK_TIMER_GAP_MS_;
+  var now = Date.now();
+  var last = Number(props.getProperty(ALERT_CHECK_LAST_KEY_) || 0);
+  if (last && now >= last && now - last < gap) return { ran: false, reason: 'recent' };
+  props.setProperty(ALERT_CHECK_LAST_KEY_, String(now));
+  var failed = 0;
+  [checkBudgets, checkTripBudgets, checkOverdueLoans].forEach(function (check) {
+    try { check(); } catch (err) { failed++; console.error('alert check: ' + err); }   // one failing check must not stop the others
+  });
+  return { ran: true, failed: failed };
+}
+
 // ---- What the app calls ----
+
+// The app's "look at my alerts now" call: runs the checks (unless one ran a moment ago) and answers with the open notices, so the app needs
+// one request instead of two. A failed check is never an error for the person.
+function checkAlertsNow() {
+  var run = checkAlertsGuarded_('app');
+  var out = listNotices();
+  out.ran = run.ran;
+  if (!run.ran) out.reason = run.reason;
+  return out;
+}
 
 // Unseen notices, newest first. Reads nothing (and creates nothing) until a first notice exists.
 function listNotices() {

@@ -1901,6 +1901,12 @@ function ensureLoanAlertLogSheet_() {
 // date to something new makes it alert-worthy again on its own, with no
 // separate "reset" step needed.
 function checkOverdueLoans() {
+  // The timer and the app (checkAlertsNow) can overlap; without the lock both read the alert log before either writes and the reminder
+  // goes out twice (checkBudgets and checkTripBudgets do the same).
+  return withScriptLockOnce_(checkOverdueLoansLocked_);
+}
+
+function checkOverdueLoansLocked_() {
   ensureLoanAlertLogSheet_();
 
   var settledByLoan = buildSettlementTotalsByLoan_();
