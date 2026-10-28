@@ -1485,6 +1485,7 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
     document.getElementById("repayment-friend").value = paidBy;
   }
   togglePaymentMethodVisibility();
+  syncConversionAmount_();
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
@@ -1877,6 +1878,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     } else {
       showDetailForm(null);
     }
+    syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
   });
 });
 
@@ -2159,6 +2161,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let popupHiddenEarly = false;
 
   try {
+    // A repayment's extra entry arrives in the background after the form opens; the amount shown (the whole repayment,
+    // when it is being converted) must be settled before anything is read.
+    if (editingRepayment_ && editingRepayment_.extraPromise) await editingRepayment_.extraPromise;
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
@@ -2273,14 +2278,25 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // A repayment's own entry edited as a repayment again (another person, amount, account, direction): the old
         // one is cancelled and the new one recorded in its place (convertRepaymentToRepayment).
         const rerecordRepayment = !isLoanKind && !!editingRepayment_;
-        if (rerecordRepayment && !confirm(tr("repayConv.confirmRerecord", { friend: editingRepayment_.friend, cur: editingRepayment_.currency, total: moneyFmt(editingRepayment_.total) }))) return;
+        if (rerecordRepayment) {
+          // The same person and direction: only the amount / loans can differ, and that is changed in the repayment's editor
+          // (where the loans and the extra are split) — go straight there, as for any amount change from Home.
+          if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction) {
+            const target = editingRepayment_;   // cancelEdit() clears it, so keep what the editor needs
+            if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+            cancelEdit();
+            await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
+            return;
+          }
+          if (!confirm(repaymentCancelText_(true))) return;
+        }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callApi(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2347,7 +2363,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
       }
-      await callApi("convertRepaymentToEntry", {
+      await callConversion_("convertRepaymentToEntry", {
         entry_id: editingEntryId,
         type: selectedType,
         date,
@@ -2384,7 +2400,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
       }
-      await callApi("convertLoanToEntry", {
+      await callConversion_("convertLoanToEntry", {
         entry_id: editingEntryId,
         type: selectedType,
         date,
@@ -3456,6 +3472,14 @@ async function startEditEntry(entry) {
     ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
+  // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
+  // repayment is converted is the whole thing. Saving waits for it (see the top of the save handler).
+  if (editingRepayment_) {
+    const rp = editingRepayment_;
+    rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
+      .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
+      .catch(() => {});
+  }
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -14474,11 +14498,45 @@ async function openLinkedEntryFromLoan_(entryId) {
   }
 }
 
+// A conversion that fails is undone by the server exactly ("Nothing was changed — …"; or, if even the undo failed, a message
+// spelling out the original entry so it can be re-entered). The person must KNOW: besides the red line under the form, a
+// message they cannot miss. Used by every conversion that deletes and re-creates (loan / repayment → entry, loan, repayment).
+async function callConversion_(action, payload) {
+  try {
+    return await callApi(action, payload);
+  } catch (err) {
+    alert(err.message);
+    throw err;
+  }
+}
+
 // The warning before a repayment's money entry is turned into something else: the repayment is cancelled, so what it
 // paid is owed again.
-function repaymentCancelText_() {
+function repaymentCancelText_(rerecord) {
   const r = editingRepayment_ || {};
-  return tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+  const extra = r.extra && Number(r.extra.amount) > 0 ? Number(r.extra.amount) : 0;
+  // A repayment is one total: loans plus its extra income / expense entry. Converting replaces ALL of it.
+  if (extra) {
+    return tr(rerecord ? "repayConv.confirmRerecordWithExtra" : "repayConv.confirmWithExtra",
+      { friend: r.friend, cur: r.currency, total: moneyFmt(r.total), extra: moneyFmt(extra), all: moneyFmt(Number(r.total) + extra) });
+  }
+  return rerecord
+    ? tr("repayConv.confirmRerecord", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) })
+    : tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+}
+
+// When a repayment's entry is being turned into something else (another tab, or Transfer → Repayment / New loan) the
+// amount shown is the WHOLE repayment (loans + its extra entry); for a plain edit it stays the money movement's own amount.
+function syncConversionAmount_() {
+  const r = editingRepayment_;
+  if (!r || !r.extra || !(Number(r.extra.amount) > 0)) return;
+  const kind = document.getElementById("transfer-kind").value;
+  const converting = selectedType !== "transfer" || kind === "repayment" || kind === "loan";
+  const own = String(Number(r.total));
+  const whole = String(Math.round((Number(r.total) + Number(r.extra.amount)) * 100) / 100);
+  const field = document.getElementById("amount");
+  const from = converting ? own : whole;
+  if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
 }
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the

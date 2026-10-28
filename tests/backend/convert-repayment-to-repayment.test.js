@@ -81,3 +81,18 @@ test("a failure while recording the new repayment puts the old one back exactly"
   assert.equal(owed(aLoan.id), 60, "Ana's payment still counts");
   assert.equal(owed(bLoan.id), 100);
 });
+
+test("with an extra entry: the old extra goes with the old repayment and the new recording books its own (no double income)", () => {
+  const { rt, pm, income } = setup();
+  const f = rt.api("addFriend", { name: "Extra Friend" });
+  const g = rt.api("addFriend", { name: "Extra Other" });
+  rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-01", payment_method_id: pm });
+  rt.api("addLoan", { friend_id: g.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-01", payment_method_id: pm });
+  rt.api("recordRepayment", { friend_id: f.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: today(), payment_method_id: pm, overpay_category_id: income.id });
+  const row = rt.rows("Settlements").find((s) => s.gap_entry_id);
+  const oldExtra = row.gap_entry_id;
+  rt.api("convertRepaymentToRepayment", { entry_id: row.transfer_entry_id, friend_id: g.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: today(), payment_method_id: pm, overpay_category_id: income.id });
+  const extras = rt.rows("Entries").filter((e) => e.type === "income" && Number(e.amount) === 20);
+  assert.equal(rt.rows("Entries").some((e) => e.id === oldExtra), false, "the old extra is gone");
+  assert.equal(extras.length, 1, "exactly one extra of 20 exists: the new recording's");
+});

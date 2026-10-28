@@ -1220,6 +1220,7 @@ function convertRepaymentEntryInto_(payload, kind) {
 
   var settlementsSnap = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === payload.entry_id; });
   var entrySnap = getEntryById_(payload.entry_id);
+  var extraSnaps = repaymentExtraEntries_(settlementsSnap);   // the repayment's extra income / expense goes with it
   var created, newLoan;
   if (kind === 'entry') {
     created = createEntry({
@@ -1236,8 +1237,9 @@ function convertRepaymentEntryInto_(payload, kind) {
   }
   try {
     discardEntryWithRepayments_(payload.entry_id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });
   } catch (err) {
-    // Take the new one back and put the repayment back as it was.
+    // Take the new one back and put the repayment (and its extra entry) back as it was.
     try {
       if (created) deleteEntry_(created.id);
       if (newLoan) deleteLoan(newLoan.id);
@@ -1245,6 +1247,7 @@ function convertRepaymentEntryInto_(payload, kind) {
       getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
       settlementsSnap.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
       if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
       settlementsSnap.forEach(function (s) { updateLoanStatusFromSettlements_(s.loan_id); });
     } catch (undoErr) {
       throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || payload.entry_id,
@@ -1283,6 +1286,7 @@ function convertRepaymentToRepaymentInto_(payload) {
   loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
   getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
   var entrySnap = getEntryById_(payload.entry_id);
+  var extraSnaps = repaymentExtraEntries_(oldSettlements);   // the old repayment's extra income / expense goes with it
   var friendIds = {};
   friendIds[payload.friend_id] = true;
   oldSettlements.forEach(function (s) {
@@ -1292,6 +1296,7 @@ function convertRepaymentToRepaymentInto_(payload) {
 
   try {
     discardEntryWithRepayments_(payload.entry_id);
+    extraSnaps.forEach(function (e) { deleteEntry_(e.id); });   // the new recording books its own extra if one is needed
     var result = recordRepayment({
       friend_id: payload.friend_id,
       direction: payload.direction,
@@ -1313,6 +1318,7 @@ function convertRepaymentToRepaymentInto_(payload) {
       getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
       oldSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
       if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      extraSnaps.forEach(function (e) { if (!getEntryById_(e.id)) appendRowObject('Entries', e); });
       getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
         .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
     } catch (undoErr) {
@@ -1603,6 +1609,20 @@ function repaymentOfEntry_(entryId) {
   return null;
 }
 
+// The extra (income / expense) entries that still exist behind these repayment rows (`gap_entry_id`). Turning a repayment into
+// something else replaces the WHOLE repayment — loans and extra, one total — so the conversions remove them with it.
+function repaymentExtraEntries_(settlementRows) {
+  ensureSettlementsGapColumn_();
+  var seen = {}, out = [];
+  (settlementRows || []).forEach(function (s) {
+    if (!s.gap_entry_id || seen[s.gap_entry_id]) return;
+    seen[s.gap_entry_id] = true;
+    var e = getEntryById_(s.gap_entry_id);
+    if (e) out.push(e);
+  });
+  return out;
+}
+
 // Before an app edit is written: the amount of a repayment's money movement is changed from the person's repayment history
 // (where the loans and the extra are split), never straight here.
 function guardRepaymentEntryEdit_(entryId, fields) {
@@ -1756,6 +1776,9 @@ function getEntryRepaymentLinks(payload) {
   var friends = {};
   getAllRows('Friends').forEach(function (f) { friends[f.id] = f.name; });
   var first = loanById[linked[0].loan_id];
+  // The repayment's extra (income / expense) entry, if it has one: turning the repayment into something else replaces the
+  // WHOLE repayment (loans + extra), so the phone needs its amount (see repaymentExtraEntries_).
+  var extraEntry = repaymentExtraEntries_(linked)[0] || null;
   return {
     loan: false,
     refunds: refunds,
@@ -1763,7 +1786,8 @@ function getEntryRepaymentLinks(payload) {
       friend: first ? (friends[first.friend_id] || '') : '',
       direction: first ? first.direction : '',
       currency: first ? first.currency : '',
-      total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0)
+      total: linked.reduce(function (sum, s) { return sum + Number(s.amount); }, 0),
+      extra: extraEntry ? { id: extraEntry.id, type: extraEntry.type, amount: Number(extraEntry.amount) } : null
     }
   };
 }
