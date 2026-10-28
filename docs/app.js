@@ -12710,6 +12710,9 @@ async function skipRecurringThisMonth_(item) {
 // category and currency, about the same amount, within a few days) missed the
 // real payment. Pick the entry that paid it; automatic matching stays on.
 async function openPaidPicker_(item, currency, isIncome) {
+  // The whole bill, not just the owner's share: a shared item is paid in full (by me or by a housemate)
+  // and the saved split below then puts the friends' part on their loans.
+  const fullAmount = item.full_amount != null ? item.full_amount : item.amount;
   const backdrop = document.getElementById("paid-picker-modal-backdrop");
   const list = document.getElementById("paid-picker-list");
   const errorEl = document.getElementById("paid-picker-error");
@@ -12718,9 +12721,9 @@ async function openPaidPicker_(item, currency, isIncome) {
   document.getElementById("paid-picker-empty").hidden = true;
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
-    tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(item.amount) });
+    tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(fullAmount) });
   // "Not logged yet": record the payment itself from the programmed item.
-  document.getElementById("paid-new-amount").value = Number(item.amount).toFixed(2);
+  document.getElementById("paid-new-amount").value = Number(fullAmount).toFixed(2);
   document.getElementById("paid-new-date").value = todayLocalISO();
   const acct = document.getElementById("paid-new-account");
   acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
@@ -12746,7 +12749,7 @@ async function openPaidPicker_(item, currency, isIncome) {
       const savedTotal = savedSplits.reduce((t, s) => t + s.amount, 0);
       const useSplit = savedSplits.length && document.getElementById("paid-new-split").checked;
       const splits = useSplit
-        ? savedSplits.map((s) => ({ friend_id: s.friend_id, amount: Math.round(s.amount * Math.min(1, typed / Math.max(item.amount, savedTotal)) * 100) / 100 }))
+        ? savedSplits.map((s) => ({ friend_id: s.friend_id, amount: Math.round(s.amount * Math.min(1, typed / Math.max(fullAmount, savedTotal)) * 100) / 100 }))
         : [];
       await callApi("recordRecurringPayment", {
         splits,
