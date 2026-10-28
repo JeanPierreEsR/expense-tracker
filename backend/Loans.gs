@@ -1710,7 +1710,9 @@ function getFriendRepaymentHistory(payload) {
     if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
       var g = groups[s.transfer_entry_id];
       g.amount += part.amount;
-      g.parts.push(part);
+      // one loan paid in two pieces by the same repayment (e.g. after "Apply to a loan") is still ONE loan on the line
+      var same = g.parts.find(function (x) { return x.loan_id === part.loan_id; });
+      if (same) same.amount = Math.round((same.amount + part.amount) * 100) / 100; else g.parts.push(part);
       return;
     }
     var line = {

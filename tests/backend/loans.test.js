@@ -608,3 +608,17 @@ test("'pay only the selected loans' leaves the others alone and records the gap 
   assert.equal(rt.rows("Entries").filter((e) => e.type === "income" && e.status === "pending").length >= 1, true);
   assert.throws(() => rt.api("reassignRepayment", { id: row2.id, loan_ids: [], limit: true }), "nothing selected");
 });
+
+test("history: one loan paid in two pieces by the same repayment is one line, not two", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 100, "2026-02-01");
+  repay(rt, data, friend, 150);   // 100 on one, 50 on two
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  // a second piece on loan two with the same money movement (what "Apply to a loan" leaves behind)
+  rt.run(`recordSettlementRow_(${JSON.stringify(two.id)}, '2026-03-01', 25, '', '', ${JSON.stringify(row.transfer_entry_id)})`);
+  const line = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0];
+  assert.equal(line.parts.length, 2, "two loans, not three lines");
+  assert.equal(line.parts.find((x) => x.loan_id === two.id).amount, 75);
+});
