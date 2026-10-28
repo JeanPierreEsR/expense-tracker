@@ -1442,6 +1442,8 @@ function listExpectedRecurringItems() {
       category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
       category_icon: cat ? cat.icon : '',
       amount: ownAmount,
+      category_id: r.category_id,
+      trip_id: r.trip_id || '',
       full_amount: Number(r.amount),   // the whole bill, for the "Mark as paid" pre-fill (a shared item's `amount` is only the owner's share)
       estimated: isVariableRecurring_(r),   // variable bill: the amount is an average, shown with "≈"
       // The occurrence's own actual (clamped) day, not the raw configured

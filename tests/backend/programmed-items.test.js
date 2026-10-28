@@ -321,6 +321,7 @@ test("The expected list gives a shared item's full bill (for the Mark as paid pr
   const it = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
   assert.equal(it.amount, 100, "owner's share");
   assert.equal(it.full_amount, 300, "whole bill");
+  assert.equal(it.category_id, r.category_id, "the entry form needs the item's category");
 });
 
 test("Mark as paid carries the split to the new entry and creates the loan", () => {

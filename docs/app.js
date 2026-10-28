@@ -92,6 +92,8 @@ let editingEntryOriginalType = null;
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+// Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
+let payingRecurringId_ = null;
 
 // ---- Currencies ----
 
@@ -2207,7 +2209,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // even when the owner themselves paid, so it's excluded here too.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
-      (selectedType === "income" || paidBy === "me") && !splits;
+      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
 
@@ -2387,6 +2389,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
       } else if (selectedType === "expense" && !created.category_id) {
         lastFormNotice_ = tr("entry.savedNoCategory");
+      }
+      // Opened from "Mark as paid": this entry IS the item's payment. It is already saved, so a failed
+      // link is only reported (a retry would make a second entry).
+      if (payingRecurringId_) {
+        try {
+          await callApi("linkEntryToRecurring", { entryId: created.id, recurringExpenseId: payingRecurringId_ });
+        } catch (linkErr) {
+          lastFormNotice_ = tr("paid.linkFailed");
+        }
       }
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
@@ -4449,7 +4460,19 @@ function openNewEntrySheet_() {
 }
 
 function closeNewEntrySheet_() {
-  saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  if (payingRecurringId_) {
+    // Opened from Mark as paid: the item's values are not a draft to come back to.
+    payingRecurringId_ = null;
+    clearEntryDraft_();
+    document.getElementById("amount").value = "";
+    document.getElementById("description").value = "";
+    selectedTagIds.clear();
+    populateTags();
+    document.getElementById("entry-trip").value = "";
+    resetSplitState();
+  } else {
+    saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  }
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
   document.getElementById("edit-entry-modal-inner").classList.remove("new-entry-sheet");
   document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
@@ -12706,6 +12729,41 @@ async function skipRecurringThisMonth_(item) {
   }
 }
 
+// "Record the payment…": opens the new-entry sheet filled in from the programmed item — its category, whole bill,
+// currency, trip and description, today's date, and its saved split — so the person only chooses who paid and
+// the account. Saving it also links the entry to the item (payingRecurringId_, see the submit handler).
+function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSplits) {
+  openNewEntrySheet_();
+  if (!newEntrySheetOpen_) return;   // another entry is being edited: nothing opened
+  payingRecurringId_ = item.id;
+  applyEntryDraft_({
+    v: 1, type: isIncome ? "income" : "expense", categoryId: item.category_id || "",
+    amount: Number(fullAmount).toFixed(2), description: item.description || "", currency,
+    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [],
+    tripId: isIncome ? "" : (item.trip_id || ""), businessPick: "", expectedPick: "",
+    igvOn: false, igvAmount: "", igvTouched: false
+  });
+  entryDateTouched_ = false;
+  document.getElementById("date").value = todayLocalISO();
+  resetSplitState();
+  if (savedSplits.length) {
+    // The saved shares as they are; scaled down only if they would exceed the whole bill.
+    const savedTotal = savedSplits.reduce((t, s) => t + s.amount, 0);
+    const scale = savedTotal > fullAmount ? fullAmount / savedTotal : 1;
+    splitMode = "custom";
+    document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+    savedSplits.forEach((s) => {
+      splitFriendIds.add(s.friend_id);
+      customSplitAmounts[s.friend_id] = String(Math.round(s.amount * scale * 100) / 100);
+    });
+    document.getElementById("split-toggle").checked = true;
+    document.getElementById("split-detail").hidden = false;
+    renderSplitFriendChips();
+    renderSplitRows();
+    renderSplitSummary();
+  }
+}
+
 // "Mark as paid…": a manual override for when automatic matching (same
 // category and currency, about the same amount, within a few days) missed the
 // real payment. Pick the entry that paid it; automatic matching stays on.
@@ -12722,47 +12780,22 @@ async function openPaidPicker_(item, currency, isIncome) {
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
     tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(fullAmount) });
-  // "Not logged yet": record the payment itself from the programmed item.
-  document.getElementById("paid-new-amount").value = Number(fullAmount).toFixed(2);
-  document.getElementById("paid-new-date").value = todayLocalISO();
-  const acct = document.getElementById("paid-new-account");
-  acct.innerHTML = `<option value="">${tr("paid.newNoAccount")}</option>` +
-    ((meta && meta.paymentMethods) || []).filter((p) => p.type !== "investment" && !pmHidden_(p))
-      .map((p) => `<option value="${p.id}">${escapeHtml(p.nickname + (p.last_4 ? ` (${p.last_4})` : ""))}</option>`).join("");
-  // The item's saved split, if any, is offered ticked; friends' shares scale with the amount typed.
-  let savedSplits = [];
-  const splitRow = document.getElementById("paid-new-split-row");
-  splitRow.hidden = true;
-  document.getElementById("paid-new-split").checked = true;
-  if (!isIncome) {
-    callApi("getRecurringExpenseSplits", { recurringExpenseId: item.id }).then((sp) => {
-      savedSplits = (sp || []).filter((s) => s.amount > 0);
-      if (!savedSplits.length) return;
-      const names = savedSplits.map((s) => ((meta.friends || []).find((f) => f.id === s.friend_id) || {}).name).filter(Boolean).join(", ");
-      document.getElementById("paid-new-split-text").textContent = tr("paid.newSplit", { names });
-      splitRow.hidden = false;
-    }).catch(() => {});
-  }
-  document.getElementById("paid-new-save").onclick = async () => {
+  // "Not logged yet": the usual entry form, filled in from the item (so it also asks who paid).
+  const recordBtn = document.getElementById("paid-new-save");
+  recordBtn.disabled = false;
+  recordBtn.onclick = async () => {
+    recordBtn.disabled = true;
     try {
-      const typed = Number(document.getElementById("paid-new-amount").value);
-      const savedTotal = savedSplits.reduce((t, s) => t + s.amount, 0);
-      const useSplit = savedSplits.length && document.getElementById("paid-new-split").checked;
-      const splits = useSplit
-        ? savedSplits.map((s) => ({ friend_id: s.friend_id, amount: Math.round(s.amount * Math.min(1, typed / Math.max(fullAmount, savedTotal)) * 100) / 100 }))
-        : [];
-      await callApi("recordRecurringPayment", {
-        splits,
-        recurringExpenseId: item.id,
-        amount: Number(document.getElementById("paid-new-amount").value),
-        date: document.getElementById("paid-new-date").value,
-        payment_method_id: acct.value
-      });
+      let savedSplits = [];
+      if (!isIncome) {
+        savedSplits = ((await callApi("getRecurringExpenseSplits", { recurringExpenseId: item.id })) || []).filter((s) => s.amount > 0);
+      }
       backdrop.hidden = true;
-      await refreshExpectedRecurring();
-      if (typeof refreshEntries === "function") refreshEntries();
+      startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSplits);
     } catch (err) {
       errorEl.textContent = err.message;
+    } finally {
+      recordBtn.disabled = false;
     }
   };
   bringModalToFront_(backdrop);
@@ -12806,11 +12839,6 @@ async function openPaidPicker_(item, currency, isIncome) {
     errorEl.textContent = tr("paid.loadFailed", { error: err.message });
   }
 }
-// Same typing rules as the entry form's amount field (dot decimal, 2 places).
-document.getElementById("paid-new-amount").addEventListener("input", (e) => {
-  const sanitized = sanitizeAmountInputValue(e.target.value);
-  if (sanitized !== e.target.value) e.target.value = sanitized;
-});
 document.getElementById("paid-picker-close").addEventListener("click", () => {
   document.getElementById("paid-picker-modal-backdrop").hidden = true;
 });
