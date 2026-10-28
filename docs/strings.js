@@ -1553,7 +1553,9 @@
     "mailHealth.title": { en: "Your bank emails may not be arriving", es: "Puede que tus correos del banco no estén llegando" },
     "mailHealth.problem.stale": { en: "The app has not been able to check your email. Last good check: {ago}.", es: "La app no ha podido revisar tu correo. Última revisión correcta: {ago}." },
     "mailHealth.problem.quota": { en: "Google has limited how much email the app may read today. It usually clears by itself within a day.", es: "Google limitó cuánto correo puede leer la app hoy. Suele resolverse solo en un día." },
-    "mailHealth.problem.auth": { en: "Google may need your approval again. Open More → Extra features to check.", es: "Puede que Google necesite tu aprobación otra vez. Abre Más → Funciones extra para revisarlo." },
+    "mailHealth.problem.auth": { en: "Google may need your approval again. Open More → Extra features, turn off “Add bank transactions automatically”, then turn it on again and confirm with Google. Your entries stay as they are.", es: "Puede que Google necesite tu aprobación otra vez. Abre Más → Funciones extra, apaga “Agregar movimientos del banco automáticamente”, vuelve a activarla y confírmalo con Google. Tus movimientos se quedan tal cual." },
+    // The owner's own copy has no Extra features screen: its approval is given in the Apps Script editor.
+    "mailHealth.problem.authOwner": { en: "Google may need your approval again. In the Apps Script editor, run any function once and approve it.", es: "Puede que Google necesite tu aprobación otra vez. En el editor de Apps Script, ejecuta cualquier función una vez y apruébala." },
     "mailHealth.problem.read_errors": { en: "Some emails could not be read. The app keeps trying.", es: "Algunos correos no se pudieron leer. La app sigue intentándolo." },
     "mailHealth.problem.time": { en: "Reading your email is taking too long. The app keeps trying.", es: "Leer tu correo está tardando demasiado. La app sigue intentándolo." },
     "mailHealth.problem.other": { en: "The app could not read your email. It keeps trying.", es: "La app no pudo leer tu correo. Sigue intentándolo." },

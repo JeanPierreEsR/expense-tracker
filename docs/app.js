@@ -6482,7 +6482,10 @@ function mailAgo_(health, at) {
 }
 function mailHealthProblemText_(health) {
   const known = ["stale", "quota", "auth", "read_errors", "time"].indexOf(health.problem) !== -1;
-  let text = tr("mailHealth.problem." + (known ? health.problem : "other"), { ago: mailAgo_(health, health.lastOk) });
+  const kind = known ? health.problem : "other";
+  // "auth": a friend's copy re-approves through More → Extra features; the owner's has no such screen (specs/review-telegram-email.md § E-mail health).
+  const key = kind === "auth" && perfIsOwnerCopy_() ? "mailHealth.problem.authOwner" : "mailHealth.problem." + kind;
+  let text = tr(key, { ago: mailAgo_(health, health.lastOk) });
   if (Number(health.lookbackDays) > 3) text += " " + tr("mailHealth.catchUp", { n: health.lookbackDays });
   return text;
 }
