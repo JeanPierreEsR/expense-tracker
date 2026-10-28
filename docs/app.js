@@ -340,7 +340,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -358,7 +358,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1443,10 +1443,11 @@ function updateRepaymentUi_() {
   const kindSelect = document.getElementById("transfer-kind");
   if (!available) kindSelect.value = "between";
   syncExchangeKindOption_(kindSelect);
+  syncUnloanKindOption_(kindSelect);
   const kind = transferKind_();
   syncExchangeInline_();
-  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange";
-  if (kind === "between" || kind === "exchange") return;
+  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange" || kind === "unloan";
+  if (kind === "between" || kind === "exchange" || kind === "unloan") return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -2267,6 +2268,22 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
           }
         }
+        // A loan's own money entry turned into a REPAYMENT (Transfer → Repayments): the loan is deleted and the repayment
+        // recorded (convertLoanToRepayment). Money that left (a loan the owner gave) can only be a repayment the owner paid,
+        // money that arrived only one received; a loan with real repayments asks keep / cancel first.
+        const loanToRepayment = !isLoanKind && !!editingLoanMovement_;
+        if (loanToRepayment) {
+          const expectedDirection = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+          if (direction !== expectedDirection) throw new Error(tr(editingLoanMovement_ === "they_owe_me" ? "loanConv.repayOut" : "loanConv.repayIn"));
+          const loanInfo = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
+          if (loanInfo && Number(loanInfo.paid) > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: loanInfo.friend, currency: loanInfo.currency, total: loanInfo.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          } else if (!confirm(tr("loanConv.confirmToRepayment"))) {
+            return;
+          }
+        }
         // A repayment's own money entry turned into a NEW LOAN: the repayment is cancelled (convertRepaymentToLoan).
         // Money that arrived can only be a loan the friend gave, money that left only one the owner gave.
         const fromRepayment = isLoanKind && !!editingRepayment_;
@@ -2296,7 +2313,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2380,14 +2397,19 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       exitEditMode();
       refreshLoans().catch(() => {});
       showFormNotice_(tr(selectedType === "expense" ? "repayConv.doneExpense" : "repayConv.doneIncome"));
-    } else if (editingEntryId && editingLoanMovement_ && selectedType !== "transfer") {
-      // "I saved this as a loan, but it was really an expense / income": one server call that removes the loan and
-      // writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the same two
-      // choices as deleting it. Blocking, like the other conversions.
-      if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("loanConv.onlyExpenseIncome"));
+    } else if (editingEntryId && editingLoanMovement_ && (selectedType !== "transfer" || transferKind_() === "unloan")) {
+      // "I saved this as a loan, but it was really an expense / income / investment / my own transfer": one server call that
+      // removes the loan and writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the
+      // same two choices as deleting it. Blocking, like the other conversions. (Transfer → "Not a loan: my own transfer".)
       // Checked before the repayments question, so nothing is asked for a conversion that would be refused anyway.
       if (selectedType === "expense" && editingLoanMovement_ === "i_owe_them") throw new Error(tr("loanConv.borrowedIsIncome"));
       if (selectedType === "income" && editingLoanMovement_ === "they_owe_me") throw new Error(tr("loanConv.lentIsExpense"));
+      // An investment follows how the money moved: a loan the owner gave left the account (a deposit), one received arrived (a withdrawal).
+      if (selectedType === "investment") {
+        if (!toPaymentMethodId) throw new Error(tr("error.pickPlatform"));
+        if (editingLoanMovement_ === "they_owe_me" && isWithdrawal) throw new Error(tr("loanConv.lentIsDeposit"));
+        if (editingLoanMovement_ === "i_owe_them" && !isWithdrawal) throw new Error(tr("loanConv.borrowedIsWithdrawal"));
+      }
       const info = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
       let repayments;
       if (info && info.hasRepayments) {
@@ -2404,12 +2426,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         entry_id: editingEntryId,
         type: selectedType,
         date,
-        amount,
+        amount: isWithdrawal ? -amount : amount,   // a withdrawal is stored negative
         currency,
         ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,   // a transfer's other account / an investment's platform ("" otherwise)
         tag_ids: tagIds,
         trip_id: tripId,
         ...businessLink,
@@ -2417,7 +2440,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       });
       exitEditMode();
       refreshLoans().catch(() => {});
-      showFormNotice_(tr(selectedType === "expense" ? "loanConv.doneExpense" : "loanConv.doneIncome"));
+      showFormNotice_(tr({ expense: "loanConv.doneExpense", income: "loanConv.doneIncome", investment: "loanConv.doneInvestment", transfer: "loanConv.doneTransfer" }[selectedType]));
     } else if (editingEntryId && (
         (editingRepayment_ && selectedType === "transfer" && editingRepayment_.friend_id && Math.abs(Number(amount) - Number(editingRepayment_.total)) > 0.004) ||
         (editingRepaymentExtra_ && editingRepaymentExtra_.transfer_entry_id && selectedType === editingEntryOriginalType && Math.abs(Number(amount) - Number(editingRepaymentExtra_.total)) > 0.004))) {
@@ -4505,6 +4528,26 @@ function updateExchangeRateLine_() {
 
 // "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
 var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
+// "Not a loan: my own transfer" — offered only while editing a loan's own money entry (the loan is deleted and the entry
+// becomes a plain transfer between the owner's accounts). Added / removed like the exchange option, never shown for other entries.
+let unloanKindOption_ = null;
+function syncUnloanKindOption_(kindSelect) {
+  const want = !!editingLoanMovement_;
+  const has = !!kindSelect.querySelector('option[value="unloan"]');
+  if (want && !has) {
+    if (!unloanKindOption_) {
+      unloanKindOption_ = document.createElement("option");
+      unloanKindOption_.value = "unloan";
+      unloanKindOption_.setAttribute("data-i18n", "transfer.kind.unloan");
+      unloanKindOption_.textContent = tr("transfer.kind.unloan");
+    }
+    kindSelect.appendChild(unloanKindOption_);
+  } else if (!want && has) {
+    if (kindSelect.value === "unloan") kindSelect.value = "between";
+    unloanKindOption_.remove();
+  }
+}
+
 function syncExchangeKindOption_(kindSelect) {
   if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
   const has = !!kindSelect.querySelector('option[value="exchange"]');
