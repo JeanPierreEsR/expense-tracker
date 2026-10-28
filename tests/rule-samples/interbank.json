@@ -11,6 +11,6 @@
   ],
   "interbank-pago-deuda": [
     { "subject": "Pago de tu tarjeta", "body": "Monto pagado S/ 200.00\nTarjeta de crédito ****1111\ncódigo de operación 777333",
-      "expect": { "type": "transfer", "amount": 200, "currency": "PEN", "description": "Pago tarjeta Interbank", "externalId": "777333" } }
+      "expect": { "type": "transfer", "amount": 200, "currency": "PEN", "description": "Pago tarjeta Interbank", "last4": "1111", "externalId": "777333" } }
   ]
 }

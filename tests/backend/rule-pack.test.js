@@ -42,7 +42,7 @@ test("anything that is not exactly the allowed shape is refused", () => {
   assert.match(errorsOf(rt, pack([withRule({ type: "gift" })])), /type/);
   assert.match(errorsOf(rt, pack([withRule({ type: "transferIfOwn" })])), /recipient/);
   assert.match(errorsOf(rt, pack([withRule({ amount: { label: "Monto", regex: ".*" } })])), /unknown field regex/);
-  assert.match(errorsOf(rt, pack([withRule({ last4: { label: "Tarjeta", kind: "iban" } })])), /card or account/);
+  assert.match(errorsOf(rt, pack([withRule({ last4: { label: "Tarjeta", kind: "iban" } })])), /card, masked or account/);
   assert.match(errorsOf(rt, pack([withRule({ subjectHas: [] })])), /short list/);
   assert.match(errorsOf(rt, pack([withRule({ skip: "yes" })])), /true or false/);
   assert.match(errorsOf(rt, pack([GOOD_RULE, GOOD_RULE])), /id used twice/);
@@ -83,7 +83,7 @@ const EQUIVALENT = [
     name: "BCP debit-card purchase",
     code: { sender: BCP, label: "Consumo tarjeta de débito" },
     rule: { id: "t1", bank: "BCP", sender: BCP, label: "Consumo tarjeta de débito", subjectHas: ["realizaste un consumo", "debito"], type: "expense", amount: { label: "Total del consumo" },
-      merchant: { label: "Empresa" }, last4: { label: "Número de Tarjeta de Débito", kind: "card" }, externalId: { label: "Número de operación" } },
+      merchant: { label: "Empresa" }, last4: { label: "Número de Tarjeta de Débito", kind: "masked" }, externalId: { label: "Número de operación" } },
     subject: "Realizaste un consumo con tu tarjeta de débito BCP",
     body: "Total del consumo: S/ 25.50\nEmpresa: Corner Cafe\nNúmero de Tarjeta de Débito: ****1234\nNúmero de operación: 000111"
   },
@@ -91,7 +91,7 @@ const EQUIVALENT = [
     name: "BCP utility bill",
     code: { sender: BCP, label: "Pago de servicios" },
     rule: { id: "t2", bank: "BCP", sender: BCP, label: "Pago de servicios", subjectHas: ["constancia de pago de servicio"], type: "expense", amount: { label: "Monto total" },
-      description: { labels: ["Empresa", "Servicio"] }, merchant: { label: "Empresa" }, last4: { label: "Cuenta de origen", kind: "card" }, externalId: { label: "Número de operación" } },
+      description: { labels: ["Empresa", "Servicio"] }, merchant: { label: "Empresa" }, last4: { label: "Cuenta de origen", kind: "masked" }, externalId: { label: "Número de operación" } },
     subject: "Constancia de pago de servicios",
     body: "Monto total: S/ 80.00\nEmpresa: Luz Test\nServicio: Recibo de luz\nCuenta de origen: ****1234\nNúmero de operación: 555111"
   },

@@ -46,6 +46,25 @@ function extractLast4_(text) {
   return m ? m[1] : null;
 }
 
+// The last four digits of a MASKED number printed after a label ("************1234", "**** 1234", "**** ****** 1234").
+// afterLabel_ cannot be used for these: it cleans the value, and cleaning deletes every "*", while extractLast4_ needs at least two of them,
+// so the digits were lost (found 2026-10-28 on the owner's real BCP, Diners and Interbank e-mails). Here the raw text is searched: the label's
+// line and the next one, after EVERY place the label appears (BCP's "Desde" is in the intro sentence AND in the data block, Diners' "Tarjeta"
+// is in "Usuario de tarjeta" too); the first place with a masked number wins. A label that is not in the e-mail at all: the whole e-mail is
+// searched, like the rules always did.
+function lastFourAfter_(body, label) {
+  if (!body) return null;
+  var re = new RegExp(label + '[^\r\n]*(?:\r?\n[^\r\n]*)?', 'gi');
+  var m, found = false;
+  while ((m = re.exec(body)) !== null) {
+    found = true;
+    var l4 = extractLast4_(m[0]);
+    if (l4) return l4;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  return found ? null : extractLast4_(body);
+}
+
 // Interbank names the debited ACCOUNT under "Cuenta cargo"/"Cuenta a cargo"
 // as a few lines ("Cuenta Simple / Soles / 000 0000000000"), not a masked
 // card, so the last four digits of that account number are what identify
@@ -104,7 +123,7 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Empresa'),
         merchant: afterLabel_(body, 'Empresa'),
-        last4: extractLast4_(afterLabel_(body, 'Número de Tarjeta de Débito') || body),
+        last4: lastFourAfter_(body, 'Número de Tarjeta de Débito'),
         externalId: afterLabel_(body, 'Número de operación')
       };
     }
@@ -120,7 +139,7 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: [afterLabel_(body, 'Empresa'), afterLabel_(body, 'Servicio')].filter(Boolean).join(' - '),
         merchant: afterLabel_(body, 'Empresa'),
-        last4: extractLast4_(afterLabel_(body, 'Cuenta de origen') || body),
+        last4: lastFourAfter_(body, 'Cuenta de origen'),
         externalId: afterLabel_(body, 'Número de operación')
       };
     }
@@ -137,7 +156,7 @@ var EMAIL_RULES = [
       return {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
-        last4: extractLast4_(afterLabel_(body, 'Desde') || body),
+        last4: lastFourAfter_(body, 'Desde'),
         externalId: afterLabel_(body, 'Número de operación')
       };
     }
@@ -371,7 +390,7 @@ var EMAIL_RULES = [
       return {
         type: 'transfer', amount: amt.amount, currency: amt.currency,
         description: 'Pago tarjeta Diners',
-        last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body),
+        last4: lastFourAfter_(body, 'Tarjeta'),
         externalId: afterLabel_(body, 'Operación:')
       };
     }
@@ -480,7 +499,7 @@ var EMAIL_RULES = [
       return {
         type: 'transfer', amount: amt.amount, currency: amt.currency,
         description: 'Pago tarjeta Interbank',
-        last4: extractLast4_(afterLabel_(body, 'Tarjeta de crédito') || body),
+        last4: lastFourAfter_(body, 'Tarjeta de crédito'),
         externalId: afterLabel_(body, 'código de operación')
       };
     }
@@ -887,6 +906,10 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     paymentMethod = fields.last4
       ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
       : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+    // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
+    // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
+    // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
+    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
   }
   // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
   if (!paymentMethod && !rule.bank && fields.last4) {

@@ -20,7 +20,7 @@ const validate = (rt, p, strict) => plain(rt.run(`rulePackValidate_(${js(typeof 
 const BCP_TWIN = {
   id: "bcp-consumo-debito", replaces: "Consumo tarjeta de débito", bank: "BCP", sender: BCP_SENDER, label: "Consumo tarjeta de débito (pack)",
   subjectHas: ["realizaste un consumo", "debito"], type: "expense", amount: { label: "Total del consumo" }, merchant: { label: "Empresa" },
-  last4: { label: "Número de Tarjeta de Débito", kind: "card" }, externalId: { label: "Número de operación" }
+  last4: { label: "Número de Tarjeta de Débito", kind: "masked" }, externalId: { label: "Número de operación" }
 };
 
 // ---- the scan tries the next matching rule when one cannot read the e-mail ----

@@ -116,7 +116,7 @@ function rulePackCheckRule_(r, where, errors, strict) {
     else {
       Object.keys(l).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.last4: unknown field ' + k); });
       rulePackText_(l.label, where + '.last4.label', errors);
-      if (['card', 'account'].indexOf(l.kind) === -1) errors.push(where + '.last4.kind: card or account');
+      if (['card', 'masked', 'account'].indexOf(l.kind) === -1) errors.push(where + '.last4.kind: card, masked or account');
     }
   }
 }
@@ -222,7 +222,9 @@ function rulePackCompile_(r) {
     if (r.last4) {
       last4 = r.last4.kind === 'account'
         ? extractAccountLast4_(body, rulePackEscape_(r.last4.label))
-        : extractLast4_(afterLabel_(body, rulePackEscape_(r.last4.label)) || body);
+        : (r.last4.kind === 'masked'
+          ? lastFourAfter_(body, rulePackEscape_(r.last4.label))
+          : extractLast4_(afterLabel_(body, rulePackEscape_(r.last4.label)) || body));
     }
     var fields = { type: r.type, amount: amt.amount, currency: amt.currency, description: description, last4: last4,
       externalId: r.externalId ? afterLabel_(body, rulePackEscape_(r.externalId.label)) : null };
