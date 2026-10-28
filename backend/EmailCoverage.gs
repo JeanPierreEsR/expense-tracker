@@ -98,7 +98,7 @@ function emailCoverageReport_(payload) {
       var body = message.getPlainBody();
       var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
       s.emails++;
-      var rule = EMAIL_RULES.filter(function (r) { return r.sender === sender; }).find(function (r) { return r.match(subject, body); });
+      var rule = emailRules_().filter(function (r) { return r.sender === sender; }).find(function (r) { return r.match(subject, body); });
       if (!rule) {
         if (looksLikeTransaction_(subject, body)) coverageAddShape_(s.noRule, subject, dateStr); else s.notTransaction++;
         return;

@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "rules": [
+    { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
+      "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
+      "merchant": { "label": "Empresa" }, "last4": { "label": "Número de Tarjeta de Débito", "kind": "masked" }, "externalId": { "label": "Número de operación" } },
+
+    { "id": "bcp-pago-servicios", "replaces": "Pago de servicios", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Pago de servicios (pack)",
+      "accountByCurrency": true, "subjectHas": ["constancia de pago de servicio"], "type": "expense", "amount": { "label": "Monto total" },
+      "merchant": { "label": "Empresa" }, "description": { "labels": ["Empresa", "Servicio"] }, "last4": { "label": "Cuenta de origen", "kind": "masked" },
+      "externalId": { "label": "Número de operación" } },
+
+    { "id": "bcp-transferencia-terceros", "replaces": "Transferencia a terceros", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Transferencia a terceros (pack)",
+      "accountByCurrency": true, "subjectHas": ["constancia de transferencia a terceros"], "type": "transferIfOwn", "amount": { "label": "Monto transferido" },
+      "recipient": { "label": "Enviado a" }, "last4": { "label": "Desde", "kind": "masked" }, "externalId": { "label": "Número de operación" } },
+
+    { "id": "diners-consumo", "replaces": "Consumo", "bank": "Diners", "sender": "avisos@dinersenlinea.pe", "label": "Consumo (pack)",
+      "type": "expense", "merchant": { "between": ["en el comercio", "por"] } },
+
+    { "id": "diners-pago-tarjeta", "replaces": "Pago de tarjeta (transferencia interna)", "bank": "Diners", "sender": "dinersenlinea@dinersclub.com.pe", "label": "Pago de tarjeta (pack)",
+      "cardIsDestination": true, "type": "transfer", "amount": { "label": "Monto" }, "description": { "text": "Pago tarjeta Diners" },
+      "last4": { "label": "Tarjeta", "kind": "masked" }, "externalId": { "label": "Operación:" } },
+
+    { "id": "interbank-pago-servicios", "replaces": "Pago de servicios", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago de servicios (pack)",
+      "subjectIs": "constancia de pago", "type": "expense", "amount": { "label": "Moneda y monto" }, "merchant": { "label": "Empresa" },
+      "last4": { "label": "Cuenta cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+
+    { "id": "interbank-transferencia", "replaces": "Transferencia", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Transferencia (pack)",
+      "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino" },
+      "last4": { "label": "Cuenta a cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+
+    { "id": "interbank-pago-deuda", "replaces": "Pago de deuda (transferencia interna)", "bank": "Interbank", "sender": "notificaciones@interbank.pe", "label": "Pago de deuda (pack)",
+      "cardIsDestination": true, "type": "transfer", "amount": { "label": "Monto pagado" }, "description": { "text": "Pago tarjeta Interbank" },
+      "last4": { "label": "Tarjeta de crédito", "kind": "masked" }, "externalId": { "label": "código de operación" } },
+
+    { "id": "sip-consumo", "replaces": "Consumo", "bank": "SIP", "sender": "no-reply@servicioalcliente.sip.pe", "label": "Consumo (pack)",
+      "subjectHas": ["realizaste un consumo"], "type": "expense", "amount": { "label": "Monto" }, "merchant": { "label": "Establecimiento" },
+      "last4": { "label": "Tarjeta Titular", "kind": "card" } },
+
+    { "id": "sip-pago-tarjeta", "replaces": "Pago de tarjeta (transferencia interna) — canonical, dedup source", "bank": "SIP", "sender": "no-reply@servicioalcliente.sip.pe", "label": "Pago de tarjeta (pack)",
+      "cardIsDestination": true, "subjectHas": ["pago de tu tarjeta de credito sip se realiz"], "type": "transfer", "amount": { "label": "Monto abonado" },
+      "description": { "text": "Pago tarjeta Sip" }, "externalId": { "label": "Número de operación" } },
+
+    { "id": "sip-agora-pago-tarjeta-ignorado", "replaces": "Pago de tarjeta — IGNORED, duplicate of servicioalcliente.sip.pe version above", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe", "label": "Pago de tarjeta, ignorar (pack)",
+      "skip": true, "bodyHas": ["operacion realizada: pago tarjeta"] },
+
+    { "id": "sip-transferencia-otro-banco", "replaces": "Transferencia a otro banco", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe", "label": "Transferencia a otro banco (pack)",
+      "bodyHas": ["transferencia a otro banco"], "type": "transferIfOwn", "amount": { "label": "Monto" }, "recipient": { "label": "Destino" },
+      "externalId": { "label": "Nro. de Operación" } }
+  ]
+}

@@ -92,7 +92,7 @@ function getSampleEmail(p) {
 function listSupportedSenders() {
   var seen = {};
   var out = [];
-  EMAIL_RULES.forEach(function (r) {
+  emailRules_().forEach(function (r) {
     if (r.skip || !r.sender) return;
     var sender = String(r.sender).toLowerCase();
     if (seen[sender]) return;
