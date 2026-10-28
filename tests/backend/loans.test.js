@@ -653,8 +653,9 @@ test("history shows one total (loans + income), a new overpayment is linked, and
   assert.equal(line().gap.amount, 30);
   assert.equal(line().gap.type, "income");
 
-  // editing the income entry (as in the Entries tab) is reflected in the total at once
-  rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 35 } });
+  // the income entry's own amount is not edited alone (the Entries tab refuses it); a change of the total goes through the sheet
+  assert.throws(() => rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 35 } }), /Repayment history/);
+  rt.api("reassignRepayment", { id: line().id, loan_ids: [one.id], limit: true, amount: 135 });
   assert.equal(line().amount, 135);
 
   // the sheet edits the total: 130 with the loan limited -> the same income entry becomes 30
