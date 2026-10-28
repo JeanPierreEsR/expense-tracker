@@ -96,13 +96,15 @@ function deliverNotice_(kind, key, text) {
 // the checks run, so two near-simultaneous callers do the work once. The checks are slow on a real Google Sheet (seconds, not milliseconds),
 // hence the gaps; the app asks in the background and never waits for the answer to show itself.
 var ALERT_CHECK_LAST_KEY_ = 'ALERT_CHECK_LAST_AT';
-var ALERT_CHECK_APP_GAP_MS_ = 2 * 60 * 1000;
+var ALERT_CHECK_APP_GAP_MS_ = 2 * 60 * 1000;      // opening, coming back, pulling down
+var ALERT_CHECK_CHANGE_GAP_MS_ = 30 * 1000;       // a few seconds after the person saved something that can cross an alert: sooner, so it shows up fast
 var ALERT_CHECK_TIMER_GAP_MS_ = 50 * 60 * 1000;   // the same rhythm as runAutomation's hourly steps (Triggers.gs heavyStepsDue_)
 
-// source: 'app' or 'timer'. Returns { ran: false, reason: 'recent' } or { ran: true, failed: <how many of the three threw> }; never throws.
+// source: 'app', 'change' (the app, right after a save) or 'timer'. Returns { ran: false, reason: 'recent' } or
+// { ran: true, failed: <how many of the three threw> }; never throws.
 function checkAlertsGuarded_(source) {
   var props = PropertiesService.getScriptProperties();
-  var gap = source === 'app' ? ALERT_CHECK_APP_GAP_MS_ : ALERT_CHECK_TIMER_GAP_MS_;
+  var gap = source === 'timer' ? ALERT_CHECK_TIMER_GAP_MS_ : source === 'change' ? ALERT_CHECK_CHANGE_GAP_MS_ : ALERT_CHECK_APP_GAP_MS_;
   var now = Date.now();
   var last = Number(props.getProperty(ALERT_CHECK_LAST_KEY_) || 0);
   if (last && now >= last && now - last < gap) return { ran: false, reason: 'recent' };
@@ -117,9 +119,9 @@ function checkAlertsGuarded_(source) {
 // ---- What the app calls ----
 
 // The app's "look at my alerts now" call: runs the checks (unless one ran a moment ago) and answers with the open notices, so the app needs
-// one request instead of two. A failed check is never an error for the person.
-function checkAlertsNow() {
-  var run = checkAlertsGuarded_('app');
+// one request instead of two. A failed check is never an error for the person. payload.after_change: the app asks right after a save.
+function checkAlertsNow(payload) {
+  var run = checkAlertsGuarded_(payload && payload.after_change === true ? 'change' : 'app');
   var out = listNotices();
   out.ran = run.ran;
   if (!run.ran) out.reason = run.reason;

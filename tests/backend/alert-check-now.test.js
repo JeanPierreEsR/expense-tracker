@@ -45,6 +45,20 @@ test("a second check within two minutes is skipped, but still answers with the n
   assert.ok(friend);
 });
 
+test("right after a save the server waits only 30 seconds, so a crossing shows up fast", () => {
+  const { rt } = noTimerApp();
+  overdueLoan(rt);
+  rt.api("checkAlertsNow");
+  const count = rt.api("listNotices").notices.length;
+  overdueLoan(rt, "2020-03-01", 50);
+  olderThan(rt, 40 * 1000);
+  assert.equal(rt.api("checkAlertsNow").ran, false, "opening the app 40 s later still waits (two minutes)");
+  const out = rt.api("checkAlertsNow", { after_change: true });
+  assert.equal(out.ran, true, "but a check right after a save goes through");
+  assert.ok(out.notices.length > count);
+  assert.equal(rt.api("checkAlertsNow", { after_change: true }).ran, false, "and not twice within 30 s");
+});
+
 test("the claim is written before the checks run, so a second caller arriving at once does not repeat them", () => {
   const { rt } = noTimerApp();
   overdueLoan(rt);

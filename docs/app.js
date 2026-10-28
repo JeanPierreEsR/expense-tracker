@@ -346,7 +346,14 @@ const ONCE_ACTIONS = new Set([
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
-  checkEmailsNow: 120000 };   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
+
+// Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
+// look at the alerts (checkAlertsSoon_, in the Alerts section below).
+const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+  "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -357,7 +364,11 @@ function newRequestId_() {
 let perfInflight_ = 0;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
   perfInflight_++;
-  try { return await callApiOnce_(action, payload, attempt, startedAt); } finally { perfInflight_--; }
+  try {
+    const out = await callApiOnce_(action, payload, attempt, startedAt);
+    if (ALERT_CHANGING_ACTIONS.has(action)) checkAlertsSoon_();   // something that can cross a budget, trip or loan alert was just saved
+    return out;
+  } finally { perfInflight_--; }
 }
 
 async function callApiOnce_(action, payload, attempt, startedAt) {
@@ -6458,7 +6469,7 @@ async function checkEmailsNow_(force) {
   }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(); }
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(true); }
 });
 
 // ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----
@@ -6518,17 +6529,34 @@ document.getElementById("bm-check-btn").addEventListener("click", (e) => mailChe
 
 // ---- Alerts: budget, trip and loan alerts land here (backend/Notices.gs); Telegram is an extra channel, not the only one ----
 // The Home "Alerts" card lists the notices not yet dismissed. Asked for in the background when the app opens, comes back to the front or is
-// pulled down (the timer makes them every 15 minutes), only when this backend has them (capabilities.notices; an older one would answer
-// "Unknown action" and make the app think it needs an update).
-let notices_ = [], noticesMore_ = 0;
-async function loadNotices_() {
-  if (!meta || !(meta.capabilities && meta.capabilities.notices)) return;
+// pulled down, only when this backend has them (capabilities.notices; an older one would answer "Unknown action" and make the app think it
+// needs an update). Where the backend can also LOOK for new alerts when asked (capabilities.alertCheck), those asks are a check instead:
+// a copy with no timer gets its alerts this way, and one with a timer gets them sooner. The same reply carries the notices.
+// `check`: false = just list; true = open / come back / pull down; "change" = a few seconds after a save (the server waits less between those).
+let notices_ = [], noticesMore_ = 0, alertCheckBusy_ = false;
+async function loadNotices_(check) {
+  const caps = meta && meta.capabilities;
+  if (!caps || !caps.notices) return;
+  const asking = !!check && !!caps.alertCheck;
+  if (asking) {
+    if (alertCheckBusy_) return;
+    alertCheckBusy_ = true;
+  }
   try {
-    const out = await callApi("listNotices", {});
+    const out = await callApi(asking ? "checkAlertsNow" : "listNotices", check === "change" && asking ? { after_change: true } : {});
     notices_ = (out && out.notices) || [];
     noticesMore_ = (out && out.more) || 0;
   } catch (err) { return; }   // a background extra: the card just stays as it was
+  finally { if (asking) alertCheckBusy_ = false; }
   renderNotices_();
+}
+// After a save that can cross an alert (ALERT_CHANGING_ACTIONS, next to LONG_ACTIONS) a check follows a few seconds later: bursts of saves
+// become one check, and the server still limits how often it really looks.
+let alertCheckTimer_ = null;
+function checkAlertsSoon_() {
+  if (!meta || !(meta.capabilities && meta.capabilities.alertCheck)) return;
+  clearTimeout(alertCheckTimer_);
+  alertCheckTimer_ = setTimeout(() => loadNotices_("change"), 5000);
 }
 function renderNotices_() {
   const card = document.getElementById("notices-card");
@@ -6761,7 +6789,7 @@ async function init() {
       perfRecordStartup_("open→usable", performance.now());
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
-    loadNotices_();           // likewise
+    loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6833,7 +6861,7 @@ async function init() {
       await refreshEntryList();
       await refreshReviewQueue();
       checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
-      loadNotices_();
+      loadNotices_(true);
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
