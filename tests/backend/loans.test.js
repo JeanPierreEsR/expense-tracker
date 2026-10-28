@@ -433,3 +433,80 @@ test("undoing the cancel-out of a refund loan reopens room, so a repayment can t
   assert.equal(paidOn(rt, sar.id), 0, "Sarcletti is free of it");
   assert.ok(Math.abs(paidOn(rt, bao.id) - (0.01 + 171.32)) < 0.005);
 });
+
+// ---- "Paid earlier, no loan": wording, flag, and applying it to a loan ----
+test("a payment kept from a deleted loan is worded 'Paid earlier, no loan' and remembers its repayment", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);   // 164.14 on the first loan, 301.56 on Bao
+
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+  assert.match(held.description, /^Paid earlier, no loan: Cash loan 457 \(deleted\)\. .* had paid PEN 301\.56$/);
+  const sources = JSON.parse(held.unapplied_sources);
+  assert.equal(Object.keys(sources).length, 1, "tied to the one repayment it came from");
+  assert.equal(Object.values(sources)[0], 301.56);
+});
+
+test("'Apply to a loan' attaches the payment to the selected loans and the history shows it applied again", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+  const newBao = cashLoan(rt, data, friend, 457, "2026-09-22");   // re-registered
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 301.56);
+
+  const out = rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [newBao.id] });
+
+  assert.equal(out.applied, 301.56);
+  assert.equal(paidOn(rt, newBao.id), 301.56);
+  assert.equal(loansOf(rt, friend.id).some((l) => l.id === held.id), false, "nothing left, so the 'paid earlier' loan is gone");
+  const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
+  assert.equal(h.repayments.length, 1, "still one repayment of 465.70");
+  assert.equal(h.repayments[0].amount, 465.70);
+  assert.equal(h.repayments[0].unapplied, 0);
+});
+
+test("applying only part leaves the rest as 'paid earlier'; a loan with room is required", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const bao = cashLoan(rt, data, friend, 300, "2026-09-22");
+  repay(rt, data, friend, 300);
+  rt.api("deleteLoan", { id: bao.id, repayments: "keep" });
+  const small = cashLoan(rt, data, friend, 100, "2026-10-01");
+  const held = loansOf(rt, friend.id).find((l) => l.direction === "i_owe_them");
+
+  const out = rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [small.id] });
+
+  assert.equal(out.applied, 100);
+  assert.equal(out.left, 200);
+  assert.equal(Number(rt.rows("Loans").find((l) => l.id === held.id).amount), 200);
+  assert.throws(() => rt.api("applyUnappliedPayment", { id: held.id, loan_ids: [small.id] }), "the loan is full now");
+  assert.throws(() => rt.api("applyUnappliedPayment", { id: small.id, loan_ids: [] }), "an ordinary loan is not a payment");
+});
+
+test("a 'Refund:' loan made by an earlier release is reworded and matched to its repayment", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  cashLoan(rt, data, friend, 164.14, "2026-09-17");
+  const bao = cashLoan(rt, data, friend, 457, "2026-09-22");
+  repay(rt, data, friend, 465.70);
+  // what the earlier release left: Bao and its repayment rows gone, a plain "Refund: …" loan, no flag column yet
+  rt.run(`deleteRowsWhere_('Settlements', function (s) { return s.loan_id === ${JSON.stringify(bao.id)}; }); deleteRowsWhere_('Loans', function (l) { return l.id === ${JSON.stringify(bao.id)}; });`);
+  rt.run(`appendRowObject('Loans', { id: 'old-refund', friend_id: ${JSON.stringify(friend.id)}, direction: 'i_owe_them', origin: 'cash', entry_id: '', amount: 301.56, currency: 'PEN', date: '2026-10-27', due_date: '', payment_method_id: '', description: 'Refund: Taxi ride was deleted, Ana Lo* had repaid PEN 301.56', status: 'outstanding', transfer_entry_id: '' })`);
+
+  const loans = rt.api("getFriendLoanDetail", { friendId: friend.id });   // first read creates the column and upgrades the row
+
+  const old = loans.find((l) => l.id === "old-refund");
+  assert.equal(old.description, "Paid earlier, no loan: Taxi ride (deleted). Ana Lo* had paid PEN 301.56");
+  assert.equal(Object.keys(JSON.parse(old.unapplied_sources)).length, 1, "matched to the 465.70 repayment");
+  const target = cashLoan(rt, data, friend, 400, "2026-09-22");
+  rt.api("applyUnappliedPayment", { id: "old-refund", loan_ids: [target.id] });
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].unapplied, 0);
+});
