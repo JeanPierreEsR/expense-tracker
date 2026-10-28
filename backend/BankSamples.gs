@@ -17,6 +17,7 @@
 
 var BANK_SAMPLES_SHEET_ = 'Bank Samples';
 var BANK_SAMPLE_HEADERS_ = ['received_at', 'install_id', 'label', 'sender', 'subject', 'language', 'app_version', 'how', 'text'];
+var BANK_SAMPLE_KINDS_ = ['purchase', 'transfer', 'deposit'];
 var BANK_SAMPLE_MAX_TEXT_ = 6000;
 var BANK_SAMPLE_MAX_SUBJECT_ = 200;
 var BANK_SAMPLE_MAX_PER_INSTALL_PER_DAY_ = 10;
@@ -146,6 +147,10 @@ function reportBankSample_(p) {
   var language = p.language === 'es' ? 'es' : 'en';
   var app = /^[0-9A-Za-z:.\-]{1,30}$/.test(String(p.app || '')) ? String(p.app) : '';
   var how = p.how === 'pasted' ? 'pasted' : 'picked';
+  // Which kind of e-mail the person was asked for (guided sending). Kept in the existing "how" column ("picked:purchase")
+  // so the tab's columns do not change; anything outside the three kinds is simply not recorded.
+  var kind = BANK_SAMPLE_KINDS_.indexOf(p.kind) >= 0 ? p.kind : '';
+  if (kind) how += ':' + kind;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(8000)) throw codedError_('sample_busy', 'Busy, try again in a moment.');
@@ -168,7 +173,7 @@ function reportBankSample_(p) {
   // The Sheet row is the record; the Telegram message is the heads-up. A Telegram failure never loses the sample.
   try {
     var shown = text.length > BANK_SAMPLE_TELEGRAM_CHARS_ ? text.substring(0, BANK_SAMPLE_TELEGRAM_CHARS_) + '\n[…]' : text;
-    sendTelegramText_(tr_('bankSample.notice', { label: label, sender: sender, subject: subject || '-', text: shown, demand: bankSampleDemandLine_(sheet, sender) }));
+    sendTelegramText_(tr_('bankSample.notice', { label: label, kind: kind ? tr_('bankSample.kind.' + kind) : '', sender: sender, subject: subject || '-', text: shown, demand: bankSampleDemandLine_(sheet, sender) }));
   } catch (err) {
     console.error('bank sample notice: ' + err);
   }

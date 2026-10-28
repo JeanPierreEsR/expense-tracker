@@ -1919,8 +1919,9 @@
         </div>
         <div id="bs-step-2" hidden>
           <p class="hint" id="bs-msg-2" role="status" style="color:#d64545;font-weight:600;"></p>
+          <p id="bs-kind-line"><strong></strong></p>
           <div id="bs-pick">
-            <p class="hint" data-i18n="bankSample.pickTitle">Pick an email that shows a transaction (a purchase, a transfer…)</p>
+            <p class="hint" data-i18n="bankSample.pickTitle">Pick one of your emails below.</p>
             <div id="bs-list" class="more-list"></div>
           </div>
           <div id="bs-paste-box" hidden>
@@ -1928,6 +1929,7 @@
             <textarea id="bs-paste-text" rows="8" data-i18n-placeholder="bankSample.pastePlaceholder" placeholder="Open the email, select all the text, copy it and paste it here."></textarea>
             <button type="button" class="primary" id="bs-paste-go" data-i18n="bankSample.continue">Continue</button>
           </div>
+          <button type="button" class="cancel-edit-btn" id="bs-skip-kind" data-i18n="bankSample.noneOfKind">I don't have one of these</button>
           <button type="button" class="cancel-edit-btn" id="bs-back-2"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-3" hidden>
@@ -1945,9 +1947,11 @@
           <button type="button" class="cancel-edit-btn" id="bs-back-3"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-4" hidden>
-          <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
-          <p class="hint" data-i18n="bankSample.doneBody">I received it. I will let you know when your bank is added. Each kind of email helps (a purchase, a transfer, a deposit…), so send another if you can.</p>
-          <button type="button" class="primary" id="bs-another" data-i18n="bankSample.another">Send another email</button>
+          <p><strong id="bs-done-title"></strong></p>
+          <p class="hint" id="bs-done-body"></p>
+          <p class="hint" data-i18n="bankSample.kindsIntro">Each kind of email helps. Tap one to send it, and skip any you don't have.</p>
+          <div id="bs-kinds" class="more-list"></div>
+          <button type="button" class="primary" id="bs-another" data-i18n="bankSample.finish">I'm done</button>
         </div>
       </div>
     </div>

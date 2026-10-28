@@ -7810,7 +7810,7 @@ fbEl_("fb-send").addEventListener("click", async () => {
 // text that would be sent (editable) → 4 thanks. The hiding is done here (docs/bank-sample.js) BEFORE anything is sent;
 // the owner's backend (BankSamples.gs) hides digits and addresses a second time. A friend's phone is not signed in to the
 // owner's copy, so the sample goes the same way the app-speed reports do (perfReportUrl_).
-const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false };
+const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "" };
 
 // ---- "Your bank is ready": told once, after an update brings the rule for a bank the person sent an e-mail from ----
 // The phone keeps the sender address of every sample it sent (localStorage "bankSamplesSent", the address only). When the app's
@@ -7859,9 +7859,40 @@ function bsMsg_(text) {
 // A reason the server gave in words ("e-mail reading is off…") is shown as it is; anything else gets the generic sentence.
 const bsReason_ = (e, fallbackKey) => (e && e.code && String(e.code).indexOf("sample_") === 0 && e.message ? e.message : tr(fallbackKey));
 function bsStep_(n) { [1, 2, 3, 4].forEach((i) => { bsEl_("bs-step-" + i).hidden = i !== n; }); bsMsg_(""); }
+// Guided sending: three kinds of e-mail, asked one after another. A kind that was sent gets a tick; one that was not sent gets
+// nothing (never a cross), so the list can only encourage. Ticks are kept per bank address on this phone (bankSamplesSent).
+const bsKindName_ = (k) => tr("bankSample.kindName." + k);
+const bsCap_ = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+function bsSetKind_(kind) {
+  bs_.kind = kind;
+  bsEl_("bs-kind-line").querySelector("strong").textContent = kind ? tr("bankSample.askKind", { kind: bsKindName_(kind) }) : "";
+  bsEl_("bs-kind-line").hidden = !kind;
+}
+function bsRenderKinds_(skipped) {
+  const sent = BankSample.kindsSent(bankSentList_(), bs_.sender);
+  const box = bsEl_("bs-kinds");
+  box.textContent = "";
+  BankSample.KINDS.forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "more-list-item";
+    b.textContent = (sent.indexOf(k) >= 0 ? "✓ " : "○ ") + bsCap_(bsKindName_(k));
+    b.addEventListener("click", () => bsStartKind_(k));
+    box.appendChild(b);
+  });
+  const all = !BankSample.nextKind(sent);
+  bsEl_("bs-done-title").textContent = tr(skipped ? "bankSample.skipTitle" : "bankSample.doneTitle");
+  bsEl_("bs-done-body").textContent = tr(all ? "bankSample.allSent" : skipped ? "bankSample.skipBody" : "bankSample.doneBody");
+}
+// Back to the picking step for one kind of e-mail (the sender is already known).
+function bsStartKind_(kind) {
+  bsSetKind_(kind);
+  if (!bsEl_("bs-find").hidden) bsEl_("bs-find").click();
+  else bsEl_("bs-paste").click();
+}
 function openBankSampleModal_(opts) {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
-  Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false });
+  Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "" });
   I18n.applyStatic(backdrop);
   bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
@@ -7879,6 +7910,8 @@ function bsSenderOrWarn_() {
   const sender = BankSample.parseSender(bsEl_("bs-sender").value);
   if (!sender) { bsMsg_(tr("bankSample.badSender")); return ""; }
   bs_.sender = sender;
+  // Asked in order; all ticked: start again from the first. A kind the person tapped in the checklist is kept.
+  if (!bs_.kind) bsSetKind_(BankSample.nextKind(BankSample.kindsSent(bankSentList_(), sender)) || BankSample.KINDS[0]);
   return sender;
 }
 function bsShowPreview_() {
@@ -7935,9 +7968,10 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   bsShowPreview_();
 });
 bsEl_("bs-redo").addEventListener("click", bsRedo_);
-bsEl_("bs-back-2").addEventListener("click", () => bsStep_(1));
+bsEl_("bs-back-2").addEventListener("click", () => { bsSetKind_(""); bsStep_(1); });
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
-bsEl_("bs-another").addEventListener("click", () => bsStep_(1));
+bsEl_("bs-another").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
+bsEl_("bs-skip-kind").addEventListener("click", () => { bsRenderKinds_(true); bsStep_(4); });
 bsEl_("bs-close").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
 bsEl_("bs-send").addEventListener("click", async () => {
   if (bs_.sending) return;
@@ -7954,12 +7988,12 @@ bsEl_("bs-send").addEventListener("click", async () => {
       body: JSON.stringify({ action: "reportBankSample", payload: {
         install: perfInstallId_(), label: PerfShare.cleanLabel(bsEl_("bs-name").value), sender: bs_.sender,
         subject: bsEl_("bs-subject").textContent, text: bsEl_("bs-preview").value, language: I18n.getLang(),
-        app: appRelease_(), how: bs_.how
+        app: appRelease_(), how: bs_.how, kind: bs_.kind
       } }),
       signal: controller.signal
     });
     const json = await res.json();
-    if (json && json.ok) { bankSentSave_(BankSample.rememberSender(bankSentList_(), bs_.sender, Date.now())); bsStep_(4); return; }
+    if (json && json.ok) { bankSentSave_(BankSample.rememberSender(bankSentList_(), bs_.sender, Date.now(), bs_.kind)); bsRenderKinds_(false); bsStep_(4); return; }
     bsMsg_(json && json.code === "sample_busy" ? tr("bankSample.tooMany") : tr("bankSample.sendFailed"));
   } catch (e) {
     bsMsg_(tr("bankSample.sendFailed"));
