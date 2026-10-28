@@ -324,6 +324,7 @@ function routeAction(action, payload) {
     case 'getStatementAttachment': return getStatementAttachment(payload);
     case 'listPerfAppVersions': return listPerfAppVersions_();
     case 'listStatementSamples': return listStatementSamples_(payload);
+    case 'rulePackTwinCheck': return rulePackTwinCheck_(payload);
     case 'findStatementEmails': return findStatementEmails(payload);
     case 'addStatementsToInbox': return addStatementsToInbox(payload);
     case 'rememberStatementSender': return rememberStatementSender(payload);
@@ -392,6 +393,7 @@ function routeAction(action, payload) {
     case 'deleteStatementFormat': return deleteStatementFormat(payload);
     case 'listPendingEntries': return listPendingEntries();
     case 'listSupportedSenders': return listSupportedSenders();
+    case 'setRulePack': return setRulePack(payload);
     case 'confirmEntry': {
       confirmEntryWithLearning_(payload.id);
       // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
@@ -604,7 +606,7 @@ function getMeta() {
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     friends: getFriendsWithLastUsed_(),
     payors: getPayorRows_(),
-    settings: getSettingsMap(),
+    settings: settingsForApp_(),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
     capabilities: getCapabilities_(),
@@ -696,6 +698,13 @@ function getStartupBundle(payload) {
   } finally {
     ROWS_MEMO_ = null;
   }
+}
+
+// What the phone gets of the Settings: all of them except the rule pack, which can be 40,000 characters and only the backend reads.
+function settingsForApp_() {
+  var map = getSettingsMap();
+  delete map[RULE_PACK_SETTING_];
+  return map;
 }
 
 function getSettingsMap() {

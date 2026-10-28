@@ -1,0 +1,18 @@
+{
+  "sip-consumo": [
+    { "subject": "Realizaste un consumo con tu tarjeta SIP", "body": "Monto S/ 20.00\nEstablecimiento Bodega Prueba\nTarjeta Titular ****2222",
+      "expect": { "type": "expense", "amount": 20, "currency": "PEN", "merchant": "Bodega Prueba" } }
+  ],
+  "sip-pago-tarjeta": [
+    { "subject": "Tu pago de tu tarjeta de crédito SIP se realizó con éxito", "body": "Monto abonado S/ 150.00\nNúmero de operación 444555",
+      "expect": { "type": "transfer", "amount": 150, "currency": "PEN", "description": "Pago tarjeta Sip", "externalId": "444555" } }
+  ],
+  "sip-agora-pago-tarjeta-ignorado": [
+    { "subject": "Operación realizada", "body": "Operación realizada:\n pago tarjeta SIP", "expect": {} },
+    { "subject": "Operación realizada", "body": "Operación realizada: enviar a celular", "matches": false }
+  ],
+  "sip-transferencia-otro-banco": [
+    { "subject": "Operación realizada", "body": "Transferencia a otro banco\nMonto S/ 60.00\nDestino Persona Prueba\nNro. de Operación 333444",
+      "expect": { "type": "expense", "needsReview": true, "amount": 60, "currency": "PEN", "description": "Persona Prueba", "externalId": "333444" } }
+  ]
+}

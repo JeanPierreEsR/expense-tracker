@@ -1,0 +1,10 @@
+{
+  "diners-consumo": [
+    { "subject": "Aviso de consumo", "body": "Se realizó un consumo en el comercio Tienda Prueba por S/ 12.30 con tu tarjeta.",
+      "expect": { "type": "expense", "amount": 12.3, "currency": "PEN", "merchant": "Tienda Prueba", "description": "Tienda Prueba" } }
+  ],
+  "diners-pago-tarjeta": [
+    { "subject": "Comprobante de pago", "body": "Monto S/ 300.00\nTarjeta ****4321\nOperación: 100200",
+      "expect": { "type": "transfer", "amount": 300, "currency": "PEN", "description": "Pago tarjeta Diners", "last4": "4321", "externalId": "100200" } }
+  ]
+}
