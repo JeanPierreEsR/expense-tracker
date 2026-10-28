@@ -22,7 +22,11 @@ var BUSINESS_TABLES_ = {
   // Step 3A: money a client still owes on a project (a reminder, never income). due_date is text (see DATE_LIKE_COLUMNS).
   'Expected Payments': ['id', 'project_id', 'client_id', 'amount', 'currency', 'due_date', 'invoice_no', 'note', 'status', 'igv_included'],
   // Step 3B: IGV paid to the tax office. Information only (never an expense, never touches an account); `date` is text.
-  'IGV Payments': ['id', 'company_id', 'date', 'amount', 'currency', 'note']
+  'IGV Payments': ['id', 'company_id', 'date', 'amount', 'currency', 'note'],
+  // Step 4: figures typed "as of" a date, so nobody re-enters the past (BusinessOpenings.gs), and the accountant's own figures for a
+  // date, kept to compare with the app's (BusinessStatement.gs). Same shape; project_id blank = the company's own level. `as_of` is text.
+  'Business Openings': ['id', 'project_id', 'company_id', 'currency', 'as_of', 'income', 'igv_collected', 'costs', 'igv_credit', 'note'],
+  'Accountant Figures': ['id', 'project_id', 'company_id', 'currency', 'as_of', 'income', 'igv_collected', 'costs', 'igv_credit', 'note']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };
@@ -69,6 +73,7 @@ function ensureBusinessSheets_() {
     if (name === 'Expected Payments') sheet.getRange(1, headers.indexOf('due_date') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
     if (name === 'IGV Payments') sheet.getRange(1, headers.indexOf('date') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
     if (name === 'Companies') sheet.getRange(1, headers.indexOf('tax_id') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    if (name === 'Business Openings' || name === 'Accountant Figures') sheet.getRange(1, headers.indexOf('as_of') + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
   });
   // Step 3B on a copy whose Companies / Expected Payments tabs already existed (the columns are added on first use).
   ensureBusinessColumn_('Companies', 'igv_enabled', false);
@@ -320,6 +325,7 @@ function deleteCompany(payload) {
   if (hasProjects || entriesUsing_('company_id', id) > 0) throw new Error(tr_('business.errCompanyInUse'));
   ensureBusinessSheets_();
   deleteRowsWhere_('IGV Payments', function (row) { return String(row.company_id) === id; });   // information-only records go with it
+  deleteOpeningsFor_('', id);
   deleteRowsWhere_('Companies', function (row) { return String(row.id) === id; });
   return { done: true };
 }
@@ -396,6 +402,7 @@ function deleteProject(payload) {
     }
     deleteRowsWhere_('Project Budgets', function (row) { return String(row.project_id) === id; });
     deleteExpectedForProject_(id);
+    deleteOpeningsFor_(id, '');   // its typed opening figures and the accountant's go with it (its entries come back to the company level)
     deleteRowsWhere_('Projects', function (row) { return String(row.id) === id; });
   });
   return { done: true };
@@ -407,7 +414,10 @@ function round2_(n) { return Math.round(n * 100) / 100; }
 
 // The confirmed expense/income entries a screen counts: income in full, an expense at the owner's share, both in
 // the entry's own currency. `match` picks the entries; the period is optional (blank = all time).
-function businessRows_(match, startDate, endDate) {
+// Step 4: an entry dated on or before its project's (or company level's) opening date, in the opening's currency, is left out —
+// the typed opening figures already contain it. `keepOpened` (the company IGV screen) counts them anyway.
+function businessRows_(match, startDate, endDate, keepOpened) {
+  var cutoffs = keepOpened ? {} : openingCutoffs_();
   var splitSum = {};
   getAllRows('Entry Splits').forEach(function (s) {
     splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount);
@@ -419,8 +429,11 @@ function businessRows_(match, startDate, endDate) {
     if (startDate && e.date < startDate) return;
     if (endDate && e.date > endDate) return;
     if (!match(e)) return;
+    var currency = e.currency || homeCurrency_();
+    var cutoff = cutoffs[openingKey_(e.project_id, e.company_id, currency)];
+    if (cutoff && String(e.date) <= cutoff) return;
     var own = e.type === 'expense' ? Number(e.amount) - (splitSum[e.id] || 0) : Number(e.amount);
-    rows.push({ entry: e, own: own, igv: igvShareOf_(e, own), currency: e.currency || homeCurrency_() });
+    rows.push({ entry: e, own: own, igv: igvShareOf_(e, own), currency: currency });
   });
   return rows;
 }
@@ -445,9 +458,17 @@ function orderedCurrencies_(map) {
 }
 
 // Income, costs and margin per currency (never converted), plus one optional converted total.
-function businessTotals_(rows, budgetByCurrency) {
+function businessTotals_(rows, budgetByCurrency, openings) {
   var cur = {};
   var approx = { income: 0, costs: 0, missing: 0 };
+  // Step 4: figures typed "as of" a date (already limited to the period by the caller) join the totals as one lump per currency.
+  (openings || []).forEach(function (o) {
+    var c = cur[o.currency] || (cur[o.currency] = { currency: o.currency, income: 0, costs: 0, igvIn: 0, igvOut: 0 });
+    c.income += o.income; c.costs += o.costs; c.igvIn += o.igv_collected; c.igvOut += o.igv_credit;
+    var rate = getRateForEntryCurrency_(o.currency, o.as_of);
+    if (rate == null) { approx.missing++; return; }
+    approx.income += o.income * rate; approx.costs += o.costs * rate;
+  });
   // Step 3B: every figure here is WITHOUT IGV (the entry's own amount minus the IGV inside it); the IGV is reported apart.
   rows.forEach(function (r) {
     var c = cur[r.currency] || (cur[r.currency] = { currency: r.currency, income: 0, costs: 0, igvIn: 0, igvOut: 0 });
@@ -476,8 +497,14 @@ function businessTotals_(rows, budgetByCurrency) {
   return {
     currencies: currencies,
     approx: { currency: homeCurrency_(), income: round2_(approx.income), costs: round2_(approx.costs), margin: round2_(approx.income - approx.costs), missing: approx.missing },
-    entryCount: rows.length
+    entryCount: rows.length,
+    openingCount: (openings || []).length
   };
+}
+
+// The typed opening figures a screen counts: the ones `match` picks, limited to the period that contains their date.
+function openingsFor_(match, startDate, endDate) {
+  return openingsInPeriod_(businessOpenings_().filter(match), startDate, endDate);
 }
 
 // Costs and income by category, one list per currency.
@@ -523,11 +550,12 @@ function getProjectDetail(payload) {
   if (!project) throw new Error(tr_('business.projectNotFound'));
   var company = companyById_(project.company_id);
   var rows = businessRows_(function (e) { return String(e.project_id || '') === String(project.id); }, payload.startDate, payload.endDate);
-  var totals = businessTotals_(rows, budgetsOfProject_(project.id));
+  var totals = businessTotals_(rows, budgetsOfProject_(project.id), openingsFor_(function (o) { return o.project_id === String(project.id); }, payload.startDate, payload.endDate));
   return {
     project: { id: project.id, name: project.name, emoji: project.emoji, status: project.status || 'active', company_id: project.company_id, client_id: project.client_id || '' },
     company: company ? { id: company.id, name: company.name, emoji: company.emoji, igv_enabled: String(company.igv_enabled || ''), tax_id: String(company.tax_id || '') } : null,
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
+    openings: businessOpenings_().filter(function (o) { return o.project_id === String(project.id); }).map(openingOut_),
     byCategory: businessByCategory_(rows),
     expected: listExpectedPayments({ project_id: project.id, today: payload.today }).items
   };
@@ -538,17 +566,19 @@ function getCompanyDetail(payload) {
   var company = companyById_(payload && payload.id);
   if (!company) throw new Error(tr_('business.companyNotFound'));
   var rows = businessRows_(function (e) { return String(e.company_id || '') === String(company.id); }, payload.startDate, payload.endDate);
-  var totals = businessTotals_(rows, null);
+  var totals = businessTotals_(rows, null, openingsFor_(function (o) { return o.company_id === String(company.id); }, payload.startDate, payload.endDate));
   var projects = getProjectRows_().filter(function (p) { return String(p.company_id) === String(company.id); }).map(function (p) {
     var mine = rows.filter(function (r) { return String(r.entry.project_id || '') === String(p.id); });
-    var t = businessTotals_(mine, budgetsOfProject_(p.id));
+    var t = businessTotals_(mine, budgetsOfProject_(p.id), openingsFor_(function (o) { return o.project_id === String(p.id); }, payload.startDate, payload.endDate));
     return { id: p.id, name: p.name, emoji: p.emoji, status: p.status || 'active', currencies: t.currencies, approx: t.approx, entryCount: t.entryCount };
   });
   var levelRows = rows.filter(function (r) { return !r.entry.project_id; });
-  var level = businessTotals_(levelRows, null);
+  var levelOpenings = function (o) { return o.company_id === String(company.id) && !o.project_id; };
+  var level = businessTotals_(levelRows, null, openingsFor_(levelOpenings, payload.startDate, payload.endDate));
   return {
     company: { id: company.id, name: company.name, emoji: company.emoji, igv_enabled: String(company.igv_enabled || ''), tax_id: String(company.tax_id || '') },
     currencies: totals.currencies, approx: totals.approx, entryCount: totals.entryCount,
+    openings: businessOpenings_().filter(levelOpenings).map(openingOut_),
     projects: projects,
     companyLevel: { currencies: level.currencies, approx: level.approx, entryCount: level.entryCount },
     byCategory: businessByCategory_(rows),
@@ -563,15 +593,16 @@ function listCompaniesAndProjects(payload) {
   var companies = getCompanyRows_();
   var projects = getProjectRows_();
   var rows = companies.length ? businessRows_(function () { return true; }, payload.startDate, payload.endDate) : [];
+  var openings = companies.length ? businessOpenings_() : [];
   return companies.map(function (c) {
     var mine = rows.filter(function (r) { return String(r.entry.company_id || '') === String(c.id); });
-    var t = businessTotals_(mine, null);
+    var t = businessTotals_(mine, null, openingsInPeriod_(openings.filter(function (o) { return o.company_id === String(c.id); }), payload.startDate, payload.endDate));
     return {
       id: c.id, name: c.name, emoji: c.emoji, igv_enabled: String(c.igv_enabled || ''), tax_id: String(c.tax_id || ''),
       currencies: t.currencies, approx: t.approx, entryCount: t.entryCount,
       projects: projects.filter(function (p) { return String(p.company_id) === String(c.id); }).map(function (p) {
         var pr = mine.filter(function (r) { return String(r.entry.project_id || '') === String(p.id); });
-        var pt = businessTotals_(pr, budgetsOfProject_(p.id));
+        var pt = businessTotals_(pr, budgetsOfProject_(p.id), openingsInPeriod_(openings.filter(function (o) { return o.project_id === String(p.id); }), payload.startDate, payload.endDate));
         return { id: p.id, name: p.name, emoji: p.emoji, status: p.status || 'active', currencies: pt.currencies, approx: pt.approx, entryCount: pt.entryCount };
       })
     };

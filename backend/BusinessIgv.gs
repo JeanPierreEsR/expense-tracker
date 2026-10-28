@@ -87,7 +87,9 @@ function getCompanyIgv(payload) {
   var thisYear = businessToday_().substring(0, 4);
   var year = /^\d{4}$/.test(String(payload.year || '')) ? String(payload.year) : thisYear;
 
-  var rows = businessRows_(function (e) { return String(e.company_id || '') === String(company.id); });
+  // Every entry counts here, even those a typed opening figure already covers on the other screens (step 4): the IGV return is built
+  // from the invoices themselves, and the screen says so.
+  var rows = businessRows_(function (e) { return String(e.company_id || '') === String(company.id); }, '', '', true);
   var years = {};
   years[thisYear] = true;
   var byMonth = {};   // 'YYYY-MM' -> currency -> { collected, credit }
