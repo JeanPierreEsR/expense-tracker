@@ -551,3 +551,28 @@ test("a 'paid earlier' loan is recognised even if the column already existed or 
   rt.api("applyUnappliedPayment", { id: "new-1", loan_ids: [target.id] });
   assert.equal(paidOn(rt, target.id), 50);
 });
+
+test("an old repayment with no entry can be recorded in the accounts, once", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const loan = cashLoan(rt, data, friend, 100, "2026-01-01");
+  repay(rt, data, friend, 40);
+  const row = rt.rows("Settlements").find((s) => s.loan_id === loan.id);
+  const tid = row.transfer_entry_id;
+  // make it look like one recorded before repayments had an entry
+  rt.run(`deleteEntry_(${JSON.stringify(tid)}); var sh = getSheet('Settlements'); var h = getHeaders(sh); setCellByRow_(sh, h, findRowIndexById(sh, h, ${JSON.stringify(row.id)}), 'transfer_entry_id', '');`);
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].has_transfer_entry, false);
+
+  const before = rt.rows("Entries").length;
+  rt.api("recordRepaymentEntry", { id: row.id, date: "2026-09-18", payment_method_id: data.pms[3].id });
+
+  const after = rt.rows("Settlements").find((s) => s.id === row.id);
+  assert.ok(after.transfer_entry_id);
+  assert.equal(rt.rows("Entries").length, before + 1);
+  const te = rt.rows("Entries").find((e) => e.id === after.transfer_entry_id);
+  assert.equal(Number(te.amount), 40);
+  assert.equal(te.type, "transfer");
+  assert.equal(String(te.date).slice(0, 10), "2026-09-18");
+  assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].has_transfer_entry, true);
+  assert.throws(() => rt.api("recordRepaymentEntry", { id: row.id }), "a second time");
+});
