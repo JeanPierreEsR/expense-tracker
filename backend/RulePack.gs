@@ -232,7 +232,7 @@ function rulePackCompile_(r) {
     if (r.type === 'transferIfOwn') {
       var own = isOwnAccount_(recipient);
       fields.type = own ? 'transfer' : 'expense';
-      if (!own) fields.needsReview = true;
+      fields.needsReview = !own;   // spelled out for an own-account transfer too (false), exactly like the code rules: the twin check found the difference on the owner's real mail
     }
     return fields;
   };

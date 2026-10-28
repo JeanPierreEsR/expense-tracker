@@ -151,7 +151,7 @@ test("transferIfOwn: my own name makes a transfer, anyone else an expense to rev
   rt.run("var __own = isOwnAccount_; isOwnAccount_ = function () { return true; }");
   const mine = extractWith(rt, rule, "Constancia de transferencia", body);
   assert.equal(mine.type, "transfer");
-  assert.equal(mine.needsReview, undefined);
+  assert.equal(mine.needsReview, false, "spelled out as false, like the code rules (nothing reads it, but 'same' means same)");
   rt.run("isOwnAccount_ = __own");
 });
 
@@ -293,6 +293,31 @@ test("every twin in the live pack reads its made-up samples exactly like the cod
       assert.equal(out.tm, out.cm, `${twin.id}: the twin and the code rule must match the same e-mails`);
       assert.deepEqual(out.diff, [], `${twin.id}: fields that differ`);
     }
+  }
+});
+
+test("a transfer to MY OWN account: every transferIfOwn twin reads it exactly like its code rule (the twin check on the owner's real mail found the difference)", () => {
+  const { rt } = freshApp({ small: true });
+  const v = validate(rt, read("docs", "rules", "email-rules.json"), true);
+  const samples = loadSamples();
+  const own = v.pack.rules.filter((r) => r.replaces && r.type === "transferIfOwn");
+  assert.ok(own.length >= 3, "BCP third-party transfer, Interbank transfer, SIP transfer to another bank");
+  rt.run("var __own = isOwnAccount_; isOwnAccount_ = function () { return true; }");
+  try {
+    for (const twin of own) {
+      for (const s of (samples[twin.id] || []).filter((x) => x.matches !== false)) {
+        const out = plain(rt.run(`(function () {
+          var t = rulePackCompile_(${js(twin)});
+          var code = EMAIL_RULES.filter(function (r) { return r.sender === ${js(twin.sender)} && r.label === ${js(twin.replaces)}; })[0];
+          var a = code.extract(${js(s.subject)}, ${js(s.body)}), b = t.extract(${js(s.subject)}, ${js(s.body)});
+          return { type: a && a.type, diff: rulePackDiffFields_(a, b) };
+        })()`));
+        assert.equal(out.type, "transfer", `${twin.id}: with my own name the e-mail is a transfer`);
+        assert.deepEqual(out.diff, [], `${twin.id}: fields that differ when the recipient is me`);
+      }
+    }
+  } finally {
+    rt.run("isOwnAccount_ = __own");
   }
 });
 
