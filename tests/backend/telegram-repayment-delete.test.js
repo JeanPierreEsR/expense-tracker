@@ -41,6 +41,41 @@ test("Telegram Discard on a repayment's extra deletes NOTHING, points to the app
   assert.match(out, new RegExp(f.name));
 });
 
+test("the message sent to Telegram is one Telegram accepts: valid JSON, one button, callback data within 64 bytes", () => {
+  const { tap, extraId, rt } = setup();
+  tap("discard:" + extraId, 7);
+  const offers = rt.svc.fetchLog
+    .filter((x) => /sendMessage/.test(x.url))
+    .map((x) => JSON.parse(x.options.payload))
+    .filter((p) => p.reply_markup && p.reply_markup.inline_keyboard.length);
+  const offer = offers[offers.length - 1];
+  assert.ok(offer, "the offer was sent");
+  const rows = offer.reply_markup.inline_keyboard;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].length, 1, "exactly one button: the choice is explicit");
+  const btn = rows[0][0];
+  assert.match(btn.text, /Delete the whole repayment/);
+  assert.ok(Buffer.byteLength(btn.callback_data, "utf8") <= 64, "Telegram rejects callback data over 64 bytes");
+  assert.equal(btn.callback_data, "delrep:" + extraId);
+  assert.ok(offer.text.length < 4096, "within Telegram's message length");
+  assert.ok(offer.reply_to_message_id, "answers the card it came from");
+  assert.equal(String(offer.chat_id).length > 0, true);
+});
+
+test("a late Discard tap on an entry that is now a CONFIRMED repayment entry gets the same answer, not the generic one", () => {
+  const { rt, data, f, pm, tap, sent, exists } = setup();
+  // a second repayment whose extra was given a category, so it is confirmed from the start
+  const income = data.cats.find((c) => c.type === "income");
+  rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-02-01", payment_method_id: pm });
+  rt.api("recordRepayment", { friend_id: f.id, direction: "they_owe_me", amount: 45, currency: "PEN", date: today(), payment_method_id: pm, overpay_category_id: income.id });
+  const row = rt.rows("Settlements").filter((s) => s.gap_entry_id).pop();
+  assert.equal(rt.rows("Entries").find((e) => e.id === row.gap_entry_id).status, "confirmed");
+  tap("discard:" + row.gap_entry_id, 8);
+  assert.equal(exists(row.gap_entry_id), true);
+  assert.match(sent(), new RegExp("delrep:" + row.gap_entry_id));
+  assert.doesNotMatch(sent(), /Already confirmed/);
+});
+
 test("choosing 'Delete the whole repayment' removes both entries and reopens the debt", () => {
   const { rt, tap, sent, exists, owed, extraId, movementId, row } = setup();
   assert.equal(owed(), 0);

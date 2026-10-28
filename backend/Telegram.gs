@@ -534,16 +534,17 @@ function handleTelegramCallback_(cb) {
   } else if (action === 'discard') {
     if (!entry) {
       reply = tr_('bot.entryGone');
+    } else if (repaymentPartInfo_(entryId)) {
+      // One of a repayment's two entries (its extra, waiting or already confirmed): never deleted on its own, whatever its
+      // status. Point to the app, or let the owner choose to delete the WHOLE repayment (both entries) with one more tap.
+      // The card keeps its buttons.
+      reply = tr_('bot.repaymentPart', { friend: repaymentPartInfo_(entryId).friend });
+      replyMarkup = { inline_keyboard: [[{ text: tr_('bot.deleteRepaymentButton'), callback_data: 'delrep:' + entryId }]] };
+      keepButtons = true;
     } else if (entry.status === 'confirmed') {
       // Confirmed from the app after this card was sent — a late tap on
       // an old card must never delete a real, confirmed entry.
       reply = tr_('bot.alreadyConfirmedDelete');
-    } else if (repaymentPartInfo_(entryId)) {
-      // One of a repayment's two entries (e.g. its extra, waiting for a category): never deleted on its own. Point to the
-      // app, or let the owner choose to delete the WHOLE repayment (both entries) with one more tap. The card keeps its buttons.
-      reply = tr_('bot.repaymentPart', { friend: repaymentPartInfo_(entryId).friend });
-      replyMarkup = { inline_keyboard: [[{ text: tr_('bot.deleteRepaymentButton'), callback_data: 'delrep:' + entryId }]] };
-      keepButtons = true;
     } else {
       try {
         discardEntryWithRepayments_(entryId);
