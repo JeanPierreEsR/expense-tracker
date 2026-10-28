@@ -650,6 +650,7 @@
     "repayChoice.convertTitle": { en: "Turn this loan into an expense or income", es: "Convertir este préstamo en gasto o ingreso" },
     "repayChoice.convertKeep": { en: "Convert, keep the repayments", es: "Convertir y conservar los repagos" },
     "repayChoice.convertCancel": { en: "Convert and cancel the repayments", es: "Convertir y cancelar los repagos" },
+    "repayChoice.convertExpenseTitle": { en: "Turn this expense into a loan or repayment", es: "Convertir este gasto en préstamo o repago" },
     "repayChoice.typeChangeTitle": { en: "Change this expense's type", es: "Cambiar el tipo de este gasto" },
     "repayChoice.typeChangeKeep": { en: "Change type, keep the repayments", es: "Cambiar el tipo y conservar los repagos" },
     "repayChoice.typeChangeCancel": { en: "Change type and cancel the repayments", es: "Cambiar el tipo y cancelar los repagos" },

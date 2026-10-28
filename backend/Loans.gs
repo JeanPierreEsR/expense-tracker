@@ -1119,7 +1119,8 @@ function recordOverpaymentExpense(payload) {
 // - not an expense or a plain transfer;
 // - a transfer already linked to a loan or repayment (it IS the money
 //   movement of one — converting it would count that payment twice);
-// - an expense whose debt already has repayments recorded against it.
+// - an expense whose debt already has repaid money recorded against it, unless the caller says what to do with those
+//   repayments (payload.repayments 'keep' | 'cancel' — see deleteLoan; since 2026-10-28).
 function convertEntryToRepayment(payload) {
   return withScriptLockOnce_(function () { return convertEntryInto_(payload, 'repayment'); });
 }
@@ -1230,7 +1231,14 @@ function convertEntryInto_(payload, kind) {
   var ownLoans = loansBefore.filter(function (l) { return l.origin === 'entry' && l.entry_id === entry.id; });
   var ownLoanIds = {};
   ownLoans.forEach(function (l) { ownLoanIds[l.id] = true; });
-  if (settlementsBefore.some(function (s) { return ownLoanIds[s.loan_id]; })) {
+  // Debts of this expense that friends already (partly) repaid are allowed since 2026-10-28: the person chooses what
+  // happens to those repayments ('keep' | 'cancel', the same two choices as deleting the expense; the app asks first).
+  // Nothing real paid back (only automatic cancel-outs) needs no choice — that is the "keep" path and creates no credit.
+  var repaidOwnLoanIds = ownLoans.filter(function (l) {
+    return l.status !== 'forgiven' && settlementsBefore.some(function (s) { return s.loan_id === l.id; });
+  }).map(function (l) { return l.id; });
+  if (repaidOwnLoanIds.length && entryRepaidLoansSummary_(entry.id).length &&
+      payload.repayments !== 'keep' && payload.repayments !== 'cancel') {
     throw new Error(tr_('convert.debtHasRepayments'));
   }
 
@@ -1248,6 +1256,24 @@ function convertEntryInto_(payload, kind) {
   loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
   var entryIdsBefore = {};
   getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+
+  // Releasing repaid debts touches more than the entry: the repayments themselves, the money entries behind them
+  // (shrunk or removed by "cancel") and the other side of any automatic cancel-out. Kept so a failure can put it all back.
+  var repaidSnap = null;
+  if (repaidOwnLoanIds.length) {
+    var involved = {};
+    repaidOwnLoanIds.forEach(function (id) { involved[id] = true; });
+    settlementsBefore.forEach(function (s) { if (involved[s.loan_id] && s.offset_loan_id) involved[s.offset_loan_id] = true; });
+    var snapSettlements = settlementsBefore.filter(function (s) { return involved[s.loan_id] || (s.offset_loan_id && involved[s.offset_loan_id]); });
+    var snapTransferIds = {};
+    snapSettlements.forEach(function (s) { if (s.transfer_entry_id) snapTransferIds[s.transfer_entry_id] = true; });
+    repaidSnap = {
+      loanIds: Object.keys(involved),
+      settlements: snapSettlements,
+      entries: getAllRows('Entries').filter(function (e) { return snapTransferIds[e.id]; })
+    };
+  }
+  if (repaidOwnLoanIds.length && payload.repayments === 'cancel') repaidOwnLoanIds.forEach(cancelLoanRepayments_);
 
   deleteEntry_(entry.id);
 
@@ -1291,6 +1317,17 @@ function convertEntryInto_(payload, kind) {
       snapshot.tags.forEach(function (r) { appendRowObject('Entry Tags', r); });
       snapshot.bills.forEach(function (r) { appendRowObject('Entry Bills', r); });
       snapshot.loans.forEach(function (r) { appendRowObject('Loans', r); });
+      if (repaidSnap) {
+        // The repayments of the released debts, and the money entries behind them, exactly as they were.
+        var settlementsNow = {};
+        getAllRows('Settlements').forEach(function (s) { settlementsNow[s.id] = true; });
+        repaidSnap.settlements.forEach(function (s) { if (!settlementsNow[s.id]) appendRowObject('Settlements', s); });
+        repaidSnap.entries.forEach(function (e) {
+          if (getEntryById_(e.id)) setEntryField_(e.id, 'amount', e.amount);
+          else appendRowObject('Entries', e);
+        });
+        repaidSnap.loanIds.forEach(updateLoanStatusFromSettlements_);
+      }
       getAllRows('Loans').filter(function (l) { return l.friend_id === payload.friend_id; })
         .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
     } catch (undoErr) {
