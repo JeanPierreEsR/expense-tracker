@@ -1239,7 +1239,7 @@ function convertLoanToRepaymentInto_(payload) {
       currency: payload.currency,
       date: payload.date,
       payment_method_id: payload.payment_method_id,
-      description: payload.description,
+      description: withoutAutoLoanDescription_(loan, payload.description),   // the old loan's default text is not the repayment's own
       overpay_category_id: payload.overpay_category_id,
       overpay_pending_ok: payload.overpay_pending_ok
     });
@@ -1247,6 +1247,20 @@ function convertLoanToRepaymentInto_(payload) {
   } catch (err) {
     guard.rollback(err);
   }
+}
+
+// The description a loan shows by default when it has none of its own: "Loan to {friend}" / "Loan from {friend}". It is NEVER
+// stored as the loan's own description, so it follows the loan — change the person or the direction and it reads right again.
+// The entry and the forms show it as the default text, and the person can type their own, which is then kept.
+function autoLoanDescription_(loan) {
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var name = friend ? friend.name : tr_('label.unknownFriend');
+  return loan.direction === 'they_owe_me' ? tr_('desc.loanTo', { name: name }) : tr_('desc.loanFrom', { name: name });
+}
+
+// `typed` is what the entry / form carried. If it is just the loan's default text it means "no description of my own": ''.
+function withoutAutoLoanDescription_(loan, typed) {
+  return String(typed === undefined || typed === null ? '' : typed).trim() === String(autoLoanDescription_(loan)).trim() ? '' : String(typed || '');
 }
 
 // A loan's money entry and the loan are ONE thing (owner's rule, 2026-10-28): editing the entry in the app updates the loan
@@ -1261,12 +1275,8 @@ function syncLoanBeforeEntryEdit_(entryId, fields) {
   ensureLoansTransferEntryColumn_();
   var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === entryId; });
   if (!loan) return;
-  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
-  var auto = loan.direction === 'they_owe_me'
-    ? tr_('desc.loanTo', { name: friend ? friend.name : tr_('label.unknownFriend') })
-    : tr_('desc.loanFrom', { name: friend ? friend.name : tr_('label.unknownFriend') });
   var description = loan.description || '';
-  if (fields.description !== undefined) description = String(fields.description).trim() === String(auto).trim() ? '' : String(fields.description);
+  if (fields.description !== undefined) description = withoutAutoLoanDescription_(loan, fields.description);
   var next = {
     id: loan.id,
     friend_id: loan.friend_id,
@@ -1328,7 +1338,10 @@ function convertLoanToLoanInto_(payload) {
     friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount,
     currency: payload.currency || homeCurrency_(), date: payload.date,
     due_date: payload.due_date || (plan.inPlace ? loan.due_date : ''),   // a blank due date must not erase the loan's own
-    payment_method_id: payload.payment_method_id, description: payload.description
+    payment_method_id: payload.payment_method_id,
+    // The form still carries the OLD "Loan to {person}" default: that is "no description of my own", so the new loan's default
+    // ("Loan from {new person}") is generated, instead of freezing the old person's name into it.
+    description: withoutAutoLoanDescription_(loan, payload.description)
   };
   if (plan.inPlace) {
     var edited = updateLoan(Object.assign({ id: loan.id, project_id: payload.project_id }, fields));

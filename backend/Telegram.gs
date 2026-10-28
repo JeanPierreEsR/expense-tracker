@@ -958,6 +958,29 @@ function startsWithEditKeyword_(text) {
   return new RegExp('^' + EDIT_FIELD_KEYWORDS_RE, 'i').test(String(text).trim() + ' ');
 }
 
+// The Telegram edit fields that change what a loan and its money entry share (see syncLoanBeforeEntryEdit_).
+var LOAN_SHARED_EDIT_FIELDS_ = ['amount', 'description', 'date', 'currency', 'payment method', 'from'];
+
+// After a Telegram edit of an entry that is a loan's money movement: hand the entry's new date / amount / currency / account /
+// description to the loan (through updateLoan, so its own rules apply). Returns '' when nothing was needed or the loan accepted,
+// or the bot's refusal text — in which case those five fields of the entry have been put back to what they were.
+function syncLoanAfterTelegramEdit_(entryId, before) {
+  var now = getEntryById_(entryId);
+  if (!now || !before) return '';
+  var keys = ['date', 'amount', 'currency', 'payment_method_id', 'description'];
+  var changed = keys.some(function (k) { return String(now[k] === undefined ? '' : now[k]) !== String(before[k] === undefined ? '' : before[k]); });
+  if (!changed) return '';
+  var fields = {};
+  keys.forEach(function (k) { fields[k] = now[k]; });
+  try {
+    syncLoanBeforeEntryEdit_(entryId, fields);   // no-op unless this entry is a loan's money movement
+    return '';
+  } catch (err) {
+    keys.forEach(function (k) { setEntryField_(entryId, k, before[k] === undefined ? '' : before[k]); });
+    return tr_('bot.loanRefused', { error: err.message });
+  }
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
@@ -966,7 +989,8 @@ function applyEditCommand_(entryId, text) {
 
   var appliedFields = [];
   var failedSegments = [];
-  var statusBefore = (getEntryById_(entryId) || {}).status;
+  var entryBefore = getEntryById_(entryId) || {};
+  var statusBefore = entryBefore.status;
 
   // No field keyword at the start ("Uber to the airport"): the person meant
   // the description, so say it for them. A message that DOES start with a
@@ -996,6 +1020,17 @@ function applyEditCommand_(entryId, text) {
   // Same text as the "help" reply, so the two never drift apart.
   var helpText = telegramEditHelpText_(getEntryById_(entryId));
 
+  // A loan's money entry and the loan are ONE thing: what was just typed (date, amount, currency, account, description)
+  // goes to the loan too. If the loan refuses (e.g. an amount below what is already repaid) the entry is put back and the
+  // owner is told, so the two never disagree.
+  var loanRefusal = syncLoanAfterTelegramEdit_(entryId, entryBefore);
+  if (loanRefusal) {
+    appliedFields = appliedFields.filter(function (f) { return LOAN_SHARED_EDIT_FIELDS_.indexOf(f) === -1; });
+    if (!appliedFields.length) {
+      return { message: loanRefusal, entry: getEntryById_(entryId), categoryName: null };
+    }
+  }
+
   if (!appliedFields.length) {
     return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
   }
@@ -1003,6 +1038,7 @@ function applyEditCommand_(entryId, text) {
   var messageParts = [tr_('bot.updated', { fields: appliedFields.map(function (f) { return tr_('bot.field.' + String(f).replace(/ /g, '_')); }).join(', ') })];
   var statusNote = finishTelegramEdit_(entryId, statusBefore, !failedSegments.length);
   if (statusNote) messageParts.push(statusNote);
+  if (loanRefusal) messageParts.push(loanRefusal);
   if (failedSegments.length) {
     messageParts.push(tr_('bot.couldntApply', { list: failedSegments.map(function (s) { return '"' + s + '"'; }).join(', ') }) + '\n\n' + helpText);
   }
@@ -1016,7 +1052,7 @@ function applyEditCommand_(entryId, text) {
 
   // Everything applied and nothing to warn about: the refreshed card that
   // follows shows the result, so a separate "Updated X." bubble is noise.
-  var quiet = !failedSegments.length && !statusNote;
+  var quiet = !failedSegments.length && !statusNote && !loanRefusal;
   return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName };
 }
 

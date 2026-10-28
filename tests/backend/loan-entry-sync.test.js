@@ -68,6 +68,74 @@ test("an ordinary transfer or expense is not affected", () => {
   assert.equal(Number(editEntry(e.id, { amount: 25 }).amount), 25);
 });
 
+// ---- Telegram edits update the loan too ----
+
+const telegramEdit = (rt, entryId, text) =>
+  JSON.parse(rt.run(`JSON.stringify(applyEditCommand_(${JSON.stringify(entryId)}, ${JSON.stringify(text)}))`));
+
+test("a Telegram reply that changes a loan entry's amount, date and description updates the LOAN", () => {
+  const { rt, lend, ana, loanRow, entryRow } = setup();
+  const l = lend(ana, 100);
+  telegramEdit(rt, l.transfer_entry_id, "amount 130, date 2026-03-05, description Rent share");
+  const after = loanRow(l.id);
+  assert.equal(Number(after.amount), 130);
+  assert.equal(after.date, "2026-03-05");
+  assert.equal(after.description, "Rent share");
+  assert.equal(Number(entryRow(l.transfer_entry_id).amount), 130);
+});
+
+test("a Telegram edit the loan refuses is put back, and the bot says so", () => {
+  const { rt, lend, ana, pm, loanRow, entryRow } = setup();
+  const l = lend(ana, 100);
+  rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 60, currency: "PEN", date: today(), payment_method_id: pm });
+  const out = telegramEdit(rt, l.transfer_entry_id, "amount 50");
+  assert.match(out.message, /does not accept it/i);
+  assert.match(out.message, /in repayments/i, "with the loan's own reason");
+  assert.equal(Number(loanRow(l.id).amount), 100);
+  assert.equal(Number(entryRow(l.transfer_entry_id).amount), 100, "the entry went back too");
+});
+
+test("a Telegram message with other parts in it still reports the loan's refusal, and the amount stays put", () => {
+  const { rt, lend, ana, pm, entryRow, loanRow } = setup();
+  const l = lend(ana, 100);
+  rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 60, currency: "PEN", date: today(), payment_method_id: pm });
+  const out = telegramEdit(rt, l.transfer_entry_id, "amount 50, category Other");
+  assert.match(out.message, /does not accept it/i);
+  assert.equal(Number(entryRow(l.transfer_entry_id).amount), 100);
+  assert.equal(Number(loanRow(l.id).amount), 100);
+});
+
+test("a Telegram edit of an ordinary entry is untouched by all this", () => {
+  const { rt, data, pm } = setup();
+  const e = rt.api("createEntry", { type: "expense", date: today(), amount: 20, currency: "PEN", category_id: data.cats.find((c) => c.type === "expense").id, description: "x", payment_method_id: pm, paid_by: "me" });
+  telegramEdit(rt, e.id, "amount 33");
+  assert.equal(Number(rt.rows("Entries").find((x) => x.id === e.id).amount), 33);
+});
+
+// ---- the automatic description is a DEFAULT, never frozen into the loan ----
+
+test("the default 'Loan to {friend}' shows, can be replaced by the person's own text, and follows the loan when it changes", () => {
+  const { rt, lend, ana, bo, pm, loanRow, entryRow } = setup();
+  const l = lend(ana, 100, { description: "" });
+  assert.match(entryRow(l.transfer_entry_id).description, /Loan to Sync Ana/, "shown as the default");
+  // the person types their own text: kept
+  rt.api("updateEntry", { id: l.transfer_entry_id, fields: { type: "transfer", description: "Birthday cash" } });
+  assert.equal(loanRow(l.id).description, "Birthday cash");
+  // back to the default text: no description of its own again
+  rt.api("updateEntry", { id: l.transfer_entry_id, fields: { type: "transfer", description: entryRowAuto(rt, l) } });
+  assert.equal(loanRow(l.id).description, "");
+  // the form still carries the OLD default when the loan is moved to another person: the new default is generated
+  const old = entryRow(l.transfer_entry_id).description;
+  rt.api("convertLoanToLoan", { entry_id: l.transfer_entry_id, friend_id: bo.id, direction: "i_owe_them", amount: 100, currency: "PEN", date: "2026-01-05", payment_method_id: pm, description: old });
+  assert.equal(loanRow(l.id).description, "");
+  assert.match(entryRow(l.transfer_entry_id).description, /Loan from Sync Bo/, "reads right for the new person and direction");
+});
+
+function entryRowAuto(rt, l) {
+  const f = rt.rows("Friends").find((x) => x.id === l.friend_id);
+  return `Loan to ${f.name}`;
+}
+
 // ---- a loan becomes another loan ----
 
 test("no repayments: another person, direction, amount and currency are changed IN PLACE (same loan, same entry)", () => {
