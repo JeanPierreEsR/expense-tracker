@@ -136,6 +136,7 @@ function getCompanyIgv(payload) {
     year: year,
     years: Object.keys(years).sort().reverse(),
     rate: igvRate_(),
+    hasOpenings: businessOpenings_().some(function (o) { return o.company_id === String(company.id); }),   // step 4: this screen still counts what the opening figures cover elsewhere
     months: months,
     totals: totalLines,
     payments: shown

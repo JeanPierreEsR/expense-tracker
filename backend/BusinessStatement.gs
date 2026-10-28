@@ -182,6 +182,64 @@ function statementComparisons_(saved, rows, openings) {
   }).sort(function (x, y) { return x.as_of < y.as_of ? 1 : (x.as_of > y.as_of ? -1 : 0); });
 }
 
+// ---- The statement as a CSV (built here so it is tested and the phone only hands it to the share sheet) ----
+
+function statementCsv_(st) {
+  var money = exportMoney_;
+  var row = function (cells) { return cells.map(function (c) { return c === '' || c == null ? '' : (typeof c === 'number' ? money(c) : csvCell_(c)); }).join(','); };
+  var lineKeys = ['income', 'igv_collected', 'costs', 'igv_credit', 'result'];
+  var lines = [];
+  var isProject = st.kind === 'project';
+  lines.push(row([tr_('statement.csv.title'), isProject ? st.project.name : st.company.name]));
+  lines.push(row([tr_(isProject ? 'statement.csv.company' : 'statement.csv.kindCompany'), isProject ? (st.company ? st.company.name : '') : st.company.name]));
+  lines.push(row([tr_('statement.csv.period'), st.startDate || st.endDate ? tr_('statement.csv.range', { from: st.startDate || '…', to: st.endDate || '…' }) : tr_('statement.csv.allTime')]));
+  lines.push('');
+  lines.push(row([tr_('statement.csv.currency'), tr_('statement.csv.line'), tr_('statement.csv.opening'), tr_('statement.csv.movements'), tr_('statement.csv.closing')]));
+  st.currencies.forEach(function (b) {
+    lineKeys.forEach(function (k) {
+      lines.push([csvCell_(b.currency), csvCell_(tr_('statement.line.' + k)), money(b.opening[k]), money(b.movements[k]), money(b.closing[k])].join(','));
+    });
+  });
+  if (st.openings.length) {
+    lines.push('');
+    lines.push(row([tr_('statement.csv.openingFigures')]));
+    lines.push(row([tr_('statement.csv.currency'), tr_('statement.csv.asOf'), tr_('statement.line.income'), tr_('statement.line.igv_collected'), tr_('statement.line.costs'), tr_('statement.line.igv_credit')]));
+    st.openings.forEach(function (o) {
+      lines.push([csvCell_(o.currency), csvCell_(o.as_of), money(o.income), money(o.igv_collected), money(o.costs), money(o.igv_credit)].join(','));
+    });
+  }
+  var rn = st.rightNow;
+  if (rn.people.length || rn.expected.items.length) {
+    lines.push('');
+    lines.push(row([tr_('statement.csv.rightNow')]));
+    rn.people.forEach(function (p) {
+      p.balances.forEach(function (b) {
+        lines.push([csvCell_(p.name), csvCell_(tr_(b.net > 0 ? 'statement.csv.owesYou' : 'statement.csv.youOwe')), csvCell_(b.currency), money(Math.abs(b.net))].join(','));
+      });
+    });
+    rn.expected.items.forEach(function (x) {
+      lines.push([csvCell_(x.client_name || ''), csvCell_(tr_('statement.csv.expected') + (x.invoice_no ? ' ' + x.invoice_no : '')), csvCell_(x.currency), money(x.remaining)].join(','));
+    });
+  }
+  if (st.accountant.length) {
+    lines.push('');
+    lines.push(row([tr_('statement.csv.accountant')]));
+    lines.push(row([tr_('statement.csv.currency'), tr_('statement.csv.asOf'), tr_('statement.csv.line'), tr_('statement.csv.app'), tr_('statement.csv.accountantCol'), tr_('statement.csv.difference')]));
+    st.accountant.forEach(function (a) {
+      if (!a.app) {
+        lines.push([csvCell_(a.currency), csvCell_(a.as_of), csvCell_(tr_('statement.csv.beforeOpening')), '', '', ''].join(','));
+        return;
+      }
+      lineKeys.forEach(function (k) {
+        lines.push([csvCell_(a.currency), csvCell_(a.as_of), csvCell_(tr_('statement.line.' + k)), money(a.app[k]), money(a.accountant[k]), money(a.diff[k])].join(','));
+      });
+    });
+  }
+  // A plain file name (letters, digits, underscores), like the other exports: no spaces or accents to trip up a phone or a mail.
+  var name = searchNormalize_(isProject ? st.project.name : st.company.name).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'statement';
+  return { name: tr_('statement.csv.file', { name: name, date: businessToday_() }), mime: 'text/csv', text: '﻿' + lines.join('\r\n') + '\r\n' };
+}
+
 function statementPeriod_(payload) {
   var start = validIsoDate_(payload && payload.startDate) ? String(payload.startDate) : '';
   var end = validIsoDate_(payload && payload.endDate) ? String(payload.endDate) : '';
@@ -200,7 +258,7 @@ function getProjectStatement(payload) {
   var mine = businessOpenings_().filter(function (o) { return o.project_id === String(project.id); });
   var built = buildStatementBlocks_(businessRows_(match, '', period.endDate), mine, period.startDate, period.endDate);
   var saved = getAccountantRows_().filter(function (a) { return String(a.project_id || '') === String(project.id); });
-  return {
+  var st = {
     kind: 'project',
     accountant: statementComparisons_(saved, businessRows_(match, '', ''), mine),
     project: { id: project.id, name: project.name, emoji: project.emoji || '', company_id: project.company_id },
@@ -211,6 +269,8 @@ function getProjectStatement(payload) {
     coveredEntries: coveredEntryCount_(match),
     rightNow: statementRightNow_([project.id], { project_id: project.id, today: payload.today })
   };
+  st.csv = statementCsv_(st);
+  return st;
 }
 
 function getCompanyStatement(payload) {
@@ -227,7 +287,7 @@ function getCompanyStatement(payload) {
   var names = {};
   projects.forEach(function (p) { names[String(p.id)] = p.name; });
   var saved = getAccountantRows_().filter(function (a) { return !a.project_id && String(a.company_id) === String(company.id); });
-  return {
+  var st = {
     kind: 'company',
     accountant: statementComparisons_(saved, businessRows_(match, '', ''), mine),
     company: { id: company.id, name: company.name, emoji: company.emoji || '' },
@@ -237,4 +297,6 @@ function getCompanyStatement(payload) {
     coveredEntries: coveredEntryCount_(match),
     rightNow: statementRightNow_(projects.map(function (p) { return p.id; }), { company_id: company.id, today: payload.today })
   };
+  st.csv = statementCsv_(st);
+  return st;
 }

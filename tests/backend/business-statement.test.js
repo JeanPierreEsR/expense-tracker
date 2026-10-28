@@ -255,3 +255,39 @@ test("the company statement keeps its own comparison; delete removes it; invalid
   rt.api("deleteProject", { id: casa.id });
   assert.equal(rt.rows("Accountant Figures").length, 0, "a deleted project takes its accountant figures with it");
 });
+
+// ---- CSV ----
+test("the statement carries its own CSV: lines per currency, typed figures, who owes what, the comparison; a formula-looking name is safe", () => {
+  const rt = setup();
+  const casa = project(rt, company(rt).id, "=Casa, Lima");
+  const ana = rt.api("addFriend", { name: "Ana", role: "client" });
+  income(rt, casa, 1000, "2026-07-01");
+  opening(rt, casa);
+  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 400, currency: "USD", date: "2026-10-01", project_id: casa.id });
+  acct(rt, casa, { as_of: "2026-03-31" });
+  acct(rt, casa, { as_of: "2026-12-31", income: 10999 });
+  const csv = rt.api("getProjectStatement", { id: casa.id }).csv;
+  assert.equal(csv.mime, "text/csv");
+  assert.match(csv.name, /^statement_casa_lima_\d{4}-\d{2}-\d{2}\.csv$/, "a plain file name");
+  assert.ok(csv.text.startsWith("﻿"), "a byte-order mark so Excel reads accents");
+  const lines = csv.text.replace("﻿", "").split("\r\n");
+  assert.equal(lines[0], `Statement,"'=Casa, Lima"`);
+  assert.ok(lines.includes("PEN,Income received (without IGV),10000.00,1000.00,11000.00"));
+  assert.ok(lines.includes("PEN,Result,6000.00,1000.00,7000.00"));
+  assert.ok(lines.includes("Ana,Owes you,USD,400.00"));
+  assert.ok(lines.includes("PEN,2026-03-31,Before the opening date: cannot be compared,,,"));
+  assert.ok(lines.includes("PEN,2026-12-31,Income received (without IGV),11000.00,10999.00,1.00"));
+  const co = rt.api("getCompanyStatement", { id: casa.company_id }).csv;
+  assert.match(co.name, /^statement_studio_a_/);
+});
+
+test("the CSV follows the app's language", () => {
+  const rt = setup();
+  const casa = project(rt, company(rt).id);
+  income(rt, casa, 1000, "2026-07-01");
+  const res = rt.rawPost(JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "getProjectStatement", payload: { id: casa.id }, lang: "es" }));
+  assert.equal(res.ok, true);
+  const csv = res.data.csv;
+  assert.match(csv.name, /^estado_casa_lima_/);
+  assert.ok(csv.text.includes("Ingresos cobrados (sin IGV)"));
+});
