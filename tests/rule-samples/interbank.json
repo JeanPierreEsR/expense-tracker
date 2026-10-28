@@ -1,0 +1,16 @@
+{
+  "interbank-pago-servicios": [
+    { "subject": "Constancia de pago", "body": "Moneda y monto S/ 45.00\nEmpresa Agua Prueba\nCuenta cargo\nCuenta Simple\nSoles\n000 0000000789\nCódigo de operación: EF9012",
+      "expect": { "type": "expense", "amount": 45, "currency": "PEN", "merchant": "Agua Prueba", "last4": "0789", "externalId": "EF9012" } },
+    { "subject": "Constancia de pago Plin", "body": "Moneda y monto S/ 45.00", "matches": false }
+  ],
+  "interbank-transferencia": [
+    { "subject": "Constancia de transferencia", "body": "Monto y moneda: S/ 150.00\nCuenta destino: Ana Prueba Test\nCuenta a cargo\nCuenta Simple\nSoles\n000 0000000123\nCódigo de operación: AB1234",
+      "expect": { "type": "expense", "needsReview": true, "amount": 150, "currency": "PEN", "description": "Ana Prueba Test", "last4": "0123", "externalId": "AB1234" } },
+    { "subject": "Constancia de transferencia a terceros", "body": "Monto y moneda: S/ 150.00", "matches": false }
+  ],
+  "interbank-pago-deuda": [
+    { "subject": "Pago de tu tarjeta", "body": "Monto pagado S/ 200.00\nTarjeta de crédito ****1111\ncódigo de operación 777333",
+      "expect": { "type": "transfer", "amount": 200, "currency": "PEN", "description": "Pago tarjeta Interbank", "externalId": "777333" } }
+  ]
+}

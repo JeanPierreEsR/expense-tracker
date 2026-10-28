@@ -1,0 +1,18 @@
+{
+  "bcp-consumo-debito": [
+    { "subject": "Realizaste un consumo con tu Tarjeta de Débito BCP - Servicio de Notificaciones BCP",
+      "body": "Hola Ana,\nTotal del consumo                $ 15.00\nEmpresa                 TIENDA PRUEBA\nNúmero de Tarjeta de Débito          ************1234\nNúmero de operación          000111",
+      "expect": { "type": "expense", "amount": 15, "currency": "USD", "merchant": "TIENDA PRUEBA", "externalId": "000111" } },
+    { "subject": "Realizaste un consumo con tu Tarjeta de Crédito BCP", "body": "Total del consumo S/ 5.00", "matches": false }
+  ],
+  "bcp-pago-servicios": [
+    { "subject": "ENVIO AUTOMATICO - CONSTANCIA DE PAGO DE SERVICIO - BANCA MOVIL BCP",
+      "body": "Monto total     S/ 80.00\nEmpresa     LUZ PRUEBA\nServicio     Recibo de luz\nCuenta de origen     ****1234\nNúmero de operación     555111",
+      "expect": { "type": "expense", "amount": 80, "currency": "PEN", "merchant": "LUZ PRUEBA", "description": "LUZ PRUEBA - Recibo de luz", "externalId": "555111" } }
+  ],
+  "bcp-transferencia-terceros": [
+    { "subject": "Constancia de transferencia a terceros",
+      "body": "Monto transferido    S/ 120.00\nEnviado a    Persona Prueba\nDesde    ****5678\nNúmero de operación    999222",
+      "expect": { "type": "expense", "needsReview": true, "amount": 120, "currency": "PEN", "description": "Persona Prueba", "externalId": "999222" } }
+  ]
+}

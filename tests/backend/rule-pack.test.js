@@ -18,8 +18,8 @@ const GOOD_RULE = {
   type: "expense", amount: { label: "Monto" }, merchant: { label: "Comercio" }, last4: { label: "Tarjeta", kind: "card" }, externalId: { label: "Operación" }
 };
 const pack = (rules, version) => ({ version: version === undefined ? 1 : version, rules });
-const validate = (rt, p) => plain(rt.run(`rulePackValidate_(${js(typeof p === "string" ? p : js(p))})`));
-const errorsOf = (rt, p) => validate(rt, p).errors.join(" | ");
+const validate = (rt, p, strict) => plain(rt.run(`rulePackValidate_(${js(typeof p === "string" ? p : js(p))}, { strict: ${!!strict} })`));
+const errorsOf = (rt, p, strict) => validate(rt, p, strict).errors.join(" | ");
 const withRule = (changes) => Object.assign({}, GOOD_RULE, changes);
 
 // ---- validation: only words, no code, nothing private ----
@@ -34,11 +34,11 @@ test("anything that is not exactly the allowed shape is refused", () => {
   assert.match(errorsOf(rt, "not json"), /not JSON/);
   assert.match(errorsOf(rt, ""), /empty/);
   assert.match(errorsOf(rt, js([1])), /not a pack/);
-  assert.match(errorsOf(rt, { version: 1, rules: [], extra: 1 }), /unknown field extra/);
+  assert.match(errorsOf(rt, { version: 1, rules: [], extra: 1 }, true), /unknown field extra/);
   assert.match(errorsOf(rt, pack([], 0)), /version/);
   assert.match(errorsOf(rt, pack([], 1.5)), /version/);
   assert.match(errorsOf(rt, { version: 1 }), /rules/);
-  assert.match(errorsOf(rt, pack([withRule({ code: "x" })])), /unknown field code/);
+  assert.match(errorsOf(rt, pack([withRule({ code: "x" })]), true), /unknown field code/);
   assert.match(errorsOf(rt, pack([withRule({ type: "gift" })])), /type/);
   assert.match(errorsOf(rt, pack([withRule({ type: "transferIfOwn" })])), /recipient/);
   assert.match(errorsOf(rt, pack([withRule({ amount: { label: "Monto", regex: ".*" } })])), /unknown field regex/);
@@ -51,8 +51,8 @@ test("anything that is not exactly the allowed shape is refused", () => {
 test("the file is public, so a rule may not hold digits runs, addresses, links, control characters or a bad sender", () => {
   const { rt } = freshApp({ small: true });
   assert.match(errorsOf(rt, pack([withRule({ label: "Compra 1234567" })])), /long number/);
-  assert.match(errorsOf(rt, pack([withRule({ subjectHas: ["ana.perez@gmail.test"] })])), /address or link/);
-  assert.match(errorsOf(rt, pack([withRule({ bodyHas: ["https://pay.examplebank.test/x"] })])), /address or link/);
+  assert.match(errorsOf(rt, pack([withRule({ subjectHas: ["ana.perez@gmail.test"] })])), /address/);
+  assert.match(errorsOf(rt, pack([withRule({ bodyHas: ["https://pay.examplebank.test/x"] })])), /link/);
   assert.match(errorsOf(rt, pack([withRule({ amount: { label: "Monto\u0000" } })])), /control/);
   assert.match(errorsOf(rt, pack([withRule({ sender: "Alertas@ExampleBank.test" })])), /sender/);
   assert.match(errorsOf(rt, pack([withRule({ sender: "not an address" })])), /sender/);
@@ -177,7 +177,7 @@ test("a new bank arrives as data: unknown before, read after setRulePack, listed
   assert.equal(rt.rows("Entries").length, before, "an unknown sender is not even searched");
 
   const done = rt.api("setRulePack", { text: js(pack([GOOD_RULE], 3)) });
-  assert.deepEqual(plain(done), { version: 3, count: 1 });
+  assert.deepEqual(plain(done), { version: 3, count: 1, skipped: 0 });
   const info = rt.api("getMeta").emailInfo;
   assert.ok(info.banks.includes("Examplebank"));
   assert.equal(info.rulePack.version, 3);
@@ -236,22 +236,62 @@ test("a signed-out caller cannot hand over a pack", () => {
 });
 
 // ---- the public files and the phone ----
+// tests/rule-samples/*.json: { "<rule id>": [ { subject, body, expect?, matches? } ] } with MADE-UP text in the bank's layout.
+const loadSamples = () => {
+  const dir = path.join(root, "tests", "rule-samples");
+  const all = {};
+  if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json"))) Object.assign(all, JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")));
+  return all;
+};
+
 test("the live pack file is valid, and every rule in it has a made-up sample that reads as expected", () => {
   const { rt } = freshApp({ small: true });
   const text = read("docs", "rules", "email-rules.json");
-  const v = validate(rt, text);
+  const v = validate(rt, text, true);   // strict: a typo in a field name is caught here, when the rule is written
   assert.equal(v.ok, true, (v.errors || []).join(" | "));
-  const dir = path.join(root, "tests", "rule-samples");
+  const samples = loadSamples();
   for (const rule of v.pack.rules) {
-    const file = path.join(dir, rule.id + ".json");
-    assert.ok(fs.existsSync(file), `rule "${rule.id}" needs made-up samples in tests/rule-samples/${rule.id}.json`);
-    const samples = JSON.parse(fs.readFileSync(file, "utf8"));
-    assert.ok(samples.length >= 1);
-    for (const s of samples) {
+    const list = samples[rule.id];
+    assert.ok(list && list.length >= 1, `rule "${rule.id}" needs made-up samples in tests/rule-samples/ (a file with a "${rule.id}" list)`);
+    for (const s of list) {
       assert.equal(matchesWith(rt, rule, s.subject, s.body), s.matches !== false, `${rule.id}: match`);
       if (s.matches === false) continue;
       const got = extractWith(rt, rule, s.subject, s.body);
-      for (const k of Object.keys(s.expect)) assert.equal(got && got[k], s.expect[k], `${rule.id}: ${k}`);
+      for (const k of Object.keys(s.expect || {})) assert.equal(got && got[k], s.expect[k], `${rule.id}: ${k}`);
+    }
+  }
+});
+
+test("every twin in the live pack reads its made-up samples exactly like the code rule it replaces, and says the same about the entry", () => {
+  const { rt } = freshApp({ small: true });
+  const v = validate(rt, read("docs", "rules", "email-rules.json"), true);
+  const samples = loadSamples();
+  const twins = v.pack.rules.filter((r) => r.replaces);
+  assert.ok(twins.length >= 12, "the migrated banks are in the pack");
+  for (const twin of twins) {
+    const same = plain(rt.run(`(function () {
+      var t = rulePackCompile_(${js(twin)});
+      var code = EMAIL_RULES.filter(function (r) { return r.sender === ${js(twin.sender)} && r.label === ${js(twin.replaces)}; })[0];
+      if (!code) return { missing: true };
+      var attrs = [];
+      ['bank', 'cardIsDestination', 'skip', 'rail', 'exchange', 'accountByCurrency'].forEach(function (k) {
+        var x = code[k] === undefined ? null : code[k], y = t[k] === undefined ? null : t[k];
+        if (JSON.stringify(x) !== JSON.stringify(y)) attrs.push(k);
+      });
+      return { missing: false, attrs: attrs };
+    })()`));
+    assert.equal(same.missing, false, `${twin.id}: no code rule called "${twin.replaces}" for that sender`);
+    assert.deepEqual(same.attrs, [], `${twin.id}: the twin says something different about the entry than the code rule`);
+    for (const s of samples[twin.id] || []) {
+      const out = plain(rt.run(`(function () {
+        var t = rulePackCompile_(${js(twin)});
+        var code = EMAIL_RULES.filter(function (r) { return r.sender === ${js(twin.sender)} && r.label === ${js(twin.replaces)}; })[0];
+        var cm = !!code.match(${js(s.subject)}, ${js(s.body)}), tm = !!t.match(${js(s.subject)}, ${js(s.body)});
+        var a = cm && !code.skip ? code.extract(${js(s.subject)}, ${js(s.body)}) : null, b = tm && !t.skip ? t.extract(${js(s.subject)}, ${js(s.body)}) : null;
+        return { cm: cm, tm: tm, diff: rulePackDiffFields_(a, b) };
+      })()`));
+      assert.equal(out.tm, out.cm, `${twin.id}: the twin and the code rule must match the same e-mails`);
+      assert.deepEqual(out.diff, [], `${twin.id}: fields that differ`);
     }
   }
 });
@@ -260,7 +300,7 @@ test("the promoted copy for friends, when it exists, is valid too", () => {
   const f = path.join(root, "docs", "setup", "rules.json");
   if (!fs.existsSync(f)) return;
   const { rt } = freshApp({ small: true });
-  const v = validate(rt, fs.readFileSync(f, "utf8"));
+  const v = validate(rt, fs.readFileSync(f, "utf8"), true);
   assert.equal(v.ok, true, (v.errors || []).join(" | "));
 });
 

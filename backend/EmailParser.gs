@@ -799,6 +799,23 @@ function loadProcessedEmailIds_() {
   return handled;
 }
 
+// The rules that match an e-mail, in order, and the first of them that can READ it. The first match decides what the e-mail IS (an ignore rule or an
+// exchange house's confirmation ends it there). But when that rule matches and still cannot extract the fields (a bank changed its wording), the
+// next matching rule gets its chance: a pack rule can repair what a code rule can no longer read, and a migrated bank's code rule is the fallback of
+// its pack twin (RulePack.gs). Returns { rule, fields }: the rule that read it, or the first match with fields null when none could.
+function readEmailWithRules_(sender, subject, body) {
+  var matching = emailRules_().filter(function (r) { return r.sender === sender && r.match(subject, body); });
+  var first = matching[0] || null;
+  if (!first || first.skip || first.exchange) return { rule: first, fields: null };
+  for (var i = 0; i < matching.length; i++) {
+    var r = matching[i];
+    if (r.skip || r.exchange) continue;
+    var fields = r.extract(subject, body);
+    if (fields) return { rule: r, fields: fields };
+  }
+  return { rule: first, fields: null };
+}
+
 function processOneMessage_(message, sender, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   var subject = message.getSubject();
   var body = message.getPlainBody();
@@ -810,8 +827,8 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   // happened and is what same-day entries sort by.
   var createdAt = Utilities.formatDate(message.getDate(), tz, "yyyy-MM-dd'T'HH:mm:ss");
 
-  var rule = emailRules_().filter(function (r) { return r.sender === sender; })
-    .find(function (r) { return r.match(subject, body); });
+  var read = readEmailWithRules_(sender, subject, body);
+  var rule = read.rule;
 
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
@@ -827,7 +844,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     return;
   }
 
-  var fields = rule.extract(subject, body);
+  var fields = read.fields;
   if (!fields) {
     logUnreadEmail_(sender, subject, 'unreadable', dateStr);
     // The rule matched but the amount/details couldn't be read — most

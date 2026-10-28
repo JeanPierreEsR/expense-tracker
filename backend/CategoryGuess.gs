@@ -208,10 +208,9 @@ function backfillEntryMerchants(payload) {
       result.messagesScanned++;
       var subject = message.getSubject();
       var body = message.getPlainBody();
-      var rule = emailRules_().filter(function (r) { return r.sender === sender; })
-        .find(function (r) { return r.match(subject, body); });
-      if (!rule || rule.skip) continue;
-      var fields = rule.extract(subject, body);
+      var read = readEmailWithRules_(sender, subject, body);
+      if (!read.rule || read.rule.skip) continue;
+      var fields = read.fields;
       if (!fields || !fields.merchant) continue;
       var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
       // Entries made before 2026-10-05 carry the message-less key, newer ones the

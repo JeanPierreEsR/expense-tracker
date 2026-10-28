@@ -10,8 +10,15 @@
  * the kind of entry. There are no regular expressions and no code, so a file from the internet can neither hang a scan nor do anything but
  * read an e-mail. Complex rules (Yape, exchange houses) stay in EMAIL_RULES.
  *
- * The pack is public: it must hold nothing private. Validation refuses digit runs, e-mail addresses (except the bank's own `sender`) and links.
- * One bad rule refuses the WHOLE file and the last good pack stays. See specs/review-telegram-email.md § Rule pack.
+ * The pack is public: it must hold nothing private. Validation refuses digit runs, e-mail addresses (except the bank's own `sender`) and links,
+ * in EVERY string of the file, known field or not. A mistake in a known field refuses the WHOLE file and the last good pack stays; a rule that
+ * uses a field this backend does not know yet (written for a newer backend) is skipped on its own and listed in the status, so a schema growing
+ * later never blocks the other rules on a copy that has not updated.
+ *
+ * Moving a bank from code to the pack (specs/review-telegram-email.md § Rule pack, "Migration"): the pack rule is a TWIN of a code rule
+ * (`replaces` = that rule's label). While it is a plain twin it only runs behind the code rules; `first: true` puts it in front, the code rule
+ * stays behind it as the fallback. The scan tries the next matching rule when one cannot read an e-mail (readEmailWithRules_), so neither
+ * order can lose an e-mail. `rulePackTwinCheck_` (owner's copy only) compares a twin with its code rule on the real mailbox.
  */
 
 var RULE_PACK_SETTING_ = 'rule_pack';
@@ -20,14 +27,15 @@ var RULE_PACK_MAX_CHARS_ = 40000;       // a Settings cell holds 50,000
 var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
-var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'type', 'subjectHas', 'subjectHasAny', 'subjectEndsWith',
-  'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'externalId'];
+var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
+  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'externalId'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function rulePackEscape_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-// Lower case without accents, so "débito" and "debito" are the same word. Used only for the "must contain" tests.
-function rulePackFold_(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+// Lower case without accents and with every run of spaces/line breaks as one space, so "débito" and "debito" are the same word and a
+// phrase that wraps over two lines is still found. Used only for the "must contain" tests.
+function rulePackFold_(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' '); }
 
 // ---- validation ----
 
@@ -52,16 +60,20 @@ function rulePackLabel_(spec, what, errors) {
   rulePackText_(spec.label, what + '.label', errors);
 }
 
-function rulePackCheckRule_(r, where, errors) {
+function rulePackCheckRule_(r, where, errors, strict) {
   if (!r || typeof r !== 'object' || Array.isArray(r)) { errors.push(where + ': not a rule'); return; }
-  Object.keys(r).forEach(function (k) { if (RULE_PACK_RULE_KEYS_.indexOf(k) === -1) errors.push(where + ': unknown field ' + k); });
+  if (strict) Object.keys(r).forEach(function (k) { if (RULE_PACK_RULE_KEYS_.indexOf(k) === -1) errors.push(where + ': unknown field ' + k); });
   rulePackText_(r.id, where + '.id', errors);
   rulePackText_(r.bank, where + '.bank', errors);
   rulePackText_(r.label, where + '.label', errors);
   if (rulePackText_(r.sender, where + '.sender', errors, { address: true }) && !RULE_PACK_ADDRESS_.test(String(r.sender))) errors.push(where + '.sender: not an e-mail address in lower case');
-  ['skip', 'cardIsDestination'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
+  if (r.replaces !== undefined) rulePackText_(r.replaces, where + '.replaces', errors);
+  if (r.subjectIs !== undefined) rulePackText_(r.subjectIs, where + '.subjectIs', errors);
+  ['skip', 'cardIsDestination', 'first', 'accountByCurrency'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
   ['subjectHas', 'subjectHasAny', 'bodyHas', 'bodyHasAny'].forEach(function (k) { if (r[k] !== undefined) rulePackWords_(r[k], where + '.' + k, errors); });
   if (r.subjectEndsWith !== undefined) rulePackText_(r.subjectEndsWith, where + '.subjectEndsWith', errors);
+  // A rule in front of the code rules with no words to match would take EVERY e-mail from its sender, including the kinds other rules read.
+  if (r.first === true && !(r.subjectHas || r.subjectHasAny || r.subjectEndsWith || r.subjectIs || r.bodyHas || r.bodyHasAny)) errors.push(where + '.first: needs words to match');
   if (r.skip === true) return;   // an ignore rule needs only its match words
 
   if (RULE_PACK_TYPES_.indexOf(r.type) === -1) errors.push(where + '.type: one of ' + RULE_PACK_TYPES_.join(', '));
@@ -92,9 +104,10 @@ function rulePackCheckRule_(r, where, errors) {
     var d = r.description;
     if (!d || typeof d !== 'object') errors.push(where + '.description: needs {labels}');
     else {
-      Object.keys(d).forEach(function (k) { if (k !== 'labels' && k !== 'prefix') errors.push(where + '.description: unknown field ' + k); });
+      Object.keys(d).forEach(function (k) { if (k !== 'labels' && k !== 'prefix' && k !== 'text') errors.push(where + '.description: unknown field ' + k); });
       if (d.labels !== undefined) rulePackWords_(d.labels, where + '.description.labels', errors, 3);
       if (d.prefix !== undefined) rulePackText_(d.prefix, where + '.description.prefix', errors);
+      if (d.text !== undefined) rulePackText_(d.text, where + '.description.text', errors);
     }
   }
   if (r.last4 !== undefined) {
@@ -108,8 +121,30 @@ function rulePackCheckRule_(r, where, errors) {
   }
 }
 
-// Parses and checks pack text. Returns { ok:true, pack } or { ok:false, errors:[...] } (at most 8 messages). Never throws.
-function rulePackValidate_(text) {
+// Every string anywhere in the file (known field or not, nested or not) is public: no long numbers, no addresses (only a rule's `sender` is one), no
+// links, no control characters. Returns the first problem or ''.
+function rulePackScan_(node, key, depth) {
+  if (depth > 6) return 'too deep';
+  if (typeof node === 'string') {
+    if (node.length > RULE_PACK_MAX_TEXT_) return 'a text is too long';
+    if (/[\u0000-\u001f]/.test(node)) return 'control characters';
+    if (/\d{5,}/.test(node)) return 'a long number (the file is public: words only)';
+    if (/:\/\/|https?:|www\./i.test(node)) return 'a link (the file is public)';
+    if (/@/.test(node) && key !== 'sender') return 'an address (the file is public)';
+    return '';
+  }
+  if (Array.isArray(node)) { for (var i = 0; i < node.length; i++) { var a = rulePackScan_(node[i], key, depth + 1); if (a) return a; } return ''; }
+  if (node && typeof node === 'object') {
+    var ks = Object.keys(node);
+    for (var j = 0; j < ks.length; j++) { var b = rulePackScan_(node[ks[j]], ks[j], depth + 1); if (b) return b; }
+  }
+  return '';
+}
+
+// Parses and checks pack text. Returns { ok:true, pack, skipped:[ids] } or { ok:false, errors:[...] } (at most 8 messages). Never throws.
+// opts.strict (the repo's tests, never a phone): an unknown field is an error too, so a typo in a field name is caught when the rule is written.
+function rulePackValidate_(text, opts) {
+  var strict = !!(opts && opts.strict);
   var errors = [];
   var raw = String(text === undefined || text === null ? '' : text);
   if (!raw.trim()) return { ok: false, errors: ['empty'] };
@@ -117,18 +152,27 @@ function rulePackValidate_(text) {
   var pack;
   try { pack = JSON.parse(raw); } catch (err) { return { ok: false, errors: ['not JSON'] }; }
   if (!pack || typeof pack !== 'object' || Array.isArray(pack)) return { ok: false, errors: ['not a pack'] };
-  Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules') errors.push('unknown field ' + k); });
+  var scan = rulePackScan_(pack, '', 0);
+  if (scan) return { ok: false, errors: [scan] };
+  if (strict) Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules') errors.push('unknown field ' + k); });
   if (typeof pack.version !== 'number' || Math.floor(pack.version) !== pack.version || pack.version < 1 || pack.version > 1000000) errors.push('version: a whole number');
+  var kept = [], skipped = [];
   if (!Array.isArray(pack.rules)) errors.push('rules: a list is needed');
   else if (pack.rules.length > RULE_PACK_MAX_RULES_) errors.push('too many rules');
   else {
     var ids = {};
     pack.rules.forEach(function (r, i) {
-      rulePackCheckRule_(r, 'rule ' + (i + 1), errors);
-      if (r && typeof r.id === 'string') { if (ids[r.id]) errors.push('rule ' + (i + 1) + ': id used twice'); ids[r.id] = true; }
+      var where = 'rule ' + (i + 1);
+      if (r && typeof r === 'object' && !Array.isArray(r) && !strict && Object.keys(r).some(function (k) { return RULE_PACK_RULE_KEYS_.indexOf(k) === -1; })) {
+        skipped.push(typeof r.id === 'string' ? r.id.slice(0, 40) : where);   // written for a newer backend: this rule waits, the others load
+        return;
+      }
+      rulePackCheckRule_(r, where, errors, strict);
+      if (r && typeof r.id === 'string') { if (ids[r.id]) errors.push(where + ': id used twice'); ids[r.id] = true; }
+      kept.push(r);
     });
   }
-  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: pack };
+  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: { version: pack.version, rules: kept }, skipped: skipped };
 }
 
 // ---- compiling a rule into the shape the code rules have: { bank, sender, label, match(subject, body), extract(subject, body), ... } ----
@@ -137,13 +181,19 @@ function rulePackAllIn_(words, haystack) { return words.every(function (w) { ret
 function rulePackAnyIn_(words, haystack) { return words.some(function (w) { return haystack.indexOf(rulePackFold_(w)) !== -1; }); }
 
 function rulePackCompile_(r) {
-  var rule = { bank: r.bank, sender: r.sender, label: r.label, fromPack: true };
+  var rule = { bank: r.bank, sender: r.sender, label: r.label, fromPack: true, packId: r.id };
+  if (r.first === true) rule.first = true;
+  if (r.replaces) rule.replaces = r.replaces;
+  // `accountByCurrency: true` = when the e-mail names no account, the money left the account called "<Bank> soles" / "<Bank> dolares" (what the
+  // welcome questions name a bank's accounts, and what BCP_ACCOUNTS spells out for BCP). Not a map: a public file never names a person's accounts.
+  if (r.accountByCurrency === true) rule.accountByCurrency = { PEN: r.bank + ' soles', USD: r.bank + ' dolares' };
   if (r.skip === true) rule.skip = true;
   if (r.cardIsDestination === true) rule.cardIsDestination = true;
   rule.match = function (subject, body) {
     var s = rulePackFold_(subject), b = rulePackFold_(body);
     if (r.subjectHas && !rulePackAllIn_(r.subjectHas, s)) return false;
     if (r.subjectHasAny && !rulePackAnyIn_(r.subjectHasAny, s)) return false;
+    if (r.subjectIs && s.trim() !== rulePackFold_(r.subjectIs).trim()) return false;
     if (r.subjectEndsWith && s.trim().slice(-rulePackFold_(r.subjectEndsWith).length) !== rulePackFold_(r.subjectEndsWith)) return false;
     if (r.bodyHas && !rulePackAllIn_(r.bodyHas, b)) return false;
     if (r.bodyHasAny && !rulePackAnyIn_(r.bodyHasAny, b)) return false;
@@ -165,7 +215,8 @@ function rulePackCompile_(r) {
     var description = null;
     if (r.description && r.description.labels) {
       description = r.description.labels.map(function (l) { return afterLabel_(body, rulePackEscape_(l)); }).filter(Boolean).join(' - ') || null;
-    } else description = merchant || recipient;
+    } else if (r.description && r.description.text) description = r.description.text;
+    else description = merchant || recipient;
     if (description && r.description && r.description.prefix) description = r.description.prefix + description;
     var last4 = null;
     if (r.last4) {
@@ -204,12 +255,16 @@ function rulePackRules_() {
 }
 
 // Every rule the app can read an e-mail with: the ones written in code first (they keep winning), then the pack's.
-function emailRules_() { return EMAIL_RULES.concat(rulePackRules_()); }
+// A pack rule marked `first` (a twin whose code rule has been proven identical) goes in front of the code rules, which stay behind it as the fallback.
+function emailRules_() {
+  var pack = rulePackRules_();
+  return pack.filter(function (r) { return r.first; }).concat(EMAIL_RULES, pack.filter(function (r) { return !r.first; }));
+}
 
 function rulePackStatus_() {
   var st = {};
   try { st = JSON.parse(String(getSettingsMap()[RULE_PACK_STATUS_SETTING_] || '{}')) || {}; } catch (err) { st = {}; }
-  return { version: Number(st.version) || 0, count: Number(st.count) || 0, at: String(st.at || ''), error: String(st.error || '') };
+  return { version: Number(st.version) || 0, count: Number(st.count) || 0, at: String(st.at || ''), error: String(st.error || ''), skipped: Array.isArray(st.skipped) ? st.skipped : [] };
 }
 
 // The door: the phone hands over the public file's text. A refused file leaves the stored pack as it was.
@@ -223,6 +278,76 @@ function setRulePack(p) {
     throw codedError_('rule_pack_refused', 'Rule pack refused: ' + v.errors.join('; '));
   }
   setSetting_(RULE_PACK_SETTING_, JSON.stringify(v.pack));
-  setSetting_(RULE_PACK_STATUS_SETTING_, JSON.stringify({ version: v.pack.version, count: v.pack.rules.length, at: now, error: '' }));
-  return { version: v.pack.version, count: v.pack.rules.length };
+  setSetting_(RULE_PACK_STATUS_SETTING_, JSON.stringify({ version: v.pack.version, count: v.pack.rules.length, at: now, error: '', skipped: v.skipped.slice(0, 8) }));
+  return { version: v.pack.version, count: v.pack.rules.length, skipped: v.skipped.length };
+}
+
+// ---- twin check: does a pack twin read the REAL mailbox like the code rule it replaces? (owner's copy only, read-only, helper key) ----
+// For every pack rule with `replaces` (the label of a code rule of the same sender) it reads the last `days` days of that sender's mail and counts:
+// both match and read the same fields / read different fields (which fields), only the code rule matches (the twin would miss it), only the twin
+// matches (it would read something the code rule leaves alone, and says which code rule it would take it from). Nothing is changed.
+// What it returns holds no amount, name or number: field NAMES, counts, and the subject's wording with its digits hidden.
+function rulePackTwinCheck_(p) {
+  if (isFriendCopy_()) throw codedError_('twin_not_here', 'This check runs on the owner\'s copy only.');
+  var days = Math.max(1, Math.min(90, Math.floor(Number((p || {}).days) || 30)));
+  var twins = rulePackRules_().filter(function (r) { return r.replaces; });
+  var report = { days: days, twins: [] };
+  var bySender = {};
+  twins.forEach(function (t) { (bySender[t.sender] = bySender[t.sender] || []).push(t); });
+  Object.keys(bySender).forEach(function (sender) {
+    var messages = gmailSearchMessages_('from:' + sender + ' newer_than:' + days + 'd', { max: 200 });
+    bySender[sender].forEach(function (twin) {
+      var code = EMAIL_RULES.filter(function (r) { return r.sender === sender && r.label === twin.replaces; })[0];
+      var row = { id: twin.packId, replaces: twin.replaces, codeRuleFound: !!code, emails: 0, both: 0, identical: 0, different: 0, onlyCode: 0, onlyTwin: 0, fieldsDiffering: {}, ruleAttributesDiffering: [], examples: [] };
+      if (code) {
+        // What the rule says about the entry besides the fields it reads (which bank, which account when the e-mail names none, a card-bill payment...)
+        ['bank', 'cardIsDestination', 'skip', 'rail', 'exchange', 'accountByCurrency'].forEach(function (k) {
+          var x = code[k] === undefined ? null : code[k], y = twin[k] === undefined ? null : twin[k];
+          if (JSON.stringify(x) !== JSON.stringify(y)) row.ruleAttributesDiffering.push(k);
+        });
+        messages.forEach(function (m) {
+          var subject = m.getSubject(), body = m.getPlainBody();
+          var codeMatches = !!code.match(subject, body), twinMatches = !!twin.match(subject, body);
+          if (!codeMatches && !twinMatches) return;
+          row.emails++;
+          var shape = unreadSubjectShape_(subject);
+          if (codeMatches && twinMatches) {
+            row.both++;
+            var a = code.skip ? null : code.extract(subject, body), b = twin.skip ? null : twin.extract(subject, body);
+            var differing = rulePackDiffFields_(a, b);
+            if (!differing.length) row.identical++;
+            else {
+              row.different++;
+              differing.forEach(function (f) { row.fieldsDiffering[f] = (row.fieldsDiffering[f] || 0) + 1; });
+              if (row.examples.length < 5) row.examples.push({ kind: 'different', subject: shape, fields: differing });
+            }
+          } else if (codeMatches) {
+            row.onlyCode++;
+            if (row.examples.length < 5) row.examples.push({ kind: 'only code rule', subject: shape });
+          } else {
+            row.onlyTwin++;
+            var taken = EMAIL_RULES.filter(function (r) { return r.sender === sender && r.match(subject, body); })[0];
+            if (row.examples.length < 5) row.examples.push({ kind: 'only twin', subject: shape, wouldTakeFrom: taken ? taken.label : '(no code rule matches it)' });
+          }
+        });
+      }
+      report.twins.push(row);
+    });
+  });
+  return report;
+}
+
+// The names of the fields on which two readings differ (null = could not read). A missing field and null count as the same.
+function rulePackDiffFields_(a, b) {
+  if (!a && !b) return [];
+  if (!a || !b) return ['(one rule could not read it)'];
+  var out = [];
+  var keys = {};
+  Object.keys(a).forEach(function (k) { keys[k] = true; });
+  Object.keys(b).forEach(function (k) { keys[k] = true; });
+  Object.keys(keys).forEach(function (k) {
+    var x = a[k] === undefined ? null : a[k], y = b[k] === undefined ? null : b[k];
+    if (JSON.stringify(x) !== JSON.stringify(y)) out.push(k);
+  });
+  return out;
 }

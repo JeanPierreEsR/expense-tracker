@@ -324,6 +324,7 @@ function routeAction(action, payload) {
     case 'getStatementAttachment': return getStatementAttachment(payload);
     case 'listPerfAppVersions': return listPerfAppVersions_();
     case 'listStatementSamples': return listStatementSamples_(payload);
+    case 'rulePackTwinCheck': return rulePackTwinCheck_(payload);
     case 'findStatementEmails': return findStatementEmails(payload);
     case 'addStatementsToInbox': return addStatementsToInbox(payload);
     case 'rememberStatementSender': return rememberStatementSender(payload);
