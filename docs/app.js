@@ -4425,13 +4425,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
-      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" ? `
+      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <div class="review-item-secondary-actions">
+        <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
-        <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
+        ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
       </div>` : ""}
     `;
 
@@ -4543,7 +4544,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer") {
+    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -4564,7 +4565,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           return null;
         }
         const amt = parseFloat(amountInput.value.trim());
-        const rowCategory = item.querySelector(".review-category").value;
+        const rowCategoryEl = item.querySelector(".review-category");   // an investment has none
+        const rowCategory = rowCategoryEl ? rowCategoryEl.value : "";
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
         const rowTripEl = item.querySelector(".review-trip");
@@ -4579,6 +4581,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
+      // Any waiting entry can be opened in the full form to pick another type (Expense / Income / Investment / Transfer);
+      // saving there confirms it as that type. The Split button above does the same for an expense.
+      item.querySelector(".review-type-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const splitBtn = item.querySelector(".review-split-btn"); // expenses only
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
@@ -4607,7 +4612,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
-      item.querySelector(".review-exchange-btn").addEventListener("click", withRowEdits((e) =>
+      const exchangeBtn = item.querySelector(".review-exchange-btn");
+      if (exchangeBtn) exchangeBtn.addEventListener("click", withRowEdits((e) =>
         openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
