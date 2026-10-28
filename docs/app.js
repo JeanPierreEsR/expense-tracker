@@ -14501,16 +14501,18 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     // One total, split in what sits on loans and what is its own income/expense entry.
     const split = r.gap
-      ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) }), tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) })]
+      ? [tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) }), tr("history.splitLoans", { amount: money(r.currency, r.applied) })]
       : [];
-    const metaLines = (acct ? [acct] : []).concat(split, where);
-    if (r.unapplied > 0.004) metaLines.push(`<em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em>`);
+    const metaLines = (acct ? [acct] : []).concat(split);
+    // The loans it paid sit right under "On loans", slightly indented, as its detail.
+    const whereHtml = where.map((m) => (r.gap ? `<div class="loan-detail-row-meta history-sub">${m}</div>` : `<div class="loan-detail-row-meta">${m}</div>`)).join("");
+    const unappliedHtml = r.unapplied > 0.004 ? `<div class="loan-detail-row-meta"><em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em></div>` : "";
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
-      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}`;
+      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}${whereHtml}${unappliedHtml}`;
     repEl.appendChild(row);
   });
 

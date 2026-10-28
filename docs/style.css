@@ -3154,3 +3154,6 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
 .loan-detail-actions[hidden] { display: none; }
+
+/* repayment history: the loans a repayment paid, as detail under "On loans" */
+.loan-detail-row-meta.history-sub { padding-left: 16px; }
