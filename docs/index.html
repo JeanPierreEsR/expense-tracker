@@ -1302,15 +1302,17 @@
           <label for="reassign-pm" data-i18n="field.paymentMethod">Payment method</label>
           <select id="reassign-pm"></select>
         </div>
-        <label class="settle-choose-row" id="reassign-limit-row">
-          <input type="checkbox" id="reassign-limit">
-          <span data-i18n="reassign.limit">Pay only the selected loans</span>
-        </label>
-        <div id="reassign-gap" hidden>
-          <label for="reassign-gap-category" id="reassign-gap-label"></label>
-          <select id="reassign-gap-category"></select>
-        </div>
         <div id="reassign-list"></div>
+        <div class="reassign-limit-box" id="reassign-limit-row">
+          <label class="reassign-limit-label">
+            <input type="checkbox" id="reassign-limit">
+            <span data-i18n="reassign.limit">Pay only the selected loans</span>
+          </label>
+          <div id="reassign-gap" hidden>
+            <label for="reassign-gap-category" id="reassign-gap-label"></label>
+            <select id="reassign-gap-category"></select>
+          </div>
+        </div>
         <p class="hint" id="reassign-summary"></p>
         <div id="reassign-record" hidden>
           <p class="hint" data-i18n="reassign.recordEntryHint">x</p>
