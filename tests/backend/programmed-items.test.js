@@ -313,6 +313,17 @@ test("Mark as paid can record a brand-new entry from the item and counts it as p
   assert.throws(() => rt.api("recordRecurringPayment", { recurringExpenseId: r.id, amount: 0, date: ym() + "-03" }));
 });
 
+test("The expected list gives a shared item's full bill (for the Mark as paid pre-fill) next to the owner's share", () => {
+  const { rt, data } = freshApp();
+  const r = item(rt, data, { day: 28, amount: 300 });
+  const f = rt.api("addFriend", { name: "Ana Lo" });
+  rt.api("saveRecurringExpenseSplits", { recurringExpenseId: r.id, splits: [{ friend_id: f.id, amount: 200 }] });
+  const it = rt.api("listExpectedRecurringItems").groups.flatMap((g) => g.items).find((i) => i.id === r.id);
+  assert.equal(it.amount, 100, "owner's share");
+  assert.equal(it.full_amount, 300, "whole bill");
+  assert.equal(it.category_id, r.category_id, "the entry form needs the item's category");
+});
+
 test("Mark as paid carries the split to the new entry and creates the loan", () => {
   const { rt, data } = freshApp();
   const r = item(rt, data, { day: 28, amount: 100 });
