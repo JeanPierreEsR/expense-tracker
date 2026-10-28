@@ -112,6 +112,70 @@ test("a Telegram edit of an ordinary entry is untouched by all this", () => {
   assert.equal(Number(rt.rows("Entries").find((x) => x.id === e.id).amount), 33);
 });
 
+// ---- Telegram edits of a repayment's two entries follow the same rules as in the app ----
+
+function repaymentWithExtra() {
+  const s = setup();
+  const income = s.data.cats.find((c) => c.type === "income");
+  s.rt.api("addLoan", { friend_id: s.ana.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-05", payment_method_id: s.pm });
+  s.rt.api("recordRepayment", { friend_id: s.ana.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-02-10", payment_method_id: s.pm, overpay_category_id: income.id });
+  const row = s.rt.rows("Settlements").find((r) => r.gap_entry_id);
+  return { ...s, row, movementId: row.transfer_entry_id, extraId: row.gap_entry_id };
+}
+
+test("Telegram: a new DATE on the money movement carries over to the extra entry and to the repayment rows", () => {
+  const { rt, movementId, extraId, entryRow } = repaymentWithExtra();
+  const out = telegramEdit(rt, movementId, "date 2026-03-20");
+  assert.equal(entryRow(movementId).date, "2026-03-20");
+  assert.equal(entryRow(extraId).date, "2026-03-20", "the extra follows");
+  assert.ok(rt.rows("Settlements").filter((r) => r.transfer_entry_id === movementId).every((r) => r.date === "2026-03-20"), "and the rows");
+  assert.ok(!/Not changed/.test(out.message || ""));
+});
+
+test("Telegram: a new ACCOUNT on the extra entry carries over to the money movement", () => {
+  const { rt, data, movementId, extraId, entryRow } = repaymentWithExtra();
+  const other = data.pms[4];
+  telegramEdit(rt, extraId, "payment method " + other.nickname);
+  assert.equal(entryRow(extraId).payment_method_id, other.id);
+  assert.equal(entryRow(movementId).payment_method_id, other.id, "the money movement follows");
+});
+
+test("Telegram: a new AMOUNT on either entry of a repayment is refused and put back, pointing to the app", () => {
+  const { rt, movementId, extraId, entryRow } = repaymentWithExtra();
+  const a = telegramEdit(rt, movementId, "amount 99");
+  assert.match(a.message, /Not changed/);
+  assert.match(a.message, /Repayment history/, "points to the repayment's screen in the app");
+  assert.equal(Number(entryRow(movementId).amount), 30);
+  const b = telegramEdit(rt, extraId, "amount 99");
+  assert.match(b.message, /Not changed/);
+  assert.equal(Number(entryRow(extraId).amount), 20);
+});
+
+test("Telegram: an ordinary entry's edits are untouched by the repayment rules", () => {
+  const { rt, data, pm } = setup();
+  const e = rt.api("createEntry", { type: "expense", date: today(), amount: 20, currency: "PEN", category_id: data.cats.find((c) => c.type === "expense").id, description: "x", payment_method_id: pm, paid_by: "me" });
+  telegramEdit(rt, e.id, "date 2026-03-01, amount 44");
+  const row = rt.rows("Entries").find((x) => x.id === e.id);
+  assert.equal(row.date, "2026-03-01");
+  assert.equal(Number(row.amount), 44);
+});
+
+// ---- the old default text is never carried into a new loan / repayment ----
+
+test("converting a repayment for another person: the old 'Repayment from {person}' is not carried over", () => {
+  const { rt, data, ana, bo, pm } = setup();
+  const income = data.cats.find((c) => c.type === "income");
+  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-05", payment_method_id: pm });
+  rt.api("addLoan", { friend_id: bo.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: "2026-01-05", payment_method_id: pm });
+  rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: today(), payment_method_id: pm });
+  const movementId = rt.rows("Settlements").find((r) => r.transfer_entry_id).transfer_entry_id;
+  const old = rt.rows("Entries").find((e) => e.id === movementId).description;
+  assert.match(old, /Repayment from Sync Ana/);
+  rt.api("convertRepaymentToRepayment", { entry_id: movementId, friend_id: bo.id, direction: "they_owe_me", amount: 30, currency: "PEN", date: today(), payment_method_id: pm, description: old, overpay_category_id: income.id });
+  const fresh = rt.rows("Entries").find((e) => e.type === "transfer" && /Repayment from Sync Bo/.test(e.description));
+  assert.ok(fresh, "the new repayment reads 'Repayment from Sync Bo'");
+});
+
 // ---- the automatic description is a DEFAULT, never frozen into the loan ----
 
 test("the default 'Loan to {friend}' shows, can be replaced by the person's own text, and follows the loan when it changes", () => {

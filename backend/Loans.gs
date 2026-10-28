@@ -1258,6 +1258,13 @@ function autoLoanDescription_(loan) {
   return loan.direction === 'they_owe_me' ? tr_('desc.loanTo', { name: name }) : tr_('desc.loanFrom', { name: name });
 }
 
+// Same idea for a repayment: "Repayment from / to {friend}" is the default its money entry shows, never "my own" text.
+function withoutAutoRepaymentDescription_(loan, typed) {
+  var friend = loan && getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var auto = loan ? tr_(loan.direction === 'they_owe_me' ? 'desc.repaymentFrom' : 'desc.repaymentTo', { name: friend ? friend.name : '' }) : '';
+  return String(typed === undefined || typed === null ? '' : typed).trim() === String(auto).trim() ? '' : String(typed || '');
+}
+
 // `typed` is what the entry / form carried. If it is just the loan's default text it means "no description of my own": ''.
 function withoutAutoLoanDescription_(loan, typed) {
   return String(typed === undefined || typed === null ? '' : typed).trim() === String(autoLoanDescription_(loan)).trim() ? '' : String(typed || '');
@@ -1450,7 +1457,8 @@ function convertRepaymentEntryInto_(payload, kind) {
   } else {
     newLoan = addLoan({
       friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount, currency: payload.currency,
-      date: payload.date, due_date: payload.due_date, payment_method_id: payload.payment_method_id, description: payload.description
+      date: payload.date, due_date: payload.due_date, payment_method_id: payload.payment_method_id,
+      description: withoutAutoRepaymentDescription_(firstLoan, payload.description)   // the old repayment's default text is not the loan's own
     });
   }
   try {
@@ -1505,6 +1513,7 @@ function convertRepaymentToRepaymentInto_(payload) {
   getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
   var entrySnap = getEntryById_(payload.entry_id);
   var extraSnaps = repaymentExtraEntries_(oldSettlements);   // the old repayment's extra income / expense goes with it
+  var oldLoan = loansBefore.find(function (l) { return oldSettlements[0] && l.id === oldSettlements[0].loan_id; });
   var friendIds = {};
   friendIds[payload.friend_id] = true;
   oldSettlements.forEach(function (s) {
@@ -1522,7 +1531,7 @@ function convertRepaymentToRepaymentInto_(payload) {
       currency: payload.currency,
       date: payload.date,
       payment_method_id: payload.payment_method_id,
-      description: payload.description,
+      description: withoutAutoRepaymentDescription_(oldLoan, payload.description),   // the old repayment's default text is not the new one's own
       overpay_category_id: payload.overpay_category_id,
       overpay_pending_ok: payload.overpay_pending_ok
     });

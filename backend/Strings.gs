@@ -434,6 +434,7 @@ var BACKEND_STRINGS_ = {
   "bot.confirmed": { en: "✅ Confirmed.", es: "✅ Confirmado." },
   "bot.alreadyConfirmedDelete": { en: "ℹ️ Already confirmed — delete it from the app if you really want it gone.", es: "ℹ️ Ya estaba confirmado: elimínalo desde la app si de verdad quieres borrarlo." },
   "bot.discarded": { en: "🗑️ Discarded.", es: "🗑️ Descartado." },
+  "bot.repaymentRefused": { en: "⚠️ Not changed — {reason}", es: "⚠️ No se cambió: {reason}" },
   "bot.loanRefused": { en: "⚠️ Not changed — this entry is the money movement of a loan, and the loan does not accept it: {error}", es: "⚠️ No se cambió: este movimiento es el traspaso de dinero de un préstamo, y el préstamo no lo acepta: {error}" },
   "bot.repaymentPart": { en: "ℹ️ This entry is part of a repayment from {friend}, so it is not deleted on its own. To change or delete it, open the app: Loans → {friend} → Repayment history. Or delete the WHOLE repayment here — its loans part and its extra entry both go, and what it paid is owed again.", es: "ℹ️ Este movimiento es parte de un repago de {friend}, así que no se elimina por separado. Para cambiarlo o eliminarlo, abre la app: Préstamos → {friend} → Historial de repagos. O elimina TODO el repago aquí: se van su parte en préstamos y su movimiento extra, y lo que había pagado vuelve a deberse." },
   "bot.deleteRepaymentButton": { en: "🗑️ Delete the whole repayment", es: "🗑️ Eliminar todo el repago" },

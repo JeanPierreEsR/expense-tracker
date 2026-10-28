@@ -1253,10 +1253,36 @@ function updatePaidByFriendHint_() {
 // here — anything typed by hand is never overwritten. Not for repayments /
 // loans (they name the friend), nor when editing an existing entry.
 let lastAutoDescription = "";
+// The text a loan or repayment shows by default when it has no description of its own ("Loan to Ana", "Repayment from Ana").
+// Same wording as the server (desc.loanTo / loanFrom / repaymentFrom / repaymentTo in Strings.gs).
+function defaultDebtDescription_(kind, direction, name) {
+  if (!name) return "";
+  if (kind === "loan") return tr(direction === "they_owe_me" ? "desc.loanTo" : "desc.loanFrom", { name });
+  return tr(direction === "they_owe_me" ? "desc.repaymentFrom" : "desc.repaymentTo", { name });
+}
+
+// A loan's or repayment's own entry being saved as a loan / repayment (Transfer → New loan / Repayments): the default text
+// for the person and direction chosen NOW, or null when this is not that case.
+function conversionDefaultDescription_() {
+  if (!editingEntryId || !(editingLoanMovement_ || editingRepayment_) || selectedType !== "transfer") return null;
+  const kind = transferKind_();
+  if (kind !== "loan" && kind !== "repayment") return null;
+  const friend = meta.friends.find((f) => f.id === document.getElementById("repayment-friend").value);
+  return friend ? defaultDebtDescription_(kind, debtDirection_(), friend.name) : null;
+}
+
 function updateAutoTransferDescription_() {
   const desc = document.getElementById("description");
   const typedByHand = desc.value.trim() !== "" && desc.value !== lastAutoDescription;
   if (typedByHand) { lastAutoDescription = ""; return; }
+  // Editing a loan's / repayment's own entry whose description is still the AUTOMATIC one (the person has not typed their
+  // own): it is worked out again for the person and direction chosen now, the same way it was first made. Custom text is
+  // "typed by hand" above and is never touched; a plain edit (no conversion) leaves the text alone.
+  if (editingEntryId) {
+    const conv = conversionDefaultDescription_();
+    if (conv !== null && lastAutoDescription) { desc.value = conv; lastAutoDescription = conv; }
+    return;
+  }
   let text = "";
   if (selectedType === "transfer" && !editingEntryId && !confirmingPendingId && transferKind_() === "between") {
     const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname.replace(/\s*\(\s*\d+\s*\)\s*$/, "") : ""; };  // nickname only, never the account digits
@@ -1421,7 +1447,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
-  if (e.target.value !== "__add__") return;
+  if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
   const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
@@ -1430,6 +1456,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
     refreshFriendChips_();
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = friend.id;
+    updateAutoTransferDescription_();
   }
 });
 
@@ -1492,12 +1519,14 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
   }
   togglePaymentMethodVisibility();
   syncConversionAmount_();
+  updateAutoTransferDescription_();   // the automatic description follows the kind (loan / repayment) and the person
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
+    updateAutoTransferDescription_();   // ...and the direction
   });
 });
 
@@ -3509,6 +3538,10 @@ function syncCancelNewEntryButton_() {
 let editingEntrySummary_ = "";
 
 async function startEditEntry(entry) {
+  // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
+  // form that was cancelled half-way (it would silently start a loan / repayment conversion).
+  document.getElementById("transfer-kind").value = "between";
+  repaymentFriendTouched_ = false;
   editingEntryId = entry.id;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
@@ -3560,6 +3593,13 @@ async function startEditEntry(entry) {
   document.getElementById("amount").value = entryIsWithdrawal ? Math.abs(Number(entry.amount)) : entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
+  // A loan's / repayment's own entry whose description is still the automatic one stays "automatic" until the person types
+  // their own: changing the person or direction then rewrites it (see updateAutoTransferDescription_).
+  lastAutoDescription = "";
+  if (entry.type === "transfer" && entry.link && (entry.link.kind === "loan" || entry.link.kind === "repayment") &&
+      entry.description === defaultDebtDescription_(entry.link.kind, entry.link.direction, entry.link.friend)) {
+    lastAutoDescription = entry.description;
+  }
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;

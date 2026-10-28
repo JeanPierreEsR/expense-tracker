@@ -981,6 +981,26 @@ function syncLoanAfterTelegramEdit_(entryId, before) {
   }
 }
 
+// After a Telegram edit of one of a repayment's two entries (its money movement or its extra), the SAME rules as in the app
+// (`guardRepaymentEntryEdit_` / `syncRepaymentAfterEntryEdit_`, Loans.gs): a new date or account carries over to the other entry
+// and to the repayment's rows, so they stay one transfer on the same day from the same account; a new AMOUNT is refused — it is
+// changed in the repayment's editor in the app, where the loans and the extra are split — and the entry's amount is put back.
+// Returns '' or the bot's refusal text.
+function syncRepaymentAfterTelegramEdit_(entryId, before) {
+  var link = repaymentOfEntry_(entryId);
+  var now = getEntryById_(entryId);
+  if (!link || !now || !before) return '';
+  if (Math.abs(Number(now.amount) - Number(before.amount)) > 0.004) {
+    setEntryField_(entryId, 'amount', before.amount);
+    return tr_('bot.repaymentRefused', { reason: tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory') });
+  }
+  var change = {};
+  if (String(now.date) !== String(before.date)) change.date = now.date;
+  if (String(now.payment_method_id || '') !== String(before.payment_method_id || '')) change.payment_method_id = now.payment_method_id || '';
+  if (Object.keys(change).length) syncRepaymentAfterEntryEdit_(entryId, change);
+  return '';
+}
+
 function applyEditCommand_(entryId, text) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
@@ -1024,11 +1044,13 @@ function applyEditCommand_(entryId, text) {
   // goes to the loan too. If the loan refuses (e.g. an amount below what is already repaid) the entry is put back and the
   // owner is told, so the two never disagree.
   var loanRefusal = syncLoanAfterTelegramEdit_(entryId, entryBefore);
-  if (loanRefusal) {
-    appliedFields = appliedFields.filter(function (f) { return LOAN_SHARED_EDIT_FIELDS_.indexOf(f) === -1; });
-    if (!appliedFields.length) {
-      return { message: loanRefusal, entry: getEntryById_(entryId), categoryName: null };
-    }
+  if (loanRefusal) appliedFields = appliedFields.filter(function (f) { return LOAN_SHARED_EDIT_FIELDS_.indexOf(f) === -1; });
+  // Same for a repayment's two entries: date / account follow, an amount change is refused (see syncRepaymentAfterTelegramEdit_).
+  var repaymentRefusal = loanRefusal ? '' : syncRepaymentAfterTelegramEdit_(entryId, entryBefore);
+  if (repaymentRefusal) appliedFields = appliedFields.filter(function (f) { return f !== 'amount'; });
+  loanRefusal = loanRefusal || repaymentRefusal;   // one note, whichever record said no
+  if (loanRefusal && !appliedFields.length) {
+    return { message: loanRefusal, entry: getEntryById_(entryId), categoryName: null };
   }
 
   if (!appliedFields.length) {
