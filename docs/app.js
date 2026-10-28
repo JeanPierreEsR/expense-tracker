@@ -14568,7 +14568,7 @@ function openReassignRepayment_(r) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, direction: r.direction, candidates };
   document.getElementById("reassign-limit-row").hidden = false;
-  document.getElementById("reassign-limit").checked = false;
+  document.getElementById("reassign-limit").checked = !!r.limited;   // remembered from when it was saved
   const gapIncome = r.direction === "they_owe_me";
   populateCategoryOptionsForSelect_("reassign-gap-category", gapIncome ? "income" : "expense");
   const laterOpt = document.createElement("option");
