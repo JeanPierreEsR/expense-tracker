@@ -1620,8 +1620,17 @@ function withScriptLockOnce_(fn) {
 function convertEntryInto_(payload, kind) {
   var entry = getEntryById_(payload.entry_id);
   if (!entry) throw new Error(tr_('convert.gone'));
-  if (entry.type !== 'expense' && entry.type !== 'income' && entry.type !== 'transfer') {
+  if (entry.type !== 'expense' && entry.type !== 'income' && entry.type !== 'transfer' && entry.type !== 'investment') {
     throw new Error(tr_(kind === 'loan' ? 'convert.onlyLoan' : 'convert.onlyRepayment'));
+  }
+  // An investment's money direction decides: a deposit (positive, the money left) can only be a loan the owner gave or a
+  // repayment the owner paid; a withdrawal (negative, the money arrived) only a loan received or a repayment received.
+  if (entry.type === 'investment') {
+    var left = Number(entry.amount) > 0;
+    var wanted = kind === 'loan' ? (left ? 'they_owe_me' : 'i_owe_them') : (left ? 'i_owe_them' : 'they_owe_me');
+    if (payload.direction !== wanted) {
+      throw new Error(tr_(left ? (kind === 'loan' ? 'convert.depositIsLent' : 'convert.depositIsPaid') : (kind === 'loan' ? 'convert.withdrawalIsBorrowed' : 'convert.withdrawalIsReceived')));
+    }
   }
   // A repayment's extra income / expense is part of that repayment: converting it would delete it on its own.
   var asPart = repaymentPartInfo_(entry.id);

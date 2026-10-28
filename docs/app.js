@@ -89,6 +89,7 @@ let editingLoanMovement_ = "";   // the entry being edited is a cash loan's link
 let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
 var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
 let editingExchangeAccount_ = "";   // that exchange side's own account (the one it arrived in, for "in")
+let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
@@ -1388,7 +1389,7 @@ let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" 
 // back if anything fails.
 function repaymentAvailable_() {
   return selectedType === "transfer" && !confirmingPendingId &&
-    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer");
+    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer" || editingEntryOriginalType === "investment");
 }
 
 // "between" | "repayment" | "loan"
@@ -2286,6 +2287,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const isLoanKind = transferKind_() === "loan";
       const direction = debtDirection_();
+      // An investment becoming a loan / repayment follows how the money moved (the server checks it too).
+      if (editingInvestmentLeft_ !== null && editingEntryId) {
+        const wanted = isLoanKind ? (editingInvestmentLeft_ ? "they_owe_me" : "i_owe_them") : (editingInvestmentLeft_ ? "i_owe_them" : "they_owe_me");
+        if (direction !== wanted) {
+          throw new Error(tr(editingInvestmentLeft_ ? (isLoanKind ? "convert.depositIsLent" : "convert.depositIsPaid") : (isLoanKind ? "convert.withdrawalIsBorrowed" : "convert.withdrawalIsReceived")));
+        }
+      }
       const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
       const fields = {
         friend_id: friendId,
@@ -3575,6 +3583,7 @@ async function startEditEntry(entry) {
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
   editingExchangeAccount_ = editingExchangeLeg_ === "in" ? (entry.to_payment_method_id || "") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
@@ -3584,6 +3593,7 @@ async function startEditEntry(entry) {
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
   if (entry.type === "income") repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "expense") repaymentDirectionChoice = "i_owe_them";
+  else if (entry.type === "investment") repaymentDirectionChoice = Number(entry.amount) < 0 ? "they_owe_me" : "i_owe_them";   // a withdrawal arrived, a deposit left
   else if (entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id) repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
   // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
@@ -3703,6 +3713,7 @@ function exitEditMode() {
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
   editingExchangeLeg_ = "";
+  editingInvestmentLeft_ = null;
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
