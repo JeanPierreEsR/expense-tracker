@@ -14436,7 +14436,8 @@ let reassignRepayment_ = null;
 function reassignPlan_() {
   const r = reassignRepayment_;
   const checked = new Set([...document.querySelectorAll("#reassign-list input[data-loan]")].filter((i) => i.checked).map((i) => i.dataset.loan));
-  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(r.mode === "apply" ? [] : r.candidates.filter((c) => !checked.has(c.id)));
+  const limited = r.mode === "apply" || (document.getElementById("reassign-limit") && document.getElementById("reassign-limit").checked);
+  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(limited ? [] : r.candidates.filter((c) => !checked.has(c.id)));
   const plan = [];
   const typed = r.mode === "apply" ? NaN : parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
   let left = typed > 0 ? Math.round(typed * 100) / 100 : r.amount;
@@ -14467,6 +14468,17 @@ function renderReassign_() {
     document.getElementById("reassign-save").disabled = !plan.length;
     return;
   }
+  const limit = document.getElementById("reassign-limit").checked;
+  const gapEl = document.getElementById("reassign-gap");
+  gapEl.hidden = !(limit && left > 0.004 && plan.length);
+  if (limit) {
+    const income = r.direction === "they_owe_me";
+    if (left > 0.004 && plan.length) parts.push(tr(income ? "reassign.limitGapIncome" : "reassign.limitGapExpense", { amount: `${r.currency} ${moneyFmt(left)}` }));
+    document.getElementById("reassign-summary").textContent = plan.length ? parts.join(" · ") : tr("reassign.limitNone");
+    document.getElementById("reassign-error").textContent = "";
+    document.getElementById("reassign-save").disabled = !plan.length;
+    return;
+  }
   document.getElementById("reassign-summary").textContent = parts.join(" · ");
   document.getElementById("reassign-error").textContent = left > 0.01 ? tr("reassign.noRoom") : "";
   document.getElementById("reassign-save").disabled = left > 0.01;
@@ -14481,7 +14493,18 @@ function openReassignRepayment_(r) {
     .filter((l) => l.direction === r.direction && l.currency === r.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
     .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, candidates };
+  reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, direction: r.direction, candidates };
+  document.getElementById("reassign-limit-row").hidden = false;
+  document.getElementById("reassign-limit").checked = false;
+  const gapIncome = r.direction === "they_owe_me";
+  populateCategoryOptionsForSelect_("reassign-gap-category", gapIncome ? "income" : "expense");
+  const laterOpt = document.createElement("option");
+  laterOpt.value = "";
+  laterOpt.textContent = tr("reassign.limitLater");
+  document.getElementById("reassign-gap-category").prepend(laterOpt);
+  document.getElementById("reassign-gap-category").value = "";
+  document.getElementById("reassign-gap-label").textContent = tr(gapIncome ? "reassign.limitCategoryIncome" : "reassign.limitCategoryExpense");
+  document.getElementById("reassign-gap").hidden = true;
 
   // Amount, date and account of the repayment itself can be changed here too.
   document.getElementById("reassign-fields").hidden = false;
@@ -14538,6 +14561,9 @@ async function openApplyUnapplied_(l, friend) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
   document.getElementById("reassign-fields").hidden = true;
+  document.getElementById("reassign-limit-row").hidden = true;
+  document.getElementById("reassign-limit").checked = false;
+  document.getElementById("reassign-gap").hidden = true;
   document.getElementById("reassign-record").hidden = true;
 
   document.getElementById("reassign-title").textContent = tr("apply.title");
@@ -14594,6 +14620,7 @@ document.getElementById("reassign-record-btn").addEventListener("click", async (
   await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
 });
 document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
+document.getElementById("reassign-limit").addEventListener("change", renderReassign_);
 document.getElementById("reassign-close").addEventListener("click", closeReassign_);
 document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
 document.getElementById("reassign-save").addEventListener("click", async () => {
@@ -14610,6 +14637,8 @@ document.getElementById("reassign-save").addEventListener("click", async () => {
       body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
       body.date = document.getElementById("reassign-date").value;
       body.payment_method_id = document.getElementById("reassign-pm").value;
+      body.limit = document.getElementById("reassign-limit").checked;
+      body.overpay_category_id = document.getElementById("reassign-gap-category").value;
     }
     await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body);
   } catch (err) {

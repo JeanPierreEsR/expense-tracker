@@ -1710,7 +1710,9 @@ function getFriendRepaymentHistory(payload) {
     if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
       var g = groups[s.transfer_entry_id];
       g.amount += part.amount;
-      g.parts.push(part);
+      // one loan paid in two pieces by the same repayment (e.g. after "Apply to a loan") is still ONE loan on the line
+      var same = g.parts.find(function (x) { return x.loan_id === part.loan_id; });
+      if (same) same.amount = Math.round((same.amount + part.amount) * 100) / 100; else g.parts.push(part);
       return;
     }
     var line = {
@@ -1783,8 +1785,11 @@ function reassignRepayment(payload) {
     if (!candidates.some(function (c) { return c.loan.id === id; })) throw new Error(tr_('repay.chosenLoanNotOpen'));
     chosen[id] = true;
   });
-  var ordered = candidates.filter(function (c) { return chosen[c.loan.id]; })
-    .concat(candidates.filter(function (c) { return !chosen[c.loan.id]; }));
+  // "Only the selected loans" (owner's request, 2026-10-27): nothing spills onto the others; what the selected loans cannot
+  // take is the gap, recorded as income (they paid more than they owed) or as an expense (the owner paid more).
+  var limit = payload.limit === true;
+  var ordered = candidates.filter(function (c) { return chosen[c.loan.id]; });
+  if (!limit) ordered = ordered.concat(candidates.filter(function (c) { return !chosen[c.loan.id]; }));
 
   var plan = [];
   var left = total;
@@ -1793,7 +1798,13 @@ function reassignRepayment(payload) {
     var take = Math.round(Math.min(c.room, left) * 100) / 100;
     if (take > 0.004) { plan.push({ loan_id: c.loan.id, amount: take }); left -= take; }
   });
-  if (left > 0.01) throw new Error(tr_('repay.reassignNoRoom'));
+  var gap = 0;
+  if (limit) {
+    if (!plan.length) throw new Error(tr_('repay.applyNoRoom'));
+    gap = left > 0.004 ? Math.round(left * 100) / 100 : 0;
+  } else if (left > 0.01) {
+    throw new Error(tr_('repay.reassignNoRoom'));
+  }
 
   var touched = {};
   group.forEach(function (s) { touched[s.loan_id] = true; });
@@ -1811,12 +1822,29 @@ function reassignRepayment(payload) {
     var te = getEntryById_(first.transfer_entry_id);
     if (te) {
       var extra = Math.max(Math.round((Number(te.amount) - oldTotal) * 100) / 100, 0);
-      setEntryField_(first.transfer_entry_id, 'amount', Math.round((total + extra) * 100) / 100);
+      setEntryField_(first.transfer_entry_id, 'amount', Math.round((total - gap + extra) * 100) / 100);
       setEntryField_(first.transfer_entry_id, 'date', newDate);
       setEntryField_(first.transfer_entry_id, 'payment_method_id', newPm);
     }
   }
-  return { done: true, parts: plan.length };
+  if (gap > 0.004) {
+    var gapEntry = createOverpaymentEntry_(anchorLoan.direction === 'they_owe_me' ? 'income' : 'expense', {
+      friend_id: anchorLoan.friend_id,
+      amount: gap,
+      currency: anchorLoan.currency,
+      date: newDate,
+      payment_method_id: newPm,
+      category_id: payload.overpay_category_id || '',
+      pending: !payload.overpay_category_id
+    });
+    var gapFriend = getAllRows('Friends').find(function (f) { return f.id === anchorLoan.friend_id; });
+    if (anchorLoan.direction === 'i_owe_them' && gapFriend && gapFriend.trip_id && tripById_(gapFriend.trip_id)) {
+      ensureEntriesTripColumn_();
+      setEntryField_(gapEntry.id, 'trip_id', gapFriend.trip_id);
+    }
+    if (anchorLoan.project_id) linkEntryToProject_(gapEntry.id, anchorLoan.project_id);
+  }
+  return { done: true, parts: plan.length, gap: gap };
 }
 
 // Gives an old repayment (recorded before repayments created a money-movement entry) its entry, so it shows in Home and
