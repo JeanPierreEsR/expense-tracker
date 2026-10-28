@@ -14646,7 +14646,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
       ? tr("loanDetail.fullyRepaid")
       : [
           l.overdue ? tr("loanDetail.overdueSince", { date: l.due_date }) : "",
-          l.settled > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled) }) : ""
+          l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
+          l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
 
   // Every row is tappable, but to different places: a standalone cash
@@ -14885,6 +14886,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       tr(l.direction === "they_owe_me" ? "history.loanLine" : "history.loanLineOwe", { amount: money(l.currency, l.amount) }),
       l.paid > 0.004 ? tr("history.repaid", { amount: money(l.currency, l.paid) }) : "",
       l.offset > 0.004 ? tr("history.offsetAmt", { amount: money(l.currency, l.offset) }) : "",
+      l.forgiven_part > 0.004 ? tr("history.forgivenAmt", { amount: money(l.currency, l.forgiven_part) }) : "",
       l.status === "forgiven" ? "" : tr("history.left", { amount: money(l.currency, l.remaining) })
     ].filter(Boolean).join(" · ");
     row.innerHTML = `
@@ -15994,6 +15996,9 @@ function openForgiveModal(loan, returnFriend) {
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
 
   const hasBalance = loan.remaining > 0.004;
+  // The whole balance to start with; a smaller amount forgives only that part (forgiveLoan, `amount`).
+  document.getElementById("forgive-amount-field").hidden = !hasBalance;
+  document.getElementById("forgive-amount").value = hasBalance ? String(Math.round(loan.remaining * 100) / 100) : "";
   const checkbox = document.getElementById("forgive-convert-checkbox");
   // No opt-out any more: forgiving a debt always registers what was still
   // owed as an expense/income entry (see forgiveLoan in Loans.gs), so the
@@ -16043,6 +16048,8 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const convert = forgiveLoanTarget.remaining > 0.004;
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
+  const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
+  if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (convert && !categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
   if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
@@ -16052,6 +16059,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
     await callApi("forgiveLoan", {
       id: forgiveLoanTarget.id,
       convert,
+      ...(convert ? { amount } : {}),
       category_id: categoryId,
       date
     });

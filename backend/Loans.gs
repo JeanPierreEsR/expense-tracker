@@ -115,7 +115,7 @@ function settledEntryLoans_(entryId) {
 function protectedLoanIds_() {
   var ids = {};
   getAllRows('Settlements').forEach(function (s) { ids[s.loan_id] = true; });
-  getAllRows('Loans').forEach(function (l) { if (l.status === 'forgiven') ids[l.id] = true; });
+  getAllRows('Loans').forEach(function (l) { if (l.status === 'forgiven' || loanForgivenParts_(l).length) ids[l.id] = true; });
   return ids;
 }
 
@@ -380,6 +380,42 @@ function ensureLoansForgivenessEntryColumn_() {
   }
 }
 
+// Partial forgiveness (owner's request, 2026-10-28): a loan can have several forgiven PARTS before (or instead of) being
+// forgiven whole. Each part is {entry_id, amount, date}: the expense / income it booked, how much it forgave, when. They live
+// as JSON in this column of the loan itself; the loan's amount never changes (the money that moved did not), and the parts count
+// toward what is settled, so every balance already derived from the settled totals shrinks by itself.
+function ensureLoansForgivenPartsColumn_() {
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('forgiven_parts') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('forgiven_parts');
+  }
+}
+
+function loanForgivenParts_(loan) {
+  if (!loan || !loan.forgiven_parts) return [];
+  try {
+    var parts = JSON.parse(String(loan.forgiven_parts));
+    return Array.isArray(parts) ? parts.filter(function (p) { return p && Number(p.amount) > 0; }) : [];
+  } catch (err) { return []; }
+}
+
+function loanForgivenPartsTotal_(loan) {
+  return loanForgivenParts_(loan).reduce(function (sum, p) { return sum + Number(p.amount); }, 0);
+}
+
+// Which loan (and which part, null for a whole-loan forgiveness) does this entry belong to as a forgiveness? null if none.
+function forgivenessOfEntry_(entryId) {
+  var found = null;
+  getAllRows('Loans').forEach(function (l) {
+    if (found) return;
+    if (l.forgiveness_entry_id === entryId) { found = { loan: l, part: null }; return; }
+    var part = loanForgivenParts_(l).find(function (p) { return p.entry_id === entryId; });
+    if (part) found = { loan: l, part: part };
+  });
+  return found;
+}
+
 function ensureLoansTransferEntryColumn_() {
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
@@ -614,7 +650,7 @@ function updateLoan(payload) {
 
   var settledSoFar = getAllRows('Settlements')
     .filter(function (s) { return s.loan_id === payload.id; })
-    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+    .reduce(function (sum, s) { return sum + Number(s.amount); }, 0) + loanForgivenPartsTotal_(existing);
   if (settledSoFar > 0.004) {
     // Repayments are already recorded against this loan: changing who, which
     // currency, which direction, or an amount below what's repaid would
@@ -769,11 +805,12 @@ function updateLoanStatusFromSettlements_(loanId) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
   if (!loan || loan.status === 'forgiven') return;
 
-  var settled = getAllRows('Settlements')
+  var repaid = getAllRows('Settlements')
     .filter(function (s) { return s.loan_id === loanId; })
     .reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
-  var remaining = Number(loan.amount) - settled;
-  var status = remaining <= 0.004 ? 'repaid' : (settled > 0.004 ? 'partially_repaid' : 'outstanding');
+  var remaining = Number(loan.amount) - repaid - loanForgivenPartsTotal_(loan);
+  // Only real repayments make it "partly repaid"; a loan with just a forgiven part is still simply open.
+  var status = remaining <= 0.004 ? 'repaid' : (repaid > 0.004 ? 'partially_repaid' : 'outstanding');
 
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
@@ -1997,7 +2034,7 @@ function entryTypeChangeBlock_(entryId, newType) {
   ensureSettlementsGapColumn_();
   if (getAllRows('Settlements').some(function (s) { return s.gap_entry_id === entryId && !s.offset_loan_id; })) return tr_('typeChange.isRepaymentExtra');
   if (loans.some(function (l) { return l.transfer_entry_id === entryId; })) return tr_('typeChange.isLoan');
-  if (loans.some(function (l) { return l.forgiveness_entry_id === entryId; })) return tr_('typeChange.isForgiveness');
+  if (forgivenessOfEntry_(entryId)) return tr_('typeChange.isForgiveness');
   // One side of a currency exchange: the money that left can become an expense (or an investment deposit), the money that
   // arrived an income (or an investment withdrawal). The exchange is two separate entries, so the other side is not touched here.
   var side = exchangeLegSide_(entry);
@@ -2088,10 +2125,11 @@ function getEntryRepaymentLinks(payload) {
     loanInfo.status = ownLoan.status;
     return { loan: true, repayment: null, loanInfo: loanInfo };
   }
-  var forgiven = loans.find(function (l) { return l.forgiveness_entry_id === id; });
-  if (forgiven) {
+  var forgivenness = forgivenessOfEntry_(id);
+  if (forgivenness) {
+    var forgiven = forgivenness.loan;
     var fr = getAllRows('Friends').find(function (f) { return f.id === forgiven.friend_id; });
-    return { loan: false, repayment: null, forgiveness: { friend: fr ? fr.name : '', direction: forgiven.direction } };
+    return { loan: false, repayment: null, forgiveness: { friend: fr ? fr.name : '', direction: forgiven.direction, partial: !!forgivenness.part, amount: forgivenness.part ? Number(forgivenness.part.amount) : null } };
   }
   var linked = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === id; });
   var refunds = entryRepaidLoansSummary_(id);
@@ -2156,8 +2194,15 @@ function discardEntryWithRepayments_(entryId, repayments) {
   if (links.forgiveness) {
     // Deleting the entry a forgiveness booked undoes the forgiveness: the
     // loan is owed again (status recalculated from its repayments).
-    var forgivenLoan = getAllRows('Loans').find(function (l) { return l.forgiveness_entry_id === entryId; });
-    updateRowFields_('Loans', forgivenLoan.id, { status: 'outstanding', forgiveness_entry_id: '' });
+    var undoing = forgivenessOfEntry_(entryId);
+    var forgivenLoan = undoing.loan;
+    if (undoing.part) {
+      // Only this part is undone: the rest of what was forgiven stays forgiven.
+      var keptParts = loanForgivenParts_(forgivenLoan).filter(function (p) { return p.entry_id !== entryId; });
+      updateRowFields_('Loans', forgivenLoan.id, { forgiven_parts: keptParts.length ? JSON.stringify(keptParts) : '' });
+    } else {
+      updateRowFields_('Loans', forgivenLoan.id, { status: 'outstanding', forgiveness_entry_id: '' });
+    }
     updateLoanStatusFromSettlements_(forgivenLoan.id);
   }
   if (links.repayment) {
@@ -2205,6 +2250,16 @@ function forgiveLoan(payload) {
   var settled = buildSettlementTotalsByLoan_()[loan.id] || 0;
   var remaining = Number(loan.amount) - settled;
 
+  // Partial forgiveness: `amount` is how much to forgive (default: all that is left). Less than what is left forgives only
+  // that much — the loan stays open for the rest; the full balance forgives the loan whole, as before.
+  var wanted = remaining;
+  if (payload.amount !== undefined && payload.amount !== null && payload.amount !== '') {
+    wanted = Math.round(Number(payload.amount) * 100) / 100;
+    if (!(wanted > 0)) throw new Error(tr_('err.validAmount'));
+    if (wanted > remaining + 0.004) throw new Error(tr_('forgive.tooMuch', { remaining: remaining.toFixed(2) }));
+  }
+  var partial = remaining > 0.004 && remaining - wanted > 0.004;
+
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loan.id);
@@ -2229,7 +2284,7 @@ function forgiveLoan(payload) {
 
     entry = createOverpaymentEntry_(type, {
       friend_id: loan.friend_id,
-      amount: remaining,
+      amount: partial ? wanted : remaining,
       currency: loan.currency,
       category_id: payload.category_id,
       date: payload.date,
@@ -2240,6 +2295,20 @@ function forgiveLoan(payload) {
 
   // Business pack: forgiving a debt of a project books its expense (or income) on that project.
   if (entry && loan.project_id) linkEntryToProject_(entry.id, String(loan.project_id));
+  if (partial) {
+    // Only part of it: remember the part (its entry, amount and date) and leave the loan open for what is still owed.
+    ensureLoansForgivenPartsColumn_();
+    var parts = loanForgivenParts_(loan);
+    parts.push({ entry_id: entry.id, amount: wanted, date: payload.date });
+    try {
+      updateRowFields_('Loans', loan.id, { forgiven_parts: JSON.stringify(parts) });
+      updateLoanStatusFromSettlements_(loan.id);
+    } catch (err) {
+      deleteEntry_(entry.id);   // never leave the expense / income booked with nothing forgiven
+      throw err;
+    }
+    return { loan: getAllRows('Loans').find(function (l) { return l.id === loan.id; }), entry: entry, partial: true, remaining: remaining - wanted };
+  }
   setCellByRow_(sheet, headers, rowIndex, 'status', 'forgiven');
   if (entry) {
     ensureLoansForgivenessEntryColumn_();
@@ -2357,6 +2426,11 @@ function buildSettlementTotalsByLoan_() {
   getAllRows('Settlements').forEach(function (s) {
     totals[s.loan_id] = (totals[s.loan_id] || 0) + Number(s.amount);
   });
+  // Forgiven parts settle part of the loan too (they are not repayments: no money moved, see ensureLoansForgivenPartsColumn_).
+  getAllRows('Loans').forEach(function (l) {
+    var part = loanForgivenPartsTotal_(l);
+    if (part > 0) totals[l.id] = (totals[l.id] || 0) + part;
+  });
   return totals;
 }
 
@@ -2469,10 +2543,10 @@ function getFriendRepaymentHistory(payload) {
   });
 
   var loanRows = loans.map(function (l) {
-    var real = paidReal[l.id] || 0, off = paidOffset[l.id] || 0;
+    var real = paidReal[l.id] || 0, off = paidOffset[l.id] || 0, forgivenPart = loanForgivenPartsTotal_(l);
     return {
       id: l.id, date: l.date, description: label(l), origin: l.origin, direction: l.direction, currency: l.currency,
-      amount: Number(l.amount), paid: real, offset: off, remaining: Math.max(Number(l.amount) - real - off, 0),
+      amount: Number(l.amount), paid: real, offset: off, forgiven_part: forgivenPart, remaining: Math.max(Number(l.amount) - real - off - forgivenPart, 0),
       status: l.status, linked_to_expense: !!(l.origin === 'entry' && l.entry_id)
     };
   }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
@@ -2773,6 +2847,7 @@ function getFriendLoanDetail(friendId) {
   loans.forEach(function (loan) {
     loan.settled = settledByLoan[loan.id] || 0;
     loan.remaining = Number(loan.amount) - loan.settled;
+    loan.forgiven_so_far = loanForgivenPartsTotal_(loan);   // parts forgiven so far (a whole-loan forgiveness is the status)
     loan.overdue = isLoanOverdue_(loan, loan.remaining);
     loan.unapplied = isUnappliedLoan_(loan);
   });

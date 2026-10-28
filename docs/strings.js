@@ -771,6 +771,10 @@
     "paid.loadFailed": { en: "Couldn't load entries: {error}", es: "No se pudieron cargar los movimientos: {error}" },
 
     // ---- forgive ----
+    "forgive.amountLabel": { en: "How much to forgive", es: "Cuánto perdonar" },
+    "forgive.amountHint": { en: "The full amount forgives the whole debt. A smaller amount forgives only that part, and the rest stays owed.", es: "El monto completo perdona toda la deuda. Un monto menor perdona solo esa parte y el resto sigue pendiente." },
+    "loanDetail.forgivenSoFar": { en: "Forgiven {cur} {amount}", es: "Perdonado {cur} {amount}" },
+    "history.forgivenAmt": { en: "Forgiven {amount}", es: "Perdonado {amount}" },
     "forgive.title": { en: "Forgive the debt", es: "Perdonar la deuda" },
     "forgive.convert": { en: "Also record the remaining balance as an expense", es: "También registrar el saldo restante como gasto" },
     "forgive.context": { en: "{name} · {cur} {amount} remaining", es: "{name} · quedan {cur} {amount}" },

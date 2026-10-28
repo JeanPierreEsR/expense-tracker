@@ -78,7 +78,7 @@ test("an amount the loan refuses is put back FROM THE LOAN, and a notice says wh
   assert.equal(Number(s.loanRow(l.id).amount), 100);
   assert.equal(s.toasts().length, 1);
   assert.match(s.toasts()[0], /does not accept the change/);
-  assert.match(s.toasts()[0], /in repayments/, "with the loan's own reason");
+  assert.match(s.toasts()[0], /repaid or forgiven/, "with the loan's own reason");
 });
 
 test("a cleared amount cell is refused too", () => {

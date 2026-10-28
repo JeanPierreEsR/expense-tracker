@@ -46,7 +46,7 @@ test("a loan's own rules still apply: below what is repaid, or another currency 
   const { rt, lend, ana, pm, loanRow, editEntry, entryRow } = setup();
   const l = lend(ana, 100);
   rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 60, currency: "PEN", date: today(), payment_method_id: pm });
-  assert.throws(() => editEntry(l.transfer_entry_id, { type: "transfer", amount: 50 }), /in repayments/i);
+  assert.throws(() => editEntry(l.transfer_entry_id, { type: "transfer", amount: 50 }), /repaid or forgiven/i);
   assert.throws(() => editEntry(l.transfer_entry_id, { type: "transfer", currency: "USD", amount: 100 }), /repayment|friend, direction or currency/i);
   assert.equal(Number(loanRow(l.id).amount), 100);
   assert.equal(Number(entryRow(l.transfer_entry_id).amount), 100, "the entry was not written either");
@@ -90,7 +90,7 @@ test("a Telegram edit the loan refuses is put back, and the bot says so", () => 
   rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 60, currency: "PEN", date: today(), payment_method_id: pm });
   const out = telegramEdit(rt, l.transfer_entry_id, "amount 50");
   assert.match(out.message, /does not accept it/i);
-  assert.match(out.message, /in repayments/i, "with the loan's own reason");
+  assert.match(out.message, /repaid or forgiven/i, "with the loan's own reason");
   assert.equal(Number(loanRow(l.id).amount), 100);
   assert.equal(Number(entryRow(l.transfer_entry_id).amount), 100, "the entry went back too");
 });

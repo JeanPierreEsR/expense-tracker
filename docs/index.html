@@ -2090,6 +2090,12 @@
       <div class="budget-modal-body">
         <p class="hint" id="forgive-context"></p>
 
+        <div id="forgive-amount-field">
+          <label for="forgive-amount" data-i18n="forgive.amountLabel">How much to forgive</label>
+          <input type="text" id="forgive-amount" inputmode="decimal" autocomplete="off">
+          <p class="hint" data-i18n="forgive.amountHint">The full amount forgives the whole debt. A smaller amount forgives only that part, and the rest stays owed.</p>
+        </div>
+
         <label class="checkbox-row">
           <input type="checkbox" id="forgive-convert-checkbox" checked>
           <span id="forgive-convert-label" data-i18n="forgive.convert">Convert remaining balance to an expense</span>
