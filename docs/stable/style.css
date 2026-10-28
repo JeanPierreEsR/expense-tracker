@@ -327,6 +327,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.income { color: var(--income); }
 .summary-value.expense { color: var(--expense); }
 .summary-value.investment { color: var(--investment); }
+.pos-green, .summary-value.pos-green { color: var(--income); }
 
 /* ---- Breakdown pie charts ---- */
 
@@ -2490,6 +2491,7 @@ body.income-revealed .sens-mask { display: none; }
 .wa-bank { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; width: 100%; }
 .wa-bank.has { border-color: var(--income); background: rgba(46, 158, 91, 0.08); }
 .wa-bank-count { color: var(--muted); font-size: 0.9em; font-weight: 600; }
+.wa-bank-ticks { display: block; color: var(--income); font-size: 0.8em; font-weight: 600; margin-top: 2px; }
 .wa-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border, #d9d9d4); }
 .wa-account-name { font-weight: 700; }
 .wa-account-sub { color: var(--muted); font-size: 0.9em; }
@@ -2948,6 +2950,20 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.notices-card { border-left: 4px solid #b26a00; }
+.notices-card h2 { margin: 0; font-size: 1rem; }
+.notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.notices-list li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.notices-list li:first-child { border-top: 0; }
+.notice-body { flex: 1; min-width: 0; }
+.notice-text { overflow-wrap: anywhere; }
+.notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
+.mail-health { border-left: 4px solid #b26a00; }
+.mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
+.mail-health .hint { margin: 4px 0 6px; }
+.bm-health { margin: 4px 0; }
+.bm-health.problem { color: #b26a00; font-weight: 600; }
 .bm-status { font-size: 0.8rem; color: var(--muted); }
 .bm-status.ok { color: #2e9e5b; font-weight: 600; }
 .bm-status.wait { color: #b26a00; font-weight: 600; }
@@ -3055,9 +3071,6 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Overview loading: a small spinner in the period picker's corner (no layout shift, after a short delay so quick loads
    show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
 #period-selector-card { position: relative; }
-.period-spin { display: none; position: absolute; top: 10px; right: 12px; }
-.overview-loading .period-spin { display: block; animation: ov-appear 0.2s 0.3s both; }
-.overview-stale .period-spin { display: none; }
 #screen-overview > .card { transition: opacity 0.2s; }
 /* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
 .overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
@@ -3069,7 +3082,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
-#screen-overview > #period-selector-card { position: sticky; top: 0; z-index: 5; }
+#screen-overview > #period-selector-card,
+#screen-projections > #period-selector-card { position: sticky; top: 0; z-index: 5; }
 /* Cards opened from Home (scrollIntoView) must stop below the pinned picker, not under it. */
 #screen-overview > .card { scroll-margin-top: 150px; }
 
@@ -3082,3 +3096,69 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-matrix td.has { color: #2e9e5b; font-weight: 700; }
 .stmt-matrix td.hole { color: #d64545; font-weight: 700; }
 .stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
+
+/* ---- Business pack (specs/business.md) ---- */
+.business-period-select, .igv-year-select { width: 100%; margin: 6px 0 10px; }
+.business-cur-igv { font-size: 0.8rem; color: var(--muted); padding-top: 2px; }
+.igv-month-head { font-weight: 700; margin: 10px 0 2px; }
+.igv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.9rem; }
+.igv-pos { color: var(--expense); font-weight: 700; }
+.igv-neg { color: var(--income); font-weight: 700; }
+.business-cur-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.business-cur-head { font-weight: 700; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+.business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 0.95rem; }
+.business-cur-row.margin { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.business-neg { color: var(--expense); }
+.business-pos { color: var(--income); }
+.business-company-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 4px; }
+.business-company-head h3 { margin: 0; cursor: pointer; }
+.business-mini { font-size: 0.78rem; color: var(--muted); text-align: right; }
+.business-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.business-chip { border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 0.82rem; background: transparent; color: var(--text); cursor: pointer; }
+.business-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.business-budget-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.business-budget-row input { margin: 0; }
+.business-budget-row .budget-cur { width: 74px; text-transform: uppercase; }
+.business-budget-row .budget-amt { flex: 1; }
+.entry-business { border-color: #7b5ea7; color: #7b5ea7; }
+
+/* Projections "By category": a small heading before each type (Income, Expenses, Investments). */
+.projection-type-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 4px; }
+.projection-type-heading:first-child { margin-top: 0; }
+
+/* Review queue: money coming in reads green, like everywhere else. */
+.review-item-amount.review-amt-in { color: var(--income); }
+
+.loan-row-projects { display: block; font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-top: 1px; }
+
+/* Business pack step 3A: expected payments on a project, the separate Home card, and "Choose which loans this pays". */
+.xp-row { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 4px 10px 8px; margin-bottom: 8px; }
+.xp-row.overdue { border-color: #e0932a; }
+.xp-row .xp-main { cursor: pointer; }
+.xp-closed summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 0; }
+.business-expected-card .business-expected-row { cursor: pointer; }
+.business-expected-card .business-expected-row.overdue .recurring-row-sub { color: #c77a12; }
+.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.85rem; }
+.settle-choose-row span { flex: 1; }
+.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.settle-choose-row span { min-width: 0; }
+/* "Pay only the selected loans": a separate option under the loan list, not one more loan row */
+.reassign-limit-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px solid var(--border, #d9d9de); border-radius: 12px; background: var(--card-alt, rgba(120,120,128,0.08)); }
+.reassign-limit-box[hidden] { display: none; }
+.reassign-limit-label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; margin: 0; }
+.reassign-limit-label span { flex: 1; min-width: 0; }
+.reassign-limit-label input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.reassign-limit-box #reassign-gap { margin-top: 10px; }
+.settle-choose-assigned { flex: none !important; font-weight: 600; white-space: nowrap; }
+
+/* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
+.loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
+.loan-detail-actions[hidden] { display: none; }
+
+/* repayment history: the loans a repayment paid, as detail under "On loans" */
+.loan-detail-row-meta.history-sub { padding-left: 16px; }
+
+/* "Edit this repayment" opened before its data has arrived: only the title and "Loading…" show (Loading standard) */
+.reassign-loading #reassign-fields, .reassign-loading #reassign-list, .reassign-loading #reassign-limit-row, .reassign-loading #reassign-gap,
+.reassign-loading #reassign-summary, .reassign-loading #reassign-hint, .reassign-loading #reassign-record, .reassign-loading #reassign-error,
+.reassign-loading #reassign-save { display: none; }

@@ -52,6 +52,11 @@ function bringModalToFront_(backdropEl) {
 
 let meta = null;
 let selectedType = "expense";
+// Business pack: the expected payment an income settles (declared up here because selectCurrency can run before the business code below).
+let expectedPick_ = "";
+let expectedPickTouched_ = false;
+let expectedSeq_ = 0;
+let igvTouched_ = false;   // the IGV amount was typed by hand, so a changed amount no longer recalculates it
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
 let editingEntryId = null;
@@ -80,6 +85,15 @@ let splitInputEls = {};
 // the time they hit Save.
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
+let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
+let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
+var exchangePartnerToOpen_ = null;   // set while saving an exchange side: its other side opens for editing once this one is saved
+let editingExchangeAccount_ = "";   // the account a money-in transfer arrived in ("" when it is not one)
+let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
+let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
+let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
+let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
+let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
 // "Split" action. Distinct from editingEntryId (which the popup's own
@@ -87,6 +101,8 @@ let editingEntryOriginalType = null;
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+// Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
+let payingRecurringId_ = null;
 
 // ---- Currencies ----
 
@@ -197,6 +213,9 @@ function selectCurrency(code, target) {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
+    // An expected payment is in one currency: a new currency means a new list to choose from.
+    expectedPick_ = ""; expectedPickTouched_ = false;
+    syncExpectedField_();
   } else if (resolvedTarget === "trip") {
     refreshTripRateWarning_(true);   // a newly chosen trip currency with no rate on file asks for one
   }
@@ -327,8 +346,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
+  "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
@@ -337,7 +357,14 @@ const ONCE_ACTIONS = new Set([
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
-  checkEmailsNow: 120000 };   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
+  checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
+
+// Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
+// look at the alerts (checkAlertsSoon_, in the Alerts section below).
+const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+  "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -348,7 +375,11 @@ function newRequestId_() {
 let perfInflight_ = 0;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
   perfInflight_++;
-  try { return await callApiOnce_(action, payload, attempt, startedAt); } finally { perfInflight_--; }
+  try {
+    const out = await callApiOnce_(action, payload, attempt, startedAt);
+    if (ALERT_CHANGING_ACTIONS.has(action)) checkAlertsSoon_();   // something that can cross a budget, trip or loan alert was just saved
+    return out;
+  } finally { perfInflight_--; }
 }
 
 async function callApiOnce_(action, payload, attempt, startedAt) {
@@ -900,6 +931,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populateToPaymentMethodOptions();
   populateTags();
   populateTripOptions_();
+  populateBusinessOptions_();
   renderSplitFriendChips();
 }
 
@@ -1108,7 +1140,7 @@ function populatePaidByOptions() {
     plainFriends_().forEach((f) => {
       const opt = document.createElement("option");
       opt.value = f.id;
-      opt.textContent = f.name;
+      opt.textContent = friendLabel_(f);
       select.appendChild(opt);
     });
 
@@ -1226,10 +1258,36 @@ function updatePaidByFriendHint_() {
 // here — anything typed by hand is never overwritten. Not for repayments /
 // loans (they name the friend), nor when editing an existing entry.
 let lastAutoDescription = "";
+// The text a loan or repayment shows by default when it has no description of its own ("Loan to Ana", "Repayment from Ana").
+// Same wording as the server (desc.loanTo / loanFrom / repaymentFrom / repaymentTo in Strings.gs).
+function defaultDebtDescription_(kind, direction, name) {
+  if (!name) return "";
+  if (kind === "loan") return tr(direction === "they_owe_me" ? "desc.loanTo" : "desc.loanFrom", { name });
+  return tr(direction === "they_owe_me" ? "desc.repaymentFrom" : "desc.repaymentTo", { name });
+}
+
+// A loan's or repayment's own entry being saved as a loan / repayment (Transfer → New loan / Repayments): the default text
+// for the person and direction chosen NOW, or null when this is not that case.
+function conversionDefaultDescription_() {
+  if (!editingEntryId || !(editingLoanMovement_ || editingRepayment_) || selectedType !== "transfer") return null;
+  const kind = transferKind_();
+  if (kind !== "loan" && kind !== "repayment") return null;
+  const friend = meta.friends.find((f) => f.id === document.getElementById("repayment-friend").value);
+  return friend ? defaultDebtDescription_(kind, debtDirection_(), friend.name) : null;
+}
+
 function updateAutoTransferDescription_() {
   const desc = document.getElementById("description");
   const typedByHand = desc.value.trim() !== "" && desc.value !== lastAutoDescription;
   if (typedByHand) { lastAutoDescription = ""; return; }
+  // Editing a loan's / repayment's own entry whose description is still the AUTOMATIC one (the person has not typed their
+  // own): it is worked out again for the person and direction chosen now, the same way it was first made. Custom text is
+  // "typed by hand" above and is never touched; a plain edit (no conversion) leaves the text alone.
+  if (editingEntryId) {
+    const conv = conversionDefaultDescription_();
+    if (conv !== null && lastAutoDescription) { desc.value = conv; lastAutoDescription = conv; }
+    return;
+  }
   let text = "";
   if (selectedType === "transfer" && !editingEntryId && !confirmingPendingId && transferKind_() === "between") {
     const nameOf = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname.replace(/\s*\(\s*\d+\s*\)\s*$/, "") : ""; };  // nickname only, never the account digits
@@ -1332,7 +1390,7 @@ let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" 
 // back if anything fails.
 function repaymentAvailable_() {
   return selectedType === "transfer" && !confirmingPendingId &&
-    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer");
+    (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer" || editingEntryOriginalType === "investment");
 }
 
 // "between" | "repayment" | "loan"
@@ -1361,7 +1419,7 @@ function populateRepaymentFriendOptions_() {
   plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -1394,7 +1452,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
-  if (e.target.value !== "__add__") return;
+  if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
   const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
@@ -1403,10 +1461,12 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
     refreshFriendChips_();
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = friend.id;
+    updateAutoTransferDescription_();
   }
 });
 
 function updateRepaymentUi_() {
+  populateBusinessOptions_();   // a Repayment / New loan can be tied to a project
   const available = repaymentAvailable_();
   document.getElementById("repayment-field").hidden = !available;
   // For a transfer the "Type of transfer" choice stands in for the category
@@ -1416,10 +1476,11 @@ function updateRepaymentUi_() {
   const kindSelect = document.getElementById("transfer-kind");
   if (!available) kindSelect.value = "between";
   syncExchangeKindOption_(kindSelect);
+  syncUnloanKindOption_(kindSelect);
   const kind = transferKind_();
   syncExchangeInline_();
-  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange";
-  if (kind === "between" || kind === "exchange") return;
+  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange" || kind === "unloan";
+  if (kind === "between" || kind === "exchange" || kind === "unloan") return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -1456,14 +1517,21 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
   if (repaymentActive_() && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = paidBy;
+  } else if (repaymentActive_() && editingEntryId && editingLoanFriendId_ && !repaymentFriendTouched_ && meta.friends.some((f) => f.id === editingLoanFriendId_)) {
+    // A loan's own entry: Transfer → New loan / Repayments starts on that loan's person (changeable).
+    populateRepaymentFriendOptions_();
+    document.getElementById("repayment-friend").value = editingLoanFriendId_;
   }
   togglePaymentMethodVisibility();
+  syncConversionAmount_();
+  updateAutoTransferDescription_();   // the automatic description follows the kind (loan / repayment) and the person
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
+    updateAutoTransferDescription_();   // ...and the direction
   });
 });
 
@@ -1479,6 +1547,7 @@ function toggleSplitFieldVisibility() {
   // Only an expense can belong to a trip or event, so the picker follows the same rule.
   document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
   if (!show) document.getElementById("entry-trip").value = "";
+  populateBusinessOptions_();   // an expense or an income may belong to a company / project
 }
 
 function resetSplitState() {
@@ -1511,7 +1580,10 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
-function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f)); }
+// Business pack: a client / supplier / partner is listed (marked 🏢) only while Business features are on; the data stays when it is off.
+function isBusinessPerson_(f) { return !!f.role && f.role !== "friend"; }
+function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + f.name; }
+function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())); }
 // Groups of trips that still exist, the most recent trip first.
 function groupFriendsNewestFirst_() {
   const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
@@ -1521,7 +1593,7 @@ function groupFriendsNewestFirst_() {
 // The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
 function splitFriendsList_() {
   const tripId = document.getElementById("entry-trip").value;
-  return meta.friends.filter((f) => !isGroupFriend_(f) || (tripId && f.trip_id === tripId));
+  return meta.friends.filter((f) => (!isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())) || (tripId && f.trip_id === tripId));
 }
 
 // The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
@@ -1548,7 +1620,7 @@ function renderSplitFriendChips() {
   const chips = sorted.map((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = (isGroupFriend_(f) ? "👥 " : "") + f.name;
+    chip.textContent = friendLabel_(f);
     chip.addEventListener("click", () => {
       if (splitFriendIds.has(f.id)) {
         splitFriendIds.delete(f.id);
@@ -1846,6 +1918,17 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
     } else {
       showDetailForm(null);
     }
+    syncConversionAmount_();   // a repayment's entry shows the whole repayment once it is being turned into something else
+    // The money-in side of an exchange has only a "To" account; as income it is the account it was received at.
+    if (editingExchangeAccount_ && (selectedType === "income" || selectedType === "expense")) {
+      document.getElementById("payment_method").value = editingExchangeAccount_;
+    }
+    // Money that arrived, taken out of an investment platform: a withdrawal into that account; the platform is for the person to pick.
+    if (editingExchangeAccount_ && selectedType === "investment") {
+      setInvestmentDirection("withdrawal");
+      document.getElementById("payment_method").value = editingExchangeAccount_;
+      document.getElementById("to_payment_method").value = "";
+    }
   });
 });
 
@@ -2128,6 +2211,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let popupHiddenEarly = false;
 
   try {
+    // A repayment's extra entry arrives in the background after the form opens; the amount shown (the whole repayment,
+    // when it is being converted) must be settled before anything is read.
+    if (editingRepayment_ && editingRepayment_.extraPromise) await editingRepayment_.extraPromise;
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
@@ -2173,6 +2259,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
+    // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
+    // rather than silently losing the label or recording money that has not moved.
+    if ((businessLink.project_id || businessLink.company_id) && !editingEntryId && !confirmingPendingId && date > todayLocalISO()) {
+      throw new Error(tr("business.futureNotYet"));
+    }
 
     // A future-dated save that's a plain, fully-owned transaction (not a
     // transfer between the owner's own accounts, not shared with a friend
@@ -2185,7 +2278,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // even when the owner themselves paid, so it's excluded here too.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
-      (selectedType === "income" || paidBy === "me") && !splits;
+      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
 
@@ -2195,6 +2288,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const isLoanKind = transferKind_() === "loan";
       const direction = debtDirection_();
+      // An investment becoming a loan / repayment follows how the money moved (the server checks it too).
+      if (editingInvestmentLeft_ !== null && editingEntryId) {
+        const wanted = isLoanKind ? (editingInvestmentLeft_ ? "they_owe_me" : "i_owe_them") : (editingInvestmentLeft_ ? "i_owe_them" : "they_owe_me");
+        if (direction !== wanted) {
+          throw new Error(tr(editingInvestmentLeft_ ? (isLoanKind ? "convert.depositIsLent" : "convert.depositIsPaid") : (isLoanKind ? "convert.withdrawalIsBorrowed" : "convert.withdrawalIsReceived")));
+        }
+      }
       const overpayCategoryId = document.getElementById("repayment-overpay-category").value;
       const fields = {
         friend_id: friendId,
@@ -2206,20 +2306,85 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         description
       };
       if (isLoanKind) fields.due_date = document.getElementById("loan-due-date").value;
+      if (businessOn()) fields.project_id = businessPickProjectId_();   // the debt (or the repayment's scope) belongs to this project
       let result;
       let extraNote = "";
       if (editingEntryId) {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
         // anything fails (see convertEntryInto_ in Loans.gs).
+        // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
+        // repayments first, as when deleting the expense (keep = a "paid earlier, no loan" credit; cancel = they go).
+        let repaymentsChoice;
+        if (editingEntryOriginalType === "expense") {
+          const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
+          if (links.refunds && links.refunds.length) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertExpenseTitle", links.refunds,
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          }
+        }
+        // A loan's own money entry turned into a REPAYMENT (Transfer → Repayments): the loan is deleted and the repayment
+        // recorded (convertLoanToRepayment). Money that left (a loan the owner gave) can only be a repayment the owner paid,
+        // money that arrived only one received; a loan with real repayments asks keep / cancel first.
+        const loanToRepayment = !isLoanKind && !!editingLoanMovement_;
+        if (loanToRepayment) {
+          const expectedDirection = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+          if (direction !== expectedDirection) throw new Error(tr(editingLoanMovement_ === "they_owe_me" ? "loanConv.repayOut" : "loanConv.repayIn"));
+          const loanInfo = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
+          if (loanInfo && Number(loanInfo.paid) > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: loanInfo.friend, currency: loanInfo.currency, total: loanInfo.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          } else if (!confirm(tr("loanConv.confirmToRepayment"))) {
+            return;
+          }
+        }
+        // A loan's own money entry saved as a loan again (Transfer → New loan): another person, direction, amount, currency,
+        // date, account or description (convertLoanToLoan). The loan is edited IN PLACE when its rules allow; a repaid loan
+        // whose person / direction / currency changes (or whose amount goes below what is repaid) is REPLACED, and then the
+        // person chooses what happens to its repayments — the server says which (checkLoanToLoan).
+        const loanToLoan = isLoanKind && !!editingLoanMovement_;
+        if (loanToLoan) {
+          const plan = await callApi("checkLoanToLoan", { entry_id: editingEntryId, friend_id: friendId, direction, amount, currency });
+          if (plan.needsRelease && plan.paid > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: plan.friend, currency: plan.currency, total: plan.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          }
+        }
+        // A repayment's own money entry turned into a NEW LOAN: the repayment is cancelled (convertRepaymentToLoan).
+        // Money that arrived can only be a loan the friend gave, money that left only one the owner gave.
+        const fromRepayment = isLoanKind && !!editingRepayment_;
+        if (fromRepayment) {
+          const moneyIn = editingRepayment_.direction === "they_owe_me";
+          if (direction !== (moneyIn ? "i_owe_them" : "they_owe_me")) throw new Error(tr(moneyIn ? "repayConv.loanIn" : "repayConv.loanOut"));
+          if (!confirm(repaymentCancelText_())) return;
+        }
+        // A repayment's own entry edited as a repayment again (another person, amount, account, direction): the old
+        // one is cancelled and the new one recorded in its place (convertRepaymentToRepayment).
+        const rerecordRepayment = !isLoanKind && !!editingRepayment_;
+        if (rerecordRepayment) {
+          // The same person and direction: only the amount / loans can differ, and that is changed in the repayment's editor
+          // (where the loans and the extra are split) — go straight there, as for any amount change from Home.
+          if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction) {
+            const target = editingRepayment_;   // cancelEdit() clears it, so keep what the editor needs
+            if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+            cancelEdit();
+            await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
+            return;
+          }
+          if (!confirm(repaymentCancelText_(true))) return;
+        }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callApi(isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
+          repayments: repaymentsChoice,
           entry_id: editingEntryId,
           ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId })
         });
@@ -2261,7 +2426,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           paid_by: paidBy,
           payment_method_id: usesPaymentMethod ? paymentMethodId : "",
           to_payment_method_id: toPaymentMethodId,
-          trip_id: tripId
+          trip_id: tripId,
+          ...businessLink
         }
       });
       const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
@@ -2270,6 +2436,91 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
       if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
+    } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
+      // "I recorded this as a repayment, but it was really an expense / income": one server call that cancels the
+      // repayment (what it paid is owed again) and writes the entry (convertRepaymentToEntry). Money that arrived can
+      // only become an income, money that left only an expense.
+      const moneyIn = editingRepayment_.direction === "they_owe_me";
+      if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("repayConv.onlyThese"));
+      if (selectedType !== (moneyIn ? "income" : "expense")) throw new Error(tr(moneyIn ? "repayConv.incomeOnly" : "repayConv.expenseOnly"));
+      if (!confirm(repaymentCancelText_())) return;   // backed out: nothing changed, the form stays open
+      await ensureExchangeRate(currency, date);
+      if (editingViaPopup) {
+        document.getElementById("edit-entry-modal-backdrop").hidden = true;
+        popupHiddenEarly = true;
+      }
+      await callConversion_("convertRepaymentToEntry", {
+        entry_id: editingEntryId,
+        type: selectedType,
+        date,
+        amount,
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        tag_ids: tagIds,
+        trip_id: tripId,
+        ...businessLink
+      });
+      exitEditMode();
+      refreshLoans().catch(() => {});
+      showFormNotice_(tr(selectedType === "expense" ? "repayConv.doneExpense" : "repayConv.doneIncome"));
+    } else if (editingEntryId && editingLoanMovement_ && (selectedType !== "transfer" || transferKind_() === "unloan")) {
+      // "I saved this as a loan, but it was really an expense / income / investment / my own transfer": one server call that
+      // removes the loan and writes the entry (convertLoanToEntry). A loan with repayments first asks keep or cancel, the
+      // same two choices as deleting it. Blocking, like the other conversions. (Transfer → "Not a loan: my own transfer".)
+      // Checked before the repayments question, so nothing is asked for a conversion that would be refused anyway.
+      if (selectedType === "expense" && editingLoanMovement_ === "i_owe_them") throw new Error(tr("loanConv.borrowedIsIncome"));
+      if (selectedType === "income" && editingLoanMovement_ === "they_owe_me") throw new Error(tr("loanConv.lentIsExpense"));
+      // An investment follows how the money moved: a loan the owner gave left the account (a deposit), one received arrived (a withdrawal).
+      if (selectedType === "investment") {
+        if (!toPaymentMethodId) throw new Error(tr("error.pickPlatform"));
+        if (editingLoanMovement_ === "they_owe_me" && isWithdrawal) throw new Error(tr("loanConv.lentIsDeposit"));
+        if (editingLoanMovement_ === "i_owe_them" && !isWithdrawal) throw new Error(tr("loanConv.borrowedIsWithdrawal"));
+      }
+      const info = (await callApi("getEntryRepaymentLinks", { id: editingEntryId })).loanInfo;
+      let repayments;
+      if (info && info.hasRepayments) {
+        repayments = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: info.friend, currency: info.currency, total: info.paid }],
+          { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+        if (!repayments) return;   // backed out: nothing changed, the form stays open
+      }
+      await ensureExchangeRate(currency, date);
+      if (editingViaPopup) {
+        document.getElementById("edit-entry-modal-backdrop").hidden = true;
+        popupHiddenEarly = true;
+      }
+      await callConversion_("convertLoanToEntry", {
+        entry_id: editingEntryId,
+        type: selectedType,
+        date,
+        amount: isWithdrawal ? -amount : amount,   // a withdrawal is stored negative
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,   // a transfer's other account / an investment's platform ("" otherwise)
+        tag_ids: tagIds,
+        trip_id: tripId,
+        ...businessLink,
+        repayments
+      });
+      exitEditMode();
+      refreshLoans().catch(() => {});
+      showFormNotice_(tr({ expense: "loanConv.doneExpense", income: "loanConv.doneIncome", investment: "loanConv.doneInvestment", transfer: "loanConv.doneTransfer" }[selectedType]));
+    } else if (editingEntryId && (
+        (editingRepayment_ && selectedType === "transfer" && editingRepayment_.friend_id && Math.abs(Number(amount) - Number(editingRepayment_.total)) > 0.004) ||
+        (editingRepaymentExtra_ && editingRepaymentExtra_.transfer_entry_id && selectedType === editingEntryOriginalType && Math.abs(Number(amount) - Number(editingRepaymentExtra_.total)) > 0.004))) {
+      // The amount of a repayment's money movement, or of its extra income/expense, is changed in the repayment's editor (where
+      // the loans and the extra are split): offer to go straight there instead of refusing.
+      const target = editingRepayment_ || editingRepaymentExtra_;
+      const entryOfRepayment = editingRepayment_ ? editingRepayment_.entry_id : editingRepaymentExtra_.transfer_entry_id;
+      if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(target.friend_id, target.friend, entryOfRepayment);
+      return;
     } else if (editingEntryId) {
       // ensureExchangeRate stays blocking — it can need the owner's own
       // input (the rate modal), which a background task can't ask for.
@@ -2283,6 +2534,36 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // (below, under confirmingPendingId) — both stay blocking, being
       // less frequent and already more involved than a plain edit.
       await ensureExchangeRate(currency, date);
+      // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
+      // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
+      // and again by the server on the queued save.
+      // What a forgiveness booked keeps its amount and currency (the loan's balance moved by exactly that); the server says
+      // the same, but asked HERE the reason shows before the form closes.
+      if (editingForgiveness_ && (Math.abs(Number(amount) - editingForgiveness_.amount) > 0.004 || currency !== editingForgiveness_.currency)) {
+        throw new Error(tr("forgive.entryLocked"));
+      }
+      if (selectedType !== editingEntryOriginalType) {
+        const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
+        if (check.blocked) throw new Error(check.blocked);
+        // One side of a currency exchange is a separate entry: only this one changes. If the app can tell where the other
+        // side is, the person may change it too, right after this one is saved.
+        exchangePartnerToOpen_ = null;
+        if (check.exchangePartner) {
+          const p = check.exchangePartner;
+          if (confirm(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: p.date }))) exchangePartnerToOpen_ = p;
+        }
+        // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
+        // repayments, as when deleting the expense; its splits and debts are cleared before the new type is saved.
+        if (check.needsRelease) {
+          let repayments;
+          if (check.repaid.length) {
+            repayments = await askRepaymentChoice_("repayChoice.typeChangeTitle", check.repaid,
+              { keep: "repayChoice.typeChangeKeep", cancel: "repayChoice.typeChangeCancel" });
+            if (!repayments) return;   // backed out: nothing changed, the form stays open
+          }
+          await callApi("releaseEntryRepaidLoans", { id: editingEntryId, type: selectedType, repayments });
+        }
+      }
       const id = editingEntryId;
       const wasPopup = editingViaPopup;
       const fields = {
@@ -2295,7 +2576,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       };
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -2309,6 +2591,23 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // The bill behind the split is saved only when it was (re)applied in this
       // edit and a split still exists; undefined = leave the stored bill alone.
       const billToSave = billApplied && splits && splits.length ? billToJSON_() : undefined;
+      // A loan's money entry and the loan are ONE thing: the server updates the loan from this edit, and the loan can refuse
+      // (an amount below what is repaid, another currency once repaid). So this save is NOT queued in the background: it is
+      // sent now, and a refusal shows in the form with nothing changed.
+      if (editingLoanMovement_) {
+        await callApi("updateEntry", { id, fields });
+        await callApi("saveEntryTags", { entryId: id, tagIds });
+        exitEditMode();
+        refreshLoans().catch(() => {});
+        await refreshEntryList();
+        if (wasPopup) {
+          resetEntryFormFields_();
+          await refreshAfterPopupEdit();
+        } else {
+          resetToFreshEntryScreen_();
+        }
+        return;
+      }
       queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
@@ -2323,6 +2622,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         await refreshAfterPopupEdit();
       } else {
         resetToFreshEntryScreen_();
+      }
+      if (exchangePartnerToOpen_) {   // the person chose to change the other side of the exchange too
+        const partner = exchangePartnerToOpen_;
+        exchangePartnerToOpen_ = null;
+        openEditPopup(partner);
       }
       return;
     } else if (canProgram) {
@@ -2355,12 +2659,22 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         tag_ids: tagIds,
-        trip_id: tripId
+        trip_id: tripId,
+        ...businessLink
       });
       if (created.guessed_category_name) {
         lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
       } else if (selectedType === "expense" && !created.category_id) {
         lastFormNotice_ = tr("entry.savedNoCategory");
+      }
+      // Opened from "Mark as paid": this entry IS the item's payment. It is already saved, so a failed
+      // link is only reported (a retry would make a second entry).
+      if (payingRecurringId_) {
+        try {
+          await callApi("linkEntryToRecurring", { entryId: created.id, recurringExpenseId: payingRecurringId_ });
+        } catch (linkErr) {
+          lastFormNotice_ = tr("paid.linkFailed");
+        }
       }
       // Sent whenever it could actually matter — including a friend-paid
       // expense with the split toggle left OFF, so it still creates a
@@ -2393,6 +2707,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     }
     writesDone = true;
     clearEntryDraft_();
+    rememberRecentEntryDate_(date, !wasEditingExistingEntry && !confirmingPendingId && !editingViaPopup);
 
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
@@ -2403,11 +2718,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
+    setBusinessPick_("");                               // same for the company / project
     repaymentFriendTouched_ = false;
     resetSplitState();
 
     await refreshEntryList();
     refreshExpectedRecurring();
+    // A project screen underneath shows the income just saved (and what is still expected).
+    if (businessOn() && !document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_().catch(() => {});
 
     if (confirmingPendingId) {
       closeConfirmPendingPopup();
@@ -2489,21 +2807,40 @@ function exchangeLegSide_(entry) {
   return entry.to_payment_method_id && !entry.payment_method_id ? "in" : "out";
 }
 
+// Which way the money moved for the owner, for the sign on an entry's amount (the app-wide rule, owner 2026-10-27):
+// "in" = cash inflow (green, "+"), "out" = expense or cash disbursement ("−"), "" = a move between the owner's
+// own accounts (no sign). A transfer with a friend is a flow: a loan I give or a repayment I make is out; a loan
+// I receive or a repayment I get back is in.
+function entryFlowDirection_(entry) {
+  if (entry.type === "income") return "in";
+  if (entry.type === "expense") return "out";
+  if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
+  if (entry.type === "transfer" && entry.link && entry.link.friend) {
+    const paidThem = entry.link.direction === "i_owe_them";
+    return (entry.link.kind === "repayment" ? !paidThem : paidThem) ? "in" : "out";
+  }
+  return "";
+}
+
 function renderEntryAmountHtml(entry) {
-  if (exchangeLegSide_(entry) === "in") {   // money arriving: green with a leading +, like income
-    const html = renderEntryAmountHtml(Object.assign({}, entry, { description: "" }));
-    return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
-  // A withdrawal is stored negative; it reads as money coming BACK, so it
-  // shows as a positive green figure with a leading +, like income.
-  if (entry.type === "investment" && Number(entry.amount) < 0) {
-    const abs = (v) => (v == null ? v : Math.abs(Number(v)));
-    const flipped = Object.assign({}, entry, {
-      amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
-      own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
-    });
-    return renderEntryAmountHtml(flipped).replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
-  }
+  const dir = entryFlowDirection_(entry);
+  // A withdrawal is stored negative: show its size, the sign comes from the direction.
+  const shown = entry.type === "investment" && Number(entry.amount) < 0
+    ? (() => {
+        const abs = (v) => (v == null ? v : Math.abs(Number(v)));
+        return Object.assign({}, entry, {
+          amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
+          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+        });
+      })()
+    : entry;
+  const html = renderEntryAmountPlain_(shown);
+  if (dir === "in") return html.replace('class="primary-amt">', 'class="primary-amt withdrawal-amt">+');
+  if (dir === "out") return html.replace('class="primary-amt">', 'class="primary-amt">−');
+  return html;
+}
+
+function renderEntryAmountPlain_(entry) {
   const hasSplit = entry.own_share != null &&
     Math.abs(Number(entry.own_share) - Number(entry.amount)) > 0.005;
 
@@ -2604,7 +2941,7 @@ function paidByLabel(entryOrPaidBy) {
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
-  const tripPill = tripPillHtml_(entry);
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry);
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -3058,6 +3395,32 @@ const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
 let entryDraftTimer_ = null;
 let entryDateTouched_ = false;   // the owner picked the date themselves
 
+// A new entry starts on today. The one exception: right after saving an entry with
+// ANOTHER date (typing in a batch of older receipts), the next one keeps that date
+// for a short while, so it needn't be picked again. Later = today again.
+const RECENT_ENTRY_DATE_MS = 30 * 60 * 1000;
+const APP_REOPEN_MS = 60 * 1000;   // away longer than this = the app was closed and reopened
+let appHiddenAt_ = Date.now();
+let appResumedAt_ = Date.now();  // when the app was opened or last brought back; older dates don't carry over
+let recentEntryDate_ = null;     // { date, at } of the last new entry saved on a non-today date
+
+function rememberRecentEntryDate_(date, isNewEntry) {
+  entryDateTouched_ = false;
+  recentEntryDate_ = isNewEntry && date && date !== todayLocalISO() ? { date, at: Date.now() } : null;
+}
+
+function defaultNewEntryDate_() {
+  const r = recentEntryDate_;
+  return r && Date.now() - r.at < RECENT_ENTRY_DATE_MS ? r.date : todayLocalISO();
+}
+
+// Sets the date of a fresh new-entry form (before any draft is put back).
+function applyNewEntryDate_() {
+  const d = defaultNewEntryDate_();
+  document.getElementById("date").value = d;
+  entryDateTouched_ = d !== todayLocalISO();
+}
+
 function entryFormIsNewEntry_() {
   return !editingEntryId && !confirmingPendingId && !editingViaPopup;
 }
@@ -3079,7 +3442,12 @@ function captureEntryDraft_() {
     toPaymentMethodId: document.getElementById("to_payment_method").value,
     date: entryDateTouched_ ? document.getElementById("date").value : "",
     tagIds: [...selectedTagIds],
-    tripId: document.getElementById("entry-trip").value
+    tripId: document.getElementById("entry-trip").value,
+    businessPick: document.getElementById("entry-business").value,
+    expectedPick: expectedPick_,
+    igvOn: document.getElementById("igv-toggle").checked,
+    igvAmount: document.getElementById("igv-amount").value,
+    igvTouched: igvTouched_
   };
 }
 
@@ -3110,7 +3478,13 @@ function restoreEntryDraft_() {
   try { d = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (err) { d = null; }
   if (!d || d.v !== 1 || !(Date.now() - d.savedAt < ENTRY_DRAFT_MAX_AGE_MS)) { clearEntryDraft_(); return false; }
   if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) return false;
+  applyEntryDraft_(d);
+  showFormNotice_(tr("entry.draftRestored"));
+  return true;
+}
 
+// Fills the new-entry form from a draft (a saved one, or the income the "Received" button prepares).
+function applyEntryDraft_(d) {
   selectedType = d.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === d.type));
   populateCategoryOptions();
@@ -3125,7 +3499,8 @@ function restoreEntryDraft_() {
   document.getElementById("amount").value = d.amount;
   document.getElementById("description").value = d.description;
   selectCurrency(d.currency || homeCur(), "entry");
-  if (d.date) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
+  // A draft's own date counts only if it was typed a moment ago; otherwise today.
+  if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS && d.savedAt >= appResumedAt_) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
@@ -3135,8 +3510,9 @@ function restoreEntryDraft_() {
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(d.tripId);
-  showFormNotice_(tr("entry.draftRestored"));
-  return true;
+  setBusinessPick_(d.businessPick);
+  if (d.expectedPick) setExpectedPick_(d.expectedPick);
+  setIgvState_(d.igvOn, d.igvAmount, d.igvTouched);
 }
 
 (function setupEntryDraft_() {
@@ -3147,10 +3523,20 @@ function restoreEntryDraft_() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       saveEntryDraftNow_();
-    } else if (document.visibilityState === "visible" && entryFormIsNewEntry_() && !entryDateTouched_) {
-      // The form's date is an automatic "today" — after midnight it must not stay yesterday.
-      const dateEl = document.getElementById("date");
-      if (dateEl.value && dateEl.value !== todayLocalISO()) dateEl.value = todayLocalISO();
+      appHiddenAt_ = Date.now();
+    } else if (document.visibilityState === "visible") {
+      // Closing and reopening the app (on the phone: leaving it for a while) starts a new
+      // entry on today again: no carried-over date, and a draft's date no longer counts.
+      const reopened = Date.now() - appHiddenAt_ > APP_REOPEN_MS;
+      if (reopened) { appResumedAt_ = Date.now(); recentEntryDate_ = null; }
+      const typed = document.getElementById("amount").value.trim() || document.getElementById("description").value.trim();
+      // The form's date is an automatic "today" — after midnight (or a reopen, when nothing is
+      // typed yet) it must not stay on an older day. A date picked while typing is left alone.
+      if (entryFormIsNewEntry_() && (!entryDateTouched_ || (reopened && !typed))) {
+        const dateEl = document.getElementById("date");
+        if (dateEl.value && dateEl.value !== todayLocalISO()) dateEl.value = todayLocalISO();
+        entryDateTouched_ = false;
+      }
     }
   });
   window.addEventListener("pagehide", saveEntryDraftNow_);
@@ -3191,17 +3577,49 @@ function syncCancelNewEntryButton_() {
 let editingEntrySummary_ = "";
 
 async function startEditEntry(entry) {
+  // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
+  // form that was cancelled half-way (it would silently start a loan / repayment conversion).
+  document.getElementById("transfer-kind").value = "between";
+  repaymentFriendTouched_ = false;
   editingEntryId = entry.id;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
+  // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
+  editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
+  editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
+  editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingForgiveness_ = entry.link && entry.link.kind === "forgiveness" ? { amount: Number(entry.amount), currency: entry.currency } : null;
+  editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
+  // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
+  // becomes another type: income's "Received at", or the withdrawal's account.
+  editingExchangeAccount_ = entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id ? entry.to_payment_method_id : "";
+  // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
+  editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
+    ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
   // If this turns out to be a repayment / loan, start from the way the money
   // moved: an income came in (they paid me); an expense went out (I paid them);
   // a transfer is read from its ends (only "to" = came in, only "from" = went out).
   if (entry.type === "income") repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "expense") repaymentDirectionChoice = "i_owe_them";
+  else if (entry.type === "investment") repaymentDirectionChoice = Number(entry.amount) < 0 ? "they_owe_me" : "i_owe_them";   // a withdrawal arrived, a deposit left
   else if (entry.type === "transfer" && entry.to_payment_method_id && !entry.payment_method_id) repaymentDirectionChoice = "they_owe_me";
   else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
+  // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
+  editingRepaymentExtra_ = (entry.type === "income" || entry.type === "expense") && !!entry.link && entry.link.kind === "repaymentExtra"
+    ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
+  // A loan's own entry knows how the money moved too: a loan I gave left my account ("I paid them"), one I received arrived.
+  if (editingLoanMovement_) repaymentDirectionChoice = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+  // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
+  if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
+  // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
+  // repayment is converted is the whole thing. Saving waits for it (see the top of the save handler).
+  if (editingRepayment_) {
+    const rp = editingRepayment_;
+    rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
+      .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
+      .catch(() => {});
+  }
 
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
@@ -3221,6 +3639,13 @@ async function startEditEntry(entry) {
   document.getElementById("amount").value = entryIsWithdrawal ? Math.abs(Number(entry.amount)) : entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
+  // A loan's / repayment's own entry whose description is still the automatic one stays "automatic" until the person types
+  // their own: changing the person or direction then rewrites it (see updateAutoTransferDescription_).
+  lastAutoDescription = "";
+  if (entry.type === "transfer" && entry.link && (entry.link.kind === "loan" || entry.link.kind === "repayment") &&
+      entry.description === defaultDebtDescription_(entry.link.kind, entry.link.direction, entry.link.friend)) {
+    lastAutoDescription = entry.description;
+  }
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
@@ -3278,6 +3703,9 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
+  setBusinessPick_(businessPickValue_(entry));
+  if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
+  setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -3291,6 +3719,13 @@ function exitEditMode() {
   editingEntryId = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
+  editingLoanMovement_ = "";
+  editingLoanFriendId_ = "";
+  editingExchangeLeg_ = "";
+  editingForgiveness_ = null;
+  editingInvestmentLeft_ = null;
+  editingRepayment_ = null;
+  editingRepaymentExtra_ = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
   document.getElementById("edit-mode-banner").hidden = true;
@@ -3300,6 +3735,7 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
+  setBusinessPick_("");
   resetSplitState();
 }
 
@@ -3367,6 +3803,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
+  let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   if (["transfer", "expense", "income"].includes(originalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id });
     if (links.forgiveness) {
@@ -3377,14 +3814,35 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       alert(tr("delete.isLoan"));
       return false;
     }
+    if (links.refunds && links.refunds.length) {
+      repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
+      if (!repaymentsChoice) return false;
+    }
+    // A repayment is ONE total (money movement + extra entry), so neither entry is deleted on its own here: the person is
+    // taken to the repayment's own screen (as for a change of amount), where "Delete this repayment" removes both together.
+    const ofRepayment = links.repayment
+      ? { friend: links.repayment.friend, friendId: links.repayment.friend_id, transferId: links.repayment.entry_id }
+      : links.repaymentExtra
+        ? { friend: links.repaymentExtra.friend, friendId: links.repaymentExtra.friend_id, transferId: links.repaymentExtra.transfer_entry_id }
+        : null;
+    if (ofRepayment && ofRepayment.friendId && ofRepayment.transferId) {
+      if (!confirm(tr("delete.openRepaymentAsk", { friend: ofRepayment.friend }))) return false;   // nothing changed
+      cancelEdit();
+      await openRepaymentEditorForEntry_(ofRepayment.friendId, ofRepayment.friend, ofRepayment.transferId);
+      return false;   // nothing was deleted here
+    }
+    if (links.repaymentExtra) {
+      const x = links.repaymentExtra;
+      confirmText = tr("delete.repaymentExtra", { friend: x.friend, cur: x.currency, amount: moneyFmt(x.amount) });
+    }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!confirm(confirmText)) return false;
+  if (!repaymentsChoice && !confirm(confirmText)) return false;
   if (onConfirmed) onConfirmed();
-  await callApi("discardEntry", { id });
+  await callApi("discardEntry", { id, repayments: repaymentsChoice });
   refreshLoans().catch(() => {});
   return true;
 }
@@ -3490,6 +3948,7 @@ async function refreshAfterPopupEdit() {
   }
   // The trip screen is a screen of its own, not a drill-down: refresh it too.
   if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+  if (!document.getElementById("screen-business-detail").hidden) await refreshBusinessDetail_();
 }
 
 document.getElementById("edit-entry-modal-close").addEventListener("click", cancelEdit);
@@ -3941,7 +4400,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
         </div>
-        <div class="review-item-amount">${formatAmount(entry.amount, entry.currency)}</div>
+        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -3976,13 +4435,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
-      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" ? `
+      ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <div class="review-item-secondary-actions">
+        <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
-        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
-        <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
+        ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
+        ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
       </div>` : ""}
     `;
 
@@ -4058,7 +4518,19 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       }
     });
 
-    discardBtn.addEventListener("click", () => {
+    discardBtn.addEventListener("click", async () => {
+      // A repayment's extra (waiting for a category) is part of that repayment: never discarded on its own. Offer the
+      // repayment's screen, where the whole repayment can be deleted.
+      const partOf = entry.link && (entry.link.kind === "repaymentExtra" || entry.link.kind === "repayment") ? entry.link : null;
+      if (partOf) {
+        const transferId = partOf.kind === "repayment" ? entry.id : partOf.transfer_entry_id;
+        if (partOf.friend_id && transferId && confirm(tr("delete.openRepaymentAsk", { friend: partOf.friend }))) {
+          await openRepaymentEditorForEntry_(partOf.friend_id, partOf.friend, transferId);
+        } else if (!partOf.friend_id || !transferId) {
+          alert(tr("review.partOfRepayment"));
+        }
+        return;
+      }
       if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
 
       betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
@@ -4082,7 +4554,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // reduce to "retry this fields object blindly," so they just call the
     // API directly and surface an error if it fails, same as every other
     // modal in this app.
-    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer") {
+    if (entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment") {
       // Carry over whatever's already been typed/picked in this row
       // (category, description, amount) instead of the stored values, so
       // opening the Split popup / transfer modal doesn't reset them.
@@ -4103,7 +4575,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           return null;
         }
         const amt = parseFloat(amountInput.value.trim());
-        const rowCategory = item.querySelector(".review-category").value;
+        const rowCategoryEl = item.querySelector(".review-category");   // an investment has none
+        const rowCategory = rowCategoryEl ? rowCategoryEl.value : "";
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
         const rowTripEl = item.querySelector(".review-trip");
@@ -4118,6 +4591,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
+      // Any waiting entry can be opened in the full form to pick another type (Expense / Income / Investment / Transfer);
+      // saving there confirms it as that type. The Split button above does the same for an expense.
+      item.querySelector(".review-type-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const splitBtn = item.querySelector(".review-split-btn"); // expenses only
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
@@ -4146,7 +4622,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
-      item.querySelector(".review-exchange-btn").addEventListener("click", withRowEdits((e) =>
+      const exchangeBtn = item.querySelector(".review-exchange-btn");
+      if (exchangeBtn) exchangeBtn.addEventListener("click", withRowEdits((e) =>
         openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
@@ -4185,6 +4662,26 @@ function updateExchangeRateLine_() {
 
 // "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
 var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
+// "Not a loan: my own transfer" — offered only while editing a loan's own money entry (the loan is deleted and the entry
+// becomes a plain transfer between the owner's accounts). Added / removed like the exchange option, never shown for other entries.
+let unloanKindOption_ = null;
+function syncUnloanKindOption_(kindSelect) {
+  const want = !!editingLoanMovement_;
+  const has = !!kindSelect.querySelector('option[value="unloan"]');
+  if (want && !has) {
+    if (!unloanKindOption_) {
+      unloanKindOption_ = document.createElement("option");
+      unloanKindOption_.value = "unloan";
+      unloanKindOption_.setAttribute("data-i18n", "transfer.kind.unloan");
+      unloanKindOption_.textContent = tr("transfer.kind.unloan");
+    }
+    kindSelect.appendChild(unloanKindOption_);
+  } else if (!want && has) {
+    if (kindSelect.value === "unloan") kindSelect.value = "between";
+    unloanKindOption_.remove();
+  }
+}
+
 function syncExchangeKindOption_(kindSelect) {
   if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
   const has = !!kindSelect.querySelector('option[value="exchange"]');
@@ -4336,11 +4833,24 @@ function openNewEntrySheet_() {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   newEntrySheetOpen_ = true;
+  applyNewEntryDate_();   // today, unless an older-dated entry was saved moments ago
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
 }
 
 function closeNewEntrySheet_() {
-  saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  if (payingRecurringId_) {
+    // Opened from Mark as paid: the item's values are not a draft to come back to.
+    payingRecurringId_ = null;
+    clearEntryDraft_();
+    document.getElementById("amount").value = "";
+    document.getElementById("description").value = "";
+    selectedTagIds.clear();
+    populateTags();
+    document.getElementById("entry-trip").value = "";
+    resetSplitState();
+  } else {
+    saveEntryDraftNow_();   // closing with ✕ keeps what was typed as the draft
+  }
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
   document.getElementById("edit-entry-modal-inner").classList.remove("new-entry-sheet");
   document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
@@ -4633,6 +5143,7 @@ function ensurePeriodSelectorIn(screenName) {
   if (card.parentElement !== target) {
     target.insertBefore(card, target.firstChild);
   }
+  populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
 function showScreen(name) {
@@ -4661,6 +5172,9 @@ function showScreen(name) {
   }
   if (name === "loans") {
     refreshLoans();
+  }
+  if (name === "more") {
+    applyBusinessVisibility_();
   }
 }
 
@@ -4702,7 +5216,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -5048,6 +5562,12 @@ function moneyFmt(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function signedMoney_(n, cur) {
+  const r = Math.round(Number(n) * 100) / 100;
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${cur} ${moneyFmt(Math.abs(r))}`;
+}
+function formatPenSigned_(n) { return signedMoney_(n, homeCur()); }
+
 function formatPen(n) {
   return `${homeCur()} ${moneyFmt(n)}`;
 }
@@ -5077,15 +5597,17 @@ function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_());
 let overviewShownKey_ = null;
 let overviewReqToken_ = 0;
 const overviewCache_ = {};
-const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}`;
+const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}|${overviewScopeParam_() || ""}`;
 
 function paintOverviewSummary_(data) {
   lastOverviewData = data;
 
-  document.getElementById("summary-income").textContent = formatPen(data.totals.income);
-  document.getElementById("summary-expense").textContent = formatPen(data.totals.expense);
-  document.getElementById("summary-investment").textContent = formatPen(data.totals.investment);
-  document.getElementById("summary-net").textContent = formatPen(data.totals.net);
+  // Money-in-your-pocket view: what came in is "+", what went out (spent, put into an investment) is "−".
+  document.getElementById("summary-income").textContent = formatPenSigned_(data.totals.income);
+  document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
+  document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
+  document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
+  // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
   const excludedNote = document.getElementById("overview-excluded-note");
   if (data.excludedCount > 0) {
@@ -5116,7 +5638,7 @@ async function refreshOverviewInner_() {
 
   let data;
   try {
-    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
   } catch (err) {
     if (token === overviewReqToken_) screen.classList.remove("overview-stale");
     throw err;
@@ -5139,7 +5661,7 @@ async function loadOverviewEntriesInner_(bounds) {
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
+    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -5173,7 +5695,7 @@ function renderInvestmentsPeriod_(items) {
     row.className = "balance-row";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
-      <div class="balance-row-amount">${item.lines.map((l) => `<div>${formatSignedBalance_(l.amount, l.currency)}</div>`).join("")}</div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div class="${l.amount < 0 ? "pos-green" : ""}">${signedMoney_(-l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
@@ -5388,7 +5910,7 @@ async function openBreakdownDrilldown(kind, item) {
 
   const bounds = getPeriodBounds();
 
-  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType };
+  const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
   if (kind === "category") payload.categoryId = item.id;
   else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
@@ -6064,6 +6586,7 @@ document.getElementById("budget-rate-warning-link").addEventListener("click", as
 });
 
 function openBudgetModal(budget) {
+  refreshAlertHints_();
   editingBudgetId = budget ? budget.id : null;
   document.getElementById("budget-modal-title").textContent = budget ? tr("budgetModal.edit") : tr("budgetModal.add");
   document.getElementById("budget-form-error").textContent = "";
@@ -6324,6 +6847,7 @@ async function checkEmailsNow_(force) {
   emailCheckAt_ = Date.now();
   try {
     const out = await callApi("checkEmailsNow", {});
+    if (out && out.health) setMailHealth_(out.health);   // an older pinned backend sends none: the app then says nothing about it
     if (out && out.ran && out.created > 0) {
       const editing = document.activeElement && document.activeElement.closest("#review-list");
       if (!editing) await refreshReviewQueue();
@@ -6335,8 +6859,152 @@ async function checkEmailsNow_(force) {
   }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(true); }
 });
+
+// ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----
+// The server answers every check with `health`: { now, lastOk, problem, lookbackDays, … }. `problem` is null (say nothing), 'stale' (no good check for
+// 6 hours) or the kind of failure. The Home warning appears only after a check made in THIS session has answered, so a phone that was closed for a day
+// never flashes a warning that the check it is about to make would clear. More → Bank emails shows "Last checked …" at any time.
+let mailHealthChecked_ = false;
+function setMailHealth_(health) {
+  if (!health || typeof health !== "object") return;
+  if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { health });
+  mailHealthChecked_ = true;
+  renderMailHealth_();
+  renderFirstSteps_();   // its "no e-mail yet" hint depends on whether the check works
+}
+function mailAgo_(health, at) {
+  const mins = Math.max(0, Math.floor(((Number(health.now) || Date.now()) - Number(at)) / 60000));
+  if (mins < 1) return tr("mailHealth.ago.now");
+  if (mins < 60) return tr("mailHealth.ago.min", { n: mins });
+  if (mins < 48 * 60) return tr("mailHealth.ago.hour", { n: Math.floor(mins / 60) });
+  return tr("mailHealth.ago.day", { n: Math.floor(mins / 1440) });
+}
+function mailHealthProblemText_(health) {
+  const known = ["stale", "quota", "auth", "read_errors", "time"].indexOf(health.problem) !== -1;
+  const kind = known ? health.problem : "other";
+  // "auth": a friend's copy re-approves through More → Extra features; the owner's has no such screen (specs/review-telegram-email.md § E-mail health).
+  const key = kind === "auth" && perfIsOwnerCopy_() ? "mailHealth.problem.authOwner" : "mailHealth.problem." + kind;
+  let text = tr(key, { ago: mailAgo_(health, health.lastOk) });
+  if (Number(health.lookbackDays) > 3) text += " " + tr("mailHealth.catchUp", { n: health.lookbackDays });
+  return text;
+}
+function renderMailHealth_() {
+  const health = meta && meta.emailInfo && meta.emailInfo.health;
+  const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails) && !!health;
+  const card = document.getElementById("mail-health-card");
+  if (card) {
+    card.hidden = !(reading && mailHealthChecked_ && health.problem);
+    if (!card.hidden) document.getElementById("mail-health-text").textContent = mailHealthProblemText_(health);
+  }
+  const line = document.getElementById("bm-health");
+  if (line) {
+    const problem = reading && !!health.problem;
+    line.classList.toggle("problem", problem);
+    line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
+  }
+  const btn = document.getElementById("bm-check-btn");
+  if (btn) btn.hidden = !reading;
+}
+// "Check now" (Home warning and More → Bank emails): one forced check, then the screens refresh from its answer.
+async function mailCheckNowClicked_(btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("mailHealth.checking");
+  try { await checkEmailsNow_(true); } finally { btn.disabled = false; btn.textContent = original; renderMailHealth_(); }
+}
+document.getElementById("mail-health-check").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+document.getElementById("bm-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+
+// ---- Alerts: budget, trip and loan alerts land here (backend/Notices.gs); Telegram is an extra channel, not the only one ----
+// The Home "Alerts" card lists the notices not yet dismissed. Asked for in the background when the app opens, comes back to the front or is
+// pulled down, only when this backend has them (capabilities.notices; an older one would answer "Unknown action" and make the app think it
+// needs an update). Where the backend can also LOOK for new alerts when asked (capabilities.alertCheck), those asks are a check instead:
+// a copy with no timer gets its alerts this way, and one with a timer gets them sooner. The same reply carries the notices.
+// `check`: false = just list; true = open / come back / pull down; "change" = a few seconds after a save (the server waits less between those).
+let notices_ = [], noticesMore_ = 0, alertCheckBusy_ = false;
+async function loadNotices_(check) {
+  const caps = meta && meta.capabilities;
+  if (!caps || !caps.notices) return;
+  const asking = !!check && !!caps.alertCheck;
+  if (asking) {
+    if (alertCheckBusy_) return;
+    alertCheckBusy_ = true;
+  }
+  try {
+    const out = await callApi(asking ? "checkAlertsNow" : "listNotices", check === "change" && asking ? { after_change: true } : {});
+    notices_ = (out && out.notices) || [];
+    noticesMore_ = (out && out.more) || 0;
+  } catch (err) { return; }   // a background extra: the card just stays as it was
+  finally { if (asking) alertCheckBusy_ = false; }
+  renderNotices_();
+}
+// After a save that can cross an alert (ALERT_CHANGING_ACTIONS, next to LONG_ACTIONS) a check follows a few seconds later: bursts of saves
+// become one check, and the server still limits how often it really looks.
+let alertCheckTimer_ = null;
+function checkAlertsSoon_() {
+  if (!meta || !(meta.capabilities && meta.capabilities.alertCheck)) return;
+  clearTimeout(alertCheckTimer_);
+  alertCheckTimer_ = setTimeout(() => loadNotices_("change"), 5000);
+}
+function renderNotices_() {
+  const card = document.getElementById("notices-card");
+  if (!card) return;
+  card.hidden = !notices_.length;
+  const list = document.getElementById("notices-list");
+  list.innerHTML = "";
+  notices_.forEach((n) => {
+    const li = document.createElement("li");
+    const body = document.createElement("div");
+    body.className = "notice-body";
+    const text = document.createElement("span");
+    text.className = "notice-text";
+    text.textContent = n.text;   // already written by the server; may hold a person's or a category's name
+    body.appendChild(text);
+    const day = String(n.created_at || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      const when = document.createElement("span");
+      when.className = "notice-date";
+      when.textContent = I18n.fmtDateMedium(new Date(day + "T00:00:00"));
+      body.appendChild(when);
+    }
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "notice-x";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", tr("notices.dismiss"));
+    x.addEventListener("click", () => dismissNotices_({ ids: [n.id] }));
+    li.appendChild(body);
+    li.appendChild(x);
+    list.appendChild(li);
+  });
+  const more = document.getElementById("notices-more");
+  more.hidden = !noticesMore_;
+  if (noticesMore_) more.textContent = tr("notices.more", { n: noticesMore_ });
+}
+async function dismissNotices_(payload) {
+  // Gone from the screen at once; the server catches up (and if it cannot, the next load brings them back).
+  notices_ = payload.all ? [] : notices_.filter((n) => payload.ids.indexOf(n.id) === -1);
+  renderNotices_();
+  try { await callApi("markNoticesSeen", payload); } catch (err) { /* shown again by the next load */ }
+  if (noticesMore_) loadNotices_();   // dismissing may let notices beyond the first 20 appear
+}
+document.getElementById("notices-dismiss-all").addEventListener("click", () => dismissNotices_({ all: true }));
+
+// An alert hint says "It also arrives on Telegram" only when a Telegram chat is linked; a friend's copy has none.
+function refreshAlertHints_() {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  document.querySelectorAll("[data-alert-hint]").forEach((el) => {
+    el.textContent = tr(el.dataset.alertHint) + (linked ? tr("alert.alsoTelegram") : "");
+  });
+}
+// "Not captured automatically" tips that send the person to the Telegram bot read differently when there is none.
+const NOTAUTO_NO_BOT_TIPS_ = ["plin_out_whatsapp", "yape_in", "yape_out", "plin_out"];
+function notAutoTip_(key) {
+  const linked = !!(meta && meta.capabilities && meta.capabilities.telegramLinked);
+  return tr(!linked && NOTAUTO_NO_BOT_TIPS_.indexOf(key) !== -1 ? "notauto.tipNoBot." + key : "notauto.tip." + key);
+}
 
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
@@ -6511,6 +7179,7 @@ async function init() {
       perfRecordStartup_("open→usable", performance.now());
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
+    loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6582,6 +7251,7 @@ async function init() {
       await refreshEntryList();
       await refreshReviewQueue();
       checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
+      loadNotices_(true);
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
@@ -6701,7 +7371,30 @@ function extrasOff_() {
   if (c.bankEmails === false) off.push(tr("extras.bank"));
   return off;
 }
+// The owner's own copy only (owner's request, 2026-10-27: "as if I had answered yes in the onboarding"). The SERVER decides and does
+// it once (enableBusinessForOwnerOnce in Business.gs): it never overrides a choice, so turning the switch off ("no") sticks even when
+// this phone's saved copy of the settings is out of date. A friend's copy is never switched on this way.
+let ownerBusinessAuto_ = false;
+function maybeEnableBusinessForOwner_() {
+  if (ownerBusinessAuto_ || !meta || !meta.capabilities || !perfIsOwnerCopy_()) return;
+  const saved = meta.settings && meta.settings.business_features;
+  if (saved !== undefined && saved !== "") return;   // a choice is already on record
+  ownerBusinessAuto_ = true;
+  callApi("enableBusinessForOwnerOnce", {}).then((r) => {
+    meta.capabilities = r.capabilities;
+    if (r.changed) {
+      meta.settings = Object.assign({}, meta.settings, { business_features: "yes" });
+      meta.companies = meta.companies || [];
+      meta.projects = meta.projects || [];
+    }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+  }).catch(() => { ownerBusinessAuto_ = false; });
+}
+
 function refreshExtrasRow_() {
+  maybeEnableBusinessForOwner_();
+  applyBusinessVisibility_();
   // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
   document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
   // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
@@ -6715,8 +7408,10 @@ function refreshExtrasRow_() {
   document.getElementById("more-bank-mail-btn").hidden = owner && !(meta && meta.capabilities && meta.capabilities.bankEmails);
   maybeAskPerfShare_();
   checkBackendUpdate_();
+  syncRulePack_();
   checkBankReady_();
   renderFirstSteps_();
+  renderMailHealth_();
 }
 
 // ---- Home "Getting started" card (a friend's copy only; specs/home-tab.md § Getting started) ----
@@ -6735,7 +7430,9 @@ function renderFirstSteps_() {
   const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
   if (caps.bankEmails) {
     const got = Object.keys(info.seen || {}).length > 0;
-    steps.push({ done: got, text: tr("firstSteps.firstMail"), late: days >= 3, hint: days >= 3 ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
+    // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
+    const late = days >= 3 && !(info.health && info.health.problem);
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
   }
   steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
@@ -6863,6 +7560,40 @@ function syncPairWithBackend_() {
 }
 // An app kept alive in the background is checked again when it comes back to the front, so a promote reaches it without a full relaunch.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateChecked_ = false; checkBackendUpdate_(); } });
+// ---- Rule pack: new banks without an update (specs/review-telegram-email.md § Rule pack) ----
+// Simple bank e-mail rules live in a public data file. The PHONE reads it (like pin.json: friends get the copy `./ship.sh --promote` put in setup/,
+// the owner's own copy the live one) and hands it to the person's own backend, which checks it and keeps it. No outside-connection permission is
+// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent for 6 hours.
+// Nothing here ever bothers the person: the rules written in the backend keep working whatever happens.
+const RULE_PACK_TRIED_KEY = "etRulePackTried";
+let rulePackSyncing_ = false, rulePackSyncedAt_ = 0;
+async function syncRulePack_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!caps.rulePack || rulePackSyncing_ || Date.now() - rulePackSyncedAt_ < 10 * 60 * 1000) return;   // an older backend lacks the door
+  rulePackSyncing_ = true;
+  try {
+    const res = await fetch(siteUrl_(perfIsOwnerCopy_() ? "rules/email-rules.json" : "setup/rules.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const text = await res.text();
+    let file = null;
+    try { file = JSON.parse(text); } catch (e) { return; }
+    const version = file && file.version;
+    if (typeof version !== "number") return;
+    rulePackSyncedAt_ = Date.now();
+    const have = meta && meta.emailInfo && meta.emailInfo.rulePack;
+    if (have && have.version === version) return;
+    let tried = null;
+    try { tried = JSON.parse(localStorage.getItem(RULE_PACK_TRIED_KEY)); } catch (e) { /* no memory of an earlier try */ }
+    if (tried && tried.version === version && Date.now() - tried.at < 6 * 3600 * 1000) return;
+    try {
+      const done = await callApi("setRulePack", { text });
+      meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { rulePack: { version: done.version, count: done.count, at: new Date().toISOString(), error: "" } });
+    } catch (err) {
+      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, at: Date.now() })); } catch (e) { /* ignore */ }
+    }
+  } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRulePack_(); });   // an app kept alive in the background is checked when it comes back to the front
 function updatePageUrl_() { return siteUrl_("setup/#update"); }
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
@@ -7369,7 +8100,8 @@ function startWelcome_(preview) {
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
-    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null };
+    accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
+    business: false };   // the optional Business pack question at the end of step 3 (off unless chosen)
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-accounts").hidden = true;
@@ -7497,7 +8229,10 @@ function renderWelcomeAccounts_() {
       btn.type = "button";
       const n = count(b.name);
       btn.className = "wa-bank" + (n ? " has" : "");
-      const nm = document.createElement("span"); nm.textContent = b.name;
+      const nm = document.createElement("span");
+      const nmText = document.createElement("span"); nmText.textContent = b.name; nm.appendChild(nmText);
+      const ticks = bankTicks_(b.name);
+      if (ticks) { const tk = document.createElement("span"); tk.className = "wa-bank-ticks"; tk.textContent = ticks; nm.appendChild(tk); }
       const ct = document.createElement("span"); ct.className = "wa-bank-count"; ct.textContent = n ? tr("wa.count", { n }) : "›";
       btn.appendChild(nm); btn.appendChild(ct);
       btn.addEventListener("click", () => { welcome_.bankOpen = b.name; welcome_.form = null; renderWelcomeAccounts_(); });
@@ -7660,6 +8395,9 @@ const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.pl
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
   waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
+  waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
+  if (!businessOffered()) welcome_.business = false;
+  document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -7726,6 +8464,7 @@ async function finishWelcome_() {
         accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
+    if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     errEl.textContent = tr("wa.error");
@@ -7744,7 +8483,7 @@ async function finishWelcome_() {
   I18n.saveLang(welcome_.lang);
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business;
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -7755,6 +8494,10 @@ async function finishWelcome_() {
 }
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
+document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
+  welcome_.business = b.dataset.welcomeBusiness === "yes";
+  renderWelcomePlatforms_();
+}));
 waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
 waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 
@@ -8241,6 +8984,7 @@ function openBankMailModal_(opts) {
   backdrop.querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
   bmEl_("bm-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
   if (reading) renderBankAlerts_();
+  renderMailHealth_();
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -8271,10 +9015,24 @@ function bankReadable_(name) {
   const list = (meta && meta.emailInfo && meta.emailInfo.banks) || [];
   return list.some((b) => b.toLowerCase() === String(name || "").trim().toLowerCase());
 }
+// Statement readers live in statement-parsers.js (STATEMENT_BANK_BY_KIND); "Banco Falabella" and "Falabella" are the same bank here.
+const bankKey_ = (name) => String(name || "").trim().toLowerCase().replace(/^banco\s+/, "");
+function bankStatementsReadable_(name) {
+  return typeof StatementParsers !== "undefined" && StatementParsers.statementBanks().some((b) => bankKey_(b) === bankKey_(name));
+}
+// Ticks for the bank lists (owner, 2026-10-28): a bank the app can read shows what it reads; a bank it cannot read shows NOTHING, never a
+// cross, so the list never talks anyone out of registering their bank. The e-mail tick needs the bank e-mail extra and a backend that sends emailInfo.
+function bankTicks_(name) {
+  const caps = (meta && meta.capabilities) || {};
+  const out = [];
+  if (caps.bankEmails && meta && meta.emailInfo && meta.emailInfo.banks && bankReadable_(name)) out.push(tr("bankTick.emails"));
+  if (bankStatementsReadable_(name)) out.push(tr("bankTick.statements"));
+  return out.join(" · ");
+}
 function fillBankNote_(el, bankNames) {
   el.innerHTML = "";
   const caps = (meta && meta.capabilities) || {};
-  const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n)))];
+  const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n) && !bankStatementsReadable_(n)))];
   // A copy still on an older pinned backend sends no emailInfo: say nothing rather than call every bank unreadable.
   if (!caps.bankEmails || perfIsOwnerCopy_() || !names.length || !(meta && meta.emailInfo && meta.emailInfo.banks)) return;
   const p = document.createElement("p");
@@ -8699,7 +9457,7 @@ function renderNotauto_(data) {
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.tip." + k.key))}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(notAutoTip_(k.key))}</div>
     </div>`;
   }).join("");
 }
@@ -9837,6 +10595,7 @@ function renderTripEstimates_(d) {
 }
 
 function openTripModal_(trip) {
+  refreshAlertHints_();
   editingTripId_ = trip ? trip.id : null;
   tripKind_ = trip && trip.kind === "event" ? "event" : "trip";
   document.querySelectorAll("#trip-kind-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.kind === tripKind_));
@@ -10047,6 +10806,1497 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
   }
 });
 
+// ---- Business pack (specs/business.md): optional, hidden until the person turns it on ----
+// Nothing here runs or shows while `meta.capabilities.business` is false. A company or project is only a label on
+// entries (never an account); every figure is kept per currency and never converted, except one labelled estimate.
+
+function businessOn() { return !!(meta && meta.capabilities && meta.capabilities.business); }
+
+// Whether this copy may see the pack at all (owner's rule, 2026-10-27: hidden from new people until he says otherwise). The server
+// decides (capabilities.businessOffered). A copy's saved start-up data from before this existed has no such key: then the pack counts
+// as offered only where it is already on, or on the owner's own copy (the only one that shows the performance log).
+function businessOffered() {
+  const c = meta && meta.capabilities;
+  if (!c) return false;
+  return c.businessOffered !== undefined ? !!c.businessOffered : !!(c.business || c.perfLog);
+}
+
+function applyBusinessVisibility_() {
+  const on = businessOn();
+  document.getElementById("more-business-features-btn").hidden = !businessOffered();
+  document.getElementById("more-business-btn").hidden = !on;
+  document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
+  refreshBusinessHomeCard_();
+}
+
+// Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
+function showMoreSub_(name) {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  window.scrollTo(0, 0);
+}
+
+// ---- The switch (More → Business features) ----
+
+function showBusinessFeaturesScreen_() {
+  showMoreSub_("business-features");
+  document.getElementById("bf-toggle").checked = businessOn();
+  document.getElementById("bf-error").textContent = "";
+}
+
+document.getElementById("bf-toggle").addEventListener("change", async (e) => {
+  const box = e.target;
+  const errorEl = document.getElementById("bf-error");
+  errorEl.textContent = "";
+  const wanted = box.checked;
+  box.disabled = true;
+  try {
+    const r = await callApi("setBusinessFeatures", { on: wanted });
+    meta.capabilities = r.capabilities;
+    if (!wanted) { meta.companies = []; meta.projects = []; }
+    else { meta.companies = meta.companies || []; meta.projects = meta.projects || []; }
+    applyBusinessVisibility_();
+    populateBusinessOptions_();
+    // The entry form and rows pick the new fields up on the next reload; the search copy reloads on its own
+    // (changing this setting bumps the structure version on the server).
+  } catch (err) {
+    box.checked = !wanted;
+    errorEl.textContent = tr("bf.saveFailed", { error: err.message });
+  } finally {
+    box.disabled = false;
+  }
+});
+document.getElementById("more-business-features-btn").addEventListener("click", showBusinessFeaturesScreen_);
+document.getElementById("bf-back-btn").addEventListener("click", () => showScreen("more"));
+
+// ---- Period (shared by the list and the detail screen; in memory only) ----
+
+let businessPeriod_ = "alltime";
+let businessCustom_ = { start: "", end: "" };   // the range behind the "Custom…" choice
+
+function businessBounds_() {
+  const now = new Date();
+  if (businessPeriod_ === "custom") return { startDate: businessCustom_.start || null, endDate: businessCustom_.end || null };
+  if (businessPeriod_ === "month") return monthBounds(now);
+  if (businessPeriod_ === "lastMonth") return monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  if (businessPeriod_ === "year") return yearBounds(now);
+  if (businessPeriod_ === "lastYear") return yearBounds(new Date(now.getFullYear() - 1, 0, 1));
+  return { startDate: null, endDate: null };
+}
+
+function fillBusinessPeriodSelects_() {
+  const options = [["alltime", "business.period.alltime"], ["month", "business.period.month"], ["lastMonth", "business.period.lastMonth"],
+    ["year", "business.period.year"], ["lastYear", "business.period.lastYear"], ["custom", "business.period.custom"]];
+  document.querySelectorAll(".business-period-select").forEach((sel) => {
+    sel.innerHTML = "";
+    options.forEach(([value, key]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      // Once a range is chosen the option says which one ("From 1 Oct 2026 to 31 Oct 2026").
+      o.textContent = value === "custom" && businessPeriod_ === "custom" ? rangeSummary_("open", businessCustom_.start, businessCustom_.end) : tr(key);
+      sel.appendChild(o);
+    });
+    sel.value = businessPeriod_;
+  });
+}
+
+function refreshBusinessPeriodScreens_() {
+  if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
+  if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+}
+
+document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
+  if (sel.value === "custom") {
+    // Stays on the current period until a range is confirmed in the calendar (closing it without Done changes nothing).
+    sel.value = businessPeriod_;
+    openDateRangePicker_({ titleKey: "period.dates", startRequired: false, noEnd: "open" },
+      document.getElementById("business-custom-start"), document.getElementById("business-custom-end"));
+    return;
+  }
+  businessPeriod_ = sel.value;
+  document.querySelectorAll(".business-period-select").forEach((other) => { other.value = businessPeriod_; });
+  refreshBusinessPeriodScreens_();
+}));
+
+// The calendar's Done writes both dates and fires "change" on each: the second event finds nothing new and is ignored.
+["business-custom-start", "business-custom-end"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  const start = document.getElementById("business-custom-start").value;
+  const end = document.getElementById("business-custom-end").value;
+  const same = businessPeriod_ === "custom" && businessCustom_.start === start && businessCustom_.end === end;
+  if (same) return;
+  if (!start && !end) businessPeriod_ = "alltime";                       // "Clear dates" in the calendar = back to all time
+  else { businessPeriod_ = "custom"; businessCustom_ = { start, end }; }
+  fillBusinessPeriodSelects_();
+  refreshBusinessPeriodScreens_();
+}));
+
+// ---- Shared pieces ----
+
+function businessEmoji_(item, fallback) { return (item && item.emoji) || fallback; }
+function companyLabel_(c) { return `${businessEmoji_(c, "🏢")} ${c.name}`; }
+function projectLabel_(p) { return `${businessEmoji_(p, "🏗️")} ${p.name}`; }
+function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
+
+// Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
+function rememberBusinessLists_(companies) {
+  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji, igv_enabled: c.igv_enabled || "", tax_id: c.tax_id || "" }));
+  meta.projects = [];
+  companies.forEach((c) => c.projects.forEach((p) => meta.projects.push({ id: p.id, company_id: c.id, name: p.name, emoji: p.emoji, status: p.status })));
+  populateBusinessOptions_();
+}
+
+// One small card per currency: income, costs, margin (and the budget bar when a budget was set in that currency).
+function businessCurrencyCardsHtml_(currencies) {
+  return currencies.map((c) => {
+    const marginCls = c.margin < -0.004 ? "business-neg" : (c.margin > 0.004 ? "business-pos" : "");
+    let budget = "";
+    if (c.budget) {
+      const pct = Math.min(100, c.budgetPct || 0);
+      const cls = c.budgetPct > 100 ? " over" : (c.budgetPct >= 80 ? " warn" : "");
+      const diff = c.budget - c.costs;
+      const text = diff < 0
+        ? tr("business.budgetOver", { amount: businessAmount_(c.currency, -diff) })
+        : tr("business.budgetLeft", { amount: businessAmount_(c.currency, diff) });
+      budget = `
+        <div class="budget-progress-track"><div class="budget-progress-fill${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="budget-row-sub"><span>${escapeHtml(text)}</span><span>${escapeHtml(tr("business.ofBudget", { amount: businessAmount_(c.currency, c.budget) }))}</span></div>`;
+    }
+    return `
+      <div class="business-cur-card">
+        <div class="business-cur-head">${escapeHtml(c.currency)}</div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.income"))}</span><span>${moneyFmt(c.income)}</span></div>
+        <div class="business-cur-row"><span>${escapeHtml(tr("business.costs"))}</span><span>${moneyFmt(c.costs)}</span></div>
+        <div class="business-cur-row margin"><span>${escapeHtml(tr("business.margin"))}</span><span class="${marginCls}">${moneyFmt(c.margin)}</span></div>
+        ${c.igv ? `<div class="business-cur-igv">${escapeHtml(tr("igv.cardLine", { collected: moneyFmt(c.igv.collected), credit: moneyFmt(c.igv.credit) }))}</div>` : ""}
+        ${budget}
+      </div>`;
+  }).join("");
+}
+
+// The one converted line, shown only when it says something the cards don't (more than one currency, or a foreign one).
+function businessApproxHtml_(d) {
+  const single = d.currencies.length === 1 && d.currencies[0].currency === d.approx.currency;
+  if (!d.currencies.length || (single && !d.approx.missing)) return "";
+  const missing = d.approx.missing > 0 ? `<p class="hint">${escapeHtml(tr("business.approxMissing", { n: d.approx.missing }))}</p>` : "";
+  const line = single ? "" : `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("business.approx", { cur: d.approx.currency, amount: moneyFmt(d.approx.margin) }))}</p>`;
+  return line + missing;
+}
+
+// A compact "margin per currency" block for list rows.
+function businessMarginLinesHtml_(currencies) {
+  if (!currencies.length) return `<span class="original-amt">—</span>`;
+  return currencies.map((c) => {
+    const cls = c.margin < -0.004 ? "business-neg" : "";
+    return `<div class="primary-amt ${cls}">${escapeHtml(businessAmount_(c.currency, c.margin))}</div>`;
+  }).join("");
+}
+
+// ---- More → Companies & projects ----
+
+let businessList_ = [];
+
+async function showBusinessScreen() {
+  showMoreSub_("business");
+  fillBusinessPeriodSelects_();
+  await refreshBusinessList_();
+}
+
+async function refreshBusinessList_() {
+  const errorEl = document.getElementById("business-error");
+  errorEl.textContent = "";
+  try {
+    const b = businessBounds_();
+    const list = await callApi("listCompaniesAndProjects", { startDate: b.startDate, endDate: b.endDate });
+    businessList_ = list;
+    rememberBusinessLists_(list);
+    renderBusinessList_(list);
+  } catch (err) {
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessList_(companies) {
+  const box = document.getElementById("business-list");
+  box.innerHTML = "";
+  document.getElementById("business-empty-note").hidden = companies.length > 0;
+  document.getElementById("business-first-btn").hidden = companies.length > 0;
+  document.getElementById("business-period").hidden = companies.length === 0;
+  companies.forEach((c) => {
+    const head = document.createElement("div");
+    head.className = "business-company-head";
+    head.innerHTML = `
+      <h3 class="accounts-group-title" style="margin:0;">${escapeHtml(companyLabel_(c))}</h3>
+      <div class="business-mini">${escapeHtml(tr("business.projectCount", { n: c.projects.length }))}</div>`;
+    head.querySelector("h3").addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(head);
+
+    const summary = document.createElement("div");
+    summary.className = "recurring-row";
+    summary.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tr("business.entryCount", { n: c.entryCount || 0 }))}</div>
+      </div>
+      <div class="recurring-row-amount">${businessMarginLinesHtml_(c.currencies)}</div>`;
+    summary.addEventListener("click", () => showBusinessDetail_("company", c.id));
+    box.appendChild(summary);
+
+    const active = c.projects.filter((p) => p.status !== "closed");
+    const closed = c.projects.filter((p) => p.status === "closed");
+    const projectRow = (p) => {
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>`;
+      row.addEventListener("click", () => showBusinessDetail_("project", p.id));
+      return row;
+    };
+    active.forEach((p) => box.appendChild(projectRow(p)));
+    if (closed.length) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "add-inline";
+      toggle.textContent = "▸ " + tr("business.closedProjects", { n: closed.length });
+      const wrap = document.createElement("div");
+      wrap.hidden = true;
+      closed.forEach((p) => wrap.appendChild(projectRow(p)));
+      toggle.addEventListener("click", () => {
+        wrap.hidden = !wrap.hidden;
+        toggle.textContent = (wrap.hidden ? "▸ " : "▾ ") + tr("business.closedProjects", { n: closed.length });
+      });
+      box.appendChild(toggle);
+      box.appendChild(wrap);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline";
+    add.textContent = tr("business.addProject");
+    add.addEventListener("click", () => openProjectModal_(null, c.id, []));
+    box.appendChild(add);
+  });
+}
+
+document.getElementById("more-business-btn").addEventListener("click", showBusinessScreen);
+document.getElementById("business-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("business-add-company-btn").addEventListener("click", () => openCompanyModal_(null));
+document.getElementById("business-first-btn").addEventListener("click", () => openCompanyModal_(null));
+
+// ---- A project's or a company's profit and loss ----
+
+let businessDetail_ = null;        // { kind: "project" | "company", id }
+let businessDetailData_ = null;
+let businessCatCurrency_ = "";     // the currency chip chosen for the category lists
+
+async function showBusinessDetail_(kind, id) {
+  businessDetail_ = { kind, id };
+  businessDetailData_ = null;
+  businessCatCurrency_ = "";
+  showMoreSub_("business-detail");
+  fillBusinessPeriodSelects_();
+  const known = kind === "project" ? (meta.projects || []).find((p) => p.id === id) : (meta.companies || []).find((c) => c.id === id);
+  document.getElementById("business-detail-title").textContent = known ? (kind === "project" ? projectLabel_(known) : companyLabel_(known)) : "";
+  document.getElementById("business-detail-sub").textContent = "";
+  document.getElementById("business-detail-body").innerHTML = loadingHtml_();
+  document.getElementById("business-detail-entries-card").hidden = true;
+  await refreshBusinessDetail_();
+}
+
+async function refreshBusinessDetail_() {
+  const target = businessDetail_;
+  if (!target) return;
+  const errorEl = document.getElementById("business-detail-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const b = businessBounds_();
+    const range = { startDate: b.startDate, endDate: b.endDate };
+    const [detail, entries, debts] = await Promise.all([
+      callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
+      callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range)),
+      target.kind === "project" ? callApi("getProjectDebts", { project_id: target.id }) : Promise.resolve([])
+    ]);
+    if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
+    detail.debts = debts || [];
+    rememberExpected_(detail.expected || [], target.kind === "project" ? [target.id] : (meta.projects || []).filter((p) => p.company_id === target.id).map((p) => p.id));
+    businessDetailData_ = detail;
+    renderBusinessDetail_(detail);
+    const shown = applyQueuedEditOverlay_(entries);
+    document.getElementById("business-detail-entries-card").hidden = false;
+    renderEntriesInto_(document.getElementById("business-detail-entries"), shown, "business.noEntries");
+  } catch (err) {
+    document.getElementById("business-detail-body").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function renderBusinessDetail_(d) {
+  const isProject = businessDetail_.kind === "project";
+  const title = isProject ? projectLabel_(d.project) : companyLabel_(d.company);
+  document.getElementById("business-detail-title").textContent = title;
+  document.getElementById("business-detail-sub").textContent = isProject
+    ? [d.company ? companyLabel_(d.company) : "", (meta.friends || []).find((f) => f.id === d.project.client_id)?.name || "", d.project.status === "closed" ? tr("business.status.closed") : ""].filter(Boolean).join(" · ")
+    : tr("business.projectCount", { n: d.projects.length });
+
+  const currencies = d.currencies;
+  if (!businessCatCurrency_ || !currencies.some((c) => c.currency === businessCatCurrency_)) {
+    businessCatCurrency_ = currencies.length ? currencies[0].currency : "";
+  }
+  const catRows = (type) => ((d.byCategory[type] || {})[businessCatCurrency_] || []).map((c) => `
+    <div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
+      <div class="recurring-row-amount">${escapeHtml(businessCatCurrency_)} ${moneyFmt(c.amount)} <span class="original-amt">${Math.round(c.pct)}%</span></div>
+    </div>`).join("");
+  const chips = currencies.length > 1
+    ? `<div class="business-chips">${currencies.map((c) => `<button type="button" class="business-chip${c.currency === businessCatCurrency_ ? " active" : ""}" data-cur="${escapeHtml(c.currency)}">${escapeHtml(c.currency)}</button>`).join("")}</div>`
+    : "";
+  const costs = catRows("expense");
+  const income = catRows("income");
+
+  let projectsHtml = "";
+  if (!isProject) {
+    const rows = d.projects.map((p) => `
+      <div class="recurring-row business-project-row" data-id="${escapeHtml(p.id)}">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
+          <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>
+      </div>`).join("");
+    const level = d.companyLevel.entryCount ? `
+      <div class="recurring-row trip-static-row">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(tr("business.companyLevel"))}</div>
+          <div class="recurring-row-sub">${escapeHtml(tr("business.entryCount", { n: d.companyLevel.entryCount }))}</div>
+        </div>
+        <div class="recurring-row-amount">${businessMarginLinesHtml_(d.companyLevel.currencies)}</div>
+      </div>` : "";
+    const co = (meta.companies || []).find((c) => c.id === d.company.id) || d.company;
+    const igvBtn = co.igv_enabled === "yes" || currencies.some((c) => c.igv)
+      ? `<button type="button" class="add-inline" id="business-detail-igv-btn">${escapeHtml(tr("igv.open"))}</button>` : "";
+    projectsHtml = `<h3 class="accounts-group-title">${escapeHtml(tr("business.projects"))}</h3>${rows}${level}
+      <button type="button" class="add-inline" id="business-detail-add-project">${escapeHtml(tr("business.addProject"))}</button>${igvBtn}`;
+  } else {
+    projectsHtml = `<button type="button" class="add-inline" id="business-detail-status-btn">${escapeHtml(tr(d.project.status === "closed" ? "business.reopenProject" : "business.closeProject"))}</button>`;
+  }
+
+  document.getElementById("business-detail-body").innerHTML = `
+    ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
+    ${businessApproxHtml_(d)}
+    ${currencies.some((c) => c.igv) ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("igv.netNote"))}</p>` : ""}
+    ${isProject ? businessOwedHtml_(d.debts || []) : ""}
+    ${businessExpectedHtml_(d.expected || [], isProject)}
+    ${chips}
+    ${costs ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.costsByCategory"))}</h3>${costs}` : ""}
+    ${income ? `<h3 class="accounts-group-title">${escapeHtml(tr("business.incomeByCategory"))}</h3>${income}` : ""}
+    ${projectsHtml}`;
+
+  document.querySelectorAll("#business-detail-body .business-chip").forEach((chip) => chip.addEventListener("click", () => {
+    businessCatCurrency_ = chip.dataset.cur;
+    renderBusinessDetail_(d);
+  }));
+  document.querySelectorAll("#business-detail-body .business-project-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.id)));
+  document.querySelectorAll("#business-detail-body .business-owed-row").forEach((row) => row.addEventListener("click", () => openLoanDetail(row.dataset.friend, row.dataset.name, d.project.id)));
+  const addProject = document.getElementById("business-detail-add-project");
+  if (addProject) addProject.addEventListener("click", () => openProjectModal_(null, d.company.id, []));
+  wireBusinessExpected_(d, isProject);
+  const igvBtn = document.getElementById("business-detail-igv-btn");
+  if (igvBtn) igvBtn.addEventListener("click", () => showIgvScreen_(d.company.id));
+  const statusBtn = document.getElementById("business-detail-status-btn");
+  if (statusBtn) statusBtn.addEventListener("click", async () => {
+    const closing = d.project.status !== "closed";
+    statusBtn.disabled = true;
+    // The server and the refresh take a moment: say so right on the button (it stays until the screen redraws).
+    statusBtn.textContent = tr(closing ? "business.closingProject" : "business.reopeningProject");
+    try {
+      await callApi("updateProject", { id: d.project.id, name: d.project.name, emoji: d.project.emoji, company_id: d.project.company_id, status: d.project.status === "closed" ? "active" : "closed" });
+      const p = (meta.projects || []).find((x) => x.id === d.project.id);
+      if (p) p.status = d.project.status === "closed" ? "active" : "closed";
+      populateBusinessOptions_();
+      await refreshBusinessDetail_();
+    } catch (err) {
+      document.getElementById("business-detail-error").textContent = err.message;
+      statusBtn.textContent = tr(closing ? "business.closeProject" : "business.reopenProject");
+      statusBtn.disabled = false;
+    }
+  });
+}
+
+document.getElementById("business-detail-back-btn").addEventListener("click", () => { businessDetail_ = null; showBusinessScreen(); });
+document.getElementById("business-detail-edit-btn").addEventListener("click", () => {
+  const d = businessDetailData_;
+  if (!d || !businessDetail_) return;
+  if (businessDetail_.kind === "company") openCompanyModal_(d.company);
+  else openProjectModal_(d.project, d.project.company_id, d.currencies.filter((c) => c.budget).map((c) => ({ currency: c.currency, amount: c.budget })));
+});
+
+// ---- Expected payments (step 3A): money a client still owes on a project. A reminder, never income. ----
+
+// The phone's copy (the invoice pill on an income row reads it): replace what is known for these projects with what the screen just loaded.
+function rememberExpected_(items, projectIds) {
+  const covered = new Set(projectIds);
+  meta.expectedPayments = (meta.expectedPayments || []).filter((x) => !covered.has(x.project_id)).concat(items);
+}
+
+function expectedDueText_(x) {
+  const date = I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00"));
+  return x.overdue ? `${tr("xp.dueOn", { date })} · ⚠️ ${tr("xp.overdue")}` : tr("xp.dueOn", { date });
+}
+
+function expectedRowHtml_(x, isProject) {
+  const sub = [x.invoice_no && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
+    x.state === "open" && x.paid > 0 ? tr("xp.partReceived", { cur: x.currency, amount: moneyFmt(x.paid) }) : "",
+    x.state !== "open" ? tr("xp.state." + x.state) : ""].filter(Boolean).join(" · ");
+  const actions = !isProject ? "" : x.state === "open"
+    ? `<button type="button" data-act="received">${escapeHtml(tr("xp.received"))}</button><button type="button" data-act="cover">${escapeHtml(tr("xp.cover"))}</button>`
+    : (x.state === "covered" ? `<button type="button" data-act="uncover">${escapeHtml(tr("xp.uncover"))}</button>` : "");
+  return `
+    <div class="xp-row${x.overdue ? " overdue" : ""}" data-id="${escapeHtml(x.id)}" data-project="${escapeHtml(x.project_id)}">
+      <div class="recurring-row xp-main">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-sub">${escapeHtml(sub)}</div>
+        </div>
+        <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.state === "open" ? x.remaining : x.amount)}</div></div>
+      </div>
+      ${actions ? `<div class="expected-recurring-actions">${actions}</div>` : ""}
+    </div>`;
+}
+
+function businessExpectedHtml_(items, isProject) {
+  if (!items.length && !isProject) return "";
+  const open = items.filter((x) => x.state === "open");
+  const closed = items.filter((x) => x.state !== "open");
+  return `<h3 class="accounts-group-title">${escapeHtml(tr("xp.title"))}</h3>
+    ${isProject ? `<p class="hint">${escapeHtml(tr("xp.hint"))}</p>` : ""}
+    ${open.map((x) => expectedRowHtml_(x, isProject)).join("")}
+    ${closed.length ? `<details class="xp-closed"><summary>${escapeHtml(tr("xp.settledGroup", { n: closed.length }))}</summary>${closed.map((x) => expectedRowHtml_(x, isProject)).join("")}</details>` : ""}
+    ${isProject ? `<button type="button" class="add-inline" id="business-detail-add-expected">${escapeHtml(tr("xp.add"))}</button>` : ""}`;
+}
+
+function wireBusinessExpected_(d, isProject) {
+  const byId = (id) => (d.expected || []).find((x) => x.id === id);
+  document.querySelectorAll("#business-detail-body .xp-row").forEach((row) => {
+    const x = byId(row.dataset.id);
+    if (!x) return;
+    row.querySelector(".xp-main").addEventListener("click", () => {
+      if (isProject) openExpectedModal_(d.project.id, x);
+      else showBusinessDetail_("project", x.project_id);
+    });
+    row.querySelectorAll("button[data-act]").forEach((btn) => btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (btn.dataset.act === "received") { startReceivedIncome_(x); return; }
+      btn.disabled = true;
+      try {
+        await callApi("coverExpectedPayment", { id: x.id, covered: btn.dataset.act === "cover" });
+        await refreshBusinessDetail_();
+        refreshBusinessHomeCard_();
+      } catch (err) {
+        document.getElementById("business-detail-error").textContent = err.message;
+        btn.disabled = false;
+      }
+    }));
+  });
+  const add = document.getElementById("business-detail-add-expected");
+  if (add) add.addEventListener("click", () => openExpectedModal_(d.project.id, null));
+}
+
+// "Received": the usual income form, already filled in (project, amount still to come, currency, today, the invoice as the
+// description). Saving it is what settles the payment; the person picks the category and the account as for any income.
+function startReceivedIncome_(x) {
+  const description = x.invoice_no ? tr("xp.incomeDescInvoice", { invoice: x.invoice_no })
+    : (x.client_name ? tr("xp.incomeDescClient", { client: x.client_name }) : tr("xp.incomeDesc"));
+  openNewEntrySheet_();
+  applyEntryDraft_({
+    v: 1, type: "income", categoryId: "", amount: Number(x.remaining).toFixed(2), description, currency: x.currency,
+    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [], tripId: "",
+    businessPick: "p:" + x.project_id, expectedPick: x.id,
+    igvOn: !!x.igv_included, igvAmount: "", igvTouched: false   // an invoice that includes IGV: the IGV of what is received is worked out
+  });
+  entryDateTouched_ = false;
+  document.getElementById("date").value = todayLocalISO();
+}
+
+let editingExpected_ = null;   // { projectId, payment|null }
+
+function openExpectedModal_(projectId, payment) {
+  editingExpected_ = { projectId, payment };
+  document.getElementById("expected-modal-title").textContent = tr(payment ? "xp.editTitle" : "xp.addTitle");
+  document.getElementById("expected-form-error").textContent = "";
+  const project = (meta.projects || []).find((p) => p.id === projectId);
+  const sel = document.getElementById("expected-client");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("xp.noClient");
+  sel.appendChild(none);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && isBusinessPerson_(f))
+    .sort((a, b) => (b.role === "client") - (a.role === "client") || a.name.localeCompare(b.name))
+    .forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = friendLabel_(f);
+      sel.appendChild(o);
+    });
+  sel.value = payment ? payment.client_id : (project && project.client_id) || "";
+  document.getElementById("expected-amount").value = payment ? String(payment.amount) : "";
+  document.getElementById("expected-currency").value = payment ? payment.currency : homeCur();
+  document.getElementById("expected-due").value = payment ? payment.due_date : todayLocalISO();
+  document.getElementById("expected-invoice").value = payment ? payment.invoice_no : "";
+  document.getElementById("expected-note").value = payment ? payment.note : "";
+  // "This amount includes IGV" only where the project's company charges IGV (or the payment already says so).
+  const projectCompany = project ? (meta.companies || []).find((c) => c.id === project.company_id) : null;
+  document.getElementById("expected-igv").checked = !!payment && !!payment.igv_included;
+  document.getElementById("expected-igv-row").hidden = !((projectCompany && projectCompany.igv_enabled === "yes") || (payment && payment.igv_included));
+  document.getElementById("expected-delete-btn").hidden = !payment;
+  const backdrop = document.getElementById("expected-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeExpectedModal_() {
+  document.getElementById("expected-modal-backdrop").hidden = true;
+  editingExpected_ = null;
+}
+
+async function afterExpectedChange_() {
+  closeExpectedModal_();
+  await refreshBusinessDetail_();
+  refreshBusinessHomeCard_();
+}
+
+document.getElementById("expected-modal-close").addEventListener("click", closeExpectedModal_);
+document.getElementById("expected-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "expected-modal-backdrop") closeExpectedModal_();
+});
+document.getElementById("expected-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+document.getElementById("expected-save-btn").addEventListener("click", async () => {
+  if (!editingExpected_) return;
+  const errorEl = document.getElementById("expected-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("expected-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = {
+      project_id: editingExpected_.projectId,
+      client_id: document.getElementById("expected-client").value,
+      amount: document.getElementById("expected-amount").value.trim(),
+      currency: document.getElementById("expected-currency").value.trim().toUpperCase(),
+      due_date: document.getElementById("expected-due").value,
+      invoice_no: document.getElementById("expected-invoice").value.trim(),
+      note: document.getElementById("expected-note").value.trim(),
+      igv_included: !document.getElementById("expected-igv-row").hidden && document.getElementById("expected-igv").checked
+    };
+    if (editingExpected_.payment) await callApi("updateExpectedPayment", Object.assign({ id: editingExpected_.payment.id }, fields));
+    else await callApi("addExpectedPayment", fields);
+    await afterExpectedChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("expected-delete-btn").addEventListener("click", async () => {
+  if (!editingExpected_ || !editingExpected_.payment || !confirm(tr("xp.confirmDelete"))) return;
+  try {
+    await callApi("deleteExpectedPayment", { id: editingExpected_.payment.id });
+    await afterExpectedChange_();
+  } catch (err) {
+    document.getElementById("expected-form-error").textContent = err.message;
+  }
+});
+
+// Home: a card of its own under "Programmed this month" — what clients still owe, due this month or overdue. Never mixed into
+// the personal figures, and only there while the pack is on and something is expected.
+async function refreshBusinessHomeCard_() {
+  const card = document.getElementById("business-expected-card");
+  if (!card) return;
+  if (!businessOn()) { card.hidden = true; return; }
+  let r;
+  try {
+    r = await callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() });
+  } catch (err) {
+    return;   // keep what is there; the next refresh tries again
+  }
+  if (!r.items.length) { card.hidden = true; return; }
+  const totals = r.totals.map((t) => `<span class="primary-amt">${escapeHtml(t.currency)} ${moneyFmt(t.remaining)}</span>`).join(" · ");
+  document.getElementById("business-expected-list").innerHTML = `
+    <div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("xp.title"))}</div><div class="recurring-row-amount">${totals}</div></div>
+    ${r.items.map((x) => `
+      <div class="recurring-row business-expected-row${x.overdue ? " overdue" : ""}" data-project="${escapeHtml(x.project_id)}">
+        <div>
+          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-sub">${escapeHtml([x.company_name, x.project_name].filter(Boolean).join(" › "))} · ${escapeHtml(expectedDueText_(x))}</div>
+        </div>
+        <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.remaining)}</div></div>
+      </div>`).join("")}`;
+  card.hidden = false;
+  card.querySelectorAll(".business-expected-row").forEach((row) => row.addEventListener("click", () => showBusinessDetail_("project", row.dataset.project)));
+}
+
+// ---- Company pop-up ----
+
+let editingCompanyId_ = null;
+
+function openCompanyModal_(company) {
+  editingCompanyId_ = company ? company.id : null;
+  document.getElementById("company-modal-title").textContent = tr(company ? "business.companyEditTitle" : "business.companyAddTitle");
+  document.getElementById("company-form-error").textContent = "";
+  document.getElementById("company-name").value = company ? company.name : "";
+  document.getElementById("company-emoji").value = company ? (company.emoji || "") : "";
+  const full = company ? ((meta.companies || []).find((c) => c.id === company.id) || company) : null;   // the phone's copy carries the IGV fields
+  document.getElementById("company-igv").checked = !!full && full.igv_enabled === "yes";
+  document.getElementById("company-tax-id").value = full ? String(full.tax_id || "") : "";
+  document.getElementById("company-delete-btn").hidden = !company;
+  const backdrop = document.getElementById("company-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeCompanyModal_() {
+  document.getElementById("company-modal-backdrop").hidden = true;
+  editingCompanyId_ = null;
+}
+
+async function afterBusinessChange_() {
+  if (!document.getElementById("screen-business").hidden) await refreshBusinessList_();
+  else if (!document.getElementById("screen-business-detail").hidden) {
+    await refreshBusinessList_().catch(() => {});   // keeps the app's lists in step
+    await refreshBusinessDetail_();
+  }
+}
+
+document.getElementById("company-modal-close").addEventListener("click", closeCompanyModal_);
+document.getElementById("company-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "company-modal-backdrop") closeCompanyModal_();
+});
+document.getElementById("company-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("company-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("company-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = {
+      name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim(),
+      igv_enabled: document.getElementById("company-igv").checked, tax_id: document.getElementById("company-tax-id").value.trim()
+    };
+    if (editingCompanyId_) await callApi("updateCompany", Object.assign({ id: editingCompanyId_ }, fields));
+    else await callApi("addCompany", fields);
+    closeCompanyModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("company-delete-btn").addEventListener("click", async () => {
+  if (!editingCompanyId_) return;
+  const company = (meta.companies || []).find((c) => c.id === editingCompanyId_);
+  if (!company || !confirm(tr("business.confirmDeleteCompany", { name: company.name }))) return;
+  try {
+    await callApi("deleteCompany", { id: company.id });
+    closeCompanyModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("company-form-error").textContent = err.message;
+  }
+});
+
+// ---- The company's IGV screen (step 3B): per month and currency, what was collected, the credit, the position, and a note of payments ----
+
+let igvCompanyId_ = "";
+let igvYear_ = "";
+let igvData_ = null;
+let editingIgvPayment_ = null;   // { companyId, payment | null }
+
+async function showIgvScreen_(companyId) {
+  igvCompanyId_ = companyId;
+  igvYear_ = "";
+  igvData_ = null;
+  showMoreSub_("business-igv");
+  const known = (meta.companies || []).find((c) => c.id === companyId);
+  document.getElementById("igv-title").textContent = known ? companyLabel_(known) : "";
+  document.getElementById("igv-sub").textContent = "";
+  document.getElementById("igv-year").innerHTML = "";
+  document.getElementById("igv-body").innerHTML = loadingHtml_();
+  await refreshIgvScreen_();
+}
+
+async function refreshIgvScreen_() {
+  const errorEl = document.getElementById("igv-error");
+  errorEl.textContent = "";
+  const companyId = igvCompanyId_;
+  try {
+    const data = await callApi("getCompanyIgv", { id: companyId, year: igvYear_ || undefined });
+    if (companyId !== igvCompanyId_) return;   // moved on while loading
+    igvData_ = data;
+    igvYear_ = data.year;
+    renderIgvScreen_();
+  } catch (err) {
+    document.getElementById("igv-body").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function igvMonthLabel_(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${I18n.monthShort(m - 1)} ${y}`;
+}
+
+// A positive position is IGV owed to the tax office (red); a negative one is credit in the company's favour (green).
+function igvPositionHtml_(cur, position) {
+  const cls = position > 0.004 ? "igv-pos" : (position < -0.004 ? "igv-neg" : "");
+  return `<span class="${cls}">${escapeHtml(cur)} ${moneyFmt(position)}</span>`;
+}
+
+function renderIgvScreen_() {
+  const d = igvData_;
+  document.getElementById("igv-title").textContent = companyLabel_(d.company);
+  document.getElementById("igv-sub").textContent = [d.company.tax_id ? tr("igv.taxIdLine", { id: d.company.tax_id }) : "", tr("igv.rateLine", { rate: d.rate })].filter(Boolean).join(" · ");
+  const yearSel = document.getElementById("igv-year");
+  yearSel.innerHTML = "";
+  d.years.forEach((y) => {
+    const o = document.createElement("option");
+    o.value = y;
+    o.textContent = y;
+    yearSel.appendChild(o);
+  });
+  yearSel.value = d.year;
+
+  const totals = d.totals.map((t) => `
+    <div class="business-cur-card">
+      <div class="business-cur-head">${escapeHtml(t.currency)} · ${escapeHtml(d.year)}</div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.collected"))}</span><span>${moneyFmt(t.collected)}</span></div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.credit"))}</span><span>${moneyFmt(t.credit)}</span></div>
+      <div class="business-cur-row margin"><span>${escapeHtml(tr("igv.position"))}</span>${igvPositionHtml_("", t.position)}</div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.paid"))}</span><span>${moneyFmt(t.paid)}</span></div>
+      <div class="business-cur-row"><span>${escapeHtml(tr("igv.balance"))}</span>${igvPositionHtml_("", t.balance)}</div>
+    </div>`).join("");
+  const months = d.months.map((m) => `
+    <div class="igv-month-head">${escapeHtml(igvMonthLabel_(m.month))}</div>
+    ${m.lines.map((l) => `
+      <div class="igv-line"><span>${escapeHtml(tr("igv.monthLine", { cur: l.currency, collected: moneyFmt(l.collected), credit: moneyFmt(l.credit) }))}</span>${igvPositionHtml_("", l.position)}</div>`).join("")}`).join("");
+  const payments = d.payments.map((p) => `
+    <div class="recurring-row igv-payment-row" data-id="${escapeHtml(p.id)}">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(I18n.fmtDateMedium(new Date(p.date + "T00:00:00")))}</div>
+        ${p.note ? `<div class="recurring-row-sub">${escapeHtml(p.note)}</div>` : ""}
+      </div>
+      <div class="recurring-row-amount">${escapeHtml(p.currency)} ${moneyFmt(p.amount)}</div>
+    </div>`).join("");
+
+  document.getElementById("igv-body").innerHTML = `
+    ${totals || `<p class="hint">${escapeHtml(tr("igv.nothingYet"))}</p>`}
+    ${months ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.byMonth"))}</h3>${months}` : ""}
+    ${payments ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.payments"))}</h3>${payments}` : ""}
+    <p class="hint">${escapeHtml(tr("igv.note"))}</p>`;
+  document.querySelectorAll("#igv-body .igv-payment-row").forEach((row) => row.addEventListener("click", () => {
+    openIgvPaymentModal_(d.payments.find((p) => p.id === row.dataset.id) || null);
+  }));
+}
+
+document.getElementById("igv-back-btn").addEventListener("click", () => showBusinessDetail_("company", igvCompanyId_));
+document.getElementById("igv-year").addEventListener("change", (e) => { igvYear_ = e.target.value; refreshIgvScreen_(); });
+document.getElementById("igv-add-payment-btn").addEventListener("click", () => openIgvPaymentModal_(null));
+
+function openIgvPaymentModal_(payment) {
+  editingIgvPayment_ = { companyId: igvCompanyId_, payment };
+  document.getElementById("igv-payment-modal-title").textContent = tr(payment ? "igv.paymentEditTitle" : "igv.paymentAddTitle");
+  document.getElementById("igv-payment-error").textContent = "";
+  document.getElementById("igv-payment-amount").value = payment ? String(payment.amount) : "";
+  document.getElementById("igv-payment-currency").value = payment ? payment.currency : homeCur();
+  document.getElementById("igv-payment-date").value = payment ? payment.date : todayLocalISO();
+  document.getElementById("igv-payment-note").value = payment ? payment.note : "";
+  document.getElementById("igv-payment-delete-btn").hidden = !payment;
+  const backdrop = document.getElementById("igv-payment-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeIgvPaymentModal_() {
+  document.getElementById("igv-payment-modal-backdrop").hidden = true;
+  editingIgvPayment_ = null;
+}
+
+document.getElementById("igv-payment-modal-close").addEventListener("click", closeIgvPaymentModal_);
+document.getElementById("igv-payment-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "igv-payment-modal-backdrop") closeIgvPaymentModal_();
+});
+document.getElementById("igv-payment-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+});
+document.getElementById("igv-payment-save-btn").addEventListener("click", async () => {
+  if (!editingIgvPayment_) return;
+  const errorEl = document.getElementById("igv-payment-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("igv-payment-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const fields = {
+      amount: document.getElementById("igv-payment-amount").value.trim(),
+      currency: document.getElementById("igv-payment-currency").value.trim().toUpperCase(),
+      date: document.getElementById("igv-payment-date").value,
+      note: document.getElementById("igv-payment-note").value.trim()
+    };
+    if (editingIgvPayment_.payment) await callApi("updateIgvPayment", Object.assign({ id: editingIgvPayment_.payment.id }, fields));
+    else await callApi("addIgvPayment", Object.assign({ company_id: editingIgvPayment_.companyId }, fields));
+    closeIgvPaymentModal_();
+    await refreshIgvScreen_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("igv-payment-delete-btn").addEventListener("click", async () => {
+  if (!editingIgvPayment_ || !editingIgvPayment_.payment || !confirm(tr("igv.paymentConfirmDelete"))) return;
+  try {
+    await callApi("deleteIgvPayment", { id: editingIgvPayment_.payment.id });
+    closeIgvPaymentModal_();
+    await refreshIgvScreen_();
+  } catch (err) {
+    document.getElementById("igv-payment-error").textContent = err.message;
+  }
+});
+
+// ---- Project pop-up ----
+
+let editingProjectId_ = null;
+
+function addProjectBudgetRow_(currency, amount) {
+  const row = document.createElement("div");
+  row.className = "business-budget-row";
+  row.innerHTML = `
+    <input type="text" class="budget-cur" maxlength="3" autocapitalize="characters" placeholder="${escapeHtml(tr("business.budgetCurrencyPh"))}">
+    <input type="text" class="budget-amt" inputmode="decimal" placeholder="${escapeHtml(tr("business.budgetAmountPh"))}">
+    <button type="button" class="add-inline" aria-label="${escapeHtml(tr("business.removeBudget"))}">✕</button>`;
+  row.querySelector(".budget-cur").value = currency || "";
+  row.querySelector(".budget-amt").value = amount || "";
+  row.querySelector(".budget-amt").addEventListener("input", (e) => {
+    const sanitized = sanitizeAmountInputValue(e.target.value);
+    if (sanitized !== e.target.value) e.target.value = sanitized;
+  });
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  document.getElementById("project-budgets").appendChild(row);
+}
+
+function openProjectModal_(project, companyId, budgets) {
+  if (!(meta.companies || []).length) { alert(tr("business.needCompany")); return; }
+  editingProjectId_ = project ? project.id : null;
+  document.getElementById("project-modal-title").textContent = tr(project ? "business.projectEditTitle" : "business.projectAddTitle");
+  document.getElementById("project-form-error").textContent = "";
+  const sel = document.getElementById("project-company");
+  sel.innerHTML = "";
+  meta.companies.forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = companyLabel_(c);
+    sel.appendChild(o);
+  });
+  sel.value = companyId || meta.companies[0].id;
+  document.getElementById("project-name").value = project ? project.name : "";
+  document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
+  const clientSel = document.getElementById("project-client");
+  clientSel.innerHTML = "";
+  const noClient = document.createElement("option");
+  noClient.value = "";
+  noClient.textContent = tr("business.noClient");
+  clientSel.appendChild(noClient);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && (f.role === "client" || (project && f.id === project.client_id))).forEach((f) => {
+    const o = document.createElement("option");
+    o.value = f.id;
+    o.textContent = f.name;
+    clientSel.appendChild(o);
+  });
+  clientSel.value = project && project.client_id ? project.client_id : "";
+  document.getElementById("project-budgets").innerHTML = "";
+  (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
+  document.getElementById("project-delete-btn").hidden = !project;
+  const backdrop = document.getElementById("project-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeProjectModal_() {
+  document.getElementById("project-modal-backdrop").hidden = true;
+  editingProjectId_ = null;
+}
+
+document.getElementById("project-add-budget-btn").addEventListener("click", () => addProjectBudgetRow_("", ""));
+document.getElementById("project-modal-close").addEventListener("click", closeProjectModal_);
+document.getElementById("project-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "project-modal-backdrop") closeProjectModal_();
+});
+document.getElementById("project-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("project-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("project-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const budgets = Array.from(document.querySelectorAll("#project-budgets .business-budget-row")).map((row) => ({
+      currency: row.querySelector(".budget-cur").value.trim().toUpperCase(),
+      amount: row.querySelector(".budget-amt").value.trim()
+    }));
+    const fields = {
+      company_id: document.getElementById("project-company").value,
+      name: document.getElementById("project-name").value.trim(),
+      emoji: document.getElementById("project-emoji").value.trim(),
+      client_id: document.getElementById("project-client").value,
+      budgets
+    };
+    if (editingProjectId_) await callApi("updateProject", Object.assign({ id: editingProjectId_ }, fields));
+    else await callApi("addProject", fields);
+    closeProjectModal_();
+    await afterBusinessChange_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("project-delete-btn").addEventListener("click", async () => {
+  if (!editingProjectId_) return;
+  const project = (meta.projects || []).find((p) => p.id === editingProjectId_);
+  if (!project || !confirm(tr("business.confirmDeleteProject", { name: project.name }))) return;
+  try {
+    await callApi("deleteProject", { id: project.id });
+    closeProjectModal_();
+    businessDetail_ = null;
+    await showBusinessScreen();
+  } catch (err) {
+    document.getElementById("project-form-error").textContent = err.message;
+  }
+});
+
+// ---- Business pack, step 2: People (clients, suppliers, partners) and what is owed per project ----
+
+// The "Owed on this project" block of a project screen: per person, per currency (never converted). Tap = that person's debts on this project.
+function businessOwedHtml_(debts) {
+  if (!debts.length) return "";
+  const rows = debts.map((r) => `
+    <div class="recurring-row business-owed-row" data-friend="${escapeHtml(r.friend_id)}" data-name="${escapeHtml(r.friend_name)}">
+      <div><div class="recurring-row-name">${escapeHtml(r.friend_name)}</div></div>
+      <div class="recurring-row-amount">${r.balances.map((b) => `<div class="primary-amt ${b.net > 0 ? "business-pos" : ""}">${escapeHtml(tr(b.net > 0 ? "business.theyOweYou" : "business.youOwe"))} ${escapeHtml(b.currency)} ${moneyFmt(Math.abs(b.net))}</div>`).join("")}</div>
+    </div>`).join("");
+  return `<h3 class="accounts-group-title">${escapeHtml(tr("business.owed"))}</h3>${rows}`;
+}
+
+let people_ = [];
+
+async function showPeopleScreen_() {
+  showMoreSub_("business-people");
+  await refreshPeopleList_();
+}
+
+async function refreshPeopleList_() {
+  const errorEl = document.getElementById("people-error");
+  errorEl.textContent = "";
+  try {
+    people_ = await callApi("listBusinessPeople", {});
+    renderPeopleList_(people_);
+  } catch (err) {
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+
+function peopleBalancesHtml_(balances) {
+  return balances.map((b) => `<div class="primary-amt ${b.net > 0 ? "business-pos" : ""}">${escapeHtml(tr(b.net > 0 ? "business.theyOweYou" : "business.youOwe"))} ${escapeHtml(b.currency)} ${moneyFmt(Math.abs(b.net))}</div>`).join("");
+}
+
+function renderPeopleList_(people) {
+  const box = document.getElementById("people-list");
+  box.innerHTML = "";
+  document.getElementById("people-empty-note").hidden = people.length > 0;
+  ["client", "supplier", "partner"].forEach((role) => {
+    const group = people.filter((p) => p.role === role);
+    if (!group.length) return;
+    const head = document.createElement("h3");
+    head.className = "accounts-group-title";
+    head.textContent = tr(`people.group.${role}`);
+    box.appendChild(head);
+    group.forEach((p) => {
+      const where = p.projects.map((x) => {
+        const project = x.project_id ? (meta.projects || []).find((q) => q.id === x.project_id) : null;
+        return project ? project.name : tr("people.personal");
+      }).join(" · ");
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(p.name)}</div>
+          <div class="recurring-row-sub">${escapeHtml(where || tr("people.noDebts"))}</div>
+        </div>
+        <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
+      row.addEventListener("click", () => openPersonModal_(p));
+      box.appendChild(row);
+    });
+  });
+}
+
+// ---- Person pop-up ----
+
+let editingPerson_ = null;
+
+function openPersonModal_(person) {
+  editingPerson_ = person || null;
+  document.getElementById("person-modal-title").textContent = tr(person ? "people.editTitle" : "people.addTitle");
+  document.getElementById("person-form-error").textContent = "";
+  document.getElementById("person-name").value = person ? person.name : "";
+  const sel = document.getElementById("person-role");
+  sel.innerHTML = "";
+  ["client", "supplier", "partner", "friend"].forEach((role) => {
+    const o = document.createElement("option");
+    o.value = role;
+    o.textContent = tr(`people.role.${role}`);
+    sel.appendChild(o);
+  });
+  sel.value = person ? person.role : "client";
+  document.getElementById("person-delete-btn").hidden = !person;
+  document.getElementById("person-debts-btn").hidden = !(person && person.totals && person.totals.length);
+  const backdrop = document.getElementById("person-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closePersonModal_() {
+  document.getElementById("person-modal-backdrop").hidden = true;
+  editingPerson_ = null;
+}
+
+// Keeps the app's own list of people (the entry form's pickers read it) in step with what the server just saved.
+function rememberPerson_(friend) {
+  const i = (meta.friends || []).findIndex((f) => f.id === friend.id);
+  if (i === -1) meta.friends.push(Object.assign({ last_used: todayLocalISO() }, friend));
+  else meta.friends[i] = Object.assign({}, meta.friends[i], friend);
+}
+
+document.getElementById("business-people-btn").addEventListener("click", showPeopleScreen_);
+document.getElementById("people-back-btn").addEventListener("click", () => showBusinessScreen());
+document.getElementById("people-add-btn").addEventListener("click", () => openPersonModal_(null));
+document.getElementById("person-modal-close").addEventListener("click", closePersonModal_);
+document.getElementById("person-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "person-modal-backdrop") closePersonModal_();
+});
+document.getElementById("person-save-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("person-form-error");
+  errorEl.textContent = "";
+  const saveBtn = document.getElementById("person-save-btn");
+  saveBtn.disabled = true;
+  try {
+    const name = document.getElementById("person-name").value.trim();
+    const role = document.getElementById("person-role").value;
+    const friend = editingPerson_
+      ? await callApi("updateFriend", { id: editingPerson_.id, name, role })
+      : await callApi("addFriend", { name, role });
+    rememberPerson_(friend);
+    closePersonModal_();
+    await refreshPeopleList_();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById("person-debts-btn").addEventListener("click", () => {
+  const person = editingPerson_;
+  if (!person) return;
+  closePersonModal_();
+  openLoanDetail(person.id, person.name, "");
+});
+document.getElementById("person-delete-btn").addEventListener("click", async () => {
+  const person = editingPerson_;
+  if (!person || !confirm(tr("people.confirmDelete", { name: person.name }))) return;
+  try {
+    await callApi("deleteFriend", { id: person.id });
+    meta.friends = (meta.friends || []).filter((f) => f.id !== person.id);
+    closePersonModal_();
+    await refreshPeopleList_();
+  } catch (err) {
+    document.getElementById("person-form-error").textContent = err.message;
+  }
+});
+
+// ---- Overview's "Showing" filter (Business pack) ----
+// all (default: totals still agree with the bank balances) / personal only / one company / one project. In memory only.
+// It applies to Overview's period cards and their drill-downs; Balances, the month cards, Budgets, Projections and Home ignore it.
+
+let overviewScope_ = "all";
+
+function overviewScopeParam_() {
+  return businessOn() && overviewScope_ !== "all" ? overviewScope_ : undefined;
+}
+
+function populateOverviewScope_(onOverview) {
+  const row = document.getElementById("overview-scope-row");
+  const sel = document.getElementById("overview-scope");
+  if (!row || !sel) return;
+  const show = !!onOverview && businessOn() && (meta.companies || []).length > 0;
+  row.hidden = !show;
+  if (!businessOn() || !(meta.companies || []).length) overviewScope_ = "all";
+  if (!show) return;
+  sel.innerHTML = "";
+  const add = (parent, value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    parent.appendChild(o);
+  };
+  add(sel, "all", tr("overview.scopeAll"));
+  add(sel, "personal", tr("overview.scopePersonal"));
+  (meta.companies || []).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    add(group, "company:" + c.id, companyLabel_(c));
+    (meta.projects || []).filter((p) => p.company_id === c.id).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
+    sel.appendChild(group);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === overviewScope_)) overviewScope_ = "all";
+  sel.value = overviewScope_;
+}
+
+document.getElementById("overview-scope").addEventListener("change", (e) => {
+  overviewScope_ = e.target.value;
+  refreshOverview();
+});
+
+// ---- The entry form's "Company / project" picker, and the pill on entry rows ----
+// Values: "" = personal, "c:<id>" = a company only (no project), "p:<id>" = a project (which implies its company).
+
+function businessPickValue_(entry) {
+  if (entry.project_id) return "p:" + entry.project_id;
+  return entry.company_id ? "c:" + entry.company_id : "";
+}
+
+// Newest use first, from the phone's own search copy (when it has loaded); alphabetical otherwise.
+function businessLastUsed_() {
+  const last = {};
+  (searchIndex || []).forEach((e) => {
+    [["p:", e.project_id], ["c:", e.company_id]].forEach(([prefix, id]) => {
+      if (id && (!last[prefix + id] || e.date > last[prefix + id])) last[prefix + id] = e.date;
+    });
+  });
+  return last;
+}
+
+// Fills the picker and keeps `keep` chosen (a closed project stays listed only while it is the one chosen).
+function fillBusinessOptions_(sel, keep) {
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("business.pickNone");
+  sel.appendChild(none);
+  const last = businessLastUsed_();
+  const recent = (a, b, key) => (last[key(b)] || "").localeCompare(last[key(a)] || "") || a.name.localeCompare(b.name);
+  (meta.companies || []).slice().sort((a, b) => recent(a, b, (x) => "c:" + x.id)).forEach((c) => {
+    const group = document.createElement("optgroup");
+    group.label = companyLabel_(c);
+    const only = document.createElement("option");
+    only.value = "c:" + c.id;
+    only.textContent = tr("business.companyLevel");
+    group.appendChild(only);
+    (meta.projects || []).filter((p) => p.company_id === c.id && (p.status !== "closed" || keep === "p:" + p.id))
+      .sort((a, b) => recent(a, b, (x) => "p:" + x.id))
+      .forEach((p) => {
+        const o = document.createElement("option");
+        o.value = "p:" + p.id;
+        o.textContent = projectLabel_(p);
+        group.appendChild(o);
+      });
+    sel.appendChild(group);
+  });
+  sel.value = Array.from(sel.options).some((o) => o.value === keep) ? keep : "";
+}
+
+// Rebuilds the picker (keeping what is chosen) and shows it only for an expense or income, once a company exists.
+function populateBusinessOptions_() {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  populateOverviewScope_(!document.getElementById("screen-overview").hidden);
+  const canLink = businessOn() && (meta.companies || []).length > 0 &&
+    (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
+  fillBusinessOptions_(sel, canLink ? sel.value : "");
+  document.getElementById("business-field").hidden = !canLink;
+  syncClientButton_();
+  syncExpectedField_();
+  syncIgvField_();
+  syncReceiptField_();
+}
+
+// ---- "Pays expected payment" (an income on a project) ----
+// FIFO by default: a NEW income on a project pre-selects the oldest-due open expected payment of that project in the same
+// currency; the person can pick another or None. A choice (including None) is never overridden afterwards.
+function setExpectedPick_(id) {
+  expectedPick_ = id || "";
+  expectedPickTouched_ = !!id;
+  syncExpectedField_();
+}
+
+function expectedRowLabel_(x) {
+  return x.invoice_no || x.client_name || x.project_name || "—";
+}
+
+async function syncExpectedField_() {
+  const field = document.getElementById("expected-field");
+  if (!field) return;
+  const project = businessProjectOfPick_();
+  const show = businessOn() && selectedType === "income" && !!project;
+  if (!show) { field.hidden = true; return; }
+  const seq = ++expectedSeq_;
+  const currency = document.getElementById("currency").value;
+  let items;
+  try {
+    items = (await callApi("listExpectedPayments", { project_id: project.id, currency })).items;
+  } catch (err) {
+    return;   // offline or a hiccup: leave the field and the current choice as they are
+  }
+  if (seq !== expectedSeq_) return;   // the project or currency changed while loading
+  const usable = items.filter((x) => x.state === "open" || x.id === expectedPick_);
+  const sel = document.getElementById("entry-expected");
+  if (!usable.length) { expectedPick_ = ""; field.hidden = true; return; }
+  if (expectedPick_ && !usable.some((x) => x.id === expectedPick_)) expectedPick_ = "";
+  if (!expectedPick_ && !expectedPickTouched_ && (entryFormIsNewEntry_() || confirmingPendingId)) {
+    const open = usable.find((x) => x.state === "open");
+    if (open) expectedPick_ = open.id;
+  }
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("xp.pickNone");
+  sel.appendChild(none);
+  usable.forEach((x) => {
+    const o = document.createElement("option");
+    o.value = x.id;
+    o.textContent = tr("xp.pickRow", { label: expectedRowLabel_(x), cur: x.currency, amount: moneyFmt(x.state === "open" ? x.remaining : x.amount), date: I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00")) });
+    sel.appendChild(o);
+  });
+  sel.value = expectedPick_;
+  field.hidden = false;
+}
+
+document.getElementById("entry-expected").addEventListener("change", (e) => {
+  expectedPick_ = e.target.value;
+  expectedPickTouched_ = true;
+});
+document.getElementById("entry-business").addEventListener("change", () => { expectedPick_ = ""; expectedPickTouched_ = false; syncExpectedField_(); });
+
+// ---- "Includes IGV" (step 3B): the IGV inside an expense's or income's amount ----
+// Shown while the pack is on, for an expense or income whose company charges IGV (or that already carries IGV). The amount the
+// person typed never changes: the switch only records how much of it is IGV (amount − amount ÷ 1.18, editable by hand).
+
+function igvRatePct_() {
+  const n = Number(((meta && meta.settings) || {}).igv_rate);
+  return n > 0 && n < 100 ? n : 18;
+}
+
+function igvFromGross_(amount) {
+  return Math.round((amount - amount / (1 + igvRatePct_() / 100)) * 100) / 100;
+}
+
+// The company the picker points at (directly, or through its project).
+function businessCompanyOfPick_() {
+  const value = document.getElementById("entry-business").value;
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return project ? (meta.companies || []).find((c) => c.id === project.company_id) || null : null;
+  }
+  if (value.startsWith("c:")) return (meta.companies || []).find((c) => c.id === value.slice(2)) || null;
+  return null;
+}
+
+function renderIgvHint_() {
+  const hint = document.getElementById("igv-hint");
+  const amount = parseFloat(document.getElementById("amount").value);
+  const igv = parseFloat(document.getElementById("igv-amount").value);
+  hint.classList.remove("bill-check-bad");
+  if (!(amount > 0) || !(igv > 0)) { hint.textContent = ""; return; }
+  if (igv >= amount) { hint.textContent = tr("business.errIgv"); hint.classList.add("bill-check-bad"); return; }
+  hint.textContent = tr("igv.hint", { cur: document.getElementById("currency").value, net: moneyFmt(amount - igv), igv: moneyFmt(igv) });
+}
+
+function igvAutoFill_() {
+  if (igvTouched_) return;
+  const amount = parseFloat(document.getElementById("amount").value);
+  document.getElementById("igv-amount").value = amount > 0 ? igvFromGross_(amount).toFixed(2) : "";
+}
+
+function syncIgvField_() {
+  const field = document.getElementById("igv-field");
+  if (!field || !meta) return;   // nothing to decide before the app's data has arrived
+  const toggle = document.getElementById("igv-toggle");
+  const company = businessCompanyOfPick_();
+  const typeOk = businessOn() && (selectedType === "expense" || selectedType === "income");
+  const show = typeOk && !!company && (company.igv_enabled === "yes" || toggle.checked);
+  if (!show) { toggle.checked = false; document.getElementById("igv-amount").value = ""; igvTouched_ = false; }
+  field.hidden = !show;
+  document.getElementById("igv-toggle-label").textContent = tr("igv.toggleRate", { rate: igvRatePct_() });
+  document.getElementById("igv-detail").hidden = !(show && toggle.checked);
+  if (show && toggle.checked) { igvAutoFill_(); renderIgvHint_(); }
+}
+
+// Callers that carry IGV (edit, a saved draft, "Received") set it here; everything else leaves it off.
+function setIgvState_(on, amount, touched) {
+  document.getElementById("igv-toggle").checked = !!on;
+  document.getElementById("igv-amount").value = on && Number(amount) > 0 ? Number(amount).toFixed(2) : "";
+  igvTouched_ = !!on && !!touched && Number(amount) > 0;
+  syncIgvField_();
+}
+
+// What the form sends: the IGV amount, or "" (which clears it on an edit).
+function igvValueToSend_() {
+  const field = document.getElementById("igv-field");
+  if (!field || field.hidden || !document.getElementById("igv-toggle").checked) return "";
+  const v = parseFloat(document.getElementById("igv-amount").value);
+  return v > 0 ? v : "";
+}
+
+document.getElementById("igv-toggle").addEventListener("change", () => { igvTouched_ = false; syncIgvField_(); });
+document.getElementById("igv-amount").addEventListener("input", (e) => {
+  const sanitized = sanitizeAmountInputValue(e.target.value);
+  if (sanitized !== e.target.value) e.target.value = sanitized;
+  igvTouched_ = e.target.value.trim() !== "";
+  renderIgvHint_();
+});
+document.getElementById("amount").addEventListener("input", () => {
+  if (!document.getElementById("igv-toggle").checked) return;
+  igvAutoFill_();
+  renderIgvHint_();
+});
+document.getElementById("entry-business").addEventListener("change", syncIgvField_);
+
+// The project a Repayment / New loan on the Entries tab belongs to ("" = none); only a project counts there, never a company alone.
+function businessPickProjectId_() {
+  if (!businessOn()) return "";
+  const value = document.getElementById("entry-business").value;
+  return value.startsWith("p:") ? value.slice(2) : "";
+}
+
+// ---- "Client will repay this": an expense I paid for a project that the client will pay back (a 100% split to the client) ----
+
+function businessProjectOfPick_() {
+  const value = document.getElementById("entry-business").value;
+  return value.startsWith("p:") ? (meta.projects || []).find((p) => p.id === value.slice(2)) || null : null;
+}
+
+function syncClientButton_() {
+  const btn = document.getElementById("split-client-btn");
+  if (!btn) return;
+  const show = businessOn() && selectedType === "expense" && !!businessProjectOfPick_();
+  btn.hidden = !show;
+  if (!show) document.getElementById("split-client-select").hidden = true;
+}
+
+// The split becomes: me 0, the client everything. It is the ordinary custom split, so the debt, the repayment and the
+// owner's-share rules are exactly the ones that already exist.
+function applyClientRepays_(personId) {
+  document.getElementById("split-toggle").checked = true;
+  document.getElementById("split-detail").hidden = false;
+  splitFriendIds = new Set([personId]);
+  splitMode = "custom";
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+  customOwnAmount = "0";
+  customSplitAmounts = {};
+  document.getElementById("split-client-select").hidden = true;
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+}
+
+document.getElementById("split-client-btn").addEventListener("click", () => {
+  const project = businessProjectOfPick_();
+  if (!project) return;
+  if (project.client_id && (meta.friends || []).some((f) => f.id === project.client_id)) { applyClientRepays_(project.client_id); return; }
+  // No client on this project: pick who, or add one right here.
+  const sel = document.getElementById("split-client-select");
+  sel.innerHTML = "";
+  const hint = document.createElement("option");
+  hint.value = "";
+  hint.textContent = tr("split.clientPick");
+  sel.appendChild(hint);
+  (meta.friends || []).filter((f) => !isGroupFriend_(f) && isBusinessPerson_(f))
+    .sort((a, b) => (b.role === "client") - (a.role === "client") || a.name.localeCompare(b.name))
+    .forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = friendLabel_(f);
+      sel.appendChild(o);
+    });
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("business.newClient");
+  sel.appendChild(add);
+  sel.value = "";
+  sel.hidden = false;
+});
+document.getElementById("split-client-select").addEventListener("change", async (e) => {
+  const value = e.target.value;
+  if (!value) return;
+  if (value !== "__new__") { applyClientRepays_(value); return; }
+  const name = prompt(tr("business.newClientPrompt"));
+  if (!name || !name.trim()) { e.target.value = ""; return; }
+  try {
+    const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
+    rememberPerson_(friend);
+    applyClientRepays_(friend.id);
+  } catch (err) {
+    document.getElementById("form-error").textContent = err.message;
+    e.target.value = "";
+  }
+});
+document.getElementById("entry-business").addEventListener("change", syncClientButton_);
+
+function setBusinessPick_(value) {
+  const sel = document.getElementById("entry-business");
+  if (!sel) return;
+  value = value || "";
+  fillBusinessOptions_(sel, value);
+  // A company or project this phone has not heard of yet (made on another device): keep it rather than silently clearing it on save.
+  if (value && !Array.from(sel.options).some((o) => o.value === value)) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = "—";
+    sel.appendChild(o);
+    sel.value = value;
+  }
+  expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
+  syncExpectedField_();
+  setIgvState_(false);                                // ... and IGV with setIgvState_
+}
+
+// What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else all the keys.
+function businessLinkFields_() {
+  if (!businessOn() || (selectedType !== "expense" && selectedType !== "income")) return {};
+  const value = document.getElementById("entry-business").value;
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_() };
+  }
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" };
+}
+
+// The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
+function businessPillHtml_(entry) {
+  if (!businessOn() || !(entry.project_id || entry.company_id)) return "";
+  const project = entry.project_id ? (meta.projects || []).find((p) => p.id === entry.project_id) : null;
+  const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
+  if (!company && !project) return "";
+  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
+  // An income that settles an expected payment also carries its invoice number.
+  const expected = entry.expected_payment_id ? (meta.expectedPayments || []).find((x) => x.id === entry.expected_payment_id) : null;
+  const invoice = expected && expected.invoice_no ? `<span class="entry-tag entry-business">${escapeHtml(tr("xp.pill", { no: expected.invoice_no }))}</span>` : "";
+  // Step 3B: the IGV inside the amount, wherever the entry is listed.
+  const igv = Number(entry.igv_amount) > 0 ? `<span class="entry-tag entry-business">${escapeHtml(tr("igv.pill", { cur: entry.currency, amount: moneyFmt(Number(entry.igv_amount)) }))}</span>` : "";
+  return `<span class="entry-tag entry-business">${escapeHtml(text)}</span>${invoice}${igv}`;
+}
+
 // ---- Recurring income/expenses ----
 
 let editingRecurringId = null;
@@ -10084,7 +12334,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${isIncome ? "+" : ""}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  const primary = `<span class="primary-amt">${isIncome ? "+" : "−"}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
@@ -10262,7 +12512,7 @@ function renderRecurringSplitFriendChips() {
   plainFriends_().forEach((f) => {
     const chip = document.createElement("div");
     chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = f.name;
+    chip.textContent = friendLabel_(f);
     chip.addEventListener("click", () => {
       if (recurringSplitFriendIds.has(f.id)) {
         recurringSplitFriendIds.delete(f.id);
@@ -10913,6 +13163,7 @@ document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
 // drops off there on its own once that match exists.
 // prefetchedGroups: see loadMeta's comment above.
 async function refreshExpectedRecurring(prefetchedGroups) {
+  refreshBusinessHomeCard_();   // the separate business card under this one follows the same refreshes (hidden unless the pack is on)
   const card = document.getElementById("expected-recurring-card");
   const container = document.getElementById("expected-recurring-groups");
   let groups;
@@ -10947,7 +13198,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
 
     const isPen = g.currency === homeCur();
     const isIncome = g.type === "income";
-    const sign = isIncome ? "+" : "";
+    const sign = isIncome ? "+" : "−";   // money in is +, money out is −
     let amountHtml;
     if (isPen) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
@@ -10983,7 +13234,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
-        else openPaidPicker_(item, g.currency);
+        else openPaidPicker_(item, g.currency, isIncome);
       });
     });
 
@@ -11016,10 +13267,48 @@ async function skipRecurringThisMonth_(item) {
   }
 }
 
+// "Record the payment…": opens the new-entry sheet filled in from the programmed item — its category, whole bill,
+// currency, trip and description, today's date, and its saved split — so the person only chooses who paid and
+// the account. Saving it also links the entry to the item (payingRecurringId_, see the submit handler).
+function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSplits) {
+  openNewEntrySheet_();
+  if (!newEntrySheetOpen_) return;   // another entry is being edited: nothing opened
+  payingRecurringId_ = item.id;
+  applyEntryDraft_({
+    v: 1, type: isIncome ? "income" : "expense", categoryId: item.category_id || "",
+    amount: Number(fullAmount).toFixed(2), description: item.description || "", currency,
+    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [],
+    tripId: isIncome ? "" : (item.trip_id || ""), businessPick: "", expectedPick: "",
+    igvOn: false, igvAmount: "", igvTouched: false
+  });
+  entryDateTouched_ = false;
+  document.getElementById("date").value = todayLocalISO();
+  resetSplitState();
+  if (savedSplits.length) {
+    // The saved shares as they are; scaled down only if they would exceed the whole bill.
+    const savedTotal = savedSplits.reduce((t, s) => t + s.amount, 0);
+    const scale = savedTotal > fullAmount ? fullAmount / savedTotal : 1;
+    splitMode = "custom";
+    document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+    savedSplits.forEach((s) => {
+      splitFriendIds.add(s.friend_id);
+      customSplitAmounts[s.friend_id] = String(Math.round(s.amount * scale * 100) / 100);
+    });
+    document.getElementById("split-toggle").checked = true;
+    document.getElementById("split-detail").hidden = false;
+    renderSplitFriendChips();
+    renderSplitRows();
+    renderSplitSummary();
+  }
+}
+
 // "Mark as paid…": a manual override for when automatic matching (same
 // category and currency, about the same amount, within a few days) missed the
 // real payment. Pick the entry that paid it; automatic matching stays on.
-async function openPaidPicker_(item, currency) {
+async function openPaidPicker_(item, currency, isIncome) {
+  // The whole bill, not just the owner's share: a shared item is paid in full (by me or by a housemate)
+  // and the saved split below then puts the friends' part on their loans.
+  const fullAmount = item.full_amount != null ? item.full_amount : item.amount;
   const backdrop = document.getElementById("paid-picker-modal-backdrop");
   const list = document.getElementById("paid-picker-list");
   const errorEl = document.getElementById("paid-picker-error");
@@ -11028,7 +13317,25 @@ async function openPaidPicker_(item, currency) {
   document.getElementById("paid-picker-empty").hidden = true;
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
-    tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(item.amount) });
+    tr("paid.hint", { name: item.description || item.category_name, cur: currency, amount: moneyFmt(fullAmount) });
+  // "Not logged yet": the usual entry form, filled in from the item (so it also asks who paid).
+  const recordBtn = document.getElementById("paid-new-save");
+  recordBtn.disabled = false;
+  recordBtn.onclick = async () => {
+    recordBtn.disabled = true;
+    try {
+      let savedSplits = [];
+      if (!isIncome) {
+        savedSplits = ((await callApi("getRecurringExpenseSplits", { recurringExpenseId: item.id })) || []).filter((s) => s.amount > 0);
+      }
+      backdrop.hidden = true;
+      startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSplits);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    } finally {
+      recordBtn.disabled = false;
+    }
+  };
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   try {
@@ -11217,27 +13524,27 @@ function renderProjectionsSummary_(p) {
   if (p.expenses > 0) {
     breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
   }
-  if (p.investments > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPen(p.investmentsActual), programmed: formatPen(p.investmentsProgrammed), expected: formatPen(p.investmentsExpected) }));
+  if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
+    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
 
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
         <span class="summary-label">${tr("summary.income")}</span>
-        <span class="summary-value income">${formatPen(p.income)}</span>
+        <span class="summary-value income">${formatPenSigned_(p.income)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.expenses")}</span>
-        <span class="summary-value expense">${formatPen(p.expenses)}</span>
+        <span class="summary-value expense">${formatPenSigned_(-p.expenses)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.investments")}</span>
-        <span class="summary-value investment">${formatPen(p.investments)}</span>
+        <span class="summary-value investment">${formatPenSigned_(p.investments)}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
-        <span class="summary-value">${formatPen(p.net)}</span>
+        <span class="summary-value">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
@@ -11281,12 +13588,13 @@ function projectionRowLine_(icon, amount, label) {
 
 function projectionRowBreakdown_(c) {
   const isIncome = c.category_type === "income";
-  const lines = [projectionRowLine_("✅", c.actualPen, tr("projections.actual"))];
+  const flip = c.category_type === "investment" ? -1 : 1;   // investments read taken out − put in
+  const lines = [projectionRowLine_("✅", flip * c.actualPen, tr("projections.actual"))];
   if (c.hasOverride) {
     lines.push(projectionRowLine_("✏️", c.remainingTotalPen, tr("projections.remainingManual")));
   } else {
-    lines.push(projectionRowLine_("🔁", c.programmedRemainingPen, tr("projections.programmed")));
-    if (!isIncome) {
+    lines.push(projectionRowLine_("🔁", flip * c.programmedRemainingPen, tr("projections.programmed")));
+    if (!isIncome && c.category_type !== "investment") {
       lines.push(projectionRowLine_("📈", c.expectedRemainingPen, tr("projections.expected")));
     }
   }
@@ -11323,14 +13631,28 @@ function renderProjectionCategories_(result) {
   list.innerHTML = "";
   emptyNote.hidden = categories.length > 0;
 
-  categories.forEach((c) => {
+  // Grouped by type (owner, 2026-10-27): Income, Expenses, Investments, each biggest first (the server's order).
+  const typeOrder = [["income", "summary.income"], ["expense", "summary.expenses"], ["investment", "summary.investments"]];
+  const groups = typeOrder.map(([type, key]) => ({ key, items: categories.filter((c) => c.category_type === type) })).filter((g) => g.items.length);
+  const ordered = [];
+  groups.forEach((g) => { ordered.push({ heading: tr(g.key) }); g.items.forEach((c) => ordered.push({ c })); });
+
+  ordered.forEach((entry) => {
+    if (entry.heading) {
+      const h = document.createElement("div");
+      h.className = "projection-type-heading";
+      h.textContent = entry.heading;
+      list.appendChild(h);
+      return;
+    }
+    const c = entry.c;
     const isIncome = c.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row projection-row-expanded";
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
-        <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? "+" : ""}${formatPen(c.totalPen)}</div>
+        <div class="recurring-row-amount${isIncome ? " income" : ""}">${formatPenSigned_(isIncome ? c.totalPen : -c.totalPen)}</div>
       </div>
       <div class="projection-row-breakdown">${projectionRowBreakdown_(c)}</div>
     `;
@@ -11446,12 +13768,12 @@ function renderProjectionDrilldownAmount_(detail) {
 
   // Actual, what is left, and their sum: so the numbers add up where they can be seen.
   document.getElementById("drilldown-projection-actual-row").hidden = false;
-  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen(p.actualPen);
+  document.getElementById("drilldown-projection-actual-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.actualPen);
   const annualNote = document.getElementById("drilldown-projection-annual-note");
   annualNote.hidden = !(p.annualInPeriodPen > 0.005);
   annualNote.textContent = p.annualInPeriodPen > 0.005 ? tr("drill.annualAside", { amount: formatPen(p.annualInPeriodPen) }) : "";
   document.getElementById("drilldown-projection-total-row").hidden = false;
-  document.getElementById("drilldown-projection-total-amount").textContent = formatPen(p.totalPen);
+  document.getElementById("drilldown-projection-total-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.totalPen);
 
   renderProjectionSplit_(detail);
 }
@@ -11497,7 +13819,7 @@ function renderProjectionSplit_(detail) {
   }
   if (!show) return;
 
-  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen(p.programmedRemainingPen);
+  document.getElementById("drilldown-projection-programmed-amount").textContent = formatPen((p.category_type === "investment" ? -1 : 1) * p.programmedRemainingPen);
 
   const programmedItemsEl = document.getElementById("drilldown-projection-programmed-items");
   const programmed = detail.programmedBreakdown;
@@ -12089,8 +14411,41 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
 // forgiving a loan are later Phase 5 steps (see CLAUDE.md's Build phases
 // table); this only reflects loans the split-entry UI already created.
 
+// Business pack: the Loans tab can show everything (default), only debts with no project, or one project's. In memory only.
+let loansScope_ = "";
+
+function populateLoansScope_() {
+  const card = document.getElementById("loans-scope-card");
+  const sel = document.getElementById("loans-scope");
+  const show = businessOn() && (meta.projects || []).length > 0;
+  card.hidden = !show;
+  if (!show) { loansScope_ = ""; return; }
+  sel.innerHTML = "";
+  const add = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  };
+  add("", tr("overview.scopeAll"));
+  add("personal", tr("overview.scopePersonal"));
+  (meta.projects || []).forEach((p) => {
+    const company = (meta.companies || []).find((c) => c.id === p.company_id);
+    add(p.id, company ? `${company.name} › ${p.name}` : p.name);
+  });
+  if (!Array.from(sel.options).some((o) => o.value === loansScope_)) loansScope_ = "";
+  sel.value = loansScope_;
+}
+document.getElementById("loans-scope").addEventListener("change", (e) => { loansScope_ = e.target.value; refreshLoans(); });
+
+function loansScopePayload_() {
+  if (!businessOn() || !loansScope_) return {};
+  return loansScope_ === "personal" ? { personal: true } : { project_id: loansScope_ };
+}
+
 async function refreshLoans() {
-  const balances = await callApi("listLoanBalances", {});
+  populateLoansScope_();
+  const balances = await callApi("listLoanBalances", loansScopePayload_());
 
   // A friend can be owed in one currency and owe in another (e.g. they owe
   // you PEN but you owe them USD), so each section takes only that
@@ -12101,7 +14456,7 @@ async function refreshLoans() {
     .map((b) => {
       const lines = b.balances.filter((l) => sign * l.net > 0);
       const penSize = lines.reduce((sum, l) => sum + (l.net_pen == null ? 0 : Math.abs(l.net_pen)), 0);
-      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, lines, penSize };
+      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, project_ids: b.project_ids || [], lines, penSize };
     })
     .filter((row) => row.lines.length)
     .sort((x, y) => y.penSize - x.penSize);
@@ -12114,13 +14469,13 @@ async function refreshLoans() {
 
   renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
+  renderSettledPeople_();
 }
 
-// "PEN 1,200.00" — the "+" only on the owed-to-you side, same convention
-// as income elsewhere; never a "-" on the you-owe side, since the section
-// already says the direction.
+// "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
+// point of view, like the Net line (owner's decision, 2026-10-27).
 function formatLoanAmount_(currency, amount, kind) {
-  return `${kind === "owed-to-me" ? "+" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
+  return `${kind === "owed-to-me" ? "+" : "−"}${currency} ${moneyFmt(Math.abs(amount))}`;
 }
 
 // One line per currency, PEN first (the backend already orders each
@@ -12160,16 +14515,25 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
     const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";
+    // Business pack: which projects this person's debts belong to (only while the pack is on).
+    const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}</span>
+      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
-    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name));
+    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name, ""));   // "" = every debt of this person
     list.appendChild(row);
   });
 }
 
-async function openLoanDetail(friendId, friendName) {
+// Business pack: opened from a project screen (projectId set) it shows, and repays, only that project's debts with the person.
+// `undefined` keeps the scope the sheet already had for this person (every internal re-open after a repayment or an edit);
+// the Loans tab passes "" to mean "all of this person's debts".
+let loanDetailScope_ = { friendId: null, projectId: "" };
+
+async function openLoanDetail(friendId, friendName, projectId) {
+  if (projectId === undefined) projectId = loanDetailScope_.friendId === friendId ? loanDetailScope_.projectId : "";
+  loanDetailScope_ = { friendId, projectId };
   // Same pattern every other drill-down uses (see openBudgetDrilldown,
   // openCategoryProjectionDrilldown_) — lets refreshAfterPopupEdit(),
   // below, reload this same friend's sheet after editing a linked
@@ -12177,8 +14541,32 @@ async function openLoanDetail(friendId, friendName) {
   // that a loan detail sheet is what triggered it.
   currentDrilldown = { refetch: () => openLoanDetail(friendId, friendName) };
 
-  const loans = await callApi("getFriendLoanDetail", { friendId });
-  document.getElementById("loan-detail-title").textContent = friendName;
+  // Loading standard: the screen opens at once with "Loading…" and shows nothing half-drawn; a refresh of an already open
+  // screen keeps what is there until the new data replaces it.
+  const detailBackdrop = document.getElementById("loan-detail-modal-backdrop");
+  const detailActions = document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions");
+  const firstOpen = detailBackdrop.hidden;
+  if (firstOpen) {
+    document.getElementById("loan-detail-title").textContent = friendName;
+    document.getElementById("loan-detail-subtitle").textContent = tr("common.loading");
+    detailActions.hidden = true;
+    document.getElementById("loan-detail-list").innerHTML = "";
+    document.getElementById("loan-detail-empty-note").hidden = true;
+    document.getElementById("loan-detail-paid-toggle").hidden = true;
+    document.getElementById("loan-detail-paid-list").hidden = true;
+    bringModalToFront_(detailBackdrop);
+    detailBackdrop.hidden = false;
+  }
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId });
+  } catch (err) {
+    if (firstOpen) detailBackdrop.hidden = true;
+    throw err;
+  }
+  const scopeProject = projectId ? (meta.projects || []).find((p) => p.id === projectId) : null;
+  if (projectId) loans = loans.filter((l) => String(l.project_id || "") === projectId);
+  document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
 
   const outstanding = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
   const netByCurrency = {};
@@ -12190,7 +14578,7 @@ async function openLoanDetail(friendId, friendName) {
     .filter((cur) => Math.abs(netByCurrency[cur]) > 0.004)
     .map((cur) => {
       const n = netByCurrency[cur];
-      return (n > 0 ? "+" : "") + `${cur} ${moneyFmt(n)}`;
+      return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
   document.getElementById("loan-detail-subtitle").textContent = netParts.length
     ? tr("loanDetail.net", { parts: netParts.join(" · ") })
@@ -12200,9 +14588,11 @@ async function openLoanDetail(friendId, friendName) {
   // on its own which loan(s) an amount actually applies to (see
   // openRepaymentModal, below), so there's nothing left to pick here
   // beyond which currency, when there's more than one.
+  document.getElementById("loan-history-btn").onclick = () =>
+    openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
-  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency);
+  repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
@@ -12249,9 +14639,19 @@ async function openLoanDetail(friendId, friendName) {
     }
   };
 
+  detailActions.hidden = false;
+  if (firstOpen) return;
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// Business pack: the project a debt belongs to, as a small pill after its date. Nothing while the pack is off.
+function loanProjectPillHtml_(l) {
+  if (!businessOn() || !l.project_id) return "";
+  const project = (meta.projects || []).find((p) => p.id === l.project_id);
+  const company = project ? (meta.companies || []).find((c) => c.id === project.company_id) : null;
+  return project ? ` <span class="entry-tag entry-business">${escapeHtml((company ? company.name + " › " : "") + project.name)}</span>` : "";
 }
 
 // Shared by openLoanDetail's two sections (pending / already paid) so a
@@ -12259,14 +14659,15 @@ async function openLoanDetail(friendId, friendName) {
 // in differs.
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
-  const sign = l.direction === "they_owe_me" ? "+" : "";
+  const sign = l.direction === "they_owe_me" ? "+" : "−";
   const statusNote = l.status === "forgiven"
     ? (l.forgiveness_entry_id ? tr("loanDetail.forgivenRecorded") : tr("loanDetail.forgiven"))
     : l.remaining <= 0.004
       ? tr("loanDetail.fullyRepaid")
       : [
           l.overdue ? tr("loanDetail.overdueSince", { date: l.due_date }) : "",
-          l.settled > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled) }) : ""
+          l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
+          l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
 
   // Every row is tappable, but to different places: a standalone cash
@@ -12288,14 +14689,17 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
   if (l.origin === "cash") {
     rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
-    rowMain.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+    rowMain.addEventListener("click", () => {
+      if (l.entry_id) openLinkedEntryFromLoan_(l.entry_id);
+      else deleteOrphanLoan_(l, { id: friendId, name: friendName });
+    });
   }
 
   // Forgiving applies to either kind of loan — it doesn't touch the
@@ -12303,6 +14707,17 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // written off, so it isn't restricted by origin the way editing is.
   // Not shown once nothing's left to forgive, or it's already
   // forgiven.
+  if (l.status !== "forgiven" && l.remaining > 0.004 && (l.unapplied || l.unapplied_sources)) {
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "add-inline loan-detail-forgive-btn";
+    applyBtn.textContent = tr("apply.button");
+    applyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openApplyUnapplied_(l, { id: friendId, name: friendName });
+    });
+    row.appendChild(applyBtn);
+  }
   if (l.status !== "forgiven" && l.remaining > 0.004) {
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
@@ -12333,9 +14748,544 @@ async function openLinkedEntryFromLoan_(entryId) {
   }
 }
 
+// A conversion that fails is undone by the server exactly ("Nothing was changed — …"; or, if even the undo failed, a message
+// spelling out the original entry so it can be re-entered). The person must KNOW: besides the red line under the form, a
+// message they cannot miss. Used by every conversion that deletes and re-creates (loan / repayment → entry, loan, repayment).
+async function callConversion_(action, payload) {
+  try {
+    return await callApi(action, payload);
+  } catch (err) {
+    alert(err.message);
+    throw err;
+  }
+}
+
+// The warning before a repayment's money entry is turned into something else: the repayment is cancelled, so what it
+// paid is owed again.
+function repaymentCancelText_(rerecord) {
+  const r = editingRepayment_ || {};
+  const extra = r.extra && Number(r.extra.amount) > 0 ? Number(r.extra.amount) : 0;
+  // A repayment is one total: loans plus its extra income / expense entry. Converting replaces ALL of it.
+  if (extra) {
+    return tr(rerecord ? "repayConv.confirmRerecordWithExtra" : "repayConv.confirmWithExtra",
+      { friend: r.friend, cur: r.currency, total: moneyFmt(r.total), extra: moneyFmt(extra), all: moneyFmt(Number(r.total) + extra) });
+  }
+  return rerecord
+    ? tr("repayConv.confirmRerecord", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) })
+    : tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
+}
+
+// When a repayment's entry is being turned into something else (another tab, or Transfer → Repayment / New loan) the
+// amount shown is the WHOLE repayment (loans + its extra entry); for a plain edit it stays the money movement's own amount.
+function syncConversionAmount_() {
+  const r = editingRepayment_;
+  if (!r || !r.extra || !(Number(r.extra.amount) > 0)) return;
+  const kind = document.getElementById("transfer-kind").value;
+  const converting = selectedType !== "transfer" || kind === "repayment" || kind === "loan";
+  const own = String(Number(r.total));
+  const whole = String(Math.round((Number(r.total) + Number(r.extra.amount)) * 100) / 100);
+  const field = document.getElementById("amount");
+  const from = converting ? own : whole;
+  if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
+}
+
+// Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
+// other way), "cancel" (they are cancelled too) or null (the person backed out). `rows` = [{friend, currency, total}].
+function askRepaymentChoice_(titleKey, rows, labelKeys) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("repay-choice-backdrop");
+    const list = rows.map((r) => `${r.friend} (${r.currency} ${moneyFmt(r.total)})`).join(", ");
+    document.getElementById("repay-choice-title").textContent = tr(titleKey);
+    document.getElementById("repay-choice-text").textContent = tr("repayChoice.text", { list });
+    document.getElementById("repay-choice-keep").textContent = tr(labelKeys ? labelKeys.keep : "repayChoice.keep");
+    document.getElementById("repay-choice-keep-hint").textContent = tr("repayChoice.keepHint");
+    document.getElementById("repay-choice-cancel").textContent = tr(labelKeys ? labelKeys.cancel : "repayChoice.cancel");
+    document.getElementById("repay-choice-cancel-hint").textContent = tr("repayChoice.cancelHint");
+    const done = (value) => {
+      backdrop.hidden = true;
+      ["repay-choice-keep", "repay-choice-cancel", "repay-choice-back", "repay-choice-close"].forEach((id) => {
+        document.getElementById(id).onclick = null;
+      });
+      resolve(value);
+    };
+    document.getElementById("repay-choice-keep").onclick = () => done("keep");
+    document.getElementById("repay-choice-cancel").onclick = () => done("cancel");
+    document.getElementById("repay-choice-back").onclick = () => done(null);
+    document.getElementById("repay-choice-close").onclick = () => done(null);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
+}
+
+// A loan kept for its repayment history after its expense was deleted has no
+// expense to open; the only thing left to do with it is delete it.
+async function deleteOrphanLoan_(l, friend) {
+  try {
+    const info = await callApi("getLoanDeleteInfo", { id: l.id });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: friend.name, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: l.id, repayments });
+    await openLoanDetail(friend.id, friend.name);
+    refreshLoans();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// ---- Repayment history (owner's request, 2026-10-27) ----
+// Every repayment with one person, newest first, and every loan with what was repaid / offset / left, so the
+// balance on the person's screen can be checked line by line. Opens from that screen, also for fully repaid people.
+let historyCtx_ = null;   // what the open history screen shows, so a repayment tapped in it can be re-pointed and the screen reloaded
+async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
+  historyCtx_ = { friendId, friendName, projectId, netText, data: null };
+  document.getElementById("history-modal-title").textContent = tr("history.title", { name: friendName });
+  document.getElementById("history-net").textContent = netText || "";
+  const repEl = document.getElementById("history-repayments");
+  const loanEl = document.getElementById("history-loans");
+  const loadingEl = document.getElementById("history-loading");
+  const contentEl = document.getElementById("history-content");
+  repEl.innerHTML = "";
+  loanEl.innerHTML = "";
+  // Loading standard: nothing half-drawn is shown; "Loading…" stays until everything has arrived.
+  loadingEl.textContent = tr("common.loading");
+  loadingEl.hidden = false;
+  contentEl.hidden = true;
+  const backdrop = document.getElementById("history-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+
+  let h;
+  try {
+    h = await callApi("getFriendRepaymentHistory", { friendId, project_id: projectId || undefined });
+  } catch (err) {
+    loadingEl.textContent = err.message;
+    return;
+  }
+  historyCtx_.data = h;
+  const money = (cur, n) => `${cur} ${moneyFmt(n)}`;
+  const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : ""; };
+
+  document.getElementById("history-repayments-empty").hidden = h.repayments.length > 0;
+  h.repayments.forEach((r) => {
+    const row = document.createElement("div");
+    row.className = "loan-detail-row editable";
+    row.addEventListener("click", () => (r.is_offset ? undoCancelOut_(r) : openReassignRepayment_(r)));
+    const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
+    const acct = !r.is_offset && r.payment_method_id ? escapeHtml(pmName(r.payment_method_id)) : "";
+    // A repayment that paid several loans is ONE line; the loans it paid are listed under it.
+    const where = r.is_offset
+      ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
+      : r.parts.length > 1
+        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
+        : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
+    // One total, split in what sits on loans and what is its own income/expense entry.
+    const split = r.gap ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) })] : [];
+    const metaLines = (acct ? [acct] : []).concat(split);
+    // The loans it paid sit right under "On loans", slightly indented, as its detail; the income/expense part comes last.
+    const whereHtml = where.map((m) => (r.gap ? `<div class="loan-detail-row-meta history-sub">${m}</div>` : `<div class="loan-detail-row-meta">${m}</div>`)).join("");
+    const gapHtml = r.gap ? `<div class="loan-detail-row-meta">${tr(r.gap.type === "income" ? "history.splitIncome" : "history.splitExpense", { amount: money(r.currency, r.gap.amount) })}</div>` : "";
+    const unappliedHtml = r.unapplied > 0.004 ? `<div class="loan-detail-row-meta"><em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em></div>` : "";
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
+      </div>
+      ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}${whereHtml}${gapHtml}${unappliedHtml}`;
+    repEl.appendChild(row);
+  });
+
+  h.loans.forEach((l) => {
+    const row = document.createElement("div");
+    row.className = "loan-detail-row";
+    const parts = [
+      tr(l.direction === "they_owe_me" ? "history.loanLine" : "history.loanLineOwe", { amount: money(l.currency, l.amount) }),
+      l.paid > 0.004 ? tr("history.repaid", { amount: money(l.currency, l.paid) }) : "",
+      l.offset > 0.004 ? tr("history.offsetAmt", { amount: money(l.currency, l.offset) }) : "",
+      l.forgiven_part > 0.004 ? tr("history.forgivenAmt", { amount: money(l.currency, l.forgiven_part) }) : "",
+      l.status === "forgiven" ? "" : tr("history.left", { amount: money(l.currency, l.remaining) })
+    ].filter(Boolean).join(" · ");
+    row.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(l.description)}</span>
+        <span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${tr("history.status." + l.status)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
+    loanEl.appendChild(row);
+  });
+  loadingEl.hidden = true;
+  contentEl.hidden = false;
+}
+
+// From a repayment's entry in Home straight to "Edit this repayment": the person's screen, then their repayment history,
+// then that repayment's edit sheet (each opens over the last, so closing one lands on the one before).
+async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryId) {
+  // 1. The sheet the person needs opens first, after ONE call (it shows "Loading…" at once).
+  const sheet = document.getElementById("reassign-modal-backdrop");
+  sheet.classList.add("reassign-loading");
+  document.getElementById("reassign-title").textContent = tr("reassign.title");
+  document.getElementById("reassign-info").textContent = tr("common.loading");
+  bringModalToFront_(sheet);
+  sheet.hidden = false;
+  let h;
+  try {
+    h = await callApi("getFriendRepaymentHistory", { friendId });
+  } catch (err) {
+    sheet.hidden = true;
+    sheet.classList.remove("reassign-loading");
+    alert(err.message);
+    return;
+  }
+  const line = h.repayments.find((r) => r.transfer_entry_id === transferEntryId);
+  if (!line) {
+    sheet.hidden = true;
+    sheet.classList.remove("reassign-loading");
+    return;
+  }
+  historyCtx_ = { friendId, friendName, projectId: "", netText: "", data: h };
+  openReassignRepayment_(line);
+  // 2. The person's screen and their repayment history are loaded UNDER the sheet, in the background: the next two modals
+  // are given lower layers than the sheet, so closing the sheet lands on them already there.
+  const z = Number(sheet.style.zIndex) || topModalZIndex;
+  topModalZIndex = z - 3;
+  try {
+    await openLoanDetail(friendId, friendName);
+    await openRepaymentHistory_(friendId, friendName, "", document.getElementById("loan-detail-subtitle").textContent);
+  } catch (err) {
+    // the sheet is what was asked for: a failure of the screens behind it is not worth interrupting it
+  } finally {
+    topModalZIndex = Math.max(topModalZIndex, z);
+  }
+}
+
+// Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
+async function undoCancelOut_(r) {
+  const ctx = historyCtx_;
+  if (!confirm(tr("history.undoConfirm", { amount: `${r.currency} ${moneyFmt(r.amount)}`, a: r.loan_description, b: r.offset_loan_description }))) return;
+  try {
+    await callApi("undoCancelOut", { id: r.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+}
+
+// ---- Change which loans a recorded repayment paid ----
+// Same idea as recording one: select the loans, they are paid oldest first until the repayment runs out, the rest goes to
+// the oldest others. This repayment's own earlier share counts as free again. Mirrors reassignRepayment (Loans.gs), which
+// does the real work all-or-nothing.
+let reassignRepayment_ = null;
+
+function reassignPlan_() {
+  const r = reassignRepayment_;
+  const checked = new Set([...document.querySelectorAll("#reassign-list input[data-loan]")].filter((i) => i.checked).map((i) => i.dataset.loan));
+  const limited = r.mode === "apply" || (document.getElementById("reassign-limit") && document.getElementById("reassign-limit").checked);
+  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(limited ? [] : r.candidates.filter((c) => !checked.has(c.id)));
+  const plan = [];
+  const typed = r.mode === "apply" ? NaN : parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+  let left = typed > 0 ? Math.round(typed * 100) / 100 : r.amount;
+  ordered.forEach((c) => {
+    if (left <= 0.004) return;
+    const take = Math.round(Math.min(c.room, left) * 100) / 100;
+    if (take > 0.004) { plan.push({ id: c.id, take, selected: checked.has(c.id), what: c.description }); left = Math.round((left - take) * 100) / 100; }
+  });
+  return { plan, left, checked };
+}
+
+function renderReassign_() {
+  const r = reassignRepayment_;
+  const { plan, left } = reassignPlan_();
+  document.querySelectorAll("#reassign-list input[data-loan]").forEach((input) => {
+    const item = plan.find((x) => x.id === input.dataset.loan);
+    input.closest("label").querySelector(".settle-choose-assigned").textContent = item ? `${r.currency} ${moneyFmt(item.take)}` : "";
+  });
+  const parts = [];
+  const sel = plan.filter((x) => x.selected);
+  const others = plan.filter((x) => !x.selected);
+  if (sel.length) parts.push(tr("settle.chooseAssigned", { assigned: `${r.currency} ${moneyFmt(sel.reduce((n, x) => n + x.take, 0))}` }));
+  if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.map((x) => `${x.what} (${r.currency} ${moneyFmt(x.take)})`).join(", ") }));
+  if (r.mode === "apply") {
+    if (left > 0.004 && plan.length) parts.push(tr("apply.leftStays", { amount: `${r.currency} ${moneyFmt(left)}` }));
+    document.getElementById("reassign-summary").textContent = plan.length ? parts.join(" · ") : tr("apply.nothing");
+    document.getElementById("reassign-error").textContent = "";
+    document.getElementById("reassign-save").disabled = !plan.length;
+    return;
+  }
+  const limit = document.getElementById("reassign-limit").checked;
+  const gapEl = document.getElementById("reassign-gap");
+  gapEl.hidden = !(limit && left > 0.004 && plan.length);
+  if (limit) {
+    const income = r.direction === "they_owe_me";
+    if (left > 0.004 && plan.length) parts.push(tr(income ? "reassign.limitGapIncome" : "reassign.limitGapExpense", { amount: `${r.currency} ${moneyFmt(left)}` }));
+    document.getElementById("reassign-summary").textContent = plan.length ? parts.join(" · ") : tr("reassign.limitNone");
+    document.getElementById("reassign-error").textContent = "";
+    document.getElementById("reassign-save").disabled = !plan.length;
+    return;
+  }
+  document.getElementById("reassign-summary").textContent = parts.join(" · ");
+  document.getElementById("reassign-error").textContent = left > 0.01 ? tr("reassign.noRoom") : "";
+  document.getElementById("reassign-save").disabled = left > 0.01;
+}
+
+function openReassignRepayment_(r) {
+  const h = historyCtx_ && historyCtx_.data;
+  if (!h) return;
+  const current = {};
+  r.parts.forEach((pt) => { current[pt.loan_id] = (current[pt.loan_id] || 0) + pt.amount; });
+  const candidates = h.loans
+    .filter((l) => l.direction === r.direction && l.currency === r.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
+    .map((l) => ({ id: l.id, date: l.date, description: l.description, room: l.remaining + (current[l.id] || 0) }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  reassignRepayment_ = { id: r.id, amount: r.applied + (r.gap ? r.gap.amount : 0), currency: r.currency, direction: r.direction, candidates };
+  document.getElementById("reassign-limit-row").hidden = false;
+  document.getElementById("reassign-limit").checked = !!r.limited || !!r.gap;   // remembered; a repayment with its own income/expense entry is by nature limited
+  const gapIncome = r.direction === "they_owe_me";
+  populateCategoryOptionsForSelect_("reassign-gap-category", gapIncome ? "income" : "expense");
+  const laterOpt = document.createElement("option");
+  laterOpt.value = "";
+  laterOpt.textContent = tr("reassign.limitLater");
+  document.getElementById("reassign-gap-category").prepend(laterOpt);
+  document.getElementById("reassign-gap-category").value = "";
+  document.getElementById("reassign-gap-label").textContent = tr(gapIncome ? "reassign.limitCategoryIncome" : "reassign.limitCategoryExpense");
+  document.getElementById("reassign-gap").hidden = true;
+
+  // Amount, date and account of the repayment itself can be changed here too.
+  document.getElementById("reassign-fields").hidden = false;
+  populateSettlementPaymentMethodOptions();
+  const pmSel = document.getElementById("reassign-pm");
+  pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
+  pmSel.value = r.payment_method_id || "";
+  document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
+  document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
+  document.getElementById("reassign-date").value = r.date;
+
+  // A real repayment (not an automatic cancel-out) can be deleted here, as a whole: loans part, money entry and extra together.
+  reassignRepayment_.gapAmount = r.gap ? r.gap.amount : 0;
+  reassignRepayment_.applied = r.applied;
+  document.getElementById("reassign-delete").hidden = !!r.is_offset;
+
+  document.getElementById("reassign-modal-backdrop").classList.remove("reassign-loading");
+  document.getElementById("reassign-title").textContent = tr("reassign.title");
+  document.getElementById("reassign-hint").textContent = tr("reassign.hint");
+  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied + (r.gap ? r.gap.amount : 0))}`, date: r.date });
+  const list = document.getElementById("reassign-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = c.id;
+    input.checked = !!current[c.id];
+    input.addEventListener("change", renderReassign_);
+    const text = document.createElement("span");
+    text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: r.currency, amount: moneyFmt(c.room) });
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  document.getElementById("reassign-save").textContent = tr("common.save");
+  renderReassign_();
+  const backdrop = document.getElementById("reassign-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+// "Apply to a loan": a payment kept from a deleted loan ("paid earlier, no loan") is put on the loans the person selects.
+async function openApplyUnapplied_(l, friend) {
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId: friend.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const targetDir = l.direction === "i_owe_them" ? "they_owe_me" : "i_owe_them";
+  const candidates = loans
+    .filter((x) => x.currency === l.currency && x.direction === targetDir && x.status !== "forgiven" && x.remaining > 0.004)
+    .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+  document.getElementById("reassign-delete").hidden = true;   // applying a payment to a loan, not a repayment line
+  document.getElementById("reassign-fields").hidden = true;
+  document.getElementById("reassign-limit-row").hidden = true;
+  document.getElementById("reassign-limit").checked = false;
+  document.getElementById("reassign-gap").hidden = true;
+  document.getElementById("reassign-record").hidden = true;
+
+  document.getElementById("reassign-title").textContent = tr("apply.title");
+  document.getElementById("reassign-hint").textContent = tr("apply.hint");
+  document.getElementById("reassign-info").textContent = tr("apply.info", { amount: `${l.currency} ${moneyFmt(l.remaining)}` });
+  const list = document.getElementById("reassign-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = c.id;
+    input.addEventListener("change", renderReassign_);
+    const text = document.createElement("span");
+    text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: l.currency, amount: moneyFmt(c.room) });
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  document.getElementById("reassign-save").textContent = tr("common.save");
+  renderReassign_();
+  const backdrop = document.getElementById("reassign-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeReassign_() {
+  document.getElementById("reassign-modal-backdrop").hidden = true;
+}
+document.getElementById("reassign-record-btn").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const btn = document.getElementById("reassign-record-btn");
+  btn.disabled = true;
+  try {
+    await callApi("recordRepaymentEntry", {
+      id: reassignRepayment_.id,
+      date: document.getElementById("reassign-date").value,
+      payment_method_id: document.getElementById("reassign-pm").value
+    });
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  closeReassign_();
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
+document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
+document.getElementById("reassign-limit").addEventListener("change", renderReassign_);
+document.getElementById("reassign-close").addEventListener("click", closeReassign_);
+document.getElementById("reassign-cancel").addEventListener("click", closeReassign_);
+// Deletes the WHOLE repayment (loans part, money entry and extra entry together) — the only place a repayment is deleted.
+document.getElementById("reassign-delete").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const r = reassignRepayment_;
+  if (!r || r.mode === "apply") return;
+  const total = moneyFmt((Number(r.applied) || 0) + (Number(r.gapAmount) || 0));
+  const text = r.gapAmount > 0.004
+    ? tr("reassign.confirmDeleteWithExtra", { friend: ctx.friendName, cur: r.currency, total, loans: moneyFmt(r.applied), extra: moneyFmt(r.gapAmount) })
+    : tr("reassign.confirmDelete", { friend: ctx.friendName, cur: r.currency, total });
+  if (!confirm(text)) return;
+  const btn = document.getElementById("reassign-delete");
+  btn.disabled = true;
+  document.getElementById("reassign-error").textContent = "";
+  try {
+    await callConversion_("deleteRepayment", { id: r.id });   // a failure is undone by the server and announced
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  closeReassign_();
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
+document.getElementById("reassign-save").addEventListener("click", async () => {
+  const ctx = historyCtx_;
+  const btn = document.getElementById("reassign-save");
+  const { checked } = reassignPlan_();
+  const applying = reassignRepayment_.mode === "apply";
+  const applyFriend = reassignRepayment_.friend;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  try {
+    const body = { id: reassignRepayment_.id, loan_ids: [...checked] };
+    if (!applying) {
+      body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+      body.date = document.getElementById("reassign-date").value;
+      body.payment_method_id = document.getElementById("reassign-pm").value;
+      body.limit = document.getElementById("reassign-limit").checked;
+      body.overpay_category_id = document.getElementById("reassign-gap-category").value;
+    }
+    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body);
+  } catch (err) {
+    document.getElementById("reassign-error").textContent = err.message;
+    btn.textContent = tr("common.save");
+    btn.disabled = false;
+    return;
+  }
+  closeReassign_();
+  // Everything behind this sheet may have changed: the Loans tab, the person's screen, and this history.
+  refreshEntriesInBackground_();
+  await refreshLoans();
+  if (applying) {   // opened from the person's screen, not from the history
+    await openLoanDetail(applyFriend.id, applyFriend.name);
+    return;
+  }
+  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+});
+
+document.getElementById("history-modal-close").addEventListener("click", () => {
+  document.getElementById("history-modal-backdrop").hidden = true;
+});
+document.getElementById("history-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "history-modal-backdrop") e.currentTarget.hidden = true;
+});
+
+// People with loan history but nothing owing: a collapsed list at the bottom of the Loans tab, so their history can still be opened.
+async function renderSettledPeople_() {
+  const card = document.getElementById("loans-settled-card");
+  const toggle = document.getElementById("loans-settled-toggle");
+  const list = document.getElementById("loans-settled-list");
+  let people = [];
+  try {
+    people = await callApi("listSettledLoanFriends", loansScopePayload_());
+  } catch (err) {
+    people = [];
+  }
+  card.hidden = people.length === 0;
+  list.innerHTML = "";
+  list.hidden = true;
+  toggle.textContent = tr("loans.settledPeople", { n: people.length });
+  toggle.onclick = () => {
+    list.hidden = !list.hidden;
+    toggle.textContent = list.hidden ? tr("loans.settledPeople", { n: people.length }) : tr("loans.hideSettledPeople");
+  };
+  people.forEach((f) => {
+    const row = document.createElement("div");
+    row.className = "balance-row";
+    row.innerHTML = `<div class="balance-row-name">${escapeHtml(f.friend_name)}<span class="loan-detail-row-chevron">›</span></div>`;
+    row.addEventListener("click", () => openLoanDetail(f.friend_id, f.friend_name));
+    list.appendChild(row);
+  });
+}
+
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
   currentDrilldown = null;
+  loanDetailScope_ = { friendId: null, projectId: "" };
+  // A project screen underneath shows what is owed: it may have just changed.
+  if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+  if (!document.getElementById("screen-business-people").hidden) refreshPeopleList_();
 }
 
 document.getElementById("loan-detail-modal-close").addEventListener("click", closeLoanDetail);
@@ -12353,6 +15303,7 @@ document.getElementById("loan-detail-modal-backdrop").addEventListener("click", 
 
 let loanDirection = "they_owe_me";
 let editingLoanId = null;
+let loanModalApplyLoan_ = null;   // the loan being edited, kept for its "Apply to a loan" button
 // Set when this modal was opened from a friend's loan-detail sheet, so a
 // save/delete can refresh that sheet's contents too, not just the main
 // Loans tab list underneath it.
@@ -12364,7 +15315,7 @@ function populateLoanFriendOptions() {
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -12418,9 +15369,12 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 function openLoanModal(loan, returnFriend) {
   editingLoanId = loan ? loan.id : null;
   loanModalReturnFriend = returnFriend || null;
+  loanModalApplyLoan_ = loan || null;
 
   document.getElementById("loan-modal-title").textContent = loan ? tr("loanModal.edit") : tr("loanModal.add");
   document.getElementById("loan-delete-btn").hidden = !loan;
+  // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
+  document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
   document.getElementById("loan-form-error").textContent = "";
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
@@ -12434,10 +15388,32 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
   document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
+  populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
 
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// Business pack: a cash loan may belong to a project (shown only when the pack is on and a project exists).
+function populateLoanProjectOptions_(keep) {
+  const field = document.getElementById("loan-project-field");
+  const sel = document.getElementById("loan-project");
+  const show = businessOn() && (meta.projects || []).length > 0;
+  field.hidden = !show;
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("business.pickNone");
+  sel.appendChild(none);
+  (meta.projects || []).filter((p) => p.status !== "closed" || p.id === keep).forEach((p) => {
+    const company = (meta.companies || []).find((c) => c.id === p.company_id);
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = company ? `${company.name} › ${p.name}` : p.name;
+    sel.appendChild(o);
+  });
+  sel.value = keep || "";
 }
 
 function closeLoanModal() {
@@ -12457,6 +15433,13 @@ async function refreshAfterLoanModalChange_() {
   }
 }
 
+document.getElementById("loan-apply-btn").addEventListener("click", () => {
+  const loan = loanModalApplyLoan_;
+  const friend = loanModalReturnFriend;
+  if (!loan || !friend) return;
+  closeLoanModal();
+  openApplyUnapplied_(loan, friend);
+});
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
 document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
 document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
@@ -12480,6 +15463,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
+    // Same as an entry: an account is not mandatory, but when the person HAS accounts and picked none, ask once.
+    if (!paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
+      throw new Error(tr("error.pickPaymentMethod"));
+    }
 
     saveBtn.disabled = true;
     const fields = {
@@ -12492,6 +15479,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       payment_method_id: paymentMethodId,
       description
     };
+    if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
     if (editingLoanId) {
       await callApi("updateLoan", { id: editingLoanId, ...fields });
     } else {
@@ -12513,12 +15501,20 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
   const loanDesc = document.getElementById("loan-description").value.trim();
   const loanAmt = document.getElementById("loan-amount").value.trim();
   const loanCur = document.getElementById("loan-currency").value;
-  if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) return;
   const errorEl = document.getElementById("loan-form-error");
   errorEl.textContent = "";
 
   try {
-    await callApi("deleteLoan", { id: editingLoanId });
+    // With repayments recorded against it the person chooses what happens to them; otherwise the usual OK / Cancel.
+    const info = await callApi("getLoanDeleteInfo", { id: editingLoanId });
+    let repayments;
+    if (info.hasRepayments) {
+      repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: loanWho, currency: info.currency, total: info.paid }]);
+      if (!repayments) return;
+    } else if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
+      return;
+    }
+    await callApi("deleteLoan", { id: editingLoanId, repayments });
     closeLoanModal();
     await refreshAfterLoanModalChange_();
   } catch (err) {
@@ -12611,10 +15607,140 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
   pendingOverpay = null;
+  editingSettlementLoanId_ = "";
+  document.getElementById("settlement-loan-field").hidden = true;
+  renderSettlementChoose_();
 }
+
+// ---- "Which loan this pays": fixing a recorded repayment that went to the wrong loan ----
+
+let editingSettlementLoanId_ = "";   // the loan the repayment being edited is on now
+
+// Only shown while editing one recorded repayment, and only when the person has another loan of the same kind and currency
+// to move it to (a fully paid loan can't take more; the current one is always listed, paid or not).
+function renderSettlementLoanField_(s) {
+  editingSettlementLoanId_ = s.loan_id;
+  const field = document.getElementById("settlement-loan-field");
+  const select = document.getElementById("settlement-loan");
+  select.innerHTML = "";
+  const label = (l) => tr("settle.loanOption", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
+  const candidates = repaymentAllLoans_.filter((l) =>
+    l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && (l.id === s.loan_id || l.remaining > 0.004));
+  candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  candidates.forEach((l) => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    // The current loan shows no balance: after this very repayment it often reads "0.00 left", which only confuses.
+    opt.textContent = l.id === s.loan_id
+      ? tr("settle.loanCurrent", { label: `${I18n.fmtDateMedium(new Date(l.date + "T00:00:00"))} · ${l.description || tr("transfer.kind.loan")}` })
+      : label(l);
+    select.appendChild(opt);
+  });
+  if (!candidates.some((l) => l.id === s.loan_id)) {   // current loan outside the screen's scope: still show it, so nothing looks changed
+    const opt = document.createElement("option");
+    opt.value = s.loan_id;
+    opt.textContent = tr("settle.loanCurrent", { label: s.loan_description || tr("transfer.kind.loan") });
+    select.insertBefore(opt, select.firstChild);
+  }
+  select.value = s.loan_id;
+  field.hidden = select.options.length < 2;
+}
+
+// ---- "Choose which loans this pays": FIFO (oldest first) unless the person assigns amounts to particular loans ----
+
+function settlementChoosableLoans_() {
+  return repaymentLoans_
+    .filter((l) => l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && l.remaining > 0.004)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+// The ticked loans are paid in order (oldest first) until the payment runs out: no amounts to type per loan.
+function settlementAssignments_() {
+  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
+  const open = {};
+  settlementChoosableLoans_().forEach((l) => { open[l.id] = l.remaining; });
+  const out = [];
+  let left = paid;
+  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+    if (!input.checked || left <= 0.004) return;
+    const amount = Math.round(Math.min(open[input.dataset.loan] || 0, left) * 100) / 100;
+    if (amount > 0) { out.push({ loan_id: input.dataset.loan, amount }); left -= amount; }
+  });
+  return out;
+}
+
+function renderSettlementChooseSummary_() {
+  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
+  const assignments = settlementAssignments_();
+  const assigned = assignments.reduce((n, a) => n + a.amount, 0);
+  // Each ticked loan shows how much of the payment it takes.
+  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+    const a = assignments.find((x) => x.loan_id === input.dataset.loan);
+    input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${repaymentCurrency} ${moneyFmt(a.amount)}` : "";
+  });
+  // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
+  const cur = repaymentCurrency;
+  let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
+  const parts = [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })];
+  if (rest > 0.004) {
+    const picked = new Set(assignments.map((a) => a.loan_id));
+    const others = [];
+    for (const l of settlementChoosableLoans_()) {
+      if (rest <= 0.004) break;
+      if (picked.has(l.id)) continue;
+      const take = Math.round(Math.min(l.remaining, rest) * 100) / 100;
+      others.push(`${l.description || tr("transfer.kind.loan")} (${cur} ${moneyFmt(take)})`);
+      rest = Math.round((rest - take) * 100) / 100;
+    }
+    if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.join(", ") }));
+    if (rest > 0.004) parts.push(tr(repaymentDirection === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(rest)}` }));
+  }
+  document.getElementById("settlement-choose-summary").textContent = parts.join(" · ");
+}
+
+// Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
+// one recorded repayment. Closed and empty each time the sheet is reset, so a choice never leaks into the next repayment.
+function renderSettlementChoose_() {
+  const wrap = document.getElementById("settlement-choose");
+  if (!wrap) return;
+  document.getElementById("settlement-choose-panel").hidden = true;
+  document.getElementById("settlement-choose-list").innerHTML = "";
+  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseLoans");
+  wrap.hidden = !!editingSettlementId || settlementChoosableLoans_().length < 2;
+}
+
+document.getElementById("settlement-choose-btn").addEventListener("click", () => {
+  const panel = document.getElementById("settlement-choose-panel");
+  if (!panel.hidden) { renderSettlementChoose_(); return; }   // "Back to oldest first"
+  const list = document.getElementById("settlement-choose-list");
+  list.innerHTML = "";
+  settlementChoosableLoans_().forEach((l) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const text = document.createElement("span");
+    text.textContent = tr("settle.chooseRow", { date: I18n.fmtDateMedium(new Date(l.date + "T00:00:00")), what: l.description || tr("transfer.kind.loan"), cur: l.currency, amount: moneyFmt(l.remaining) });
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = l.id;
+    input.addEventListener("change", renderSettlementChooseSummary_);
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  panel.hidden = false;
+  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseOff");
+  renderSettlementChooseSummary_();
+});
+document.getElementById("settlement-amount").addEventListener("input", () => {
+  if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
+});
 
 function loadSettlementIntoForm_(s) {
   editingSettlementId = s.id;
+  renderSettlementChoose_();
   document.getElementById("settlement-save-btn").textContent = tr("settle.saveChanges");
   document.getElementById("settlement-cancel-edit-btn").hidden = false;
   document.getElementById("settlement-delete-btn").hidden = false;
@@ -12622,6 +15748,7 @@ function loadSettlementIntoForm_(s) {
   document.getElementById("settlement-amount").value = s.amount;
   document.getElementById("settlement-date").value = s.date;
   document.getElementById("settlement-payment-method").value = s.payment_method_id || "";
+  renderSettlementLoanField_(s);
 }
 
 function renderSettlementList_(settlements) {
@@ -12678,7 +15805,13 @@ async function switchRepaymentCurrency_(currency) {
 
 // `netByCurrency` comes straight from openLoanDetail's own already-loaded
 // loan list (see there) — no extra fetch needed just to open this.
-async function openRepaymentModal(friendId, friendName, netByCurrency) {
+let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
+let repaymentLoans_ = [];       // the person's open loans (in the scope the sheet was opened with), for "Choose which loans this pays"
+let repaymentAllLoans_ = [];    // the same scope including paid ones, for "Which loan this pays" when fixing a recorded repayment
+async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans, allLoans) {
+  repaymentLoans_ = openLoans || [];
+  repaymentAllLoans_ = allLoans || openLoans || [];
+  repaymentProjectId_ = projectId || "";
   repaymentFriendId = friendId;
   repaymentFriendName = friendName;
   repaymentNetByCurrency = netByCurrency;
@@ -12730,6 +15863,18 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const description = document.getElementById("settlement-description").value.trim();
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
+  const allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
+  if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
+  // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
+  const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
+  if (newLoanId && newLoanId !== editingSettlementLoanId_) {
+    const target = repaymentAllLoans_.find((l) => l.id === newLoanId);
+    if (target && amount > target.remaining + 0.004) {
+      errorEl.textContent = tr("settle.loanTooMuch", { cur: target.currency, amount: moneyFmt(target.remaining) });
+      return;
+    }
+  }
 
   // Everything from here on runs after the modal has closed — the owner
   // doesn't sit and wait for the server. A failure is reported with an alert
@@ -12747,7 +15892,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
       // Loans.gs).
-      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId });
+      await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: newLoanId || undefined });
       await refreshAfterSettlementChange_();
       return;
     }
@@ -12759,7 +15904,9 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       currency,
       date,
       payment_method_id: paymentMethodId,
-      description
+      description,
+      project_id: repaymentProjectId_ || undefined,   // only that project's debts are paid down (Loans.gs)
+      allocations: allocations.length ? allocations : undefined   // the loans the person chose; none = oldest first
     });
 
     refreshEntriesInBackground_();
@@ -12800,7 +15947,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   const settlementId = editingSettlementId;
   closeSettlementModal();
   try {
-    await callApi("deleteSettlement", { id: settlementId });
+    await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
   } catch (err) {
     alert(tr("settle.saveFailed", { error: err.message }));
@@ -12869,6 +16016,9 @@ function openForgiveModal(loan, returnFriend) {
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
 
   const hasBalance = loan.remaining > 0.004;
+  // The whole balance to start with; a smaller amount forgives only that part (forgiveLoan, `amount`).
+  document.getElementById("forgive-amount-field").hidden = !hasBalance;
+  document.getElementById("forgive-amount").value = hasBalance ? String(Math.round(loan.remaining * 100) / 100) : "";
   const checkbox = document.getElementById("forgive-convert-checkbox");
   // No opt-out any more: forgiving a debt always registers what was still
   // owed as an expense/income entry (see forgiveLoan in Loans.gs), so the
@@ -12918,6 +16068,8 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const convert = forgiveLoanTarget.remaining > 0.004;
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
+  const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
+  if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (convert && !categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
   if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
@@ -12927,6 +16079,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
     await callApi("forgiveLoan", {
       id: forgiveLoanTarget.id,
       convert,
+      ...(convert ? { amount } : {}),
       category_id: categoryId,
       date
     });
@@ -12971,7 +16124,7 @@ function populateReviewTransferFriendOptions() {
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = friendLabel_(f);
     select.appendChild(opt);
   });
   const addOpt = document.createElement("option");
@@ -13008,6 +16161,11 @@ function populateReviewTransferPaymentMethodOptions() {
   });
 }
 
+// Did the money of this waiting entry ARRIVE (an income, an investment withdrawal)? Otherwise it left.
+function reviewEntryArrived_(entry) {
+  return entry.type === "income" || (entry.type === "investment" && Number(entry.amount) < 0);
+}
+
 function openReviewTransferModal(entry, mode) {
   reviewTransferEntry = entry;
   reviewTransferMode = mode;
@@ -13016,7 +16174,7 @@ function openReviewTransferModal(entry, mode) {
     mode === "repay" ? tr("review.repayTitle") : tr("review.loanTitle");
   // Say which way the money moves — it follows the entry's type (an income
   // is money that came IN, so the friend is the one paying/lending).
-  const incoming = entry.type === "income";
+  const incoming = reviewEntryArrived_(entry);
   document.getElementById("review-transfer-context").textContent =
     `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` +
     (incoming
@@ -13027,9 +16185,10 @@ function openReviewTransferModal(entry, mode) {
   populateReviewTransferFriendOptions();
   populateReviewTransferPaymentMethodOptions();
   document.getElementById("review-transfer-friend").value = meta.friends.length ? meta.friends[0].id : "";
-  document.getElementById("review-transfer-amount").value = entry.amount;
+  document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
-  document.getElementById("review-transfer-payment-method").value = "";
+  // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
+  document.getElementById("review-transfer-payment-method").value = entry.payment_method_id || "";
   // Both modes now generate a `transfer` Entry for the real money moved
   // (see CLAUDE.md's Loans/Settlements sections) — this description feeds
   // that entry either way, pre-filled from the original pending
@@ -13082,9 +16241,13 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     // — the friend is then the one repaying (they_owe_me paid down) or
     // lending (i_owe_them). An income with no debt on record is refused by the
     // backend (require_owed) before anything is written, so the entry stays.
-    const incoming = reviewTransferEntry.type === "income";
+    // One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked first and the waiting
+    // entry is put back if anything fails, instead of recording first and discarding afterwards (a failed discard used to
+    // leave both). A repayment's extra waits in this queue (overpay_pending_ok), as before.
+    const incoming = reviewEntryArrived_(reviewTransferEntry);
     if (reviewTransferMode === "repay") {
-      const result = await callApi("recordRepayment", {
+      const result = await callApi("convertEntryToRepayment", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "they_owe_me" : "i_owe_them",
         amount,
@@ -13092,14 +16255,15 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         date,
         payment_method_id: paymentMethodId,
         description,
-        require_owed: incoming
+        require_owed: incoming,
+        overpay_pending_ok: true
       });
-      await callApi("discardEntry", { id: entryId });
       if (result.overpaid > 0.004) {
         alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
-      await callApi("addLoan", {
+      await callApi("convertEntryToLoan", {
+        entry_id: entryId,
         friend_id: friendId,
         direction: incoming ? "i_owe_them" : "they_owe_me",
         amount,
@@ -13108,7 +16272,6 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         payment_method_id: paymentMethodId,
         description
       });
-      await callApi("discardEntry", { id: entryId });
     }
 
     closeReviewTransferModal();
@@ -14243,6 +17406,142 @@ document.getElementById("bill-photo-input").addEventListener("change", (e) => {
   if (file) readBillPhoto_(file);
 });
 
+
+// ---- "📷 Read a receipt or payment" in the entry form (Business pack, step 3B) ----
+// The same on-phone reader as the bill splitter (photo shrunk, read by self-hosted tesseract.js, nothing uploaded or kept); the text
+// goes through ReceiptFields (receipt-fields.js). An expense gets amount, date, business name and the IGV when it is printed; an
+// income gets amount, date, who paid and the invoice number (which also picks the matching expected payment). It only FILLS the
+// form — the person always checks it and taps Save.
+
+function syncReceiptField_() {
+  const field = document.getElementById("receipt-read-field");
+  if (field) field.hidden = !(businessOn() && (selectedType === "expense" || selectedType === "income"));
+}
+
+function receiptReadSay_(text, bad) {
+  const status = document.getElementById("receipt-read-status");
+  status.hidden = false;
+  status.textContent = text;
+  status.className = "hint" + (bad ? " bill-check-bad" : "");
+}
+
+// Tries the photo cropped to the paper first and the whole photo second (they fail on different pictures), as the bill reader does;
+// stops at the first reading that found both an amount and a date.
+async function readReceiptFields_(file, say) {
+  const attempts = [{ crop: true }, { crop: false, maxLong: 2000 }];
+  let best = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const canvas = await prepareReceiptImage_(file, attempts[i]);
+    say(i ? tr("photo.retry") : !window.Tesseract ? tr("photo.loadingReader") : tr("photo.reading"));
+    const text = await recognizeReceiptText_(canvas, (m) => {
+      if (m.status === "recognizing text") say(tr(i ? "photo.readingAgainPct" : "photo.readingPct", { pct: Math.round((m.progress || 0) * 100) }));
+      else if (/loading/i.test(m.status)) say(tr("photo.loadingReader"));
+    });
+    const fields = ReceiptFields.parse(text, { today: todayLocalISO() });
+    const score = (fields.amount ? 4 : 0) + (fields.date ? 2 : 0) + (fields.name || fields.payer ? 1 : 0) + (fields.igv ? 1 : 0);
+    if (!best || score > best.score) best = { text, fields, score };
+    if (fields.amount && fields.date) break;
+  }
+  return best;
+}
+
+const receiptInvoiceKey_ = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^([FBE][A-Z0-9]{3})0+(\d)/, "$1$2");
+
+// Puts what was read into the open form; returns the names of what it filled in (for the message).
+function applyReceiptFields_(f) {
+  const found = [];
+  let igvFromExpected = false;
+  let payerNote = "";
+  const isIncome = selectedType === "income";
+  if (f.currency && f.currency !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === f.currency)) selectCurrency(f.currency, "entry");
+
+  // An income whose invoice number is on one of the expected payments: pick that project and that expected payment.
+  if (isIncome && f.invoice) {
+    const cur = document.getElementById("currency").value;
+    const x = (meta.expectedPayments || []).find((e) => e.status !== "covered" && receiptInvoiceKey_(e.invoice_no) === receiptInvoiceKey_(f.invoice) && e.currency === cur);
+    if (x) {
+      if (!businessProjectOfPick_()) setBusinessPick_("p:" + x.project_id);
+      if (businessProjectOfPick_() && businessProjectOfPick_().id === x.project_id) {
+        setExpectedPick_(x.id);
+        found.push("receipt.f.invoice");
+        if (x.igv_included && !f.igv) igvFromExpected = true;   // that invoice includes IGV: work it out from the amount below
+      }
+    }
+  }
+  if (f.amount) {
+    const el = document.getElementById("amount");
+    el.value = f.amount;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    found.push("receipt.f.amount");
+  }
+  if (f.date) {
+    document.getElementById("date").value = f.date;
+    entryDateTouched_ = true;
+    found.push("receipt.f.date");
+  }
+  const description = document.getElementById("description");
+  if (isIncome) {
+    const payer = f.payer ? f.payer.toLowerCase().replace(/\*+$/, "").trim() : "";
+    const payorId = payer ? (meta.payors || []).find((p) => { const n = p.name.toLowerCase(); return n === payer || n.includes(payer) || payer.includes(n); }) : null;
+    if (payorId) { document.getElementById("paid_by").value = payorId.id; found.push("receipt.f.payer"); }
+    else if (f.payer) payerNote = " " + tr("receipt.payerUnknown", { payer: f.payer });   // read, but not in the person's list: they pick or add them
+    if (!description.value.trim()) {
+      const text = f.invoice ? tr("xp.incomeDescInvoice", { invoice: f.invoice }) : (f.payer ? tr("xp.incomeDescClient", { client: f.payer }) : "");
+      if (text) description.value = text;
+    }
+  } else if (f.name) {
+    if (!description.value.trim()) description.value = f.name;
+    found.push("receipt.f.business");   // read (a description the person already typed is never overwritten)
+  }
+  // The IGV only when the form can record it (a company that charges IGV is picked); otherwise the message says what was printed.
+  let igvNote = "";
+  if (f.igv) {
+    if (!document.getElementById("igv-field").hidden || (businessCompanyOfPick_() && businessCompanyOfPick_().igv_enabled === "yes")) {
+      setIgvState_(true, f.igv, true);
+      found.push("receipt.f.igv");
+    } else {
+      igvNote = " " + tr("receipt.igvNoCompany", { cur: document.getElementById("currency").value, igv: moneyFmt(Number(f.igv)) });
+    }
+  }
+  if (igvFromExpected && !found.includes("receipt.f.igv") && !document.getElementById("igv-field").hidden) {
+    setIgvState_(true, "", false);
+    found.push("receipt.f.igv");
+  }
+  scheduleEntryDraftSave_();
+  return { found, igvNote: igvNote + payerNote };
+}
+
+async function readReceiptPhoto_(file) {
+  const btn = document.getElementById("receipt-read-btn");
+  btn.disabled = true;
+  try {
+    receiptReadSay_(tr("photo.preparing"));
+    const best = await readReceiptFields_(file, receiptReadSay_);
+    document.getElementById("receipt-read-text").value = best.text;
+    document.getElementById("receipt-read-raw").hidden = false;
+    if (!best.score) { receiptReadSay_(tr("receipt.nothing"), true); return; }
+    const { found, igvNote } = applyReceiptFields_(best.fields);
+    // "Couldn't find" means the reader found nothing for it (a payer that was read but is not in the person's list has its own note).
+    const f = best.fields;
+    const wanted = selectedType === "income"
+      ? [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.payer", f.payer]]
+      : [["receipt.f.amount", f.amount], ["receipt.f.date", f.date], ["receipt.f.business", f.name]];
+    const missing = wanted.filter(([, value]) => !value).map(([key]) => key);
+    receiptReadSay_(tr("receipt.done", { found: found.map((k) => tr(k)).join(", ") || "—" })
+      + (missing.length ? " " + tr("receipt.missing", { missing: missing.map((k) => tr(k)).join(", ") }) : "") + igvNote, missing.length > 0);
+  } catch (err) {
+    receiptReadSay_(err.message || tr("photo.couldntRead"), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("receipt-read-btn").addEventListener("click", () => document.getElementById("receipt-read-input").click());
+document.getElementById("receipt-read-input").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";           // picking the same photo again must work
+  if (file) readReceiptPhoto_(file);
+});
 
 // ---- One calendar for a start AND an end date (2026-10-19) ----
 // Wherever the app asks for "from … to …" (a trip's dates, a Programmed item's start/end, Overview's custom

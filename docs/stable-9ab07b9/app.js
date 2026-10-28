@@ -336,7 +336,8 @@ const ONCE_ACTIONS = new Set([
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
-  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000 };   // a history of thousands of entries reads and rewrites whole columns
+  applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
+  checkEmailsNow: 120000 };   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1205,6 +1206,18 @@ function togglePaymentMethodVisibility() {
   togglePaymentMethodVisibilityBase_();
   updateRepaymentUi_();
   updateAutoTransferDescription_();
+  updatePaidByFriendHint_();
+}
+
+// Under "Paid by": when a friend paid an expense, say that the whole amount is
+// already booked as owed to them, so the Split toggle stays off unless someone
+// else shared it.
+function updatePaidByFriendHint_() {
+  const hint = document.getElementById("paid-by-friend-hint");
+  const select = document.getElementById("paid_by");
+  const friend = meta.friends.find((f) => f.id === select.value);
+  hint.hidden = !(selectedType === "expense" && friend && !select.hidden);
+  if (!hint.hidden) hint.textContent = tr("paidBy.friendHint", { friend: friend.name });
 }
 
 // A new plain transfer between the owner's own accounts gets "from X to Y" as
@@ -1746,7 +1759,11 @@ function validateSplitIfEnabled() {
     const shares = computeCustomShares();
     if (shares.over) throw new Error(tr("split.errOverTotal"));
     if (shares.unassigned) throw new Error(tr("split.errNotTotal"));
-    if (assigned <= 0) throw new Error(tr("split.errNoAmount"));
+    // Nothing assigned to friends is fine when a friend paid: it means "I owe
+    // them all of it" (the backend then books the full amount as my debt).
+    const paidBy = document.getElementById("paid_by").value;
+    const friendPaid = paidBy && paidBy !== "me";
+    if (assigned <= 0 && !friendPaid) throw new Error(tr("split.errNoAmount"));
   }
   if (assigned - amount > 0.004) {
     throw new Error(tr("split.errOverTotal"));
@@ -3495,6 +3512,11 @@ function statusLabel_(status) {
   return ["pending", "confirmed", "discarded"].includes(status) ? tr("status." + status) : status;
 }
 
+// The one "working on it" look for the whole app: a small turning ring and a line of text (same as the Statements screen).
+function loadingHtml_(text) {
+  return `<div class="stmt-loading center" role="status" aria-live="polite"><span class="stmt-spinner" aria-hidden="true"></span><span>${escapeHtml(text || tr("common.loading"))}</span></div>`;
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -3923,12 +3945,18 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
-        ${entry.type === "investment" ? "" : `<select class="review-category">
-          <option value="">${escapeHtml(tr("review.pickCategory"))}</option>
-          ${categoryOptions}
-        </select>`}
-        <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}">
-        <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}">
+        ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
+          <label class="review-field-label">${escapeHtml(tr("field.category"))}</label>
+          <select class="review-category">
+            <option value="">${escapeHtml(tr("review.pickCategory"))}</option>
+            ${categoryOptions}
+          </select></div>`}
+        <div class="review-field">
+          <label class="review-field-label">${escapeHtml(tr("field.description"))}</label>
+          <input class="review-description" type="text" value="${escapeHtml(entry.description || "")}" placeholder="${escapeHtml(tr("field.description"))}"></div>
+        <div class="review-field">
+          <label class="review-field-label">${escapeHtml(tr("field.amount"))} (${escapeHtml(entry.currency)})</label>
+          <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}"></div>
         ${entry.type === "expense" && (meta.trips || []).length ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
@@ -3953,6 +3981,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         <button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>
       </div>` : ""}
     `;
@@ -4093,6 +4122,27 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
       if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
+      // Not an expense/income at all: the owner's own money moving between accounts. The card comes back as a
+      // transfer (From / To), with the account it already had on the matching side.
+      const makeTransferBtn = item.querySelector(".review-transfer-btn");
+      if (makeTransferBtn) makeTransferBtn.addEventListener("click", async () => {
+        if (!confirm(tr("review.makeTransferConfirm"))) return;
+        const amt = parseFloat(amountInput.value.trim());
+        makeTransferBtn.disabled = true;
+        try {
+          await callApi("convertPendingToTransfer", {
+            id: entry.id,
+            description: item.querySelector(".review-description").value.trim(),
+            amount: amt > 0 ? amt : undefined
+          });
+        } catch (err) {
+          makeTransferBtn.disabled = false;
+          alert(err.message || String(err));
+          return;
+        }
+        refreshReviewQueue().catch(() => {});
+        refreshEntryList();
+      });
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
@@ -4598,7 +4648,7 @@ function showScreen(name) {
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
     refreshOverview();
-    refreshMonthsHistory_();
+    trackOverviewLoad_(refreshMonthsHistory_());
     refreshBalances().catch(() => {});
   }
   if (name === "budgets") {
@@ -4868,7 +4918,6 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
 let monthsHist_ = null;
 let monthsHistAt_ = 0;
 let monthsHistBusy_ = null;
-let paceRefMonth_ = null;        // 'yyyy-mm' of the reference line; null = last month
 let overviewScrollTo_ = null;    // card id to bring into view once the history has painted
 
 function refreshMonthsHistory_() {
@@ -4925,27 +4974,18 @@ function paceRefList_() {
   return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
 }
 
-function paceStep_(dir) {
-  const list = paceRefList_();
-  if (!list.length) return;
-  let i = list.findIndex((m) => m.month === paceRefMonth_);
-  if (i < 0) i = list.length - 1;
-  paceRefMonth_ = list[Math.max(0, Math.min(list.length - 1, i + dir))].month;
-  renderPaceBig_();
-}
-
 function renderPaceBig_() {
   const card = document.getElementById("pace-card");
   const months = monthsHist_.months;
   const cur = months[months.length - 1];
   const list = paceRefList_();
-  const ref = list.length ? (list.find((m) => m.month === paceRefMonth_) || list[list.length - 1]) : null;
+  // The grey reference line follows Overview's pinned period picker: the month picked there (when it is an
+  // earlier month than this one), otherwise last month. The card has no picker of its own.
+  const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
+  const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
   const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
   card.hidden = !nowTotal && !(ref && ref.expense > 0);
   if (card.hidden) return;
-  const refIdx = ref ? list.indexOf(ref) : -1;
-  document.getElementById("pace-older").disabled = !ref || refIdx <= 0;
-  document.getElementById("pace-newer").disabled = !ref || refIdx >= list.length - 1;
   const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
   const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
   document.getElementById("pace-ref-label").textContent = refName;
@@ -4971,22 +5011,13 @@ function renderPaceBig_() {
 }
 
 (function wirePaceBig_() {
-  document.getElementById("pace-older").addEventListener("click", () => paceStep_(-1));
-  document.getElementById("pace-newer").addEventListener("click", () => paceStep_(1));
-  // Swiping right (scrolling back in time) goes to an earlier month. Stopped here so the Overview's
-  // own month-to-month swipe doesn't also fire.
+  // The graph and the bars scroll/swipe without triggering Overview's own month-to-month swipe.
   const svg = document.getElementById("pace-svg");
   const scroller = document.getElementById("months-scroll");
-  let x0 = 0, y0 = 0;
-  svg.addEventListener("touchstart", (e) => { e.stopPropagation(); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
-  svg.addEventListener("touchend", (e) => {
-    e.stopPropagation();
-    const dx = e.changedTouches[0].clientX - x0;
-    const dy = e.changedTouches[0].clientY - y0;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) paceStep_(dx > 0 ? -1 : 1);
-  }, { passive: true });
-  scroller.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-  scroller.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+  [svg, scroller].forEach((el) => {
+    el.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+    el.addEventListener("touchend", (e) => e.stopPropagation(), { passive: true });
+  });
 })();
 
 // Home's cards land here: open Overview and bring the matching card into view.
@@ -5021,12 +5052,34 @@ function formatPen(n) {
   return `${homeCur()} ${moneyFmt(n)}`;
 }
 
-async function refreshOverview() {
-  renderPeriodSelector();
-  const bounds = getPeriodBounds();
-  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
+// Overview shows a "Loading…" bar and dims its cards while ANY of its pieces
+// (summary, entries list, balances, month history) is still being fetched, so
+// switching months never looks like a finished screen showing old figures.
+let overviewBusyCount_ = 0;
+function trackOverviewLoad_(promise) {
+  const screen = document.getElementById("screen-overview");
+  overviewBusyCount_++;
+  screen.classList.add("overview-loading");
+  const done = () => {
+    overviewBusyCount_ = Math.max(0, overviewBusyCount_ - 1);
+    if (!overviewBusyCount_) screen.classList.remove("overview-loading");
+  };
+  Promise.resolve(promise).then(done, done);
+  return promise;
+}
 
-  const data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_()); }
+
+// What Overview does while it loads: the screen NEVER blanks or waits. A small spinner by the period picker
+// says "fetching"; the last figures stay readable. Only when the figures on screen belong to ANOTHER period
+// (a month was just switched to, nothing cached for it) are the period cards dimmed — they would be wrong.
+// A period seen before this session is painted at once from the cache and refreshed behind the scenes.
+let overviewShownKey_ = null;
+let overviewReqToken_ = 0;
+const overviewCache_ = {};
+const overviewKey_ = (b) => `${periodType}|${b.startDate || ""}|${b.endDate || ""}`;
+
+function paintOverviewSummary_(data) {
   lastOverviewData = data;
 
   document.getElementById("summary-income").textContent = formatPen(data.totals.income);
@@ -5046,7 +5099,33 @@ async function refreshOverview() {
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
+  if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
+}
+
+async function refreshOverviewInner_() {
+  renderPeriodSelector();
+  const bounds = getPeriodBounds();
+  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
+
+  const screen = document.getElementById("screen-overview");
+  const key = overviewKey_(bounds);
+  const token = ++overviewReqToken_;
+  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); }
+  else if (overviewShownKey_ !== key) screen.classList.add("overview-stale");
+
+  let data;
+  try {
+    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate });
+  } catch (err) {
+    if (token === overviewReqToken_) screen.classList.remove("overview-stale");
+    throw err;
+  }
+  overviewCache_[key] = data;
+  if (token !== overviewReqToken_) return;   // the person already moved on to another period
+  screen.classList.remove("overview-stale");
+  overviewShownKey_ = key;
+  paintOverviewSummary_(data);
   loadOverviewEntries_(bounds);
 }
 
@@ -5054,10 +5133,11 @@ async function refreshOverview() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 50;
 let overviewEntriesToken_ = 0;
-async function loadOverviewEntries_(bounds) {
+function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
+async function loadOverviewEntriesInner_(bounds) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   try {
     const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate });
     if (token !== overviewEntriesToken_) return;
@@ -5082,7 +5162,7 @@ async function loadOverviewEntries_(bounds) {
 }
 
 // Investments card: FLOWS only — net put into each platform during the selected
-// period (deposits minus withdrawals, owner's PEN value). Never a balance or a
+// period (deposits minus withdrawals), one line per currency, never converted. Never a balance or a
 // % (specs/accounts.md § Investments are flows only). Tap a row for its entries.
 function renderInvestmentsPeriod_(items) {
   const list = document.getElementById("investments-period-list");
@@ -5090,14 +5170,10 @@ function renderInvestmentsPeriod_(items) {
   list.innerHTML = "";
   items.forEach((item) => {
     const row = document.createElement("div");
-    row.className = "legend-row";
+    row.className = "balance-row";
     row.innerHTML = `
-      <div class="legend-text">
-        <div class="legend-name">${escapeHtml(item.name)}</div>
-        <div class="legend-sub">
-          <span class="legend-amount">${item.amount_pen < 0 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(item.amount_pen))}</span>
-        </div>
-      </div>
+      <div class="balance-row-name">${escapeHtml(item.name)}<span class="loan-detail-row-chevron">›</span></div>
+      <div class="balance-row-amount">${item.lines.map((l) => `<div>${formatSignedBalance_(l.amount, l.currency)}</div>`).join("")}</div>
     `;
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
@@ -5224,12 +5300,9 @@ function renderPie(key, items) {
       <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
       <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
-    // "Others" bundles multiple categories — nothing single to drill into;
-    // every category inside it is still individually clickable in the
-    // list below.
-    if (!s.slice.isOthers) {
-      label.addEventListener("click", () => openBreakdownDrilldown(key, s.slice));
-    }
+    // The outside labels are display-only (too small and too close together
+    // to tap); every category, "Others" members included, is a tappable row
+    // in the list below.
     wrapEl.appendChild(label);
   });
 
@@ -5280,7 +5353,7 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   subtitle.textContent = subtitleText;
   // A Projections category detail lets the owner tap the period to pick another.
   subtitle.classList.toggle("tappable", !!drilldownProjection && (periodType === "month" || periodType === "year"));
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   bringModalToFront_(backdrop);
   // A freshly opened drill-down starts at the top (the area keeps its old scroll position otherwise).
   if (backdrop.hidden) document.getElementById("drilldown-scroll-area").scrollTop = 0;
@@ -6239,6 +6312,32 @@ async function migrateLegacyCodeToSession_() {
   }
 }
 
+// ---- Look for new bank e-mail whenever the app is opened or brought back (specs/review-telegram-email.md § Email automation) ----
+// The 15-minute timer on the server used to be the only thing reading Gmail, so a new bank e-mail could wait up to 15 minutes. This asks
+// for a check in the background (never blocks the screen, never shows an error), at most once a minute here (the server also limits it);
+// when it created something the "Needs review" list is refreshed, unless the person is in the middle of editing one of its cards.
+let emailCheckAt_ = 0, emailCheckBusy_ = false;
+async function checkEmailsNow_(force) {
+  if (emailCheckBusy_ || !meta || !(meta.capabilities && meta.capabilities.bankEmails)) return;
+  if (!force && Date.now() - emailCheckAt_ < 60000) return;
+  emailCheckBusy_ = true;
+  emailCheckAt_ = Date.now();
+  try {
+    const out = await callApi("checkEmailsNow", {});
+    if (out && out.ran && out.created > 0) {
+      const editing = document.activeElement && document.activeElement.closest("#review-list");
+      if (!editing) await refreshReviewQueue();
+    }
+  } catch (err) {
+    // A bonus on top of the timer: if it fails the timer still finds the e-mail.
+  } finally {
+    emailCheckBusy_ = false;
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) checkEmailsNow_(false);
+});
+
 async function init() {
   if (!getSessionToken() && getAccessCode()) migrateLegacyCodeToSession_();   // not awaited, on purpose
   if (!getSessionToken() && !getAccessCode()) {
@@ -6411,6 +6510,7 @@ async function init() {
       // full "tapped the icon → usable" time, including HTML/JS download.
       perfRecordStartup_("open→usable", performance.now());
     }
+    checkEmailsNow_(false);   // not awaited: the app is already usable
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -6481,6 +6581,7 @@ async function init() {
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
+      checkEmailsNow_(true);   // pulling down is a direct "look now"; the server still limits it to one a minute
       await refreshExpectedRecurring();
       if (!document.getElementById("screen-overview").hidden) {
         await refreshOverview();
@@ -6545,7 +6646,7 @@ async function openDevicesModal_() {
   const statusEl = document.getElementById("devices-status");
   errorEl.textContent = "";
   statusEl.textContent = "";
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   // Still holding the old stored code (the background switch-over hasn't worked
@@ -7994,7 +8095,7 @@ function saveOwnerNames_(names) {
 async function openOwnerNamesModal_() {
   ownerNamesEl_("owner-names-error").textContent = "";
   ownerNamesEl_("owner-names-input").value = "";
-  ownerNamesEl_("owner-names-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  ownerNamesEl_("owner-names-list").innerHTML = loadingHtml_();
   bringModalToFront_(ownerNamesEl_("owner-names-backdrop"));
   ownerNamesEl_("owner-names-backdrop").hidden = false;
   try { renderOwnerNames_(await callApi("getOwnerNames", {})); }
@@ -8575,7 +8676,8 @@ function renderNotauto_(data) {
   document.getElementById("notauto-empty").hidden = kinds.length > 0 || unread.length > 0;
   document.getElementById("notauto-unread").hidden = !unread.length;
   document.getElementById("notauto-unread-list").innerHTML = unread.map((u) => {
-    const meta = tr("notauto.unread.count", { n: u.count }) + " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) });
+    // An older backend may still hand the date back in a form that is not yyyy-mm-dd: then say nothing rather than "Invalid Date".
+    const meta = tr("notauto.unread.count", { n: u.count }) + (/^\d{4}-\d{2}-\d{2}$/.test(u.last || "") ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) }) : "");
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(u.subject || u.sender)}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
@@ -8682,7 +8784,7 @@ function renderPerfScreen() {
 async function refreshExchangeRates() {
   const list = document.getElementById("exchange-rates-list");
   const emptyNote = document.getElementById("exchange-rates-empty-note");
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   let rates;
   try {
     rates = await callApi("listExchangeRates");
@@ -9425,7 +9527,7 @@ async function showTripDetail_(id) {
   const known = (meta.trips || []).find((t) => t.id === id);
   document.getElementById("trip-detail-title").textContent = known ? tripLabel_(known) : "";
   document.getElementById("trip-detail-sub").textContent = known ? `${tr(`trips.kind.${known.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(known)}` : "";
-  document.getElementById("trip-detail-body").innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  document.getElementById("trip-detail-body").innerHTML = loadingHtml_();
   document.getElementById("trip-detail-entries-card").hidden = true;
   document.getElementById("trip-find-box").hidden = true;
   await refreshTripDetail_();
@@ -9810,7 +9912,7 @@ document.getElementById("trip-find-btn").addEventListener("click", () => {
 async function loadTripFinder_(lookBack) {
   const id = tripDetailId_;
   const box = document.getElementById("trip-find-box");
-  box.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  box.innerHTML = loadingHtml_();
   const earlierBtn = () => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -10061,7 +10163,7 @@ async function refreshRecurringExpenses() {
   const emptyNote = document.getElementById("recurring-empty-note");
   const onetimeList = document.getElementById("recurring-onetime-list");
   const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   onetimeList.innerHTML = "";
   let items;
   try {
@@ -10922,7 +11024,7 @@ async function openPaidPicker_(item, currency) {
   const list = document.getElementById("paid-picker-list");
   const errorEl = document.getElementById("paid-picker-error");
   errorEl.textContent = "";
-  list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  list.innerHTML = loadingHtml_();
   document.getElementById("paid-picker-empty").hidden = true;
   document.getElementById("paid-picker-title").textContent = tr("paid.title");
   document.getElementById("paid-picker-hint").textContent =
@@ -11069,7 +11171,7 @@ async function refreshProjections() {
   if (cached) {
     renderProjectionsSummary_(cached);
   } else {
-    body.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+    body.innerHTML = loadingHtml_();
     monthLabel.textContent = "";
     methodNote.textContent = "";
   }
@@ -11196,7 +11298,7 @@ async function refreshProjectionCategories() {
   const cacheKey = projectionsCacheKey_();
   const cached = loadProjectionsCache_(cacheKey, "categories");
   if (cached) renderProjectionCategories_(cached);
-  else list.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  else list.innerHTML = loadingHtml_();
 
   let result;
   setProjectionsUpdating_(true);
@@ -11635,7 +11737,7 @@ document.getElementById("pmm-compare-btn").addEventListener("click", async () =>
   const categoryId = pmmState.categoryId;
   btn.disabled = true;
   results.hidden = false;
-  table.innerHTML = `<div class="status-msg">${escapeHtml(tr("common.loading"))}</div>`;
+  table.innerHTML = loadingHtml_();
   cats.innerHTML = "";
   applyBest.hidden = true;
   document.getElementById("pmm-apply-best-result").textContent = "";
@@ -12178,17 +12280,22 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // overwritten the next time the expense itself is touched.
   const row = document.createElement("div");
   row.className = "loan-detail-row editable";
+  // Only the description/amount/date block opens the edit; the Forgive button below sits OUTSIDE that tap area, so a near-miss on it
+  // never opens the loan by mistake.
   row.innerHTML = `
-    <div class="loan-detail-row-top">
-      <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
-      <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+    <div class="loan-detail-row-main">
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+      </div>
+      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
     </div>
-    <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}</div>
   `;
+  const rowMain = row.querySelector(".loan-detail-row-main");
   if (l.origin === "cash") {
-    row.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
+    rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
-    row.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
+    rowMain.addEventListener("click", () => openLinkedEntryFromLoan_(l.entry_id));
   }
 
   // Forgiving applies to either kind of loan — it doesn't touch the
@@ -13023,7 +13130,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
 let balanceModalPmId = null;
 let balanceModalData = null;
 
-async function refreshBalances() {
+function refreshBalances() { return trackOverviewLoad_(refreshBalancesInner_()); }
+
+async function refreshBalancesInner_() {
   const list = document.getElementById("balances-list");
   const emptyNote = document.getElementById("balances-empty-note");
   const rows = await callApi("listPaymentMethodBalances", {});
@@ -13053,6 +13162,8 @@ async function refreshBalances() {
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
   totalsWrap.hidden = codes.length === 0;
+  balancesRowCount_ = rows.length;
+  applyBalancesExpanded_();
   codes.forEach((code) => {
     const amount = Math.round(totals[code] * 100) / 100;
     const line = document.createElement("div");
@@ -13063,6 +13174,21 @@ async function refreshBalances() {
 }
 
 let balancesCache = [];
+
+// The Balances card opens showing only the net per currency; the accounts
+// (this person's own tracked ones) appear when it is expanded.
+let balancesExpanded_ = false;
+let balancesRowCount_ = 0;
+function applyBalancesExpanded_() {
+  document.getElementById("balances-list").hidden = !balancesExpanded_;
+  const btn = document.getElementById("balances-toggle");
+  btn.setAttribute("aria-expanded", String(balancesExpanded_));
+  btn.textContent = balancesExpanded_ ? tr("balances.hideAccounts") : tr("balances.showAccounts", { n: balancesRowCount_ });
+}
+document.getElementById("balances-toggle").addEventListener("click", () => {
+  balancesExpanded_ = !balancesExpanded_;
+  applyBalancesExpanded_();
+});
 
 function formatSignedBalance_(amount, currency) {
   return `${amount < 0 ? "−" : ""}${currency} ${moneyFmt(Math.abs(amount))}`;
@@ -13143,7 +13269,7 @@ function renderBalanceCurrentLines_() {
 async function loadBalanceMovements_(pmId) {
   const wrap = document.getElementById("balance-movements-wrap");
   const list = document.getElementById("balance-movements");
-  list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  list.innerHTML = loadingHtml_();
   wrap.hidden = false;
   const moves = await callApi("getPaymentMethodMovements", { paymentMethodId: pmId });
   if (balanceModalPmId !== pmId) return;

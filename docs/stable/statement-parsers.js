@@ -996,5 +996,19 @@
     return res;
   }
 
-  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf };
+  // Which bank each statement layout (`kind`) belongs to, by the name the app's bank list uses. The welcome list and Accounts tick a
+  // bank from this ("Statements ✓"), so a reader added to parseStatement above must be added here too: tests/backend/bank-labels.test.js
+  // fails otherwise.
+  var STATEMENT_BANK_BY_KIND = {
+    savings: 'Interbank', visa: 'Interbank', diners: 'Diners', bcp: 'BCP', bcpcard: 'BCP',
+    cmr: 'Banco Falabella', falabella: 'Banco Falabella', ripley: 'Banco Ripley', ahorramas: 'SIP', sip: 'SIP'
+  };
+  function statementBanks() {
+    var seen = {};
+    Object.keys(STATEMENT_BANK_BY_KIND).forEach(function (k) { seen[STATEMENT_BANK_BY_KIND[k]] = true; });
+    return Object.keys(seen);
+  }
+
+  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf,
+    STATEMENT_BANK_BY_KIND: STATEMENT_BANK_BY_KIND, statementBanks: statementBanks };
 });
