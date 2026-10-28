@@ -1470,6 +1470,7 @@ function menuFillTransferDescriptions() {
 // accounts ("Between Accounts"). Real settlements only (an offset has no
 // transfer entry). Read once per request by listEntries / the search index.
 function buildTransferLinkMap_() {
+  ensureSettlementsGapColumn_();
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
   var friends = {};
@@ -1487,6 +1488,12 @@ function buildTransferLinkMap_() {
     if (!s.transfer_entry_id || s.offset_loan_id) return;
     var loan = loanById[s.loan_id];
     if (loan) map[s.transfer_entry_id] = { kind: 'repayment', friend: friends[loan.friend_id] || '', friend_id: loan.friend_id, direction: loan.direction };
+  });
+  // the extra (income/expense) entry of a repayment: the app offers to open the repayment's editor for it
+  getAllRows('Settlements').forEach(function (s) {
+    if (!s.gap_entry_id || s.offset_loan_id || map[s.gap_entry_id]) return;
+    var loan = loanById[s.loan_id];
+    if (loan) map[s.gap_entry_id] = { kind: 'repaymentExtra', friend: friends[loan.friend_id] || '', friend_id: loan.friend_id, direction: loan.direction, transfer_entry_id: s.transfer_entry_id || '' };
   });
   return map;
 }
@@ -1533,9 +1540,11 @@ function repaymentOfEntry_(entryId) {
 function guardRepaymentEntryEdit_(entryId, fields) {
   if (!fields || fields.amount === undefined) return;
   var link = repaymentOfEntry_(entryId);
-  if (!link || link.kind !== 'transfer') return;
+  if (!link) return;
   var entry = getEntryById_(entryId);
-  if (entry && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004) throw new Error(tr_('repay.editAmountInHistory'));
+  if (entry && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004) {
+    throw new Error(tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory'));
+  }
 }
 
 // After an app edit is written: a new date or account of either entry carries over to the other one and to the repayment

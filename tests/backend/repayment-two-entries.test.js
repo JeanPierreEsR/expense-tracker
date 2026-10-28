@@ -40,9 +40,13 @@ test("Home: the amount of the money movement is changed from the repayment histo
   const { rt, line } = setup();
   assert.throws(() => rt.api("updateEntry", { id: line().transfer_entry_id, fields: { amount: 90 } }), /Repayment history/);
   rt.api("updateEntry", { id: line().transfer_entry_id, fields: { amount: 100 } });   // same amount: fine
-  // the extra's amount is free to change: the total follows
-  rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 35 } });
-  assert.equal(line().amount, 135);
+  // the extra's amount is not edited alone either: it is part of the total, changed from the repayment's editor
+  assert.throws(() => rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 35 } }), /extra part of a repayment/);
+  rt.api("updateEntry", { id: line().gap.entry_id, fields: { amount: 30 } });   // same amount: fine
+  // the link map tells the app which income entry is a repayment's extra (it offers to open the editor)
+  const links = JSON.parse(rt.run("JSON.stringify(buildTransferLinkMap_())"));
+  assert.equal(links[line().gap.entry_id].kind, "repaymentExtra");
+  assert.equal(links[line().gap.entry_id].transfer_entry_id, line().transfer_entry_id);
 });
 
 test("Home: the extra entry cannot be turned into another type, and deleting it is announced first", () => {
@@ -107,8 +111,8 @@ test("statement upload: the bank's single line for what a friend sent matches th
   assert.equal(line.viaRepayment, true);
 
   // the owner then corrects the extra in Home (30 -> 35): the bank must show 135 to match
-  const extraId = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].gap.entry_id;
-  rt.api("updateEntry", { id: extraId, fields: { amount: 35 } });
+  const first = rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0];
+  rt.api("reassignRepayment", { id: first.id, loan_ids: [first.parts[0].loan_id], limit: true, amount: 135 });   // from the editor
   assert.equal(analyse(rt, pm, [{ date: "2026-03-01", description: "TRANSF RECIBIDA", amount: 135, currency: "PEN" }])[0].status, "matched");
   assert.notEqual(analyse(rt, pm, [{ date: "2026-03-01", description: "TRANSF RECIBIDA", amount: 130, currency: "PEN" }])[0].status, "matched");
 });
