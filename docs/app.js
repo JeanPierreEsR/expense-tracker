@@ -2249,6 +2249,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
         // anything fails (see convertEntryInto_ in Loans.gs).
+        // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
+        // repayments first, as when deleting the expense (keep = a "paid earlier, no loan" credit; cancel = they go).
+        let repaymentsChoice;
+        if (editingEntryOriginalType === "expense") {
+          const links = await callApi("getEntryRepaymentLinks", { id: editingEntryId });
+          if (links.refunds && links.refunds.length) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertExpenseTitle", links.refunds,
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          }
+        }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
@@ -2257,6 +2268,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
         result = await callApi(isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
+          repayments: repaymentsChoice,
           entry_id: editingEntryId,
           ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId })
         });
