@@ -1228,23 +1228,7 @@ function convertLoanToRepaymentInto_(payload) {
   var realRepayments = own.some(function (s) { return !s.offset_loan_id; });
   if (realRepayments && payload.repayments !== 'keep' && payload.repayments !== 'cancel') throw new Error(tr_('convert.pickRepayments'));
 
-  // Everything deleting the loan can touch: its repayment rows (and the other half of any cancel-out), the money entries
-  // behind them (shrunk or removed by "cancel"), and the loan's own money entry.
-  var involved = {};
-  involved[loan.id] = true;
-  own.forEach(function (s) { if (s.offset_loan_id) involved[s.offset_loan_id] = true; });
-  var snapSettlements = settlementsBefore.filter(function (s) { return involved[s.loan_id] || (s.offset_loan_id && involved[s.offset_loan_id]); });
-  var snapEntryIds = {};
-  snapEntryIds[payload.entry_id] = true;
-  snapSettlements.forEach(function (s) { if (s.transfer_entry_id) snapEntryIds[s.transfer_entry_id] = true; });
-  var snapEntries = getAllRows('Entries').filter(function (e) { return snapEntryIds[e.id]; });
-  var settlementIdsBefore = {}, loanIdsBefore = {}, entryIdsBefore = {};
-  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
-  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
-  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
-  var friendIds = {};
-  friendIds[loan.friend_id] = true;
-  friendIds[payload.friend_id] = true;
+  var guard = captureLoanRelease_(loan, payload.entry_id, payload.friend_id);
 
   try {
     deleteLoan(loan.id, own.length ? (payload.repayments || 'keep') : undefined);
@@ -1261,25 +1245,151 @@ function convertLoanToRepaymentInto_(payload) {
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
-    try {
-      deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
-      deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
-      getAllRows('Entries').forEach(function (e) { if (!entryIdsBefore[e.id]) deleteEntry_(e.id); });
-      if (!getAllRows('Loans').some(function (l) { return l.id === loan.id; })) appendRowObject('Loans', loan);
-      var present = {};
-      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
-      snapSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
-      snapEntries.forEach(function (e) {
-        if (getEntryById_(e.id)) setEntryField_(e.id, 'amount', e.amount); else appendRowObject('Entries', e);
-      });
-      getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
-        .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
-    } catch (undoErr) {
-      var movement = snapEntries.find(function (e) { return e.id === payload.entry_id; }) || {};
-      throw new Error(tr_('convert.undoFailed', { what: movement.description || payload.entry_id, date: movement.date || '', amount: movement.amount || '', error: err.message }));
-    }
-    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+    guard.rollback(err);
   }
+}
+
+// A loan's money entry and the loan are ONE thing (owner's rule, 2026-10-28): editing the entry in the app updates the loan
+// itself, the reverse of syncLoanTransferEntry_. Called by `updateEntryFromApp_` BEFORE the entry is written, and through
+// `updateLoan`, so the loan's own rules apply and a refusal ("a repaid loan's friend / currency stay", "not below what is
+// repaid") stops the whole edit with nothing changed. Only what both records share travels: date, amount, currency, the
+// account and the description (an auto-made "Loan to {friend}" text is not stored as the loan's own description).
+function syncLoanBeforeEntryEdit_(entryId, fields) {
+  if (!fields) return;
+  var shared = ['date', 'amount', 'currency', 'payment_method_id', 'description'];
+  if (!shared.some(function (k) { return fields[k] !== undefined; })) return;
+  ensureLoansTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === entryId; });
+  if (!loan) return;
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var auto = loan.direction === 'they_owe_me'
+    ? tr_('desc.loanTo', { name: friend ? friend.name : tr_('label.unknownFriend') })
+    : tr_('desc.loanFrom', { name: friend ? friend.name : tr_('label.unknownFriend') });
+  var description = loan.description || '';
+  if (fields.description !== undefined) description = String(fields.description).trim() === String(auto).trim() ? '' : String(fields.description);
+  var next = {
+    id: loan.id,
+    friend_id: loan.friend_id,
+    direction: loan.direction,
+    amount: fields.amount !== undefined ? Math.abs(Number(fields.amount)) : Number(loan.amount),
+    currency: fields.currency || loan.currency,
+    date: fields.date || loan.date,
+    due_date: loan.due_date,
+    payment_method_id: fields.payment_method_id !== undefined ? fields.payment_method_id : (loan.payment_method_id || ''),
+    description: description
+  };
+  var unchanged = Number(next.amount) === Number(loan.amount) && next.currency === loan.currency && next.date === loan.date &&
+    String(next.payment_method_id || '') === String(loan.payment_method_id || '') && String(next.description) === String(loan.description || '');
+  if (unchanged) return;
+  updateLoan(next);
+}
+
+// "I recorded this loan wrongly": a loan's money entry opened as Transfer → New loan (entry-type conversions). Changing only
+// what updateLoan allows (date, account, description, due date, amount not below what is repaid; anything while nothing is
+// repaid) edits the loan IN PLACE and keeps it. Changing the person, the direction or the currency of a loan that already has
+// repayments, or an amount below them, REPLACES it: the old loan is deleted (keep / cancel for its repayments, as deleteLoan)
+// and the new one added, with everything put back if that fails. `loanToLoanPlan_` is the one place that decides which.
+function loanToLoanPlan_(loan, payload) {
+  ensureSettlementsOffsetColumn_();
+  var rows = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; });
+  var settled = rows.reduce(function (n, s) { return n + Number(s.amount); }, 0);
+  var realPaid = rows.reduce(function (n, s) { return s.offset_loan_id ? n : n + Number(s.amount); }, 0);
+  var identityChanged = payload.friend_id !== loan.friend_id || payload.direction !== loan.direction ||
+    (payload.currency || homeCurrency_()) !== loan.currency;
+  var tooLow = Number(payload.amount) < settled - 0.004;
+  var inPlace = !(settled > 0.004 && (identityChanged || tooLow));
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  return { inPlace: inPlace, paid: realPaid, rows: rows.length, currency: loan.currency, friend: friend ? friend.name : '' };
+}
+
+// What the phone asks before saving a loan as another loan: does it need the keep / cancel decision?
+function checkLoanToLoan(payload) {
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  var plan = loanToLoanPlan_(loan, payload);
+  return { needsRelease: !plan.inPlace, paid: plan.paid, currency: plan.currency, friend: plan.friend };
+}
+
+function convertLoanToLoan(payload) {
+  return withScriptLockOnce_(function () { return convertLoanToLoanInto_(payload); });
+}
+
+function convertLoanToLoanInto_(payload) {
+  ensureLoansTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.transfer_entry_id === payload.entry_id; });
+  if (!loan) throw new Error(tr_('convert.notLoanMovement'));
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (loan.status === 'forgiven') throw new Error(tr_('convert.loanForgiven'));
+  var plan = loanToLoanPlan_(loan, payload);
+  var fields = {
+    friend_id: payload.friend_id, direction: payload.direction, amount: payload.amount,
+    currency: payload.currency || homeCurrency_(), date: payload.date,
+    due_date: payload.due_date || (plan.inPlace ? loan.due_date : ''),   // a blank due date must not erase the loan's own
+    payment_method_id: payload.payment_method_id, description: payload.description
+  };
+  if (plan.inPlace) {
+    var edited = updateLoan(Object.assign({ id: loan.id, project_id: payload.project_id }, fields));
+    return { loan: edited, in_place: true };
+  }
+  if (plan.paid > 0.004 && payload.repayments !== 'keep' && payload.repayments !== 'cancel') throw new Error(tr_('convert.pickRepayments'));
+  var guard = captureLoanRelease_(loan, payload.entry_id, payload.friend_id);
+  try {
+    deleteLoan(loan.id, payload.repayments || 'keep');
+    var created = addLoan(Object.assign({ project_id: payload.project_id }, fields));
+    return { loan: created, in_place: false };
+  } catch (err) {
+    guard.rollback(err);
+  }
+}
+
+// Taken BEFORE a loan is deleted so everything deleting it can touch can be put back exactly if what comes next fails: the
+// loan, its money entry, its repayment rows (and the other half of any cancel-out), the money entries behind them (shrunk or
+// removed by "cancel"), and the status of every involved loan. `rollback(err)` always throws: "Nothing was changed — …", or,
+// if even the undo fails, the message that spells out the original entry so it can be re-entered.
+function captureLoanRelease_(loan, entryId, otherFriendId) {
+  var settlementsBefore = getAllRows('Settlements');
+  var loansBefore = getAllRows('Loans');
+  var own = settlementsBefore.filter(function (s) { return s.loan_id === loan.id; });
+  var involved = {};
+  involved[loan.id] = true;
+  own.forEach(function (s) { if (s.offset_loan_id) involved[s.offset_loan_id] = true; });
+  var snapSettlements = settlementsBefore.filter(function (s) { return involved[s.loan_id] || (s.offset_loan_id && involved[s.offset_loan_id]); });
+  var snapEntryIds = {};
+  snapEntryIds[entryId] = true;
+  snapSettlements.forEach(function (s) { if (s.transfer_entry_id) snapEntryIds[s.transfer_entry_id] = true; });
+  var snapEntries = getAllRows('Entries').filter(function (e) { return snapEntryIds[e.id]; });
+  var settlementIdsBefore = {}, loanIdsBefore = {}, entryIdsBefore = {};
+  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
+  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+  var friendIds = {};
+  friendIds[loan.friend_id] = true;
+  if (otherFriendId) friendIds[otherFriendId] = true;
+  return {
+    rollback: function (err) {
+      try {
+        deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+        deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
+        getAllRows('Entries').forEach(function (e) { if (!entryIdsBefore[e.id]) deleteEntry_(e.id); });
+        if (!getAllRows('Loans').some(function (l) { return l.id === loan.id; })) appendRowObject('Loans', loan);
+        var present = {};
+        getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+        snapSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+        snapEntries.forEach(function (e) {
+          if (getEntryById_(e.id)) setEntryField_(e.id, 'amount', e.amount); else appendRowObject('Entries', e);
+        });
+        getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
+          .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
+      } catch (undoErr) {
+        var movement = snapEntries.find(function (e) { return e.id === entryId; }) || {};
+        throw new Error(tr_('convert.undoFailed', { what: movement.description || entryId, date: movement.date || '', amount: movement.amount || '', error: err.message }));
+      }
+      throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+    }
+  };
 }
 
 // "I recorded this as a repayment, but it was really an expense / income / a loan" (entry-type conversions, step 3).
@@ -1700,7 +1810,7 @@ function buildTransferLinkMap_() {
   loans.forEach(function (l) {
     loanById[l.id] = l;
     if (l.transfer_entry_id) {
-      map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', direction: l.direction };
+      map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', friend_id: l.friend_id, direction: l.direction };
     }
   });
   getAllRows('Settlements').forEach(function (s) {

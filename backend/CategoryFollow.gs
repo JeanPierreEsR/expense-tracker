@@ -244,6 +244,7 @@ function updateEntryFromApp_(payload) {
     if (entryTypeChangeRepaidLoanIds_(payload.id, payload.fields.type).length) throw new Error(tr_('typeChange.pickRepayments'));
   }
   guardRepaymentEntryEdit_(payload.id, payload.fields);
+  syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var entry = updateEntryFields(payload.id, payload.fields);
   syncRepaymentAfterEntryEdit_(payload.id, payload.fields);

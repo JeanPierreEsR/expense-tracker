@@ -86,6 +86,7 @@ let splitInputEls = {};
 let editingEntryWasSplittable = false;
 let editingEntryOriginalType = null;
 let editingLoanMovement_ = "";   // the entry being edited is a cash loan's linked transfer: that loan's direction, else ""
+let editingLoanFriendId_ = "";   // ...and that loan's person, so Transfer → New loan starts on them
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
@@ -340,7 +341,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -358,7 +359,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1484,6 +1485,10 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
   if (repaymentActive_() && editingEntryId && meta.friends.some((f) => f.id === paidBy)) {
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = paidBy;
+  } else if (repaymentActive_() && editingEntryId && editingLoanFriendId_ && !repaymentFriendTouched_ && meta.friends.some((f) => f.id === editingLoanFriendId_)) {
+    // A loan's own entry: Transfer → New loan / Repayments starts on that loan's person (changeable).
+    populateRepaymentFriendOptions_();
+    document.getElementById("repayment-friend").value = editingLoanFriendId_;
   }
   togglePaymentMethodVisibility();
   syncConversionAmount_();
@@ -2284,6 +2289,19 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             return;
           }
         }
+        // A loan's own money entry saved as a loan again (Transfer → New loan): another person, direction, amount, currency,
+        // date, account or description (convertLoanToLoan). The loan is edited IN PLACE when its rules allow; a repaid loan
+        // whose person / direction / currency changes (or whose amount goes below what is repaid) is REPLACED, and then the
+        // person chooses what happens to its repayments — the server says which (checkLoanToLoan).
+        const loanToLoan = isLoanKind && !!editingLoanMovement_;
+        if (loanToLoan) {
+          const plan = await callApi("checkLoanToLoan", { entry_id: editingEntryId, friend_id: friendId, direction, amount, currency });
+          if (plan.needsRelease && plan.paid > 0.004) {
+            repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: plan.friend, currency: plan.currency, total: plan.paid }],
+              { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
+            if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
+          }
+        }
         // A repayment's own money entry turned into a NEW LOAN: the repayment is cancelled (convertRepaymentToLoan).
         // Money that arrived can only be a loan the friend gave, money that left only one the owner gave.
         const fromRepayment = isLoanKind && !!editingRepayment_;
@@ -2313,7 +2331,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
@@ -2510,6 +2528,23 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // The bill behind the split is saved only when it was (re)applied in this
       // edit and a split still exists; undefined = leave the stored bill alone.
       const billToSave = billApplied && splits && splits.length ? billToJSON_() : undefined;
+      // A loan's money entry and the loan are ONE thing: the server updates the loan from this edit, and the loan can refuse
+      // (an amount below what is repaid, another currency once repaid). So this save is NOT queued in the background: it is
+      // sent now, and a refusal shows in the form with nothing changed.
+      if (editingLoanMovement_) {
+        await callApi("updateEntry", { id, fields });
+        await callApi("saveEntryTags", { entryId: id, tagIds });
+        exitEditMode();
+        refreshLoans().catch(() => {});
+        await refreshEntryList();
+        if (wasPopup) {
+          resetEntryFormFields_();
+          await refreshAfterPopupEdit();
+        } else {
+          resetToFreshEntryScreen_();
+        }
+        return;
+      }
       queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
@@ -3480,6 +3515,7 @@ async function startEditEntry(entry) {
   editingEntryOriginalType = entry.type;
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
+  editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
   // A repayment's money entry: switching it to Expense / Income / New loan cancels the repayment (convertRepaymentToEntry / ToLoan).
   editingRepayment_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "repayment"
     ? { direction: entry.link.direction || "they_owe_me", friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", entry_id: entry.id, total: entry.amount, currency: entry.currency } : null;
@@ -3493,6 +3529,8 @@ async function startEditEntry(entry) {
   // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
   editingRepaymentExtra_ = (entry.type === "income" || entry.type === "expense") && !!entry.link && entry.link.kind === "repaymentExtra"
     ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
+  // A loan's own entry knows how the money moved too: a loan I gave left my account ("I paid them"), one I received arrived.
+  if (editingLoanMovement_) repaymentDirectionChoice = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
   // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
@@ -3596,6 +3634,7 @@ function exitEditMode() {
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
+  editingLoanFriendId_ = "";
   editingRepayment_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
