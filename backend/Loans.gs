@@ -1255,6 +1255,74 @@ function convertRepaymentEntryInto_(payload, kind) {
   return kind === 'entry' ? { entry: created } : { loan: newLoan };
 }
 
+// "I recorded this repayment against the wrong person / amount / account / direction": the repayment's money entry is
+// edited as a repayment and re-recorded (entry-type conversions, step 3b). Cancel first, then record — FIFO has to see the
+// debts the old repayment had paid as owed again — so the order is the reverse of convertRepaymentToEntry, and a failure
+// at any point puts the old repayment back exactly (its settlement rows, its money entry, the loans' statuses) and takes
+// back whatever the new recording wrote. payload as recordRepayment (+ overpay_category_id or overpay_pending_ok) + entry_id.
+function convertRepaymentToRepayment(payload) {
+  return withScriptLockOnce_(function () { return convertRepaymentToRepaymentInto_(payload); });
+}
+
+function convertRepaymentToRepaymentInto_(payload) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsOffsetColumn_();
+  ensureLoansTransferEntryColumn_();
+  var settlementsBefore = getAllRows('Settlements');
+  var oldSettlements = settlementsBefore.filter(function (s) { return s.transfer_entry_id === payload.entry_id; });
+  if (!oldSettlements.some(function (s) { return !s.offset_loan_id; })) throw new Error(tr_('convert.notRepaymentMovement'));
+  if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') throw new Error(tr_('err.invalidDirection'));
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
+  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  if (!payload.overpay_category_id && !payload.overpay_pending_ok) throw new Error(tr_('convert.pickExtraCategory'));
+
+  var loansBefore = getAllRows('Loans');
+  var settlementIdsBefore = {}, loanIdsBefore = {}, entryIdsBefore = {};
+  settlementsBefore.forEach(function (s) { settlementIdsBefore[s.id] = true; });
+  loansBefore.forEach(function (l) { loanIdsBefore[l.id] = true; });
+  getAllRows('Entries').forEach(function (e) { entryIdsBefore[e.id] = true; });
+  var entrySnap = getEntryById_(payload.entry_id);
+  var friendIds = {};
+  friendIds[payload.friend_id] = true;
+  oldSettlements.forEach(function (s) {
+    var l = loansBefore.find(function (x) { return x.id === s.loan_id; });
+    if (l) friendIds[l.friend_id] = true;
+  });
+
+  try {
+    discardEntryWithRepayments_(payload.entry_id);
+    var result = recordRepayment({
+      friend_id: payload.friend_id,
+      direction: payload.direction,
+      amount: payload.amount,
+      currency: payload.currency,
+      date: payload.date,
+      payment_method_id: payload.payment_method_id,
+      description: payload.description,
+      overpay_category_id: payload.overpay_category_id,
+      overpay_pending_ok: payload.overpay_pending_ok
+    });
+    return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
+  } catch (err) {
+    try {
+      deleteRowsWhere_('Settlements', function (r) { return !settlementIdsBefore[r.id]; });
+      deleteRowsWhere_('Loans', function (r) { return !loanIdsBefore[r.id]; });
+      getAllRows('Entries').forEach(function (e) { if (!entryIdsBefore[e.id]) deleteEntry_(e.id); });
+      var present = {};
+      getAllRows('Settlements').forEach(function (s) { present[s.id] = true; });
+      oldSettlements.forEach(function (s) { if (!present[s.id]) appendRowObject('Settlements', s); });
+      if (entrySnap && !getEntryById_(entrySnap.id)) appendRowObject('Entries', entrySnap);
+      getAllRows('Loans').filter(function (l) { return friendIds[l.friend_id]; })
+        .forEach(function (l) { updateLoanStatusFromSettlements_(l.id); });
+    } catch (undoErr) {
+      throw new Error(tr_('convert.undoFailed', { what: (entrySnap && (entrySnap.description || entrySnap.id)) || payload.entry_id,
+        date: entrySnap ? entrySnap.date : '', amount: entrySnap ? entrySnap.amount : '', error: err.message }));
+    }
+    throw new Error(tr_('convert.nothingChanged', { error: err.message }));
+  }
+}
+
 // May already be inside routeActionOnce_'s lock (same execution) — only
 // take and release it here when nobody up the stack has.
 function withScriptLockOnce_(fn) {

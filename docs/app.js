@@ -339,7 +339,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan",
+  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -357,7 +357,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
-  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan"]);
+  "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
 function newRequestId_() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -2269,13 +2269,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           if (direction !== (moneyIn ? "i_owe_them" : "they_owe_me")) throw new Error(tr(moneyIn ? "repayConv.loanIn" : "repayConv.loanOut"));
           if (!confirm(repaymentCancelText_())) return;
         }
+        // A repayment's own entry edited as a repayment again (another person, amount, account, direction): the old
+        // one is cancelled and the new one recorded in its place (convertRepaymentToRepayment).
+        const rerecordRepayment = !isLoanKind && !!editingRepayment_;
+        if (rerecordRepayment && !confirm(tr("repayConv.confirmRerecord", { friend: editingRepayment_.friend, cur: editingRepayment_.currency, total: moneyFmt(editingRepayment_.total) }))) return;
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
         }
-        result = await callApi(fromRepayment ? "convertRepaymentToLoan" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        result = await callApi(fromRepayment ? "convertRepaymentToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
