@@ -109,6 +109,8 @@ var BACKEND_STRINGS_ = {
   "repay.chosenLoanNotOpen": { en: "That loan has nothing left to repay (or is not in this direction).", es: "Ese préstamo ya no tiene nada por repagar (o no es en este sentido)." },
   "repay.notCancelOut": { en: "That line is a real repayment, not an automatic cancel-out.", es: "Esa línea es un repago real, no una compensación automática." },
   "repay.hasEntry": { en: "This repayment already has its entry in your accounts.", es: "Este repago ya tiene su movimiento en tus cuentas." },
+  "repay.editAmountInHistory": { en: "This is the money movement of a repayment. To change its amount, open the person's Repayment history and tap the repayment.", es: "Este es el movimiento de dinero de un repago. Para cambiar su monto, abre el Historial de repagos de la persona y toca el repago." },
+  "typeChange.isRepaymentExtra": { en: "This entry is the extra part of a repayment (the part that is not on a loan). Change the repayment from the person's Repayment history.", es: "Esta entrada es la parte extra de un repago (la que no está en un préstamo). Cambia el repago desde el Historial de repagos de la persona." },
   "repay.notUnapplied": { en: "That is not a \"paid earlier, no loan\" payment.", es: "Eso no es un pago \"pagado antes, sin préstamo\"." },
   "repay.unappliedHasLines": { en: "This payment has lines of its own (a cancel-out). Undo them in the repayment history first.", es: "Este pago tiene líneas propias (una compensación). Deshazlas primero en el historial de repagos." },
   "repay.applyNoRoom": { en: "The selected loans have nothing left to repay.", es: "Los préstamos seleccionados no tienen nada por repagar." },

@@ -1514,6 +1514,68 @@ function entryRepaidLoansSummary_(entryId) {
   return Object.keys(out).map(function (k) { return out[k]; });
 }
 
+// ---- A repayment's two entries, kept in step when one is edited in Home (owner's request, 2026-10-28) ----
+// A repayment can have two entries: its money movement (transfer, what the loans took) and its extra (income/expense, the
+// part with no loan). `repaymentOfEntry_` says which of them an entry is, and which settlement rows belong to that repayment.
+function repaymentOfEntry_(entryId) {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsGapColumn_();
+  var rows = getAllRows('Settlements').filter(function (s) { return !s.offset_loan_id; });
+  var asTransfer = rows.filter(function (s) { return s.transfer_entry_id === entryId; });
+  if (asTransfer.length) return { kind: 'transfer', rows: asTransfer, transferId: entryId, gapId: (asTransfer.find(function (s) { return s.gap_entry_id; }) || {}).gap_entry_id || '' };
+  var asGap = rows.filter(function (s) { return s.gap_entry_id === entryId; });
+  if (asGap.length) return { kind: 'gap', rows: asGap, transferId: asGap[0].transfer_entry_id || '', gapId: entryId };
+  return null;
+}
+
+// Before an app edit is written: the amount of a repayment's money movement is changed from the person's repayment history
+// (where the loans and the extra are split), never straight here.
+function guardRepaymentEntryEdit_(entryId, fields) {
+  if (!fields || fields.amount === undefined) return;
+  var link = repaymentOfEntry_(entryId);
+  if (!link || link.kind !== 'transfer') return;
+  var entry = getEntryById_(entryId);
+  if (entry && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004) throw new Error(tr_('repay.editAmountInHistory'));
+}
+
+// After an app edit is written: a new date or account of either entry carries over to the other one and to the repayment
+// rows, so they stay one transfer on the same day from the same account. (The amount of the extra needs nothing: the total
+// is read live.)
+function syncRepaymentAfterEntryEdit_(entryId, fields) {
+  if (!fields || (fields.date === undefined && fields.payment_method_id === undefined)) return;
+  var link = repaymentOfEntry_(entryId);
+  if (!link) return;
+  var entry = getEntryById_(entryId);
+  if (!entry) return;
+  var change = {};
+  if (fields.date !== undefined) change.date = entry.date;
+  if (fields.payment_method_id !== undefined) change.payment_method_id = entry.payment_method_id || '';
+  var siblingId = link.kind === 'transfer' ? link.gapId : link.transferId;
+  if (siblingId && getEntryById_(siblingId)) updateEntryFields(siblingId, change);
+  var sheet = getSheet('Settlements');
+  var headers = getHeaders(sheet);
+  link.rows.forEach(function (st) {
+    var idx = findRowIndexById(sheet, headers, st.id);
+    if (idx === -1) return;
+    if (change.date !== undefined) setCellByRow_(sheet, headers, idx, 'date', change.date);
+    if (change.payment_method_id !== undefined) setCellByRow_(sheet, headers, idx, 'payment_method_id', change.payment_method_id);
+  });
+}
+
+// transfer entry id -> { gapEntryId, total }: repayments whose money came in two entries. A bank statement shows ONE line for
+// the total, so the statement matcher needs it (see matchStatements_).
+function buildRepaymentTotalsForMatching_() {
+  ensureSettlementsGapColumn_();
+  var out = {};
+  getAllRows('Settlements').forEach(function (s) {
+    if (s.offset_loan_id || !s.transfer_entry_id || !s.gap_entry_id || out[s.transfer_entry_id]) return;
+    var te = getEntryById_(s.transfer_entry_id), ge = getEntryById_(s.gap_entry_id);
+    if (!te || !ge) return;
+    out[s.transfer_entry_id] = { gapEntryId: ge.id, total: Math.round((Number(te.amount) + Number(ge.amount)) * 100) / 100 };
+  });
+  return out;
+}
+
 // Why a plain edit may NOT change this entry's type, or '' when it may (entry-type conversions plan, step 0).
 // Some entries are the money movement of something else: a repayment's transfer entry, a cash loan's, the entry a
 // forgiveness booked, one side of a currency exchange. Switching their type through the ordinary update would leave
@@ -1530,6 +1592,8 @@ function entryTypeChangeBlock_(entryId, newType) {
     return tr_('typeChange.isRepayment');
   }
   var loans = getAllRows('Loans');
+  ensureSettlementsGapColumn_();
+  if (getAllRows('Settlements').some(function (s) { return s.gap_entry_id === entryId && !s.offset_loan_id; })) return tr_('typeChange.isRepaymentExtra');
   if (loans.some(function (l) { return l.transfer_entry_id === entryId; })) return tr_('typeChange.isLoan');
   if (loans.some(function (l) { return l.forgiveness_entry_id === entryId; })) return tr_('typeChange.isForgiveness');
   if (entry.exchange) return tr_('typeChange.isExchange');
@@ -1598,7 +1662,18 @@ function getEntryRepaymentLinks(payload) {
   }
   var linked = getAllRows('Settlements').filter(function (s) { return s.transfer_entry_id === id; });
   var refunds = entryRepaidLoansSummary_(id);
-  if (!linked.length) return { loan: false, repayment: null, refunds: refunds };
+  if (!linked.length) {
+    // the extra (income/expense) part of a repayment: deleting it only removes it from that repayment's total
+    var ofRepayment = repaymentOfEntry_(id);
+    var extra = null;
+    if (ofRepayment && ofRepayment.kind === 'gap') {
+      var exLoan = loans.find(function (l) { return l.id === ofRepayment.rows[0].loan_id; });
+      var exFriend = exLoan && getAllRows('Friends').find(function (f) { return f.id === exLoan.friend_id; });
+      var exEntry = getEntryById_(id);
+      extra = { friend: exFriend ? exFriend.name : '', currency: exEntry ? exEntry.currency : '', amount: exEntry ? Number(exEntry.amount) : 0, direction: exLoan ? exLoan.direction : '' };
+    }
+    return { loan: false, repayment: null, refunds: refunds, repaymentExtra: extra };
+  }
   var loanById = {};
   loans.forEach(function (l) { loanById[l.id] = l; });
   var friends = {};

@@ -707,6 +707,7 @@
     "reassign.limitCategoryExpense": { en: "Category of the expense", es: "Categoría del gasto" },
     "reassign.limitLater": { en: "Decide later (goes to Needs review)", es: "Decidir después (va a Por revisar)" },
     "reassign.limitNone": { en: "Select at least one loan that still has something left.", es: "Selecciona al menos un préstamo al que todavía le falte algo." },
+    "delete.repaymentExtra": { en: "This {cur} {amount} is part of a repayment from {friend} (the part that was not on a loan). Deleting it takes it out of that repayment's total. Delete it?", es: "Estos {cur} {amount} son parte de un repago de {friend} (la parte que no estaba en un préstamo). Al borrarlos salen del total de ese repago. ¿Borrarlos?" },
     "history.splitLoans": { en: "On loans: {amount}", es: "En préstamos: {amount}" },
     "history.splitIncome": { en: "Income: {amount}", es: "Ingreso: {amount}" },
     "history.splitExpense": { en: "Expense: {amount}", es: "Gasto: {amount}" },

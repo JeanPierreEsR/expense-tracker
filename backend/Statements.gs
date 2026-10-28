@@ -420,7 +420,7 @@ function analyzeStatements(payload) {
   ['Loans', 'Settlements'].forEach(function (t) {
     getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) loanTransferIds[r.transfer_entry_id] = true; });
   });
-  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds });
+  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_() });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });
@@ -458,6 +458,7 @@ function analyzeStatements(payload) {
         o.entry = stmtEntrySummary_(e, catsById, pmsById);
         o.dayDiff = r.dayDiff;
         o.viaTotal = !!r.viaTotal;
+        o.viaRepayment = !!r.viaRepayment;
         o.entryHadNoAccount = !!r.entryHadNoAccount;
         counts.matched++;
         if (r.entryHadNoAccount) counts.assignAccount++;

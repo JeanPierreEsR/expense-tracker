@@ -243,8 +243,10 @@ function updateEntryFromApp_(payload) {
     // Repaid debts of a shared expense are settled first (releaseEntryRepaidLoans); never leave them open and orphaned.
     if (entryTypeChangeRepaidLoanIds_(payload.id, payload.fields.type).length) throw new Error(tr_('typeChange.pickRepayments'));
   }
+  guardRepaymentEntryEdit_(payload.id, payload.fields);
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var entry = updateEntryFields(payload.id, payload.fields);
+  syncRepaymentAfterEntryEdit_(payload.id, payload.fields);
   if (before !== null && entry && entry.category_id && entry.category_id !== before) {
     var follow = categoryFollowAfterEdit_(payload.id);
     if (follow) return Object.assign({}, entry, { follow: follow });

@@ -3623,6 +3623,10 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
       if (!repaymentsChoice) return false;
     }
+    if (links.repaymentExtra) {
+      const x = links.repaymentExtra;
+      confirmText = tr("delete.repaymentExtra", { friend: x.friend, cur: x.currency, amount: moneyFmt(x.amount) });
+    }
     if (links.repayment) {
       const r = links.repayment;
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
