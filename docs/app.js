@@ -14137,7 +14137,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // written off, so it isn't restricted by origin the way editing is.
   // Not shown once nothing's left to forgive, or it's already
   // forgiven.
-  if (l.status !== "forgiven" && l.remaining > 0.004 && l.unapplied_sources) {
+  if (l.status !== "forgiven" && l.remaining > 0.004 && (l.unapplied || l.unapplied_sources)) {
     const applyBtn = document.createElement("button");
     applyBtn.type = "button";
     applyBtn.className = "add-inline loan-detail-forgive-btn";
