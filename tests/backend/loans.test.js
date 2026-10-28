@@ -576,3 +576,35 @@ test("an old repayment with no entry can be recorded in the accounts, once", () 
   assert.equal(rt.api("getFriendRepaymentHistory", { friendId: friend.id }).repayments[0].has_transfer_entry, true);
   assert.throws(() => rt.api("recordRepaymentEntry", { id: row.id }), "a second time");
 });
+
+test("'pay only the selected loans' leaves the others alone and records the gap as income", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const one = cashLoan(rt, data, friend, 100, "2026-01-01");
+  const two = cashLoan(rt, data, friend, 200, "2026-02-01");
+  const three = cashLoan(rt, data, friend, 300, "2026-03-01");
+  repay(rt, data, friend, 250);   // 100 on one, 150 on two
+  const row = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  const tid = row.transfer_entry_id;
+  const incomeCat = rt.rows("Categories").find((c) => c.type === "income").id;
+  const entriesBefore = rt.rows("Entries").length;
+
+  // only the 100 loan is selected: it takes 100, the other 150 is a gap
+  rt.api("reassignRepayment", { id: row.id, loan_ids: [one.id], limit: true, overpay_category_id: incomeCat });
+
+  assert.equal(paidOn(rt, one.id), 100);
+  assert.equal(paidOn(rt, two.id), 0, "nothing spills onto the others");
+  assert.equal(paidOn(rt, three.id), 0);
+  const te = rt.rows("Entries").find((e) => e.id === tid);
+  assert.equal(Number(te.amount), 100, "the money movement is what loans took");
+  const created = rt.rows("Entries").slice(entriesBefore);
+  const income = created.find((e) => e.type === "income");
+  assert.ok(income, "the gap became income");
+  assert.equal(Number(income.amount), 150);
+  assert.equal(income.category_id, incomeCat);
+  // without a category it waits in the review queue
+  const row2 = rt.rows("Settlements").find((s) => s.loan_id === one.id);
+  rt.api("reassignRepayment", { id: row2.id, loan_ids: [one.id], limit: true, amount: 130 });
+  assert.equal(rt.rows("Entries").filter((e) => e.type === "income" && e.status === "pending").length >= 1, true);
+  assert.throws(() => rt.api("reassignRepayment", { id: row2.id, loan_ids: [], limit: true }), "nothing selected");
+});
