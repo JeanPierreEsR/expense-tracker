@@ -14137,6 +14137,17 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // written off, so it isn't restricted by origin the way editing is.
   // Not shown once nothing's left to forgive, or it's already
   // forgiven.
+  if (l.status !== "forgiven" && l.remaining > 0.004 && l.unapplied_sources) {
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "add-inline loan-detail-forgive-btn";
+    applyBtn.textContent = tr("apply.button");
+    applyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openApplyUnapplied_(l, { id: friendId, name: friendName });
+    });
+    row.appendChild(applyBtn);
+  }
   if (l.status !== "forgiven" && l.remaining > 0.004) {
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
@@ -14318,7 +14329,7 @@ let reassignRepayment_ = null;
 function reassignPlan_() {
   const r = reassignRepayment_;
   const checked = new Set([...document.querySelectorAll("#reassign-list input[data-loan]")].filter((i) => i.checked).map((i) => i.dataset.loan));
-  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(r.candidates.filter((c) => !checked.has(c.id)));
+  const ordered = r.candidates.filter((c) => checked.has(c.id)).concat(r.mode === "apply" ? [] : r.candidates.filter((c) => !checked.has(c.id)));
   const plan = [];
   let left = r.amount;
   ordered.forEach((c) => {
@@ -14341,6 +14352,13 @@ function renderReassign_() {
   const others = plan.filter((x) => !x.selected);
   if (sel.length) parts.push(tr("settle.chooseAssigned", { assigned: `${r.currency} ${moneyFmt(sel.reduce((n, x) => n + x.take, 0))}` }));
   if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.map((x) => `${x.what} (${r.currency} ${moneyFmt(x.take)})`).join(", ") }));
+  if (r.mode === "apply") {
+    if (left > 0.004 && plan.length) parts.push(tr("apply.leftStays", { amount: `${r.currency} ${moneyFmt(left)}` }));
+    document.getElementById("reassign-summary").textContent = plan.length ? parts.join(" · ") : tr("apply.nothing");
+    document.getElementById("reassign-error").textContent = "";
+    document.getElementById("reassign-save").disabled = !plan.length;
+    return;
+  }
   document.getElementById("reassign-summary").textContent = parts.join(" · ");
   document.getElementById("reassign-error").textContent = left > 0.01 ? tr("reassign.noRoom") : "";
   document.getElementById("reassign-save").disabled = left > 0.01;
@@ -14357,6 +14375,8 @@ function openReassignRepayment_(r) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   reassignRepayment_ = { id: r.id, amount: r.applied, currency: r.currency, candidates };
 
+  document.getElementById("reassign-title").textContent = tr("reassign.title");
+  document.getElementById("reassign-hint").textContent = tr("reassign.hint");
   document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied)}`, date: r.date });
   const list = document.getElementById("reassign-list");
   list.innerHTML = "";
@@ -14384,6 +14404,50 @@ function openReassignRepayment_(r) {
   backdrop.hidden = false;
 }
 
+// "Apply to a loan": a payment kept from a deleted loan ("paid earlier, no loan") is put on the loans the person selects.
+async function openApplyUnapplied_(l, friend) {
+  let loans;
+  try {
+    loans = await callApi("getFriendLoanDetail", { friendId: friend.id });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const targetDir = l.direction === "i_owe_them" ? "they_owe_me" : "i_owe_them";
+  const candidates = loans
+    .filter((x) => x.currency === l.currency && x.direction === targetDir && x.status !== "forgiven" && x.remaining > 0.004)
+    .map((x) => ({ id: x.id, date: x.date, description: x.description || (x.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")), room: x.remaining }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  reassignRepayment_ = { mode: "apply", id: l.id, friend, amount: l.remaining, currency: l.currency, candidates };
+
+  document.getElementById("reassign-title").textContent = tr("apply.title");
+  document.getElementById("reassign-hint").textContent = tr("apply.hint");
+  document.getElementById("reassign-info").textContent = tr("apply.info", { amount: `${l.currency} ${moneyFmt(l.remaining)}` });
+  const list = document.getElementById("reassign-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "settle-choose-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.loan = c.id;
+    input.addEventListener("change", renderReassign_);
+    const text = document.createElement("span");
+    text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: l.currency, amount: moneyFmt(c.room) });
+    const assignedEl = document.createElement("span");
+    assignedEl.className = "settle-choose-assigned";
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(assignedEl);
+    list.appendChild(row);
+  });
+  document.getElementById("reassign-save").textContent = tr("common.save");
+  renderReassign_();
+  const backdrop = document.getElementById("reassign-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
 function closeReassign_() {
   document.getElementById("reassign-modal-backdrop").hidden = true;
 }
@@ -14393,10 +14457,12 @@ document.getElementById("reassign-save").addEventListener("click", async () => {
   const ctx = historyCtx_;
   const btn = document.getElementById("reassign-save");
   const { checked } = reassignPlan_();
+  const applying = reassignRepayment_.mode === "apply";
+  const applyFriend = reassignRepayment_.friend;
   btn.disabled = true;
   btn.textContent = tr("common.loading");
   try {
-    await callApi("reassignRepayment", { id: reassignRepayment_.id, loan_ids: [...checked] });
+    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", { id: reassignRepayment_.id, loan_ids: [...checked] });
   } catch (err) {
     document.getElementById("reassign-error").textContent = err.message;
     btn.textContent = tr("common.save");
@@ -14407,6 +14473,10 @@ document.getElementById("reassign-save").addEventListener("click", async () => {
   // Everything behind this sheet may have changed: the Loans tab, the person's screen, and this history.
   refreshEntriesInBackground_();
   await refreshLoans();
+  if (applying) {   // opened from the person's screen, not from the history
+    await openLoanDetail(applyFriend.id, applyFriend.name);
+    return;
+  }
   await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
   await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
 });

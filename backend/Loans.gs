@@ -193,10 +193,17 @@ function refundAndDeleteRepaidLoan_(loan) {
     var what = loan.description || tr_('label.sharedExpense');
     var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
     ensureLoansTransferEntryColumn_();
+    ensureLoansUnappliedColumn_();
+    // Which repayments (money movements) this came from, so "Apply to a loan" can attach it to them again later.
+    var sources = {};
+    mine.forEach(function (s) {
+      if (!s.offset_loan_id && s.transfer_entry_id) sources[s.transfer_entry_id] = (sources[s.transfer_entry_id] || 0) + Number(s.amount);
+    });
+    var friendPaid = loan.direction === 'they_owe_me';   // the friend had paid the owner (else the owner had paid the friend)
     var refund = {
       id: Utilities.getUuid(),
       friend_id: loan.friend_id,
-      direction: loan.direction === 'they_owe_me' ? 'i_owe_them' : 'they_owe_me',
+      direction: friendPaid ? 'i_owe_them' : 'they_owe_me',
       origin: 'cash',
       entry_id: '',
       amount: Math.round(realPaid * 100) / 100,
@@ -204,14 +211,139 @@ function refundAndDeleteRepaidLoan_(loan) {
       date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
       due_date: '',
       payment_method_id: '',
-      description: tr_('loan.refundDescription', { what: what, cur: loan.currency, amount: moneyFmt_(realPaid), friend: friend ? friend.name : '' }),
+      description: unappliedPaymentDescription_(friendPaid, what, friend ? friend.name : '', loan.currency, realPaid),
       status: 'outstanding',
       transfer_entry_id: '',   // no new money moved: the repayment's own transfer entry already recorded it
-      project_id: loan.project_id || ''
+      project_id: loan.project_id || '',
+      unapplied_sources: JSON.stringify(sources)   // non-empty = "paid earlier, no loan" (see applyUnappliedPayment)
     };
     if (refund.project_id) ensureBusinessSheets_();
     appendRowObject('Loans', refund);
   }
+}
+
+// Wording of the loan that holds a payment whose loan was deleted (owner's choice, 2026-10-27).
+function unappliedPaymentDescription_(friendPaid, what, friendName, currency, amount, lang) {
+  return tr_(friendPaid ? 'loan.unappliedDescIn' : 'loan.unappliedDescOut',
+    { what: what, friend: friendName, cur: currency, amount: moneyFmt_(amount) }, lang);
+}
+
+// Column marking a loan as "paid earlier, no loan": a JSON map {repayment transfer entry id: amount}. Self-heals; when it is
+// first created, the "Refund: …" loans an earlier release made are recognised, reworded, and matched to their repayment.
+function ensureLoansUnappliedColumn_() {
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('unapplied_sources') !== -1) return;
+  sheet.getRange(1, headers.length + 1).setValue('unapplied_sources');
+  adoptOldRefundLoans_();
+}
+
+function adoptOldRefundLoans_() {
+  var patterns = [
+    { lang: 'en', re: /^Refund: (.*) was deleted, (.*) had repaid ([A-Z]{3}) ([\d,]+\.\d\d)$/ },
+    { lang: 'es', re: /^Reembolso: se elimin\u00f3 (.*), (.*) hab\u00eda repagado ([A-Z]{3}) ([\d,]+\.\d\d)$/ }
+  ];
+  var loans = getAllRows('Loans');
+  var settlements = getAllRows('Settlements');
+  var entriesById = {};
+  var used = {};
+  loans.forEach(function (l) {
+    if (l.origin !== 'cash' || l.transfer_entry_id) return;
+    var m = null, lang = 'en';
+    patterns.forEach(function (p) { var r = p.re.exec(String(l.description || '')); if (r && !m) { m = r; lang = p.lang; } });
+    if (!m) return;
+    var friendPaid = l.direction === 'i_owe_them';
+    // the repayment that is bigger than what its loans still hold, by exactly this amount
+    var friendLoanIds = {};
+    loans.forEach(function (x) { if (x.friend_id === l.friend_id && x.currency === l.currency) friendLoanIds[x.id] = true; });
+    var applied = {};
+    settlements.forEach(function (st) {
+      if (!st.offset_loan_id && st.transfer_entry_id && friendLoanIds[st.loan_id]) applied[st.transfer_entry_id] = (applied[st.transfer_entry_id] || 0) + Number(st.amount);
+    });
+    var sources = {};
+    Object.keys(applied).forEach(function (tid) {
+      if (used[tid]) return;
+      var te = getEntryById_(tid);
+      if (!te) return;
+      var diff = Math.round((Number(te.amount) - applied[tid]) * 100) / 100;
+      if (Math.abs(diff - Number(l.amount)) < 0.011 && !Object.keys(sources).length) { sources[tid] = Number(l.amount); used[tid] = true; }
+    });
+    updateRowFields_('Loans', l.id, {
+      description: unappliedPaymentDescription_(friendPaid, m[1], m[2], m[3], Number(String(m[4]).replace(/,/g, '')), lang),
+      unapplied_sources: JSON.stringify(sources)
+    });
+  });
+}
+
+// Applies a "paid earlier, no loan" payment to the loans the person selected (owner's request, 2026-10-27): the selected
+// loans are paid oldest first until the payment runs out, the settlement rows are attached to the repayment the money
+// came from (so the history shows it paid those loans again), and the "paid earlier" loan shrinks by what was applied
+// (and disappears when nothing is left). It must have no lines of its own (undo any cancel-out first).
+function applyUnappliedPayment(payload) {
+  ensureLoansUnappliedColumn_();
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
+  if (!loan || !String(loan.unapplied_sources || '')) throw new Error(tr_('repay.notUnapplied'));
+  if (getAllRows('Settlements').some(function (s) { return s.loan_id === loan.id; })) throw new Error(tr_('repay.unappliedHasLines'));
+
+  var total = Number(loan.amount);
+  var targetDir = loan.direction === 'i_owe_them' ? 'they_owe_me' : 'i_owe_them';
+  var settledByLoan = buildSettlementTotalsByLoan_();
+  var rooms = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.friend_id === loan.friend_id && l.currency === loan.currency && l.direction === targetDir && l.status !== 'forgiven') {
+      var room = Number(l.amount) - (settledByLoan[l.id] || 0);
+      if (room > 0.004) rooms[l.id] = { loan: l, room: room };
+    }
+  });
+  var chosen = (payload.loan_ids || []).map(function (id) {
+    if (!rooms[id]) throw new Error(tr_('repay.chosenLoanNotOpen'));
+    return rooms[id];
+  }).sort(function (a, b) { return a.loan.date < b.loan.date ? -1 : (a.loan.date > b.loan.date ? 1 : 0); });
+
+  var plan = [];
+  var left = total;
+  chosen.forEach(function (c) {
+    if (left <= 0.004) return;
+    var take = Math.round(Math.min(c.room, left) * 100) / 100;
+    if (take > 0.004) { plan.push({ loan_id: c.loan.id, amount: take }); left = Math.round((left - take) * 100) / 100; }
+  });
+  if (!plan.length) throw new Error(tr_('repay.applyNoRoom'));
+
+  var sourceMap = {};
+  try { sourceMap = JSON.parse(loan.unapplied_sources) || {}; } catch (err) { sourceMap = {}; }
+  var sources = Object.keys(sourceMap).map(function (tid) {
+    var te = getEntryById_(tid);
+    return { tid: tid, amt: Number(sourceMap[tid]), date: te ? te.date : '', pm: te ? (te.payment_method_id || '') : '' };
+  }).filter(function (x) { return x.amt > 0.004; }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  var touched = {};
+  plan.forEach(function (item) {
+    var need = item.amount;
+    while (need > 0.004 && sources.length) {
+      var src = sources[0];
+      var chunk = Math.round(Math.min(need, src.amt) * 100) / 100;
+      recordSettlementRow_(item.loan_id, src.date || today, chunk, src.pm, '', src.tid);
+      src.amt = Math.round((src.amt - chunk) * 100) / 100;
+      need = Math.round((need - chunk) * 100) / 100;
+      if (src.amt <= 0.004) sources.shift();
+    }
+    if (need > 0.004) recordSettlementRow_(item.loan_id, today, need, '', '', '');
+    touched[item.loan_id] = true;
+  });
+  Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
+
+  var applied = Math.round((total - left) * 100) / 100;
+  if (left <= 0.004) {
+    deleteRowsWhere_('Loans', function (row) { return row.id === loan.id; });
+  } else {
+    var rest = {};
+    sources.forEach(function (x) { rest[x.tid] = x.amt; });
+    updateRowFields_('Loans', loan.id, { amount: left, unapplied_sources: JSON.stringify(rest) });
+  }
+  return { done: true, applied: applied, left: left };
 }
 
 // ---- Loan/repayment transfer entries (added 2026-09-23) ----
@@ -1534,6 +1666,7 @@ function listLoanBalances(payload) {
 // really repaid, what was cancelled by an automatic offset and what is left, plus every repayment line, so the
 // balance can be checked by hand. Read-only; amounts stay in each loan's own currency.
 function getFriendRepaymentHistory(payload) {
+  ensureLoansUnappliedColumn_();
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
   var scope = loanProjectScope_(payload);
@@ -1704,6 +1837,7 @@ function listSettledLoanFriends(payload) {
 // for the Loans tab's per-friend detail. Not filtered or netted; that's
 // what listLoanBalances is for.
 function getFriendLoanDetail(friendId) {
+  ensureLoansUnappliedColumn_();
   var settledByLoan = buildSettlementTotalsByLoan_();
   var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId; });
   loans.forEach(function (loan) {
