@@ -108,6 +108,6 @@ test("JP introduces themself once, in the first help-asking messages, without a 
   assert.match(setup, /shareBody: 'I’m JP, who made this app\./);
   assert.match(setup, /shareBody: 'Soy JP, quien hizo esta app\./);
   assert.ok(!/listEntries/.test(get("perfShare.body").en + get("perfShare.body").es));
-  assert.match(get("bankNote.text").en, /^"The app can't read emails/);
-  assert.match(get("bankNote.text").es, /^"La app todavía no lee/);
+  assert.match(get("bankNote.text").en, /^"Your account at \{banks\} works fully/);
+  assert.match(get("bankNote.text").es, /^"Tu cuenta en \{banks\} funciona completa/);
 });

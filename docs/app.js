@@ -7869,7 +7869,10 @@ function renderWelcomeAccounts_() {
       btn.type = "button";
       const n = count(b.name);
       btn.className = "wa-bank" + (n ? " has" : "");
-      const nm = document.createElement("span"); nm.textContent = b.name;
+      const nm = document.createElement("span");
+      const nmText = document.createElement("span"); nmText.textContent = b.name; nm.appendChild(nmText);
+      const ticks = bankTicks_(b.name);
+      if (ticks) { const tk = document.createElement("span"); tk.className = "wa-bank-ticks"; tk.textContent = ticks; nm.appendChild(tk); }
       const ct = document.createElement("span"); ct.className = "wa-bank-count"; ct.textContent = n ? tr("wa.count", { n }) : "›";
       btn.appendChild(nm); btn.appendChild(ct);
       btn.addEventListener("click", () => { welcome_.bankOpen = b.name; welcome_.form = null; renderWelcomeAccounts_(); });
@@ -8650,10 +8653,24 @@ function bankReadable_(name) {
   const list = (meta && meta.emailInfo && meta.emailInfo.banks) || [];
   return list.some((b) => b.toLowerCase() === String(name || "").trim().toLowerCase());
 }
+// Statement readers live in statement-parsers.js (STATEMENT_BANK_BY_KIND); "Banco Falabella" and "Falabella" are the same bank here.
+const bankKey_ = (name) => String(name || "").trim().toLowerCase().replace(/^banco\s+/, "");
+function bankStatementsReadable_(name) {
+  return typeof StatementParsers !== "undefined" && StatementParsers.statementBanks().some((b) => bankKey_(b) === bankKey_(name));
+}
+// Ticks for the bank lists (owner, 2026-10-28): a bank the app can read shows what it reads; a bank it cannot read shows NOTHING, never a
+// cross, so the list never talks anyone out of registering their bank. The e-mail tick needs the bank e-mail extra and a backend that sends emailInfo.
+function bankTicks_(name) {
+  const caps = (meta && meta.capabilities) || {};
+  const out = [];
+  if (caps.bankEmails && meta && meta.emailInfo && meta.emailInfo.banks && bankReadable_(name)) out.push(tr("bankTick.emails"));
+  if (bankStatementsReadable_(name)) out.push(tr("bankTick.statements"));
+  return out.join(" · ");
+}
 function fillBankNote_(el, bankNames) {
   el.innerHTML = "";
   const caps = (meta && meta.capabilities) || {};
-  const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n)))];
+  const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n) && !bankStatementsReadable_(n)))];
   // A copy still on an older pinned backend sends no emailInfo: say nothing rather than call every bank unreadable.
   if (!caps.bankEmails || perfIsOwnerCopy_() || !names.length || !(meta && meta.emailInfo && meta.emailInfo.banks)) return;
   const p = document.createElement("p");
