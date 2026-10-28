@@ -7861,6 +7861,8 @@ const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.pl
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
   waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
+  waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
+  if (!businessOffered()) welcome_.business = false;
   document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
   const box = waEl_("wp-chips");
   box.innerHTML = "";
@@ -10261,8 +10263,18 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
 
 function businessOn() { return !!(meta && meta.capabilities && meta.capabilities.business); }
 
+// Whether this copy may see the pack at all (owner's rule, 2026-10-27: hidden from new people until he says otherwise). The server
+// decides (capabilities.businessOffered). A copy's saved start-up data from before this existed has no such key: then the pack counts
+// as offered only where it is already on, or on the owner's own copy (the only one that shows the performance log).
+function businessOffered() {
+  const c = meta && meta.capabilities;
+  if (!c) return false;
+  return c.businessOffered !== undefined ? !!c.businessOffered : !!(c.business || c.perfLog);
+}
+
 function applyBusinessVisibility_() {
   const on = businessOn();
+  document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
   refreshBusinessHomeCard_();

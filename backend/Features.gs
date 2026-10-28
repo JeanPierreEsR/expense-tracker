@@ -73,6 +73,8 @@ function getCapabilities_() {
     bankReady: true,
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.
     business: businessOn_(),
+    // Whether this copy may see the pack at all (the welcome question and the More row). False on a new person's copy until the owner opens it.
+    businessOffered: businessOffered_(),
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };
