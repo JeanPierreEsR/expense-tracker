@@ -2858,9 +2858,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // No flag for PEN — it's the default currency (every other one is the
 // exception worth calling out), so a flag on it next to nearly every
 // entry was just noise repeated over and over rather than information.
-function formatAmount(amount, currency) {
+// `prefix` is a sign ("+" / "−", maybe "≈ ") that belongs right before the currency code: the flag stays to its LEFT
+// ("🇺🇸 −USD 10.00"), never "−🇺🇸 USD 10.00" (owner 2026-10-29).
+function formatAmount(amount, currency, prefix) {
   const flag = currency === homeCur() ? "" : findCurrency(currency).flag + " ";
-  return `${flag}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${flag}${prefix || ""}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Confirmed entries lead with PEN (the currency every report/budget
@@ -4590,7 +4592,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
         </div>
-        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
+        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -12640,7 +12642,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${isIncome ? "+" : "−"}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  const primary = `<span class="primary-amt">${formatAmount(ownAmount, re.currency, (isIncome ? "+" : "−") + (re.variable ? "≈ " : ""))}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
