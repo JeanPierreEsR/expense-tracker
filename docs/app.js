@@ -1743,7 +1743,9 @@ function renderSplitRows() {
   };
 
   if (splitMode === "percent") {
-    // The owner has no box here: they keep whatever the friends' % leave.
+    // The owner's box is optional: blank = keeps whatever the friends' % leave.
+    addRow("me", tr("common.me") + " (%)", () => splitPercents.me, (v) => { splitPercents.me = v; });
+    splitInputEls.me.placeholder = String(computePercentShares(0, [...splitFriendIds], splitPercents).ownPct);
     Array.from(splitFriendIds).forEach((id) => {
       const friend = meta.friends.find((f) => f.id === id);
       if (!friend) return;
@@ -1828,7 +1830,19 @@ function computePercentShares(amount, friendIds, percents) {
     amounts[id] = c / 100;
     friendCents += c;
   });
-  return { amounts, ownerShare: (totalCents - friendCents) / 100, totalPct, over: totalPct > 100.0001 };
+  // The owner's own box (key "me") is optional: left blank, the owner keeps
+  // whatever the friends leave; filled in, all the boxes must add up to 100.
+  const ownRaw = parseFloat(percents.me);
+  const ownFilled = !isNaN(ownRaw) && ownRaw >= 0;
+  const allPct = totalPct + (ownFilled ? ownRaw : 0);
+  return {
+    amounts,
+    ownerShare: (totalCents - friendCents) / 100,
+    totalPct,
+    ownPct: ownFilled ? ownRaw : Math.max(100 - totalPct, 0),
+    over: allPct > 100.0001,
+    notFull: ownFilled && allPct < 99.9999,
+  };
 }
 
 function renderSplitSummary() {
@@ -1850,9 +1864,10 @@ function renderSplitSummary() {
     summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else if (splitMode === "percent") {
     const p = computePercentShares(amount, friendIds, splitPercents);
-    if (p.over) {
+    if (splitInputEls.me) splitInputEls.me.placeholder = String(Math.round(p.ownPct * 100) / 100);
+    if (p.over || p.notFull) {
       summaryEl.textContent = "";
-      errorEl.textContent = tr("split.errPercentOver");
+      errorEl.textContent = tr(p.over ? "split.errPercentOver" : "split.errPercentNot100");
     } else {
       const friendsTotal = friendIds.reduce((sum, id) => sum + p.amounts[id], 0);
       summaryEl.textContent = tr("split.summaryPercent", { cur: currency, pct: String(Math.round(p.totalPct * 100) / 100), friends: moneyFmt(friendsTotal), own: moneyFmt(p.ownerShare) });
@@ -1912,7 +1927,9 @@ function validateSplitIfEnabled() {
   const splits = getSplitPayload();
   const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
   if (splitMode === "percent") {
-    if (computePercentShares(amount, friendIds, splitPercents).over) throw new Error(tr("split.errPercentOver"));
+    const pc = computePercentShares(amount, friendIds, splitPercents);
+    if (pc.over) throw new Error(tr("split.errPercentOver"));
+    if (pc.notFull) throw new Error(tr("split.errPercentNot100"));
     const paidBy = document.getElementById("paid_by").value;
     if (assigned <= 0 && !(paidBy && paidBy !== "me")) throw new Error(tr("split.errNoAmount"));
   }
@@ -13054,6 +13071,28 @@ function renderRecurringSplitRows() {
   const pctMode = recurringSplitMode === "percent";
   if (recurringSplitMode !== "custom" && !pctMode) return;
 
+  if (pctMode && recurringSplitFriendIds.size > 0) {
+    // The owner's own % box: blank = keeps whatever the friends' % leave.
+    const row = document.createElement("div");
+    row.className = "split-row";
+    const name = document.createElement("span");
+    name.className = "split-row-name";
+    name.textContent = tr("common.me") + " (%)";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.setAttribute("data-me", "1");
+    input.placeholder = String(computePercentShares(0, Array.from(recurringSplitFriendIds), recurringSplitPercents).ownPct);
+    input.value = recurringSplitPercents.me || "";
+    input.addEventListener("input", (e) => {
+      recurringSplitPercents.me = e.target.value;
+      renderRecurringSplitSummary();
+    });
+    row.appendChild(name);
+    row.appendChild(input);
+    container.appendChild(row);
+  }
+
   Array.from(recurringSplitFriendIds).forEach((id) => {
     const friend = meta.friends.find((f) => f.id === id);
     if (!friend) return;
@@ -13101,9 +13140,11 @@ function renderRecurringSplitSummary() {
     summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else if (recurringSplitMode === "percent") {
     const p = computePercentShares(amount, friendIds, recurringSplitPercents);
-    if (p.over) {
+    const meBox = document.querySelector("#recurring-split-rows input[data-me]");
+    if (meBox) meBox.placeholder = String(Math.round(p.ownPct * 100) / 100);
+    if (p.over || p.notFull) {
       summaryEl.textContent = "";
-      errorEl.textContent = tr("split.errPercentOver");
+      errorEl.textContent = tr(p.over ? "split.errPercentOver" : "split.errPercentNot100");
     } else {
       const friendsTotal = friendIds.reduce((sum, id) => sum + p.amounts[id], 0);
       summaryEl.textContent = tr("split.summaryPercent", { cur: currency, pct: String(Math.round(p.totalPct * 100) / 100), friends: moneyFmt(friendsTotal), own: moneyFmt(p.ownerShare) });
@@ -13148,8 +13189,10 @@ function validateRecurringSplitIfEnabled() {
 
   const splits = getRecurringSplitPayload();
   const assigned = splits.reduce((sum, s) => sum + s.amount, 0);
-  if (recurringSplitMode === "percent" && computePercentShares(amount, friendIds, recurringSplitPercents).over) {
-    throw new Error(tr("split.errPercentOver"));
+  if (recurringSplitMode === "percent") {
+    const pc = computePercentShares(amount, friendIds, recurringSplitPercents);
+    if (pc.over) throw new Error(tr("split.errPercentOver"));
+    if (pc.notFull) throw new Error(tr("split.errPercentNot100"));
   }
   if ((recurringSplitMode === "custom" || recurringSplitMode === "percent") && assigned <= 0) {
     throw new Error(tr("split.errNoAmount"));
