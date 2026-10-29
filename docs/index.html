@@ -1619,9 +1619,13 @@
         </div>
         <p class="hint" data-i18n="welcome.dateHint">This is for dates you type. Dates on screen always show the month as a word (3 Apr 2026).</p>
 
-        <h3 data-i18n="welcome.curLabel">Your currencies</h3>
-        <p class="hint" data-i18n="welcome.curHint">Tap the currencies you use. Double-tap one to make it your main currency (★): totals, budgets and reports are shown in it. You can change it any time in More → Main currency, and switching back restores everything exactly.</p>
-        <p class="hint" id="welcome-main-label" style="font-weight:600;"></p>
+        <h3 id="welcome-main-title" data-i18n="welcome.mainTitle">Main currency</h3>
+        <p class="hint" data-i18n="welcome.mainHint">Totals, budgets and reports are shown in it. You can change it any time in More → Main currency.</p>
+        <select id="welcome-main-select" aria-labelledby="welcome-main-title"></select>
+        <p class="hint" id="welcome-guess-note" hidden></p>
+
+        <h3 data-i18n="welcome.curLabel">Other currencies you use</h3>
+        <p class="hint" id="welcome-main-label" data-i18n="welcome.curHint">Tap the ones you use. They become quick buttons when you add an entry.</p>
         <div id="welcome-currencies" class="welcome-currencies"></div>
 
         <p class="hint" id="welcome-error" style="color:#d64545;"></p>
@@ -2780,6 +2784,8 @@
   <script src="i18n.js?v=2026-10-28T23:20:38Z"></script>
   <script src="tour-scenes.js?v=2026-10-28T23:20:38Z"></script>
   <script src="signin-link.js?v=2026-10-28T23:20:38Z"></script>
+  <script src="country-guess.js?v=2026-10-28T23:20:38Z"></script>
+  <script src="rate-quotes.js?v=2026-10-28T23:20:38Z"></script>
   <script src="bank-sample.js?v=2026-10-28T23:20:38Z"></script>
   <script src="perf-share.js?v=2026-10-28T23:20:38Z"></script>
   <script src="receipt-parse.js?v=2026-10-28T23:20:38Z"></script>
