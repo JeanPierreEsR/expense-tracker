@@ -5562,6 +5562,11 @@ function moneyFmt(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// A quote like 0.9174 or 3.7512: at least 2 decimals, up to 4 (moneyFmt's 2 would turn 0.9174 into 0.92).
+function rateFmt_(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
 function signedMoney_(n, cur) {
   const r = Math.round(Number(n) * 100) / 100;
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${cur} ${moneyFmt(Math.abs(r))}`;
@@ -8120,6 +8125,14 @@ function welcomeCurrencyCodes_() {
   return shown.concat(rest);
 }
 let welcome_ = null;
+// The phone's own region and time zone pre-select main currency, the usual other currencies and the date order (docs/country-guess.js).
+// Nothing is asked of the phone and nothing is sent; the person sees the pick and can change it. null = no guess: soles, as before.
+function welcomeGuess_() {
+  try {
+    const langs = navigator.languages && navigator.languages.length ? Array.from(navigator.languages) : [navigator.language];
+    return CountryGuess.guess({ languages: langs, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" });
+  } catch (e) { return null; }
+}
 function welcomeEl_(id) { return document.getElementById(id); }
 function maybeShowWelcome_() {
   const caps = (meta && meta.capabilities) || {};
@@ -8132,7 +8145,9 @@ function maybeShowWelcome_() {
 function startWelcome_(preview) {
   const lang = I18n.getLang();
   welcomeEl_("welcome-preview-exit").hidden = !preview;
-  welcome_ = { preview: !!preview, appLang: lang, lang, order: lang === "es" ? "dmy" : "mdy", home: "PEN", currencies: ["USD", "EUR"], lastTap: null, more: false,
+  const guess = welcomeGuess_();
+  welcome_ = { preview: !!preview, appLang: lang, lang, order: guess ? guess.dateOrder : lang === "es" ? "dmy" : "mdy", home: guess ? guess.currency : "PEN",
+    currencies: guess ? guess.others.slice() : ["USD", "EUR"], guess, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false };   // the optional Business pack question at the end of step 3 (off unless chosen)
@@ -8151,7 +8166,7 @@ function renderWelcomeQuestions_() {
   root.querySelectorAll("[data-welcome-order]").forEach((b) => b.classList.toggle("active", b.dataset.welcomeOrder === welcome_.order));
   const box = welcomeEl_("welcome-currencies");
   box.innerHTML = "";
-  welcomeEl_("welcome-main-label").textContent = tr("welcome.mainLabel", { code: welcome_.home });
+  renderWelcomeMain_();
   welcomeCurrencyCodes_().forEach((code) => {
     const isMain = code === welcome_.home;
     const b = document.createElement("button");
@@ -8172,21 +8187,37 @@ function renderWelcomeQuestions_() {
   welcomeEl_("welcome-error").textContent = "";
   welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1 });
 }
-// One tap picks or drops a currency; a second tap on the same one within 0.4 s makes it the MAIN currency (★).
-// The main currency is always selected, and the old main one stays in the list as an ordinary currency.
+// The MAIN currency has its own explicit row (a list, since 2026-10-28; it used to be a hidden double-tap on a chip). It is
+// always one of the quick currencies, and the old main one stays in the list as an ordinary currency.
+function renderWelcomeMain_() {
+  const sel = welcomeEl_("welcome-main-select");
+  sel.innerHTML = "";
+  CURRENCIES.forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.code;
+    o.textContent = `${c.flag} ${c.code} — ${tr("currency." + c.code)}`;   // looked up now: the welcome can switch language while it is open
+    sel.appendChild(o);
+  });
+  sel.value = welcome_.home;
+  // The pick came from the phone's settings and nothing was changed yet: say so, so it is a visible choice and not a silent one.
+  const g = welcome_.guess;
+  const note = welcomeEl_("welcome-guess-note");
+  note.hidden = !(g && welcome_.home === g.currency && welcome_.order === g.dateOrder);
+  if (!note.hidden) note.textContent = tr("welcome.guessNote", { currency: `${findCurrency(g.currency).flag} ${g.currency}`, dates: tr("welcome.orderShort." + g.dateOrder) });
+}
+welcomeEl_("welcome-main-select").addEventListener("change", (e) => {
+  const code = e.target.value;
+  if (!welcome_ || code === welcome_.home) return;
+  const old = welcome_.home;
+  welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
+  if (!welcome_.currencies.includes(old)) welcome_.currencies.unshift(old);
+  welcome_.home = code;
+  welcome_.currencies = welcome_.currencies.slice(0, 4);
+  renderWelcomeQuestions_();
+});
+// One tap picks or drops an OTHER currency; the main one stays selected (it is changed in the Main currency row).
 function welcomeTapCurrency_(code) {
-  const now = Date.now();
-  const double = welcome_.lastTap && welcome_.lastTap.code === code && now - welcome_.lastTap.at < 400;
-  welcome_.lastTap = double ? null : { code, at: now };
-  if (double) {
-    if (code !== welcome_.home) {
-      const old = welcome_.home;
-      welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
-      if (!welcome_.currencies.includes(old)) welcome_.currencies.unshift(old);
-      welcome_.home = code;
-      welcome_.currencies = welcome_.currencies.slice(0, 4);
-    }
-  } else if (code !== welcome_.home) {
+  if (code !== welcome_.home) {
     if (welcome_.currencies.includes(code)) welcome_.currencies = welcome_.currencies.filter((c) => c !== code);
     else if (welcome_.currencies.length < 4) welcome_.currencies.push(code);
   }
@@ -9588,7 +9619,11 @@ async function refreshExchangeRates() {
   list.innerHTML = "";
   emptyNote.hidden = rates.length > 0;
 
-  rates.forEach((r) => {
+  // Friends' copies read every rate against the US dollar, the way banks and the news quote them ("1 USD = 0.92 EUR"); the
+  // owner's own copy keeps "1 X = main". Only the reading changes: what is stored, and the window a tap opens, are the same.
+  const quotes = perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
+  rates.forEach((r, i) => {
+    const q = quotes[i];
     const row = document.createElement("div");
     row.className = "recurring-row";
     row.innerHTML = `
@@ -9596,7 +9631,7 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">1 ${r.currency} = ${homeCur()} ${moneyFmt(r.rate)}</div>
+      <div class="recurring-row-amount">${q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : `1 ${r.currency} = ${homeCur()} ${moneyFmt(r.rate)}`}</div>
     `;
     row.addEventListener("click", async () => {
       const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
