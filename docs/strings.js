@@ -171,6 +171,10 @@
     // ---- split ----
     "split.openBill": { en: "🧾 Split a bill by items…", es: "🧾 Repartir una boleta por ítems…" },
     "split.toggle": { en: "Split this expense", es: "Repartir este gasto" },
+    "split.addDue": { en: "+ Add due date", es: "+ Añadir fecha de vencimiento" },
+    "split.dueWeek": { en: "In 1 week", es: "En 1 semana" },
+    "split.dueMonthEnd": { en: "End of month", es: "Fin de mes" },
+    "split.dueClear": { en: "No date", es: "Sin fecha" },
     "split.equal": { en: "Equal", es: "Igual" },
     "split.custom": { en: "Custom", es: "Personalizado" },
     "split.sharedWith": { en: "Shared with", es: "Compartido con" },

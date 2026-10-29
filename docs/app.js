@@ -1571,7 +1571,40 @@ function resetSplitState() {
   renderSplitRows();
   document.getElementById("split-summary").textContent = "";
   document.getElementById("split-error").textContent = "";
+  resetSplitDue_();
 }
+
+// ---- Optional due date for the debts a split creates (owner's request, 2026-10-29) ----
+// One date for every friend's share, blank by default (a casual shared dinner must not start an overdue-reminder clock).
+// It travels on each split as `due_date`. `splitDueKnown_` is false only when an edited entry's saved date could not be
+// loaded: then nothing is sent, and the backend keeps the date the debts already have (saveEntrySplits).
+let splitDueKnown_ = true;
+function resetSplitDue_() {
+  splitDueKnown_ = true;
+  document.getElementById("split-due").value = "";
+  document.getElementById("split-due-block").hidden = true;
+  document.getElementById("split-due-add").hidden = false;
+}
+function showSplitDue_(value) {
+  document.getElementById("split-due").value = value || "";
+  document.getElementById("split-due-block").hidden = false;
+  document.getElementById("split-due-add").hidden = true;
+}
+// yyyy-mm-dd plus whole days, in local time (no time-zone surprises).
+function splitDueShift_(iso, days) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function splitDueBase_() { return document.getElementById("date").value || localTodayISO_(); }
+document.getElementById("split-due-add").addEventListener("click", () => showSplitDue_(""));
+document.getElementById("split-due-week").addEventListener("click", () => { document.getElementById("split-due").value = splitDueShift_(splitDueBase_(), 7); });
+document.getElementById("split-due-month").addEventListener("click", () => {
+  const d = new Date(splitDueBase_() + "T00:00:00");
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  document.getElementById("split-due").value = last.getFullYear() + "-" + String(last.getMonth() + 1).padStart(2, "0") + "-" + String(last.getDate()).padStart(2, "0");
+});
+document.getElementById("split-due-clear").addEventListener("click", () => { document.getElementById("split-due").value = ""; });
 
 // The friend picker shows at most 3 rows, most-recently-used first (by
 // `last_used`, see getFriendsWithLastUsed_ in Api.gs); a "More…" chip ends
@@ -1804,15 +1837,17 @@ function renderSplitSummary() {
 function getSplitPayload() {
   const amount = parseFloat(document.getElementById("amount").value) || 0;
   const friendIds = Array.from(splitFriendIds);
+  const due = splitDueKnown_ ? (document.getElementById("split-due").value || "") : null;   // null: leave the saved date alone
+  const withDue = (list) => due === null ? list : list.map((s) => Object.assign(s, { due_date: due }));
 
   if (splitMode === "equal") {
     const { shareEach } = computeEqualShares(amount, friendIds);
-    return friendIds.map((id) => ({ friend_id: id, amount: shareEach }));
+    return withDue(friendIds.map((id) => ({ friend_id: id, amount: shareEach })));
   }
   const shares = computeCustomShares();
-  return friendIds
+  return withDue(friendIds
     .map((id) => ({ friend_id: id, amount: shares.amounts[id] || 0 }))
-    .filter((s) => s.amount > 0);
+    .filter((s) => s.amount > 0));
 }
 
 // Called from the submit handler, before anything is saved. Returns the
@@ -2859,9 +2894,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // No flag for PEN — it's the default currency (every other one is the
 // exception worth calling out), so a flag on it next to nearly every
 // entry was just noise repeated over and over rather than information.
-function formatAmount(amount, currency) {
+// `prefix` is a sign ("+" / "−", maybe "≈ ") that belongs right before the currency code: the flag stays to its LEFT
+// ("🇺🇸 −USD 10.00"), never "−🇺🇸 USD 10.00" (owner 2026-10-29).
+function formatAmount(amount, currency, prefix) {
   const flag = currency === homeCur() ? "" : findCurrency(currency).flag + " ";
-  return `${flag}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${flag}${prefix || ""}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Confirmed entries lead with PEN (the currency every report/budget
@@ -3778,6 +3815,9 @@ async function startEditEntry(entry) {
       renderSplitFriendChips();
       renderSplitRows();
       renderSplitSummary();
+      // The debts' saved due date (listEntries sends it); without it (a bare getEntrySplits answer) the save leaves it alone.
+      if (entry.split_due_date === undefined) splitDueKnown_ = false;
+      else if (entry.split_due_date) showSplitDue_(entry.split_due_date);
     }
   }
 
@@ -4592,7 +4632,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
         </div>
-        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
+        <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -12759,7 +12799,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${isIncome ? "+" : "−"}${re.variable ? "≈ " : ""}${formatAmount(ownAmount, re.currency)}</span>`;
+  const primary = `<span class="primary-amt">${formatAmount(ownAmount, re.currency, (isIncome ? "+" : "−") + (re.variable ? "≈ " : ""))}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }

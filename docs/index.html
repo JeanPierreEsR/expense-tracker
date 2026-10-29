@@ -252,6 +252,18 @@
               <div id="split-rows"></div>
               <p class="hint" id="split-summary"></p>
               <p class="hint" id="split-error" style="color:#d64545;"></p>
+
+              <div class="add-inline" id="split-due-add" data-i18n="split.addDue">+ Add due date</div>
+              <div id="split-due-block" hidden>
+                <label for="split-due" data-i18n="loan.dueDateOptional">Due date (optional)</label>
+                <input type="date" id="split-due">
+                <div class="tags-list">
+                  <div class="tag-chip" id="split-due-week" data-i18n="split.dueWeek">In 1 week</div>
+                  <div class="tag-chip" id="split-due-month" data-i18n="split.dueMonthEnd">End of month</div>
+                  <div class="tag-chip" id="split-due-clear" data-i18n="split.dueClear">No date</div>
+                </div>
+                <p class="hint" data-i18n="loan.dueDateHint">Optional. Without a date there is no overdue reminder.</p>
+              </div>
             </div>
           </div>
 
