@@ -564,6 +564,20 @@ var BACKEND_STRINGS_ = {
 // are the same in both languages (acronyms, proper names) need no entry.
 var CATEGORY_TRANSLATIONS_ = {
   annual_budget: { en: 'Annual budget', es: 'Presupuesto anual' },
+  // The starter list and the "What fits you?" packs of new installs (Profile.gs).
+  insurance: { en: 'Insurance', es: 'Seguros' },
+  vehicle: { en: 'Vehicle', es: 'Vehículo' },
+  kids: { en: 'Kids', es: 'Hijos' },
+  pets: { en: 'Pets', es: 'Mascotas' },
+  health: { en: 'Health', es: 'Salud' },
+  work_expenses: { en: 'Work expenses', es: 'Gastos de trabajo' },
+  family_support: { en: 'Family support', es: 'Apoyo a la familia' },
+  interest: { en: 'Interest', es: 'Intereses' },
+  going_out: { en: 'Going out', es: 'Salidas' },
+  personal_care: { en: 'Personal care', es: 'Cuidado personal' },
+  subscriptions: { en: 'Subscriptions', es: 'Suscripciones' },
+  hobbies: { en: 'Hobbies', es: 'Pasatiempos' },
+  gifts_donations: { en: 'Gifts & donations', es: 'Regalos y donaciones' },
   car: { en: 'Car', es: 'Auto' },
   travel: { en: 'Travel', es: 'Viajes' },
   restaurants: { en: 'Restaurants', es: 'Restaurantes' },

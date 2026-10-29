@@ -8387,9 +8387,11 @@ function startWelcome_(preview) {
     currencies: guess ? guess.others.slice() : ["USD", "EUR"], guess, more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
-    business: false };   // the optional Business pack question at the end of step 3 (off unless chosen)
+    business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
+    fits: [] };        // the "What fits you?" answers (category packs)
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
+  welcomeEl_("welcome-fits").hidden = true;
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   welcomeEl_("welcome-tour").hidden = true;
@@ -8505,13 +8507,56 @@ const waBanksOfList_ = (list) => list.slice().sort((x, y) => x.name.localeCompar
 
 function showWelcomeStep_(step) {
   welcomeEl_("welcome-questions").hidden = step !== 1;
-  welcomeEl_("welcome-accounts").hidden = step !== 2;
-  welcomeEl_("welcome-platforms").hidden = step !== 3;
+  welcomeEl_("welcome-fits").hidden = step !== 2;
+  welcomeEl_("welcome-accounts").hidden = step !== 3;
+  welcomeEl_("welcome-platforms").hidden = step !== 4;
   welcomeEl_("welcome-overlay").scrollTop = 0;
-  if (step === 2) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
-  else if (step === 3) renderWelcomePlatforms_();
+  if (step === 3) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
+  else if (step === 4) renderWelcomePlatforms_();
+  else if (step === 2) renderWelcomeFits_();
   else renderWelcomeQuestions_();
 }
+
+// ---- Welcome step 2: "What fits you?" (optional) ----
+// Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
+// welcome is saved). The same chips are used by More → Categories → "Add suggested categories".
+const FITS_GROUPS_ = [
+  { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"] },
+  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
+];
+const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
+function fillFitsChips_(box, selected, onToggle) {
+  box.innerHTML = "";
+  FITS_GROUPS_.forEach((g) => {
+    const h = document.createElement("h3");
+    h.textContent = tr(g.title);
+    box.appendChild(h);
+    const row = document.createElement("div");
+    row.className = "welcome-choices";
+    g.answers.forEach((a) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "welcome-choice" + (selected.includes(a) ? " active" : "");
+      b.textContent = tr("fits.a." + a);
+      b.addEventListener("click", () => onToggle(a));
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  });
+}
+const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
+function renderWelcomeFits_() {
+  I18n.applyStatic(welcomeEl_("welcome-fits"));
+  welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
+  fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
+  waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
+  if (!businessOffered()) welcome_.business = false;
+  document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
+  welcomeEl_("wf-skip-btn").hidden = welcome_.fits.length > 0;
+}
+welcomeEl_("wf-back-btn").addEventListener("click", () => showWelcomeStep_(1));
+welcomeEl_("wf-next-btn").addEventListener("click", () => showWelcomeStep_(3));
+welcomeEl_("wf-skip-btn").addEventListener("click", () => showWelcomeStep_(3));
 
 function renderWelcomeAccounts_() {
   const root = waEl_("welcome-accounts");
@@ -8520,7 +8565,7 @@ function renderWelcomeAccounts_() {
   waEl_("wa-root").hidden = inBank;
   waEl_("wa-bank").hidden = !inBank;
   if (inBank) { renderWaBank_(); return; }
-  waEl_("wa-step").textContent = tr("welcome.step", { n: 2 });
+  waEl_("wa-step").textContent = tr("welcome.step", { n: 3 });
   const cat = waCatalog_();
   const count = (name) => welcome_.accounts.filter((a) => a.bank.toLowerCase() === name.toLowerCase()).length;
   const fill = (boxId, banks) => {
@@ -8672,19 +8717,19 @@ waEl_("wa-add-bank-btn").addEventListener("click", () => {
   welcome_.bankOpen = use; welcome_.form = null;
   renderWelcomeAccounts_();
 });
-waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(1));
+waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(2));
 welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeStep_(2));
 
-// The end of step 2: check the Yape / Plin links, then on to step 3 (nothing is saved yet).
+// The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
 function waNext_() {
   // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
   if (canLink && !linked && !confirm(tr("wallets.confirm"))) return;
-  showWelcomeStep_(3);
+  showWelcomeStep_(4);
 }
 
-// Step 3 (optional): investment platforms, in groups. Brand names are the same in both languages; only a bank's fund arm
+// Step 4 (optional): investment platforms, in groups. Brand names are the same in both languages; only a bank's fund arm
 // ("BCP funds" / "Fondos BCP") is worded per language.
 const wpBankFunds_ = () => ["BCP", "BBVA", "Interbank", "Scotiabank"].map((bank) => tr("wp.bankFund", { bank }));
 const WP_GROUPS = [
@@ -8696,10 +8741,7 @@ const WP_GROUPS = [
 const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.platformsCustom);
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
-  waEl_("wp-step").textContent = tr("welcome.step", { n: 3 });
-  waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
-  if (!businessOffered()) welcome_.business = false;
-  document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
+  waEl_("wp-step").textContent = tr("welcome.step", { n: 4 });
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -8741,9 +8783,9 @@ function addWelcomePlatform_() {
 }
 waEl_("wp-add-btn").addEventListener("click", addWelcomePlatform_);
 waEl_("wp-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWelcomePlatform_(); } });
-waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(2));
+waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 
-// The end of step 3: save the accounts, the platforms, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+// The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
 async function finishWelcome_() {
   const btn = waEl_("wp-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
@@ -8751,6 +8793,7 @@ async function finishWelcome_() {
   errEl.textContent = "";
   if (welcome_.preview) {   // preview: save nothing, just carry on to the rest of the flow
     btn.disabled = false; btn.textContent = tr("welcome.next");
+    welcomeEl_("welcome-accounts").hidden = true;
     welcomeEl_("welcome-platforms").hidden = true;
     const toTourPreview = () => {
       if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
@@ -8767,6 +8810,11 @@ async function finishWelcome_() {
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
+    // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
+    // welcome: the same packs can be added later from More → Categories → "Add suggested categories".
+    if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
+      try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
+    }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
     errEl.textContent = tr("wa.error");
@@ -8783,9 +8831,10 @@ async function finishWelcome_() {
   document.getElementById("currency").value = welcome_.home;
   renderCurrencyChips("entry");
   I18n.saveLang(welcome_.lang);
+  welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
-  // The new accounts and platforms must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business;
+  // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0;
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -8798,7 +8847,7 @@ waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
 document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
   welcome_.business = b.dataset.welcomeBusiness === "yes";
-  renderWelcomePlatforms_();
+  renderWelcomeFits_();
 }));
 waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
 waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
@@ -10168,6 +10217,7 @@ let catModalState = null;   // { id, type, color }
 let categoryCounts_ = {};   // category id -> number of entries, filled by renderCategoriesList_
 
 function showCategoriesScreen() {
+  document.getElementById("categories-suggest-btn").hidden = !(meta && meta.capabilities && meta.capabilities.profile);   // an older backend cannot do it
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-categories"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
   renderCategoriesList_();
@@ -10421,6 +10471,37 @@ document.getElementById("cat-modal-backdrop").addEventListener("click", (e) => {
 document.getElementById("more-categories-btn").addEventListener("click", showCategoriesScreen);
 document.getElementById("categories-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("categories-add-btn").addEventListener("click", () => openCatModal_(null));
+
+// "Add suggested categories": the same "What fits you?" chips for people who already use the app. Adds the common categories they
+// don't have (an equivalent such as "Mobile Phone" counts as having "Phone") plus the packs of what they pick. Never removes anything.
+let fitsSel_ = [];
+const fitsEl_ = (id) => document.getElementById(id);
+function fitsDraw_() {
+  fillFitsChips_(fitsEl_("fits-chips"), fitsSel_, (a) => { fitsSel_ = fitsToggled_(fitsSel_, a); fitsDraw_(); });
+}
+document.getElementById("categories-suggest-btn").addEventListener("click", () => {
+  fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
+  const backdrop = fitsEl_("fits-modal-backdrop");
+  I18n.applyStatic(backdrop);
+  fitsEl_("fits-msg").textContent = "";
+  fitsDraw_();
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+});
+fitsEl_("fits-close").addEventListener("click", () => { fitsEl_("fits-modal-backdrop").hidden = true; });
+fitsEl_("fits-add-btn").addEventListener("click", async () => {
+  const btn = fitsEl_("fits-add-btn");
+  btn.disabled = true;
+  fitsEl_("fits-msg").textContent = "";
+  try {
+    const res = await callApi("applyProfile", { answers: fitsSel_, basics: true });
+    if (meta && meta.settings) meta.settings.profile = (res.profile || []).join(",");
+    fitsEl_("fits-msg").textContent = res.added.length ? tr("fits.added", { n: res.added.length }) : tr("fits.none");
+    if (res.added.length) await refreshCategoriesAfterChange_();
+  } catch (err) {
+    fitsEl_("fits-msg").textContent = tr("fits.failed");
+  } finally { btn.disabled = false; }
+});
 
 // ---- Trips & events (More → Trips & events; see specs/trips-events.md) ----
 // A trip or event is a named period that expenses can be linked to (one per
