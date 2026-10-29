@@ -5166,6 +5166,23 @@ function showToast_(text) {
   appToastTimer_ = setTimeout(() => { el.hidden = true; }, 3500);
 }
 
+// The standard for a plain "save, then refresh" form (owner's rule,
+// 2026-10-29): the caller checks the form, closes its sheet, then hands the
+// server call here. A "💾 Saving…" toast shows, the call runs behind the
+// screen, a refusal comes back as a message, and `after` (the refresh) runs
+// either way so the screen always ends up showing what the server has.
+function saveBehindScreen_(work, after) {
+  showToast_(tr("common.savingToast"));
+  (async () => {
+    try {
+      await work();
+    } catch (err) {
+      alert(tr("common.notSaved", { error: err.message }));
+    }
+    try { if (after) await after(); } catch (e) { /* the list shows its own load error */ }
+  })();
+}
+
 // What has to refresh behind the sheet once a new entry has been saved.
 function afterNewEntrySaved_() {
   if (!document.getElementById("screen-overview").hidden) {
@@ -6967,21 +6984,16 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const categoryId = isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
     const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds, name };
 
-    if (editingBudgetId) {
-      await callApi("updateBudget", Object.assign({ id: editingBudgetId }, fields));
-    } else {
-      await callApi("addBudget", fields);
-    }
-    // Close as soon as the save itself succeeds — that's the fast part.
-    // listBudgets recomputes every budget's progress against the full
-    // Entries sheet (~4s), so waiting for it before closing made every
-    // save feel sluggish; refreshing the list in the background instead
-    // means the modal (and, if this was opened from one, its drill-down)
-    // close right away, and any refresh failure surfaces in the list
-    // itself rather than getting lost behind an already-closed modal.
+    // The sheet (and, if this was opened from one, its drill-down) closes
+    // right away; the save and the list refresh (listBudgets recomputes every
+    // budget against the full Entries sheet, ~4s) run behind the screen, and
+    // any refresh failure surfaces in the list itself.
+    const budgetId = editingBudgetId;
     closeBudgetModal();
     closeDrilldown();
-    refreshBudgetsInBackground_();
+    saveBehindScreen_(
+      () => budgetId ? callApi("updateBudget", Object.assign({ id: budgetId }, fields)) : callApi("addBudget", fields),
+      async () => { refreshBudgetsInBackground_(); });
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -10529,15 +10541,15 @@ document.getElementById("cat-save-btn").addEventListener("click", async () => {
   const btn = document.getElementById("cat-save-btn");
   btn.disabled = true;
   try {
-    await callApi("saveCategory", {
+    const payload = {
       id: catModalState.id || undefined,
       type: catModalState.type,
       name: document.getElementById("cat-name").value,
       icon: document.getElementById("cat-emoji").value.trim(),
       color: catModalState.color
-    });
+    };
     closeCatModal_();
-    await refreshCategoriesAfterChange_();
+    saveBehindScreen_(() => callApi("saveCategory", payload), refreshCategoriesAfterChange_);
   } catch (err) { errorEl.textContent = err.message; }
   finally { btn.disabled = false; }
 });
@@ -11312,11 +11324,14 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
     // The server checks everything and answers in the person's language.
-    if (editingTripId_) await callApi("updateTrip", Object.assign({ id: editingTripId_ }, fields));
-    else await callApi("addTrip", fields);
+    const tripId = editingTripId_;
     closeTripModal_();
-    await refreshTripsList_();
-    if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+    saveBehindScreen_(
+      () => tripId ? callApi("updateTrip", Object.assign({ id: tripId }, fields)) : callApi("addTrip", fields),
+      async () => {
+        await refreshTripsList_();
+        if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+      });
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -12018,10 +12033,11 @@ document.getElementById("company-save-btn").addEventListener("click", async () =
       name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim(),
       igv_enabled: document.getElementById("company-igv").checked, tax_id: document.getElementById("company-tax-id").value.trim()
     };
-    if (editingCompanyId_) await callApi("updateCompany", Object.assign({ id: editingCompanyId_ }, fields));
-    else await callApi("addCompany", fields);
+    const companyId = editingCompanyId_;
     closeCompanyModal_();
-    await afterBusinessChange_();
+    saveBehindScreen_(
+      () => companyId ? callApi("updateCompany", Object.assign({ id: companyId }, fields)) : callApi("addCompany", fields),
+      afterBusinessChange_);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -12285,10 +12301,11 @@ document.getElementById("project-save-btn").addEventListener("click", async () =
       client_id: document.getElementById("project-client").value,
       budgets
     };
-    if (editingProjectId_) await callApi("updateProject", Object.assign({ id: editingProjectId_ }, fields));
-    else await callApi("addProject", fields);
+    const projectId = editingProjectId_;
     closeProjectModal_();
-    await afterBusinessChange_();
+    saveBehindScreen_(
+      () => projectId ? callApi("updateProject", Object.assign({ id: projectId }, fields)) : callApi("addProject", fields),
+      afterBusinessChange_);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -14935,13 +14952,13 @@ document.getElementById("projection-override-save-btn").addEventListener("click"
   const saveBtn = document.getElementById("projection-override-save-btn");
   saveBtn.disabled = true;
   try {
-    await callApi("setProjectionOverride", {
+    const overridePayload = {
       categoryId: projectionOverrideState.categoryId,
       periodKey: projectionOverrideState.periodKey,
       amount
-    });
+    };
     closeProjectionOverrideModal_();
-    refreshProjectionAfterOverrideChange_();
+    saveBehindScreen_(() => callApi("setProjectionOverride", overridePayload), async () => { refreshProjectionAfterOverrideChange_(); });
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -17753,10 +17770,8 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
       // Typed minus or the checkbox both mean negative; never double-negate.
       return { currency: row.currency, amount: row.negative ? -Math.abs(parsed) : parsed, date: row.date };
     });
-    saveBtn.disabled = true;
-    await callApi("setPaymentMethodOpeningBalance", { id: pmId, balances });
     closeBalanceModal();
-    await refreshBalances();
+    saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }), refreshBalances);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {

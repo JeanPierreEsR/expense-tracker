@@ -89,6 +89,8 @@
     "common.addFriend": { en: "+ Add friend…", es: "+ Agregar amigo…" },
     "common.addTag": { en: "+ Add tag…", es: "+ Agregar etiqueta…" },
     "common.save": { en: "Save", es: "Guardar" },
+    "common.savingToast": { en: "💾 Saving…", es: "💾 Guardando…" },
+    "common.notSaved": { en: "That was NOT saved: {error}", es: "Eso NO se guardó: {error}" },
     "common.more": { en: "More…", es: "Más…" },
     "common.less": { en: "Less", es: "Menos" },
     "common.me": { en: "Me", es: "Yo" },
