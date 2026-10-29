@@ -327,6 +327,17 @@
         <p class="hint" id="notices-more" hidden></p>
       </div>
 
+      <div class="card own-name-card" id="own-name-card" hidden>
+        <h2 data-i18n="ownName.title">Is this you?</h2>
+        <p class="own-name-name" id="own-name-name"></p>
+        <p class="hint" data-i18n="ownName.hint">We saw this name on your bank statements or emails. If it is you, the app can tell your own transfers apart from payments to other people.</p>
+        <div class="own-name-actions">
+          <button type="button" class="primary" id="own-name-yes" data-i18n="ownName.yes">✓ Yes, it's me</button>
+          <button type="button" id="own-name-no" data-i18n="ownName.no">✗ Not me</button>
+        </div>
+        <p class="hint" id="own-name-error" style="color:#d64545;"></p>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
@@ -1670,6 +1681,11 @@
           <button type="button" class="add-inline" id="wa-add-bank-btn" data-i18n="wa.addBank">+ Add another bank</button>
           <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts, cards &amp; platforms.</p>
           <div id="wa-note"></div>
+          <div id="wa-name-block" hidden>
+            <h3 data-i18n="wa.nameTitle">Your full name</h3>
+            <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
+            <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
+          </div>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>

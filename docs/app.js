@@ -915,6 +915,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   }
   if (typeof maybeShowWelcome_ === "function") maybeShowWelcome_();
   syncLanguageSetting_();
+  renderOwnNameCard_();
   if (skipFormPopulate) return;
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
@@ -4589,6 +4590,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div>
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+          ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${{ in: "+", out: "−", "": "" }[entryFlowDirection_(entry)]}${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency)}</div>
       </div>
@@ -8388,7 +8390,8 @@ function startWelcome_(preview) {
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
-    fits: [] };        // the "What fits you?" answers (category packs)
+    fits: [],          // the "What fits you?" answers (category packs)
+    ownName: "" };     // the optional full name typed on the accounts screen (confirmed at once when saved)
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-fits").hidden = true;
@@ -8566,6 +8569,8 @@ function renderWelcomeAccounts_() {
   waEl_("wa-bank").hidden = !inBank;
   if (inBank) { renderWaBank_(); return; }
   waEl_("wa-step").textContent = tr("welcome.step", { n: 3 });
+  waEl_("wa-name-block").hidden = !(meta && meta.capabilities && meta.capabilities.ownName);   // an older backend cannot take the answer
+  waEl_("wa-name").value = welcome_.ownName;
   const cat = waCatalog_();
   const count = (name) => welcome_.accounts.filter((a) => a.bank.toLowerCase() === name.toLowerCase()).length;
   const fill = (boxId, banks) => {
@@ -8722,6 +8727,9 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeSt
 
 // The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
 function waNext_() {
+  const typed = waEl_("wa-name").value.trim().replace(/\s+/g, " ");
+  if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
+  welcome_.ownName = typed;
   // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
@@ -8809,6 +8817,7 @@ async function finishWelcome_() {
         accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
+    if (welcome_.ownName && meta && meta.capabilities && meta.capabilities.ownName) await callApi("saveOwnerNames", { names: [welcome_.ownName] });   // a typed name is confirmed at once
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → Categories → "Add suggested categories".
@@ -8834,7 +8843,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName;
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -8843,6 +8852,7 @@ async function finishWelcome_() {
   if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTour });
   else toTour();
 }
+waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-error").textContent = ""; });   // survives a redraw of the screen
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
 document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
@@ -9145,6 +9155,34 @@ mainCurrencyEl_("main-currency-apply-btn").addEventListener("click", async () =>
   } catch (e2) { /* storage blocked: the app reloads from the server anyway */ }
   window.location.reload();
 });
+
+// ---- "Is this you?" (Home card): the first time a name shows up in a statement or bank e-mail the app asks once (backend/OwnerNames.gs). ----
+// ✓ makes it one of the person's own names; ✗ is remembered, so it is never asked again. The server decides which name (meta.ownNameAsk).
+function renderOwnNameCard_() {
+  const card = document.getElementById("own-name-card");
+  if (!card) return;
+  const name = meta && meta.capabilities && meta.capabilities.ownName ? String(meta.ownNameAsk || "") : "";
+  card.hidden = !name;
+  document.getElementById("own-name-name").textContent = name;   // a person's name from a document: text only, never markup
+  document.getElementById("own-name-error").textContent = "";
+}
+async function answerOwnName_(yes) {
+  const name = String((meta && meta.ownNameAsk) || "");
+  if (!name) return;
+  const buttons = [document.getElementById("own-name-yes"), document.getElementById("own-name-no")];
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const res = await callApi("answerOwnName", { name, yes });
+    meta.ownNameAsk = res.ask || "";   // a second, different name may be waiting: it gets its own card
+    if (yes && meta.settings) meta.settings.owner_names = (res.names || []).join(", ");
+    renderOwnNameCard_();
+    if (yes) refreshReviewQueue().catch(() => {});   // the "Maybe yours?" hints are gone once a name is confirmed
+  } catch (err) {
+    document.getElementById("own-name-error").textContent = tr("ownName.error");
+  } finally { buttons.forEach((b) => { b.disabled = false; }); }
+}
+document.getElementById("own-name-yes").addEventListener("click", () => answerOwnName_(true));
+document.getElementById("own-name-no").addEventListener("click", () => answerOwnName_(false));
 
 // ---- My names (More → My names): the person's own names, learned from statements and bank e-mails (backend/OwnerNames.gs) ----
 const ownerNamesEl_ = (id) => document.getElementById(id);
