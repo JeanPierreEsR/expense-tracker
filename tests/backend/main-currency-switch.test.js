@@ -109,7 +109,7 @@ test("the rate screens speak in the main currency: 1 X = r MAIN, both ways round
 test("months before the new main currency's first rate use that first rate (an estimate), not 'no rate'", () => {
   const { rt } = setup();
   rt.api("changeMainCurrency", { currency: "JPY", rate: 40 });
-  const old = rt.api("listEntries", { limit: 3000 }).filter((e) => e.currency === "PEN" && e.date < thisMonth() + "-01").pop();
+  const old = rt.api("listEntries", { limit: 2000 }).filter((e) => e.currency === "PEN" && e.date < thisMonth() + "-01").pop();
   assert.ok(old, "an entry from before this month");
   assert.equal(Math.round(old.amount_pen * 100) / 100, Math.round(old.amount * 40 * 100) / 100);
   assert.equal(rt.api("previewMainCurrencyChange", { currency: "PEN" }).same, false);

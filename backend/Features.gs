@@ -84,6 +84,7 @@ function getCapabilities_() {
     bankReady: true,
     // This backend takes a rule pack from the phone (setRulePack, RulePack.gs); an older one lacks it and the app then never sends one.
     rulePack: true,
+    profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.
     business: businessOn_(),
     // Whether this copy may see the pack at all (the welcome question and the More row). False on a new person's copy until the owner opens it.

@@ -340,6 +340,7 @@ function routeAction(action, payload) {
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'getOwnerNames': return getOwnerNames();
     case 'saveOwnerNames': return saveOwnerNames(payload);
+    case 'applyProfile': return applyProfile(payload);
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
