@@ -60,14 +60,25 @@ function zoneOffsetMs_(utcMs, tz) {
   const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
   return asUtc - Math.floor(utcMs / 1000) * 1000;
 }
-function midnightInZone_(y, m, d, tz) {
-  const naive = Date.UTC(y, m - 1, d);
+function wallToInstant_(y, m, d, h, mi, s, tz) {
+  const naive = Date.UTC(y, m - 1, d, h, mi, s);
   let guess = naive - zoneOffsetMs_(naive, tz);
   guess = naive - zoneOffsetMs_(guess, tz);   // second pass settles the daylight-saving edge
   return new Date(guess);
 }
+function midnightInZone_(y, m, d, tz) { return wallToInstant_(y, m, d, 0, 0, 0, tz); }
+// Changing a Sheet's time zone does not change what a date cell SAYS (it holds a serial number: the day as written): its wall-clock
+// reading is kept and the moment it stands for moves with the zone. Mirrors that for every date in every tab.
+function rezoneSheetDates_(sheets, fromTz, toTz) {
+  sheets.forEach((sh) => sh.rows.forEach((row) => row.forEach((v, i) => {
+    if (!(v instanceof Date)) return;
+    const p = tzParts(v, fromTz);
+    row[i] = wallToInstant_(Number(p.year), Number(p.month), Number(p.day), Number(p.hour), Number(p.minute), Number(p.second), toTz);
+  })));
+}
 let sheetTz = TZ;   // the Sheet's own time zone, which can differ from the script's (tests set it with setSheetTimeZone)
 function setSheetTimeZone(z) { sheetTz = z || TZ; }
+function changeSheetTimeZone_(sheets, z) { rezoneSheetDates_(sheets, sheetTz, z); sheetTz = z; }
 function maybeDate(v) {
   if (typeof v !== "string") return v;
   // "2026-09-30" and also "2026-09" (Sheets reads that as 1 Sep 2026).
@@ -361,7 +372,10 @@ function buildServices(state) {
   return {
     ss, props, cache, fetchLog, uiLog, toastLog, mailLog, gmail,
     SpreadsheetApp: {
-      getActiveSpreadsheet: () => Object.assign(ss, { getSpreadsheetTimeZone: () => sheetTz }),
+      getActiveSpreadsheet: () => Object.assign(ss, {
+        getSpreadsheetTimeZone: () => sheetTz,
+        setSpreadsheetTimeZone: (z) => { if (ss.failSetTimeZone) throw new Error("Cannot change the time zone"); changeSheetTimeZone_([...ss.sheets.values()], z); }
+      }),
       getUi: () => uiChain
     },
     Utilities: {

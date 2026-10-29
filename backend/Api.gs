@@ -590,6 +590,7 @@ function findRowIndexById(sheet, headers, id) {
 // ---- Meta (everything the form's dropdowns need, in one call) ----
 
 function getMeta() {
+  runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
   ensureInvestmentPlatforms_();
   ensureRailDefaults_();
   ensureAnnualTag_();
