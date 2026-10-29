@@ -322,8 +322,10 @@ function seedCategories() {
     });
   }
 
-  addCatsWithIcons(EXPENSE_CATEGORIES, 'expense');
-  addCatsWithIcons(INCOME_CATEGORIES, 'income');
+  // A copy made by the installer starts with the short starter lists (Profile.gs); the owner's copy keeps his own long one.
+  var friend = isFriendCopy_();
+  addCatsWithIcons(friend ? STARTER_EXPENSE_CATEGORIES_ : EXPENSE_CATEGORIES, 'expense');
+  addCatsWithIcons(friend ? STARTER_INCOME_CATEGORIES_ : INCOME_CATEGORIES, 'income');
   addCats(['Contribution', 'Withdrawal'], 'investment');
   addCats(['Between Accounts'], 'transfer');
 

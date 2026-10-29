@@ -729,6 +729,7 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
+        <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">+ Add suggested categories</button>
         <div id="categories-list"></div>
       </div>
     </div>
@@ -1632,6 +1633,26 @@
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
+      <div id="welcome-fits" hidden>
+        <p class="hint" id="wf-step"></p>
+        <h2 data-i18n="wf.title">What fits you?</h2>
+        <p class="hint" data-i18n="wf.intro">Tap any that apply. Each one adds a few categories you will probably use. This step is optional, and you can add more any time in More → Categories.</p>
+        <div id="wf-chips" class="welcome-choices"></div>
+        <div id="wb-block" hidden>
+          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
+          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
+          <div class="welcome-choices">
+            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
+            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
+          </div>
+        </div>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wf-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wf-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+        <button type="button" class="add-inline" id="wf-skip-btn" data-i18n="wp.skip">Skip this step</button>
+      </div>
+
       <div id="welcome-accounts" hidden>
         <div id="wa-root">
           <p class="hint" id="wa-step"></p>
@@ -1689,14 +1710,6 @@
         <div class="wp-add">
           <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
           <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
-        </div>
-        <div id="wb-block" hidden>
-          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
-          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
-          <div class="welcome-choices">
-            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
-            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
-          </div>
         </div>
         <p class="hint" id="wp-error" style="color:#d64545;"></p>
         <div class="welcome-tour-buttons">
@@ -1897,6 +1910,21 @@
           <p class="hint" data-i18n="feedback.thanks">Thank you! I read it, and I'll write back if I need to ask you something. — JP</p>
           <button type="button" class="primary" id="fb-done" data-i18n="feedback.done">Close</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="fits-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="fits.title">Add suggested categories</span>
+        <button type="button" id="fits-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="fits.intro">Tap what fits you. The app adds the common categories you don't have yet, plus a few for each thing you pick. Nothing you have is changed or removed.</p>
+        <div id="fits-chips" class="welcome-choices"></div>
+        <p class="hint" id="fits-msg" role="status"></p>
+        <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
       </div>
     </div>
   </div>

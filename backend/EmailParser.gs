@@ -310,7 +310,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: 'Crecer Seguros' + (product ? ' - ' + product.replace(/([a-z])([A-Z])/g, '$1 $2') : ''),
-        merchant: 'Crecer Seguros', defaultCategory: 'Credit card',
+        merchant: 'Crecer Seguros', defaultCategory: 'Credit card', defaultCategoryAlt: 'Insurance',
         last4: null,
         externalId: afterLabel_(body, 'Número')
       };

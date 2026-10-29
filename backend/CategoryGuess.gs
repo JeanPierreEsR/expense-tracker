@@ -152,6 +152,10 @@ function guessCategoryForEmail_(fields, dateStr, ctx) {
   if (fields.defaultCategory && ctx.expenseCatIdByName[fields.defaultCategory]) {
     return { categoryId: ctx.expenseCatIdByName[fields.defaultCategory], reason: '' };
   }
+  // Same, for a copy that does not have that category (a new install has no "Credit card"): the rule's second choice.
+  if (fields.defaultCategoryAlt && ctx.expenseCatIdByName[fields.defaultCategoryAlt]) {
+    return { categoryId: ctx.expenseCatIdByName[fields.defaultCategoryAlt], reason: '' };
+  }
 
   var merchant = normalizeMerchant_(fields.merchant);
   var guess = (merchant && guessFromMerchantHistory_(merchant, ctx)) ||
