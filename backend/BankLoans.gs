@@ -42,8 +42,9 @@ function loanInstallmentsOf_(loanId) {
   return getAllRows('Loan Installments')
     .filter(function (r) { return r.loan_id === loanId; })
     .map(function (r) {
-      var paid = !!(r.transfer_entry_id && backed[r.transfer_entry_id]);
       var principal = Number(r.principal) || 0, interest = Number(r.interest) || 0, fees = Number(r.fees) || 0;
+      // An interest-only installment (a grace period) repays nothing: it is paid while its expense entry (kept in transfer_entry_id) exists.
+      var paid = !!(r.transfer_entry_id && (backed[r.transfer_entry_id] || (principal <= 0.004 && r.paid_date && getEntryById_(r.transfer_entry_id))));
       return {
         id: r.id, loan_id: r.loan_id, number: Number(r.number), due_date: String(r.due_date),
         principal: principal, interest: interest, fees: fees, total: bankRound_(principal + interest + fees),
@@ -79,7 +80,7 @@ function cleanInstallments_(list, principalTotal) {
   var sum = 0;
   var out = list.map(function (r) {
     var principal = bankRound_(r && r.principal), interest = bankRound_((r && r.interest) || 0), fees = bankRound_((r && r.fees) || 0);
-    if (!r || !r.due_date || !(principal > 0) || interest < 0 || fees < 0) throw new Error(tr_('bank.installmentBad'));
+    if (!r || !r.due_date || principal < 0 || interest < 0 || fees < 0 || !(principal + interest + fees > 0)) throw new Error(tr_('bank.installmentBad'));
     sum += principal;
     return { due_date: String(r.due_date), principal: principal, interest: interest, fees: fees };
   });
@@ -177,7 +178,7 @@ function recordInstallment(payload) {
   var principal = payload.principal !== undefined && payload.principal !== '' ? bankRound_(payload.principal) : live.principal;
   var interest = payload.interest !== undefined && payload.interest !== '' ? bankRound_(payload.interest) : live.interest;
   var fees = payload.fees !== undefined && payload.fees !== '' ? bankRound_(payload.fees) : live.fees;
-  if (!(principal > 0) || interest < 0 || fees < 0) throw new Error(tr_('err.validAmount'));
+  if (principal < 0 || interest < 0 || fees < 0 || !(principal + interest + fees > 0)) throw new Error(tr_('err.validAmount'));
   var settled = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; })
     .reduce(function (n, s) { return n + Number(s.amount); }, 0);
   var room = bankRound_(Number(loan.amount) - settled);
@@ -186,10 +187,11 @@ function recordInstallment(payload) {
   var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
   var count = loanInstallmentsOf_(loan.id).length;
   var what = loan.description || (friend ? friend.name : '');
-  var transfer = createTransferEntry_({
+  // no principal (a grace period, interest only): no repayment and no transfer, only the expense below
+  var transfer = principal > 0.004 ? createTransferEntry_({
     date: payload.date, amount: principal, currency: loan.currency, payment_method_id: payload.payment_method_id,
     description: tr_('bank.installmentDesc', { n: live.number, count: count, what: what })
-  });
+  }) : null;
   var extra = bankRound_(interest + fees);
   var extraId = '';
   if (extra > 0.004) {
@@ -200,8 +202,11 @@ function recordInstallment(payload) {
     });
     extraId = extraEntry.id;
   }
-  recordSettlementRow_(loan.id, payload.date, principal, payload.payment_method_id || '', '', transfer.id, true, extraId);
-  updateLoanStatusFromSettlements_(loan.id);
+  if (transfer) {
+    recordSettlementRow_(loan.id, payload.date, principal, payload.payment_method_id || '', '', transfer.id, true, extraId);
+    updateLoanStatusFromSettlements_(loan.id);
+  }
+  var backingId = transfer ? transfer.id : extraId;
 
   var sheet = getSheet('Loan Installments');
   var headers = getHeaders(sheet);
@@ -209,9 +214,9 @@ function recordInstallment(payload) {
   setCellByRow_(sheet, headers, idx, 'principal', principal);
   setCellByRow_(sheet, headers, idx, 'interest', interest);
   setCellByRow_(sheet, headers, idx, 'fees', fees);
-  setCellByRow_(sheet, headers, idx, 'transfer_entry_id', transfer.id);
+  setCellByRow_(sheet, headers, idx, 'transfer_entry_id', backingId);
   setCellByRow_(sheet, headers, idx, 'paid_date', payload.date);
-  return { installment: loanInstallmentsOf_(loan.id).find(function (r) { return r.id === row.id; }), transfer_entry_id: transfer.id, extra_entry_id: extraId };
+  return { installment: loanInstallmentsOf_(loan.id).find(function (r) { return r.id === row.id; }), transfer_entry_id: transfer ? transfer.id : '', extra_entry_id: extraId };
 }
 
 // An EARLY payment (prepago, owner's request, 2026-10-29): extra principal paid ahead of the schedule, with an optional prepayment fee
@@ -290,15 +295,20 @@ function recalculateInstallmentsAfterEarly_(open, after, mode) {
   var out = [];
   var balance = after;
   var n = open.length;
+  // interest-only rows (a grace period) stay interest-only; the annuity of 'reduce' spreads over the amortizing rows only
+  var amortizing = open.filter(function (r) { return r.principal > 0.004; }).length;
   var payment = 0;
-  if (mode === 'reduce') {
-    payment = rate > 0 ? after * rate / (1 - Math.pow(1 + rate, -n)) : after / n;
+  if (mode === 'reduce' && amortizing) {
+    payment = rate > 0 ? after * rate / (1 - Math.pow(1 + rate, -amortizing)) : after / amortizing;
   }
+  var lastAmortizing = -1;
+  open.forEach(function (r, idx) { if (r.principal > 0.004) lastAmortizing = idx; });
   for (var i = 0; i < n && balance > 0.004; i++) {
     var interest = bankRound_(balance * rate);
+    if (open[i].principal <= 0.004) { out.push({ id: open[i].id, principal: 0, interest: interest }); continue; }
     var pay = mode === 'reduce' ? payment : open[i].principal + open[i].interest;
     var p = bankRound_(pay - interest);
-    if (i === n - 1 || p >= balance - 0.004 || p <= 0) p = bankRound_(balance);
+    if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankRound_(balance);
     out.push({ id: open[i].id, principal: p, interest: interest });
     balance = bankRound_(balance - p);
   }

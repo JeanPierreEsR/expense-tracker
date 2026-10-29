@@ -190,3 +190,44 @@ test("early payment on a loan with no interest just drops installments", () => {
   const res = rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-01-20", payment_method_id: pm.id, principal: 150 });
   assert.deepEqual(res.schedule.installments.map((r) => [r.principal, r.interest]), [[100, 0], [50, 0]]);
 });
+
+test("a grace period: interest-only installments save, record as an expense only, and the principal still adds up", () => {
+  const { rt, pm, body } = make();
+  const { loan, installments } = rt.api("saveBankLoan", { ...body, installments: [
+    { due_date: "2026-02-05", principal: 0, interest: 6, fees: 2 },
+    { due_date: "2026-03-05", principal: 0, interest: 6, fees: 2 },
+    { due_date: "2026-04-05", principal: 150, interest: 6, fees: 2 },
+    { due_date: "2026-05-05", principal: 150, interest: 3, fees: 2 }
+  ] });
+  assert.equal(installments.length, 4);
+  assert.throws(() => rt.api("saveBankLoan", { ...body, installments: [{ due_date: "2026-02-05", principal: 0, interest: 0, fees: 0 }, { due_date: "2026-03-05", principal: 300 }] }), /needs a date/);
+  const cat = rt.rows("Categories").find((c) => c.type === "expense").id;
+  const before = rt.rows("Entries").length;
+
+  const res = rt.api("recordInstallment", { id: installments[0].id, date: "2026-02-05", payment_method_id: pm.id, category_id: cat });
+
+  const created = rt.rows("Entries").slice(before);
+  assert.equal(created.filter((e) => e.type === "transfer").length, 0, "no repayment, no transfer");
+  assert.equal(Number(created.find((e) => e.type === "expense").amount), 8, "interest + fees");
+  assert.equal(res.installment.status, "paid");
+  const sched = rt.api("getLoanSchedule", { loan_id: loan.id });
+  assert.equal(sched.remaining_principal, 300, "nothing of the principal has been repaid yet");
+  assert.equal(sched.installments[0].paid, true);
+  assert.throws(() => rt.api("recordInstallment", { id: installments[0].id, date: "2026-02-06" }), /already recorded/);
+  assert.throws(() => rt.api("recordInstallment", { id: installments[1].id, date: "2026-03-05", interest: 0, fees: 0, principal: 0 }), /valid amount/);
+});
+
+test("early payment during a grace period keeps the grace rows interest-only and recalculates them on the lower balance", () => {
+  const { rt, pm, body } = make();
+  const { loan } = rt.api("saveBankLoan", { ...body, installments: [
+    { due_date: "2026-02-05", principal: 0, interest: 6, fees: 0 },
+    { due_date: "2026-03-05", principal: 150, interest: 6, fees: 0 },
+    { due_date: "2026-04-05", principal: 150, interest: 3, fees: 0 }
+  ] });
+  const res = rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-01-20", payment_method_id: pm.id, principal: 100, mode: "reduce" });
+  const rows = res.schedule.installments;
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].principal, 0, "still interest only");
+  assert.equal(rows[0].interest, 4, "2% on the 200 left");
+  assert.equal(res.schedule.totals.principal, 200);
+});

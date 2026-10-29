@@ -15694,21 +15694,48 @@ function bankAddMonths_(iso, k) {
   return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
 }
 
+// The payment frequencies: how far apart the installments are.
+const BANK_FREQ_ = { weekly: { days: 7 }, biweekly: { days: 14 }, monthly: { months: 1 }, bimonthly: { months: 2 }, quarterly: { months: 3 }, semiannual: { months: 6 }, yearly: { months: 12 } };
+function bankAddPeriod_(iso, freq, k) {
+  const f = BANK_FREQ_[freq] || BANK_FREQ_.monthly;
+  if (f.months) return bankAddMonths_(iso, f.months * k);
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + f.days * k)).toISOString().slice(0, 10);
+}
+
 // The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
 // an annuity) whose interest is the monthly rate on what is still owed. The last row closes the balance exactly.
-function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer) {
-  const rows = [];
+function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer, freq, grace, graceType) {
   const r = ratePct / 100;
-  let balance = amount;
+  const rows = [];
+  let idx = 0;
+  const dateAt = (k) => bankAddPeriod_(firstDue, freq || "monthly", k);
+  // Grace, paying interest only: rows with no principal come first, the loan itself is untouched.
+  if (grace > 0 && graceType === "partial") {
+    for (let g = 0; g < grace; g++) rows.push({ due_date: dateAt(idx++), principal: 0, interest: r > 0 ? bankR2_(amount * r) : 0, fees: feePer });
+  }
+  // Grace with no payments: the interest is added to the loan, which is then paid off over the installments.
+  const base = grace > 0 && graceType === "total" && r > 0 ? bankR2_(amount * Math.pow(1 + r, grace)) : amount;
+  let balance = base;
   let pay = payment;
-  if (r > 0 && !(pay > 0)) pay = bankR2_(amount * r / (1 - Math.pow(1 + r, -count)) + feePer);
+  if (r > 0 && !(pay > 0)) pay = bankR2_(base * r / (1 - Math.pow(1 + r, -count)) + feePer);
+  const am = [];
   for (let i = 0; i < count; i++) {
-    let interest = r > 0 ? bankR2_(balance * r) : 0;
-    let principal = r > 0 ? bankR2_(pay - feePer - interest) : bankR2_(amount / count);
+    const interest = r > 0 ? bankR2_(balance * r) : 0;
+    let principal = r > 0 ? bankR2_(pay - feePer - interest) : bankR2_(base / count);
     if (i === count - 1 || principal > balance) principal = bankR2_(balance);
     balance = bankR2_(balance - principal);
-    rows.push({ due_date: bankAddMonths_(firstDue, i), principal, interest, fees: feePer });
+    am.push({ principal, interest });
   }
+  if (base !== amount) {
+    // what was added to the loan during the grace is cost, not principal: it moves into the interest, so the principals add up to the loan
+    const k = amount / base;
+    am.forEach((row) => { const p = bankR2_(row.principal * k); row.interest = bankR2_(row.interest + (row.principal - p)); row.principal = p; });
+    const diff = bankR2_(amount - am.reduce((n, row) => n + row.principal, 0));
+    am[am.length - 1].principal = bankR2_(am[am.length - 1].principal + diff);
+    am[am.length - 1].interest = bankR2_(am[am.length - 1].interest - diff);
+  }
+  am.forEach((row) => rows.push({ due_date: dateAt(idx++), principal: row.principal, interest: row.interest, fees: feePer }));
   return rows;
 }
 
@@ -15749,7 +15776,7 @@ function bankRenderTotals_() {
   const target = bankDraft_.mode === "edit" ? bankDraft_.total : bankNum_(document.getElementById("bank-amount").value);
   const cur = bankDraft_.currency || homeCur();
   const m = (n) => `${cur} ${moneyFmt(n)}`;
-  const ok = target > 0 && Math.abs(t.principal - target) <= 0.011 && bankDraft_.rows.length > 0 && bankDraft_.rows.every((r) => r.due_date && r.principal > 0);
+  const ok = target > 0 && Math.abs(t.principal - target) <= 0.011 && bankDraft_.rows.length > 0 && bankDraft_.rows.every((r) => r.due_date && r.principal >= 0 && (Number(r.principal) + Number(r.interest) + Number(r.fees)) > 0);
   document.getElementById("bank-totals").textContent = ok
     ? tr("bank.totals", { p: m(t.principal), a: m(target), i: m(t.interest), f: m(t.fees), t: m(t.principal + t.interest + t.fees) })
     : tr("bank.totalsOff", { p: m(t.principal), a: m(target) });
@@ -15781,6 +15808,10 @@ function openBankLoanForm_() {
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  document.getElementById("bank-gen-freq").value = "monthly";
+  document.getElementById("bank-gen-grace").value = "0";
+  document.getElementById("bank-gen-grace-type").value = "partial";
+  document.getElementById("bank-gen-grace-type-box").hidden = true;
   document.getElementById("bank-error").textContent = "";
   const lenders = document.getElementById("bank-lender-list");
   lenders.innerHTML = "";
@@ -15821,9 +15852,13 @@ function closeBankLoanForm_() {
 document.getElementById("add-bank-loan-btn").addEventListener("click", openBankLoanForm_);
 document.getElementById("bank-loan-close").addEventListener("click", closeBankLoanForm_);
 document.getElementById("bank-cancel").addEventListener("click", closeBankLoanForm_);
+document.getElementById("bank-gen-grace").addEventListener("input", () => {
+  document.getElementById("bank-gen-grace-type-box").hidden = !(bankNum_(document.getElementById("bank-gen-grace").value) > 0);
+});
 document.getElementById("bank-add-row").addEventListener("click", () => {
   const last = bankDraft_.rows[bankDraft_.rows.length - 1];
-  bankDraft_.rows.push({ due_date: last && last.due_date ? bankAddMonths_(last.due_date, 1) : "", principal: 0, interest: 0, fees: 0 });
+  const freq = document.getElementById("bank-gen-freq").value || "monthly";
+  bankDraft_.rows.push({ due_date: last && last.due_date ? bankAddPeriod_(last.due_date, freq, 1) : "", principal: 0, interest: 0, fees: 0 });
   bankRenderRows_();
 });
 ["bank-amount", "bank-lender"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankDraft_ && bankRenderTotals_()));
@@ -15838,7 +15873,9 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
   }
   document.getElementById("bank-error").textContent = "";
   bankDraft_.rows = bankGenerateRows_(amount, count, first, bankNum_(document.getElementById("bank-gen-payment").value),
-    bankNum_(document.getElementById("bank-gen-rate").value), bankNum_(document.getElementById("bank-gen-fee").value));
+    bankNum_(document.getElementById("bank-gen-rate").value), bankNum_(document.getElementById("bank-gen-fee").value),
+    document.getElementById("bank-gen-freq").value, Math.max(0, Math.round(bankNum_(document.getElementById("bank-gen-grace").value))),
+    document.getElementById("bank-gen-grace-type").value);
   bankRenderRows_();
 });
 
@@ -15953,10 +15990,13 @@ function bankRecalcCount_(open, after, mode) {
   if (mode === "reduce") return n;
   let balance = after;
   let count = 0;
+  let lastAmortizing = -1;
+  open.forEach((r, idx) => { if (r.principal > 0.004) lastAmortizing = idx; });
   for (let i = 0; i < n && balance > 0.004; i++) {
     const interest = bankR2_(balance * rate);
+    if (open[i].principal <= 0.004) { count++; continue; }   // an interest-only row of a grace period stays
     let p = bankR2_(open[i].principal + open[i].interest - interest);
-    if (i === n - 1 || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
+    if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
     balance = bankR2_(balance - p);
     count++;
   }
