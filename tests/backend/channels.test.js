@@ -171,7 +171,6 @@ test("promote copies the chosen release's screens into stable/, marks them stabl
   assert.deepEqual(JSON.parse(fs.readFileSync(st("version.json"), "utf8")), { version: "2026-01-02T00:00:00Z", release: "0.1.1" });
   for (const gone of ["setup", "setup-test", "vendor", "stable"]) assert.ok(!fs.existsSync(st(gone)), `${gone} is not copied into stable/`);
   assert.equal(JSON.parse(fs.readFileSync(path.join(r.work, "docs", "setup", "pin.json"), "utf8")).pin, r.backendTwo, "the pin is the release's last backend commit");
-  assert.equal(JSON.parse(fs.readFileSync(path.join(r.work, "docs", "setup", "pin.json"), "utf8")).release, "0.1.1", "the pin also says which app release it belongs to (the server version More shows)");
   assert.match(fs.readFileSync(path.join(r.work, "docs", "index.html"), "utf8"), /app-channel" content="live"/, "live is untouched");
   assert.match(git(r.origin, "tag", "-l", "stable-v0.1.1"), /stable-v0\.1\.1/, "tagged and pushed");
   assert.equal(git(r.origin, "rev-parse", "main"), git(r.work, "rev-parse", "HEAD"), "pushed");

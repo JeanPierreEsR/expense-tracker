@@ -55,13 +55,6 @@ function healWebAppUrl_(url) {
 // The backend version this copy was installed with: the installer writes INSTALL_BACKEND_REF (docs/setup/Install.gs) = the last
 // commit that changed backend/ at install/update time. '' on the owner's own copy, which has no installer file. The app compares it with
 // the newest one to offer "Update available" (More → Update).
-// The app release (e.g. 1.26.1) this copy's backend was promoted with (the installer stamps it from pin.json); '' on the owner's own copy or when
-// the pin carried none. More shows it next to the app's own version so the two can be compared at a glance.
-function installedAppRelease_() {
-  var rel = typeof INSTALL_APP_RELEASE === 'undefined' ? '' : String(INSTALL_APP_RELEASE || '');
-  return rel.indexOf('__') === 0 ? '' : rel;
-}
-
 function installedBackendRef_() {
   var ref = typeof INSTALL_BACKEND_REF === 'undefined' ? '' : String(INSTALL_BACKEND_REF || '');
   return ref.indexOf('__') === 0 ? '' : ref;
@@ -70,7 +63,6 @@ function installedBackendRef_() {
 function getCapabilities_() {
   return {
     backendRef: installedBackendRef_(),
-    backendRelease: installedAppRelease_(),
     // Dates are read in the Sheet's own time zone (2026-10-25). A server without this reads a Sheet in another zone a day early, and the app then
     // warns the person at once (REQUIRED_BACKEND_CAPS_ in app.js).
     sheetDates: true,

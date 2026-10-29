@@ -7717,22 +7717,11 @@ function renderBackendUpdateBanner_() {
   }
   stackTopBanners_();
 }
-// More → the line under "Version": which server version this phone talks to, compared with the app's. Friends' copies only (the owner's server is
-// always the newest, updated by ship.sh).
-function renderServerVersion_() {
-  const el = document.getElementById("more-server-version");
-  const caps = (meta && meta.capabilities) || {};
-  if (!el || caps.perfLog !== false) { if (el) el.hidden = true; return; }
-  const v = caps.backendRelease || (caps.backendRef ? String(caps.backendRef).slice(0, 7) : "");
-  el.textContent = (v ? tr("more.serverVersion", { v }) : tr("more.serverVersionOld")) + (backendBehind_ ? tr("more.serverBehind") : "");
-  el.hidden = false;
-}
 function setUpdateAvailable_(on) {
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
-  renderServerVersion_();
 }
 document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
 document.getElementById("backend-update-close").addEventListener("click", () => {
@@ -7745,7 +7734,7 @@ async function checkBackendUpdate_() {
   if (updateChecked_ || updateChecking_ || caps.perfLog !== false) return;   // false (not just missing) = a copy made by the installer
   // Known without asking anyone: this server lacks something the app needs.
   backendUrgent_ = REQUIRED_BACKEND_CAPS_.some((c) => !caps[c]);
-  if (backendUrgent_) setUpdateAvailable_(true); else renderServerVersion_();
+  if (backendUrgent_) setUpdateAvailable_(true);
   updateChecking_ = true;
   try { await checkBackendUpdateNow_(caps); } finally { updateChecking_ = false; }
 }

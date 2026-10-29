@@ -12,7 +12,7 @@ const RETURN = "https://jeanpierreesr.github.io/expense-tracker/setup/";
 const MAIN = "https://script.google.com/macros/s/AKfycbMadeUpInstallerAddr/exec";
 
 // Adds Install.gs the way the installer page does (placeholders replaced) and fakes what a web app has.
-function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", url = "", features = "base", ref = "", appRelease = "" } = {}) {
+function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", url = "", features = "base", ref = "" } = {}) {
   const { rt } = freshApp({ small: true });
   const triggers = [];
   rt.ctx.__triggers = triggers;
@@ -28,10 +28,9 @@ function withInstall({ release = "r1", code = "made-up-code-0123456789abcdef", u
     HtmlService = { createHtmlOutput: (html) => { const o = { _html: html, getContent: () => html, setTitle: () => o, addMetaTag: () => o }; return o; } };
   `);
   const load = (opts) => {
-    const o = Object.assign({ release, code, url, features, ref, appRelease }, opts);
+    const o = Object.assign({ release, code, url, features, ref }, opts);
     let src = INSTALL.replace("__RELEASE__", o.release).replace("__CODE__", o.code).replace("__MAINURL__", o.url).replace("__FEATURES__", o.features);
     if (o.ref) src = src.replace("__BACKENDREF__", o.ref);
-    if (o.appRelease) src = src.replace("__APPRELEASE__", o.appRelease);
     rt.run(src);
   };
   load();
@@ -159,14 +158,10 @@ test("the backend version this copy was built from is reported (check=version an
   assert.equal(bare.rt.run("getCapabilities_().backendRef"), "");
 });
 
-test("the app release the backend was promoted with is reported next to its version (More shows both); an unstamped copy reports none; every copy says it reads dates in the Sheet's zone", () => {
-  const stamped = withInstall({ ref: "abc1234def", appRelease: "1.26.1" });
-  stamped.get({});
-  assert.equal(stamped.rt.run("getCapabilities_().backendRelease"), "1.26.1");
-  assert.equal(stamped.rt.run("getCapabilities_().sheetDates"), true);
-  const bare = withInstall({ ref: "abc1234def" });   // a pin from before releases were recorded in it: the placeholder stays
-  bare.get({});
-  assert.equal(bare.rt.run("getCapabilities_().backendRelease"), "");
+test("every copy says it reads dates in the Sheet's own time zone (the app warns a server that does not)", () => {
+  const { rt } = withInstall({ ref: "abc1234def" });
+  rt.run("doGet({ parameter: {} })");
+  assert.equal(rt.run("getCapabilities_().sheetDates"), true);
 });
 
 test("an UPDATE sent without an access code keeps the one this copy already has (so the person's other phone keeps working)", () => {

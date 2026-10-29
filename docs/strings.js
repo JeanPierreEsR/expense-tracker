@@ -1625,9 +1625,6 @@
     "more.bankEmails": { en: "📧 Bank emails", es: "📧 Correos del banco" },
     // ---- extra e-mail accounts (More → Email accounts; see specs/review-telegram-email.md) ----
     "more.version": { en: "Version {v}", es: "Versión {v}" },
-    "more.serverVersion": { en: "Server version {v}", es: "Versión del servidor {v}" },
-    "more.serverVersionOld": { en: "Server version: an older one", es: "Versión del servidor: una anterior" },
-    "more.serverBehind": { en: " — update available", es: " — hay actualización" },
     // ---- More → Bank emails + the "can't read this bank yet" notes (specs/review-telegram-email.md § Bank emails guide) ----
     "bankMail.title": { en: "Bank emails", es: "Correos del banco" },
     "bankMail.intro": { en: "The app reads your bank's notification emails from this Google account:", es: "La app lee los correos de notificación de tu banco desde esta cuenta de Google:" },

@@ -323,8 +323,8 @@ const REPO = 'JeanPierreEsR/expense-tracker';
 // so a change published later cannot break the next person's install (bump it on purpose, see CHANGELOG.md). The app reads the same file.
 // Either way the version that is installed is stamped into the backend as "the last commit that changed backend/" (Install.gs).
 const REPO_API = 'https://api.github.com/repos/' + REPO;
-let pinned = '', pinnedRelease = '';
-const pinReady = fetch('pin.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : {})).then((j) => { pinned = String((j && j.pin) || ''); pinnedRelease = /^\d+\.\d+\.\d+$/.test(String((j && j.release) || '')) ? String(j.release) : ''; }).catch(() => {});
+let pinned = '';
+const pinReady = fetch('pin.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : {})).then((j) => { pinned = String((j && j.pin) || ''); }).catch(() => {});
 const STORE_KEY = 'setupState';
 const TOKEN_KEY = 'setupToken';
 const HANDOFF_KEY = 'setupHandoff';
@@ -1307,7 +1307,7 @@ async function backendFiles(release, stages, fresh) {
   if (!fresh) await prefetched;   // the early download is usually done already
   if (fresh || !rawBackend) rawBackend = await fetchRawBackend();
   const files = rawBackend.files.slice();
-  files.push({ name: 'Install', type: 'SERVER_JS', source: rawBackend.firstRun.replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '').replace('__FEATURES__', ['base'].concat((stages || []).filter((x) => x !== 'base')).join(',')).replace('__APPRELEASE__', pinnedRelease || '').replace('__BACKENDREF__', rawBackend.stamp || '') });
+  files.push({ name: 'Install', type: 'SERVER_JS', source: rawBackend.firstRun.replace('__RELEASE__', release).replace('__CODE__', state.accessCode || '').replace('__MAINURL__', state.webAppUrl || '').replace('__FEATURES__', ['base'].concat((stages || []).filter((x) => x !== 'base')).join(',')).replace('__BACKENDREF__', rawBackend.stamp || '') });
   files.push({ name: 'appsscript', type: 'JSON', source: manifestFor(stages) });
   log('Fetched ' + files.length + ' backend files from GitHub (' + secs(start) + '); permissions: ' + stages.join(' + ') + '.');
   return files;

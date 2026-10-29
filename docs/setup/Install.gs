@@ -26,7 +26,6 @@ var INSTALL_RELEASE = '__RELEASE__';    // replaced by the installer page on eve
 var INSTALL_CODE = '__CODE__';          // the access code the installer made
 var INSTALL_MAIN_URL = '__MAINURL__';   // this copy's own web address (for the keep-awake ping)
 var INSTALL_FEATURES = '__FEATURES__';  // abilities approved so far, e.g. "base,keepawake,gmail"
-var INSTALL_APP_RELEASE = '__APPRELEASE__';  // the app release (1.26.1) this copy's backend was promoted with; '' when the pin carries none
 var INSTALL_BACKEND_REF = '__BACKENDREF__';  // the last backend/ commit this copy was built from (the app offers an update when a newer one exists)
 
 var INSTALL_RETURN_PREFIXES_ = [

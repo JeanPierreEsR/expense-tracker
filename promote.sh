@@ -236,8 +236,7 @@ if [ -z "$RESUME" ]; then
   set_metas "$W/docs/stable/index.html" "$PIN" "$PAIRS" ""
 
   # ------------------------------------------------- 4. the matching backend
-  # "release" = the app release these screens and this backend were promoted together (the installer stamps it into the person's server: More shows it).
-  printf '{ "pin": "%s", "release": "%s" }\n' "$PIN" "$REL" > "$W/docs/setup/pin.json"
+  printf '{ "pin": "%s" }\n' "$PIN" > "$W/docs/setup/pin.json"
   # The e-mail rule pack (backend/RulePack.gs): the phones of friends read THIS copy, never the live docs/rules/ file. A release from before the
   # pack existed has none, and then the copy friends already have stays as it is.
   if [ -f "$SRC/docs/rules/email-rules.json" ]; then

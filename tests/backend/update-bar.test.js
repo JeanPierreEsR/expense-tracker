@@ -1,4 +1,4 @@
-// The closable "update your app" bar, the server version line in More, and the link that tells the setup page which server the phone uses.
+// The closable "update your app" bar and the link that tells the setup page which server the phone uses.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -25,7 +25,8 @@ test("a server missing a required capability turns on the urgent bar; closing it
   assert.match(app, /document\.getElementById\("backend-update-open"\)\.addEventListener\("click", \(\) => openUpdateModal_\(\)\)/, "tapping the bar opens the same open-in-Safari sheet as More → Update available");
 });
 
-test("the bar has its markup, a real close button and the stacking of all the top bars", () => {
+test("the bar has its markup, a real close button and the stacking of all the top bars; More shows no server version line", () => {
+  assert.ok(!/more-server-version/.test(html) && !/more-server-version/.test(app));
   assert.match(html, /id="backend-update-banner"[^>]*hidden/);
   assert.match(html, /id="backend-update-open"/);
   assert.match(html, /id="backend-update-close"/);
@@ -40,7 +41,7 @@ test("the update link carries the id of the server this phone uses", () => {
 });
 
 test("both languages exist for the new texts", () => {
-  for (const key of ["banner.backendUpdate", "banner.backendUrgent", "more.serverVersion", "more.serverVersionOld", "more.serverBehind"]) {
+  for (const key of ["banner.backendUpdate", "banner.backendUrgent"]) {
     const m = new RegExp(`"${key.replace(".", "\\.")}": \\{ en: "[^"]+", es: "[^"]+" \\}`);
     assert.match(strings, m, key);
   }
