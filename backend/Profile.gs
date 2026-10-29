@@ -2,16 +2,15 @@
  * "What fits you?" — the profile answers that decide which categories a person starts with (owner's plan of 2026-10-28,
  * private file "Onboarding and profile - plans 5 7 10 11 together").
  *
- *   - A copy made by the installer starts with the STARTER lists below (about 16 expense + 5 income categories) instead of the
+ *   - A copy made by the installer starts with the STARTER lists below (8 expense + 5 income categories) instead of the
  *     owner's own long list (EXPENSE_CATEGORIES in Setup.gs, which stays as it is: the owner's copy and every old install are
  *     never changed). The categories the app itself depends on (Other, Bank fees, Refunds, Between Accounts, Contribution,
  *     Withdrawal, Investment returns) are still created the way they always were.
- *   - Each answer ("I have a car", "I study"…) is a small PACK of extra categories. `applyProfile` ADDS the pack's categories and
+ *   - Each answer ("I have a car", "I study"…) adds ONE extra category. `applyProfile` ADDS it and
  *     remembers the answers in Settings `profile` (comma-separated). It never deletes, renames or hides anything, never adds a
- *     category the copy already has (same name in either language, an equivalent such as "Mobile Phone" for "Phone", or one the
+ *     category the copy already has (same name in either language, an equivalent such as "Car" for "Vehicle", or one the
  *     person hid), and can be run again at any time (idempotent): More → Categories → "Add suggested categories" runs it for
  *     people who already use the app.
- *   - "invest" and "split" add no categories: the answer only decides which welcome step is shown / is remembered.
  *   - Nothing here is sent to the owner.
  *
  * Built-in categories carry a hidden `key` (categoryKeyFromName_) and a Spanish name in CATEGORY_TRANSLATIONS_ (Strings.gs).
@@ -20,37 +19,49 @@
 var PROFILE_SETTING_ = 'profile';
 
 var STARTER_EXPENSE_CATEGORIES_ = [
-  ['Groceries', '🛒'], ['Restaurants', '🍽️'], ['Transport', '🚌'], ['Home', '🏠'],
-  ['Bills & utilities', '💡'], ['Phone', '📱'], ['Healthcare', '🏥'], ['Education', '🎓'],
-  ['Shopping', '🛍️'], ['Entertainment', '🎭'], ['Subscriptions', '🔁'], ['Insurance', '🛡️'],
-  ['Family & Personal', '👪'], ['Gifts & donations', '🎁'], ['Travel', '✈️'], ['Other', '📦']
+  ['Groceries', '🛒'], ['Restaurants', '🍽️'], ['Home', '🏠'], ['Transport', '🚌'],
+  ['Travel', '✈️'], ['Sports', '⚽'], ['Bank fees', '🧾'], ['Other', '📦']
 ];
 var STARTER_INCOME_CATEGORIES_ = [
   ['Salary', '💰'], ['Business', '👔'], ['Gifts', '🎁'], ['Refunds', '↩️'], ['Other', '📦']
 ];
 
-// The answers, in the order the app shows them. Each pack: the categories it adds, by type.
-var PROFILE_PACKS_ = {
-  car: { expense: [['Car', '🚗'], ['Fuel', '⛽'], ['Parking & tolls', '🅿️']] },
-  kids: { expense: [['Kids', '🧒'], ['School', '🎒']] },
-  pets: { expense: [['Pets', '🐾']] },
-  study: { expense: [['Tuition', '📚']] },
-  sports: { expense: [['Gym & sports', '🏋️']] },
-  health: { expense: [['Therapy', '🧠']] },
-  travel: { expense: [['Travel stays', '🏨']] },
-  selfemployed: { expense: [['Software & tools', '💻']], income: [['Sales', '🏷️']] },
-  invest: {},
-  split: {}
+// The two questions, in the order the app shows them ("My life", "My spheres"). Each answer adds EXACTLY ONE category (owner's design
+// of 2026-10-29): the picks describe parts of a person's life, never personality traits. Household bills (electricity, water, internet,
+// phone) belong in Home; streaming belongs in Subscriptions, games in Hobbies, and Entertainment means live shows and concerts.
+var PROFILE_GROUPS_ = {
+  life: ['car', 'kids', 'pets', 'study', 'health', 'selfemployed', 'family', 'debt'],
+  spheres: ['shopping', 'goingout', 'entertainment', 'personal', 'subscriptions', 'hobbies', 'gifts']
 };
-var PROFILE_ORDER_ = ['car', 'kids', 'pets', 'study', 'sports', 'health', 'travel', 'selfemployed', 'invest', 'split'];
+var PROFILE_PACKS_ = {
+  car: { expense: [['Vehicle', '🚗']] },
+  kids: { expense: [['Kids', '🧒']] },
+  pets: { expense: [['Pets', '🐾']] },
+  study: { expense: [['Education', '🎓']] },
+  health: { expense: [['Health', '🏥']] },
+  selfemployed: { expense: [['Work expenses', '💼']] },
+  family: { expense: [['Family support', '👪']] },
+  debt: { expense: [['Debt payments', '💳']] },
+  shopping: { expense: [['Shopping', '🛍️']] },
+  goingout: { expense: [['Going out', '🍻']] },
+  entertainment: { expense: [['Entertainment', '🎭']] },
+  personal: { expense: [['Personal care', '💇']] },
+  subscriptions: { expense: [['Subscriptions', '🔁']] },
+  hobbies: { expense: [['Hobbies', '🎨']] },
+  gifts: { expense: [['Gifts & donations', '🎁']] }
+};
+var PROFILE_ORDER_ = PROFILE_GROUPS_.life.concat(PROFILE_GROUPS_.spheres);
 
 // A new category is skipped when an OLDER category already covers it: the keys of the categories that mean the same thing.
 var STARTER_COVERED_BY_ = {
-  'expense:phone': ['mobile_phone'],
-  'expense:gifts_donations': ['gifts', 'donations'],
-  'expense:gym_sports': ['gym', 'sports'],
-  'expense:therapy': ['psychologist'],
-  'expense:insurance': []
+  'expense:vehicle': ['car'],
+  'expense:health': ['healthcare'],
+  'expense:work_expenses': ['work'],
+  'expense:family_support': ['family_personal'],
+  'expense:debt_payments': ['credit_card'],
+  'expense:going_out': ['party'],
+  'expense:personal_care': ['family_personal'],
+  'expense:gifts_donations': ['gifts', 'donations']
 };
 
 function profileAnswersClean_(answers) {

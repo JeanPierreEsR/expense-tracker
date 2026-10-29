@@ -8281,18 +8281,30 @@ function showWelcomeStep_(step) {
 }
 
 // ---- Welcome step 2: "What fits you?" (optional) ----
-// Each answer adds a small pack of categories (backend/Profile.gs applyProfile, called when the welcome is saved). "I invest" also
-// decides whether the investment platforms step is shown. The same chips are used by More → Categories → "Add suggested categories".
-const FITS_ANSWERS_ = ["car", "kids", "pets", "study", "sports", "health", "travel", "selfemployed", "invest", "split"];
+// Two groups of picks, "My life" and "My spheres"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
+// welcome is saved). The same chips are used by More → Categories → "Add suggested categories".
+const FITS_GROUPS_ = [
+  { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"] },
+  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
+];
+const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
 function fillFitsChips_(box, selected, onToggle) {
   box.innerHTML = "";
-  FITS_ANSWERS_.forEach((a) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "welcome-choice" + (selected.includes(a) ? " active" : "");
-    b.textContent = tr("fits.a." + a);
-    b.addEventListener("click", () => onToggle(a));
-    box.appendChild(b);
+  FITS_GROUPS_.forEach((g) => {
+    const h = document.createElement("h3");
+    h.textContent = tr(g.title);
+    box.appendChild(h);
+    const row = document.createElement("div");
+    row.className = "welcome-choices";
+    g.answers.forEach((a) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "welcome-choice" + (selected.includes(a) ? " active" : "");
+      b.textContent = tr("fits.a." + a);
+      b.addEventListener("click", () => onToggle(a));
+      row.appendChild(b);
+    });
+    box.appendChild(row);
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
@@ -8471,17 +8483,16 @@ waEl_("wa-add-bank-btn").addEventListener("click", () => {
 waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(2));
 welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeStep_(2));
 
-// The end of step 2: check the Yape / Plin links, then on to step 3 (nothing is saved yet).
+// The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
 function waNext_() {
   // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
   if (canLink && !linked && !confirm(tr("wallets.confirm"))) return;
-  if (welcome_.fits.includes("invest")) showWelcomeStep_(4);
-  else finishWelcome_("accounts");   // the investment platforms step is only for people who invest (they can add one later in More → Accounts)
+  showWelcomeStep_(4);
 }
 
-// Step 3 (optional): investment platforms, in groups. Brand names are the same in both languages; only a bank's fund arm
+// Step 4 (optional): investment platforms, in groups. Brand names are the same in both languages; only a bank's fund arm
 // ("BCP funds" / "Fondos BCP") is worded per language.
 const wpBankFunds_ = () => ["BCP", "BBVA", "Interbank", "Scotiabank"].map((bank) => tr("wp.bankFund", { bank }));
 const WP_GROUPS = [
@@ -8537,12 +8548,11 @@ waEl_("wp-add-btn").addEventListener("click", addWelcomePlatform_);
 waEl_("wp-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWelcomePlatform_(); } });
 waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 
-// The end of step 3: save the accounts, the platforms, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
-async function finishWelcome_(from) {
-  const fromAccounts = from === "accounts";
-  const btn = waEl_(fromAccounts ? "wa-next-btn" : "wp-next-btn");
+// The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+async function finishWelcome_() {
+  const btn = waEl_("wp-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
-  const errEl = waEl_(fromAccounts ? "wa-error" : "wp-error");
+  const errEl = waEl_("wp-error");
   errEl.textContent = "";
   if (welcome_.preview) {   // preview: save nothing, just carry on to the rest of the flow
     btn.disabled = false; btn.textContent = tr("welcome.next");
@@ -8602,8 +8612,8 @@ document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventLi
   welcome_.business = b.dataset.welcomeBusiness === "yes";
   renderWelcomeFits_();
 }));
-waEl_("wp-next-btn").addEventListener("click", () => finishWelcome_("platforms"));
-waEl_("wp-skip-btn").addEventListener("click", () => finishWelcome_("platforms"));
+waEl_("wp-next-btn").addEventListener("click", finishWelcome_);
+waEl_("wp-skip-btn").addEventListener("click", finishWelcome_);
 
 let tour_ = null;
 // The cards, in order. "bank" only exists when e-mail reading is on for this copy (capabilities.bankEmails is the backend's
