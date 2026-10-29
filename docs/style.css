@@ -3190,3 +3190,17 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .reassign-loading #reassign-fields, .reassign-loading #reassign-list, .reassign-loading #reassign-limit-row, .reassign-loading #reassign-gap,
 .reassign-loading #reassign-summary, .reassign-loading #reassign-hint, .reassign-loading #reassign-record, .reassign-loading #reassign-error,
 .reassign-loading #reassign-save { display: none; }
+
+/* Bank loans: the schedule rows (a date line, then three amounts) and the installment list */
+.bank-row { border-top: 1px solid var(--border); padding: 8px 0; }
+.bank-row-top { display: flex; align-items: center; gap: 8px; }
+.bank-row-top input[type="date"] { flex: 1; min-width: 0; }
+.bank-row-num { font-size: 0.8rem; color: var(--text-muted, #8e8e93); min-width: 22px; }
+.bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+.bank-row-amounts input { min-width: 0; }
+.bank-row-remove { background: none; border: none; font-size: 1rem; color: #d64545; padding: 4px 8px; }
+.bank-inst { border-top: 1px solid var(--border); padding: 10px 0; }
+.bank-inst.tappable { cursor: pointer; }
+.bank-inst-status { font-size: 0.8rem; font-weight: 600; }
+.bank-inst-status.paid { color: #2e9e5b; }
+.bank-inst-status.overdue { color: #d64545; }

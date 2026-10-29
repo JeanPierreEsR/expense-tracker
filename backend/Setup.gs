@@ -73,6 +73,8 @@ var TABLE_DEFINITIONS = {
   // date to something new is naturally alert-worthy again, without
   // needing a separate "reset" step.
   'Loan Alert Log': ['id', 'loan_id', 'due_date', 'sent_at'],
+  // Personal bank loans (2026-10-29, BankLoans.gs): the schedule of installments of a loan; self-heals via ensureLoanInstallmentsSheet_.
+  'Loan Installments': ['id', 'loan_id', 'number', 'due_date', 'principal', 'interest', 'fees', 'transfer_entry_id', 'paid_date'],
   // Not part of the original spec — added so budgets and Projections can
   // account for known fixed costs (rent, subscriptions) instead of
   // treating every expense as unpredictable. `day` is the day of the month
@@ -151,6 +153,7 @@ var DATE_LIKE_COLUMNS = {
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
   'Loan Alert Log': ['due_date', 'sent_at'],
+  'Loan Installments': ['due_date', 'paid_date'],
   'Import Batches': ['date'],
   'Statement Uploads': ['period_start', 'period_end', 'processed_at'],
   'Projection Overrides': ['period_key']

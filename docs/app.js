@@ -15008,6 +15008,18 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
   }
 
+  if (l.schedule) {
+    const schedBtn = document.createElement("button");
+    schedBtn.type = "button";
+    schedBtn.className = "add-inline loan-detail-forgive-btn";
+    schedBtn.textContent = tr("bank.scheduleButton", { paid: l.schedule.paid, count: l.schedule.count });
+    schedBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBankSchedule_(l.id, { id: friendId, name: friendName });
+    });
+    row.appendChild(schedBtn);
+  }
+
   // Forgiving applies to either kind of loan — it doesn't touch the
   // loan's own amount/currency/etc (unlike editing), just marks it
   // written off, so it isn't restricted by origin the way editing is.
@@ -15024,7 +15036,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
     row.appendChild(applyBtn);
   }
-  if (l.status !== "forgiven" && l.remaining > 0.004) {
+  if (l.status !== "forgiven" && l.remaining > 0.004 && !l.schedule) {   // a bank does not forgive: no Forgive on a loan with a schedule
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
     forgiveBtn.className = "add-inline loan-detail-forgive-btn";
@@ -15584,6 +15596,327 @@ async function renderSettledPeople_() {
     list.appendChild(row);
   });
 }
+
+// ---- Bank loans (owner's request, 2026-10-29) ----
+// A personal loan from a bank: a loan the owner owes plus a schedule of installments typed in by hand (a quick generator helps
+// fill the rows). Recording an installment makes a repayment (the principal) plus one expense (interest + fees). See BankLoans.gs.
+let bankDraft_ = null;   // {mode: "new" | "edit", loanId, friend: {id, name}, rows: [{due_date, principal, interest, fees}], total}
+
+const bankNum_ = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
+const bankR2_ = (n) => Math.round(n * 100) / 100;
+
+// Adds `k` months to an ISO date, keeping the day (a 31st becomes the month's last day).
+function bankAddMonths_(iso, k) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + k, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+// The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
+// an annuity) whose interest is the monthly rate on what is still owed. The last row closes the balance exactly.
+function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer) {
+  const rows = [];
+  const r = ratePct / 100;
+  let balance = amount;
+  let pay = payment;
+  if (r > 0 && !(pay > 0)) pay = bankR2_(amount * r / (1 - Math.pow(1 + r, -count)) + feePer);
+  for (let i = 0; i < count; i++) {
+    let interest = r > 0 ? bankR2_(balance * r) : 0;
+    let principal = r > 0 ? bankR2_(pay - feePer - interest) : bankR2_(amount / count);
+    if (i === count - 1 || principal > balance) principal = bankR2_(balance);
+    balance = bankR2_(balance - principal);
+    rows.push({ due_date: bankAddMonths_(firstDue, i), principal, interest, fees: feePer });
+  }
+  return rows;
+}
+
+function bankRenderRows_() {
+  const list = document.getElementById("bank-rows");
+  list.innerHTML = "";
+  bankDraft_.rows.forEach((row, i) => {
+    const el = document.createElement("div");
+    el.className = "bank-row";
+    el.innerHTML = `
+      <div class="bank-row-top">
+        <span class="bank-row-num">${i + 1}</span>
+        <input type="date" data-f="due_date" value="${escapeHtml(row.due_date || "")}">
+        <button type="button" class="bank-row-remove" aria-label="remove">✕</button>
+      </div>
+      <div class="bank-row-amounts">
+        <input type="text" inputmode="decimal" data-f="principal" placeholder="${escapeHtml(tr("bank.principal"))}" value="${row.principal || ""}">
+        <input type="text" inputmode="decimal" data-f="interest" placeholder="${escapeHtml(tr("bank.interest"))}" value="${row.interest || ""}">
+        <input type="text" inputmode="decimal" data-f="fees" placeholder="${escapeHtml(tr("bank.fees"))}" value="${row.fees || ""}">
+      </div>`;
+    el.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
+      row[input.dataset.f] = input.dataset.f === "due_date" ? input.value : bankNum_(input.value);
+      bankRenderTotals_();
+    }));
+    el.querySelector(".bank-row-remove").addEventListener("click", () => { bankDraft_.rows.splice(i, 1); bankRenderRows_(); });
+    list.appendChild(el);
+  });
+  bankRenderTotals_();
+}
+
+function bankTotals_() {
+  const sum = (f) => bankR2_(bankDraft_.rows.reduce((n, r) => n + (Number(r[f]) || 0), 0));
+  return { principal: sum("principal"), interest: sum("interest"), fees: sum("fees") };
+}
+
+function bankRenderTotals_() {
+  const t = bankTotals_();
+  const target = bankDraft_.mode === "edit" ? bankDraft_.total : bankNum_(document.getElementById("bank-amount").value);
+  const cur = bankDraft_.currency || homeCur();
+  const m = (n) => `${cur} ${moneyFmt(n)}`;
+  const ok = target > 0 && Math.abs(t.principal - target) <= 0.011 && bankDraft_.rows.length > 0 && bankDraft_.rows.every((r) => r.due_date && r.principal > 0);
+  document.getElementById("bank-totals").textContent = ok
+    ? tr("bank.totals", { p: m(t.principal), a: m(target), i: m(t.interest), f: m(t.fees), t: m(t.principal + t.interest + t.fees) })
+    : tr("bank.totalsOff", { p: m(t.principal), a: m(target) });
+  document.getElementById("bank-save").disabled = !ok || (bankDraft_.mode === "new" && !document.getElementById("bank-lender").value.trim());
+}
+
+function bankPopulateAccounts_(selectId, keep) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("form.noneAccount");
+  sel.appendChild(none);
+  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+    const o = document.createElement("option");
+    o.value = pm.id;
+    o.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    sel.appendChild(o);
+  });
+  sel.value = keep || "";
+}
+
+function openBankLoanForm_() {
+  bankDraft_ = { mode: "new", rows: [], currency: homeCur() };
+  document.getElementById("bank-loan-title").textContent = tr("bank.formTitle");
+  document.getElementById("bank-loan-fields").hidden = false;
+  document.getElementById("bank-gen-box").hidden = false;
+  document.getElementById("bank-save").textContent = tr("bank.save");
+  ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
+  document.getElementById("bank-date").value = todayLocalISO();
+  document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  document.getElementById("bank-error").textContent = "";
+  const lenders = document.getElementById("bank-lender-list");
+  lenders.innerHTML = "";
+  (meta.friends || []).forEach((f) => { const o = document.createElement("option"); o.value = f.name; lenders.appendChild(o); });
+  const curSel = document.getElementById("bank-currency");
+  curSel.innerHTML = "";
+  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = code; curSel.appendChild(o); });
+  curSel.value = homeCur();
+  bankPopulateAccounts_("bank-account", "");
+  bankRenderRows_();
+  const backdrop = document.getElementById("bank-loan-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+// "Edit the schedule": the installments not yet paid, with the principal that is still to be repaid as the target.
+function openBankScheduleEditor_(sched, friend) {
+  const open = sched.installments.filter((r) => !r.paid);
+  bankDraft_ = {
+    mode: "edit", loanId: sched.loan.id, friend, currency: sched.loan.currency, total: sched.remaining_principal,
+    rows: open.map((r) => ({ due_date: r.due_date, principal: r.principal, interest: r.interest, fees: r.fees }))
+  };
+  document.getElementById("bank-loan-title").textContent = tr("bank.editTitle");
+  document.getElementById("bank-loan-fields").hidden = true;
+  document.getElementById("bank-gen-box").hidden = true;
+  document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
+  document.getElementById("bank-error").textContent = "";
+  bankRenderRows_();
+  const backdrop = document.getElementById("bank-loan-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeBankLoanForm_() {
+  document.getElementById("bank-loan-modal-backdrop").hidden = true;
+}
+
+document.getElementById("add-bank-loan-btn").addEventListener("click", openBankLoanForm_);
+document.getElementById("bank-loan-close").addEventListener("click", closeBankLoanForm_);
+document.getElementById("bank-cancel").addEventListener("click", closeBankLoanForm_);
+document.getElementById("bank-add-row").addEventListener("click", () => {
+  const last = bankDraft_.rows[bankDraft_.rows.length - 1];
+  bankDraft_.rows.push({ due_date: last && last.due_date ? bankAddMonths_(last.due_date, 1) : "", principal: 0, interest: 0, fees: 0 });
+  bankRenderRows_();
+});
+["bank-amount", "bank-lender"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankDraft_ && bankRenderTotals_()));
+document.getElementById("bank-currency").addEventListener("change", (e) => { bankDraft_.currency = e.target.value; bankRenderTotals_(); });
+document.getElementById("bank-gen-btn").addEventListener("click", () => {
+  const amount = bankNum_(document.getElementById("bank-amount").value);
+  const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
+  const first = document.getElementById("bank-gen-first").value;
+  if (!(amount > 0) || !(count > 0) || count > 480 || !first) {
+    document.getElementById("bank-error").textContent = tr("bank.genNeeds");
+    return;
+  }
+  document.getElementById("bank-error").textContent = "";
+  bankDraft_.rows = bankGenerateRows_(amount, count, first, bankNum_(document.getElementById("bank-gen-payment").value),
+    bankNum_(document.getElementById("bank-gen-rate").value), bankNum_(document.getElementById("bank-gen-fee").value));
+  bankRenderRows_();
+});
+
+document.getElementById("bank-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-save");
+  const errEl = document.getElementById("bank-error");
+  const rows = bankDraft_.rows.map((r) => ({ due_date: r.due_date, principal: Number(r.principal) || 0, interest: Number(r.interest) || 0, fees: Number(r.fees) || 0 }));
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    let friend;
+    if (bankDraft_.mode === "new") {
+      const res = await callApi("saveBankLoan", {
+        friend_name: document.getElementById("bank-lender").value.trim(),
+        description: document.getElementById("bank-description").value.trim(),
+        amount: bankNum_(document.getElementById("bank-amount").value),
+        currency: document.getElementById("bank-currency").value,
+        date: document.getElementById("bank-date").value,
+        payment_method_id: document.getElementById("bank-account").value,
+        installments: rows
+      });
+      friend = { id: res.loan.friend_id, name: document.getElementById("bank-lender").value.trim() };
+    } else {
+      await callApi("saveLoanSchedule", { loan_id: bankDraft_.loanId, installments: rows });
+      friend = bankDraft_.friend;
+    }
+    closeBankLoanForm_();
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    if (bankDraft_.mode === "edit") await openBankSchedule_(bankDraft_.loanId, friend);
+    else await openLoanDetail(friend.id, friend.name);
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+    bankRenderTotals_();
+  }
+});
+
+// The loan's schedule: every installment, paid or not; a tap on an unpaid one records it.
+let bankScheduleCtx_ = null;
+async function openBankSchedule_(loanId, friend) {
+  bankScheduleCtx_ = { loanId, friend, sched: null };
+  const backdrop = document.getElementById("bank-schedule-modal-backdrop");
+  const loadingEl = document.getElementById("bank-schedule-loading");
+  const contentEl = document.getElementById("bank-schedule-content");
+  loadingEl.textContent = tr("common.loading");
+  loadingEl.hidden = false;
+  contentEl.hidden = true;
+  if (backdrop.hidden) {
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  }
+  let sched;
+  try {
+    sched = await callApi("getLoanSchedule", { loan_id: loanId });
+  } catch (err) {
+    loadingEl.textContent = err.message;
+    return;
+  }
+  bankScheduleCtx_.sched = sched;
+  const cur = sched.loan.currency;
+  const m = (n) => `${cur} ${moneyFmt(n)}`;
+  const next = sched.installments.find((r) => !r.paid);
+  document.getElementById("bank-schedule-title").textContent = `${sched.loan.friend_name} · ${tr("bank.scheduleTitle")}`;
+  document.getElementById("bank-schedule-summary").textContent = [
+    tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
+    next ? tr("bank.nextDue", { date: next.due_date, amount: m(next.total) }) : ""
+  ].filter(Boolean).join(" · ");
+  const list = document.getElementById("bank-schedule-list");
+  list.innerHTML = "";
+  sched.installments.forEach((r) => {
+    const el = document.createElement("div");
+    el.className = "bank-inst" + (r.paid ? "" : " tappable");
+    const status = r.paid ? tr("bank.statusPaid", { date: r.paid_date }) : tr(r.status === "overdue" ? "bank.statusOverdue" : "bank.statusDue");
+    el.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: sched.installments.length, date: r.due_date }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-amount i-owe">${escapeHtml(m(r.total))}</span>
+      </div>
+      <div class="loan-detail-row-meta">${escapeHtml(tr("bank.rowAmounts", { p: moneyFmt(r.principal), i: moneyFmt(r.interest), f: moneyFmt(r.fees) }))} · <span class="bank-inst-status ${r.paid ? "paid" : r.status}">${escapeHtml(status)}</span></div>`;
+    if (!r.paid) el.addEventListener("click", () => openBankRecord_(r, sched));
+    list.appendChild(el);
+  });
+  document.getElementById("bank-schedule-edit").hidden = !next;
+  loadingEl.hidden = true;
+  contentEl.hidden = false;
+}
+
+document.getElementById("bank-schedule-close").addEventListener("click", () => { document.getElementById("bank-schedule-modal-backdrop").hidden = true; });
+document.getElementById("bank-schedule-edit").addEventListener("click", () => {
+  if (bankScheduleCtx_ && bankScheduleCtx_.sched) openBankScheduleEditor_(bankScheduleCtx_.sched, bankScheduleCtx_.friend);
+});
+
+// Recording one installment.
+let bankRecordCtx_ = null;
+function bankRecordTotal_() {
+  const cur = bankRecordCtx_.sched.loan.currency;
+  const t = bankNum_(document.getElementById("bank-record-principal").value) + bankNum_(document.getElementById("bank-record-interest").value) + bankNum_(document.getElementById("bank-record-fees").value);
+  document.getElementById("bank-record-total").textContent = tr("bank.recordTotal", { amount: `${cur} ${moneyFmt(t)}` });
+}
+
+function openBankRecord_(inst, sched) {
+  bankRecordCtx_ = { inst, sched };
+  document.getElementById("bank-record-title").textContent = tr("bank.recordTitle", { n: inst.number, count: sched.installments.length });
+  document.getElementById("bank-record-date").value = todayLocalISO();
+  bankPopulateAccounts_("bank-record-account", "");
+  document.getElementById("bank-record-principal").value = inst.principal;
+  document.getElementById("bank-record-interest").value = inst.interest || "";
+  document.getElementById("bank-record-fees").value = inst.fees || "";
+  populateCategoryOptionsForSelect_("bank-record-category", "expense");
+  const later = document.createElement("option");
+  later.value = "";
+  later.textContent = tr("bank.recordLater");
+  document.getElementById("bank-record-category").prepend(later);
+  document.getElementById("bank-record-category").value = "";
+  document.getElementById("bank-record-error").textContent = "";
+  bankRecordTotal_();
+  const backdrop = document.getElementById("bank-record-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+["bank-record-principal", "bank-record-interest", "bank-record-fees"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
+document.getElementById("bank-record-close").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
+document.getElementById("bank-record-cancel").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
+document.getElementById("bank-record-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-record-save");
+  const errEl = document.getElementById("bank-record-error");
+  const ctx = bankRecordCtx_;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    await callApi("recordInstallment", {
+      id: ctx.inst.id,
+      date: document.getElementById("bank-record-date").value,
+      payment_method_id: document.getElementById("bank-record-account").value,
+      principal: bankNum_(document.getElementById("bank-record-principal").value),
+      interest: bankNum_(document.getElementById("bank-record-interest").value),
+      fees: bankNum_(document.getElementById("bank-record-fees").value),
+      category_id: document.getElementById("bank-record-category").value
+    });
+    document.getElementById("bank-record-modal-backdrop").hidden = true;
+    refreshEntriesInBackground_();
+    refreshReviewQueue().catch(() => {});
+    await refreshLoans();
+    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+});
 
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
