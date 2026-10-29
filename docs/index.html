@@ -1313,6 +1313,13 @@
           <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
           <select id="bank-account"></select>
         </div>
+        <div id="bank-mode-box">
+          <strong data-i18n="bank.mode">How do you want to enter it?</strong>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="rate" checked><span data-i18n="bank.modeRate">Amount, rate and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="installment"><span data-i18n="bank.modeInstallment">Amount, installment and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="manual"><span data-i18n="bank.modeManual">The bank's schedule, row by row</span></label>
+          <p class="hint" id="bank-mode-hint"></p>
+        </div>
         <div class="reassign-limit-box" id="bank-gen-box">
           <strong data-i18n="bank.genTitle">Fill the schedule</strong>
           <p class="hint" data-i18n="bank.genHint">A quick way to fill the rows below. Then type over any number with what the bank's own schedule says.</p>
@@ -1339,12 +1346,22 @@
               <option value="total" data-i18n="bank.graceTotal">No payments (the interest is added to the loan)</option>
             </select>
           </div>
-          <label for="bank-gen-payment" data-i18n="bank.payment">Installment total (optional)</label>
-          <input type="text" inputmode="decimal" id="bank-gen-payment" placeholder="0.00">
-          <label for="bank-gen-rate" data-i18n="bank.rate">Interest % per payment period (optional; for monthly payments, the monthly rate)</label>
-          <input type="text" inputmode="decimal" id="bank-gen-rate" placeholder="0.00">
+          <div id="bank-gen-payment-block" hidden>
+            <label for="bank-gen-payment" data-i18n="bank.paymentRequired">Installment total (what the bank charges each time)</label>
+            <input type="text" inputmode="decimal" id="bank-gen-payment" placeholder="0.00">
+          </div>
+          <div id="bank-gen-rate-block">
+            <label for="bank-gen-rate" data-i18n="bank.rate">Interest rate %</label>
+            <input type="text" inputmode="decimal" id="bank-gen-rate" placeholder="0.00">
+            <label for="bank-gen-rate-type" data-i18n="bank.rateType">How the rate is stated</label>
+            <select id="bank-gen-rate-type">
+              <option value="tea" selected data-i18n="bank.rateTea">Annual effective rate (TEA)</option>
+              <option value="period" data-i18n="bank.ratePeriod">Per payment period (for monthly payments, the monthly rate)</option>
+            </select>
+          </div>
           <label for="bank-gen-fee" data-i18n="bank.feePer">Insurance / fees per installment (optional)</label>
           <input type="text" inputmode="decimal" id="bank-gen-fee" placeholder="0.00">
+          <p class="hint" id="bank-gen-implied"></p>
           <button type="button" class="add-inline" id="bank-gen-btn" data-i18n="bank.generate">Fill the rows</button>
         </div>
         <h3 data-i18n="bank.rowsTitle">Installments</h3>

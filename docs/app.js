@@ -15703,6 +15703,26 @@ function bankAddPeriod_(iso, freq, k) {
   return new Date(Date.UTC(y, m - 1, d + f.days * k)).toISOString().slice(0, 10);
 }
 
+// Payments per year of each frequency, to turn an annual effective rate (TEA) into the rate of ONE payment period and back.
+const BANK_PER_YEAR_ = { weekly: 52, biweekly: 26, monthly: 12, bimonthly: 6, quarterly: 4, semiannual: 2, yearly: 1 };
+const bankPeriodRateFromTea_ = (teaPct, freq) => Math.pow(1 + teaPct / 100, 1 / (BANK_PER_YEAR_[freq] || 12)) - 1;
+const bankTeaFromPeriodRate_ = (r, freq) => (Math.pow(1 + r, BANK_PER_YEAR_[freq] || 12) - 1) * 100;
+
+// The rate of one payment period that makes `count` installments of `net` (the installment without its fee) pay off `amount`
+// (with the interest of `grace` periods added first when the grace is "no payments"). null when the installments add up to less than
+// the loan. Bisection: the value of the installments falls as the rate rises.
+function bankSolveRate_(amount, count, net, graceAdded) {
+  const f = (r) => (r === 0 ? net * count : net * (1 - Math.pow(1 + r, -count)) / r) - amount * Math.pow(1 + r, graceAdded);
+  if (f(0) < -0.005) return null;
+  if (Math.abs(f(0)) <= 0.005) return 0;
+  let lo = 0, hi = 5;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (f(mid) > 0) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 // The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
 // an annuity) whose interest is the monthly rate on what is still owed. The last row closes the balance exactly.
 function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer, freq, grace, graceType) {
@@ -15808,6 +15828,9 @@ function openBankLoanForm_() {
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  document.querySelector('input[name="bank-mode"][value="rate"]').checked = true;
+  document.getElementById("bank-gen-rate-type").value = "tea";
+  document.getElementById("bank-mode-box").hidden = false;
   document.getElementById("bank-gen-freq").value = "monthly";
   document.getElementById("bank-gen-grace").value = "0";
   document.getElementById("bank-gen-grace-type").value = "partial";
@@ -15822,6 +15845,7 @@ function openBankLoanForm_() {
   curSel.value = homeCur();
   bankPopulateAccounts_("bank-account", "");
   bankRenderRows_();
+  bankApplyMode_();
   const backdrop = document.getElementById("bank-loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -15837,6 +15861,7 @@ function openBankScheduleEditor_(sched, friend) {
   document.getElementById("bank-loan-title").textContent = tr("bank.editTitle");
   document.getElementById("bank-loan-fields").hidden = true;
   document.getElementById("bank-gen-box").hidden = true;
+  document.getElementById("bank-mode-box").hidden = true;
   document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
   document.getElementById("bank-error").textContent = "";
   bankRenderRows_();
@@ -15863,19 +15888,55 @@ document.getElementById("bank-add-row").addEventListener("click", () => {
 });
 ["bank-amount", "bank-lender"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankDraft_ && bankRenderTotals_()));
 document.getElementById("bank-currency").addEventListener("change", (e) => { bankDraft_.currency = e.target.value; bankRenderTotals_(); });
+function bankMode_() {
+  const picked = document.querySelector('input[name="bank-mode"]:checked');
+  return picked ? picked.value : "rate";
+}
+// Each way of entering the loan shows only the fields it needs.
+function bankApplyMode_() {
+  const mode = bankMode_();
+  document.getElementById("bank-gen-box").hidden = mode === "manual";
+  document.getElementById("bank-gen-rate-block").hidden = mode !== "rate";
+  document.getElementById("bank-gen-payment-block").hidden = mode !== "installment";
+  document.getElementById("bank-gen-implied").textContent = "";
+  document.getElementById("bank-mode-hint").textContent = tr(mode === "rate" ? "bank.modeHintRate" : mode === "installment" ? "bank.modeHintInstallment" : "bank.modeHintManual");
+  if (mode === "manual" && bankDraft_ && bankDraft_.mode === "new" && !bankDraft_.rows.length) {
+    bankDraft_.rows.push({ due_date: bankAddPeriod_(todayLocalISO(), "monthly", 1), principal: 0, interest: 0, fees: 0 });
+    bankRenderRows_();
+  }
+}
+document.querySelectorAll('input[name="bank-mode"]').forEach((r) => r.addEventListener("change", bankApplyMode_));
+
 document.getElementById("bank-gen-btn").addEventListener("click", () => {
   const amount = bankNum_(document.getElementById("bank-amount").value);
   const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
   const first = document.getElementById("bank-gen-first").value;
+  const errEl = document.getElementById("bank-error");
   if (!(amount > 0) || !(count > 0) || count > 480 || !first) {
-    document.getElementById("bank-error").textContent = tr("bank.genNeeds");
+    errEl.textContent = tr("bank.genNeeds");
     return;
   }
-  document.getElementById("bank-error").textContent = "";
-  bankDraft_.rows = bankGenerateRows_(amount, count, first, bankNum_(document.getElementById("bank-gen-payment").value),
-    bankNum_(document.getElementById("bank-gen-rate").value), bankNum_(document.getElementById("bank-gen-fee").value),
-    document.getElementById("bank-gen-freq").value, Math.max(0, Math.round(bankNum_(document.getElementById("bank-gen-grace").value))),
-    document.getElementById("bank-gen-grace-type").value);
+  errEl.textContent = "";
+  const freq = document.getElementById("bank-gen-freq").value;
+  const grace = Math.max(0, Math.round(bankNum_(document.getElementById("bank-gen-grace").value)));
+  const graceType = document.getElementById("bank-gen-grace-type").value;
+  const fee = bankNum_(document.getElementById("bank-gen-fee").value);
+  const impliedEl = document.getElementById("bank-gen-implied");
+  impliedEl.textContent = "";
+  let payment = 0;
+  let ratePct;
+  if (bankMode_() === "installment") {
+    payment = bankNum_(document.getElementById("bank-gen-payment").value);
+    if (!(payment > 0)) { errEl.textContent = tr("bank.needPayment"); return; }
+    const r = bankSolveRate_(amount, count, payment - fee, grace > 0 && graceType === "total" ? grace : 0);
+    if (r === null) { errEl.textContent = tr("bank.noRateFits"); return; }
+    ratePct = r * 100;
+    impliedEl.textContent = tr("bank.impliedRate", { period: ratePct.toFixed(4).replace(/0+$/, "").replace(/\.$/, ""), tea: bankTeaFromPeriodRate_(r, freq).toFixed(2) });
+  } else {
+    const typed = bankNum_(document.getElementById("bank-gen-rate").value);
+    ratePct = document.getElementById("bank-gen-rate-type").value === "tea" ? bankPeriodRateFromTea_(typed, freq) * 100 : typed;
+  }
+  bankDraft_.rows = bankGenerateRows_(amount, count, first, payment, ratePct, fee, freq, grace, graceType);
   bankRenderRows_();
 });
 
