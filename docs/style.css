@@ -2978,6 +2978,12 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.own-name-card { border-left: 4px solid var(--accent); }
+.own-name-card h2 { margin: 0 0 4px; font-size: 1rem; }
+.own-name-name { margin: 4px 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
+.own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
+.own-name-actions button { flex: 1; }
+.review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .notices-card { border-left: 4px solid #b26a00; }
 .notices-card h2 { margin: 0; font-size: 1rem; }
 .notices-list { list-style: none; margin: 6px 0 0; padding: 0; }

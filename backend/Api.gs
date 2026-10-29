@@ -340,6 +340,7 @@ function routeAction(action, payload) {
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'getOwnerNames': return getOwnerNames();
     case 'saveOwnerNames': return saveOwnerNames(payload);
+    case 'answerOwnName': return answerOwnName(payload);
     case 'applyProfile': return applyProfile(payload);
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
@@ -620,7 +621,9 @@ function getMeta() {
     // Banks for the welcome questions (two alphabetical groups) and the words account names are built from.
     bankCatalog: getBankCatalog_(),
     // Which Google account's inbox bank e-mails are read from, and the banks whose e-mails have a rule (EmailParser.gs): More → Bank emails.
-    emailInfo: getEmailInfo_()
+    emailInfo: getEmailInfo_(),
+    // "Is this you?" (OwnerNames.gs): the name the Home card asks about, '' when there is none.
+    ownNameAsk: ownerNameAsk_()
   };
 }
 
@@ -1141,6 +1144,7 @@ function listPendingEntries() {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     entry.twins = findSameDayTwins_(entry, all);
+    if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
     if (entry.type === 'expense' && !entry.trip_id) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
   });

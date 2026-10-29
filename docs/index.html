@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.28.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.29.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-29T18:26:25Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-29T19:02:37Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -325,6 +325,17 @@
         </div>
         <ul class="notices-list" id="notices-list"></ul>
         <p class="hint" id="notices-more" hidden></p>
+      </div>
+
+      <div class="card own-name-card" id="own-name-card" hidden>
+        <h2 data-i18n="ownName.title">Is this you?</h2>
+        <p class="own-name-name" id="own-name-name"></p>
+        <p class="hint" data-i18n="ownName.hint">We saw this name on your bank statements or emails. If it is you, the app can tell your own transfers apart from payments to other people.</p>
+        <div class="own-name-actions">
+          <button type="button" class="primary" id="own-name-yes" data-i18n="ownName.yes">✓ Yes, it's me</button>
+          <button type="button" id="own-name-no" data-i18n="ownName.no">✗ Not me</button>
+        </div>
+        <p class="hint" id="own-name-error" style="color:#d64545;"></p>
       </div>
 
       <p class="hint review-check-status" id="review-check-status" hidden></p>
@@ -1832,6 +1843,11 @@
           <button type="button" class="add-inline" id="wa-add-bank-btn" data-i18n="wa.addBank">+ Add another bank</button>
           <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts, cards &amp; platforms.</p>
           <div id="wa-note"></div>
+          <div id="wa-name-block" hidden>
+            <h3 data-i18n="wa.nameTitle">Your full name</h3>
+            <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
+            <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
+          </div>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
@@ -2975,21 +2991,21 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="i18n.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="tour-scenes.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="signin-link.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="country-guess.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="rate-quotes.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="bank-sample.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="perf-share.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="receipt-parse.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="receipt-fields.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="bill-split.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="app.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="statement-sample.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="statement-table.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="statement-parsers.js?v=2026-10-29T18:26:25Z"></script>
-  <script src="statements.js?v=2026-10-29T18:26:25Z"></script>
+  <script src="strings.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="i18n.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="tour-scenes.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="signin-link.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="country-guess.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="rate-quotes.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="bank-sample.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="perf-share.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="receipt-parse.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="receipt-fields.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="bill-split.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="app.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="statement-sample.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="statement-table.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="statement-parsers.js?v=2026-10-29T19:02:37Z"></script>
+  <script src="statements.js?v=2026-10-29T19:02:37Z"></script>
 </body>
 </html>
