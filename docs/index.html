@@ -1375,8 +1375,9 @@
         <label for="bank-early-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
         <select id="bank-early-category"></select>
         <p class="hint" data-i18n="bank.earlyMode"><strong>What happens to the remaining installments</strong></p>
-        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="shorten" checked><span data-i18n="bank.earlyShorten">Shorter term: same installments, the last ones are dropped</span></label>
-        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="reduce"><span data-i18n="bank.earlyReduce">Same term: every remaining installment gets smaller (an estimate: type over it with the bank's numbers)</span></label>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="shorten" checked><span data-i18n="bank.earlyShorten">Shorter term: same installments, so the loan ends sooner. Interest is recalculated on the lower balance.</span></label>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="reduce"><span data-i18n="bank.earlyReduce">Same term: every remaining installment gets smaller. Interest is recalculated on the lower balance.</span></label>
+        <p class="hint" data-i18n="bank.earlyEstimate">The interest is worked out from the rate your schedule implies. If the bank's new schedule differs, use "Edit the schedule" and type its numbers.</p>
         <p class="hint" id="bank-early-preview"></p>
         <p class="hint" id="bank-early-total"></p>
         <p class="hint" id="bank-early-error" style="color:#d64545;"></p>

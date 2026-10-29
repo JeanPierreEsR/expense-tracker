@@ -256,37 +256,51 @@ function recordEarlyPayment(payload) {
   recordSettlementRow_(loan.id, payload.date, principal, payload.payment_method_id || '', '', transfer.id, true, feeId);
   updateLoanStatusFromSettlements_(loan.id);
 
-  // the installments not yet paid, adjusted to what is still owed
+  // The installments not yet paid, RECALCULATED on what is still owed (owner's request, 2026-10-29). The monthly rate is not stored:
+  // it is worked out from the schedule itself (the first unpaid installment's interest over the principal still owed before it),
+  // so it follows whatever the bank's own schedule says. Interest is then the rate on the balance of each installment.
   var after = bankRound_(room - principal);
   var open = loanInstallmentsOf_(loan.id).filter(function (r) { return !r.paid; });
   var sheet = getSheet('Loan Installments');
   var headers = getHeaders(sheet);
+  var plan = recalculateInstallmentsAfterEarly_(open, after, mode);
+  plan.forEach(function (item) {
+    var rowIndex = findRowIndexById(sheet, headers, item.id);
+    setCellByRow_(sheet, headers, rowIndex, 'principal', item.principal);
+    setCellByRow_(sheet, headers, rowIndex, 'interest', item.interest);
+  });
+  var keep = {};
+  plan.forEach(function (item) { keep[item.id] = true; });
   var removeIds = {};
-  if (after <= 0.004) {
-    open.forEach(function (r) { removeIds[r.id] = true; });
-  } else if (mode === 'shorten') {
-    var cut = principal;
-    for (var i = open.length - 1; i >= 0 && cut > 0.004; i--) {
-      if (open[i].principal <= cut + 0.004) {
-        cut = bankRound_(cut - open[i].principal);
-        removeIds[open[i].id] = true;
-      } else {
-        setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, open[i].id), 'principal', bankRound_(open[i].principal - cut));
-        cut = 0;
-      }
-    }
-  } else {
-    var openTotal = open.reduce(function (n, r) { return n + r.principal; }, 0);
-    var factor = openTotal > 0 ? after / openTotal : 1;
-    var assigned = 0;
-    open.forEach(function (r, idx) {
-      var p = idx === open.length - 1 ? bankRound_(after - assigned) : bankRound_(r.principal * factor);
-      assigned = bankRound_(assigned + p);
-      var rowIndex = findRowIndexById(sheet, headers, r.id);
-      setCellByRow_(sheet, headers, rowIndex, 'principal', p);
-      setCellByRow_(sheet, headers, rowIndex, 'interest', bankRound_(r.interest * factor));
-    });
-  }
+  open.forEach(function (r) { if (!keep[r.id]) removeIds[r.id] = true; });
   if (Object.keys(removeIds).length) deleteRowsWhere_('Loan Installments', function (r) { return removeIds[r.id]; });
   return { schedule: getLoanSchedule({ loan_id: loan.id }), transfer_entry_id: transfer.id, fee_entry_id: feeId };
+}
+
+
+// What the unpaid installments (`open`, in order, before the early payment) become once only `after` of principal is left.
+// Returns [{ id, principal, interest }] for the rows that stay; rows not returned are removed. Fees stay as they are.
+//  - 'shorten' (default): every installment keeps its own amount (principal + interest); interest is the rate on the balance, so more
+//    of each goes to principal and the loan ends sooner. The last row takes whatever is left.
+//  - 'reduce': the same number of installments, each one smaller (an annuity on the new balance).
+function recalculateInstallmentsAfterEarly_(open, after, mode) {
+  if (after <= 0.004 || !open.length) return [];
+  var before = open.reduce(function (n, r) { return n + r.principal; }, 0);
+  var rate = before > 0 ? open[0].interest / before : 0;
+  var out = [];
+  var balance = after;
+  var n = open.length;
+  var payment = 0;
+  if (mode === 'reduce') {
+    payment = rate > 0 ? after * rate / (1 - Math.pow(1 + rate, -n)) : after / n;
+  }
+  for (var i = 0; i < n && balance > 0.004; i++) {
+    var interest = bankRound_(balance * rate);
+    var pay = mode === 'reduce' ? payment : open[i].principal + open[i].interest;
+    var p = bankRound_(pay - interest);
+    if (i === n - 1 || p >= balance - 0.004 || p <= 0) p = bankRound_(balance);
+    out.push({ id: open[i].id, principal: p, interest: interest });
+    balance = bankRound_(balance - p);
+  }
+  return out;
 }

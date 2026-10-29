@@ -15862,6 +15862,26 @@ function bankEarlyMode_() {
   const picked = document.querySelector('input[name="bank-early-mode"]:checked');
   return picked ? picked.value : "shorten";
 }
+// How many installments are left after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
+// interest is recalculated on the lower balance at the rate the schedule itself implies.
+function bankRecalcCount_(open, after, mode) {
+  if (after <= 0.004 || !open.length) return 0;
+  const before = open.reduce((n, r) => n + r.principal, 0);
+  const rate = before > 0 ? open[0].interest / before : 0;
+  const n = open.length;
+  if (mode === "reduce") return n;
+  let balance = after;
+  let count = 0;
+  for (let i = 0; i < n && balance > 0.004; i++) {
+    const interest = bankR2_(balance * rate);
+    let p = bankR2_(open[i].principal + open[i].interest - interest);
+    if (i === n - 1 || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
+    balance = bankR2_(balance - p);
+    count++;
+  }
+  return count;
+}
+
 // Mirrors recordEarlyPayment (BankLoans.gs), only to show what the schedule will look like.
 function bankEarlyPreview_() {
   const sched = bankEarlyCtx_.sched;
@@ -15874,13 +15894,7 @@ function bankEarlyPreview_() {
   const after = bankR2_(sched.remaining_principal - principal);
   if (!(principal > 0)) { prev.textContent = ""; return; }
   if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
-  let n = open.length;
-  if (bankEarlyMode_() === "shorten") {
-    let cut = principal;
-    for (let i = open.length - 1; i >= 0 && cut > 0.004; i--) {
-      if (open[i].principal <= cut + 0.004) { cut = bankR2_(cut - open[i].principal); n--; } else cut = 0;
-    }
-  }
+  const n = bankRecalcCount_(open, after, bankEarlyMode_());
   prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
 }
 
