@@ -41,7 +41,7 @@ var PROFILE_PACKS_ = {
   health: { expense: [['Health', '🏥']] },
   selfemployed: { expense: [['Work expenses', '💼']] },
   family: { expense: [['Family support', '👪']] },
-  debt: { expense: [['Debt payments', '💳']] },
+  debt: { expense: [['Interest', '💸']] },   // paying the debt itself is not an expense (loans/repayments are not), the interest on it is
   shopping: { expense: [['Shopping', '🛍️']] },
   goingout: { expense: [['Going out', '🍻']] },
   entertainment: { expense: [['Entertainment', '🎭']] },
@@ -58,7 +58,6 @@ var STARTER_COVERED_BY_ = {
   'expense:health': ['healthcare'],
   'expense:work_expenses': ['work'],
   'expense:family_support': ['family_personal'],
-  'expense:debt_payments': ['credit_card'],
   'expense:going_out': ['party'],
   'expense:personal_care': ['family_personal'],
   'expense:gifts_donations': ['gifts', 'donations']

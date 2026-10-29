@@ -1770,7 +1770,7 @@
     "fits.a.health": { en: "🏥 Health", es: "🏥 Salud" },
     "fits.a.selfemployed": { en: "💼 Self-employed", es: "💼 Trabajo por mi cuenta" },
     "fits.a.family": { en: "👪 Supporting family", es: "👪 Apoyo a mi familia" },
-    "fits.a.debt": { en: "💳 Paying off debt", es: "💳 Pagando deudas" },
+    "fits.a.debt": { en: "💳 Paying off debt (interest)", es: "💳 Pagando deudas (intereses)" },
     "fits.a.shopping": { en: "🛍️ Shopping", es: "🛍️ Compras" },
     "fits.a.goingout": { en: "🍻 Going out", es: "🍻 Salidas" },
     "fits.a.entertainment": { en: "🎭 Entertainment (shows, concerts)", es: "🎭 Entretenimiento (espectáculos, conciertos)" },

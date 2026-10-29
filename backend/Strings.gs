@@ -572,7 +572,7 @@ var CATEGORY_TRANSLATIONS_ = {
   health: { en: 'Health', es: 'Salud' },
   work_expenses: { en: 'Work expenses', es: 'Gastos de trabajo' },
   family_support: { en: 'Family support', es: 'Apoyo a la familia' },
-  debt_payments: { en: 'Debt payments', es: 'Pago de deudas' },
+  interest: { en: 'Interest', es: 'Intereses' },
   going_out: { en: 'Going out', es: 'Salidas' },
   personal_care: { en: 'Personal care', es: 'Cuidado personal' },
   subscriptions: { en: 'Subscriptions', es: 'Suscripciones' },

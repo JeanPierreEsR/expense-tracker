@@ -109,10 +109,10 @@ test("people who already use the app: nothing they have is duplicated, changed o
   const before = rt.rows("Categories").map((c) => `${c.type}:${c.name}`);
   const res = post(rt, "applyProfile", { answers: run(rt, "PROFILE_ORDER_"), basics: true }).data;
   const added = res.added.map((a) => a.name);
-  for (const covered of ["Vehicle", "Health", "Work expenses", "Family support", "Debt payments", "Going out", "Personal care", "Gifts & donations", "Education", "Shopping", "Groceries", "Salary"]) {
+  for (const covered of ["Vehicle", "Health", "Work expenses", "Family support", "Going out", "Personal care", "Gifts & donations", "Education", "Shopping", "Groceries", "Salary"]) {
     assert.ok(!added.includes(covered), `${covered} is covered by what the copy already has`);
   }
-  for (const gap of ["Kids", "Pets", "Subscriptions", "Hobbies"]) assert.ok(added.includes(gap), `${gap} is a gap`);
+  for (const gap of ["Kids", "Pets", "Interest", "Subscriptions", "Hobbies"]) assert.ok(added.includes(gap), `${gap} is a gap`);
   const after = rt.rows("Categories").map((c) => `${c.type}:${c.name}`);
   for (const b of before) assert.ok(after.includes(b), `${b} is still there`);
   assert.equal(after.length, before.length + added.length);
