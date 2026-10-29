@@ -139,6 +139,16 @@ function seedData(rt, options = {}) {
     waiting({ type: "investment", amount: -160, description: "MX investment withdrawal " + k, payment_method_id: debit.id, to_payment_method_id: platform.id });
     waiting({ type: "expense", amount: 170, description: "MX expense " + k, payment_method_id: debit.id });
     }
+    // The same kinds in a foreign currency (each with its flag), once: for checking how a flag and a sign sit together.
+    const foreign = (fields) => entries.push(Object.assign({
+      id: uuid(), date: "2026-10-27", status: "pending", source: "email", paid_by: "me", category_id: "",
+      created_at: "2026-10-27T10:00:00", updated_at: "2026-10-27T10:00:00", merchant: "", external_id: uuid(), import_batch_id: ""
+    }, fields));
+    foreign({ type: "expense", currency: "USD", amount: 24.5, description: "MX foreign expense USD", payment_method_id: debit.id });
+    foreign({ type: "expense", currency: "EUR", amount: 61.9, description: "MX foreign expense EUR", payment_method_id: debit.id });
+    foreign({ type: "income", currency: "USD", amount: 300, description: "MX foreign income USD", payment_method_id: debit.id });
+    foreign({ type: "investment", currency: "USD", amount: 150, description: "MX foreign investment deposit USD", payment_method_id: debit.id, to_payment_method_id: platform.id });
+    foreign({ type: "investment", currency: "USD", amount: -160, description: "MX foreign investment withdrawal USD", payment_method_id: debit.id, to_payment_method_id: platform.id });
   }
 
   // Shared expenses -> splits + entry-origin loans, some repaid / forgiven
@@ -181,6 +191,13 @@ function seedData(rt, options = {}) {
     id: uuid(), category_id: pick(expenseCats).id, description: "Programmed " + (i + 1), amount: money(20, 900), currency: "PEN",
     frequency: pick(["monthly", "monthly", "yearly"]), day: 1 + Math.floor(rnd() * 28), month: 1 + Math.floor(rnd() * 12), active: true, date: ""
   })));
+
+  // Programmed items in a foreign currency (an expense, a variable-amount expense, an income), for checking flags beside signs.
+  bulk("Recurring Expenses", [
+    { id: uuid(), category_id: pick(expenseCats).id, description: "Programmed foreign expense USD", amount: 15, currency: "USD", frequency: "monthly", day: 28, month: 1, active: true, date: "" },
+    { id: uuid(), category_id: pick(expenseCats).id, description: "Programmed foreign variable EUR", amount: 40, currency: "EUR", frequency: "monthly", day: 27, month: 1, active: true, date: "", variable: true },
+    { id: uuid(), category_id: pick(incomeCats).id, description: "Programmed foreign income USD", amount: 500, currency: "USD", frequency: "monthly", day: 29, month: 1, active: true, date: "" }
+  ]);
 
   return { friends, pms, payors, tags, cats, entries, loans, splits, settlements, months };
 }
