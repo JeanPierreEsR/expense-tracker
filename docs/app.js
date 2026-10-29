@@ -8281,7 +8281,7 @@ function showWelcomeStep_(step) {
 }
 
 // ---- Welcome step 2: "What fits you?" (optional) ----
-// Two groups of picks, "My life" and "My spheres"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
+// Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
 // welcome is saved). The same chips are used by More → Categories → "Add suggested categories".
 const FITS_GROUPS_ = [
   { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"] },

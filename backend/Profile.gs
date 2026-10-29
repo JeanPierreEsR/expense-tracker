@@ -26,7 +26,7 @@ var STARTER_INCOME_CATEGORIES_ = [
   ['Salary', '💰'], ['Business', '👔'], ['Gifts', '🎁'], ['Refunds', '↩️'], ['Other', '📦']
 ];
 
-// The two questions, in the order the app shows them ("My life", "My spheres"). Each answer adds EXACTLY ONE category (owner's design
+// The two questions, in the order the app shows them ("My responsibilities", "My lifestyle"). Each answer adds EXACTLY ONE category (owner's design
 // of 2026-10-29): the picks describe parts of a person's life, never personality traits. Household bills (electricity, water, internet,
 // phone) belong in Home; streaming belongs in Subscriptions, games in Hobbies, and Entertainment means live shows and concerts.
 var PROFILE_GROUPS_ = {

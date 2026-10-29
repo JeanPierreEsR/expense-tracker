@@ -1,4 +1,4 @@
-// "What fits you?": the basic categories of a new install, the two question groups ("My life", "My spheres") whose picks each add exactly one
+// "What fits you?": the basic categories of a new install, the two question groups ("My responsibilities", "My lifestyle") whose picks each add exactly one
 // category, and More → Categories → "Add suggested categories" (backend/Profile.gs + the welcome screens). Made-up data only.
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -57,8 +57,8 @@ test("two question groups (8 + 7 answers); each answer adds exactly one category
     const t = run(rt, `CATEGORY_TRANSLATIONS_[${JSON.stringify(key)}] || null`);
     assert.ok(t && t.en === name && t.es, `${name} has a Spanish name`);
   }
-  assert.match(strings, /"fits\.g\.life": \{ en: "My life"/);
-  assert.match(strings, /"fits\.g\.spheres": \{ en: "My spheres"/);
+  assert.match(strings, /"fits\.g\.life": \{ en: "My responsibilities"/);
+  assert.match(strings, /"fits\.g\.spheres": \{ en: "My lifestyle"/);
 });
 
 test("the labels say what each pick means: entertainment is shows and concerts, streaming is subscriptions, games are hobbies", () => {
