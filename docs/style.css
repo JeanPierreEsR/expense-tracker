@@ -50,6 +50,34 @@ button.update-banner {
   cursor: pointer;
 }
 
+/* The person's own server is behind the app (or lacks something the app needs): a closable bar that opens the update sheet. */
+.backend-update-banner {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  cursor: default;
+}
+.backend-update-banner button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.backend-update-open {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 8px 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  text-align: center;
+}
+.backend-update-close {
+  min-width: 44px;
+  padding: 0 14px;
+  padding-top: env(safe-area-inset-top, 0px);
+  font-size: 1rem;
+}
+
 /* A background entry-edit save failed — see "Background entry-edit
    saving" in app.js. Same fixed/always-visible treatment as the update
    banner above (and the same top:0 default — renderSaveFailedBanner_

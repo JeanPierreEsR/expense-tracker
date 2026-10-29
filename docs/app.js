@@ -101,6 +101,8 @@ let editingRepayment_ = null;    // the entry being edited is a repayment's mone
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+// The date the entry had when its edit form was opened: a save that leaves it alone does not send it (withoutUnchangedDate_).
+let editingEntryOriginalDate_ = null;
 // Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
 let payingRecurringId_ = null;
 
@@ -2468,7 +2470,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       await ensureExchangeRate(currency, date);
       // Sent in the background (2026-10-28), through the same queue as a plain Confirm tap: it is written to this phone first
       // and retried until the server has it (see sendPendingConfirmInBackground_).
-      queueReviewAction_(confirmingPendingId, "confirm", {
+      queueReviewAction_(confirmingPendingId, "confirm", withoutUnchangedDate_({
         type: selectedType,
         date,
         amount: isWithdrawal ? -amount : amount,
@@ -2480,7 +2482,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...businessLink
-      }, {
+      }, confirmingPendingId), {
         splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (splits || []) : null,
         tagIds
       });
@@ -2615,7 +2617,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       const id = editingEntryId;
       const wasPopup = editingViaPopup;
-      const fields = {
+      const fields = withoutUnchangedDate_({
         type: selectedType,
         date,
         amount: isWithdrawal ? -amount : amount,
@@ -2627,7 +2629,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...businessLink
-      };
+      }, id);
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
       // IS (or was) splittable, even with nothing in it — that's how
@@ -3660,6 +3662,7 @@ async function startEditEntry(entry) {
   document.getElementById("transfer-kind").value = "between";
   repaymentFriendTouched_ = false;
   editingEntryId = entry.id;
+  editingEntryOriginalDate_ = entry.date || null;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
@@ -3797,6 +3800,7 @@ async function startEditEntry(entry) {
 
 function exitEditMode() {
   editingEntryId = null;
+  editingEntryOriginalDate_ = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
@@ -4198,6 +4202,18 @@ function findQueuedEdit_(id) {
 
 // splits: null means "don't touch splits for this entry" (not an expense,
 // never was) — [] means "send an empty list" (clears any existing splits).
+// Saving an edit that does not touch the date must not send it (2026-10-28). The form always carried the date it was shown, so a
+// server that read dates a day early (a friend's copy not yet updated, Sheet in another time zone) got that wrong date back on every
+// save and stored it: one more day lost each time (an expense edited once: Oct 26 -> Oct 24; a loan saved four times: Oct 28 ->
+// Oct 24). Not applied while an earlier save of this entry is still queued (its typed date has not reached the server) or for a new entry.
+function withoutUnchangedDate_(fields, id) {
+  const queued = findQueuedEdit_(id);
+  if (queued && queued.fields && queued.fields.date !== undefined) return fields;
+  if (editingEntryOriginalDate_ === null || fields.date !== editingEntryOriginalDate_) return fields;
+  const { date, ...rest } = fields;
+  return rest;
+}
+
 // extra: { kind: "create", linkRecurringId } for a NEW entry saved in the background (it has no row on the server yet:
 // its id is made on the phone and sent as client_id, so a repeat never makes a second entry); { loan: true } for a
 // loan's own money entry (the Loans tab is refreshed after it lands). A save that has not reached the server yet keeps its
@@ -4444,14 +4460,13 @@ function renderSaveFailedBanner_() {
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
   if (!failed.length) {
     banner.hidden = true;
+    stackTopBanners_();
     return;
   }
   banner.textContent = tr("banner.saveFailed", { n: failed.length });
   banner.hidden = false;
-  // Stacks below the update banner rather than overlapping it, on the
-  // rare chance both are showing at once — both are position:fixed/top:0.
-  const updateBanner = document.getElementById("update-banner");
-  banner.style.top = updateBanner.hidden ? "0" : updateBanner.getBoundingClientRect().height + "px";
+  // Stacks below the other top bars rather than overlapping them (all are position:fixed/top:0).
+  stackTopBanners_();
 }
 
 document.getElementById("save-failed-banner").addEventListener("click", () => {
@@ -7671,13 +7686,66 @@ function siteUrl_(path) { return window.etSiteUrl ? window.etSiteUrl(path) : new
 // The owner's own copy is updated by ship.sh, so it never asks (capabilities.perfLog is true there).
 const UPDATE_CHECK_KEY = "etBackendUpdate";
 let updateChecked_ = false, updateChecking_ = false;
+// What the app needs from the person's own server. One that lacks any of these is out of date in a way that matters now: the update bar
+// then says so, and comes back every time the app opens (closing it only hides it until then). Add a name here when a new app
+// release cannot work properly without a newer server. sheetDates: dates are read in the Sheet's own time zone (backend 2026-10-25).
+const REQUIRED_BACKEND_CAPS_ = ["sheetDates"];
+const UPDATE_BAR_CLOSED_KEY = "etUpdateBarClosed";
+let backendBehind_ = false, backendUrgent_ = false, updateBarClosedNow_ = false;
+function updateBarClosed_() {
+  if (updateBarClosedNow_) return true;
+  if (backendUrgent_) return false;   // an urgent bar returns at every app open
+  try { const c = JSON.parse(localStorage.getItem(UPDATE_BAR_CLOSED_KEY)); return !!(c && Date.now() - c.at < 24 * 3600 * 1000); } catch (e) { return false; }
+}
+// Stacks the fixed bars at the top (all are position:fixed): the new-screens bar, the server-update bar, the failed-save bar.
+function stackTopBanners_() {
+  let top = 0;
+  ["update-banner", "backend-update-banner", "save-failed-banner"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.hidden) return;
+    el.style.top = top + "px";
+    top += el.getBoundingClientRect().height;
+  });
+}
+function renderBackendUpdateBanner_() {
+  const banner = document.getElementById("backend-update-banner");
+  const show = backendBehind_ && !updateBarClosed_();
+  banner.hidden = !show;
+  if (show) {
+    document.getElementById("backend-update-open").textContent = tr(backendUrgent_ ? "banner.backendUrgent" : "banner.backendUpdate");   // re-set so a screen reader announces it
+    document.getElementById("backend-update-close").setAttribute("aria-label", tr("common.close"));
+  }
+  stackTopBanners_();
+}
+// More → the line under "Version": which server version this phone talks to, compared with the app's. Friends' copies only (the owner's server is
+// always the newest, updated by ship.sh).
+function renderServerVersion_() {
+  const el = document.getElementById("more-server-version");
+  const caps = (meta && meta.capabilities) || {};
+  if (!el || caps.perfLog !== false) { if (el) el.hidden = true; return; }
+  const v = caps.backendRelease || (caps.backendRef ? String(caps.backendRef).slice(0, 7) : "");
+  el.textContent = (v ? tr("more.serverVersion", { v }) : tr("more.serverVersionOld")) + (backendBehind_ ? tr("more.serverBehind") : "");
+  el.hidden = false;
+}
 function setUpdateAvailable_(on) {
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
+  backendBehind_ = !!on;
+  renderBackendUpdateBanner_();
+  renderServerVersion_();
 }
+document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
+document.getElementById("backend-update-close").addEventListener("click", () => {
+  updateBarClosedNow_ = true;
+  if (!backendUrgent_) { try { localStorage.setItem(UPDATE_BAR_CLOSED_KEY, JSON.stringify({ at: Date.now() })); } catch (e) { /* closed until the app is reopened */ } }
+  renderBackendUpdateBanner_();
+});
 async function checkBackendUpdate_() {
   const caps = (meta && meta.capabilities) || {};
   if (updateChecked_ || updateChecking_ || caps.perfLog !== false) return;   // false (not just missing) = a copy made by the installer
+  // Known without asking anyone: this server lacks something the app needs.
+  backendUrgent_ = REQUIRED_BACKEND_CAPS_.some((c) => !caps[c]);
+  if (backendUrgent_) setUpdateAvailable_(true); else renderServerVersion_();
   updateChecking_ = true;
   try { await checkBackendUpdateNow_(caps); } finally { updateChecking_ = false; }
 }
@@ -7707,7 +7775,7 @@ async function checkBackendUpdateNow_(caps) {
   if (latest) {
     updateChecked_ = true;
     const behind = !caps.backendRef || caps.backendRef !== latest;
-    setUpdateAvailable_(behind);
+    setUpdateAvailable_(behind || backendUrgent_);
     if (behind) promptBackendUpdateOnce_(latest);
   }
 }
@@ -7769,7 +7837,12 @@ async function syncRulePack_() {
   } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRulePack_(); });   // an app kept alive in the background is checked when it comes back to the front
-function updatePageUrl_() { return siteUrl_("setup/#update"); }
+// The link carries the id of the server THIS phone uses (the part of its address after /macros/s/), so the page updates that one and not
+// merely the newest tracker in the person's Google Drive.
+function updatePageUrl_() {
+  const dep = (String(getApiUrl()).match(/\/macros\/s\/([A-Za-z0-9_-]+)\/exec/) || [])[1];
+  return siteUrl_("setup/#update" + (dep ? "&dep=" + dep : ""));
+}
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
 // address starts with "x-safari-" (x-safari-https://…), so that is what the buttons below use from the Home Screen app.

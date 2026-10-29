@@ -400,6 +400,8 @@
     // ---- banner ----
     "banner.saveFailed": { en: { one: "⚠️ {n} entry couldn't save — tap to see it", other: "⚠️ {n} entries couldn't save — tap to see them" }, es: { one: "⚠️ {n} movimiento no se pudo guardar: toca para verlo", other: "⚠️ {n} movimientos no se pudieron guardar: toca para verlos" } },
     "banner.update": { en: "🔄 New version available — tap to reload", es: "🔄 Nueva versión disponible: toca para recargar" },
+    "banner.backendUpdate": { en: "⬆️ An update for your app is ready — tap to update", es: "⬆️ Hay una actualización de tu app: toca para actualizar" },
+    "banner.backendUrgent": { en: "⚠️ Your app is out of date and can show dates one day early — tap to update", es: "⚠️ Tu app está desactualizada y puede mostrar las fechas un día antes: toca para actualizar" },
 
     // ---- check ----
     "check.checking.review": { en: "🔄 Checking for new entries to review…", es: "🔄 Buscando nuevos movimientos por revisar…" },
@@ -1623,6 +1625,9 @@
     "more.bankEmails": { en: "📧 Bank emails", es: "📧 Correos del banco" },
     // ---- extra e-mail accounts (More → Email accounts; see specs/review-telegram-email.md) ----
     "more.version": { en: "Version {v}", es: "Versión {v}" },
+    "more.serverVersion": { en: "Server version {v}", es: "Versión del servidor {v}" },
+    "more.serverVersionOld": { en: "Server version: an older one", es: "Versión del servidor: una anterior" },
+    "more.serverBehind": { en: " — update available", es: " — hay actualización" },
     // ---- More → Bank emails + the "can't read this bank yet" notes (specs/review-telegram-email.md § Bank emails guide) ----
     "bankMail.title": { en: "Bank emails", es: "Correos del banco" },
     "bankMail.intro": { en: "The app reads your bank's notification emails from this Google account:", es: "La app lee los correos de notificación de tu banco desde esta cuenta de Google:" },
