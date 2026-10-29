@@ -13667,28 +13667,40 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       }
     }
 
-    let recurringExpenseId = editingRecurringId;
-    if (editingRecurringId) {
-      await callApi("updateRecurringExpense", Object.assign({ id: editingRecurringId }, fields));
-    } else {
-      const created = await callApi("addRecurringExpense", fields);
-      recurringExpenseId = created.id;
-    }
-    // Always sent, even as [] — that's how a previously-split item gets
-    // its split cleared when the toggle is turned back off, same as the
-    // entry form's own saveEntrySplits call.
-    if (splits !== null) {
-      await callApi("saveRecurringExpenseSplits", { recurringExpenseId, splits });
-    }
+    // Everything the person typed is checked above; from here the save runs
+    // behind the screen: the sheet closes at once (same idea as the entry
+    // form's background save) and a refusal comes back as a message.
+    const savingId = editingRecurringId;
+    const suggestionBox = pendingSuggestionBox_;
+    pendingSuggestionBox_ = null;
     closeRecurringModal();
-    if (pendingSuggestionBox_) {
-      const list = document.getElementById("recurring-suggest-list");
-      pendingSuggestionBox_.remove();
-      pendingSuggestionBox_ = null;
-      document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
-    }
-    refreshRecurringExpenses();
-    if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
+    showToast_(tr("recModal.saving"));
+    (async () => {
+      try {
+        let recurringExpenseId = savingId;
+        if (savingId) {
+          await callApi("updateRecurringExpense", Object.assign({ id: savingId }, fields));
+        } else {
+          const created = await callApi("addRecurringExpense", fields);
+          recurringExpenseId = created.id;
+        }
+        // Always sent, even as [] — that's how a previously-split item gets
+        // its split cleared when the toggle is turned back off, same as the
+        // entry form's own saveEntrySplits call.
+        if (splits !== null) {
+          await callApi("saveRecurringExpenseSplits", { recurringExpenseId, splits });
+        }
+        if (suggestionBox) {
+          const list = document.getElementById("recurring-suggest-list");
+          suggestionBox.remove();
+          document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
+        }
+      } catch (err) {
+        alert(tr("recModal.saveFailed", { error: err.message }));
+      }
+      refreshRecurringExpenses();
+      if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
+    })();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {

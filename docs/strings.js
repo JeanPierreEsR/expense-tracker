@@ -1059,6 +1059,8 @@
     "recModal.searching": { en: "Searching…", es: "Buscando…" },
     "recModal.lessCertain": { en: "(less certain)", es: "(menos seguro)" },
     "recModal.searchFailed": { en: "Couldn't search: {error}", es: "No se pudo buscar: {error}" },
+    "recModal.saving": { en: "💾 Saving…", es: "💾 Guardando…" },
+    "recModal.saveFailed": { en: "Your programmed item was NOT saved: {error}", es: "Tu elemento programado NO se guardó: {error}" },
     "recModal.pickDate": { en: "Pick a date.", es: "Elige una fecha." },
     "recModal.confirmDelete": { en: "Delete the programmed item {what}? Its skipped months go with it. This can't be undone.", es: "¿Eliminar el movimiento programado {what}? Sus meses omitidos se eliminan con él. No se puede deshacer." },
 
