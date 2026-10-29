@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="0.55.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="7f354ecaacd3eae4b304fe13fb55778aec237776"><meta name="app-archived" content="20261027T010014580Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="1.26.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="ad6d48b0ed36d87254e19a7c2566594b024fd443"><meta name="app-archived" content="20261029T034606498Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-27T00:35:27Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-28T22:15:02Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -187,6 +187,16 @@
           <div id="exchange-inline-slot" hidden></div>
 
           <div id="entry-standard-fields">
+          <div id="receipt-read-field" hidden>
+            <button type="button" class="add-inline" id="receipt-read-btn" data-i18n="receipt.button">📷 Read a receipt or payment</button>
+            <input type="file" id="receipt-read-input" accept="image/*" hidden>
+            <p class="hint" id="receipt-read-status" hidden></p>
+            <details id="receipt-read-raw" hidden>
+              <summary data-i18n="receipt.rawTitle">The text the reader saw</summary>
+              <textarea id="receipt-read-text" class="bill-photo-text" rows="7" readonly spellcheck="false"></textarea>
+            </details>
+          </div>
+
           <label for="amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
@@ -221,6 +231,8 @@
               <input type="checkbox" id="split-toggle">
               <span data-i18n="split.toggle">Split this expense</span>
             </label>
+            <button type="button" class="add-inline" id="split-client-btn" hidden data-i18n="split.clientRepays">🏢 Client will repay this</button>
+            <select id="split-client-select" hidden aria-label="Who will repay it?"></select>
 
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
@@ -250,6 +262,28 @@
             <select id="entry-trip"></select>
           </div>
 
+          <div id="business-field" hidden>
+            <label for="entry-business" data-i18n="field.business">Company / project</label>
+            <select id="entry-business"></select>
+          </div>
+
+          <div id="expected-field" hidden>
+            <label for="entry-expected" data-i18n="field.expected">Pays expected payment</label>
+            <select id="entry-expected"></select>
+          </div>
+
+          <div id="igv-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="igv-toggle">
+              <span id="igv-toggle-label" data-i18n="igv.toggle">Includes IGV</span>
+            </label>
+            <div id="igv-detail" hidden>
+              <label for="igv-amount" data-i18n="igv.amount">IGV amount</label>
+              <input type="text" inputmode="decimal" id="igv-amount" placeholder="0.00">
+              <p class="hint" id="igv-hint"></p>
+            </div>
+          </div>
+
           </div>
 
           <p class="hint" id="form-error" style="color:#d64545;"></p>
@@ -274,6 +308,21 @@
         <ul class="first-steps-list" id="first-steps-list"></ul>
       </div>
 
+      <div class="card mail-health" id="mail-health-card" role="status" hidden>
+        <h2 data-i18n="mailHealth.title">Your bank emails may not be arriving</h2>
+        <p class="hint" id="mail-health-text"></p>
+        <button type="button" class="add-inline" id="mail-health-check" data-i18n="mailHealth.checkNow">Check now</button>
+      </div>
+
+      <div class="card notices-card" id="notices-card" hidden>
+        <div class="first-steps-head">
+          <h2 data-i18n="notices.title">Alerts</h2>
+          <button type="button" class="add-inline" id="notices-dismiss-all" data-i18n="notices.dismissAll">Dismiss all</button>
+        </div>
+        <ul class="notices-list" id="notices-list"></ul>
+        <p class="hint" id="notices-more" hidden></p>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
@@ -292,6 +341,12 @@
         <div id="expected-recurring-groups"></div>
       </div>
 
+      <div class="card business-expected-card" id="business-expected-card" hidden>
+        <h2 data-i18n="bx.title">💼 Business · expected this month</h2>
+        <p class="hint" data-i18n="bx.hint">Payments clients still owe you, due this month or overdue.</p>
+        <div id="business-expected-list"></div>
+      </div>
+
       <div class="card entry-list">
         <h2 data-i18n="entries.recent">Recent entries</h2>
         <p class="hint" id="entries-check-status" hidden></p>
@@ -300,7 +355,7 @@
     </div>
 
     <div id="screen-overview" class="screen" hidden>
-      <div class="card" id="period-selector-card"><span class="period-spin stmt-spinner" role="status" aria-label="Loading"></span>
+      <div class="card" id="period-selector-card">
         <div class="period-selector">
           <button type="button" class="period-nav-btn" id="period-prev" data-i18n-aria-label="period.prev" aria-label="Previous period">‹</button>
           <div id="period-label" role="button" tabindex="0">Month</div>
@@ -311,6 +366,10 @@
           <button type="button" class="period-type-chip" data-period-type="year" data-i18n="period.year">Year</button>
           <button type="button" class="period-type-chip" data-period-type="alltime" data-i18n="period.alltime">All-time</button>
           <button type="button" class="period-type-chip" data-period-type="custom" data-i18n="period.custom">Custom</button>
+        </div>
+        <div id="overview-scope-row" hidden>
+          <label for="overview-scope" data-i18n="overview.showing">Showing</label>
+          <select id="overview-scope"></select>
         </div>
         <div id="custom-range-fields" hidden>
           <label data-i18n="period.dates">Dates</label>
@@ -452,6 +511,10 @@
     </div>
 
     <div id="screen-loans" class="screen" hidden>
+      <div class="card" id="loans-scope-card" hidden>
+        <label for="loans-scope" data-i18n="loans.scope">Showing</label>
+        <select id="loans-scope"></select>
+      </div>
       <div class="card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
@@ -474,6 +537,11 @@
         <div id="loans-i-owe-list"></div>
         <p class="hint" id="loans-i-owe-empty-note" hidden data-i18n="loans.noneYouOwe">You don't owe anyone right now.</p>
       </div>
+
+      <div class="card" id="loans-settled-card" hidden>
+        <button type="button" class="add-inline loan-detail-paid-toggle" id="loans-settled-toggle"></button>
+        <div id="loans-settled-list" hidden></div>
+      </div>
     </div>
 
     <div id="screen-more" class="screen" hidden>
@@ -485,6 +553,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-trips-btn">
             <span data-i18n="more.trips">✈️ Trips &amp; events</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-business-btn" hidden>
+            <span data-i18n="more.business">🏢 Companies &amp; projects</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -559,6 +631,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-extras-btn" hidden>
             <span data-i18n="more.extras">⚡ Extra features</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-business-features-btn" hidden>
+            <span><span data-i18n="more.businessFeatures">🏢 Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-preview-welcome-btn" hidden>
@@ -687,6 +763,91 @@
         <button type="button" class="add-inline" id="trip-find-btn" data-i18n="trips.find">🔎 Find expenses in these dates</button>
         <div id="trip-find-box" hidden></div>
         <div id="trip-detail-entries"></div>
+      </div>
+    </div>
+
+    <!-- The two real date inputs behind the "Custom…" period of the Companies & projects screens (the calendar pop-up writes to them). -->
+    <div hidden>
+      <input type="date" id="business-custom-start">
+      <input type="date" id="business-custom-end">
+    </div>
+
+    <div id="screen-business-features" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="bf-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="bf.title">Business features</h2>
+        <p class="hint" data-i18n="bf.hint">Optional. They add companies and projects to the app, so you can see the income, the costs and the margin of each one, in each currency. The rest of the app stays exactly as it is.</p>
+        <label class="checkbox-row">
+          <input type="checkbox" id="bf-toggle">
+          <span data-i18n="bf.toggle">Use business features</span>
+        </label>
+        <p class="hint" data-i18n="bf.offNote">If you turn them off, they are hidden but nothing is deleted. Turn them on again and everything comes back.</p>
+        <p class="hint" id="bf-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="business-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="business-add-company-btn" data-i18n="business.addCompany">+ Company</button>
+        </div>
+        <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">👥 People</button>
+        <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
+        <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
+        <select id="business-period" class="business-period-select"></select>
+        <div id="business-list"></div>
+        <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
+        <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
+        <p class="hint" id="business-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-people" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="people-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="people-add-btn" data-i18n="people.add">+ Person</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="people.title">People</h2>
+        <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
+        <div id="people-list"></div>
+        <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
+        <p class="hint" id="people-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-igv" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="igv-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="igv-add-payment-btn" data-i18n="igv.addPayment">+ IGV payment</button>
+        </div>
+        <h2 style="margin-top:0;" id="igv-title"></h2>
+        <p class="hint" id="igv-sub"></p>
+        <select id="igv-year" class="igv-year-select"></select>
+        <div id="igv-body"></div>
+        <p class="hint" id="igv-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-detail" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="business-detail-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="add-inline" id="business-detail-edit-btn" data-i18n="business.edit">Edit</button>
+        </div>
+        <h2 style="margin-top:0;" id="business-detail-title"></h2>
+        <p class="hint" id="business-detail-sub"></p>
+        <select id="business-detail-period" class="business-period-select"></select>
+        <div id="business-detail-body"></div>
+        <p class="hint" id="business-detail-error" style="color:#d64545;"></p>
+      </div>
+      <div class="card" id="business-detail-entries-card" hidden>
+        <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
+        <div id="business-detail-entries"></div>
       </div>
     </div>
 
@@ -1112,12 +1273,77 @@
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
-      <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
+      <div class="loan-detail-actions">
+        <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
+        <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
+      </div>
       <div class="currency-option-list" id="loan-detail-list"></div>
       <p class="hint" id="loan-detail-empty-note" hidden data-i18n="loanDetail.empty">No loans with this friend yet.</p>
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+    </div>
+  </div>
+
+  <div id="reassign-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="reassign-title" data-i18n="reassign.title">Edit this repayment</span>
+        <button type="button" id="reassign-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="reassign-info"></p>
+        <p class="hint" id="reassign-hint" data-i18n="reassign.hint">Select the loans this repayment is for. They are paid oldest first, until the repayment runs out. Whatever is left goes to the oldest of the others.</p>
+        <div id="reassign-fields">
+          <label for="reassign-amount" data-i18n="field.amount">Amount</label>
+          <input type="text" inputmode="decimal" id="reassign-amount" placeholder="0.00">
+          <label for="reassign-date" data-i18n="field.date">Date</label>
+          <input type="date" id="reassign-date">
+          <label for="reassign-pm" data-i18n="field.paymentMethod">Payment method</label>
+          <select id="reassign-pm"></select>
+        </div>
+        <div id="reassign-list"></div>
+        <div class="reassign-limit-box" id="reassign-limit-row">
+          <label class="reassign-limit-label">
+            <input type="checkbox" id="reassign-limit">
+            <span data-i18n="reassign.limit">Pay only the selected loans</span>
+          </label>
+          <div id="reassign-gap" hidden>
+            <label for="reassign-gap-category" id="reassign-gap-label"></label>
+            <select id="reassign-gap-category"></select>
+          </div>
+        </div>
+        <p class="hint" id="reassign-summary"></p>
+        <div id="reassign-record" hidden>
+          <p class="hint" data-i18n="reassign.recordEntryHint">x</p>
+          <button type="button" class="add-inline" id="reassign-record-btn" data-i18n="reassign.recordEntry">Record in my accounts</button>
+        </div>
+        <p class="hint" id="reassign-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="reassign-save" data-i18n="common.save">Save</button>
+        <button type="button" class="cancel-edit-btn" id="reassign-cancel" data-i18n="common.cancel">Cancel</button>
+        <button type="button" class="delete-entry-btn" id="reassign-delete" hidden data-i18n="reassign.delete">Delete this repayment</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="history-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="history-modal-title"></span>
+        <button type="button" id="history-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="history-loading" data-i18n="common.loading">Loading…</p>
+        <div id="history-content" hidden>
+          <p class="hint" id="history-net"></p>
+          <h3 data-i18n="history.repayments">Repayments</h3>
+          <p class="hint" data-i18n="history.tapHint">Tap a repayment to change which loans it paid, or a canceled-out line to undo it.</p>
+          <div class="currency-option-list" id="history-repayments"></div>
+          <p class="hint" id="history-repayments-empty" hidden data-i18n="history.noRepayments">No repayments recorded with this person yet.</p>
+          <h3 data-i18n="history.loans">Loans</h3>
+          <div class="currency-option-list" id="history-loans"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1209,6 +1435,11 @@
         <label for="loan-friend" data-i18n="common.friend">Friend</label>
         <select id="loan-friend"></select>
 
+        <div id="loan-project-field" hidden>
+          <label for="loan-project" data-i18n="business.loanProject">Project (optional)</label>
+          <select id="loan-project"></select>
+        </div>
+
         <label data-i18n="loanModal.direction">Direction</label>
         <div class="type-tabs budget-period-tabs" id="loan-direction-tabs">
           <div class="type-tab active" data-direction="they_owe_me" data-i18n="loanModal.theyOweMe">They owe me</div>
@@ -1238,7 +1469,25 @@
 
         <p class="hint" id="loan-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="loan-save-btn" data-i18n="loanModal.save">Save loan</button>
+        <button type="button" class="add-inline" id="loan-apply-btn" hidden data-i18n="apply.button">↩ Apply to a loan</button>
         <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden data-i18n="loanModal.delete">Delete this loan</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="repay-choice-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="repay-choice-title"></span>
+        <button type="button" id="repay-choice-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="repay-choice-text"></p>
+        <button type="button" class="primary" id="repay-choice-keep"></button>
+        <p class="hint" id="repay-choice-keep-hint"></p>
+        <button type="button" class="delete-entry-btn" id="repay-choice-cancel"></button>
+        <p class="hint" id="repay-choice-cancel-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="repay-choice-back" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -1269,6 +1518,21 @@
 
           <label for="settlement-description" data-i18n="field.description">Description</label>
           <input type="text" id="settlement-description" data-i18n-placeholder="common.optional" placeholder="Optional">
+
+          <div id="settlement-loan-field" hidden>
+            <label for="settlement-loan" data-i18n="settle.loanLabel">Which loan this pays</label>
+            <select id="settlement-loan"></select>
+            <p class="hint" data-i18n="settle.loanHint">Pick another loan to move this repayment to it. The amount and the account stay the same.</p>
+          </div>
+
+          <div id="settlement-choose" hidden>
+            <button type="button" class="add-inline" id="settlement-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+            <div id="settlement-choose-panel" hidden>
+              <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+              <div id="settlement-choose-list"></div>
+              <p class="hint" id="settlement-choose-summary"></p>
+            </div>
+          </div>
 
           <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
           <button type="button" class="primary" id="settlement-save-btn" data-i18n="settle.save">Save repayment</button>
@@ -1421,6 +1685,14 @@
         <div class="wp-add">
           <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
           <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
+        </div>
+        <div id="wb-block" hidden>
+          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
+          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
+          <div class="welcome-choices">
+            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
+            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
+          </div>
         </div>
         <p class="hint" id="wp-error" style="color:#d64545;"></p>
         <div class="welcome-tour-buttons">
@@ -1743,6 +2015,8 @@
         <p id="bm-address" style="font-weight:700;word-break:break-all;margin:6px 0;"></p>
         <button type="button" class="add-inline" id="bm-copy-btn" data-i18n="bankMail.copy">Copy address</button>
         <p class="hint" id="bm-msg" role="status"></p>
+        <p class="hint bm-health" id="bm-health" role="status"></p>
+        <button type="button" class="add-inline" id="bm-check-btn" data-i18n="mailHealth.checkNow">Check now</button>
         <div class="ts-stage bm-stage" id="bm-scene" role="img" data-i18n-aria-label="bankMail.animLabel" aria-label="A bank email arrives and shows up in Needs review" hidden></div>
         <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
         <p class="hint" data-i18n="bankMail.alertsLead">The app only knows what your bank emails you. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
@@ -1797,6 +2071,11 @@
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="paid-picker-hint"></p>
+        <div id="paid-picker-new" class="link-candidate-row" style="display:block;">
+          <p class="hint" style="margin:0 0 6px;font-weight:600;" data-i18n="paid.newTitle">Not logged yet? Record it now</p>
+          <button type="button" id="paid-new-save" class="primary" data-i18n="paid.newSave">Record the payment…</button>
+        </div>
+        <p class="hint" style="margin:10px 0 0;font-weight:600;" data-i18n="paid.orPick">Or pick an entry you already logged</p>
         <div id="paid-picker-list"></div>
         <p class="hint" id="paid-picker-empty" hidden data-i18n="paid.empty">No confirmed entries this month yet.</p>
         <p class="hint" id="paid-picker-error" style="color:#d64545;"></p>
@@ -1812,6 +2091,12 @@
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="forgive-context"></p>
+
+        <div id="forgive-amount-field">
+          <label for="forgive-amount" data-i18n="forgive.amountLabel">How much to forgive</label>
+          <input type="text" id="forgive-amount" inputmode="decimal" autocomplete="off">
+          <p class="hint" data-i18n="forgive.amountHint">The full amount forgives the whole debt. A smaller amount forgives only that part, and the rest stays owed.</p>
+        </div>
 
         <label class="checkbox-row">
           <input type="checkbox" id="forgive-convert-checkbox" checked>
@@ -1911,7 +2196,7 @@
 <div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
-        <p class="hint" data-i18n="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get a Telegram message the first time spending crosses each one, once per period.</p>
+        <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
@@ -1959,12 +2244,158 @@
 <div id="trip-alert-fields">
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
-        <p class="hint" data-i18n="trips.alertHint">Comma-separated percentages of the budget.</p>
+        <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 
         <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="company-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="company-modal-title" data-i18n="business.companyAddTitle">Add company</span>
+        <button type="button" id="company-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="company-name" data-i18n="business.companyName">Company name</label>
+        <input type="text" id="company-name" maxlength="60" data-i18n-placeholder="business.companyNamePh" placeholder="e.g. Studio Alfa">
+
+        <label for="company-emoji" data-i18n="business.emoji">Icon (optional)</label>
+        <input type="text" id="company-emoji" maxlength="4" placeholder="🏢">
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="company-igv">
+          <span data-i18n="igv.companyCharges">This company charges IGV</span>
+        </label>
+        <p class="hint" data-i18n="igv.companyHint">Its expenses and income then get an “Includes IGV” switch, and the company gets an IGV screen. Old figures are kept if you switch it off.</p>
+
+        <label for="company-tax-id"><span data-i18n="igv.taxId">Tax ID (RUC)</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="company-tax-id" maxlength="30" inputmode="numeric" autocomplete="off">
+
+        <p class="hint" id="company-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="company-delete-btn" hidden data-i18n="business.deleteCompany">Delete this company</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="igv-payment-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="igv-payment-modal-title" data-i18n="igv.paymentAddTitle">Add IGV payment</span>
+        <button type="button" id="igv-payment-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="igv.paymentHint">A note of what you paid the tax office. It is not an expense and does not touch any account.</p>
+
+        <label for="igv-payment-amount" data-i18n="field.amount">Amount</label>
+        <input type="text" inputmode="decimal" id="igv-payment-amount" placeholder="0.00">
+
+        <label for="igv-payment-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="igv-payment-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="igv-payment-date" data-i18n="field.date">Date</label>
+        <input type="date" id="igv-payment-date">
+
+        <label for="igv-payment-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="igv-payment-note" maxlength="200">
+
+        <p class="hint" id="igv-payment-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="igv-payment-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="igv-payment-delete-btn" hidden data-i18n="igv.paymentDelete">Delete this IGV payment</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="person-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="person-modal-title" data-i18n="people.addTitle">Add person</span>
+        <button type="button" id="person-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="person-name" data-i18n="people.name">Name</label>
+        <input type="text" id="person-name" maxlength="60">
+
+        <label for="person-role" data-i18n="people.role">Role</label>
+        <select id="person-role"></select>
+
+        <p class="hint" id="person-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>
+        <button type="button" class="delete-entry-btn" id="person-delete-btn" hidden data-i18n="people.delete">Delete this person</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="expected-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="expected-modal-title" data-i18n="xp.addTitle">Add expected payment</span>
+        <button type="button" id="expected-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="expected-client" data-i18n="xp.client">Client</label>
+        <select id="expected-client"></select>
+
+        <label for="expected-amount" data-i18n="field.amount">Amount</label>
+        <input type="text" inputmode="decimal" id="expected-amount" placeholder="0.00">
+
+        <label for="expected-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="expected-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="expected-due" data-i18n="xp.due">Due date</label>
+        <input type="date" id="expected-due">
+
+        <label for="expected-invoice"><span data-i18n="xp.invoice">Invoice number</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-invoice" maxlength="60">
+
+        <label for="expected-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="expected-note" maxlength="200">
+
+        <label class="checkbox-row" id="expected-igv-row" hidden>
+          <input type="checkbox" id="expected-igv">
+          <span data-i18n="igv.expectedIncludes">This amount includes IGV</span>
+        </label>
+
+        <p class="hint" id="expected-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="expected-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="expected-delete-btn" hidden data-i18n="xp.delete">Delete this expected payment</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="project-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="project-modal-title" data-i18n="business.projectAddTitle">Add project</span>
+        <button type="button" id="project-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="project-company" data-i18n="business.projectCompany">Company</label>
+        <select id="project-company"></select>
+
+        <label for="project-name" data-i18n="business.projectName">Project name</label>
+        <input type="text" id="project-name" maxlength="60" data-i18n-placeholder="business.projectNamePh" placeholder="e.g. House in Lima">
+
+        <label for="project-emoji" data-i18n="business.emoji">Icon (optional)</label>
+        <input type="text" id="project-emoji" maxlength="4" placeholder="🏗️">
+
+        <label for="project-client" data-i18n="business.projectClient">Client (optional)</label>
+        <select id="project-client"></select>
+
+        <label data-i18n="business.budgets">Cost budget (optional)</label>
+        <div id="project-budgets"></div>
+        <button type="button" class="add-inline" id="project-add-budget-btn" data-i18n="business.addBudget">+ Add a currency</button>
+        <p class="hint" data-i18n="business.budgetsHint">One per currency. Only a guide: it shows how much of it your costs have used.</p>
+
+        <p class="hint" id="project-form-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="project-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="project-delete-btn" hidden data-i18n="business.deleteProject">Delete this project</button>
       </div>
     </div>
   </div>
@@ -2341,18 +2772,19 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="i18n.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="tour-scenes.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="signin-link.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="bank-sample.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="perf-share.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="receipt-parse.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="bill-split.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="app.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="statement-sample.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="statement-table.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="statement-parsers.js?v=2026-10-27T00:35:27Z"></script>
-  <script src="statements.js?v=2026-10-27T00:35:27Z"></script>
+  <script src="strings.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="i18n.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="tour-scenes.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="signin-link.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="bank-sample.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="perf-share.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="receipt-parse.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="receipt-fields.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="bill-split.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="app.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="statement-sample.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="statement-table.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="statement-parsers.js?v=2026-10-28T22:15:02Z"></script>
+  <script src="statements.js?v=2026-10-28T22:15:02Z"></script>
 </body>
 </html>
