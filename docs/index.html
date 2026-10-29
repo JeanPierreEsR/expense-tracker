@@ -53,6 +53,10 @@
 </head>
 <body>
   <button type="button" id="update-banner" class="update-banner" aria-live="polite" hidden data-i18n="banner.update">🔄 New version available — tap to reload</button>
+  <div id="backend-update-banner" class="update-banner backend-update-banner" hidden>
+    <button type="button" id="backend-update-open" class="backend-update-open"></button>
+    <button type="button" id="backend-update-close" class="backend-update-close">✕</button>
+  </div>
   <div id="save-failed-banner" class="update-banner save-failed-banner" hidden></div>
 
   <div id="pull-refresh-indicator" class="pull-refresh-indicator">

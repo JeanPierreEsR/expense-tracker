@@ -21,6 +21,10 @@ function boot() {
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
   if (process.env.FRIEND_COPY) rt.svc.props.set("FEATURES", "gmail,keepawake");
+  // SHEET_TZ=UTC: the Sheet's own time zone differs from the script's (America/Lima), like a friend's Sheet made by the installer.
+  // SHEET_DATES=1: Sheets turns written date strings into real dates (as it does on a real Sheet) instead of keeping them as text.
+  if (process.env.SHEET_TZ) require("./fake-google").setSheetTimeZone(process.env.SHEET_TZ);
+  if (process.env.SHEET_DATES) rt.svc.ss.getSheets().forEach((sh) => sh.textCols && sh.textCols.clear());
 }
 boot();
 

@@ -101,6 +101,8 @@ let editingRepayment_ = null;    // the entry being edited is a repayment's mone
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+// The date the entry had when its edit form was opened: a save that leaves it alone does not send it (withoutUnchangedDate_).
+let editingEntryOriginalDate_ = null;
 // Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
 let payingRecurringId_ = null;
 
@@ -2186,6 +2188,53 @@ function showFormNotice_(text) {
   }, 6000);
 }
 
+// A new entry's id, made on the phone (the server takes it as client_id).
+function newClientEntryId_() {
+  if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const hex = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-${"89ab"[Math.floor(Math.random() * 4)]}${hex(3)}-${hex(12)}`;
+}
+
+// A Needs-review entry confirmed through the full form: the row leaves the review list at once, the saved values are already
+// queued on this phone (queueReviewAction_), and the server is told in the background; a failure leaves it queued, retried
+// at the next refresh or app open, with a short note saying so.
+function sendPendingConfirmInBackground_(id) {
+  const list = document.getElementById("review-list");
+  list.querySelectorAll(".review-item").forEach((el) => { if (el.dataset.entryId === id) el.remove(); });
+  document.getElementById("review-count").textContent = list.children.length;
+  if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+  showToast_(tr("entry.saving"));
+  const action = getQueuedReviewActions_().find((a) => a.id === id);
+  if (!action) return;
+  applyReviewAction_(action).then((followed) => {
+    if (followed) onCategoryFollowed_(followed);   // the blank look-alikes followed; the toast offers Undo
+    refreshEntryList().catch(() => {});
+    refreshExpectedRecurring();
+    refreshHomeGlance_(true);
+    refreshReviewQueue(undefined, true).catch(() => {});
+    showToast_(tr("entry.savedToast"));
+  }).catch((err) => {
+    if (isUnreachable_(err)) { showToast_(tr("review.retryToast")); return; }   // no connection: it stays queued and keeps trying
+    reopenRefusedConfirm_(id, action, err.message);                              // the server said no: back to the form, with the reason
+  });
+}
+
+function isUnreachable_(err) {
+  return !!err && err.message === tr("error.unreachable");
+}
+
+// The server refused a confirmation sent in the background: nothing was changed, so the entry goes back to the review list
+// and the full form opens again with what was typed and the reason (or, if another form is open, just the reason).
+async function reopenRefusedConfirm_(id, action, reason) {
+  unqueueReviewAction_(id);
+  refreshReviewQueue(undefined, true).catch(() => {});
+  const base = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === id ? lastConfirmPendingEntry_ : null;
+  const busy = newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId;
+  if (!base || busy) { alert(reason); return; }
+  await openConfirmPendingPopup(Object.assign({}, base, action.fields, { splits: action.splits || [], tagIds: action.tagIds || [] }));
+  document.getElementById("form-error").textContent = reason;
+}
+
 // ---- Submit ----
 
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
@@ -2209,6 +2258,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let splitSaveFailed = false;
   let billSaveFailed = false;
   let popupHiddenEarly = false;
+  // Set when the save was handed to the background queue (the sheet closes at once): { kind: "create", id } for a new
+  // entry, { kind: "confirm", id } for a Needs-review entry confirmed through the full form.
+  let backgroundSaved = null;
 
   try {
     // A repayment's extra entry arrives in the background after the form opens; the amount shown (the whole repayment,
@@ -2413,29 +2465,28 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // plus the two steps a plain Confirm-button tap does (confirmEntry,
       // then saveEntrySplits) that the lightweight review-item fields
       // can't reach.
+      // The server refuses to confirm an expense / income without a category; say so here, while the form is still open.
+      if ((selectedType === "expense" || selectedType === "income") && !categoryId) throw new Error(tr("error.pickCategory"));
       await ensureExchangeRate(currency, date);
-      await callApi("updateEntry", {
-        id: confirmingPendingId,
-        fields: {
-          type: selectedType,
-          date,
-          amount: isWithdrawal ? -amount : amount,
-          currency,
-          ...categoryField,
-          description,
-          paid_by: paidBy,
-          payment_method_id: usesPaymentMethod ? paymentMethodId : "",
-          to_payment_method_id: toPaymentMethodId,
-          trip_id: tripId,
-          ...businessLink
-        }
+      // Sent in the background (2026-10-28), through the same queue as a plain Confirm tap: it is written to this phone first
+      // and retried until the server has it (see sendPendingConfirmInBackground_).
+      queueReviewAction_(confirmingPendingId, "confirm", withoutUnchangedDate_({
+        type: selectedType,
+        date,
+        amount: isWithdrawal ? -amount : amount,
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,
+        trip_id: tripId,
+        ...businessLink
+      }, confirmingPendingId), {
+        splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (splits || []) : null,
+        tagIds
       });
-      const confirmed = await callApi("confirmEntry", { id: confirmingPendingId });
-      if (selectedType === "expense" && (paidBy !== "me" || (splits && splits.length))) {
-        await callApi("saveEntrySplits", { entryId: confirmingPendingId, splits: splits || [] });
-      }
-      await callApi("saveEntryTags", { entryId: confirmingPendingId, tagIds });
-      if (confirmed && confirmed.follow) onCategoryFollowed_(confirmed.follow);   // the blank look-alikes followed; the toast offers Undo
+      backgroundSaved = { kind: "confirm", id: confirmingPendingId };
     } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
       // "I recorded this as a repayment, but it was really an expense / income": one server call that cancels the
       // repayment (what it paid is owed again) and writes the entry (convertRepaymentToEntry). Money that arrived can
@@ -2566,7 +2617,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }
       const id = editingEntryId;
       const wasPopup = editingViaPopup;
-      const fields = {
+      const fields = withoutUnchangedDate_({
         type: selectedType,
         date,
         amount: isWithdrawal ? -amount : amount,
@@ -2578,7 +2629,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...businessLink
-      };
+      }, id);
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
       // IS (or was) splittable, even with nothing in it — that's how
@@ -2595,11 +2646,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // (an amount below what is repaid, another currency once repaid). So this save is NOT queued in the background: it is
       // sent now, and a refusal shows in the form with nothing changed.
       if (editingLoanMovement_) {
-        await callApi("updateEntry", { id, fields });
-        await callApi("saveEntryTags", { entryId: id, tagIds });
+        // Saved in the background like any edit (2026-10-28): the form closes at once, the row says "Saving…", and a refusal
+        // from the loan comes back as a "couldn't save" row that re-opens with what was typed and the reason.
+        queueEntryEdit_(id, fields, null, tagIds, undefined, { loan: true });
         exitEditMode();
-        refreshLoans().catch(() => {});
-        await refreshEntryList();
+        flushEntryEdit_(id);
+        renderEntryListFromCache_();
         if (wasPopup) {
           resetEntryFormFields_();
           await refreshAfterPopupEdit();
@@ -2646,6 +2698,26 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         trip_id: tripId   // a picked trip/event makes it an estimate there
       });
       programmedInstead = true;
+    } else if ((meta.capabilities || {}).clientEntryId) {
+      // Saved in the background (2026-10-28): the sheet closes at once and the row says "Saving…". The entry gets its id here
+      // (sent as client_id), so a repeat of the save never makes a second one; failures come back as a "couldn't save" row.
+      await ensureExchangeRate(currency, date);
+      const newId = newClientEntryId_();
+      queueEntryEdit_(newId, {
+        type: selectedType,
+        date,
+        amount: isWithdrawal ? -amount : amount,
+        currency,
+        ...categoryField,
+        description,
+        paid_by: paidBy,
+        payment_method_id: usesPaymentMethod ? paymentMethodId : "",
+        to_payment_method_id: toPaymentMethodId,
+        trip_id: tripId,
+        ...businessLink
+      }, splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
+      { kind: "create", linkRecurringId: payingRecurringId_ || "" });
+      backgroundSaved = { kind: "create", id: newId };
     } else {
       await ensureExchangeRate(currency, date);
       const created = await callApi("createEntry", {
@@ -2722,14 +2794,17 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     repaymentFriendTouched_ = false;
     resetSplitState();
 
-    await refreshEntryList();
-    refreshExpectedRecurring();
-    // A project screen underneath shows the income just saved (and what is still expected).
-    if (businessOn() && !document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_().catch(() => {});
+    if (!backgroundSaved) {
+      await refreshEntryList();
+      refreshExpectedRecurring();
+      // A project screen underneath shows the income just saved (and what is still expected).
+      if (businessOn() && !document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_().catch(() => {});
+    }
 
     if (confirmingPendingId) {
+      const pendingId = confirmingPendingId;
       closeConfirmPendingPopup();
-      await refreshReviewQueue();
+      sendPendingConfirmInBackground_(pendingId);
     } else if (editingViaPopup) {
       await refreshAfterPopupEdit();
     } else if (programmedInstead) {
@@ -2753,7 +2828,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // A brand-new entry made in the sheet: the sheet closes, a short toast says it
     // landed (or what became of it: a Programmed item, a repayment…), and whatever
     // is showing behind it refreshes.
-    if (newEntrySheetOpen_) {
+    if (backgroundSaved && backgroundSaved.kind === "create") {
+      closeNewEntrySheet_();
+      renderEntryListFromCache_();   // the new row, marked "Saving…"
+      showToast_(tr("entry.saving"));
+      flushEntryEdit_(backgroundSaved.id);   // not awaited — runs in the background
+    } else if (newEntrySheetOpen_) {
       closeNewEntrySheet_();
       showToast_(lastFormNotice_ || tr("entry.savedToast"));
       afterNewEntrySaved_();
@@ -3582,6 +3662,7 @@ async function startEditEntry(entry) {
   document.getElementById("transfer-kind").value = "between";
   repaymentFriendTouched_ = false;
   editingEntryId = entry.id;
+  editingEntryOriginalDate_ = entry.date || null;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
@@ -3711,12 +3792,15 @@ async function startEditEntry(entry) {
   document.getElementById("submit-btn").textContent = tr("entry.update");
   document.getElementById("cancel-edit-btn-2").hidden = false;
   document.getElementById("delete-entry-btn").hidden = false;
+  // A save that failed in the background comes back with the reason (e.g. a loan refusing a lower amount).
+  if (entry._queueStatus === "failed" && entry._queueError) document.getElementById("form-error").textContent = entry._queueError;
 
   document.getElementById("entry-form").scrollIntoView({ behavior: "smooth" });
 }
 
 function exitEditMode() {
   editingEntryId = null;
+  editingEntryOriginalDate_ = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingLoanMovement_ = "";
@@ -3801,6 +3885,15 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 // drill-down / trip list. Returns true only when the entry was really deleted.
 // onConfirmed runs right after the owner says OK, before the (slow) delete call.
 async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
+  // A new entry whose background save failed has no row on the server: deleting it just drops it from this phone.
+  const unsaved = getQueuedEdits_().find((e) => e.id === id && e.kind === "create" && e.status === "failed");
+  if (unsaved) {
+    if (!confirm(tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") }))) return false;
+    unqueueEntryEdit_(id);
+    renderEntryListFromCache_();
+    if (onConfirmed) onConfirmed();
+    return true;
+  }
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
   let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
@@ -3911,7 +4004,9 @@ function closeEditPopup() {
 // branch, above (updateEntry + confirmEntry + saveEntrySplits, instead
 // of a plain updateEntry) — everything about the form itself is
 // identical to a normal edit.
+let lastConfirmPendingEntry_ = null;   // the review-queue entry the full form was opened for, so a refusal can bring it back
 async function openConfirmPendingPopup(entry) {
+  lastConfirmPendingEntry_ = entry;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -4020,9 +4115,10 @@ function setQueuedReviewActions_(actions) {
   }
 }
 
-function queueReviewAction_(id, action, fields) {
+// extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
+function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null });
   setQueuedReviewActions_(actions);
 }
 
@@ -4034,6 +4130,8 @@ async function applyReviewAction_(a) {
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
     const res = await callApi("confirmEntry", { id: a.id });
+    if (a.splits) await callApi("saveEntrySplits", { entryId: a.id, splits: a.splits });
+    if (a.tagIds) await callApi("saveEntryTags", { entryId: a.id, tagIds: a.tagIds });
     unqueueReviewAction_(a.id);
     return res && res.follow ? res.follow : null;
   }
@@ -4050,7 +4148,12 @@ async function flushQueuedReviewActions_() {
       const followed = await applyReviewAction_(a);
       if (followed) onCategoryFollowed_(followed);
     } catch (err) {
-      // Still unreachable — leave it queued, the next flush retries it.
+      // Unreachable — leave it queued, the next flush retries it. A REFUSAL (the server said no) would never pass on a
+      // retry and would keep the entry hidden: drop it, so the entry shows in the review list again, and say why.
+      if (!isUnreachable_(err)) {
+        unqueueReviewAction_(a.id);
+        showToast_(err.message);
+      }
     }
   }
 }
@@ -4099,9 +4202,32 @@ function findQueuedEdit_(id) {
 
 // splits: null means "don't touch splits for this entry" (not an expense,
 // never was) — [] means "send an empty list" (clears any existing splits).
-function queueEntryEdit_(id, fields, splits, tagIds, bill) {
+// Saving an edit that does not touch the date must not send it (2026-10-28). The form always carried the date it was shown, so a
+// server that read dates a day early (a friend's copy not yet updated, Sheet in another time zone) got that wrong date back on every
+// save and stored it: one more day lost each time (an expense edited once: Oct 26 -> Oct 24; a loan saved four times: Oct 28 ->
+// Oct 24). Not applied while an earlier save of this entry is still queued (its typed date has not reached the server) or for a new entry.
+function withoutUnchangedDate_(fields, id) {
+  const queued = findQueuedEdit_(id);
+  if (queued && queued.fields && queued.fields.date !== undefined) return fields;
+  if (editingEntryOriginalDate_ === null || fields.date !== editingEntryOriginalDate_) return fields;
+  const { date, ...rest } = fields;
+  return rest;
+}
+
+// extra: { kind: "create", linkRecurringId } for a NEW entry saved in the background (it has no row on the server yet:
+// its id is made on the phone and sent as client_id, so a repeat never makes a second entry); { loan: true } for a
+// loan's own money entry (the Loans tab is refreshed after it lands). A save that has not reached the server yet keeps its
+// kind when it is queued again from a "couldn't save" re-open.
+function queueEntryEdit_(id, fields, splits, tagIds, bill, extra) {
+  const previous = getQueuedEdits_().find((e) => e.id === id);
+  const kind = (extra && extra.kind) || (previous && previous.kind === "create" ? "create" : "edit");
   const edits = getQueuedEdits_().filter((e) => e.id !== id);
-  edits.push({ id, fields, splits, tagIds, bill, status: "saving", lastError: null, queuedAt: Date.now() });
+  edits.push({
+    id, fields, splits, tagIds, bill, kind,
+    linkRecurringId: (extra && extra.linkRecurringId) || (previous && previous.linkRecurringId) || "",
+    loan: !!(extra && extra.loan) || !!(previous && previous.loan),
+    status: "saving", lastError: null, queuedAt: Date.now()
+  });
   setQueuedEdits_(edits);
   renderSaveFailedBanner_();
 }
@@ -4159,11 +4285,34 @@ function applyDerivedOverlayFields_(merged, splits) {
   }
 }
 
+// The row a NEW entry shows while it is still being saved (or failed): built from what was typed.
+function syntheticEntryFromQueued_(q) {
+  const merged = Object.assign({
+    status: "confirmed", source: "manual", merchant: "", recurring_expense_id: "", to_payment_method_id: "", trip_id: "", paid_by: "me"
+  }, q.fields, { id: q.id });
+  merged.splits = q.splits || [];
+  merged.tagIds = q.tagIds || [];
+  applyDerivedOverlayFields_(merged, q.splits || []);
+  merged._queueStatus = q.status;
+  merged._queueError = q.lastError;
+  return merged;
+}
+
 function applyQueuedEditOverlay_(entries) {
   const queued = getQueuedEdits_();
   if (!queued.length) return entries;
   const byId = {};
   queued.forEach((e) => { byId[e.id] = e; });
+  // New entries not on the server yet go in at the place their date puts them (newest day first, newest save first).
+  const known = new Set(entries.map((e) => e.id));
+  const fresh = queued.filter((q) => q.kind === "create" && !known.has(q.id)).sort((a, b) => b.queuedAt - a.queuedAt).map(syntheticEntryFromQueued_);
+  if (fresh.length) {
+    entries = entries.slice();
+    fresh.forEach((f) => {
+      const at = entries.findIndex((e) => e.date <= f.date);
+      entries.splice(at === -1 ? entries.length : at, 0, f);
+    });
+  }
   return entries.map((entry) => {
     const q = byId[entry.id];
     if (!q) return entry;
@@ -4198,6 +4347,17 @@ function commitEditToLastRendered_(edit) {
   });
 }
 
+// A new entry that has just landed: its typed row becomes a real row in the list, so it does not vanish while the
+// fresh list is fetched.
+function commitCreateToLastRendered_(edit, created) {
+  const row = Object.assign(syntheticEntryFromQueued_(edit), created || {});
+  delete row._queueStatus;
+  delete row._queueError;
+  if (lastRenderedEntries_.some((e) => e.id === row.id)) return;
+  const at = lastRenderedEntries_.findIndex((e) => e.date <= row.date);
+  lastRenderedEntries_.splice(at === -1 ? lastRenderedEntries_.length : at, 0, row);
+}
+
 // Tracks which entry ids are currently mid-send, so a second call for the
 // same id (another tap, or the startup flush racing a fresh edit) waits
 // instead of firing a second overlapping request.
@@ -4219,14 +4379,28 @@ async function flushEntryEdit_(id) {
       if (!edit) break;
       markQueuedEditStatus_(id, "saving", null);
       renderEntryListFromCache_();
+      let created = null;
+      let linkFailed = false;
       try {
-        const saved = await callApi("updateEntry", { id: edit.id, fields: edit.fields });
-        if (saved && saved.follow) followed = saved.follow;
-        if (edit.splits !== null) {
-          await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
+        if (edit.kind === "create") {
+          // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
+          created = await callApi("createEntry", Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }));
+          if (edit.linkRecurringId) {
+            try { await callApi("linkEntryToRecurring", { entryId: edit.id, recurringExpenseId: edit.linkRecurringId }); } catch (linkErr) { linkFailed = true; }
+          }
+          if (edit.fields.type === "expense" && (edit.fields.paid_by !== "me" || (edit.splits && edit.splits.length))) {
+            await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits || [] });
+            if (edit.bill) await callApi("saveEntryBill", { entryId: edit.id, bill: edit.bill });
+          }
+        } else {
+          const saved = await callApi("updateEntry", { id: edit.id, fields: edit.fields });
+          if (saved && saved.follow) followed = saved.follow;
+          if (edit.splits !== null) {
+            await callApi("saveEntrySplits", { entryId: edit.id, splits: edit.splits });
+          }
+          await callApi("saveEntryTags", { entryId: edit.id, tagIds: edit.tagIds });
+          if (edit.bill) await callApi("saveEntryBill", { entryId: edit.id, bill: edit.bill });
         }
-        await callApi("saveEntryTags", { entryId: edit.id, tagIds: edit.tagIds });
-        if (edit.bill) await callApi("saveEntryBill", { entryId: edit.id, bill: edit.bill });
       } catch (err) {
         markQueuedEditStatus_(id, "failed", err.message);
         renderEntryListFromCache_();
@@ -4238,10 +4412,26 @@ async function flushEntryEdit_(id) {
         // overlay — otherwise the row would visually REVERT to its
         // stale pre-edit values the instant this unqueues, since nothing
         // else re-fetches the real list until the next natural refresh.
-        commitEditToLastRendered_(edit);
+        if (edit.kind === "create") {
+          commitCreateToLastRendered_(edit, created);
+        } else {
+          commitEditToLastRendered_(edit);
+        }
         unqueueEntryEdit_(id);
         renderEntryListFromCache_();
         refreshHomeGlance_(true);   // the totals at the top of Home now include this edit
+        if (edit.loan) refreshLoans().catch(() => {});
+        if (edit.kind === "create") {
+          // The real row (PEN value, guessed category…) replaces the typed one a moment later.
+          refreshEntryList().catch(() => {});
+          refreshExpectedRecurring();
+          afterNewEntrySaved_();
+          if (businessOn() && !document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_().catch(() => {});
+          if (linkFailed) showToast_(tr("paid.linkFailed"));
+          else if (created && created.guessed_category_name) showToast_(tr("entry.savedGuessed", { category: created.guessed_category_name }));
+          else if (created && edit.fields.type === "expense" && !created.category_id) showToast_(tr("entry.savedNoCategory"));
+          else showToast_(tr("entry.savedToast"));
+        }
         break;
       }
       // else: replaced mid-flight — loop again and send the newer one.
@@ -4270,14 +4460,13 @@ function renderSaveFailedBanner_() {
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
   if (!failed.length) {
     banner.hidden = true;
+    stackTopBanners_();
     return;
   }
   banner.textContent = tr("banner.saveFailed", { n: failed.length });
   banner.hidden = false;
-  // Stacks below the update banner rather than overlapping it, on the
-  // rare chance both are showing at once — both are position:fixed/top:0.
-  const updateBanner = document.getElementById("update-banner");
-  banner.style.top = updateBanner.hidden ? "0" : updateBanner.getBoundingClientRect().height + "px";
+  // Stacks below the other top bars rather than overlapping them (all are position:fixed/top:0).
+  stackTopBanners_();
 }
 
 document.getElementById("save-failed-banner").addEventListener("click", () => {
@@ -4389,6 +4578,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   entries.forEach((entry) => {
     const item = document.createElement("div");
     item.className = "review-item";
+    item.dataset.entryId = entry.id;
 
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
       .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
@@ -7501,13 +7691,55 @@ function siteUrl_(path) { return window.etSiteUrl ? window.etSiteUrl(path) : new
 // The owner's own copy is updated by ship.sh, so it never asks (capabilities.perfLog is true there).
 const UPDATE_CHECK_KEY = "etBackendUpdate";
 let updateChecked_ = false, updateChecking_ = false;
+// What the app needs from the person's own server. One that lacks any of these is out of date in a way that matters now: the update bar
+// then says so, and comes back every time the app opens (closing it only hides it until then). Add a name here when a new app
+// release cannot work properly without a newer server. sheetDates: dates are read in the Sheet's own time zone (backend 2026-10-25).
+const REQUIRED_BACKEND_CAPS_ = ["sheetDates"];
+const UPDATE_BAR_CLOSED_KEY = "etUpdateBarClosed";
+let backendBehind_ = false, backendUrgent_ = false, updateBarClosedNow_ = false;
+function updateBarClosed_() {
+  if (updateBarClosedNow_) return true;
+  if (backendUrgent_) return false;   // an urgent bar returns at every app open
+  try { const c = JSON.parse(localStorage.getItem(UPDATE_BAR_CLOSED_KEY)); return !!(c && Date.now() - c.at < 24 * 3600 * 1000); } catch (e) { return false; }
+}
+// Stacks the fixed bars at the top (all are position:fixed): the new-screens bar, the server-update bar, the failed-save bar.
+function stackTopBanners_() {
+  let top = 0;
+  ["update-banner", "backend-update-banner", "save-failed-banner"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.hidden) return;
+    el.style.top = top + "px";
+    top += el.getBoundingClientRect().height;
+  });
+}
+function renderBackendUpdateBanner_() {
+  const banner = document.getElementById("backend-update-banner");
+  const show = backendBehind_ && !updateBarClosed_();
+  banner.hidden = !show;
+  if (show) {
+    document.getElementById("backend-update-open").textContent = tr(backendUrgent_ ? "banner.backendUrgent" : "banner.backendUpdate");   // re-set so a screen reader announces it
+    document.getElementById("backend-update-close").setAttribute("aria-label", tr("common.close"));
+  }
+  stackTopBanners_();
+}
 function setUpdateAvailable_(on) {
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
+  backendBehind_ = !!on;
+  renderBackendUpdateBanner_();
 }
+document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
+document.getElementById("backend-update-close").addEventListener("click", () => {
+  updateBarClosedNow_ = true;
+  if (!backendUrgent_) { try { localStorage.setItem(UPDATE_BAR_CLOSED_KEY, JSON.stringify({ at: Date.now() })); } catch (e) { /* closed until the app is reopened */ } }
+  renderBackendUpdateBanner_();
+});
 async function checkBackendUpdate_() {
   const caps = (meta && meta.capabilities) || {};
   if (updateChecked_ || updateChecking_ || caps.perfLog !== false) return;   // false (not just missing) = a copy made by the installer
+  // Known without asking anyone: this server lacks something the app needs.
+  backendUrgent_ = REQUIRED_BACKEND_CAPS_.some((c) => !caps[c]);
+  if (backendUrgent_) setUpdateAvailable_(true);
   updateChecking_ = true;
   try { await checkBackendUpdateNow_(caps); } finally { updateChecking_ = false; }
 }
@@ -7537,7 +7769,7 @@ async function checkBackendUpdateNow_(caps) {
   if (latest) {
     updateChecked_ = true;
     const behind = !caps.backendRef || caps.backendRef !== latest;
-    setUpdateAvailable_(behind);
+    setUpdateAvailable_(behind || backendUrgent_);
     if (behind) promptBackendUpdateOnce_(latest);
   }
 }
@@ -7599,7 +7831,12 @@ async function syncRulePack_() {
   } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRulePack_(); });   // an app kept alive in the background is checked when it comes back to the front
-function updatePageUrl_() { return siteUrl_("setup/#update"); }
+// The link carries the id of the server THIS phone uses (the part of its address after /macros/s/), so the page updates that one and not
+// merely the newest tracker in the person's Google Drive.
+function updatePageUrl_() {
+  const dep = (String(getApiUrl()).match(/\/macros\/s\/([A-Za-z0-9_-]+)\/exec/) || [])[1];
+  return siteUrl_("setup/#update" + (dep ? "&dep=" + dep : ""));
+}
 // The app installed on the Home Screen has no Safari around it: a plain link or window.open opens the page INSIDE the app, where
 // Google's sign-in does not work well (the installer and update pages need real Safari). iOS hands a page to Safari when the
 // address starts with "x-safari-" (x-safari-https://…), so that is what the buttons below use from the Home Screen app.

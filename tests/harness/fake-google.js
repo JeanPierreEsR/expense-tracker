@@ -8,7 +8,7 @@
 
 const crypto = require("crypto");
 
-const TZ = "America/Lima";
+const TZ = process.env.SCRIPT_TZ || "America/Lima";   // the script's own time zone (tests vary it with SCRIPT_TZ, together with TZ for the runtime)
 
 function unsupported(what) {
   throw new Error("FAKE-GOOGLE: " + what + " is not supported yet (add it to tests/harness/fake-google.js)");
@@ -54,17 +54,38 @@ function formatDate(date, tz, fmt) {
 // Sheets turns a recognisable date string into a real Date when it is written
 // to a cell that isn't text-formatted (see the comment above DATE_FIELD_FORMATS
 // in Api.gs). Mimicked so the backend's string-normalising code is exercised.
-const SHEET_OFFSETS = { "America/Lima": "-05:00", UTC: "Z", GMT: "Z" };
+// The instant at which it is midnight of that calendar day in the Sheet's own time zone (any zone, daylight saving included).
+function zoneOffsetMs_(utcMs, tz) {
+  const p = tzParts(new Date(utcMs), tz);
+  const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+  return asUtc - Math.floor(utcMs / 1000) * 1000;
+}
+function wallToInstant_(y, m, d, h, mi, s, tz) {
+  const naive = Date.UTC(y, m - 1, d, h, mi, s);
+  let guess = naive - zoneOffsetMs_(naive, tz);
+  guess = naive - zoneOffsetMs_(guess, tz);   // second pass settles the daylight-saving edge
+  return new Date(guess);
+}
+function midnightInZone_(y, m, d, tz) { return wallToInstant_(y, m, d, 0, 0, 0, tz); }
+// Changing a Sheet's time zone does not change what a date cell SAYS (it holds a serial number: the day as written): its wall-clock
+// reading is kept and the moment it stands for moves with the zone. Mirrors that for every date in every tab.
+function rezoneSheetDates_(sheets, fromTz, toTz) {
+  sheets.forEach((sh) => sh.rows.forEach((row) => row.forEach((v, i) => {
+    if (!(v instanceof Date)) return;
+    const p = tzParts(v, fromTz);
+    row[i] = wallToInstant_(Number(p.year), Number(p.month), Number(p.day), Number(p.hour), Number(p.minute), Number(p.second), toTz);
+  })));
+}
 let sheetTz = TZ;   // the Sheet's own time zone, which can differ from the script's (tests set it with setSheetTimeZone)
 function setSheetTimeZone(z) { sheetTz = z || TZ; }
+function changeSheetTimeZone_(sheets, z) { rezoneSheetDates_(sheets, sheetTz, z); sheetTz = z; }
 function maybeDate(v) {
   if (typeof v !== "string") return v;
-  const off = SHEET_OFFSETS[sheetTz];
   // "2026-09-30" and also "2026-09" (Sheets reads that as 1 Sep 2026).
-  if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5)) >= 1 && Number(v.slice(5)) <= 12) return new Date(`${v}-01T00:00:00${off}`);
+  if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5)) >= 1 && Number(v.slice(5)) <= 12) return midnightInZone_(Number(v.slice(0, 4)), Number(v.slice(5)), 1, sheetTz);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
   if (!m) return v;
-  return new Date(`${v}T00:00:00${off}`);
+  return midnightInZone_(Number(m[1]), Number(m[2]), Number(m[3]), sheetTz);
 }
 
 // ---- Spreadsheet ------------------------------------------------------------
@@ -351,7 +372,10 @@ function buildServices(state) {
   return {
     ss, props, cache, fetchLog, uiLog, toastLog, mailLog, gmail,
     SpreadsheetApp: {
-      getActiveSpreadsheet: () => Object.assign(ss, { getSpreadsheetTimeZone: () => sheetTz }),
+      getActiveSpreadsheet: () => Object.assign(ss, {
+        getSpreadsheetTimeZone: () => sheetTz,
+        setSpreadsheetTimeZone: (z) => { if (ss.failSetTimeZone) throw new Error("Cannot change the time zone"); changeSheetTimeZone_([...ss.sheets.values()], z); }
+      }),
       getUi: () => uiChain
     },
     Utilities: {

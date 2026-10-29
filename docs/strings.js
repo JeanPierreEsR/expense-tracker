@@ -70,6 +70,7 @@
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
     "entry.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
     "entry.saving": { en: "💾 Saving…", es: "💾 Guardando…" },
+    "review.retryToast": { en: "Couldn't save it yet — it will keep trying.", es: "Aún no se pudo guardar; seguirá intentando." },
     "entry.deleting": { en: "🗑️ Deleting…", es: "🗑️ Eliminando…" },
     "entry.saveFailedRetry": { en: "⚠️ Couldn't save — tap to retry", es: "⚠️ No se pudo guardar: toca para reintentar" },
     "entry.draftRestored": { en: "↩️ Restored the entry you were typing — it wasn't saved yet. To discard it, clear the amount and description.", es: "↩️ Se restauró el movimiento que estabas escribiendo: aún no se guardó. Borra el monto y la descripción para descartarlo." },
@@ -399,6 +400,8 @@
     // ---- banner ----
     "banner.saveFailed": { en: { one: "⚠️ {n} entry couldn't save — tap to see it", other: "⚠️ {n} entries couldn't save — tap to see them" }, es: { one: "⚠️ {n} movimiento no se pudo guardar: toca para verlo", other: "⚠️ {n} movimientos no se pudieron guardar: toca para verlos" } },
     "banner.update": { en: "🔄 New version available — tap to reload", es: "🔄 Nueva versión disponible: toca para recargar" },
+    "banner.backendUpdate": { en: "⬆️ An update for your app is ready — tap to update", es: "⬆️ Hay una actualización de tu app: toca para actualizar" },
+    "banner.backendUrgent": { en: "⚠️ Your app is out of date and can show dates one day early — tap to update", es: "⚠️ Tu app está desactualizada y puede mostrar las fechas un día antes: toca para actualizar" },
 
     // ---- check ----
     "check.checking.review": { en: "🔄 Checking for new entries to review…", es: "🔄 Buscando nuevos movimientos por revisar…" },

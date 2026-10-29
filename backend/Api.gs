@@ -590,6 +590,7 @@ function findRowIndexById(sheet, headers, id) {
 // ---- Meta (everything the form's dropdowns need, in one call) ----
 
 function getMeta() {
+  runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
   ensureInvestmentPlatforms_();
   ensureRailDefaults_();
   ensureAnnualTag_();
@@ -716,7 +717,15 @@ function getSettingsMap() {
 // ---- Entries ----
 
 function createEntry(payload) {
-  var id = Utilities.getUuid();
+  // A save the phone sends from its background queue carries its own id (client_id), so sending it again — after a lost
+  // reply, or when the app was closed mid-save — never makes a second entry: the same id answers with the entry it made.
+  var clientId = String(payload.client_id || '');
+  var validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId);
+  if (validClientId) {
+    var already = getEntryById_(clientId);
+    if (already) return already;
+  }
+  var id = validClientId ? clientId : Utilities.getUuid();
   var entry = {
     id: id,
     type: payload.type,

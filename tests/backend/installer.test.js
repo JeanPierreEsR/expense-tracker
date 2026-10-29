@@ -158,6 +158,12 @@ test("the backend version this copy was built from is reported (check=version an
   assert.equal(bare.rt.run("getCapabilities_().backendRef"), "");
 });
 
+test("every copy says it reads dates in the Sheet's own time zone (the app warns a server that does not)", () => {
+  const { rt } = withInstall({ ref: "abc1234def" });
+  rt.run("doGet({ parameter: {} })");
+  assert.equal(rt.run("getCapabilities_().sheetDates"), true);
+});
+
 test("an UPDATE sent without an access code keeps the one this copy already has (so the person's other phone keeps working)", () => {
   const { rt, load, get } = withInstall({ release: "r1", code: "first-code-0123456789abcdef", features: "base" });
   get({});
