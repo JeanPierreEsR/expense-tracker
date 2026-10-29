@@ -75,6 +75,8 @@ function getCapabilities_() {
     alertCheck: true,
     // More → Performance log is a diagnostic for the owner only; a copy made by the installer never shows it.
     perfLog: !isFriendCopy_(),
+    // createEntry accepts the phone's own id (client_id) and answers a repeat with the same entry, so the app can save a NEW entry in the background.
+    clientEntryId: true,
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,
     // This backend takes a rule pack from the phone (setRulePack, RulePack.gs); an older one lacks it and the app then never sends one.
