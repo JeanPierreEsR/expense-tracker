@@ -1570,7 +1570,40 @@ function resetSplitState() {
   renderSplitRows();
   document.getElementById("split-summary").textContent = "";
   document.getElementById("split-error").textContent = "";
+  resetSplitDue_();
 }
+
+// ---- Optional due date for the debts a split creates (owner's request, 2026-10-29) ----
+// One date for every friend's share, blank by default (a casual shared dinner must not start an overdue-reminder clock).
+// It travels on each split as `due_date`. `splitDueKnown_` is false only when an edited entry's saved date could not be
+// loaded: then nothing is sent, and the backend keeps the date the debts already have (saveEntrySplits).
+let splitDueKnown_ = true;
+function resetSplitDue_() {
+  splitDueKnown_ = true;
+  document.getElementById("split-due").value = "";
+  document.getElementById("split-due-block").hidden = true;
+  document.getElementById("split-due-add").hidden = false;
+}
+function showSplitDue_(value) {
+  document.getElementById("split-due").value = value || "";
+  document.getElementById("split-due-block").hidden = false;
+  document.getElementById("split-due-add").hidden = true;
+}
+// yyyy-mm-dd plus whole days, in local time (no time-zone surprises).
+function splitDueShift_(iso, days) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function splitDueBase_() { return document.getElementById("date").value || localTodayISO_(); }
+document.getElementById("split-due-add").addEventListener("click", () => showSplitDue_(""));
+document.getElementById("split-due-week").addEventListener("click", () => { document.getElementById("split-due").value = splitDueShift_(splitDueBase_(), 7); });
+document.getElementById("split-due-month").addEventListener("click", () => {
+  const d = new Date(splitDueBase_() + "T00:00:00");
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  document.getElementById("split-due").value = last.getFullYear() + "-" + String(last.getMonth() + 1).padStart(2, "0") + "-" + String(last.getDate()).padStart(2, "0");
+});
+document.getElementById("split-due-clear").addEventListener("click", () => { document.getElementById("split-due").value = ""; });
 
 // The friend picker shows at most 3 rows, most-recently-used first (by
 // `last_used`, see getFriendsWithLastUsed_ in Api.gs); a "More…" chip ends
@@ -1803,15 +1836,17 @@ function renderSplitSummary() {
 function getSplitPayload() {
   const amount = parseFloat(document.getElementById("amount").value) || 0;
   const friendIds = Array.from(splitFriendIds);
+  const due = splitDueKnown_ ? (document.getElementById("split-due").value || "") : null;   // null: leave the saved date alone
+  const withDue = (list) => due === null ? list : list.map((s) => Object.assign(s, { due_date: due }));
 
   if (splitMode === "equal") {
     const { shareEach } = computeEqualShares(amount, friendIds);
-    return friendIds.map((id) => ({ friend_id: id, amount: shareEach }));
+    return withDue(friendIds.map((id) => ({ friend_id: id, amount: shareEach })));
   }
   const shares = computeCustomShares();
-  return friendIds
+  return withDue(friendIds
     .map((id) => ({ friend_id: id, amount: shares.amounts[id] || 0 }))
-    .filter((s) => s.amount > 0);
+    .filter((s) => s.amount > 0));
 }
 
 // Called from the submit handler, before anything is saved. Returns the
@@ -3779,6 +3814,9 @@ async function startEditEntry(entry) {
       renderSplitFriendChips();
       renderSplitRows();
       renderSplitSummary();
+      // The debts' saved due date (listEntries sends it); without it (a bare getEntrySplits answer) the save leaves it alone.
+      if (entry.split_due_date === undefined) splitDueKnown_ = false;
+      else if (entry.split_due_date) showSplitDue_(entry.split_due_date);
     }
   }
 

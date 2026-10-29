@@ -954,6 +954,13 @@ function listEntries(payload) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
+  // The due date the split's debts carry (one for the whole entry, '' = none), so the edit form can show it at once.
+  var splitDueByEntry = {};
+  if (Object.keys(splitsByEntry).length) {
+    getAllRows('Loans').forEach(function (l) {
+      if (l.origin === 'entry' && l.due_date && splitsByEntry[l.entry_id] && !splitDueByEntry[l.entry_id]) splitDueByEntry[l.entry_id] = String(l.due_date);
+    });
+  }
 
   // Transfers that are a repayment / cash loan with a friend carry `link`
   // (see buildTransferLinkMap_) so the app can name the friend instead of
@@ -969,6 +976,7 @@ function listEntries(payload) {
     // Already read above — lets the edit form show a split instantly instead of
     // waiting on a separate getEntrySplits call.
     entry.splits = splitsByEntry[entry.id] || [];
+    entry.split_due_date = splitDueByEntry[entry.id] || '';
     // Same idea for the labels: the row shows them after "who paid", and the
     // edit form reuses them instead of a separate getEntryTags call.
     entry.tagIds = tagIdsByEntry[entry.id] || [];

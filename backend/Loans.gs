@@ -37,6 +37,16 @@ function saveEntrySplits(entryId, splits) {
     throw new Error(tr_('loan.splitTooLarge', { split: requestedTotal.toFixed(2), amount: Number(entry.amount).toFixed(2) }));
   }
 
+  // The optional due date of the debts (owner's request, 2026-10-29): the app sends one `due_date` on the splits ('' = none).
+  // Nothing sent (a Telegram edit, an older phone) keeps the date the entry's debts already have, per friend and direction.
+  var dueSent = null;
+  splits.forEach(function (s) { if (dueSent === null && s.due_date !== undefined && s.due_date !== null) dueSent = splitDueDate_(s.due_date); });
+  var priorDue = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.origin === 'entry' && l.entry_id === entryId && l.due_date) priorDue[l.friend_id + '|' + l.direction] = String(l.due_date);
+  });
+  var dueFor = function (friendId, direction) { return dueSent !== null ? dueSent : (priorDue[friendId + '|' + direction] || ''); };
+
   var reusable = settledEntryLoans_(entryId);
   deleteEntrySplitsAndLoansForEntry_(entryId, true);
 
@@ -64,6 +74,7 @@ function saveEntrySplits(entryId, splits) {
         amount: Number(s.amount),
         currency: entry.currency,
         date: entry.date,
+        due_date: dueFor(s.friend_id, 'they_owe_me'),
         description: entry.description || ''
       });
     });
@@ -86,6 +97,7 @@ function saveEntrySplits(entryId, splits) {
       amount: ownShare,
       currency: entry.currency,
       date: entry.date,
+      due_date: dueFor(entry.paid_by, 'i_owe_them'),
       description: entry.description || ''
     });
   }
@@ -98,6 +110,12 @@ function saveEntrySplits(entryId, splits) {
   });
 
   return { splits: splits };
+}
+
+// A due date from the split form: 'yyyy-MM-dd' or '' (none); anything else counts as none.
+function splitDueDate_(value) {
+  var v = String(value == null ? '' : value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
 }
 
 // Loans this entry created that already have a Settlement recorded.
@@ -136,6 +154,7 @@ function upsertEntryLoan_(reusable, fields) {
     date: fields.date,
     description: fields.description
   };
+  if (fields.due_date !== undefined) update.due_date = fields.due_date;
   if (businessOn_()) { ensureBusinessSheets_(); update.project_id = fields.project_id || ''; }
   updateRowFields_('Loans', match.id, update);
 }
