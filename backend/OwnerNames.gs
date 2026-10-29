@@ -9,6 +9,13 @@
  * The confirmed names are Settings `owner_names` (comma-separated; the same key the Yape photo reader already used). The person
  * can see, add and remove them in More → My names.
  *
+ * Since slice C of the onboarding plans (2026-10-29) the person is also ASKED, on the FIRST sighting, instead of waiting for a second
+ * document: Home shows "Is this you? <name> ✓ ✗" (`ownerNameAsk_`, answered by `answerOwnName`). ✓ adds the name to the confirmed ones;
+ * ✗ remembers "not me" (`no: true` on the seen entry) and the name, or one that contains / is contained in it, is never asked about or
+ * auto-confirmed again. A name that is the same person as a confirmed one (same words, a longer or shorter form) is never asked about.
+ * A name typed in the welcome or in More → My names is confirmed at once. The two-document rule stays as the quiet path for names that
+ * nobody answered.
+ *
  * Names are compared as sets of words, in any order (one bank prints "SURNAME SURNAME GIVEN GIVEN", another "GIVEN GIVEN SURNAME"),
  * lower-case, without accents. Rule-based, no AI.
  */
@@ -110,7 +117,10 @@ function learnOwnNames_(found) {
     });
     if (!changed) return [];
     var keys = Object.keys(seen);
-    if (keys.length > 40) { keys.slice(0, keys.length - 40).forEach(function (k) { delete seen[k]; }); keys = Object.keys(seen); }
+    if (keys.length > 40) {   // forget the oldest, but never an answered "not me"
+      keys.filter(function (k) { return !seen[k].no; }).slice(0, keys.length - 40).forEach(function (k) { delete seen[k]; });
+      keys = Object.keys(seen);
+    }
     var current = ownerNamesList_(), added = [];
     keys.forEach(function (k) {
       var set = k.split(' '), sources = {};
@@ -118,7 +128,7 @@ function learnOwnNames_(found) {
         var set2 = k2.split(' ');
         if (ownerSubset_(set, set2) || ownerSubset_(set2, set)) seen[k2].sources.forEach(function (s) { sources[s] = true; });
       });
-      if (Object.keys(sources).length >= 2 && !current.some(function (n) { return ownerNameKey_(ownerNameTokens_(n)) === k; })) {
+      if (Object.keys(sources).length >= 2 && !ownerNameDeclined_(seen, set) && !current.some(function (n) { return ownerNameKey_(ownerNameTokens_(n)) === k; })) {
         current.push(seen[k].name); added.push(seen[k].name);
       }
     });
@@ -147,13 +157,73 @@ function learnOwnNameFromMail_(message, sender) {
   } catch (err) { /* learning must never stop an e-mail from being read */ }
 }
 
+// ---- "Is this you?" (Home card) ----
+
+// Two names are the same person when the words of one are all in the other (a longer or shorter form, any order).
+function ownerNameRelated_(a, b) { return ownerSubset_(a, b) || ownerSubset_(b, a); }
+
+// Did the person answer "not me" to this name, or to one that contains / is contained in it?
+function ownerNameDeclined_(seen, tokens) {
+  return Object.keys(seen).some(function (k) { return seen[k].no === true && ownerNameRelated_(tokens, k.split(' ')); });
+}
+
+// Is this the same person as a name already confirmed?
+function ownerNameConfirmedLike_(tokens) {
+  return ownerNameSets_().some(function (set) { return ownerNameRelated_(tokens, set); });
+}
+
+/**
+ * The name to ask "Is this you?" about, or ''. A seen name that looks like a person's, that is not the same person as a confirmed name and
+ * was not answered "not me". Of several forms of one name (3 and 4 words) the longest is shown. Reads only Settings (cheap, in getMeta).
+ */
+function ownerNameAsk_() {
+  var seen = ownerSeenRead_(), best = null;
+  Object.keys(seen).forEach(function (k) {
+    var e = seen[k], tokens = k.split(' ');
+    if (e.no || !ownerNameLooksReal_(e.name) || ownerNameConfirmedLike_(tokens) || ownerNameDeclined_(seen, tokens)) return;
+    if (!best) best = { tokens: tokens, name: e.name };
+    else if (ownerNameRelated_(best.tokens, tokens) && tokens.length > best.tokens.length) best = { tokens: tokens, name: e.name };
+  });
+  return best ? best.name : '';
+}
+
+// Is this pending entry maybe a transfer to the person's own account? Only while NO name is confirmed (the app cannot tell yet): an e-mail
+// expense with no category whose description is a person's full name and that carries no merchant (a transfer rule stores the recipient
+// as the description; a purchase stores a merchant). The Needs review row shows a quiet "Maybe yours?".
+function ownerNameMaybeOwn_(entry) {
+  if (ownerNameSets_().length) return false;
+  return entry.source === 'email' && entry.type === 'expense' && !entry.category_id && !entry.merchant && ownerNameLooksReal_(entry.description);
+}
+
+/** payload: { name, yes: true|false }. ✓ confirms the name now; ✗ remembers "not me". Returns the same as getOwnerNames. */
+function answerOwnName(payload) {
+  payload = payload || {};
+  var name = String(payload.name || '').trim().replace(/\s+/g, ' ');
+  if (!ownerNameLooksReal_(name)) throw new Error(tr_('ownerNames.badName', { name: name }));
+  var key = ownerNameKey_(ownerNameTokens_(name)), seen = ownerSeenRead_();
+  var e = seen[key] || (seen[key] = { name: name, sources: [] });
+  if (payload.yes === true) {
+    delete e.no;
+    var current = ownerNamesList_();
+    if (!current.some(function (n) { return ownerNameKey_(ownerNameTokens_(n)) === key; })) {
+      current.push(e.name);
+      setSetting_('owner_names', current.join(', '));
+      OWNER_NAMES_MEMO_ = null;
+    }
+  } else {
+    e.no = true;
+  }
+  setSetting_(OWNER_NAMES_SEEN_KEY_, JSON.stringify(seen));
+  return getOwnerNames();
+}
+
 // ---- More → My names ----
 
 function getOwnerNames() {
   var seen = ownerSeenRead_();
-  return { names: ownerNamesList_(), pending: Object.keys(seen).map(function (k) { return seen[k].name; }).filter(function (n) {
+  return { names: ownerNamesList_(), pending: Object.keys(seen).filter(function (k) { return !seen[k].no; }).map(function (k) { return seen[k].name; }).filter(function (n) {
     return !ownerNamesList_().some(function (c) { return ownerNameKey_(ownerNameTokens_(c)) === ownerNameKey_(ownerNameTokens_(n)); });
-  }) };
+  }), ask: ownerNameAsk_() };
 }
 
 function saveOwnerNames(payload) {
@@ -165,9 +235,14 @@ function saveOwnerNames(payload) {
   var before = ownerNamesList_();
   setSetting_('owner_names', names.join(', '));
   OWNER_NAMES_MEMO_ = null;
-  // A name the person removed is also forgotten as "seen", so the next statement does not confirm it again.
+  // A name the person removed counts as "not me": it is not asked about or confirmed again. A name they add (or type in the welcome) is
+  // confirmed at once, and clears an earlier "not me" for the same name.
   var seen = ownerSeenRead_();
-  before.forEach(function (n) { var k = ownerNameKey_(ownerNameTokens_(n)); if (!seenKeys[k]) delete seen[k]; });
+  before.forEach(function (n) {
+    var k = ownerNameKey_(ownerNameTokens_(n));
+    if (!seenKeys[k]) { var e = seen[k] || (seen[k] = { name: n, sources: [] }); e.no = true; e.sources = []; }
+  });
+  Object.keys(seenKeys).forEach(function (k) { if (seen[k]) delete seen[k].no; });
   setSetting_(OWNER_NAMES_SEEN_KEY_, JSON.stringify(seen));
   return getOwnerNames();
 }

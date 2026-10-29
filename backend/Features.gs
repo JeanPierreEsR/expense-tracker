@@ -84,6 +84,7 @@ function getCapabilities_() {
     bankReady: true,
     // This backend takes a rule pack from the phone (setRulePack, RulePack.gs); an older one lacks it and the app then never sends one.
     rulePack: true,
+    ownName: true,   // answerOwnName + `ownNameAsk` in getMeta: the Home "Is this you?" card and the welcome name line; an older backend lacks them
     profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.
     business: businessOn_(),
