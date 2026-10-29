@@ -546,6 +546,7 @@
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
           <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
+          <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
         </div>
         <div class="budgets-summary-row" id="loans-owed-to-me-total-row" hidden>
           <span class="budgets-summary-label" data-i18n="loans.totalOwed">Total owed to you</span>
@@ -1310,6 +1311,167 @@
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+    </div>
+  </div>
+
+  <div id="bank-loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-loan-title" data-i18n="bank.formTitle">Bank loan</span>
+        <button type="button" id="bank-loan-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="bank-loan-fields">
+          <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
+          <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
+          <datalist id="bank-lender-list"></datalist>
+          <label for="bank-description" data-i18n="field.description">Description</label>
+          <input type="text" id="bank-description" data-i18n-placeholder="common.optional" placeholder="Optional">
+          <label for="bank-amount" data-i18n="field.amount">Amount</label>
+          <input type="text" inputmode="decimal" id="bank-amount" placeholder="0.00">
+          <label for="bank-currency" data-i18n="field.currency">Currency</label>
+          <select id="bank-currency"></select>
+          <label for="bank-date" data-i18n="bank.receivedOn">Date received</label>
+          <input type="date" id="bank-date">
+          <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
+          <select id="bank-account"></select>
+        </div>
+        <div id="bank-mode-box">
+          <strong data-i18n="bank.mode">How do you want to enter it?</strong>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="rate" checked><span data-i18n="bank.modeRate">Amount, rate and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="installment"><span data-i18n="bank.modeInstallment">Amount, installment and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="manual"><span data-i18n="bank.modeManual">The bank's schedule, row by row</span></label>
+          <p class="hint" id="bank-mode-hint"></p>
+        </div>
+        <div class="reassign-limit-box" id="bank-gen-box">
+          <strong data-i18n="bank.genTitle">Fill the schedule</strong>
+          <p class="hint" data-i18n="bank.genHint">A quick way to fill the rows below. Then type over any number with what the bank's own schedule says.</p>
+          <label for="bank-gen-count" data-i18n="bank.count">Number of installments</label>
+          <input type="text" inputmode="numeric" id="bank-gen-count" placeholder="12">
+          <label for="bank-gen-first" data-i18n="bank.firstDue">First due date</label>
+          <input type="date" id="bank-gen-first">
+          <label for="bank-gen-freq" data-i18n="bank.frequency">Payment frequency</label>
+          <select id="bank-gen-freq">
+            <option value="weekly" data-i18n="bank.freqWeekly">Weekly</option>
+            <option value="biweekly" data-i18n="bank.freqBiweekly">Every 2 weeks</option>
+            <option value="monthly" selected data-i18n="bank.freqMonthly">Monthly</option>
+            <option value="bimonthly" data-i18n="bank.freqBimonthly">Every 2 months</option>
+            <option value="quarterly" data-i18n="bank.freqQuarterly">Every 3 months</option>
+            <option value="semiannual" data-i18n="bank.freqSemiannual">Every 6 months</option>
+            <option value="yearly" data-i18n="bank.freqYearly">Yearly</option>
+          </select>
+          <label for="bank-gen-grace" data-i18n="bank.grace">Grace period: how many payment periods before the installments (0 = none)</label>
+          <input type="text" inputmode="numeric" id="bank-gen-grace" placeholder="0" value="0">
+          <div id="bank-gen-grace-type-box" hidden>
+            <label for="bank-gen-grace-type" data-i18n="bank.graceType">During the grace period</label>
+            <select id="bank-gen-grace-type">
+              <option value="partial" selected data-i18n="bank.gracePartial">Pay interest only</option>
+              <option value="total" data-i18n="bank.graceTotal">No payments (the interest is added to the loan)</option>
+            </select>
+          </div>
+          <div id="bank-gen-payment-block" hidden>
+            <label for="bank-gen-payment" data-i18n="bank.paymentRequired">Installment total (what the bank charges each time)</label>
+            <input type="text" inputmode="decimal" id="bank-gen-payment" placeholder="0.00">
+          </div>
+          <div id="bank-gen-rate-block">
+            <label for="bank-gen-rate" data-i18n="bank.rate">Interest rate %</label>
+            <input type="text" inputmode="decimal" id="bank-gen-rate" placeholder="0.00">
+            <label for="bank-gen-rate-type" data-i18n="bank.rateType">How the rate is stated</label>
+            <select id="bank-gen-rate-type">
+              <option value="tea" selected data-i18n="bank.rateTea">Annual effective rate (TEA, actual days / 360)</option>
+              <option value="period" data-i18n="bank.ratePeriod">Per payment period (for monthly payments, the monthly rate)</option>
+            </select>
+          </div>
+          <label for="bank-gen-fee" data-i18n="bank.feePer">Insurance / fees per installment (optional)</label>
+          <input type="text" inputmode="decimal" id="bank-gen-fee" placeholder="0.00">
+          <p class="hint" id="bank-gen-implied"></p>
+          <button type="button" class="add-inline" id="bank-gen-btn" data-i18n="bank.generate">Fill the rows</button>
+        </div>
+        <h3 data-i18n="bank.rowsTitle">Installments</h3>
+        <div id="bank-rows"></div>
+        <button type="button" class="add-inline" id="bank-add-row" data-i18n="bank.addRow">+ Add installment</button>
+        <p class="hint" id="bank-totals"></p>
+        <p class="hint" id="bank-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-save" data-i18n="bank.save">Save bank loan</button>
+        <button type="button" class="cancel-edit-btn" id="bank-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-schedule-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-schedule-title" data-i18n="bank.scheduleTitle">Installments</span>
+        <button type="button" id="bank-schedule-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="bank-schedule-loading"></p>
+        <div id="bank-schedule-content" hidden>
+          <p class="hint" id="bank-schedule-summary"></p>
+          <div id="bank-schedule-list"></div>
+          <button type="button" class="add-inline" id="bank-schedule-edit" data-i18n="bank.editSchedule">Edit the schedule</button>
+          <button type="button" class="add-inline" id="bank-schedule-early" data-i18n="bank.earlyButton">Early payment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-early-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="bank.earlyTitle">Early payment</span>
+        <button type="button" id="bank-early-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="bank.earlyHint">Extra principal paid ahead of the schedule. The fee the bank charges for it is optional (0 if none) and is recorded as one expense.</p>
+        <label for="bank-early-date" data-i18n="bank.recordDate">Paid on</label>
+        <input type="date" id="bank-early-date">
+        <label for="bank-early-account" data-i18n="bank.recordAccount">Paid from</label>
+        <select id="bank-early-account"></select>
+        <label for="bank-early-principal" data-i18n="bank.earlyPrincipal">Principal you are paying now</label>
+        <input type="text" inputmode="decimal" id="bank-early-principal" placeholder="0.00">
+        <label for="bank-early-fee" data-i18n="bank.earlyFee">Early payment fee</label>
+        <input type="text" inputmode="decimal" id="bank-early-fee" placeholder="0.00" value="0">
+        <label for="bank-early-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
+        <select id="bank-early-category"></select>
+        <p class="hint" data-i18n="bank.earlyMode"><strong>What happens to the remaining installments</strong></p>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="shorten" checked><span data-i18n="bank.earlyShorten">Shorter term: same installments, so the loan ends sooner. Interest is recalculated on the lower balance.</span></label>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="reduce"><span data-i18n="bank.earlyReduce">Same term: every remaining installment gets smaller. Interest is recalculated on the lower balance.</span></label>
+        <p class="hint" data-i18n="bank.earlyEstimate">The interest is worked out from the rate your schedule implies. If the bank's new schedule differs, use "Edit the schedule" and type its numbers.</p>
+        <p class="hint" id="bank-early-preview"></p>
+        <p class="hint" id="bank-early-total"></p>
+        <p class="hint" id="bank-early-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-early-save" data-i18n="bank.earlySave">Record early payment</button>
+        <button type="button" class="cancel-edit-btn" id="bank-early-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-record-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-record-title"></span>
+        <button type="button" id="bank-record-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="bank.recordHint">The principal is a repayment of the loan. The interest and fees are one expense. Type over the numbers with what the bank really charged.</p>
+        <label for="bank-record-date" data-i18n="bank.recordDate">Paid on</label>
+        <input type="date" id="bank-record-date">
+        <label for="bank-record-account" data-i18n="bank.recordAccount">Paid from</label>
+        <select id="bank-record-account"></select>
+        <label for="bank-record-principal" data-i18n="bank.principal">Principal</label>
+        <input type="text" inputmode="decimal" id="bank-record-principal" placeholder="0.00">
+        <label for="bank-record-interest" data-i18n="bank.interest">Interest</label>
+        <input type="text" inputmode="decimal" id="bank-record-interest" placeholder="0.00">
+        <label for="bank-record-fees" data-i18n="bank.fees">Fees</label>
+        <input type="text" inputmode="decimal" id="bank-record-fees" placeholder="0.00">
+        <label for="bank-record-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
+        <select id="bank-record-category"></select>
+        <p class="hint" id="bank-record-total"></p>
+        <p class="hint" id="bank-record-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-record-save" data-i18n="bank.recordSave">Record installment</button>
+        <button type="button" class="cancel-edit-btn" id="bank-record-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
     </div>
   </div>
 

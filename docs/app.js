@@ -15167,6 +15167,18 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
   }
 
+  if (l.schedule) {
+    const schedBtn = document.createElement("button");
+    schedBtn.type = "button";
+    schedBtn.className = "add-inline loan-detail-forgive-btn";
+    schedBtn.textContent = tr("bank.scheduleButton", { paid: l.schedule.paid, count: l.schedule.count });
+    schedBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBankSchedule_(l.id, { id: friendId, name: friendName });
+    });
+    row.appendChild(schedBtn);
+  }
+
   // Forgiving applies to either kind of loan — it doesn't touch the
   // loan's own amount/currency/etc (unlike editing), just marks it
   // written off, so it isn't restricted by origin the way editing is.
@@ -15183,7 +15195,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
     row.appendChild(applyBtn);
   }
-  if (l.status !== "forgiven" && l.remaining > 0.004) {
+  if (l.status !== "forgiven" && l.remaining > 0.004 && !l.schedule) {   // a bank does not forgive: no Forgive on a loan with a schedule
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
     forgiveBtn.className = "add-inline loan-detail-forgive-btn";
@@ -15743,6 +15755,596 @@ async function renderSettledPeople_() {
     list.appendChild(row);
   });
 }
+
+// ---- Bank loans (owner's request, 2026-10-29) ----
+// A personal loan from a bank: a loan the owner owes plus a schedule of installments typed in by hand (a quick generator helps
+// fill the rows). Recording an installment makes a repayment (the principal) plus one expense (interest + fees). See BankLoans.gs.
+let bankDraft_ = null;   // {mode: "new" | "edit", loanId, friend: {id, name}, rows: [{due_date, principal, interest, fees}], total}
+
+const bankNum_ = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
+const bankR2_ = (n) => Math.round(n * 100) / 100;
+
+// Adds `k` months to an ISO date, keeping the day (a 31st becomes the month's last day).
+function bankAddMonths_(iso, k) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + k, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+// The payment frequencies: how far apart the installments are.
+const BANK_FREQ_ = { weekly: { days: 7 }, biweekly: { days: 14 }, monthly: { months: 1 }, bimonthly: { months: 2 }, quarterly: { months: 3 }, semiannual: { months: 6 }, yearly: { months: 12 } };
+function bankAddPeriod_(iso, freq, k) {
+  const f = BANK_FREQ_[freq] || BANK_FREQ_.monthly;
+  if (f.months) return bankAddMonths_(iso, f.months * k);
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + f.days * k)).toISOString().slice(0, 10);
+}
+
+// A TEA (annual effective rate) is counted the way Peruvian banks count it: ACTUAL days between dates on a 360-day year.
+// Interest over `days` days on a balance is balance * ((1 + TEA)^(days / 360) - 1), so equal installments carry slightly
+// different interest from one month to the next, depending on the days between due dates.
+function bankDays_(a, b) {
+  const [y1, m1, d1] = a.split("-").map(Number);
+  const [y2, m2, d2] = b.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+const bankGrow_ = (t, days) => Math.pow(1 + t, days / 360);
+function bankDueDates_(firstDue, freq, n) {
+  const out = [];
+  for (let j = 0; j < n; j++) out.push(bankAddPeriod_(firstDue, freq || "monthly", j));
+  return out;
+}
+
+// The TEA (a fraction) that makes `count` installments of `net` (the installment without its fee), paid after `grace` periods of
+// grace, pay off `amount` lent on `start`. null when the installments add up to less than the loan. Bisection: the value of the
+// installments falls as the rate rises.
+function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
+  // with interest-only grace the balance is still `amount` at the last grace date; otherwise discount from the loan date
+  const origin = grace > 0 && graceType === "partial" ? dates[grace - 1] : start;
+  const f = (t) => {
+    let s = 0;
+    for (let k = 0; k < count; k++) s += net / bankGrow_(t, bankDays_(origin, dates[grace + k]));
+    return s - amount;
+  };
+  if (f(0) < -0.005) return null;
+  if (Math.abs(f(0)) <= 0.005) return 0;
+  let lo = 0, hi = 20;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (f(mid) > 0) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+// The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
+// an annuity) whose interest is the monthly rate on what is still owed. The last row closes the balance exactly.
+function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer, freq, grace, graceType) {
+  const r = ratePct / 100;
+  const rows = [];
+  let idx = 0;
+  const dateAt = (k) => bankAddPeriod_(firstDue, freq || "monthly", k);
+  // Grace, paying interest only: rows with no principal come first, the loan itself is untouched.
+  if (grace > 0 && graceType === "partial") {
+    for (let g = 0; g < grace; g++) rows.push({ due_date: dateAt(idx++), principal: 0, interest: r > 0 ? bankR2_(amount * r) : 0, fees: feePer });
+  }
+  // Grace with no payments: the interest is added to the loan, which is then paid off over the installments.
+  const base = grace > 0 && graceType === "total" && r > 0 ? bankR2_(amount * Math.pow(1 + r, grace)) : amount;
+  let balance = base;
+  let pay = payment;
+  if (r > 0 && !(pay > 0)) pay = bankR2_(base * r / (1 - Math.pow(1 + r, -count)) + feePer);
+  const am = [];
+  for (let i = 0; i < count; i++) {
+    const interest = r > 0 ? bankR2_(balance * r) : 0;
+    let principal = r > 0 ? bankR2_(pay - feePer - interest) : bankR2_(base / count);
+    if (i === count - 1 || principal > balance) principal = bankR2_(balance);
+    balance = bankR2_(balance - principal);
+    am.push({ principal, interest });
+  }
+  if (base !== amount) {
+    // what was added to the loan during the grace is cost, not principal: it moves into the interest, so the principals add up to the loan
+    const k = amount / base;
+    am.forEach((row) => { const p = bankR2_(row.principal * k); row.interest = bankR2_(row.interest + (row.principal - p)); row.principal = p; });
+    const diff = bankR2_(amount - am.reduce((n, row) => n + row.principal, 0));
+    am[am.length - 1].principal = bankR2_(am[am.length - 1].principal + diff);
+    am[am.length - 1].interest = bankR2_(am[am.length - 1].interest - diff);
+  }
+  am.forEach((row) => rows.push({ due_date: dateAt(idx++), principal: row.principal, interest: row.interest, fees: feePer }));
+  return rows;
+}
+
+// The same rows on an actual/360 basis: the installment is constant (typed, or worked out so that the installments, discounted by
+// the real days, pay off the loan) and the interest of each row is the TEA over the days since the previous date on the balance.
+// The first row counts from the loan date. A grace period takes the first `grace` dates: interest only (partial), or no payment at
+// all with the interest added to the loan (total); the installments start after it.
+function bankGenerateRowsDays_(amount, count, start, firstDue, t, payNet, feePer, freq, grace, graceType) {
+  const dates = bankDueDates_(firstDue, freq, grace + count);
+  const prevOf = (j) => (j === 0 ? start : dates[j - 1]);
+  const interestOn = (bal, j) => (t > 0 ? bankR2_(bal * (bankGrow_(t, bankDays_(prevOf(j), dates[j])) - 1)) : 0);
+  const rows = [];
+  if (grace > 0 && graceType === "partial") {
+    for (let j = 0; j < grace; j++) rows.push({ due_date: dates[j], principal: 0, interest: interestOn(amount, j), fees: feePer });
+  }
+  const origin = grace > 0 ? dates[grace - 1] : start;
+  const base = grace > 0 && graceType === "total" && t > 0 ? bankR2_(amount * bankGrow_(t, bankDays_(start, origin))) : amount;
+  let pay = payNet;
+  if (t > 0 && !(pay > 0)) {
+    let s = 0;
+    for (let k = 0; k < count; k++) s += 1 / bankGrow_(t, bankDays_(origin, dates[grace + k]));
+    pay = bankR2_(base / s);
+  }
+  let balance = base;
+  const am = [];
+  for (let k = 0; k < count; k++) {
+    const interest = interestOn(balance, grace + k);
+    let principal = t > 0 ? bankR2_(pay - interest) : bankR2_(base / count);
+    if (k === count - 1 || principal > balance) principal = bankR2_(balance);
+    balance = bankR2_(balance - principal);
+    am.push({ principal, interest });
+  }
+  if (base !== amount) {
+    // what was added to the loan during the grace is cost, not principal: it moves into the interest, so the principals add up to the loan
+    const kk = amount / base;
+    am.forEach((row) => { const p = bankR2_(row.principal * kk); row.interest = bankR2_(row.interest + (row.principal - p)); row.principal = p; });
+    const diff = bankR2_(amount - am.reduce((n, row) => n + row.principal, 0));
+    am[am.length - 1].principal = bankR2_(am[am.length - 1].principal + diff);
+    am[am.length - 1].interest = bankR2_(am[am.length - 1].interest - diff);
+  }
+  am.forEach((row, k) => rows.push({ due_date: dates[grace + k], principal: row.principal, interest: row.interest, fees: feePer }));
+  return rows;
+}
+
+function bankRenderRows_() {
+  const list = document.getElementById("bank-rows");
+  list.innerHTML = "";
+  bankDraft_.rows.forEach((row, i) => {
+    const el = document.createElement("div");
+    el.className = "bank-row";
+    el.innerHTML = `
+      <div class="bank-row-top">
+        <span class="bank-row-num">${i + 1}</span>
+        <input type="date" data-f="due_date" value="${escapeHtml(row.due_date || "")}">
+        <button type="button" class="bank-row-remove" aria-label="remove">✕</button>
+      </div>
+      <div class="bank-row-amounts">
+        <input type="text" inputmode="decimal" data-f="principal" placeholder="${escapeHtml(tr("bank.principal"))}" value="${row.principal || ""}">
+        <input type="text" inputmode="decimal" data-f="interest" placeholder="${escapeHtml(tr("bank.interest"))}" value="${row.interest || ""}">
+        <input type="text" inputmode="decimal" data-f="fees" placeholder="${escapeHtml(tr("bank.fees"))}" value="${row.fees || ""}">
+      </div>`;
+    el.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
+      row[input.dataset.f] = input.dataset.f === "due_date" ? input.value : bankNum_(input.value);
+      bankRenderTotals_();
+    }));
+    el.querySelector(".bank-row-remove").addEventListener("click", () => { bankDraft_.rows.splice(i, 1); bankRenderRows_(); });
+    list.appendChild(el);
+  });
+  bankRenderTotals_();
+}
+
+function bankTotals_() {
+  const sum = (f) => bankR2_(bankDraft_.rows.reduce((n, r) => n + (Number(r[f]) || 0), 0));
+  return { principal: sum("principal"), interest: sum("interest"), fees: sum("fees") };
+}
+
+function bankRenderTotals_() {
+  const t = bankTotals_();
+  const target = bankDraft_.mode === "edit" ? bankDraft_.total : bankNum_(document.getElementById("bank-amount").value);
+  const cur = bankDraft_.currency || homeCur();
+  const m = (n) => `${cur} ${moneyFmt(n)}`;
+  const ok = target > 0 && Math.abs(t.principal - target) <= 0.011 && bankDraft_.rows.length > 0 && bankDraft_.rows.every((r) => r.due_date && r.principal >= 0 && (Number(r.principal) + Number(r.interest) + Number(r.fees)) > 0);
+  document.getElementById("bank-totals").textContent = ok
+    ? tr("bank.totals", { p: m(t.principal), a: m(target), i: m(t.interest), f: m(t.fees), t: m(t.principal + t.interest + t.fees) })
+    : tr("bank.totalsOff", { p: m(t.principal), a: m(target) });
+  document.getElementById("bank-save").disabled = !ok || (bankDraft_.mode === "new" && !document.getElementById("bank-lender").value.trim());
+}
+
+function bankPopulateAccounts_(selectId, keep) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("form.noneAccount");
+  sel.appendChild(none);
+  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+    const o = document.createElement("option");
+    o.value = pm.id;
+    o.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    sel.appendChild(o);
+  });
+  sel.value = keep || "";
+}
+
+function openBankLoanForm_() {
+  bankDraft_ = { mode: "new", rows: [], currency: homeCur() };
+  document.getElementById("bank-loan-title").textContent = tr("bank.formTitle");
+  document.getElementById("bank-loan-fields").hidden = false;
+  document.getElementById("bank-gen-box").hidden = false;
+  document.getElementById("bank-save").textContent = tr("bank.save");
+  ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
+  document.getElementById("bank-date").value = todayLocalISO();
+  document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  document.querySelector('input[name="bank-mode"][value="rate"]').checked = true;
+  document.getElementById("bank-gen-rate-type").value = "tea";
+  document.getElementById("bank-mode-box").hidden = false;
+  document.getElementById("bank-gen-freq").value = "monthly";
+  document.getElementById("bank-gen-grace").value = "0";
+  document.getElementById("bank-gen-grace-type").value = "partial";
+  document.getElementById("bank-gen-grace-type-box").hidden = true;
+  document.getElementById("bank-error").textContent = "";
+  const lenders = document.getElementById("bank-lender-list");
+  lenders.innerHTML = "";
+  (meta.friends || []).forEach((f) => { const o = document.createElement("option"); o.value = f.name; lenders.appendChild(o); });
+  const curSel = document.getElementById("bank-currency");
+  curSel.innerHTML = "";
+  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = code; curSel.appendChild(o); });
+  curSel.value = homeCur();
+  bankPopulateAccounts_("bank-account", "");
+  bankRenderRows_();
+  bankApplyMode_();
+  const backdrop = document.getElementById("bank-loan-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+// "Edit the schedule": the installments not yet paid, with the principal that is still to be repaid as the target.
+function openBankScheduleEditor_(sched, friend) {
+  const open = sched.installments.filter((r) => !r.paid);
+  bankDraft_ = {
+    mode: "edit", loanId: sched.loan.id, friend, currency: sched.loan.currency, total: sched.remaining_principal,
+    rows: open.map((r) => ({ due_date: r.due_date, principal: r.principal, interest: r.interest, fees: r.fees }))
+  };
+  document.getElementById("bank-loan-title").textContent = tr("bank.editTitle");
+  document.getElementById("bank-loan-fields").hidden = true;
+  document.getElementById("bank-gen-box").hidden = true;
+  document.getElementById("bank-mode-box").hidden = true;
+  document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
+  document.getElementById("bank-error").textContent = "";
+  bankRenderRows_();
+  const backdrop = document.getElementById("bank-loan-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeBankLoanForm_() {
+  document.getElementById("bank-loan-modal-backdrop").hidden = true;
+}
+
+document.getElementById("add-bank-loan-btn").addEventListener("click", openBankLoanForm_);
+document.getElementById("bank-loan-close").addEventListener("click", closeBankLoanForm_);
+document.getElementById("bank-cancel").addEventListener("click", closeBankLoanForm_);
+document.getElementById("bank-gen-grace").addEventListener("input", () => {
+  document.getElementById("bank-gen-grace-type-box").hidden = !(bankNum_(document.getElementById("bank-gen-grace").value) > 0);
+});
+document.getElementById("bank-add-row").addEventListener("click", () => {
+  const last = bankDraft_.rows[bankDraft_.rows.length - 1];
+  const freq = document.getElementById("bank-gen-freq").value || "monthly";
+  bankDraft_.rows.push({ due_date: last && last.due_date ? bankAddPeriod_(last.due_date, freq, 1) : "", principal: 0, interest: 0, fees: 0 });
+  bankRenderRows_();
+});
+["bank-amount", "bank-lender"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankDraft_ && bankRenderTotals_()));
+document.getElementById("bank-currency").addEventListener("change", (e) => { bankDraft_.currency = e.target.value; bankRenderTotals_(); });
+function bankMode_() {
+  const picked = document.querySelector('input[name="bank-mode"]:checked');
+  return picked ? picked.value : "rate";
+}
+// Each way of entering the loan shows only the fields it needs.
+function bankApplyMode_() {
+  const mode = bankMode_();
+  document.getElementById("bank-gen-box").hidden = mode === "manual";
+  document.getElementById("bank-gen-rate-block").hidden = mode !== "rate";
+  document.getElementById("bank-gen-payment-block").hidden = mode !== "installment";
+  document.getElementById("bank-gen-implied").textContent = "";
+  document.getElementById("bank-mode-hint").textContent = tr(mode === "rate" ? "bank.modeHintRate" : mode === "installment" ? "bank.modeHintInstallment" : "bank.modeHintManual");
+  if (mode === "manual" && bankDraft_ && bankDraft_.mode === "new" && !bankDraft_.rows.length) {
+    bankDraft_.rows.push({ due_date: bankAddPeriod_(todayLocalISO(), "monthly", 1), principal: 0, interest: 0, fees: 0 });
+    bankRenderRows_();
+  }
+}
+document.querySelectorAll('input[name="bank-mode"]').forEach((r) => r.addEventListener("change", bankApplyMode_));
+
+document.getElementById("bank-gen-btn").addEventListener("click", () => {
+  const amount = bankNum_(document.getElementById("bank-amount").value);
+  const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
+  const first = document.getElementById("bank-gen-first").value;
+  const errEl = document.getElementById("bank-error");
+  if (!(amount > 0) || !(count > 0) || count > 480 || !first) {
+    errEl.textContent = tr("bank.genNeeds");
+    return;
+  }
+  errEl.textContent = "";
+  const freq = document.getElementById("bank-gen-freq").value;
+  const grace = Math.max(0, Math.round(bankNum_(document.getElementById("bank-gen-grace").value)));
+  const graceType = document.getElementById("bank-gen-grace-type").value;
+  const fee = bankNum_(document.getElementById("bank-gen-fee").value);
+  const impliedEl = document.getElementById("bank-gen-implied");
+  impliedEl.textContent = "";
+  const startDate = document.getElementById("bank-date").value;
+  const typedRate = bankNum_(document.getElementById("bank-gen-rate").value);
+  const byDays = bankMode_() === "installment" || document.getElementById("bank-gen-rate-type").value === "tea";
+  if (byDays && (!startDate || first <= startDate)) { errEl.textContent = tr("bank.firstAfterStart"); return; }
+  if (bankMode_() === "installment") {
+    const payment = bankNum_(document.getElementById("bank-gen-payment").value);
+    if (!(payment > 0)) { errEl.textContent = tr("bank.needPayment"); return; }
+    const t = bankSolveTea_(amount, count, payment - fee, startDate, bankDueDates_(first, freq, grace + count), grace, graceType);
+    if (t === null) { errEl.textContent = tr("bank.noRateFits"); return; }
+    impliedEl.textContent = tr("bank.impliedRate", { tea: (t * 100).toFixed(2) });
+    bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, t, payment - fee, fee, freq, grace, graceType);
+  } else if (byDays) {
+    bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, typedRate / 100, 0, fee, freq, grace, graceType);
+  } else {
+    // a rate per payment period: the same rate every period, no day count
+    bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
+  }
+  bankRenderRows_();
+});
+
+document.getElementById("bank-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-save");
+  const errEl = document.getElementById("bank-error");
+  const rows = bankDraft_.rows.map((r) => ({ due_date: r.due_date, principal: Number(r.principal) || 0, interest: Number(r.interest) || 0, fees: Number(r.fees) || 0 }));
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    let friend;
+    if (bankDraft_.mode === "new") {
+      const res = await callApi("saveBankLoan", {
+        friend_name: document.getElementById("bank-lender").value.trim(),
+        description: document.getElementById("bank-description").value.trim(),
+        amount: bankNum_(document.getElementById("bank-amount").value),
+        currency: document.getElementById("bank-currency").value,
+        date: document.getElementById("bank-date").value,
+        payment_method_id: document.getElementById("bank-account").value,
+        installments: rows
+      });
+      friend = { id: res.loan.friend_id, name: document.getElementById("bank-lender").value.trim() };
+    } else {
+      await callApi("saveLoanSchedule", { loan_id: bankDraft_.loanId, installments: rows });
+      friend = bankDraft_.friend;
+    }
+    closeBankLoanForm_();
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    if (bankDraft_.mode === "edit") await openBankSchedule_(bankDraft_.loanId, friend);
+    else await openLoanDetail(friend.id, friend.name);
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+    bankRenderTotals_();
+  }
+});
+
+// The loan's schedule: every installment, paid or not; a tap on an unpaid one records it.
+let bankScheduleCtx_ = null;
+async function openBankSchedule_(loanId, friend) {
+  bankScheduleCtx_ = { loanId, friend, sched: null };
+  const backdrop = document.getElementById("bank-schedule-modal-backdrop");
+  const loadingEl = document.getElementById("bank-schedule-loading");
+  const contentEl = document.getElementById("bank-schedule-content");
+  loadingEl.textContent = tr("common.loading");
+  loadingEl.hidden = false;
+  contentEl.hidden = true;
+  if (backdrop.hidden) {
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  }
+  let sched;
+  try {
+    sched = await callApi("getLoanSchedule", { loan_id: loanId });
+  } catch (err) {
+    loadingEl.textContent = err.message;
+    return;
+  }
+  bankScheduleCtx_.sched = sched;
+  const cur = sched.loan.currency;
+  const m = (n) => `${cur} ${moneyFmt(n)}`;
+  const next = sched.installments.find((r) => !r.paid);
+  document.getElementById("bank-schedule-title").textContent = `${sched.loan.friend_name} · ${tr("bank.scheduleTitle")}`;
+  document.getElementById("bank-schedule-summary").textContent = [
+    tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
+    next ? tr("bank.nextDue", { date: next.due_date, amount: m(next.total) }) : ""
+  ].filter(Boolean).join(" · ");
+  const list = document.getElementById("bank-schedule-list");
+  list.innerHTML = "";
+  sched.installments.forEach((r) => {
+    const el = document.createElement("div");
+    el.className = "bank-inst" + (r.paid ? "" : " tappable");
+    const status = r.paid ? tr("bank.statusPaid", { date: r.paid_date }) : tr(r.status === "overdue" ? "bank.statusOverdue" : "bank.statusDue");
+    el.innerHTML = `
+      <div class="loan-detail-row-top">
+        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: sched.installments.length, date: r.due_date }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-amount i-owe">${escapeHtml(m(r.total))}</span>
+      </div>
+      <div class="loan-detail-row-meta">${escapeHtml(tr("bank.rowAmounts", { p: moneyFmt(r.principal), i: moneyFmt(r.interest), f: moneyFmt(r.fees) }))} · <span class="bank-inst-status ${r.paid ? "paid" : r.status}">${escapeHtml(status)}</span></div>`;
+    if (!r.paid) el.addEventListener("click", () => openBankRecord_(r, sched));
+    list.appendChild(el);
+  });
+  document.getElementById("bank-schedule-edit").hidden = !next;
+  document.getElementById("bank-schedule-early").hidden = !(sched.remaining_principal > 0.004);
+  loadingEl.hidden = true;
+  contentEl.hidden = false;
+}
+
+document.getElementById("bank-schedule-close").addEventListener("click", () => { document.getElementById("bank-schedule-modal-backdrop").hidden = true; });
+document.getElementById("bank-schedule-edit").addEventListener("click", () => {
+  if (bankScheduleCtx_ && bankScheduleCtx_.sched) openBankScheduleEditor_(bankScheduleCtx_.sched, bankScheduleCtx_.friend);
+});
+
+// Early payment (prepago): extra principal ahead of the schedule, an optional fee (0 by default); the term is SHORTENED by default.
+let bankEarlyCtx_ = null;
+function bankEarlyMode_() {
+  const picked = document.querySelector('input[name="bank-early-mode"]:checked');
+  return picked ? picked.value : "shorten";
+}
+// How many installments are left after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
+// interest is recalculated on the lower balance at the TEA the schedule itself implies (actual days / 360). `prevDate` is the date
+// before the first unpaid installment (the previous installment's, or the loan date).
+function bankRecalcCount_(open, after, mode, prevDate) {
+  if (after <= 0.004 || !open.length) return 0;
+  if (mode === "reduce") return open.length;
+  const before = open.reduce((n, r) => n + r.principal, 0);
+  const daysOf = (i) => {
+    const d = (i === 0 ? prevDate : open[i - 1].due_date) ? bankDays_(i === 0 ? prevDate : open[i - 1].due_date, open[i].due_date) : 0;
+    return d > 0 ? d : 30;
+  };
+  const t = before > 0 && open[0].interest > 0 ? Math.pow(1 + open[0].interest / before, 360 / daysOf(0)) - 1 : 0;
+  const n = open.length;
+  let balance = after;
+  let count = 0;
+  let lastAmortizing = -1;
+  open.forEach((r, idx) => { if (r.principal > 0.004) lastAmortizing = idx; });
+  for (let i = 0; i < n && balance > 0.004; i++) {
+    const interest = bankR2_(balance * (bankGrow_(t, daysOf(i)) - 1));
+    if (open[i].principal <= 0.004) { count++; continue; }   // an interest-only row of a grace period stays
+    let p = bankR2_(open[i].principal + open[i].interest - interest);
+    if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
+    balance = bankR2_(balance - p);
+    count++;
+  }
+  return count;
+}
+
+// Mirrors recordEarlyPayment (BankLoans.gs), only to show what the schedule will look like.
+function bankEarlyPreview_() {
+  const sched = bankEarlyCtx_.sched;
+  const cur = sched.loan.currency;
+  const principal = bankNum_(document.getElementById("bank-early-principal").value);
+  const fee = bankNum_(document.getElementById("bank-early-fee").value);
+  const prev = document.getElementById("bank-early-preview");
+  document.getElementById("bank-early-total").textContent = tr("bank.earlyTotal", { amount: `${cur} ${moneyFmt(principal + fee)}` });
+  const open = sched.installments.filter((r) => !r.paid);
+  const after = bankR2_(sched.remaining_principal - principal);
+  if (!(principal > 0)) { prev.textContent = ""; return; }
+  if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
+  const firstOpen = sched.installments.indexOf(open[0]);
+  const prevDate = firstOpen > 0 ? sched.installments[firstOpen - 1].due_date : String(sched.loan.date || "").slice(0, 10);
+  const n = bankRecalcCount_(open, after, bankEarlyMode_(), prevDate);
+  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
+}
+
+function openBankEarly_(sched) {
+  bankEarlyCtx_ = { sched };
+  document.getElementById("bank-early-date").value = todayLocalISO();
+  bankPopulateAccounts_("bank-early-account", "");
+  document.getElementById("bank-early-principal").value = "";
+  document.getElementById("bank-early-fee").value = "0";
+  populateCategoryOptionsForSelect_("bank-early-category", "expense");
+  const later = document.createElement("option");
+  later.value = "";
+  later.textContent = tr("bank.recordLater");
+  document.getElementById("bank-early-category").prepend(later);
+  document.getElementById("bank-early-category").value = "";
+  document.querySelector('input[name="bank-early-mode"][value="shorten"]').checked = true;
+  document.getElementById("bank-early-error").textContent = "";
+  bankEarlyPreview_();
+  const backdrop = document.getElementById("bank-early-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+document.getElementById("bank-schedule-early").addEventListener("click", () => {
+  if (bankScheduleCtx_ && bankScheduleCtx_.sched) openBankEarly_(bankScheduleCtx_.sched);
+});
+["bank-early-principal", "bank-early-fee"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankEarlyCtx_ && bankEarlyPreview_()));
+document.querySelectorAll('input[name="bank-early-mode"]').forEach((r) => r.addEventListener("change", () => bankEarlyCtx_ && bankEarlyPreview_()));
+document.getElementById("bank-early-close").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
+document.getElementById("bank-early-cancel").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
+document.getElementById("bank-early-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-early-save");
+  const errEl = document.getElementById("bank-early-error");
+  const ctx = bankEarlyCtx_;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    await callApi("recordEarlyPayment", {
+      loan_id: ctx.sched.loan.id,
+      date: document.getElementById("bank-early-date").value,
+      payment_method_id: document.getElementById("bank-early-account").value,
+      principal: bankNum_(document.getElementById("bank-early-principal").value),
+      fee: bankNum_(document.getElementById("bank-early-fee").value),
+      category_id: document.getElementById("bank-early-category").value,
+      mode: bankEarlyMode_()
+    });
+    document.getElementById("bank-early-modal-backdrop").hidden = true;
+    refreshEntriesInBackground_();
+    refreshReviewQueue().catch(() => {});
+    await refreshLoans();
+    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+});
+
+// Recording one installment.
+let bankRecordCtx_ = null;
+function bankRecordTotal_() {
+  const cur = bankRecordCtx_.sched.loan.currency;
+  const t = bankNum_(document.getElementById("bank-record-principal").value) + bankNum_(document.getElementById("bank-record-interest").value) + bankNum_(document.getElementById("bank-record-fees").value);
+  document.getElementById("bank-record-total").textContent = tr("bank.recordTotal", { amount: `${cur} ${moneyFmt(t)}` });
+}
+
+function openBankRecord_(inst, sched) {
+  bankRecordCtx_ = { inst, sched };
+  document.getElementById("bank-record-title").textContent = tr("bank.recordTitle", { n: inst.number, count: sched.installments.length });
+  document.getElementById("bank-record-date").value = todayLocalISO();
+  bankPopulateAccounts_("bank-record-account", "");
+  document.getElementById("bank-record-principal").value = inst.principal;
+  document.getElementById("bank-record-interest").value = inst.interest || "";
+  document.getElementById("bank-record-fees").value = inst.fees || "";
+  populateCategoryOptionsForSelect_("bank-record-category", "expense");
+  const later = document.createElement("option");
+  later.value = "";
+  later.textContent = tr("bank.recordLater");
+  document.getElementById("bank-record-category").prepend(later);
+  document.getElementById("bank-record-category").value = "";
+  document.getElementById("bank-record-error").textContent = "";
+  bankRecordTotal_();
+  const backdrop = document.getElementById("bank-record-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+["bank-record-principal", "bank-record-interest", "bank-record-fees"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
+document.getElementById("bank-record-close").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
+document.getElementById("bank-record-cancel").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
+document.getElementById("bank-record-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-record-save");
+  const errEl = document.getElementById("bank-record-error");
+  const ctx = bankRecordCtx_;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    await callApi("recordInstallment", {
+      id: ctx.inst.id,
+      date: document.getElementById("bank-record-date").value,
+      payment_method_id: document.getElementById("bank-record-account").value,
+      principal: bankNum_(document.getElementById("bank-record-principal").value),
+      interest: bankNum_(document.getElementById("bank-record-interest").value),
+      fees: bankNum_(document.getElementById("bank-record-fees").value),
+      category_id: document.getElementById("bank-record-category").value
+    });
+    document.getElementById("bank-record-modal-backdrop").hidden = true;
+    refreshEntriesInBackground_();
+    refreshReviewQueue().catch(() => {});
+    await refreshLoans();
+    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+});
 
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;

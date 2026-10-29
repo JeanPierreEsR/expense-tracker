@@ -718,6 +718,13 @@ function updateLoan(payload) {
 function deleteLoan(loanId, repayments) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
   if (!loan) return;
+  deleteLoan_(loan, loanId, repayments);
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Loan Installments')) {
+    deleteRowsWhere_('Loan Installments', function (r) { return r.loan_id === loanId; });
+  }
+}
+
+function deleteLoan_(loan, loanId, repayments) {
   // A loan from a shared expense is deleted by deleting that expense — unless
   // the expense is already gone (the loan was kept for its repayment history
   // and unlinked), in which case nothing else can ever remove it.
@@ -2882,6 +2889,7 @@ function listSettledLoanFriends(payload) {
 // what listLoanBalances is for.
 function getFriendLoanDetail(friendId) {
   ensureLoansUnappliedColumn_();
+  var schedules = loanScheduleSummaries_();
   var settledByLoan = buildSettlementTotalsByLoan_();
   var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId; });
   loans.forEach(function (loan) {
@@ -2890,6 +2898,7 @@ function getFriendLoanDetail(friendId) {
     loan.forgiven_so_far = loanForgivenPartsTotal_(loan);   // parts forgiven so far (a whole-loan forgiveness is the status)
     loan.overdue = isLoanOverdue_(loan, loan.remaining);
     loan.unapplied = isUnappliedLoan_(loan);
+    loan.schedule = schedules[loan.id] || null;
   });
   loans.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
   return loans;
