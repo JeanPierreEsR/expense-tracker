@@ -15741,19 +15741,35 @@ function bankAddPeriod_(iso, freq, k) {
   return new Date(Date.UTC(y, m - 1, d + f.days * k)).toISOString().slice(0, 10);
 }
 
-// Payments per year of each frequency, to turn an annual effective rate (TEA) into the rate of ONE payment period and back.
-const BANK_PER_YEAR_ = { weekly: 52, biweekly: 26, monthly: 12, bimonthly: 6, quarterly: 4, semiannual: 2, yearly: 1 };
-const bankPeriodRateFromTea_ = (teaPct, freq) => Math.pow(1 + teaPct / 100, 1 / (BANK_PER_YEAR_[freq] || 12)) - 1;
-const bankTeaFromPeriodRate_ = (r, freq) => (Math.pow(1 + r, BANK_PER_YEAR_[freq] || 12) - 1) * 100;
+// A TEA (annual effective rate) is counted the way Peruvian banks count it: ACTUAL days between dates on a 360-day year.
+// Interest over `days` days on a balance is balance * ((1 + TEA)^(days / 360) - 1), so equal installments carry slightly
+// different interest from one month to the next, depending on the days between due dates.
+function bankDays_(a, b) {
+  const [y1, m1, d1] = a.split("-").map(Number);
+  const [y2, m2, d2] = b.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+const bankGrow_ = (t, days) => Math.pow(1 + t, days / 360);
+function bankDueDates_(firstDue, freq, n) {
+  const out = [];
+  for (let j = 0; j < n; j++) out.push(bankAddPeriod_(firstDue, freq || "monthly", j));
+  return out;
+}
 
-// The rate of one payment period that makes `count` installments of `net` (the installment without its fee) pay off `amount`
-// (with the interest of `grace` periods added first when the grace is "no payments"). null when the installments add up to less than
-// the loan. Bisection: the value of the installments falls as the rate rises.
-function bankSolveRate_(amount, count, net, graceAdded) {
-  const f = (r) => (r === 0 ? net * count : net * (1 - Math.pow(1 + r, -count)) / r) - amount * Math.pow(1 + r, graceAdded);
+// The TEA (a fraction) that makes `count` installments of `net` (the installment without its fee), paid after `grace` periods of
+// grace, pay off `amount` lent on `start`. null when the installments add up to less than the loan. Bisection: the value of the
+// installments falls as the rate rises.
+function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
+  // with interest-only grace the balance is still `amount` at the last grace date; otherwise discount from the loan date
+  const origin = grace > 0 && graceType === "partial" ? dates[grace - 1] : start;
+  const f = (t) => {
+    let s = 0;
+    for (let k = 0; k < count; k++) s += net / bankGrow_(t, bankDays_(origin, dates[grace + k]));
+    return s - amount;
+  };
   if (f(0) < -0.005) return null;
   if (Math.abs(f(0)) <= 0.005) return 0;
-  let lo = 0, hi = 5;
+  let lo = 0, hi = 20;
   for (let i = 0; i < 200; i++) {
     const mid = (lo + hi) / 2;
     if (f(mid) > 0) lo = mid; else hi = mid;
@@ -15794,6 +15810,47 @@ function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer, fr
     am[am.length - 1].interest = bankR2_(am[am.length - 1].interest - diff);
   }
   am.forEach((row) => rows.push({ due_date: dateAt(idx++), principal: row.principal, interest: row.interest, fees: feePer }));
+  return rows;
+}
+
+// The same rows on an actual/360 basis: the installment is constant (typed, or worked out so that the installments, discounted by
+// the real days, pay off the loan) and the interest of each row is the TEA over the days since the previous date on the balance.
+// The first row counts from the loan date. A grace period takes the first `grace` dates: interest only (partial), or no payment at
+// all with the interest added to the loan (total); the installments start after it.
+function bankGenerateRowsDays_(amount, count, start, firstDue, t, payNet, feePer, freq, grace, graceType) {
+  const dates = bankDueDates_(firstDue, freq, grace + count);
+  const prevOf = (j) => (j === 0 ? start : dates[j - 1]);
+  const interestOn = (bal, j) => (t > 0 ? bankR2_(bal * (bankGrow_(t, bankDays_(prevOf(j), dates[j])) - 1)) : 0);
+  const rows = [];
+  if (grace > 0 && graceType === "partial") {
+    for (let j = 0; j < grace; j++) rows.push({ due_date: dates[j], principal: 0, interest: interestOn(amount, j), fees: feePer });
+  }
+  const origin = grace > 0 ? dates[grace - 1] : start;
+  const base = grace > 0 && graceType === "total" && t > 0 ? bankR2_(amount * bankGrow_(t, bankDays_(start, origin))) : amount;
+  let pay = payNet;
+  if (t > 0 && !(pay > 0)) {
+    let s = 0;
+    for (let k = 0; k < count; k++) s += 1 / bankGrow_(t, bankDays_(origin, dates[grace + k]));
+    pay = bankR2_(base / s);
+  }
+  let balance = base;
+  const am = [];
+  for (let k = 0; k < count; k++) {
+    const interest = interestOn(balance, grace + k);
+    let principal = t > 0 ? bankR2_(pay - interest) : bankR2_(base / count);
+    if (k === count - 1 || principal > balance) principal = bankR2_(balance);
+    balance = bankR2_(balance - principal);
+    am.push({ principal, interest });
+  }
+  if (base !== amount) {
+    // what was added to the loan during the grace is cost, not principal: it moves into the interest, so the principals add up to the loan
+    const kk = amount / base;
+    am.forEach((row) => { const p = bankR2_(row.principal * kk); row.interest = bankR2_(row.interest + (row.principal - p)); row.principal = p; });
+    const diff = bankR2_(amount - am.reduce((n, row) => n + row.principal, 0));
+    am[am.length - 1].principal = bankR2_(am[am.length - 1].principal + diff);
+    am[am.length - 1].interest = bankR2_(am[am.length - 1].interest - diff);
+  }
+  am.forEach((row, k) => rows.push({ due_date: dates[grace + k], principal: row.principal, interest: row.interest, fees: feePer }));
   return rows;
 }
 
@@ -15961,20 +16018,23 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
   const fee = bankNum_(document.getElementById("bank-gen-fee").value);
   const impliedEl = document.getElementById("bank-gen-implied");
   impliedEl.textContent = "";
-  let payment = 0;
-  let ratePct;
+  const startDate = document.getElementById("bank-date").value;
+  const typedRate = bankNum_(document.getElementById("bank-gen-rate").value);
+  const byDays = bankMode_() === "installment" || document.getElementById("bank-gen-rate-type").value === "tea";
+  if (byDays && (!startDate || first <= startDate)) { errEl.textContent = tr("bank.firstAfterStart"); return; }
   if (bankMode_() === "installment") {
-    payment = bankNum_(document.getElementById("bank-gen-payment").value);
+    const payment = bankNum_(document.getElementById("bank-gen-payment").value);
     if (!(payment > 0)) { errEl.textContent = tr("bank.needPayment"); return; }
-    const r = bankSolveRate_(amount, count, payment - fee, grace > 0 && graceType === "total" ? grace : 0);
-    if (r === null) { errEl.textContent = tr("bank.noRateFits"); return; }
-    ratePct = r * 100;
-    impliedEl.textContent = tr("bank.impliedRate", { period: ratePct.toFixed(4).replace(/0+$/, "").replace(/\.$/, ""), tea: bankTeaFromPeriodRate_(r, freq).toFixed(2) });
+    const t = bankSolveTea_(amount, count, payment - fee, startDate, bankDueDates_(first, freq, grace + count), grace, graceType);
+    if (t === null) { errEl.textContent = tr("bank.noRateFits"); return; }
+    impliedEl.textContent = tr("bank.impliedRate", { tea: (t * 100).toFixed(2) });
+    bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, t, payment - fee, fee, freq, grace, graceType);
+  } else if (byDays) {
+    bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, typedRate / 100, 0, fee, freq, grace, graceType);
   } else {
-    const typed = bankNum_(document.getElementById("bank-gen-rate").value);
-    ratePct = document.getElementById("bank-gen-rate-type").value === "tea" ? bankPeriodRateFromTea_(typed, freq) * 100 : typed;
+    // a rate per payment period: the same rate every period, no day count
+    bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
   }
-  bankDraft_.rows = bankGenerateRows_(amount, count, first, payment, ratePct, fee, freq, grace, graceType);
   bankRenderRows_();
 });
 
@@ -16080,19 +16140,24 @@ function bankEarlyMode_() {
   return picked ? picked.value : "shorten";
 }
 // How many installments are left after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
-// interest is recalculated on the lower balance at the rate the schedule itself implies.
-function bankRecalcCount_(open, after, mode) {
+// interest is recalculated on the lower balance at the TEA the schedule itself implies (actual days / 360). `prevDate` is the date
+// before the first unpaid installment (the previous installment's, or the loan date).
+function bankRecalcCount_(open, after, mode, prevDate) {
   if (after <= 0.004 || !open.length) return 0;
+  if (mode === "reduce") return open.length;
   const before = open.reduce((n, r) => n + r.principal, 0);
-  const rate = before > 0 ? open[0].interest / before : 0;
+  const daysOf = (i) => {
+    const d = (i === 0 ? prevDate : open[i - 1].due_date) ? bankDays_(i === 0 ? prevDate : open[i - 1].due_date, open[i].due_date) : 0;
+    return d > 0 ? d : 30;
+  };
+  const t = before > 0 && open[0].interest > 0 ? Math.pow(1 + open[0].interest / before, 360 / daysOf(0)) - 1 : 0;
   const n = open.length;
-  if (mode === "reduce") return n;
   let balance = after;
   let count = 0;
   let lastAmortizing = -1;
   open.forEach((r, idx) => { if (r.principal > 0.004) lastAmortizing = idx; });
   for (let i = 0; i < n && balance > 0.004; i++) {
-    const interest = bankR2_(balance * rate);
+    const interest = bankR2_(balance * (bankGrow_(t, daysOf(i)) - 1));
     if (open[i].principal <= 0.004) { count++; continue; }   // an interest-only row of a grace period stays
     let p = bankR2_(open[i].principal + open[i].interest - interest);
     if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
@@ -16114,7 +16179,9 @@ function bankEarlyPreview_() {
   const after = bankR2_(sched.remaining_principal - principal);
   if (!(principal > 0)) { prev.textContent = ""; return; }
   if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
-  const n = bankRecalcCount_(open, after, bankEarlyMode_());
+  const firstOpen = sched.installments.indexOf(open[0]);
+  const prevDate = firstOpen > 0 ? sched.installments[firstOpen - 1].due_date : String(sched.loan.date || "").slice(0, 10);
+  const n = bankRecalcCount_(open, after, bankEarlyMode_(), prevDate);
   prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
 }
 

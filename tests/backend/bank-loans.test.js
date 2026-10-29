@@ -148,10 +148,11 @@ test("early payment shortens the term by default and RECALCULATES the interest o
   const created = rt.rows("Entries").slice(entriesBefore);
   assert.equal(Number(created.find((e) => e.type === "transfer").amount), 100, "the principal is a repayment");
   assert.equal(Number(created.find((e) => e.type === "expense").amount), 5, "the fee is one expense");
-  // 200 still owed: same installment (104.01) → interest 4.00 on 200, principal 100.01; then 99.99 left at 2%: interest 2.00, last row
+  // 200 still owed: same installment (104.01) → interest 4.00 on 200 (31 days), principal 100.01; then 99.99 left over 28 days
+  // (actual days / 360): 99.99 * (1.02^(28/31) - 1) = 1.80, last row
   const rows = res.schedule.installments;
   assert.equal(rows.length, 2, "the term is shorter: one installment fewer");
-  assert.deepEqual(rows.map((r) => [r.principal, r.interest]), [[100.01, 4.00], [99.99, 2.00]]);
+  assert.deepEqual(rows.map((r) => [r.principal, r.interest]), [[100.01, 4.00], [99.99, 1.80]]);
   assert.equal(rows[0].fees, 2, "fees stay as they are");
   assert.equal(res.schedule.remaining_principal, 200);
   assert.equal(res.schedule.totals.principal, 200);

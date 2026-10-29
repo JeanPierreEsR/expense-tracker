@@ -261,14 +261,18 @@ function recordEarlyPayment(payload) {
   recordSettlementRow_(loan.id, payload.date, principal, payload.payment_method_id || '', '', transfer.id, true, feeId);
   updateLoanStatusFromSettlements_(loan.id);
 
-  // The installments not yet paid, RECALCULATED on what is still owed (owner's request, 2026-10-29). The monthly rate is not stored:
-  // it is worked out from the schedule itself (the first unpaid installment's interest over the principal still owed before it),
-  // so it follows whatever the bank's own schedule says. Interest is then the rate on the balance of each installment.
+  // The installments not yet paid, RECALCULATED on what is still owed (owner's request, 2026-10-29). The rate is not stored: the TEA
+  // is worked out from the schedule itself (the first unpaid installment's interest over the principal still owed before it, over
+  // the real days since the previous date, 360-day year), so it follows whatever the bank's own schedule says. Interest is then the
+  // TEA over the real days on the balance of each installment.
   var after = bankRound_(room - principal);
   var open = loanInstallmentsOf_(loan.id).filter(function (r) { return !r.paid; });
   var sheet = getSheet('Loan Installments');
   var headers = getHeaders(sheet);
-  var plan = recalculateInstallmentsAfterEarly_(open, after, mode);
+  var all = loanInstallmentsOf_(loan.id);
+  var firstOpen = open.length ? all.findIndex(function (r) { return r.id === open[0].id; }) : -1;
+  var prevDate = firstOpen > 0 ? all[firstOpen - 1].due_date : String(loan.date || '').slice(0, 10);
+  var plan = recalculateInstallmentsAfterEarly_(open, after, mode, prevDate);
   plan.forEach(function (item) {
     var rowIndex = findRowIndexById(sheet, headers, item.id);
     setCellByRow_(sheet, headers, rowIndex, 'principal', item.principal);
@@ -283,28 +287,51 @@ function recordEarlyPayment(payload) {
 }
 
 
+// Days between two ISO dates (actual days; interest counts them on a 360-day year).
+function bankDaysBetween_(a, b) {
+  var pa = String(a).slice(0, 10).split('-').map(Number);
+  var pb = String(b).slice(0, 10).split('-').map(Number);
+  return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
+}
+
 // What the unpaid installments (`open`, in order, before the early payment) become once only `after` of principal is left.
 // Returns [{ id, principal, interest }] for the rows that stay; rows not returned are removed. Fees stay as they are.
+// `prevDate` is the date before the first unpaid installment (the previous installment's due date, or the loan date); interest is
+// the TEA over the real days between dates on a 360-day year, the TEA being the one the first unpaid row implies.
 //  - 'shorten' (default): every installment keeps its own amount (principal + interest); interest is the rate on the balance, so more
 //    of each goes to principal and the loan ends sooner. The last row takes whatever is left.
 //  - 'reduce': the same number of installments, each one smaller (an annuity on the new balance).
-function recalculateInstallmentsAfterEarly_(open, after, mode) {
+function recalculateInstallmentsAfterEarly_(open, after, mode, prevDate) {
   if (after <= 0.004 || !open.length) return [];
   var before = open.reduce(function (n, r) { return n + r.principal; }, 0);
-  var rate = before > 0 ? open[0].interest / before : 0;
+  var daysOf = function (i) {
+    var from = i === 0 ? prevDate : open[i - 1].due_date;
+    var d = from ? bankDaysBetween_(from, open[i].due_date) : 0;
+    return d > 0 ? d : 30;
+  };
+  var rate = before > 0 && open[0].interest > 0 ? Math.pow(1 + open[0].interest / before, 360 / daysOf(0)) - 1 : 0;
+  var grow = function (days) { return Math.pow(1 + rate, days / 360); };
   var out = [];
   var balance = after;
   var n = open.length;
   // interest-only rows (a grace period) stay interest-only; the annuity of 'reduce' spreads over the amortizing rows only
-  var amortizing = open.filter(function (r) { return r.principal > 0.004; }).length;
+  var lastAmortizing = -1, firstAmortizing = -1;
+  open.forEach(function (r, idx) {
+    if (r.principal > 0.004) { lastAmortizing = idx; if (firstAmortizing < 0) firstAmortizing = idx; }
+  });
   var payment = 0;
-  if (mode === 'reduce' && amortizing) {
-    payment = rate > 0 ? after * rate / (1 - Math.pow(1 + rate, -amortizing)) : after / amortizing;
+  if (mode === 'reduce' && firstAmortizing >= 0) {
+    var originDate = firstAmortizing === 0 ? prevDate : open[firstAmortizing - 1].due_date;
+    var amortizing = 0, factor = 0;
+    for (var k = firstAmortizing; k < n; k++) {
+      if (open[k].principal <= 0.004) continue;
+      amortizing++;
+      factor += 1 / grow(originDate ? Math.max(bankDaysBetween_(originDate, open[k].due_date), 1) : 30 * (k - firstAmortizing + 1));
+    }
+    payment = rate > 0 ? after / factor : after / amortizing;
   }
-  var lastAmortizing = -1;
-  open.forEach(function (r, idx) { if (r.principal > 0.004) lastAmortizing = idx; });
   for (var i = 0; i < n && balance > 0.004; i++) {
-    var interest = bankRound_(balance * rate);
+    var interest = bankRound_(balance * (grow(daysOf(i)) - 1));
     if (open[i].principal <= 0.004) { out.push({ id: open[i].id, principal: 0, interest: interest }); continue; }
     var pay = mode === 'reduce' ? payment : open[i].principal + open[i].interest;
     var p = bankRound_(pay - interest);
