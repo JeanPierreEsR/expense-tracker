@@ -15846,6 +15846,7 @@ async function openBankSchedule_(loanId, friend) {
     list.appendChild(el);
   });
   document.getElementById("bank-schedule-edit").hidden = !next;
+  document.getElementById("bank-schedule-early").hidden = !(sched.remaining_principal > 0.004);
   loadingEl.hidden = true;
   contentEl.hidden = false;
 }
@@ -15853,6 +15854,92 @@ async function openBankSchedule_(loanId, friend) {
 document.getElementById("bank-schedule-close").addEventListener("click", () => { document.getElementById("bank-schedule-modal-backdrop").hidden = true; });
 document.getElementById("bank-schedule-edit").addEventListener("click", () => {
   if (bankScheduleCtx_ && bankScheduleCtx_.sched) openBankScheduleEditor_(bankScheduleCtx_.sched, bankScheduleCtx_.friend);
+});
+
+// Early payment (prepago): extra principal ahead of the schedule, an optional fee (0 by default); the term is SHORTENED by default.
+let bankEarlyCtx_ = null;
+function bankEarlyMode_() {
+  const picked = document.querySelector('input[name="bank-early-mode"]:checked');
+  return picked ? picked.value : "shorten";
+}
+// Mirrors recordEarlyPayment (BankLoans.gs), only to show what the schedule will look like.
+function bankEarlyPreview_() {
+  const sched = bankEarlyCtx_.sched;
+  const cur = sched.loan.currency;
+  const principal = bankNum_(document.getElementById("bank-early-principal").value);
+  const fee = bankNum_(document.getElementById("bank-early-fee").value);
+  const prev = document.getElementById("bank-early-preview");
+  document.getElementById("bank-early-total").textContent = tr("bank.earlyTotal", { amount: `${cur} ${moneyFmt(principal + fee)}` });
+  const open = sched.installments.filter((r) => !r.paid);
+  const after = bankR2_(sched.remaining_principal - principal);
+  if (!(principal > 0)) { prev.textContent = ""; return; }
+  if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
+  let n = open.length;
+  if (bankEarlyMode_() === "shorten") {
+    let cut = principal;
+    for (let i = open.length - 1; i >= 0 && cut > 0.004; i--) {
+      if (open[i].principal <= cut + 0.004) { cut = bankR2_(cut - open[i].principal); n--; } else cut = 0;
+    }
+  }
+  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
+}
+
+function openBankEarly_(sched) {
+  bankEarlyCtx_ = { sched };
+  document.getElementById("bank-early-date").value = todayLocalISO();
+  bankPopulateAccounts_("bank-early-account", "");
+  document.getElementById("bank-early-principal").value = "";
+  document.getElementById("bank-early-fee").value = "0";
+  populateCategoryOptionsForSelect_("bank-early-category", "expense");
+  const later = document.createElement("option");
+  later.value = "";
+  later.textContent = tr("bank.recordLater");
+  document.getElementById("bank-early-category").prepend(later);
+  document.getElementById("bank-early-category").value = "";
+  document.querySelector('input[name="bank-early-mode"][value="shorten"]').checked = true;
+  document.getElementById("bank-early-error").textContent = "";
+  bankEarlyPreview_();
+  const backdrop = document.getElementById("bank-early-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+document.getElementById("bank-schedule-early").addEventListener("click", () => {
+  if (bankScheduleCtx_ && bankScheduleCtx_.sched) openBankEarly_(bankScheduleCtx_.sched);
+});
+["bank-early-principal", "bank-early-fee"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankEarlyCtx_ && bankEarlyPreview_()));
+document.querySelectorAll('input[name="bank-early-mode"]').forEach((r) => r.addEventListener("change", () => bankEarlyCtx_ && bankEarlyPreview_()));
+document.getElementById("bank-early-close").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
+document.getElementById("bank-early-cancel").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
+document.getElementById("bank-early-save").addEventListener("click", async () => {
+  const btn = document.getElementById("bank-early-save");
+  const errEl = document.getElementById("bank-early-error");
+  const ctx = bankEarlyCtx_;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = tr("common.loading");
+  errEl.textContent = "";
+  try {
+    await callApi("recordEarlyPayment", {
+      loan_id: ctx.sched.loan.id,
+      date: document.getElementById("bank-early-date").value,
+      payment_method_id: document.getElementById("bank-early-account").value,
+      principal: bankNum_(document.getElementById("bank-early-principal").value),
+      fee: bankNum_(document.getElementById("bank-early-fee").value),
+      category_id: document.getElementById("bank-early-category").value,
+      mode: bankEarlyMode_()
+    });
+    document.getElementById("bank-early-modal-backdrop").hidden = true;
+    refreshEntriesInBackground_();
+    refreshReviewQueue().catch(() => {});
+    await refreshLoans();
+    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
 });
 
 // Recording one installment.

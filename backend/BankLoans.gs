@@ -124,7 +124,8 @@ function getLoanSchedule(payload) {
   if (!loan) throw new Error(tr_('err.loanNotFound'));
   var rows = loanInstallmentsOf_(loan.id);
   var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
-  var paidPrincipal = rows.reduce(function (n, r) { return r.paid ? n + r.principal : n; }, 0);
+  // what is still owed counts EVERYTHING repaid on the loan (installments and early payments), not just the paid installments
+  var paidPrincipal = getAllRows('Settlements').filter(function (st) { return st.loan_id === loan.id; }).reduce(function (n, st) { return n + Number(st.amount); }, 0);
   return {
     loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '' },
     installments: rows,
@@ -211,4 +212,81 @@ function recordInstallment(payload) {
   setCellByRow_(sheet, headers, idx, 'transfer_entry_id', transfer.id);
   setCellByRow_(sheet, headers, idx, 'paid_date', payload.date);
   return { installment: loanInstallmentsOf_(loan.id).find(function (r) { return r.id === row.id; }), transfer_entry_id: transfer.id, extra_entry_id: extraId };
+}
+
+// An EARLY payment (prepago, owner's request, 2026-10-29): extra principal paid ahead of the schedule, with an optional prepayment fee
+// (default 0). Like an installment it is a repayment of the loan (transfer entry + settlement) plus ONE linked expense (the fee).
+// The installments not yet paid are then adjusted: mode 'shorten' (the DEFAULT) keeps each installment and drops the principal from the
+// LAST ones (a row emptied is removed, with its interest and fees); mode 'reduce' keeps the number of installments and shrinks every
+// unpaid one (principal and interest in proportion — an estimate, to be typed over with the bank's own numbers). Paying everything that
+// is owed removes all unpaid installments and the loan is repaid.
+// payload: { loan_id, date, payment_method_id, principal, fee?, category_id?, mode? }
+function recordEarlyPayment(payload) {
+  ensureLoanInstallmentsSheet_();
+  ensureSettlementsOffsetColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsGapColumn_();
+  ensureSettlementsLimitedColumn_();
+  var loan = getAllRows('Loans').find(function (l) { return l.id === payload.loan_id; });
+  if (!loan) throw new Error(tr_('err.loanNotFound'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  var mode = payload.mode === 'reduce' ? 'reduce' : 'shorten';
+  var principal = bankRound_(payload.principal);
+  var fee = bankRound_(payload.fee || 0);
+  if (!(principal > 0)) throw new Error(tr_('bank.earlyNothing'));
+  if (fee < 0) throw new Error(tr_('err.validAmount'));
+  var settled = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; })
+    .reduce(function (n, s) { return n + Number(s.amount); }, 0);
+  var room = bankRound_(Number(loan.amount) - settled);
+  if (principal - room > 0.004) throw new Error(tr_('bank.moreThanOwed', { cur: loan.currency, amount: moneyFmt_(room) }));
+
+  var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
+  var what = loan.description || (friend ? friend.name : '');
+  var transfer = createTransferEntry_({
+    date: payload.date, amount: principal, currency: loan.currency, payment_method_id: payload.payment_method_id,
+    description: tr_('bank.earlyDesc', { what: what })
+  });
+  var feeId = '';
+  if (fee > 0.004) {
+    feeId = createOverpaymentEntry_('expense', {
+      friend_id: loan.friend_id, amount: fee, currency: loan.currency, date: payload.date, payment_method_id: payload.payment_method_id,
+      category_id: payload.category_id || '', pending: !payload.category_id, description: tr_('bank.earlyFeeDesc', { what: what })
+    }).id;
+  }
+  recordSettlementRow_(loan.id, payload.date, principal, payload.payment_method_id || '', '', transfer.id, true, feeId);
+  updateLoanStatusFromSettlements_(loan.id);
+
+  // the installments not yet paid, adjusted to what is still owed
+  var after = bankRound_(room - principal);
+  var open = loanInstallmentsOf_(loan.id).filter(function (r) { return !r.paid; });
+  var sheet = getSheet('Loan Installments');
+  var headers = getHeaders(sheet);
+  var removeIds = {};
+  if (after <= 0.004) {
+    open.forEach(function (r) { removeIds[r.id] = true; });
+  } else if (mode === 'shorten') {
+    var cut = principal;
+    for (var i = open.length - 1; i >= 0 && cut > 0.004; i--) {
+      if (open[i].principal <= cut + 0.004) {
+        cut = bankRound_(cut - open[i].principal);
+        removeIds[open[i].id] = true;
+      } else {
+        setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, open[i].id), 'principal', bankRound_(open[i].principal - cut));
+        cut = 0;
+      }
+    }
+  } else {
+    var openTotal = open.reduce(function (n, r) { return n + r.principal; }, 0);
+    var factor = openTotal > 0 ? after / openTotal : 1;
+    var assigned = 0;
+    open.forEach(function (r, idx) {
+      var p = idx === open.length - 1 ? bankRound_(after - assigned) : bankRound_(r.principal * factor);
+      assigned = bankRound_(assigned + p);
+      var rowIndex = findRowIndexById(sheet, headers, r.id);
+      setCellByRow_(sheet, headers, rowIndex, 'principal', p);
+      setCellByRow_(sheet, headers, rowIndex, 'interest', bankRound_(r.interest * factor));
+    });
+  }
+  if (Object.keys(removeIds).length) deleteRowsWhere_('Loan Installments', function (r) { return removeIds[r.id]; });
+  return { schedule: getLoanSchedule({ loan_id: loan.id }), transfer_entry_id: transfer.id, fee_entry_id: feeId };
 }

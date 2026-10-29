@@ -430,6 +430,7 @@ function routeAction(action, payload) {
     case 'getLoanSchedule': return getLoanSchedule(payload);
     case 'saveLoanSchedule': return saveLoanSchedule(payload);
     case 'recordInstallment': return recordInstallment(payload);
+    case 'recordEarlyPayment': return recordEarlyPayment(payload);
     case 'undoCancelOut': return undoCancelOut(payload);
     case 'applyUnappliedPayment': return applyUnappliedPayment(payload);
     case 'listSettledLoanFriends': return listSettledLoanFriends(payload);

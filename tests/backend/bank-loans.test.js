@@ -129,3 +129,46 @@ test("a statement line for the installment total matches it (principal + interes
   assert.equal(line.status, "matched");
   assert.equal(line.viaRepayment, true);
 });
+
+test("early payment shortens the term by default: the last installments lose principal and rows empty out", () => {
+  const { rt, pm, body } = make();
+  const { loan, installments } = rt.api("saveBankLoan", body);
+  rt.api("recordInstallment", { id: installments[0].id, date: "2026-02-05", payment_method_id: pm.id });   // 200 principal left in two installments
+  const cat = rt.rows("Categories").find((c) => c.type === "expense").id;
+  const entriesBefore = rt.rows("Entries").length;
+
+  const res = rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-02-20", payment_method_id: pm.id, principal: 130, fee: 5, category_id: cat });
+
+  const created = rt.rows("Entries").slice(entriesBefore);
+  assert.equal(Number(created.find((e) => e.type === "transfer").amount), 130, "the principal is a repayment");
+  assert.equal(Number(created.find((e) => e.type === "expense").amount), 5, "the fee is one expense");
+  const rows = res.schedule.installments;
+  assert.equal(rows.length, 2, "the paid one + the second (the last, 100, is gone and the second lost 30)");
+  assert.equal(rows[1].number, 2);
+  assert.equal(rows[1].principal, 70);
+  assert.equal(res.schedule.remaining_principal, 70);
+  assert.equal(rows[1].interest, 7, "a kept row keeps its interest and fees (typed over by hand if the bank says otherwise)");
+});
+
+test("early payment: the fee defaults to nothing, and paying everything removes the rest and repays the loan", () => {
+  const { rt, pm, body } = make();
+  const { loan } = rt.api("saveBankLoan", body);
+  const before = rt.rows("Entries").length;
+  const res = rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-02-20", payment_method_id: pm.id, principal: 300 });
+  assert.equal(rt.rows("Entries").slice(before).filter((e) => e.type === "expense").length, 0, "no fee, no expense entry");
+  assert.equal(res.schedule.installments.length, 0);
+  assert.equal(rt.rows("Loans").find((l) => l.id === loan.id).status, "repaid");
+  assert.equal(res.schedule.remaining_principal, 0);
+});
+
+test("early payment can keep the term and shrink every unpaid installment instead", () => {
+  const { rt, pm, body } = make();
+  const { loan } = rt.api("saveBankLoan", body);
+  const res = rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-02-20", payment_method_id: pm.id, principal: 150, mode: "reduce" });
+  const rows = res.schedule.installments;
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((r) => r.principal), [50, 50, 50]);
+  assert.equal(rows[0].interest, 5, "interest shrinks in proportion (an estimate)");
+  assert.throws(() => rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-02-21", payment_method_id: pm.id, principal: 500 }), /more principal/);
+  assert.throws(() => rt.api("recordEarlyPayment", { loan_id: loan.id, date: "2026-02-21", payment_method_id: pm.id, principal: 0 }), /how much principal/);
+});

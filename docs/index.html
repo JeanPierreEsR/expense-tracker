@@ -1350,7 +1350,38 @@
           <p class="hint" id="bank-schedule-summary"></p>
           <div id="bank-schedule-list"></div>
           <button type="button" class="add-inline" id="bank-schedule-edit" data-i18n="bank.editSchedule">Edit the schedule</button>
+          <button type="button" class="add-inline" id="bank-schedule-early" data-i18n="bank.earlyButton">Early payment</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-early-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="bank.earlyTitle">Early payment</span>
+        <button type="button" id="bank-early-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="bank.earlyHint">Extra principal paid ahead of the schedule. The fee the bank charges for it is optional (0 if none) and is recorded as one expense.</p>
+        <label for="bank-early-date" data-i18n="bank.recordDate">Paid on</label>
+        <input type="date" id="bank-early-date">
+        <label for="bank-early-account" data-i18n="bank.recordAccount">Paid from</label>
+        <select id="bank-early-account"></select>
+        <label for="bank-early-principal" data-i18n="bank.earlyPrincipal">Principal you are paying now</label>
+        <input type="text" inputmode="decimal" id="bank-early-principal" placeholder="0.00">
+        <label for="bank-early-fee" data-i18n="bank.earlyFee">Early payment fee</label>
+        <input type="text" inputmode="decimal" id="bank-early-fee" placeholder="0.00" value="0">
+        <label for="bank-early-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
+        <select id="bank-early-category"></select>
+        <p class="hint" data-i18n="bank.earlyMode"><strong>What happens to the remaining installments</strong></p>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="shorten" checked><span data-i18n="bank.earlyShorten">Shorter term: same installments, the last ones are dropped</span></label>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="reduce"><span data-i18n="bank.earlyReduce">Same term: every remaining installment gets smaller (an estimate: type over it with the bank's numbers)</span></label>
+        <p class="hint" id="bank-early-preview"></p>
+        <p class="hint" id="bank-early-total"></p>
+        <p class="hint" id="bank-early-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-early-save" data-i18n="bank.earlySave">Record early payment</button>
+        <button type="button" class="cancel-edit-btn" id="bank-early-cancel" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
   </div>
