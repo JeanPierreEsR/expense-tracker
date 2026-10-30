@@ -1589,6 +1589,13 @@ body.income-revealed .sens-mask { display: none; }
   font-size: 1rem;
 }
 
+/* The two buttons of the "Owes you" header sit side by side on one line, "+ Add loan" in the top-right corner. The generic
+   "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the second one down. */
+.loans-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -8px; }   /* the button's own padding stays out of the way of the right edge */
+.loans-head-actions button.add-inline { margin: 0; white-space: nowrap; }
+/* When the labels are long (Spanish) the group drops to its own right-aligned line instead of squeezing the title or splitting a label. */
+#loans-owed-card .budgets-header { flex-wrap: wrap; }
+
 .budget-row {
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
