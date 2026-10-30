@@ -5911,6 +5911,10 @@ function paintOverviewSummary_(data) {
   document.getElementById("summary-income").textContent = formatPenSigned_(data.totals.income);
   document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
+  // Loans: the net money borrowed and repaid, in the main currency. Green when it brought money in, like any other inflow.
+  const loansEl = document.getElementById("summary-loans");
+  loansEl.textContent = formatPenSigned_(data.totals.loans || 0);
+  loansEl.classList.toggle("pos-green", (data.totals.loans || 0) > 0.004);
   document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
@@ -5922,12 +5926,14 @@ function paintOverviewSummary_(data) {
     excludedNote.hidden = true;
   }
 
-  const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0;
+  const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
   if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
+  renderLoansPeriod_(data.loans || { people: [], totals: [] });
+  fitOverviewSummary_();
 }
 
 async function refreshOverviewInner_() {
@@ -6005,6 +6011,67 @@ function renderInvestmentsPeriod_(items) {
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
   });
+}
+
+// The amounts of the Overview summary never wrap: the font shrinks until each one fits on ONE line. The four blocks share the
+// smallest size they need, so they stay aligned; What's left fits on its own. Runs after every paint and whenever the grid
+// changes size (a screen that was hidden has no width until it is shown).
+function fitOverviewSummary_() {
+  const room = (el) => {
+    const box = el.parentElement;
+    const st = getComputedStyle(box);
+    return box.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight);
+  };
+  const fit = (el) => {
+    el.style.fontSize = "";
+    const avail = room(el);
+    if (!(avail > 0)) return null;
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > avail + 0.5 && size > 9) { size -= 0.5; el.style.fontSize = size + "px"; }
+    return size;
+  };
+  const tiles = [...document.querySelectorAll(".ov-sum-tile .summary-value")];
+  const sizes = tiles.map(fit).filter((s) => s !== null);
+  if (sizes.length) {
+    const common = Math.min(...sizes);
+    tiles.forEach((el) => { el.style.fontSize = common + "px"; });
+  }
+  const net = document.getElementById("summary-net");
+  if (net) fit(net);
+}
+if (typeof ResizeObserver !== "undefined") {
+  const sumGrid = document.querySelector(".ov-sum-grid");
+  if (sumGrid) new ResizeObserver(() => fitOverviewSummary_()).observe(sumGrid);
+}
+
+// Loans card: FLOWS of debts with friends and banks in the selected period, per person and per currency, never converted and
+// never part of income/expenses/net. The headline is the net in the owner's pocket (borrowed and repaid-to-you in, lent and
+// repaid-by-you out); under it each kind that happened. Tap a person to open their loans.
+const LOAN_OV_KINDS_ = [["borrowed", 1], ["lent", -1], ["paidBack", -1], ["receivedBack", 1]];
+function loansOvLineHtml_(l) {
+  const parts = LOAN_OV_KINDS_.filter(([k]) => l[k]).map(([k, sign]) => `${tr("loans.ov." + k)} ${signedMoney_(sign * l[k], l.currency)}`);
+  return `<div class="loans-ov-line">
+    <div class="loans-ov-parts">${escapeHtml(parts.join(" · "))}</div>
+    <div class="loans-ov-net ${l.net > 0 ? "pos-green" : ""}">${signedMoney_(l.net, l.currency)}</div>
+  </div>`;
+}
+function renderLoansPeriod_(loans) {
+  const list = document.getElementById("loans-ov-list");
+  document.getElementById("loans-ov-card").hidden = loans.people.length === 0;
+  list.innerHTML = "";
+  loans.people.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "loans-ov-row";
+    row.innerHTML = `<div class="balance-row-name">${escapeHtml(p.name)}<span class="loan-detail-row-chevron">›</span></div>${p.lines.map(loansOvLineHtml_).join("")}`;
+    row.addEventListener("click", () => openLoanDetail(p.id, p.name));
+    list.appendChild(row);
+  });
+  if (loans.people.length > 1) {
+    const total = document.createElement("div");
+    total.className = "loans-ov-row loans-ov-total";
+    total.innerHTML = `<div class="balance-row-name"><strong>${escapeHtml(tr("loans.ov.total"))}</strong></div>${loans.totals.map(loansOvLineHtml_).join("")}`;
+    list.appendChild(total);
+  }
 }
 
 function renderBreakdowns(breakdown) {

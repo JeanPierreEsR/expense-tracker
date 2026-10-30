@@ -406,23 +406,33 @@
       </div>
 
       <div class="card ov-period">
-        <div class="summary-grid">
-          <div class="summary-item">
+        <div class="ov-sum-grid">
+          <div class="ov-sum-tile income">
+            <span class="ov-sum-sign" aria-hidden="true">+</span>
             <span class="summary-label" data-i18n="summary.income">Income</span>
             <span class="summary-value income" id="summary-income">0.00</span>
           </div>
-          <div class="summary-item">
+          <div class="ov-sum-tile expense">
+            <span class="ov-sum-sign" aria-hidden="true">−</span>
             <span class="summary-label" data-i18n="summary.expenses">Expenses</span>
             <span class="summary-value expense" id="summary-expense">0.00</span>
           </div>
-          <div class="summary-item">
+          <div class="ov-sum-tile investment">
+            <span class="ov-sum-sign" aria-hidden="true">−</span>
             <span class="summary-label" data-i18n="summary.investments">Investments</span>
             <span class="summary-value investment" id="summary-investment">0.00</span>
           </div>
-          <div class="summary-item">
-            <span class="summary-label" data-i18n="summary.net">Net</span>
-            <span class="summary-value" id="summary-net">0.00</span>
+          <div class="ov-sum-tile loans">
+            <span class="ov-sum-sign" aria-hidden="true">±</span>
+            <span class="summary-label" data-i18n="summary.loans">Loans</span>
+            <span class="summary-value" id="summary-loans">0.00</span>
           </div>
+        </div>
+        <div class="ov-sum-eq" aria-hidden="true">=</div>
+        <div class="ov-sum-net">
+          <span class="ov-sum-net-label" data-i18n="summary.net">What's left</span>
+          <span class="ov-sum-net-value" id="summary-net">0.00</span>
+          <span class="ov-sum-net-eq" data-i18n="summary.netEq">Income + Loans − Expenses − Investments</span>
         </div>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
@@ -461,6 +471,12 @@
         <h2 data-i18n="summary.investments">Investments</h2>
         <p class="hint" data-i18n="invest.periodTitle">Put in this period</p>
         <div id="investments-period-list"></div>
+      </div>
+
+      <div class="card ov-period" id="loans-ov-card" hidden>
+        <h2 data-i18n="loans.ov.title">Loans</h2>
+        <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.</p>
+        <div id="loans-ov-list"></div>
       </div>
 
       <div class="card ov-period">

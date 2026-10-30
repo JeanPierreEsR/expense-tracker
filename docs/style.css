@@ -357,6 +357,37 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.investment { color: var(--investment); }
 .pos-green, .summary-value.pos-green { color: var(--income); }
 
+/* Overview summary: four blocks that add up to What's left (owner's design, 2026-10-29) */
+.ov-sum-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ov-sum-tile {
+  position: relative; display: flex; flex-direction: column; gap: 2px;
+  min-width: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.ov-sum-tile.income { background: color-mix(in srgb, var(--income) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.expense { background: color-mix(in srgb, var(--expense) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.investment { background: color-mix(in srgb, var(--investment) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.loans { background: var(--card); }
+.ov-sum-tile .summary-value { font-size: 0.98rem; white-space: nowrap; }
+.ov-sum-sign { position: absolute; top: 8px; right: 12px; font-size: 0.9rem; font-weight: 700; color: var(--muted); }
+.ov-sum-tile.income .ov-sum-sign { color: var(--income); }
+.ov-sum-tile.expense .ov-sum-sign { color: var(--expense); }
+.ov-sum-tile.investment .ov-sum-sign { color: var(--investment); }
+.ov-sum-eq {
+  position: relative; z-index: 1; width: 26px; height: 26px; margin: -5px auto -13px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--card); border: 1px solid var(--border);
+  font-size: 0.95rem; font-weight: 700; color: var(--text);
+}
+.ov-sum-net {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 18px 14px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card)); border: 2px solid var(--accent);
+}
+.ov-sum-net-label { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+.ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); white-space: nowrap; }
+.ov-sum-net-eq { font-size: 0.7rem; color: var(--muted); text-align: center; }
+
 /* ---- Breakdown pie charts ---- */
 
 .breakdown-section { margin-top: 20px; }
@@ -2573,10 +2604,10 @@ body.income-revealed .sens-mask { display: none; }
 .pmm-option-name { font-weight: 600; }
 .pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
-.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
 .pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
-.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 
 /* ---- One calendar for a start and an end date ---- */
 .range-field { width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text, inherit); font: inherit; cursor: pointer; }
@@ -3210,3 +3241,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bank-inst-status { font-size: 0.8rem; font-weight: 600; }
 .bank-inst-status.paid { color: #2e9e5b; }
 .bank-inst-status.overdue { color: #d64545; }
+
+/* Overview: Loans card */
+.loans-ov-row { padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.loans-ov-row:last-child { border-bottom: 0; }
+.loans-ov-total { cursor: default; }
+.loans-ov-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 2px; }
+.loans-ov-parts { font-size: 0.8rem; color: var(--muted); }
+.loans-ov-net { font-size: 0.95rem; white-space: nowrap; }
