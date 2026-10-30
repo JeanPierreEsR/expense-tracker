@@ -15507,11 +15507,26 @@ function offerTip_(key, boxId, inviteText, start) {
 
 // ---- the practice itself ----
 
-function tipCanUseEntryForm_() {
+// Gets the entry form ready for the practice. False = not possible right now (a sheet or an edit is open, or the person keeps their
+// own unfinished entry). The form can also hold things nobody sees: an unfinished entry saved as a draft, or text left in the hidden
+// form. The practice's own leftovers (an earlier practice closed midway leaves a "Practice expense" draft) are cleared silently;
+// anything else is the person's, and is only discarded if they say so.
+function tipPrepareForm_() {
+  if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) { showToast_(tr("spot.p.busy")); return false; }
+  const amountEl = document.getElementById("amount"), descEl = document.getElementById("description");
   let draft = null;
-  try { draft = localStorage.getItem(ENTRY_DRAFT_KEY); } catch (e) { /* ignore */ }
-  return !newEntrySheetOpen_ && !editingViaPopup && !editingEntryId && !confirmingPendingId && !draft &&
-    !document.getElementById("amount").value.trim() && !document.getElementById("description").value.trim();
+  try { draft = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (e) { draft = null; }
+  const typed = amountEl.value.trim() || descEl.value.trim();
+  if (draft || typed) {
+    const name = tr("spot.p.name");
+    const description = ((draft && draft.description) || descEl.value || "").trim();
+    if (description !== name && !confirm(tr("spot.p.draftAsk"))) return false;
+    clearEntryDraft_();
+    amountEl.value = "";
+    descEl.value = "";
+    resetSplitState();
+  }
+  return true;
 }
 
 // Waits until this phone has nothing left to send (the practice expense and repayment save behind the screen).
@@ -15672,7 +15687,7 @@ function practiceSteps_() {
 
 // Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
 function startPractice_() {
-  if (!tipCanUseEntryForm_()) { showToast_(tr("spot.p.busy")); return false; }
+  if (!tipPrepareForm_()) return false;
   practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0 };
   practiceSave_();
   practiceHint_ = "";
