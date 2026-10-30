@@ -52,6 +52,13 @@ function exchangeLeg_(leg, label) {
   return { amount: amount, currency: String(leg.currency), pmId: pmId };
 }
 
+// The two legs' ids from one client_id: the money-out leg uses it as is, the money-in leg the same id with its last digit
+// moved on by one (still a valid id, always different).
+function exchangeLegIds_(clientId) {
+  var last = parseInt(clientId.charAt(clientId.length - 1), 16);
+  return { out: clientId, in: clientId.slice(0, -1) + ((last + 1) % 16).toString(16) };
+}
+
 /**
  * payload: { date 'yyyy-MM-dd', out: {payment_method_id, amount, currency}, in: {...}, house?: text,
  *            pending_entry_id?: a pending review entry to turn into one leg, pending_leg?: 'out' | 'in' }
@@ -73,6 +80,15 @@ function recordCurrencyExchange(payload) {
   var describe = function (leg, side) {
     return house ? tr_('desc.exchangeHouse', { name: house }) : tr_(side === 'out' ? 'desc.exchangeOut' : 'desc.exchangeIn', { cur: leg.currency });
   };
+
+  // The phone's background queue sends its own id (client_id); the two legs get ids made from it, so sending the same
+  // exchange again (a lost reply, the app closed mid-save) answers with the legs already made instead of making two more.
+  var clientId = payload.pending_entry_id ? '' : clientSaveId_(payload);
+  var legIds = clientId ? exchangeLegIds_(clientId) : null;
+  if (legIds) {
+    var legOut = out.pmId ? getEntryById_(legIds.out) : null, legIn = inn.pmId ? getEntryById_(legIds.in) : null;
+    if (legOut || legIn) return { out: legOut, in: legIn };
+  }
 
   var pending = null, pendingLeg = payload.pending_leg === 'in' ? 'in' : 'out';
   if (payload.pending_entry_id) {
@@ -102,6 +118,7 @@ function recordCurrencyExchange(payload) {
       updateRowFields_('Entries', pending.id, fields);
       result[side] = getEntryById_(pending.id);
     } else {
+      if (legIds) fields.client_id = legIds[side];
       result[side] = createEntry(fields);
       updateRowFields_('Entries', result[side].id, { exchange: '1' });
       result[side] = getEntryById_(result[side].id);
