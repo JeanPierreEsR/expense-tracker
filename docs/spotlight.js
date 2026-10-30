@@ -16,7 +16,9 @@
 //   tap:     "#css" | () => Element                        done when that element (or anything inside it) is tapped
 //   until:   () => boolean | Promise<boolean>              done when true (checked after every tap / input / change, and every 300 ms)
 //   visit:   "#css"                                        done when the person has been in that field and left it again
-//   blurTap: true                                          tapping the dimmed area closes the keyboard (that is how a typing step ends)
+//   blurTap: true                                          a typing step: while the person is typing in the box the dim and the cut-out go away (a phone's
+//                                                          keyboard moves the page in ways a web page cannot measure) and only a small tip stays at the top;
+//                                                          a tap anywhere closes the keyboard, which is how the step ends
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
 //   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list)
@@ -77,6 +79,10 @@
     if (!el || !el.getClientRects || !el.getClientRects().length) return false;
     var r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
+  }
+  function isTyping(step, doc) {
+    var el = doc.activeElement;
+    return !!(step && step.blurTap && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|)$/i.test(el.type || ""))));
   }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function frames(n) {
@@ -143,6 +149,27 @@
       if (closed || !cur) return;
       var vv = window.visualViewport;
       var vw = window.innerWidth, vh = window.innerHeight;
+      // Typing with the keyboard open: no dim, no cut-out; one transparent blocker (a tap on it closes the keyboard) and a small tip at the top.
+      var typing = isTyping(cur.step, doc);
+      root.classList.toggle("spot-typing", typing);
+      if (typing) {
+        hole.hidden = true;
+        lookcover.hidden = true;
+        root.classList.remove("spot-plain");
+        setBox(blockers[0], 0, 0, vw, vh);
+        [1, 2, 3].forEach(function (i) { setBox(blockers[i], 0, 0, 0, 0); });
+        var oy0 = vv ? vv.offsetTop : 0, ox0 = vv ? vv.offsetLeft : 0;
+        var view0 = { w: vv ? vv.width : vw, h: vv ? vv.height : vh };
+        var bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+        // Top of the visible part of the screen; at the bottom of it (just above the keyboard) when the box being typed in is up there.
+        var atTop = true;
+        try { var fr = doc.activeElement.getBoundingClientRect(); if (fr.top - oy0 < bh + 24) atTop = false; } catch (e) { /* keep the top */ }
+        bubble.style.top = (atTop ? oy0 + EDGE : oy0 + view0.h - bh - EDGE) + "px";
+        bubble.style.left = (ox0 + Math.max(EDGE, Math.round((view0.w - bw) / 2))) + "px";
+        bubble.dataset.side = "typing";
+        arrow.hidden = true;
+        return;
+      }
       var rect = cur.targets.length ? unionRect(cur.targets.filter(onScreen)) : null;
       if (rect) {
         var hl = rect.left - PAD, ht = rect.top - PAD, hw = rect.right - rect.left + 2 * PAD, hh = rect.bottom - rect.top + 2 * PAD;
@@ -226,7 +253,8 @@
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
       if (closed || token !== stepToken) return "stale";
       if (!ok) return "skip";
-      if (doc.activeElement && doc.activeElement.blur && !step.keepFocus) doc.activeElement.blur();
+      // (a typing step keeps the box the app has just focused, so the keyboard does not close and open again)
+      if (doc.activeElement && doc.activeElement.blur && !step.keepFocus && !step.blurTap) doc.activeElement.blur();
 
       // Wait for the thing to light up to exist (a sheet that is still opening, a list that is still loading).
       var waited = 0, limit = step.wait || 5000, lastPoke = -2000, targets = [];
@@ -246,7 +274,7 @@
         await sleep(100); waited += 100;
       }
       if (closed || token !== stepToken) return "stale";
-      if (targets.length && targets[0].scrollIntoView) targets[0].scrollIntoView({ block: "center", inline: "nearest" });
+      if (targets.length && targets[0].scrollIntoView && !isTyping(step, doc)) targets[0].scrollIntoView({ block: "center", inline: "nearest" });
       await frames(2);
       if (closed || token !== stepToken) return "stale";
       targets = step.target ? targetsOf(step) : [];
@@ -320,7 +348,7 @@
         timers.push(setInterval(function () {
           if (finished || closed || !cur || !cur.step) return;
           var t = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
-          var key = r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight;
+          var key = (isTyping(cur.step, doc) ? "T" : "") + (r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight) + "|" + (window.visualViewport ? Math.round(window.visualViewport.offsetTop + window.visualViewport.height) : "");
           if (key !== lastBox) { lastBox = key; cur.targets = t; layout(); }
         }, 100));
         // The keyboard takes a moment to slide in or out; look again as it settles.

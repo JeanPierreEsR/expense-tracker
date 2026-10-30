@@ -5822,7 +5822,6 @@ function showScreen(name) {
     loansLoad_ = refreshLoans();
   }
   if (name === "more") {
-    document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;   // an older backend cannot edit friends
     applyBusinessVisibility_();
   }
 }
@@ -11791,6 +11790,8 @@ function businessOffered() {
 }
 
 function applyBusinessVisibility_() {
+  // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
+  document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;

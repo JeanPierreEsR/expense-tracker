@@ -3285,6 +3285,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .spot-hole[hidden] { display: none; }
 .spot-bubble { position: absolute; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; background: var(--card); color: var(--text); border-radius: var(--radius); padding: 14px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); pointer-events: auto; }
 .spot-lookcover { background: transparent; }
+.spot-root.spot-typing .spot-blk:first-child { background: transparent; }
+.spot-root.spot-typing .spot-note, .spot-root.spot-typing .spot-count { display: none; }
+.spot-root.spot-typing .spot-bubble { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
 .spot-lookcover[hidden] { display: none; }
 .spot-note { margin: 0 0 6px; color: var(--muted); font-size: 0.8rem; }
 .spot-note[hidden] { display: none; }
