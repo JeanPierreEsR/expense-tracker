@@ -527,10 +527,18 @@ function syncLoanTransferEntry_(loan, friendName) {
     : tr_('desc.loanFrom', { name: friendName })));
 }
 
+// The id the phone made for a save it sends from its background queue (client_id), or '' when none / not a real id.
+// Sending the same save again — after a lost reply, or when the app was closed mid-save — carries the same id, so
+// the backend can answer with what it already made instead of making it twice (same idea as createEntry).
+function clientSaveId_(payload) {
+  var id = String((payload && payload.client_id) || '');
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : '';
+}
+
 function createLoan_(fields) {
   ensureLoansTransferEntryColumn_();
   var loan = {
-    id: Utilities.getUuid(),
+    id: fields.id || Utilities.getUuid(),
     friend_id: fields.friend_id,
     direction: fields.direction,
     origin: fields.origin,
@@ -634,7 +642,13 @@ function addLoan(payload) {
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
 
+  var clientId = clientSaveId_(payload);
+  if (clientId) {
+    var already = getAllRows('Loans').find(function (l) { return l.id === clientId; });
+    if (already) return already;   // a repeat of a save that already landed
+  }
   return createLoan_({
+    id: clientId,
     friend_id: payload.friend_id,
     direction: payload.direction,
     origin: 'cash',
@@ -1110,6 +1124,11 @@ function cleanRepaymentAllocations_(list, primary, paymentAmount) {
 // "pick a category" step, which still calls recordOverpaymentIncome/Expense)
 // COMPLETES that pending entry instead of adding a second one.
 function createOverpaymentEntry_(type, payload) {
+  var clientId = clientSaveId_(payload);
+  if (clientId) {
+    var made = getEntryById_(clientId);
+    if (made) return made;   // a repeat of a save that already landed
+  }
   if (!payload.friend_id) throw new Error(tr_('loan.missingFriend'));
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.pending && !payload.category_id) throw new Error(tr_('err.pickCategory'));
@@ -1140,7 +1159,7 @@ function createOverpaymentEntry_(type, payload) {
   }
 
   var entry = {
-    id: Utilities.getUuid(),
+    id: clientId || Utilities.getUuid(),
     type: type,
     date: payload.date,
     amount: amount,
@@ -2292,6 +2311,13 @@ function findOrCreatePayorByName_(name) {
 function forgiveLoan(payload) {
   var loan = getAllRows('Loans').find(function (l) { return l.id === payload.id; });
   if (!loan) throw new Error(tr_('err.loanNotFound'));
+  // A repeat of a forgiving that already landed (the phone's background queue sends the same client_id again): its
+  // entry already exists, so answer with it instead of forgiving a second time (a partial forgiving would take more).
+  var forgiveClientId = clientSaveId_(payload);
+  var forgivenBefore = forgiveClientId ? getEntryById_(forgiveClientId) : null;
+  if (forgivenBefore) return { loan: loan, entry: forgivenBefore, repeat: true };
+  // Already forgiven and the phone is repeating (a forgiving with nothing left owed books no entry to recognise it by).
+  if (loan.status === 'forgiven' && forgiveClientId) return { loan: loan, entry: null, repeat: true };
   if (loan.status === 'forgiven') throw new Error(tr_('forgive.already'));
 
   var settled = buildSettlementTotalsByLoan_()[loan.id] || 0;
@@ -2336,7 +2362,8 @@ function forgiveLoan(payload) {
       category_id: payload.category_id,
       date: payload.date,
       payment_method_id: '',
-      description: description
+      description: description,
+      client_id: forgiveClientId   // the entry's id, so a repeat is recognised above
     });
   }
 

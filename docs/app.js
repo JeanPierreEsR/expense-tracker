@@ -4567,20 +4567,137 @@ function flushAllQueuedEdits_() {
 function renderSaveFailedBanner_() {
   const banner = document.getElementById("save-failed-banner");
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
-  if (!failed.length) {
+  const moneyFailed = getMoneyQueue_().filter((q) => q.status === "failed");
+  const moneySaving = getMoneyQueue_().filter((q) => q.status === "saving");
+  if (!failed.length && !moneyFailed.length && !moneySaving.length) {
     banner.hidden = true;
     stackTopBanners_();
     return;
   }
-  banner.textContent = tr("banner.saveFailed", { n: failed.length });
+  if (moneyFailed.length) banner.textContent = tr("banner.saveFailedMoney", { n: failed.length + moneyFailed.length });
+  else if (failed.length) banner.textContent = tr("banner.saveFailed", { n: failed.length });
+  else banner.textContent = tr("banner.moneySaving", { n: moneySaving.length });
   banner.hidden = false;
   // Stacks below the other top bars rather than overlapping them (all are position:fixed/top:0).
   stackTopBanners_();
 }
 
+// ---- Money saves in the background (owner's rule, 2026-10-29; see CLAUDE.md § Saving standard) ----
+// A loan, a forgiving, a currency exchange or an overpayment entry is saved behind the screen, like an entry: the sheet
+// closes at once, the save waits in this queue (kept on the phone, so it survives closing the app), goes to the server one
+// at a time in the order it was made, and a refusal or a lost connection becomes a "couldn't save" item in the banner.
+// Saves that create something carry the item's id as client_id, so sending one again (a lost reply, the app closed mid-save)
+// never makes a second loan / exchange / forgiving. Only used when the backend says capabilities.clientMoneyId; an older
+// backend (a friend who has not updated) keeps the waiting behaviour.
+const MONEY_QUEUE_KEY = "moneyActionQueue";
+
+function moneyBackground_() {
+  return !!(meta && (meta.capabilities || {}).clientMoneyId);
+}
+
+function getMoneyQueue_() {
+  try {
+    return JSON.parse(localStorage.getItem(MONEY_QUEUE_KEY) || "[]");
+  } catch (err) {
+    return [];
+  }
+}
+
+function setMoneyQueue_(items) {
+  try {
+    localStorage.setItem(MONEY_QUEUE_KEY, JSON.stringify(items));
+  } catch (err) { /* storage full or blocked: the save just won't survive a reload if it does not land this session */ }
+}
+
+function pendingSaveCount_() {
+  return getQueuedEdits_().length + getMoneyQueue_().length;
+}
+
+// ctx: what the refresh afterwards needs ({ friendId, friendName, convert }); label: what the failed item is called.
+function queueMoneyAction_(action, payload, label, ctx) {
+  const id = newClientEntryId_();
+  const items = getMoneyQueue_();
+  items.push({ id, action, payload: Object.assign({}, payload, { client_id: id }), label, ctx: ctx || {}, status: "saving", lastError: null, queuedAt: Date.now() });
+  setMoneyQueue_(items);
+  renderSaveFailedBanner_();
+  showToast_(tr("common.savingToast"));
+  flushMoneyQueue_();
+}
+
+function setMoneyItemStatus_(id, status, error) {
+  const items = getMoneyQueue_();
+  const item = items.find((q) => q.id === id);
+  if (!item) return;
+  item.status = status;
+  item.lastError = error || null;
+  setMoneyQueue_(items);
+  renderSaveFailedBanner_();
+}
+
+function removeMoneyItem_(id) {
+  setMoneyQueue_(getMoneyQueue_().filter((q) => q.id !== id));
+  renderSaveFailedBanner_();
+}
+
+// What has to refresh once a money save has landed (the screens show the server's truth, not a guess).
+async function afterMoneySaved_(item) {
+  const ctx = item.ctx || {};
+  if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement"].includes(item.action)) {
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    const detailOpen = !document.getElementById("loan-detail-modal-backdrop").hidden;
+    if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) await openLoanDetail(ctx.friendId, ctx.friendName);
+    if (ctx.convert) await refreshEntryList();
+  } else {
+    await refreshEntryList();
+    refreshReviewQueue().catch(() => {});
+    refreshBalances().catch(() => {});
+  }
+}
+
+let moneyFlushing_ = false;
+
+// One at a time, in the order saved. Called after every save, at startup, and when a failed one is retried.
+async function flushMoneyQueue_() {
+  if (moneyFlushing_) return;
+  moneyFlushing_ = true;
+  try {
+    for (;;) {
+      const item = getMoneyQueue_().find((q) => q.status === "saving");
+      if (!item) break;
+      try {
+        await callApi(item.action, item.payload);
+      } catch (err) {
+        setMoneyItemStatus_(item.id, "failed", err.message || String(err));
+        continue;
+      }
+      removeMoneyItem_(item.id);
+      showToast_(tr("common.savedToast"));
+      try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
+    }
+  } finally {
+    moneyFlushing_ = false;
+  }
+}
+
+// Tapping the banner when a money save failed: the reason, then "try again" or "throw it away" — nothing is dropped silently.
+function handleMoneyFailure_() {
+  const item = getMoneyQueue_().find((q) => q.status === "failed");
+  if (!item) return;
+  if (confirm(tr("money.failedRetry", { what: item.label, error: item.lastError || "" }))) {
+    setMoneyItemStatus_(item.id, "saving", null);
+    flushMoneyQueue_();
+  } else if (confirm(tr("money.failedDiscard", { what: item.label }))) {
+    removeMoneyItem_(item.id);
+  }
+}
+
 document.getElementById("save-failed-banner").addEventListener("click", () => {
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
-  if (!failed.length) return;
+  if (!failed.length) {
+    handleMoneyFailure_();
+    return;
+  }
   // Jumps to the Entries tab and opens the first failed one for editing,
   // pre-filled with the queued (attempted) values — so saving again, even
   // completely unchanged, naturally retries it.
@@ -5092,6 +5209,21 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
 
   const saveBtn = document.getElementById("exchange-save-btn");
   const wasInline = exchangeFormIsInline_();
+  // A plain new exchange saves behind the screen; turning a waiting (pending) entry into one leg stays foreground — it
+  // changes an existing row, so it is not repeat-safe the way a new one is.
+  if (moneyBackground_() && !ctx) {
+    if (wasInline) {
+      document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
+      updateRepaymentUi_();
+      if (newEntrySheetOpen_) closeNewEntrySheet_();
+    } else {
+      closeExchangeModal_();
+    }
+    queueMoneyAction_("recordCurrencyExchange", {
+      date, out, in: inn, house: document.getElementById("exchange-house").value.trim()
+    }, `${tr("money.labelExchange")} · ${out.currency} ${moneyFmt(out.amount)} → ${inn.currency} ${moneyFmt(inn.amount)}`, {});
+    return;
+  }
   saveBtn.disabled = true;
   try {
     await callApi("recordCurrencyExchange", {
@@ -7340,6 +7472,7 @@ async function init() {
   // — and if one already failed last session, the banner says so right
   // away instead of only after the next action touches the queue.
   flushAllQueuedEdits_();
+  flushMoneyQueue_();
   renderSaveFailedBanner_();
 
   const initStart = performance.now();
@@ -7617,6 +7750,9 @@ async function signOutThisDevice_() {
 
 document.getElementById("more-signout-btn").addEventListener("click", async () => {
   if (!confirm(tr("signin.confirmSignOut"))) return;
+  // A save that has not reached the server yet is kept on this phone only: signing out would throw it away.
+  const unsaved = pendingSaveCount_();
+  if (unsaved && !confirm(tr("signin.pendingSaves", { n: unsaved }))) return;
   await signOutThisDevice_();
 });
 
@@ -16678,7 +16814,6 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       throw new Error(tr("error.pickPaymentMethod"));
     }
 
-    saveBtn.disabled = true;
     const fields = {
       friend_id: friendId,
       direction: loanDirection,
@@ -16690,6 +16825,27 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       description
     };
     if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
+
+    if (moneyBackground_()) {
+      // The server's refusals for an edit are checked here first (same rules as updateLoan in Loans.gs), so the message shows
+      // in the open form; only what the phone could not foresee comes back later as a "couldn't save" item.
+      const existing = editingLoanId ? loanModalApplyLoan_ : null;
+      if (existing && typeof existing.remaining === "number") {
+        const settled = Number(existing.amount) - existing.remaining;
+        if (settled > 0.004) {
+          if (friendId !== existing.friend_id || loanDirection !== existing.direction || currency !== existing.currency) throw new Error(tr("loanModal.errLocked"));
+          if (amount < settled - 0.004) throw new Error(tr("loanModal.errBelowSettled", { settled: settled.toFixed(2) }));
+        }
+      }
+      const friend = meta.friends.find((f) => f.id === friendId);
+      const ctx = { friendId: loanModalReturnFriend ? loanModalReturnFriend.id : friendId, friendName: loanModalReturnFriend ? loanModalReturnFriend.name : (friend ? friend.name : "") };
+      const loanId = editingLoanId;
+      closeLoanModal();
+      queueMoneyAction_(loanId ? "updateLoan" : "addLoan", loanId ? { id: loanId, ...fields } : fields, `${tr("money.labelLoan")} · ${friend ? friend.name : ""} ${currency} ${moneyFmt(amount)}`, ctx);
+      return;
+    }
+
+    saveBtn.disabled = true;
     if (editingLoanId) {
       await callApi("updateLoan", { id: editingLoanId, ...fields });
     } else {
@@ -17098,6 +17254,13 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   closeSettlementModal();
 
   try {
+    if (settlementId && moneyBackground_()) {
+      // Safe to send again (it sets one row to these values), so it waits in the money queue like the others: it survives
+      // closing the app and a refusal comes back as a "couldn't save" item.
+      queueMoneyAction_("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: newLoanId || undefined },
+        `${tr("money.labelRepaymentEdit")} · ${friendName} ${currency} ${moneyFmt(amount)}`, { friendId, friendName });
+      return;
+    }
     if (settlementId) {
       // Fixing a specific real settlement's own typo — doesn't re-run
       // FIFO, just corrects that one row (see updateSettlement in
@@ -17173,6 +17336,20 @@ document.getElementById("settlement-overpay-save-btn").addEventListener("click",
   if (!categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
 
   const saveBtn = document.getElementById("settlement-overpay-save-btn");
+  if (moneyBackground_()) {
+    const o = pendingOverpay;
+    pendingOverpay = null;   // resolved: no "saved in your review queue" notice
+    closeSettlementModal();
+    queueMoneyAction_(o.entryType === "income" ? "recordOverpaymentIncome" : "recordOverpaymentExpense", {
+      friend_id: repaymentFriendId,
+      amount: o.amount,
+      currency: o.currency,
+      date: o.date,
+      payment_method_id: o.paymentMethodId,
+      category_id: categoryId
+    }, `${tr("money.labelOverpay")} · ${o.currency} ${moneyFmt(o.amount)}`, {});
+    return;
+  }
   saveBtn.disabled = true;
   try {
     const action = pendingOverpay.entryType === "income" ? "recordOverpaymentIncome" : "recordOverpaymentExpense";
@@ -17282,6 +17459,26 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (convert && !categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
   if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
+
+  if (convert && amount > forgiveLoanTarget.remaining + 0.004) {
+    errorEl.textContent = tr("forgive.tooMuchPhone", { remaining: forgiveLoanTarget.remaining.toFixed(2) });
+    return;
+  }
+  if (moneyBackground_()) {
+    const target = forgiveLoanTarget;
+    const returnFriend = forgiveReturnFriend;
+    closeForgiveModal();
+    const friend = meta.friends.find((f) => f.id === target.friend_id);
+    queueMoneyAction_("forgiveLoan", {
+      id: target.id,
+      convert,
+      ...(convert ? { amount } : {}),
+      category_id: categoryId,
+      date
+    }, `${tr("money.labelForgive")} · ${friend ? friend.name : ""} ${target.currency} ${moneyFmt(convert ? amount : target.remaining)}`,
+    { friendId: returnFriend ? returnFriend.id : target.friend_id, friendName: returnFriend ? returnFriend.name : (friend ? friend.name : ""), convert });
+    return;
+  }
 
   const saveBtn = document.getElementById("forgive-save-btn");
   saveBtn.disabled = true;
