@@ -22,7 +22,6 @@ var BANK_SAMPLE_MAX_TEXT_ = 6000;
 var BANK_SAMPLE_MAX_SUBJECT_ = 200;
 var BANK_SAMPLE_MAX_PER_INSTALL_PER_DAY_ = 10;
 var BANK_SAMPLE_MAX_ROWS_ = 3000;
-var BANK_SAMPLE_TELEGRAM_CHARS_ = 3600;   // Telegram refuses a message over 4,096 characters
 var BANK_SAMPLE_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function ensureBankSamplesSheet_() {
@@ -182,8 +181,8 @@ function reportBankSample_(p) {
 
   // The Sheet row is the record; the Telegram message is the heads-up. A Telegram failure never loses the sample.
   try {
-    var shown = text.length > BANK_SAMPLE_TELEGRAM_CHARS_ ? text.substring(0, BANK_SAMPLE_TELEGRAM_CHARS_) + '\n[…]' : text;
-    sendTelegramText_(tr_('bankSample.notice', { label: label, kind: kind ? tr_('bankSample.kind.' + kind) : '', sender: sender, subject: subject || '-', text: shown, demand: bankSampleDemandLine_(sheet, sender) }));
+    // Heads-up only: who, which sender, which subject. The body stays in the Sheet tab (owner's request, 2026-10-30).
+    sendTelegramText_(tr_('bankSample.notice', { label: label, kind: kind ? tr_('bankSample.kind.' + kind) : '', sender: sender, subject: subject || '-', demand: bankSampleDemandLine_(sheet, sender) }));
   } catch (err) {
     console.error('bank sample notice: ' + err);
   }

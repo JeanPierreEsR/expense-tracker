@@ -78,7 +78,7 @@ test("a sample needs no sign-in, is saved in the Bank Samples tab and reaches th
   const tg = telegramTexts(rt).join("\n");
   assert.match(tg, /Bank sample from Ana|Muestra de banco de Ana/);
   assert.match(tg, /alertas@examplebank\.test/);
-  assert.match(tg, /Corner Cafe/);
+  assert.ok(!/Corner Cafe/.test(tg), "the body stays in the Sheet; Telegram gets only sender and subject");
 });
 
 test("the backend hides digits and addresses again even if the phone did not", () => {
