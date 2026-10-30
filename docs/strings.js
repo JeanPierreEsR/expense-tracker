@@ -435,6 +435,8 @@
     "summary.expenses": { en: "Expenses", es: "Gastos" },
     "summary.investments": { en: "Investments", es: "Inversiones" },
     "summary.net": { en: "What's left", es: "Lo que queda" },
+    "summary.loans": { en: "Loans", es: "Préstamos" },
+    "summary.netEq": { en: "Income + Loans − Expenses − Investments", es: "Ingresos + Préstamos − Gastos − Inversiones" },
 
     // ---- overview ----
     "overview.empty": { en: "No entries in this period yet.", es: "Aún no hay movimientos en este periodo." },

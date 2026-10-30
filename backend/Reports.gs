@@ -94,18 +94,25 @@ function getPeriodSummary(payload) {
     }
   });
 
-  var net = totals.income - totals.expense - totals.investment;
+  // Loans (owner's design, 2026-10-29): the Overview summary is four blocks that ADD UP to What's left, so the net money borrowed
+  // and repaid in the period (a loan received and a repayment received are in, a loan given and a repayment paid are out) counts
+  // in it, converted with the monthly rate table like every other figure. The Loans card keeps each currency apart.
+  var loanFlows = loanFlowsForPeriod_(startDate, endDate, payload && payload.scope);
+  totals.loans = loanFlows.netPen;
+  excludedCount += loanFlows.excluded;
+  var net = totals.income - totals.expense - totals.investment + totals.loans;
 
   return {
     totals: {
       income: totals.income,
       expense: totals.expense,
       investment: totals.investment,
+      loans: totals.loans,
       net: net
     },
     excludedCount: excludedCount,
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
-    loans: loanFlowsForPeriod_(startDate, endDate, payload && payload.scope),
+    loans: { people: loanFlows.people, totals: loanFlows.totals },
     breakdowns: {
       expense: {
         byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
@@ -126,7 +133,8 @@ function getPeriodSummary(payload) {
 // the owner (+). Never income or expense, so none of it touches the totals; forgiveness is not a flow (it books its own entry) and a
 // repayment cancelled out against another loan (offset_loan_id) moved no money. Shared-bill shares are loans too (entry origin).
 // Scope (Business pack): personal = loans with no project, project/company = that project's loans; anything else = all.
-// Returns { people: [{ id, name, lines: [{ currency, borrowed, lent, paidBack, receivedBack, net }] }], totals: [same lines] }.
+// Returns { people: [{ id, name, lines: [{ currency, borrowed, lent, paidBack, receivedBack, net }] }], totals: [same lines],
+// netPen: the net in the main currency (monthly rate table), excluded: movements left out for lack of a rate }.
 function loanFlowsForPeriod_(startDate, endDate, scope) {
   scope = String(scope || '');
   var inRange = function (d) {
@@ -152,20 +160,25 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
   var friendById = rowsById_(getAllRows('Friends'));
   var people = {};
   var totals = {};
-  var add = function (loan, kind, amount) {
+  var netPen = 0;
+  var excluded = 0;
+  var add = function (loan, kind, amount, date) {
     var cur = loan.currency || homeCurrency_();
+    var rate = getRateForEntryCurrency_(cur, date);
+    if (rate == null) excluded++;
+    else netPen += (kind === 'borrowed' || kind === 'receivedBack' ? 1 : -1) * amount * rate;
     [people[loan.friend_id] || (people[loan.friend_id] = {}), totals].forEach(function (bag) {
       var l = bag[cur] || (bag[cur] = { currency: cur, borrowed: 0, lent: 0, paidBack: 0, receivedBack: 0 });
       l[kind] += amount;
     });
   };
   loans.forEach(function (l) {
-    if (inRange(l.date)) add(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', Number(l.amount) || 0);
+    if (inRange(l.date)) add(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', Number(l.amount) || 0, l.date);
   });
   getAllRows('Settlements').forEach(function (st) {
     if (st.offset_loan_id || !inRange(st.date)) return;
     var loan = loanById[st.loan_id];
-    if (loan) add(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', Number(st.amount) || 0);
+    if (loan) add(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', Number(st.amount) || 0, st.date);
   });
   var finish = function (bag) {
     return Object.keys(bag).sort().map(function (cur) {
@@ -182,7 +195,9 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
     }).filter(function (r) { return r.lines.length; }).sort(function (a, b) {
       return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
     }),
-    totals: finish(totals)
+    totals: finish(totals),
+    netPen: netPen,
+    excluded: excluded
   };
 }
 

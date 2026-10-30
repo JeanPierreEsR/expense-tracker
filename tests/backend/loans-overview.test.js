@@ -9,6 +9,7 @@ const loansOf = (rt, extra = {}) => rt.api("getPeriodSummary", { ...range, ...ex
 test("a loan given and a repayment received show as lent and repaid-to-you, per person, without touching the totals", () => {
   const { rt } = freshApp({ entries: 5 });
   const before = rt.api("getPeriodSummary", range).totals;
+  assert.equal(before.loans, 0, "no loan movement: the Loans block is zero");
   const ana = rt.api("addFriend", { name: "Ana" });
   rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 200, currency: "PEN", date: "2026-10-05" });
   rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-10-06" });
@@ -17,8 +18,13 @@ test("a loan given and a repayment received show as lent and repaid-to-you, per 
   const row = loans.people.find((p) => p.name === "Ana");
   assert.deepEqual(row.lines, [{ currency: "PEN", borrowed: 0, lent: 200, paidBack: 0, receivedBack: 50, net: -150 }]);
   assert.deepEqual(loans.totals.find((l) => l.currency === "PEN").lent, 200);
-  // loans are transfers: income, expenses, investments and net stay exactly as they were
-  assert.deepEqual(rt.api("getPeriodSummary", range).totals, before);
+  // loans are transfers: income, expenses and investments stay exactly as they were; the net moves by the loans' net (-200 + 50)
+  const after = rt.api("getPeriodSummary", range).totals;
+  assert.equal(after.income, before.income);
+  assert.equal(after.expense, before.expense);
+  assert.equal(after.investment, before.investment);
+  assert.equal(after.loans, -150);
+  assert.equal(Math.round((after.net - before.net) * 100) / 100, -150, "What's left includes the loans' net");
 });
 
 test("money borrowed and repaid by the owner reads the other way, in its own currency", () => {
@@ -61,4 +67,15 @@ test("nothing for a copy with no loans: the card has nothing to show", () => {
   const { rt } = freshApp({ entries: 5 });
   const loans = loansOf(rt, { startDate: "2020-01-01", endDate: "2020-01-31" });
   assert.deepEqual(loans, { people: [], totals: [] });
+});
+
+test("What's left is exactly income + loans - expenses - investments, loans in another currency converted by the rate table", () => {
+  const { rt } = freshApp({ entries: 5 });
+  const dee = rt.api("addFriend", { name: "Dee" });
+  rt.api("addLoan", { friend_id: dee.id, direction: "i_owe_them", amount: 100, currency: "USD", date: "2026-10-03" });
+  const rate = rt.run(`getRateForEntryCurrency_('USD', '2026-10-03')`);
+  const t = rt.api("getPeriodSummary", range).totals;
+  assert.ok(rate > 1, "the seed has a USD rate for the month");
+  assert.ok(Math.abs(t.loans - 100 * rate) < 0.01, "100 USD borrowed counts at the month's rate");
+  assert.ok(Math.abs(t.net - (t.income - t.expense - t.investment + t.loans)) < 0.001, "the four blocks add up");
 });

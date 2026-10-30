@@ -5911,6 +5911,10 @@ function paintOverviewSummary_(data) {
   document.getElementById("summary-income").textContent = formatPenSigned_(data.totals.income);
   document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
+  // Loans: the net money borrowed and repaid, in the main currency. Green when it brought money in, like any other inflow.
+  const loansEl = document.getElementById("summary-loans");
+  loansEl.textContent = formatPenSigned_(data.totals.loans || 0);
+  loansEl.classList.toggle("pos-green", (data.totals.loans || 0) > 0.004);
   document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
