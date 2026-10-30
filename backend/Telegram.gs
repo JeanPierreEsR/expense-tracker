@@ -248,8 +248,9 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   var lines = [];
   lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
   if (entry.type === 'investment') {
-    // No category for investments (see defaultInvestmentCategoryId_).
-    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
+    // No category for investments (see defaultInvestmentCategoryId_); a type the app guessed from the place says so.
+    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) +
+      (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   } else {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));

@@ -10,6 +10,9 @@ var TABLE_DEFINITIONS = {
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
     'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at', 'trip_id'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
+  // Places the person turned into a loan / repayment (PayeeGuess.gs): the conversion deletes the entry, so this note is
+  // the memory. Self-heals via ensurePayeeHabitsSheet_.
+  'Payee Habits': ['key', 'kind', 'friend_id', 'direction', 'created_at'],
   // key (added 2026-10-13, see adminMigrateCategories in Migrations.gs): the
   // hidden internal name of a BUILT-IN category (e.g. 'groceries'); `name`
   // keeps the English text forever and the Spanish name is looked up by key

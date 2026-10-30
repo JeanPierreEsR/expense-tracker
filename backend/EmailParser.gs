@@ -721,6 +721,7 @@ function processEmails(opts) {
   ensureEntriesMerchantColumn_();
   ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
+  guessCtx.payee = { hist: buildPayeeHistory_(), lookups: payeeLookups_() };   // PayeeGuess.gs: same place, same treatment
 
   var senders = opts.senders || uniqueSenders_();
   EXCHANGE_HOUSES_MEMO_ = null;   // learned from the entries as they are NOW (CurrencyExchange.gs)
@@ -953,7 +954,9 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     external_id: externalId,
     import_batch_id: '',
     created_at: createdAt,
-    merchant: normalizeMerchant_(fields.merchant)
+    // The name the bank's e-mail gave, kept for good (a rename of the entry never touches it): a place without a merchant
+    // (a transfer, "Yape a Ana Lo*") is filed under its description, the key PayeeGuess.gs / CategoryFollow.gs read.
+    merchant: normalizeMerchant_(fields.merchant) || normalizeMerchant_(fields.description)
   };
 
   // A card-bill-payment email comes from the CARD's bank and names the
@@ -966,6 +969,11 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
 
   if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }
+  // Same place, same treatment (PayeeGuess.gs): a place the person always files as an investment, or under one category,
+  // arrives that way. A rule's own fixed category is certain and is left alone. The entry stays pending either way.
+  var payeeGuess = (guessCtx.payee && !fields.defaultCategory && !fields.exchangeLeg)
+    ? applyPayeeGuessToNewEntry_(entry, guessCtx.payee.hist, guessCtx.payee.lookups) : null;
+  if (payeeGuess) { ensureEntriesToPaymentMethodColumn_(); guess = { categoryId: entry.type === 'investment' ? '' : entry.category_id, reason: payeeGuess.reason, quiet: payeeGuess.quiet }; }
   appendRowObject('Entries', entry);
   autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;

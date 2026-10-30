@@ -1304,6 +1304,57 @@ function updateAutoTransferDescription_() {
   lastAutoDescription = text;
 }
 document.getElementById("payment_method").addEventListener("change", updateAutoTransferDescription_);
+
+// ---- "Like your earlier entries" suggestion under the description (backend/PayeeGuess.gs) ----
+// After a description is typed on a NEW entry, the backend says whether the person has always put that same place the same
+// way (an investment platform, a category, a transfer account). It is only offered, never applied by itself.
+let payeeSuggestSeq_ = 0;
+let payeeSuggestion_ = null;
+
+function hidePayeeSuggest_() {
+  payeeSuggestSeq_++;
+  payeeSuggestion_ = null;
+  document.getElementById("payee-suggest").hidden = true;
+}
+
+async function checkPayeeSuggest_() {
+  const box = document.getElementById("payee-suggest");
+  box.hidden = true;
+  payeeSuggestion_ = null;
+  if (!entryFormIsNewEntry_() || (typeof repaymentActive_ === "function" && repaymentActive_())) return;
+  const description = document.getElementById("description").value.trim();
+  if (description.length < 2 || description === lastAutoDescription) return;
+  const seq = ++payeeSuggestSeq_;
+  let s;
+  try { s = await callApi("suggestForDescription", { description }); } catch (err) { return; }   // an older server has no such call: no suggestion
+  if (seq !== payeeSuggestSeq_ || !s || !s.type) return;
+  const accountId = s.to_payment_method_id || "";
+  if (s.type === selectedType &&
+      (s.type !== "expense" || getCategoryId() === s.category_id) &&
+      (s.type === "expense" || document.getElementById("to_payment_method").value === accountId)) return;   // already how it is set
+  const pm = meta.paymentMethods.find((p) => p.id === accountId);
+  const cat = s.type === "expense" ? findCategory(s.category_id) : null;
+  const what = s.type === "investment" ? tr("payee.whatInvestment", { name: pm ? pm.nickname : "" })
+    : s.type === "expense" ? tr("payee.whatExpense", { name: cat ? cat.name : "" })
+    : pm ? tr("payee.whatTransfer", { name: pm.nickname }) : tr("payee.whatTransferNoAccount");
+  payeeSuggestion_ = s;
+  document.getElementById("payee-suggest-text").textContent = tr("payee.suggest", { place: description, what });
+  box.hidden = false;
+}
+
+document.getElementById("description").addEventListener("change", checkPayeeSuggest_);
+document.getElementById("description").addEventListener("input", () => { if (!document.getElementById("payee-suggest").hidden) hidePayeeSuggest_(); });
+document.getElementById("payee-suggest-apply").addEventListener("click", () => {
+  const s = payeeSuggestion_;
+  const d = s && captureEntryDraft_();
+  if (!d) return;
+  d.type = s.type;
+  d.categoryId = s.type === "expense" ? (s.category_id || "") : "";
+  if (s.type !== "expense") d.toPaymentMethodId = s.to_payment_method_id || "";
+  applyEntryDraft_(d);
+  if (s.type === "investment") setInvestmentDirection("deposit");
+  hidePayeeSuggest_();
+});
 document.getElementById("to_payment_method").addEventListener("change", updateAutoTransferDescription_);
 
 // A transfer may have no "From" (money arriving from outside the app, e.g.
@@ -4889,6 +4940,17 @@ function setBundleCheckStatuses_(state) {
   setRecurringCheckStatus_(state);
 }
 
+// "Looks like a loan to Ana again": what the backend's loan_hint says, in words (or "" when there is none / the friend is gone).
+function reviewLoanHintText_(entry) {
+  const h = entry.loan_hint;
+  const friend = h && meta.friends.find((f) => f.id === h.friend_id);
+  if (!friend) return "";
+  const key = h.kind === "repayment"
+    ? (h.direction === "i_owe_them" ? "review.hintRepayPaid" : "review.hintRepayReceived")
+    : (h.direction === "i_owe_them" ? "review.hintLoanBorrowed" : "review.hintLoanLent");
+  return tr(key, { friend: friend.name });
+}
+
 // skipFlush: used only by the instant cache-paint below — flushing means
 // real network calls (one per queued offline action), which would delay
 // the very "show something instantly" this exists for. The live
@@ -4924,6 +4986,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
+          ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
@@ -4964,8 +5027,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       <div class="review-item-secondary-actions">
         <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
-        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn">${tr("review.markRepayment")}</button>
-        <button type="button" class="add-inline review-loan-btn">${tr("review.convertLoan")}</button>` : ""}
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${entry.loan_hint && entry.loan_hint.kind === "repayment" ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
+        <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
       </div>` : ""}
@@ -5109,7 +5172,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
-          amount: amountEdited ? amt : fresh.amount
+          amount: amountEdited ? amt : fresh.amount,
+          loan_hint: entry.loan_hint   // the "looks like a loan again" friend, for the loan / repayment pop-up
         });
       };
       const withRowEdits = (open) => async () => {
@@ -17789,7 +17853,9 @@ function openReviewTransferModal(entry, mode) {
 
   populateReviewTransferFriendOptions();
   populateReviewTransferPaymentMethodOptions();
-  document.getElementById("review-transfer-friend").value = meta.friends.length ? meta.friends[0].id : "";
+  // A place the person turned into a loan / repayment before suggests the same friend (backend/PayeeGuess.gs).
+  const hintedFriend = entry.loan_hint && meta.friends.find((f) => f.id === entry.loan_hint.friend_id);
+  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : (meta.friends.length ? meta.friends[0].id : "");
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
