@@ -1372,6 +1372,23 @@ body.sheet-open {
   margin-top: 2px;
 }
 
+/* Loan, forgiving and repayment changes still being saved (or that failed): the top of the Loans tab and of a person's
+   loan screen — see renderMoneyQueueStrips_ in app.js. */
+.money-queue-strip { margin: 8px 0; }
+.money-queue-row {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.money-queue-row.money-queue-failed {
+  color: var(--expense);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .entry.entry-deleting { opacity: 0.5; pointer-events: none; }
 
 .entry-queue-failed {
