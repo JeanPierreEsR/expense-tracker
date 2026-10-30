@@ -15688,8 +15688,10 @@ function offerLoansTip_() {
   offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_);
 }
 
-document.getElementById("more-tips-again-btn").addEventListener("click", () => {
+// More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
+document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
+  document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
 

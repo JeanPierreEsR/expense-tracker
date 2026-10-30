@@ -1497,7 +1497,6 @@
     "update.copyManual": { en: "Copy this link, open Safari and paste it:", es: "Copia este enlace, abre Safari y pégalo:" },
     "update.needed": { en: "Your app needs an update to do this. Open More → Update available.", es: "Tu app necesita una actualización para hacer esto. Abre Más → Actualización disponible." },
     "more.tour": { en: "📖 How to use the app", es: "📖 Cómo usar la app" },
-    "more.tipsAgain": { en: "💡 Show tips again", es: "💡 Ver los consejos otra vez" },
     // ---- first-use tips (spotlight walkthroughs; docs/spotlight.js) ----
     "spot.exit": { en: "Exit", es: "Salir" },
     "spot.step": { en: "{n} of {total}", es: "{n} de {total}" },
@@ -1674,6 +1673,8 @@
     "tourChoice.basicHint": { en: "Recording, moving money, Overview and budgets.", es: "Registrar, mover dinero, Resumen y presupuestos." },
     "tourChoice.pro": { en: "🚀 Advanced features", es: "🚀 Funciones avanzadas" },
     "tourChoice.proHint": { en: "Investments, loans, splitting a bill, programmed items, trips, projections and statements.", es: "Inversiones, préstamos, repartir una boleta, programados, viajes, proyecciones y estados de cuenta." },
+    "tourChoice.tips": { en: "💡 Practice tips", es: "💡 Práctica guiada" },
+    "tourChoice.tipsHint": { en: "Show the hands-on practice tips again, like the one in Loans.", es: "Vuelve a mostrar las prácticas guiadas, como la de Préstamos." },
     "tour.more.extras": { en: " “Extra features” turns on the extras you skipped.", es: " “Funciones extra” activa los extras que omitiste." },
     "more.mainCurrency": { en: "💱 Main currency", es: "💱 Moneda principal" },
     "more.ownerNames": { en: "👤 My names", es: "👤 Mis nombres" },
