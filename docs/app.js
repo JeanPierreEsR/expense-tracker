@@ -15520,7 +15520,9 @@ function tipPrepareForm_() {
   if (draft || typed) {
     const name = tr("spot.p.name");
     const description = ((draft && draft.description) || descEl.value || "").trim();
-    if (description !== name && !confirm(tr("spot.p.draftAsk"))) return false;
+    const amount = ((draft && draft.amount) || amountEl.value || "").toString().trim();
+    const what = [amount ? tr("spot.p.draftAmount", { amount }) : "", description ? tr("spot.p.draftDesc", { text: description }) : ""].filter(Boolean).join(", ");
+    if (description !== name && !confirm(tr("spot.p.draftAsk", { what: what || tr("spot.p.draftEmpty") }))) return false;
     clearEntryDraft_();
     amountEl.value = "";
     descEl.value = "";
