@@ -1,16 +1,32 @@
-// First-use tips: the "spotlight" walkthrough (owner's design, 2026-10-30; spec in CLAUDE.md § First-use tips).
+// First-use tips: the "spotlight" practice walkthrough (owner's design, 2026-10-30; spec in CLAUDE.md § First-use tips).
 //
-// A tip is a short list of steps. Each step dims the screen, leaves a bright cut-out around ONE real button or field and
-// puts a one-sentence bubble next to it, with Back / Next / Skip. The dimmed area swallows taps, so a walkthrough can never
-// save or change anything by accident; the person moves on with Next only.
+// A tip is a list of steps. Each step dims the screen, leaves a bright cut-out around the REAL button or field to use next and
+// puts a short bubble beside it. There is no Next or Back: the cut-out lets taps through, everything else is blocked, and the
+// walkthrough moves on by itself when the person does what the step asks (taps the button, fills the field, leaves it).
+// The only controls in the bubble are a small "Exit" (and, on a last step, one button).
 //
 //   seen(storage, key) / markSeen(storage, key) / resetSeen(storage)     which tips this phone has already shown (localStorage "tipsSeen")
 //   placeBubble(rect, view, bubble)  -> { side, top, left, arrowLeft }    where the bubble goes around the cut-out
 //   run(steps, ctx) -> Promise<"done" | "skipped">                         the walkthrough itself (needs a browser)
 //
-// A step: { target: "#css-selector" | () => Element, text: () => string, before: async () => (false to skip this step),
-//            available: () => boolean (optional, no side effects: lets "2 of 4" count only the steps that will really show) }.
-// A step whose target is missing or not on screen is skipped (a feature that is switched off, a list that is empty).
+// A step: {
+//   target:  "#css" | () => Element | Element[] | null   what to light up (several elements = one box round all of them)
+//   text:    () => string                                  re-read at every check, so it can change while the step waits
+//   before:  async () => (false to leave this step out)    runs first, e.g. to go to the right screen
+//   tap:     "#css" | () => Element                        done when that element (or anything inside it) is tapped
+//   until:   () => boolean | Promise<boolean>              done when true (checked after every tap / input / change, and every 300 ms)
+//   visit:   "#css"                                        done when the person has been in that field and left it again
+//   blurTap: true                                          tapping the dimmed area closes the keyboard (that is how a typing step ends)
+//   after:   () => void                                    runs when the step is done
+//   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
+//   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list)
+//   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
+//   button:  () => string                                  shows one button with this label; pressing it ends the step (a last step)
+// }
+// A step needs at least one of tap / until / visit / button.
+//
+// ctx: { labels: { exit, waiting, cleaning, stuck, step(n, total) }, onFinish(how) }  (onFinish may be async: the bubble says
+// "cleaning" and the screen stays blocked until it is done).
 //
 // Used by docs/app.js; also loaded by Node for tests/backend/spotlight.test.js. Holds no secrets.
 (function (root, factory) {
@@ -22,6 +38,7 @@
   var PAD = 6;      // breathing room between the target and the edge of the cut-out
   var GAP = 12;     // between the cut-out and the bubble
   var EDGE = 12;    // never closer than this to the screen's edge
+  var STUCK_MS = 25000;   // after this long on one step a small "skip this step" appears (a way out, never the normal way on)
 
   function readSeen(storage) {
     try {
@@ -56,18 +73,24 @@
     var r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function frames(n) {
+    return new Promise(function (r) { (function tick(k) { if (k <= 0) r(); else requestAnimationFrame(function () { tick(k - 1); }); })(n); });
+  }
 
   var active = null;   // only one walkthrough at a time
 
-  // ctx: { tr(key), onFinish(how) }; labels come from ctx.labels = { next, back, skip, done, step(n, total) }.
   function run(steps, ctx) {
     if (active) return Promise.resolve("skipped");
     var doc = document;
+    var L = ctx.labels;
     var root = doc.createElement("div");
     root.className = "spot-root";
     root.style.zIndex = String(Z);
+    // Four blockers round the cut-out (so taps INSIDE it reach the real button) and a visual ring; with no target one blocker
+    // covers the whole screen.
     root.innerHTML =
-      '<div class="spot-block"></div>' +
+      '<div class="spot-blk"></div><div class="spot-blk"></div><div class="spot-blk"></div><div class="spot-blk"></div>' +
       '<div class="spot-hole"></div>' +
       '<div class="spot-bubble" role="dialog" aria-live="polite">' +
         '<div class="spot-arrow"></div>' +
@@ -75,137 +98,236 @@
         '<div class="spot-foot">' +
           '<span class="spot-count"></span>' +
           '<span class="spot-buttons">' +
-            '<button type="button" class="spot-skip"></button>' +
-            '<button type="button" class="spot-back"></button>' +
-            '<button type="button" class="spot-next"></button>' +
+            '<button type="button" class="spot-stuck" hidden></button>' +
+            '<button type="button" class="spot-exit"></button>' +
+            '<button type="button" class="spot-go" hidden></button>' +
           '</span>' +
         '</div>' +
       '</div>';
     var $ = function (sel) { return root.querySelector(sel); };
+    var blockers = Array.prototype.slice.call(root.querySelectorAll(".spot-blk"));
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
-    var L = ctx.labels;
-    $(".spot-skip").textContent = L.skip;
-    $(".spot-back").textContent = L.back;
+    $(".spot-exit").textContent = L.exit;
+    $(".spot-stuck").textContent = L.stuck;
 
-    var index = -1, el = null, closed = false, busy = false, resolve;
+    var closed = false, resolve, stepToken = 0, cur = null;
     var done = new Promise(function (r) { resolve = r; });
 
-    function targetOf(step) {
+    function targetsOf(step) {
       var t = typeof step.target === "function" ? step.target() : step.target ? doc.querySelector(step.target) : null;
-      return t;
+      var list = !t ? [] : (Array.isArray(t) ? t : [t]);
+      return list.filter(onScreen);
     }
-    // Brings the step's target to the middle of the screen and waits for the page to settle before measuring.
-    function settle(target) {
-      if (target && target.scrollIntoView) target.scrollIntoView({ block: "center", inline: "nearest" });
-      return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+    function unionRect(els) {
+      var r = null;
+      els.forEach(function (e) {
+        var b = e.getBoundingClientRect();
+        r = r ? { top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom), left: Math.min(r.left, b.left), right: Math.max(r.right, b.right) }
+              : { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+      });
+      return r;
     }
+    function setBox(el, l, t, w, h) {
+      el.style.left = l + "px"; el.style.top = t + "px"; el.style.width = Math.max(0, w) + "px"; el.style.height = Math.max(0, h) + "px";
+    }
+
     function layout() {
-      if (closed || index < 0) return;
-      var rect = null;
-      if (el && onScreen(el)) {
-        var b = el.getBoundingClientRect();
-        rect = { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
-      }
+      if (closed || !cur) return;
       var vv = window.visualViewport;
-      var view = { w: vv ? vv.width : window.innerWidth, h: vv ? vv.height : window.innerHeight };
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var rect = cur.targets.length ? unionRect(cur.targets.filter(onScreen)) : null;
       if (rect) {
+        var hl = rect.left - PAD, ht = rect.top - PAD, hw = rect.right - rect.left + 2 * PAD, hh = rect.bottom - rect.top + 2 * PAD;
         hole.hidden = false;
-        hole.style.top = (rect.top - PAD) + "px";
-        hole.style.left = (rect.left - PAD) + "px";
-        hole.style.width = (rect.right - rect.left + 2 * PAD) + "px";
-        hole.style.height = (rect.bottom - rect.top + 2 * PAD) + "px";
+        setBox(hole, hl, ht, hw, hh);
+        // top / bottom / left / right strips round the hole cover the rest of the screen.
+        setBox(blockers[0], 0, 0, vw, ht);
+        setBox(blockers[1], 0, ht + hh, vw, vh - (ht + hh));
+        setBox(blockers[2], 0, Math.max(0, ht), hl, hh);
+        setBox(blockers[3], hl + hw, Math.max(0, ht), vw - (hl + hw), hh);
         root.classList.remove("spot-plain");
       } else {
         hole.hidden = true;
-        root.classList.add("spot-plain");   // no cut-out: the block itself dims the whole screen
+        setBox(blockers[0], 0, 0, vw, vh);
+        [1, 2, 3].forEach(function (i) { setBox(blockers[i], 0, 0, 0, 0); });
+        root.classList.add("spot-plain");   // no cut-out: the blocker itself dims the whole screen
       }
-      var p = placeBubble(rect, view, { w: bubble.offsetWidth, h: bubble.offsetHeight });
-      bubble.style.top = p.top + "px";
-      bubble.style.left = p.left + "px";
+      // The visible part of the screen (the keyboard takes the lower part on a phone).
+      var oy = vv ? vv.offsetTop : 0, ox = vv ? vv.offsetLeft : 0;
+      var view = { w: vv ? vv.width : vw, h: vv ? vv.height : vh };
+      var shifted = rect ? { top: rect.top - oy, bottom: rect.bottom - oy, left: rect.left - ox, right: rect.right - ox } : null;
+      var p = placeBubble(shifted, view, { w: bubble.offsetWidth, h: bubble.offsetHeight });
+      bubble.style.top = (p.top + oy) + "px";
+      bubble.style.left = (p.left + ox) + "px";
       bubble.dataset.side = p.side;
       arrow.hidden = p.arrowLeft == null;
       if (p.arrowLeft != null) arrow.style.left = p.arrowLeft + "px";
     }
-    function finish(how) {
-      if (closed) return;
-      closed = true;
-      active = null;
-      window.removeEventListener("resize", layout);
-      window.removeEventListener("orientationchange", layout);
-      if (window.visualViewport) window.visualViewport.removeEventListener("resize", layout);
-      doc.removeEventListener("keydown", onKey, true);
-      root.remove();
-      Promise.resolve(ctx.onFinish ? ctx.onFinish(how) : null).catch(function () { /* cleanup must never block the close */ }).then(function () { resolve(how); });
+    var layoutQueued = false;
+    function layoutSoon() {
+      if (layoutQueued || closed) return;
+      layoutQueued = true;
+      requestAnimationFrame(function () {
+        layoutQueued = false;
+        if (cur && cur.step) cur.targets = targetsOf(cur.step);
+        layout();
+      });
     }
-    // Finds the next step that can be shown, walking in `dir` (+1 / -1) from `from`. A step that cannot be shown is passed over.
-    async function show(from, dir) {
-      if (busy) return;
-      busy = true;
-      try { await showStep(from, dir); } finally { busy = false; }
-    }
-    async function showStep(from, dir) {
-      var i = from;
-      while (i >= 0 && i < steps.length) {
-        var step = steps[i], ok = true;
-        try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
-        if (closed) return;
-        var target = ok ? targetOf(step) : null;
-        if (ok && !step.centered) {
-          if (!onScreen(target)) { await settle(null); target = targetOf(step); }   // the screen may still be drawing itself
-          ok = onScreen(target);
-        }
-        if (ok) {
-          if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();   // no keyboard popping up behind the tip
-          await settle(target);
-          if (closed) return;
-          index = i; el = target;
-          $(".spot-text").textContent = step.text();
-          var pos = shownPosition(i);
-          $(".spot-count").textContent = L.step(pos.n, pos.total);
-          var last = !hasLater(i);
-          $(".spot-back").hidden = !hasEarlier(i);
-          $(".spot-skip").hidden = last;
-          $(".spot-next").textContent = last ? L.done : L.next;
-          layout();
-          $(".spot-next").focus({ preventScroll: true });
-          return;
-        }
-        i += dir;
-      }
-      finish("done");
-    }
-    // "Step 2 of 5" counts the steps the person can actually see; the ones skipped for lack of a target are not counted
-    // as far as that can be known in advance (a step with no `before` and a present target).
-    function visible(i) { var s = steps[i]; if (s.available) return !!s.available(); if (s.before || s.centered) return true; return onScreen(targetOf(s)); }
-    function shownPosition(i) {
-      var n = 0, total = 0;
-      for (var k = 0; k < steps.length; k++) { if (visible(k) || k === i) { total++; if (k <= i) n++; } }
-      return { n: n, total: total };
-    }
-    function hasLater(i) { for (var k = i + 1; k < steps.length; k++) if (visible(k)) return true; return false; }
-    function hasEarlier(i) { for (var k = i - 1; k >= 0; k--) if (visible(k)) return true; return false; }
 
-    function onKey(e) {
-      if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); }
+    function finish(how) {
+      if (closed) return Promise.resolve();
+      closed = true;
+      stepToken++;
+      if (cur && cur.stop) cur.stop();
+      active = null;
+      window.removeEventListener("resize", layoutSoon);
+      window.removeEventListener("orientationchange", layoutSoon);
+      doc.removeEventListener("scroll", layoutSoon, true);
+      doc.removeEventListener("keydown", onKey, true);
+      if (window.visualViewport) { window.visualViewport.removeEventListener("resize", layoutSoon); window.visualViewport.removeEventListener("scroll", layoutSoon); }
+      // Cleanup (removing the practice data) can take a moment: the bubble says so and the screen stays blocked meanwhile.
+      cur = null;
+      hole.hidden = true;
+      setBox(blockers[0], 0, 0, window.innerWidth, window.innerHeight);
+      [1, 2, 3].forEach(function (i) { setBox(blockers[i], 0, 0, 0, 0); });
+      root.classList.add("spot-plain");
+      $(".spot-text").textContent = L.cleaning;
+      $(".spot-foot").hidden = true;
+      arrow.hidden = true;
+      bubble.dataset.side = "center";
+      bubble.style.top = Math.max(EDGE, Math.round((window.innerHeight - bubble.offsetHeight) / 2)) + "px";
+      bubble.style.left = Math.max(EDGE, Math.round((window.innerWidth - bubble.offsetWidth) / 2)) + "px";
+      var work = Promise.resolve(ctx.onFinish ? ctx.onFinish(how) : null).catch(function () { /* cleanup must never block the close */ });
+      return work.then(function () { root.remove(); resolve(how); });
     }
-    $(".spot-next").addEventListener("click", function () {
-      if (!hasLater(index)) finish("done"); else show(index + 1, 1);
-    });
-    $(".spot-back").addEventListener("click", function () { show(index - 1, -1); });
-    $(".spot-skip").addEventListener("click", function () { finish("skipped"); });
-    // Nothing behind the dim can be tapped or scrolled.
-    ["click", "touchstart", "pointerdown", "mousedown"].forEach(function (t) {
-      $(".spot-block").addEventListener(t, function (e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
-    });
-    $(".spot-block").addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+
+    function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); } }
+
+    function shown(s) { return !s.available || s.available(); }
+    function stepsShownCount() { return steps.filter(shown).length; }
+    function stepNumber(i) { return Math.max(1, steps.slice(0, i + 1).filter(shown).length); }
+
+    // Shows step i and settles when the person has completed it: "done", "skip" (left out or skipped) or "stale" (closed).
+    async function showStep(i) {
+      var step = steps[i], token = ++stepToken, ok = true;
+      try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
+      if (closed || token !== stepToken) return "stale";
+      if (!ok) return "skip";
+      if (doc.activeElement && doc.activeElement.blur && !step.keepFocus) doc.activeElement.blur();
+
+      // Wait for the thing to light up to exist (a sheet that is still opening, a list that is still loading).
+      var waited = 0, limit = step.wait || 5000, lastPoke = -2000, targets = [];
+      while (step.target) {
+        targets = targetsOf(step);
+        if (targets.length) break;
+        if (closed || token !== stepToken) return "stale";
+        if (waited >= limit) return "skip";
+        if (step.poke && waited - lastPoke >= 2000) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
+        if (waited >= 600) {   // a long wait (a save still reaching the server): say so, centred
+          cur = { step: null, targets: [] };
+          $(".spot-text").textContent = L.waiting;
+          $(".spot-count").textContent = "";
+          $(".spot-go").hidden = true;
+          layout();
+        }
+        await sleep(100); waited += 100;
+      }
+      if (closed || token !== stepToken) return "stale";
+      if (targets.length && targets[0].scrollIntoView) targets[0].scrollIntoView({ block: "center", inline: "nearest" });
+      await frames(2);
+      if (closed || token !== stepToken) return "stale";
+      targets = step.target ? targetsOf(step) : [];
+
+      cur = { step: step, targets: targets, stop: null };
+      $(".spot-text").textContent = step.text();
+      $(".spot-count").textContent = L.step(stepNumber(i), stepsShownCount());
+      $(".spot-stuck").hidden = true;
+      var go = $(".spot-go");
+      go.hidden = !step.button;
+      if (step.button) go.textContent = step.button();
+      layout();
+
+      return new Promise(function (finishStep) {
+        var finished = false, checking = false, visited = false, timers = [], listeners = [];
+        function on(target, type, fn, capture) { target.addEventListener(type, fn, capture); listeners.push([target, type, fn, capture]); }
+        function end(result) {
+          if (finished) return;
+          finished = true;
+          timers.forEach(function (t) { clearInterval(t); clearTimeout(t); });
+          listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2], l[3]); });
+          if (cur) cur.stop = null;
+          if (result === "done" && step.after) { try { step.after(); } catch (e) { /* ignore */ } }
+          finishStep(result);
+        }
+        cur.stop = function () { end("stale"); };
+
+        // Re-reads the text (it can depend on the state of the form) and checks whether the step is done.
+        async function check() {
+          if (finished || checking || closed || token !== stepToken) return;
+          checking = true;
+          try {
+            var t = step.text();
+            if ($(".spot-text").textContent !== t) { $(".spot-text").textContent = t; layoutSoon(); }
+            if (step.until && (await step.until())) { end("done"); return; }
+            if (step.visit) {
+              var el = doc.querySelector(step.visit);
+              if (el && visited && doc.activeElement !== el) { end("done"); return; }
+            }
+          } catch (e) { /* a check that throws just is not done yet */ }
+          finally { checking = false; }
+        }
+        var soon = function () { setTimeout(check, 0); setTimeout(check, 250); };
+        ["input", "change", "focusout", "pointerup"].forEach(function (t) { on(doc, t, soon, true); });
+        if (step.visit) {
+          // In a field and out again; a drop-down that was changed counts too (a phone's picker does not always report leaving it).
+          on(doc, "focusin", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) visited = true; }, true);
+          on(doc, "change", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) { visited = true; setTimeout(function () { if (!finished) end("done"); }, 150); } }, true);
+        }
+        if (step.tap) {
+          on(doc, "click", function (e) {
+            var el = typeof step.tap === "function" ? step.tap() : doc.querySelector(step.tap);
+            if (el && el.contains(e.target)) setTimeout(function () { end("done"); }, 0);   // after the app's own handler has run
+          }, true);
+        }
+        if (step.button) on(go, "click", function () { end("done"); }, false);
+        // A tap on the dimmed area does nothing, except on a typing step, where it closes the keyboard (that is how the person says "done").
+        on(root, "pointerdown", function (e) {
+          if (e.target.closest && e.target.closest(".spot-bubble")) return;
+          if (step.blurTap && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+          e.preventDefault();
+        }, true);
+        timers.push(setInterval(check, 300));
+        timers.push(setTimeout(function () {
+          if (finished || closed) return;
+          var b = $(".spot-stuck");
+          b.hidden = false;
+          b.onclick = function () { end("skip"); };
+          layoutSoon();
+        }, STUCK_MS));
+        setTimeout(check, 0);
+      });
+    }
+
+    async function go() {
+      for (var i = 0; i < steps.length && !closed; i++) {
+        var r = await showStep(i);
+        if (closed || r === "stale") return;
+      }
+      if (!closed) finish("done");   // the steps ran out (the last one had a button, or was left out)
+    }
+
+    $(".spot-exit").addEventListener("click", function () { finish("skipped"); });
+    // Nothing behind the dim can be scrolled; inside the cut-out the person can scroll as usual.
+    root.addEventListener("touchmove", function (e) { if (e.target.classList && e.target.classList.contains("spot-blk")) e.preventDefault(); }, { passive: false });
 
     active = { finish: finish };
     doc.body.appendChild(root);
-    window.addEventListener("resize", layout);
-    window.addEventListener("orientationchange", layout);
-    if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
+    window.addEventListener("resize", layoutSoon);
+    window.addEventListener("orientationchange", layoutSoon);
+    doc.addEventListener("scroll", layoutSoon, true);
+    if (window.visualViewport) { window.visualViewport.addEventListener("resize", layoutSoon); window.visualViewport.addEventListener("scroll", layoutSoon); }
     doc.addEventListener("keydown", onKey, true);
-    show(0, 1);
+    go();
     return done;
   }
 

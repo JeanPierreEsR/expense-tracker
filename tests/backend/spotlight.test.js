@@ -62,11 +62,11 @@ test("a step with no target is centred", () => {
   assert.equal(p.top, 300);
 });
 
-test("the page loads the engine before app.js, and the Loans walkthrough points at things that exist", () => {
+test("the page loads the engine before app.js, and the practice walkthrough points at things that exist", () => {
   const docs = path.join(__dirname, "..", "..", "docs");
   const html = fs.readFileSync(path.join(docs, "index.html"), "utf8");
   assert.ok(html.indexOf("spotlight.js") !== -1 && html.indexOf("spotlight.js") < html.indexOf("app.js?"));
-  for (const id of ["fab-new-entry", "split-detail", "loans-owed-card", "add-loan-btn", "loans-tip-invite", "more-tips-again-btn"]) {
+  for (const id of ["fab-new-entry", "split-detail", "split-friend-chips", "split-add-friend-btn", "submit-btn", "paid_by", "payment_method", "payment-method-field", "category-picker", "amount", "record-repayment-btn", "settlement-amount", "settlement-payment-method", "settlement-save-btn", "loan-detail-subtitle", "loans-tip-invite", "tour-choice-tips"]) {
     assert.ok(html.includes(`id="${id}"`), `index.html has no #${id}`);
   }
 });
