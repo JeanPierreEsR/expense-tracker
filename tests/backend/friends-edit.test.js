@@ -43,3 +43,19 @@ test("a friend with debts or shared expenses cannot be deleted; an unused one ca
   assert.ok(!rt.api("listMyFriends", {}).some((f) => f.id === free.id));
   assert.throws(() => rt.api("deleteFriend", { id: "ghost" }), /not found|No se encontr/i);
 });
+
+test("deleting several friends at once removes the unused ones and reports the ones kept, without undoing the rest", () => {
+  const rt = setup();
+  assert.equal(rt.api("getMeta", {}).capabilities.friendsBulkDelete, true);
+  const ana = rt.api("addFriend", { name: "Ana Test" });
+  const a = rt.api("addFriend", { name: "Free One" });
+  const b = rt.api("addFriend", { name: "Free Two" });
+  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-10-05" });
+  const out = rt.api("deleteFriends", { ids: [a.id, ana.id, b.id, a.id, "ghost"] });
+  assert.deepEqual(out.deleted.sort(), [a.id, b.id].sort());
+  assert.deepEqual(out.kept.map((k) => [k.id, k.reason]).sort(), [[ana.id, "used"], ["ghost", "missing"]].sort());
+  assert.equal(out.kept.find((k) => k.id === ana.id).name, "Ana Test");
+  const left = rt.api("listMyFriends", {}).map((f) => f.id);
+  assert.ok(left.includes(ana.id) && !left.includes(a.id) && !left.includes(b.id));
+  assert.deepEqual(rt.api("deleteFriends", { ids: [] }), { deleted: [], kept: [] });
+});

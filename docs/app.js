@@ -12814,13 +12814,18 @@ function renderPeopleList_(people) {
 }
 
 // ---- More → Friends: the plain friends, to rename, add or delete (owner's request, 2026-10-30) ----
+// "Edit" puts a checkbox on every friend and a bar at the bottom to delete the ticked ones in one go (owner's request, 2026-10-30).
 let friends_ = [];
+let friendsEditing_ = false;
+let friendsSelected_ = new Set();
 function showFriendsScreen_() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-friends"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
   // Loading standard: nothing half-drawn; the list shows once it has arrived.
   document.getElementById("friends-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
   document.getElementById("friends-empty-note").hidden = true;
+  setFriendsEditing_(false, false);
+  document.getElementById("friends-edit-btn").hidden = true;   // shown again once the list has arrived
   refreshFriendsList_();
 }
 async function refreshFriendsList_() {
@@ -12834,26 +12839,79 @@ async function refreshFriendsList_() {
     errorEl.textContent = tr("business.loadFailed", { error: err.message });
   }
 }
+function setFriendsEditing_(on, redraw = true) {
+  friendsEditing_ = on;
+  friendsSelected_ = new Set();
+  document.getElementById("friends-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  document.getElementById("friends-add-btn").hidden = on;
+  document.getElementById("friends-editbar").hidden = !on;
+  if (redraw) renderFriendsList_();
+  else syncFriendsEditBar_();
+}
+function syncFriendsEditBar_() {
+  const n = friendsSelected_.size;
+  const del = document.getElementById("friends-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("friends-selectall-btn").textContent = tr(n && n === friends_.length ? "friends.selectNone" : "friends.selectAll");
+}
 function renderFriendsList_() {
   const box = document.getElementById("friends-list");
   box.innerHTML = "";
   document.getElementById("friends-empty-note").hidden = friends_.length > 0;
+  document.getElementById("friends-edit-btn").hidden = !(((meta && meta.capabilities) || {}).friendsBulkDelete && friends_.length);
+  if (friendsEditing_ && !friends_.length) { setFriendsEditing_(false); return; }
   friends_.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
     const row = document.createElement("div");
-    row.className = "recurring-row";
+    row.className = "recurring-row" + (friendsEditing_ ? " friends-check-row" : "");
     row.innerHTML = `
+      ${friendsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}>` : ""}
       <div>
         <div class="recurring-row-name">${escapeHtml(p.name)}</div>
         <div class="recurring-row-sub">${p.totals.length ? "" : escapeHtml(tr("people.noDebts"))}</div>
       </div>
       <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
-    row.addEventListener("click", () => openPersonModal_(p, true));
+    row.addEventListener("click", () => {
+      if (!friendsEditing_) { openPersonModal_(p, true); return; }
+      if (friendsSelected_.has(p.id)) friendsSelected_.delete(p.id); else friendsSelected_.add(p.id);
+      row.querySelector(".friends-check").checked = friendsSelected_.has(p.id);
+      syncFriendsEditBar_();
+    });
     box.appendChild(row);
   });
+  syncFriendsEditBar_();
 }
 document.getElementById("more-friends-btn").addEventListener("click", showFriendsScreen_);
-document.getElementById("friends-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("friends-back-btn").addEventListener("click", () => { setFriendsEditing_(false); showScreen("more"); });
 document.getElementById("friends-add-btn").addEventListener("click", () => openPersonModal_(null, true));
+document.getElementById("friends-edit-btn").addEventListener("click", () => setFriendsEditing_(!friendsEditing_));
+document.getElementById("friends-selectall-btn").addEventListener("click", () => {
+  friendsSelected_ = friendsSelected_.size === friends_.length ? new Set() : new Set(friends_.map((p) => p.id));
+  renderFriendsList_();
+});
+document.getElementById("friends-delete-selected-btn").addEventListener("click", () => {
+  const chosen = friends_.filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
+  if (!chosen.length) return;
+  const names = chosen.map((p) => p.name).join(", ");
+  // ONE question for the whole batch.
+  if (!confirm(tr(chosen.length === 1 ? "friends.confirmDeleteOne" : "friends.confirmDeleteMany", { n: chosen.length, names }))) return;
+  const ids = chosen.map((p) => p.id);
+  setFriendsEditing_(false);
+  let result = null;
+  // Saving standard: back to the list at once; the server removes them behind the screen and says if someone had to be kept.
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteFriends", { ids });
+    const gone = new Set(result.deleted);
+    meta.friends = (meta.friends || []).filter((f) => !gone.has(f.id));
+    refreshFriendChips_(); populatePaidByOptions();
+  }, async () => {
+    await refreshFriendsList_();
+    if (result && result.kept.length) {
+      const keptNames = result.kept.map((k) => k.name).filter(Boolean).join(", ");
+      alert(tr(result.deleted.length ? "friends.keptSome" : "friends.keptAll", { deleted: result.deleted.length, kept: result.kept.length, names: keptNames }));
+    }
+  });
+});
 
 // ---- Person pop-up ----
 

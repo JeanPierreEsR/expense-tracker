@@ -914,13 +914,20 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="friends-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="add-inline" id="friends-add-btn" data-i18n="friends.add">+ Friend</button>
+          <span class="friends-header-actions">
+            <button type="button" class="add-inline" id="friends-edit-btn" hidden data-i18n="friends.edit">Edit</button>
+            <button type="button" class="add-inline" id="friends-add-btn" data-i18n="friends.add">+ Friend</button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="friends.title">Friends</h2>
         <p class="hint" data-i18n="friends.hint">The people you share expenses and loans with. Tap one to rename them or see what they owe. A new friend is also added when you split an expense.</p>
         <div id="friends-list"></div>
         <p class="hint" id="friends-empty-note" hidden data-i18n="friends.empty">No friends yet. Add one here, or when you split an expense.</p>
         <p class="hint" id="friends-error" style="color:#d64545;"></p>
+        <div class="friends-editbar" id="friends-editbar" hidden>
+          <button type="button" class="add-inline" id="friends-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="primary danger" id="friends-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 

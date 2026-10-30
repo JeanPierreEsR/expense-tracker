@@ -733,3 +733,31 @@ function deleteFriend(payload) {
   deleteRowsWhere_('Friends', function (row) { return String(row.id) === id; });
   return { done: true };
 }
+
+// Several friends at once (More → Friends → Edit). Same rule as deleteFriend, checked for each one: a person who is used anywhere is
+// KEPT and reported with the reason, the rest are deleted in one pass. Never throws for a single person, so one kept friend does not
+// undo the others. Returns { deleted: [ids], kept: [{ id, name, reason: 'used' | 'group' | 'missing' }] }.
+function deleteFriends(payload) {
+  var ids = ((payload && payload.ids) || []).map(String);
+  var friends = getAllRows('Friends');
+  var inUse = {};
+  getAllRows('Loans').forEach(function (l) { inUse[String(l.friend_id)] = true; });
+  getAllRows('Entry Splits').forEach(function (s) { inUse[String(s.friend_id)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) inUse[String(e.paid_by)] = true; });
+  var deleted = [], kept = [], seen = {};
+  ids.forEach(function (id) {
+    if (seen[id]) return;
+    seen[id] = true;
+    var friend = friends.find(function (f) { return String(f.id) === id; });
+    if (!friend) kept.push({ id: id, name: '', reason: 'missing' });
+    else if (friend.trip_id) kept.push({ id: id, name: String(friend.name), reason: 'group' });
+    else if (inUse[id]) kept.push({ id: id, name: String(friend.name), reason: 'used' });
+    else deleted.push(id);
+  });
+  if (deleted.length) {
+    var gone = {};
+    deleted.forEach(function (id) { gone[id] = true; });
+    deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
+  }
+  return { deleted: deleted, kept: kept };
+}
