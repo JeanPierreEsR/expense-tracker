@@ -3310,3 +3310,15 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
 .tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */
+.friends-header-actions { display: inline-flex; gap: 14px; align-items: center; }
+.friends-check-row { gap: 12px; justify-content: flex-start; }
+.friends-check-row > div:nth-child(2) { flex: 1; min-width: 0; }
+.friends-check-row > .recurring-row-amount { margin-left: auto; }
+.friends-check { -webkit-appearance: checkbox; appearance: auto; width: 22px; height: 22px; min-height: 0; flex: 0 0 22px; margin: 0; padding: 0; accent-color: #d64545; pointer-events: none; }
+.friends-editbar {
+  position: sticky; bottom: 64px; background: var(--card, #fff); border-top: 1px solid var(--border);
+  padding: 10px 0 6px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.friends-editbar button.primary { width: auto; margin-top: 0; padding: 12px 22px; }

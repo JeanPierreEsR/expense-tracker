@@ -216,6 +216,7 @@ function routeAction(action, payload) {
     case 'deleteExpectedPayment': return deleteExpectedPayment(payload);
     case 'updateFriend': return updateFriend(payload);
     case 'deleteFriend': return deleteFriend(payload);
+    case 'deleteFriends': return deleteFriends(payload);
     case 'getProjectDebts': return getProjectDebts(payload);
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
