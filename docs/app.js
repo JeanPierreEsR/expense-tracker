@@ -5331,7 +5331,6 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   const ctx = exchangeContext_;
   if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
 
-  const saveBtn = document.getElementById("exchange-save-btn");
   const wasInline = exchangeFormIsInline_();
   // A plain new exchange saves behind the screen; turning a waiting (pending) entry into one leg stays foreground — it
   // changes an existing row, so it is not repeat-safe the way a new one is.
@@ -5349,28 +5348,27 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
     }, `${tr("money.labelExchange")} · ${out.currency} ${moneyFmt(out.amount)} → ${inn.currency} ${moneyFmt(inn.amount)}`, {}, replaces);
     return;
   }
-  saveBtn.disabled = true;
-  try {
-    await callApi("recordCurrencyExchange", {
-      date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
-      pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
-    });
-    if (wasInline) {
-      document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
-      updateRepaymentUi_();
-      if (newEntrySheetOpen_) closeNewEntrySheet_();
-    } else {
-      closeExchangeModal_();
-    }
+  // Turning a waiting (pending) entry into one leg, or an older backend: no queue (it changes an existing row), but it still
+  // closes at once and saves behind the screen; a refusal comes back as an alert and the waiting entry stays as it was.
+  const body = {
+    date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
+    pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
+  };
+  if (wasInline) {
+    document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
+    updateRepaymentUi_();
+    if (newEntrySheetOpen_) closeNewEntrySheet_();
+  } else {
+    closeExchangeModal_();
+  }
+  saveBehindScreen_(async () => {
+    await callApi("recordCurrencyExchange", body);
     showToast_(tr("xch.saved"));
+  }, async () => {
     refreshEntryList();
     refreshReviewQueue().catch(() => {});
     refreshBalances().catch(() => {});
-  } catch (err) {
-    errorEl.textContent = err.message || String(err);
-  } finally {
-    saveBtn.disabled = false;
-  }
+  });
 });
 
 // ---- New-entry sheet + the round "+" button ----
@@ -8774,21 +8772,16 @@ document.getElementById("extras-takeback-cancel").addEventListener("click", () =
   document.getElementById("extras-takeback-confirm").hidden = true;
   document.getElementById("extras-takeback-btn").hidden = false;
 });
-document.getElementById("extras-takeback-go").addEventListener("click", async () => {
-  const btn = document.getElementById("extras-takeback-go");
-  btn.disabled = true;
-  try {
+document.getElementById("extras-takeback-go").addEventListener("click", () => {
+  document.getElementById("extras-takeback-confirm").hidden = true;
+  saveBehindScreen_(async () => {
     await callApi("takeBackPermissions", { confirm: true });
     meta.capabilities = Object.assign({}, meta.capabilities, { keepAwake: false, bankEmails: false });
+    extrasMsg_(tr("extras.takenBack"));
+  }, async () => {
     refreshExtrasRow_();
     renderExtrasList_();
-    document.getElementById("extras-takeback-confirm").hidden = true;
-    extrasMsg_(tr("extras.takenBack"));
-  } catch (err) {
-    extrasMsg_(tr("extras.failed"));
-  } finally {
-    btn.disabled = false;
-  }
+  });
 });
 document.getElementById("extras-share-btn").addEventListener("click", () => {
   document.getElementById("extras-modal-backdrop").hidden = true;
@@ -14300,14 +14293,9 @@ async function openPaidPicker_(item, currency, isIncome) {
           <div class="link-candidate-date">${e.date} · ${e.currency} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
-      row.addEventListener("click", async () => {
-        try {
-          await callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id });
-          backdrop.hidden = true;
-          await refreshExpectedRecurring();
-        } catch (err) {
-          errorEl.textContent = err.message;
-        }
+      row.addEventListener("click", () => {
+        backdrop.hidden = true;
+        saveBehindScreen_(() => callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id }), () => refreshExpectedRecurring());
       });
       list.appendChild(row);
     });
@@ -16106,27 +16094,21 @@ async function openApplyUnapplied_(l, friend) {
 function closeReassign_() {
   document.getElementById("reassign-modal-backdrop").hidden = true;
 }
-document.getElementById("reassign-record-btn").addEventListener("click", async () => {
+document.getElementById("reassign-record-btn").addEventListener("click", () => {
   const ctx = historyCtx_;
-  const btn = document.getElementById("reassign-record-btn");
-  btn.disabled = true;
-  try {
-    await callApi("recordRepaymentEntry", {
-      id: reassignRepayment_.id,
-      date: document.getElementById("reassign-date").value,
-      payment_method_id: document.getElementById("reassign-pm").value
-    });
-  } catch (err) {
-    document.getElementById("reassign-error").textContent = err.message;
-    btn.disabled = false;
-    return;
-  }
-  btn.disabled = false;
+  const body = {
+    id: reassignRepayment_.id,
+    date: document.getElementById("reassign-date").value,
+    payment_method_id: document.getElementById("reassign-pm").value
+  };
+  document.getElementById("reassign-error").textContent = "";
   closeReassign_();
-  refreshEntriesInBackground_();
-  await refreshLoans();
-  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
-  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  saveBehindScreen_(() => callApi("recordRepaymentEntry", body), async () => {
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+    await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  });
 });
 document.getElementById("reassign-amount").addEventListener("input", renderReassign_);
 document.getElementById("reassign-limit").addEventListener("change", renderReassign_);
@@ -16159,40 +16141,33 @@ document.getElementById("reassign-delete").addEventListener("click", async () =>
   await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
   await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
 });
-document.getElementById("reassign-save").addEventListener("click", async () => {
+document.getElementById("reassign-save").addEventListener("click", () => {
   const ctx = historyCtx_;
-  const btn = document.getElementById("reassign-save");
   const { checked } = reassignPlan_();
   const applying = reassignRepayment_.mode === "apply";
   const applyFriend = reassignRepayment_.friend;
-  btn.disabled = true;
-  btn.textContent = tr("common.loading");
-  try {
-    const body = { id: reassignRepayment_.id, loan_ids: [...checked] };
-    if (!applying) {
-      body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
-      body.date = document.getElementById("reassign-date").value;
-      body.payment_method_id = document.getElementById("reassign-pm").value;
-      body.limit = document.getElementById("reassign-limit").checked;
-      body.overpay_category_id = document.getElementById("reassign-gap-category").value;
-    }
-    await callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body);
-  } catch (err) {
-    document.getElementById("reassign-error").textContent = err.message;
-    btn.textContent = tr("common.save");
-    btn.disabled = false;
-    return;
+  const body = { id: reassignRepayment_.id, loan_ids: [...checked] };
+  if (!applying) {
+    body.amount = parseFloat(String(document.getElementById("reassign-amount").value).replace(/,/g, ""));
+    body.date = document.getElementById("reassign-date").value;
+    body.payment_method_id = document.getElementById("reassign-pm").value;
+    body.limit = document.getElementById("reassign-limit").checked;
+    body.overpay_category_id = document.getElementById("reassign-gap-category").value;
   }
+  document.getElementById("reassign-error").textContent = "";
   closeReassign_();
-  // Everything behind this sheet may have changed: the Loans tab, the person's screen, and this history.
-  refreshEntriesInBackground_();
-  await refreshLoans();
-  if (applying) {   // opened from the person's screen, not from the history
-    await openLoanDetail(applyFriend.id, applyFriend.name);
-    return;
-  }
-  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
-  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  // Saves behind the screen (a refusal comes back as an alert); everything behind this sheet may have changed: the Loans
+  // tab, the person's screen, and this history.
+  saveBehindScreen_(() => callApi(applying ? "applyUnappliedPayment" : "reassignRepayment", body), async () => {
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    if (applying) {   // opened from the person's screen, not from the history
+      await openLoanDetail(applyFriend.id, applyFriend.name);
+      return;
+    }
+    await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+    await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  });
 });
 
 document.getElementById("history-modal-close").addEventListener("click", () => {
@@ -16552,43 +16527,39 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
   bankRenderRows_();
 });
 
-document.getElementById("bank-save").addEventListener("click", async () => {
-  const btn = document.getElementById("bank-save");
+document.getElementById("bank-save").addEventListener("click", () => {
   const errEl = document.getElementById("bank-error");
   const rows = bankDraft_.rows.map((r) => ({ due_date: r.due_date, principal: Number(r.principal) || 0, interest: Number(r.interest) || 0, fees: Number(r.fees) || 0 }));
-  const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = tr("common.loading");
   errEl.textContent = "";
-  try {
-    let friend;
-    if (bankDraft_.mode === "new") {
-      const res = await callApi("saveBankLoan", {
-        friend_name: document.getElementById("bank-lender").value.trim(),
-        description: document.getElementById("bank-description").value.trim(),
-        amount: bankNum_(document.getElementById("bank-amount").value),
-        currency: document.getElementById("bank-currency").value,
-        date: document.getElementById("bank-date").value,
-        payment_method_id: document.getElementById("bank-account").value,
-        installments: rows
-      });
-      friend = { id: res.loan.friend_id, name: document.getElementById("bank-lender").value.trim() };
+  // Closes at once and saves behind the screen (a refusal comes back as an alert); the screen it opens next waits for the save.
+  const draft = bankDraft_;
+  const lender = document.getElementById("bank-lender").value.trim();
+  const newLoan = draft.mode === "new" ? {
+    friend_name: lender,
+    description: document.getElementById("bank-description").value.trim(),
+    amount: bankNum_(document.getElementById("bank-amount").value),
+    currency: document.getElementById("bank-currency").value,
+    date: document.getElementById("bank-date").value,
+    payment_method_id: document.getElementById("bank-account").value,
+    installments: rows
+  } : null;
+  closeBankLoanForm_();
+  let friend;
+  saveBehindScreen_(async () => {
+    if (newLoan) {
+      const res = await callApi("saveBankLoan", newLoan);
+      friend = { id: res.loan.friend_id, name: lender };
     } else {
-      await callApi("saveLoanSchedule", { loan_id: bankDraft_.loanId, installments: rows });
-      friend = bankDraft_.friend;
+      await callApi("saveLoanSchedule", { loan_id: draft.loanId, installments: rows });
+      friend = draft.friend;
     }
-    closeBankLoanForm_();
+  }, async () => {
     refreshEntriesInBackground_();
     await refreshLoans();
-    if (bankDraft_.mode === "edit") await openBankSchedule_(bankDraft_.loanId, friend);
+    if (!friend) return;   // refused: the lists above are already showing the truth
+    if (draft.mode === "edit") await openBankSchedule_(draft.loanId, friend);
     else await openLoanDetail(friend.id, friend.name);
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.textContent = label;
-    btn.disabled = false;
-    bankRenderTotals_();
-  }
+  });
 });
 
 // The loan's schedule: every installment, paid or not; a tap on an unpaid one records it.
@@ -16726,35 +16697,26 @@ document.getElementById("bank-schedule-early").addEventListener("click", () => {
 document.querySelectorAll('input[name="bank-early-mode"]').forEach((r) => r.addEventListener("change", () => bankEarlyCtx_ && bankEarlyPreview_()));
 document.getElementById("bank-early-close").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
 document.getElementById("bank-early-cancel").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
-document.getElementById("bank-early-save").addEventListener("click", async () => {
-  const btn = document.getElementById("bank-early-save");
-  const errEl = document.getElementById("bank-early-error");
+document.getElementById("bank-early-save").addEventListener("click", () => {
   const ctx = bankEarlyCtx_;
-  const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = tr("common.loading");
-  errEl.textContent = "";
-  try {
-    await callApi("recordEarlyPayment", {
-      loan_id: ctx.sched.loan.id,
-      date: document.getElementById("bank-early-date").value,
-      payment_method_id: document.getElementById("bank-early-account").value,
-      principal: bankNum_(document.getElementById("bank-early-principal").value),
-      fee: bankNum_(document.getElementById("bank-early-fee").value),
-      category_id: document.getElementById("bank-early-category").value,
-      mode: bankEarlyMode_()
-    });
-    document.getElementById("bank-early-modal-backdrop").hidden = true;
+  document.getElementById("bank-early-error").textContent = "";
+  const payload = {
+    loan_id: ctx.sched.loan.id,
+    date: document.getElementById("bank-early-date").value,
+    payment_method_id: document.getElementById("bank-early-account").value,
+    principal: bankNum_(document.getElementById("bank-early-principal").value),
+    fee: bankNum_(document.getElementById("bank-early-fee").value),
+    category_id: document.getElementById("bank-early-category").value,
+    mode: bankEarlyMode_()
+  };
+  const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
+  document.getElementById("bank-early-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("recordEarlyPayment", payload), async () => {
     refreshEntriesInBackground_();
     refreshReviewQueue().catch(() => {});
     await refreshLoans();
-    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.textContent = label;
-    btn.disabled = false;
-  }
+    await openBankSchedule_(ctx.sched.loan.id, friend);
+  });
 });
 
 // Recording one installment.
@@ -16789,35 +16751,26 @@ function openBankRecord_(inst, sched) {
 ["bank-record-principal", "bank-record-interest", "bank-record-fees"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
 document.getElementById("bank-record-close").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
 document.getElementById("bank-record-cancel").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
-document.getElementById("bank-record-save").addEventListener("click", async () => {
-  const btn = document.getElementById("bank-record-save");
-  const errEl = document.getElementById("bank-record-error");
+document.getElementById("bank-record-save").addEventListener("click", () => {
   const ctx = bankRecordCtx_;
-  const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = tr("common.loading");
-  errEl.textContent = "";
-  try {
-    await callApi("recordInstallment", {
-      id: ctx.inst.id,
-      date: document.getElementById("bank-record-date").value,
-      payment_method_id: document.getElementById("bank-record-account").value,
-      principal: bankNum_(document.getElementById("bank-record-principal").value),
-      interest: bankNum_(document.getElementById("bank-record-interest").value),
-      fees: bankNum_(document.getElementById("bank-record-fees").value),
-      category_id: document.getElementById("bank-record-category").value
-    });
-    document.getElementById("bank-record-modal-backdrop").hidden = true;
+  document.getElementById("bank-record-error").textContent = "";
+  const payload = {
+    id: ctx.inst.id,
+    date: document.getElementById("bank-record-date").value,
+    payment_method_id: document.getElementById("bank-record-account").value,
+    principal: bankNum_(document.getElementById("bank-record-principal").value),
+    interest: bankNum_(document.getElementById("bank-record-interest").value),
+    fees: bankNum_(document.getElementById("bank-record-fees").value),
+    category_id: document.getElementById("bank-record-category").value
+  };
+  const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
+  document.getElementById("bank-record-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("recordInstallment", payload), async () => {
     refreshEntriesInBackground_();
     refreshReviewQueue().catch(() => {});
     await refreshLoans();
-    await openBankSchedule_(ctx.sched.loan.id, bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name });
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.textContent = label;
-    btn.disabled = false;
-  }
+    await openBankSchedule_(ctx.sched.loan.id, friend);
+  });
 });
 
 function closeLoanDetail() {
@@ -17856,23 +17809,19 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
-  const saveBtn = document.getElementById("review-transfer-save-btn");
-  saveBtn.disabled = true;
-  try {
-    const entryId = reviewTransferEntry.id;
-    const currency = reviewTransferEntry.currency;
-    const description = document.getElementById("review-transfer-description").value.trim() ||
-      reviewTransferEntry.description || "";
+  const entryId = reviewTransferEntry.id;
+  const currency = reviewTransferEntry.currency;
+  const description = document.getElementById("review-transfer-description").value.trim() ||
+    reviewTransferEntry.description || "";
+  const incoming = reviewEntryArrived_(reviewTransferEntry);
+  const mode = reviewTransferMode;
+  closeReviewTransferModal();
 
-    // An expense is money the owner sent out; an income is money that came in
-    // — the friend is then the one repaying (they_owe_me paid down) or
-    // lending (i_owe_them). An income with no debt on record is refused by the
-    // backend (require_owed) before anything is written, so the entry stays.
-    // One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked first and the waiting
-    // entry is put back if anything fails, instead of recording first and discarding afterwards (a failed discard used to
-    // leave both). A repayment's extra waits in this queue (overpay_pending_ok), as before.
-    const incoming = reviewEntryArrived_(reviewTransferEntry);
-    if (reviewTransferMode === "repay") {
+  // Saves behind the screen. One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked
+  // first and the waiting entry is put back if anything fails, so a refusal (an income with no debt on record, say) leaves
+  // the entry exactly as it was and comes back as an alert. A repayment's extra waits in the review queue (overpay_pending_ok).
+  saveBehindScreen_(async () => {
+    if (mode === "repay") {
       const result = await callApi("convertEntryToRepayment", {
         entry_id: entryId,
         friend_id: friendId,
@@ -17900,16 +17849,11 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         description
       });
     }
-
-    closeReviewTransferModal();
+  }, async () => {
     refreshEntriesInBackground_();
     await refreshReviewQueue();
     refreshLoans().catch(() => {});
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  });
 });
 
 // ---- Account balances (Overview) ----
