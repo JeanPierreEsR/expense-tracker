@@ -2907,6 +2907,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       }, splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
       { kind: "create", linkRecurringId: payingRecurringId_ || "" });
       backgroundSaved = { kind: "create", id: newId };
+      tipNoteSavedEntry_(newId, description);
     } else {
       await ensureExchangeRate(currency, date);
       const created = await callApi("createEntry", {
@@ -2923,6 +2924,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         trip_id: tripId,
         ...businessLink
       });
+      tipNoteSavedEntry_(created.id, description);
       if (created.guessed_category_name) {
         lastFormNotice_ = tr("entry.savedGuessed", { category: created.guessed_category_name });
       } else if (selectedType === "expense" && !created.category_id) {
@@ -5581,6 +5583,7 @@ function kickHomeGlance_() {
 }
 
 function refreshHomeGlance_(force) {
+  setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -5799,6 +5802,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+
   }
   if (name === "overview") {
     ensurePeriodSelectorIn("overview");
@@ -15457,13 +15461,21 @@ function loansScopePayload_() {
 
 // ---- First-use tips (spotlight walkthroughs; docs/spotlight.js; owner's design, 2026-10-30) ----
 // A tip is offered ONCE per feature, as a small card at the top of its screen, only after the screen's data has arrived. "Show me"
-// runs the spotlight walkthrough; "Not now" and finishing it both mark the tip as seen on this phone (localStorage "tipsSeen").
-// More → Show tips again clears the list. A new feature ships with its tip: a step list, an invitation text, and a call to
-// offerTip_ at the end of the screen's refresh. The walkthrough moves with Next only (the dimmed area swallows taps) and
-// always puts back whatever it opened (tipCleanup_).
+// starts the walkthrough; "Not now" and starting it both mark the tip as seen on this phone (localStorage "tipsSeen"). More → Show
+// tips again clears the list. A new feature ships with its tip: a step list, an invitation text, and a call to offerTip_ at the end
+// of the screen's refresh. Steps move on when the person taps the REAL button / fills the REAL field (no Next / Back).
+//
+// The Loans tip is a PRACTICE: the person really records a shared expense with a friend, sees the share in Loans and records the
+// repayment; at the end (or on Exit, or the next time the app opens if it was closed midway) everything it made is removed again,
+// in the order the server needs: the repayment first, then the expense (which takes its loan with it).
 let loansLoad_ = null;   // the Loans tab's latest load, so a walkthrough can wait for the list to be there
-let tipSheetOpen_ = false;   // the walkthrough itself opened the new-entry sheet
-let tipPrevType_ = "expense";
+const PRACTICE_KEY_ = "tipPractice";
+let practice_ = null;    // { entryId, friendId, friendName, currency, amount, armed }: what the practice has made so far
+
+function practiceLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_KEY_) || "null"); } catch (e) { return null; } }
+function practiceSave_() {
+  try { if (practice_) localStorage.setItem(PRACTICE_KEY_, JSON.stringify(practice_)); else localStorage.removeItem(PRACTICE_KEY_); } catch (e) { /* ignore */ }
+}
 
 function tipSeen_(key) {
   try { return Spotlight.seen(localStorage, key); } catch (e) { return true; }   // no storage: do not nag on every open
@@ -15474,12 +15486,12 @@ function markTipSeen_(key) {
 
 function runTip_(steps, afterFinish) {
   return Spotlight.run(steps, {
-    labels: { next: tr("spot.next"), back: tr("spot.back"), skip: tr("spot.skip"), done: tr("spot.done"), step: (n, total) => tr("spot.step", { n, total }) },
-    onFinish: async () => { tipCleanup_(); if (afterFinish) await afterFinish(); }
+    labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async (how) => { await afterFinish(how); }
   });
 }
 
-function offerTip_(key, boxId, inviteText, steps, afterFinish) {
+function offerTip_(key, boxId, inviteText, start) {
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
   if (!box.hidden) return;   // already on offer
@@ -15487,77 +15499,193 @@ function offerTip_(key, boxId, inviteText, steps, afterFinish) {
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => { markTipSeen_(key); box.hidden = true; });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
+    if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
     box.hidden = true;
-    runTip_(steps(), afterFinish);
   });
 }
 
-// Puts back anything a walkthrough opened: the new-entry sheet it filled in (never saved, never kept as a draft).
-function tipCleanup_() {
-  if (!tipSheetOpen_) return;
-  tipSheetOpen_ = false;
-  resetSplitState();
-  document.getElementById("entry-trip").value = "";
-  const prev = document.querySelector(`#entry-type-tabs .type-tab[data-type="${tipPrevType_}"]`);
-  if (prev) prev.click();   // the type the form was on before (this also puts its category picker back)
-  else showCategoryPicker();
-  closeNewEntrySheet_();
-}
+// ---- the practice itself ----
 
-// Opens the real new-entry form on an expense, ready to show the split. False = leave these steps out: the person has
-// something half-typed (or is editing), and a walkthrough must never touch that.
 function tipCanUseEntryForm_() {
-  if (tipSheetOpen_) return true;
   let draft = null;
   try { draft = localStorage.getItem(ENTRY_DRAFT_KEY); } catch (e) { /* ignore */ }
-  return !(draft || document.getElementById("amount").value.trim() || document.getElementById("description").value.trim());
-}
-async function tipOpenEntryForm_() {
-  if (tipSheetOpen_) return true;
-  if (!tipCanUseEntryForm_()) return false;
-  openNewEntrySheet_();
-  if (!newEntrySheetOpen_) return false;
-  tipSheetOpen_ = true;
-  tipPrevType_ = selectedType;
-  const expenseTab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
-  if (expenseTab) expenseTab.click();
-  // The first category that is not Travel (picking Travel ticks the Annual tag, which would have to be undone).
-  const first = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense")))
-    .find((c) => !(c.key === "travel" || (!c.key && c.name === "Travel")));
-  showDetailForm(first || null);
-  return true;
+  return !newEntrySheetOpen_ && !editingViaPopup && !editingEntryId && !confirmingPendingId && !draft &&
+    !document.getElementById("amount").value.trim() && !document.getElementById("description").value.trim();
 }
 
-async function tipShowSplit_() {
-  if (!(await tipOpenEntryForm_())) return false;
-  const toggle = document.getElementById("split-toggle");
-  if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event("change")); }
-  return true;
-}
-
-async function tipGoToLoans_() {
-  tipCleanup_();
-  if (document.getElementById("screen-loans").hidden) {
-    showScreen("loans");
-    try { await loansLoad_; } catch (e) { return false; }
+// Waits until this phone has nothing left to send (the practice expense and repayment save behind the screen).
+async function tipWaitIdle_(maxMs) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < (maxMs || 30000)) {
+    const failed = getQueuedEdits_().some((e) => e.status === "failed") || getMoneyQueue_().some((i) => i.status === "failed");
+    if (failed) return false;
+    if (!getQueuedEdits_().length && !getMoneyQueue_().length) return true;
+    await new Promise((r) => setTimeout(r, 300));
   }
+  return false;
+}
+
+// Called from the new-entry save: the practice's own expense is the one with its name, saved while the practice is running.
+function tipNoteSavedEntry_(id, description) {
+  if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
+  const friendId = [...splitFriendIds][0] || "";
+  const friend = (meta.friends || []).find((f) => f.id === friendId);
+  practice_.entryId = id;
+  practice_.friendId = friendId;
+  practice_.friendName = friend ? friend.name : "";
+  practiceSave_();
+}
+
+// Puts the app back the way it was and deletes what the practice made. Returns true when nothing is left.
+let practiceRemoving_ = false;
+async function practiceRemove_() {
+  if (practiceRemoving_) return false;
+  const p = practice_ || practiceLoad_();
+  if (!p) return true;
+  practiceRemoving_ = true;
+  try { return await practiceRemoveNow_(p); } finally { practiceRemoving_ = false; }
+}
+async function practiceRemoveNow_(p) {
+  // What the practice may have left open.
+  if (document.getElementById("settlement-modal-backdrop") && !document.getElementById("settlement-modal-backdrop").hidden) closeSettlementModal();
+  if (!document.getElementById("loan-detail-modal-backdrop").hidden) closeLoanDetail();
+  if (newEntrySheetOpen_) {
+    resetSplitState();
+    document.getElementById("amount").value = "";
+    document.getElementById("description").value = "";
+    document.getElementById("entry-trip").value = "";
+    clearEntryDraft_();
+    closeNewEntrySheet_();
+  }
+  let ok = true;
+  if (p.entryId) {
+    await tipWaitIdle_();
+    try {
+      const loans = await callApi("getFriendLoanDetail", { friendId: p.friendId });
+      const mine = loans.filter((l) => l.origin === "entry" && l.entry_id === p.entryId).map((l) => l.id);
+      if (mine.length) {
+        const settlements = await callApi("listSettlementsForFriendCurrency", { friendId: p.friendId, currency: p.currency });
+        const done = new Set();
+        for (const st of settlements) {
+          if (!mine.includes(st.loan_id) || st.offset_loan_id) continue;
+          const key = st.transfer_entry_id || st.id;
+          if (done.has(key)) continue;
+          done.add(key);
+          await callApi("deleteRepayment", { id: st.id });   // the repayment first: an expense with a repayment on it would turn it into a refund loan
+        }
+      }
+      await callApi("discardEntry", { id: p.entryId });
+    } catch (err) {
+      // An expense that never reached the server is simply not there: nothing to remove.
+      if (!/not found|no se encontr/i.test(String(err.message))) {
+        ok = false;
+        alert(tr("spot.p.removeFailed", { error: err.message }));
+      }
+    }
+  }
+  if (ok) { practice_ = null; practiceSave_(); }
+  clearEntryDraft_();
+  refreshEntryList().catch(() => {});
+  refreshLoans().catch(() => {});
+  refreshBalances().catch(() => {});
+  return ok;
+}
+
+// A practice left behind (the app was closed midway): offered once when Home opens.
+let practiceLeftoverAsked_ = false;
+function practiceLeftover_() {
+  if (practiceLeftoverAsked_ || practiceRemoving_ || Spotlight.isRunning() || !practiceLoad_()) return;
+  practiceLeftoverAsked_ = true;
+  if (confirm(tr("spot.p.leftover"))) practiceRemove_().then((ok) => { if (ok) showToast_(tr("spot.p.removed")); });
+}
+
+function practiceFriendRow_() {
+  if (!practice_ || !practice_.friendId) return null;
+  return Array.from(document.querySelectorAll("#loans-owed-to-me-list .loan-row")).find((r) => r.dataset.friendId === practice_.friendId) || null;
+}
+
+let practiceHint_ = "";
+// A friend with other debts could have the practice repayment mixed into them, so the practice only goes ahead with a friend who owes
+// nothing (either way); anyone else is un-picked with a message.
+async function practiceFriendOk_() {
+  if (splitFriendIds.size > 1) {
+    [...splitFriendIds].slice(1).forEach((id) => splitFriendIds.delete(id));
+    renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
+  }
+  if (splitFriendIds.size === 0) return false;   // (the message about a friend who was un-picked stays until a good one is chosen)
+  const id = [...splitFriendIds][0];
+  const loans = await callApi("getFriendLoanDetail", { friendId: id });
+  if (loans.some((l) => l.status !== "forgiven" && l.remaining > 0.004)) {
+    const friend = (meta.friends || []).find((f) => f.id === id);
+    splitFriendIds.delete(id);
+    renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
+    practiceHint_ = tr("spot.p.s8dirty", { name: friend ? friend.name : "" });
+    return false;
+  }
+  practiceHint_ = "";
   return true;
 }
 
-function loansTipSteps_() {
+function practiceShare_() {
+  const l = (repaymentLoans_ || []).find((x) => x.entry_id === (practice_ && practice_.entryId));
+  return l ? l.remaining : (practice_ && practice_.amount ? practice_.amount / 2 : 0);
+}
+
+function practiceSteps_() {
+  const cur = homeCur();
+  const amountDone = (sel) => () => {
+    const el = document.querySelector(sel);
+    return !!el && parseFloat(el.value) > 0 && document.activeElement !== el;
+  };
   return [
-    { target: "#fab-new-entry", text: () => tr("spot.loans.s1"), before: async () => { tipCleanup_(); showScreen("entries"); } },
-    { target: "#split-field .checkbox-row", text: () => tr("spot.loans.s2"), available: tipCanUseEntryForm_, before: tipOpenEntryForm_ },
-    { target: "#split-friend-chips", text: () => tr("spot.loans.s3"), available: tipCanUseEntryForm_, before: tipShowSplit_ },
-    { target: () => document.querySelector("#loans-owed-to-me-list .loan-row") || document.getElementById("loans-owed-card"), text: () => tr("spot.loans.s4"), before: tipGoToLoans_ },
-    { target: "#add-loan-btn", text: () => tr("spot.loans.s5"), before: tipGoToLoans_ }
+    { target: "#fab-new-entry", text: () => tr("spot.p.s1"), tap: "#fab-new-entry",
+      before: async () => { showScreen("entries"); syncFab_(); } },
+    { target: '#entry-type-tabs .type-tab[data-type="expense"]', text: () => tr("spot.p.s2"), tap: '#entry-type-tabs .type-tab[data-type="expense"]' },
+    { target: "#category-picker", text: () => tr("spot.p.s3"), until: () => !document.getElementById("entry-form").hidden },
+    { target: "#amount", text: () => tr("spot.p.s4", { cur }), blurTap: true, until: amountDone("#amount"),
+      before: async () => {
+        const d = document.getElementById("description");
+        d.value = tr("spot.p.name");
+        d.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+      after: () => { practice_.amount = parseFloat(document.getElementById("amount").value) || 0; practiceSave_(); } },
+    { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
+      after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
+    { target: "#payment-method-field", text: () => tr("spot.p.s6"), visit: "#payment_method" },
+    { target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked },
+    { target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
+      until: practiceFriendOk_, wait: 8000 },
+    { target: "#split-detail", text: () => tr("spot.p.s9"), tap: '#split-mode-tabs .type-tab[data-mode="equal"]' },
+    { target: "#submit-btn", text: () => tr("spot.p.s10"), until: () => !!(practice_ && practice_.entryId) },
+    { target: '.nav-btn[data-screen="loans"]', text: () => tr("spot.p.s11"), tap: '.nav-btn[data-screen="loans"]', wait: 15000 },
+    { target: practiceFriendRow_, text: () => tr("spot.p.s12"), tap: practiceFriendRow_, wait: 45000,
+      poke: () => { if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
+    { target: "#record-repayment-btn", text: () => tr("spot.p.s13"), tap: "#record-repayment-btn", wait: 15000 },
+    { target: "#settlement-amount", text: () => tr("spot.p.s14", { cur: practice_ && practice_.currency || cur, amount: moneyFmt(practiceShare_()) }), blurTap: true, visit: "#settlement-amount", wait: 15000 },
+    { target: "#settlement-payment-method", text: () => tr("spot.p.s15"), visit: "#settlement-payment-method" },
+    { target: "#settlement-save-btn", text: () => tr("spot.p.s16"), until: () => document.getElementById("settlement-modal-backdrop").hidden },
+    { target: "#loan-detail-subtitle", text: () => tr("spot.p.s17"), button: () => tr("spot.p.finish"), wait: 20000,
+      before: async () => { await tipWaitIdle_(20000); } }
   ];
 }
-function offerLoansTip_() {
-  offerTip_("loans", "loans-tip-invite", tr("spot.loans.invite"), loansTipSteps_, async () => {
-    if (document.getElementById("screen-loans").hidden) await tipGoToLoans_();   // skipped halfway: back where the person started
+
+// Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
+function startPractice_() {
+  if (!tipCanUseEntryForm_()) { showToast_(tr("spot.p.busy")); return false; }
+  practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0 };
+  practiceSave_();
+  practiceHint_ = "";
+  runTip_(practiceSteps_(), async () => {
+    const ok = await practiceRemove_();
+    if (document.getElementById("screen-loans").hidden) showScreen("loans");
+    if (ok) showToast_(tr("spot.p.removed"));
   });
+  return true;
+}
+
+function offerLoansTip_() {
+  offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_);
 }
 
 document.getElementById("more-tips-again-btn").addEventListener("click", () => {
@@ -15644,6 +15772,7 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
       <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
+    row.dataset.friendId = r.friend_id;
     row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name, ""));   // "" = every debt of this person
     list.appendChild(row);
   });
