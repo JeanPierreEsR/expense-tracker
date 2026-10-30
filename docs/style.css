@@ -3269,3 +3269,29 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .loans-ov-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 2px; }
 .loans-ov-parts { font-size: 0.8rem; color: var(--muted); }
 .loans-ov-net { font-size: 0.95rem; white-space: nowrap; }
+
+/* ---- First-use tips: the spotlight walkthrough (docs/spotlight.js) and its invitation card ---- */
+.spot-root { position: fixed; inset: 0; }
+.spot-block { position: absolute; inset: 0; touch-action: none; }
+.spot-root.spot-plain .spot-block { background: rgba(0, 0, 0, 0.62); }
+.spot-hole { position: absolute; border-radius: 12px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62); outline: 2px solid rgba(255, 255, 255, 0.9); pointer-events: none; transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.spot-hole[hidden] { display: none; }
+.spot-bubble { position: absolute; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; background: var(--card); color: var(--text); border-radius: var(--radius); padding: 14px 14px 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); }
+.spot-arrow { position: absolute; width: 14px; height: 14px; background: var(--card); transform: translateX(-50%) rotate(45deg); }
+.spot-arrow[hidden] { display: none; }
+.spot-bubble[data-side="below"] .spot-arrow { top: -7px; }
+.spot-bubble[data-side="above"] .spot-arrow { bottom: -7px; }
+.spot-text { margin: 0 0 10px; font-size: 1rem; line-height: 1.35; }
+.spot-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; }
+.spot-count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.spot-buttons { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.spot-buttons button { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--accent); font: inherit; }
+.spot-buttons button[hidden] { display: none; }
+.spot-buttons .spot-skip { border-color: transparent; color: var(--muted); }
+.spot-buttons .spot-next { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.tip-invite { display: flex; flex-direction: column; gap: 10px; background: #fff8e1; }
+.tip-invite[hidden] { display: none; }
+.tip-invite p { margin: 0; line-height: 1.35; }
+.tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
+.tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }

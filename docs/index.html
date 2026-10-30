@@ -564,7 +564,9 @@
         <select id="loans-scope"></select>
       </div>
       <div class="money-queue-strip" id="loans-queue-strip" hidden></div>
-      <div class="card">
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="loans-tip-invite" hidden></div>
+      <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
           <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
@@ -693,6 +695,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-tour-btn">
             <span data-i18n="more.tour">📖 How to use the app</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-tips-again-btn">
+            <span data-i18n="more.tipsAgain">💡 Show tips again</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-devices-btn">
@@ -3035,6 +3041,7 @@
   <script src="rate-quotes.js?v=2026-10-30T11:49:57Z"></script>
   <script src="bank-sample.js?v=2026-10-30T11:49:57Z"></script>
   <script src="perf-share.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="spotlight.js?v=2026-10-30T11:49:57Z"></script>
   <script src="receipt-parse.js?v=2026-10-30T11:49:57Z"></script>
   <script src="receipt-fields.js?v=2026-10-30T11:49:57Z"></script>
   <script src="bill-split.js?v=2026-10-30T11:49:57Z"></script>
