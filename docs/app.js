@@ -6058,10 +6058,7 @@ function paintOverviewSummary_(data) {
 
   // Money-in-your-pocket view: what came in is "+", what went out (spent, put into an investment) is "−".
   document.getElementById("summary-income").textContent = formatPenSigned_(data.totals.income);
-  // Expenses read "−" in red, but a period where refunds outweigh spending reads "+" in green, like Loans.
-  const expenseEl = document.getElementById("summary-expense");
-  expenseEl.textContent = formatPenSigned_(-data.totals.expense);
-  expenseEl.classList.toggle("pos-green", data.totals.expense < -0.004);
+  document.getElementById("summary-expense").textContent = formatPenSigned_(-data.totals.expense);
   document.getElementById("summary-investment").textContent = formatPenSigned_(-data.totals.investment);
   // Loans: the net money borrowed and repaid, in the main currency. Green when it brought money in, like any other inflow.
   const loansEl = document.getElementById("summary-loans");
