@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.39.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.39.3"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-30T03:56:12Z">
+  <link rel="stylesheet" href="style.css?v=2026-10-30T11:49:57Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -564,7 +564,7 @@
         <select id="loans-scope"></select>
       </div>
       <div class="money-queue-strip" id="loans-queue-strip" hidden></div>
-      <!-- First-use tip invitation (spotlight.js / showTipInvite_ in app.js): shown once, only after the list has loaded. -->
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
       <div class="card tip-invite" id="loans-tip-invite" hidden></div>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
@@ -1589,7 +1589,7 @@
         </div>
 
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
-        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Entries on or after each "from" date are added to (or taken from) it; earlier ones are ignored.</p>
+        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
@@ -3033,22 +3033,22 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="i18n.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="tour-scenes.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="signin-link.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="country-guess.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="rate-quotes.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="bank-sample.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="perf-share.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="spotlight.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="receipt-parse.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="receipt-fields.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="bill-split.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="app.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="statement-sample.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="statement-table.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="statement-parsers.js?v=2026-10-30T03:56:12Z"></script>
-  <script src="statements.js?v=2026-10-30T03:56:12Z"></script>
+  <script src="strings.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="i18n.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="tour-scenes.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="signin-link.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="country-guess.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="rate-quotes.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="bank-sample.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="perf-share.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="spotlight.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="receipt-parse.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="receipt-fields.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="bill-split.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="app.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="statement-sample.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="statement-table.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="statement-parsers.js?v=2026-10-30T11:49:57Z"></script>
+  <script src="statements.js?v=2026-10-30T11:49:57Z"></script>
 </body>
 </html>

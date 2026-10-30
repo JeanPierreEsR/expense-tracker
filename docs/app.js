@@ -6263,11 +6263,12 @@ function paintOverviewSummary_(data) {
   // The gray line under What's left spells the sum with the SIGNS the blocks actually show: "− Loans" when loans took money out,
   // "+ Investments" when more was taken out of investments than put in. A block that is zero keeps its usual sign.
   const sgn = (shown, usual) => (Math.abs(shown) < 0.004 ? usual : shown > 0 ? "+" : "−");
+  // Always in the order of the blocks: income, expenses, investments, loans (owner, 2026-10-29).
   const eqParts = [
     ["+", tr("summary.income")],
-    [sgn(data.totals.loans || 0, "+"), tr("summary.loans")],
     [sgn(-data.totals.expense, "−"), tr("summary.expenses")],
-    [sgn(-data.totals.investment, "−"), tr("summary.investments")]
+    [sgn(-data.totals.investment, "−"), tr("summary.investments")],
+    [sgn(data.totals.loans || 0, "+"), tr("summary.loans")]
   ];
   document.getElementById("summary-net-eq").textContent = eqParts.map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
@@ -18162,12 +18163,7 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-modal-title").textContent = balanceModalData.nickname;
     document.getElementById("balance-current").hidden = false;
     document.getElementById("balance-clear-btn").hidden = false;
-    balanceFormRows = balanceModalData.openings.map((o) => ({
-      amount: String(Math.abs(o.amount)),
-      negative: o.amount < 0,
-      currency: o.currency,
-      date: o.date || todayLocalISO()
-    }));
+    loadBalanceRowsFor_(pmId);
     renderBalanceCurrentLines_();
   }
   renderBalanceRows_();
@@ -18233,9 +18229,29 @@ function loadBalanceRowsFor_(pmId) {
         amount: String(Math.abs(o.amount)),
         negative: o.amount < 0,
         currency: o.currency,
-        date: o.date || todayLocalISO()
+        date: o.date || todayLocalISO(),
+        // The saved snapshot, so the note can tell an untouched row (keeps its
+        // moment on save — setPaymentMethodOpeningBalance) from a changed one.
+        saved: { amount: o.amount, currency: o.currency, date: o.date || "", asOf: o.as_of || "" }
       }))
     : [{ amount: "", negative: false, currency: homeCur(), date: todayLocalISO() }];
+}
+
+// What moment a balance row stands for, in words. Mirrors the backend: a row
+// left unchanged keeps its saved moment; a row dated today is stamped with the
+// moment it is saved ("right now"); any other date counts from the start of
+// that day.
+function balanceRowAsOfNote_(row) {
+  const s = row.saved;
+  const text = String(row.amount).trim().replace(/,/g, "").replace(/[−–]/g, "-");
+  const parsed = parseFloat(text);
+  const amount = isNaN(parsed) ? null : (row.negative ? -Math.abs(parsed) : parsed);
+  if (s && s.asOf && s.currency === row.currency && s.date === row.date && amount === s.amount) {
+    return tr("balance.asOfSaved", { when: I18n.fmtDateTime(new Date(s.asOf)) });
+  }
+  if (row.date === todayLocalISO()) return tr("balance.asOfNow", { when: I18n.fmtDateTime(new Date()) });
+  if (!row.date) return "";
+  return tr("balance.asOfDayStart", { date: I18n.fmtDateMedium(new Date(row.date + "T00:00:00")) });
 }
 
 function renderBalanceRows_() {
@@ -18254,11 +18270,15 @@ function renderBalanceRows_() {
       <label class="checkbox-row"><input type="checkbox" class="balance-row-negative"${row.negative ? " checked" : ""}><span>${tr("balance.negative")}</span></label>
       <label class="balance-row-date-label">${tr("balance.fromDate")}</label>
       <input type="date" class="balance-row-date" value="${row.date}">
+      <p class="hint balance-row-asof"></p>
     `;
-    el.querySelector(".balance-row-amount-input").addEventListener("input", (e) => { row.amount = e.target.value; });
-    el.querySelector(".balance-row-currency-select").addEventListener("change", (e) => { row.currency = e.target.value; });
-    el.querySelector(".balance-row-negative").addEventListener("change", (e) => { row.negative = e.target.checked; });
-    el.querySelector(".balance-row-date").addEventListener("change", (e) => { row.date = e.target.value; });
+    const note = el.querySelector(".balance-row-asof");
+    const showNote = () => { note.textContent = balanceRowAsOfNote_(row); };
+    showNote();
+    el.querySelector(".balance-row-amount-input").addEventListener("input", (e) => { row.amount = e.target.value; showNote(); });
+    el.querySelector(".balance-row-currency-select").addEventListener("change", (e) => { row.currency = e.target.value; showNote(); });
+    el.querySelector(".balance-row-negative").addEventListener("change", (e) => { row.negative = e.target.checked; showNote(); });
+    el.querySelector(".balance-row-date").addEventListener("change", (e) => { row.date = e.target.value; showNote(); });
     const rm = el.querySelector(".balance-row-remove");
     if (rm) rm.addEventListener("click", () => { balanceFormRows.splice(i, 1); renderBalanceRows_(); });
     wrap.appendChild(el);

@@ -14,3 +14,13 @@ backend/.clasp.json
 Receipt testing/
 receipt-testing/
 receipts-private/
+
+# Safety net: private files that live in the parent folder must never be committed
+.claude/
+*.bak
+*.rtf
+*.numbers
+*.eml
+Emails/
+Statements/
+Spendee data/
