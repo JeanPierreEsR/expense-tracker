@@ -5208,20 +5208,18 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (makeTransferBtn) makeTransferBtn.addEventListener("click", async () => {
         if (!confirm(tr("review.makeTransferConfirm"))) return;
         const amt = parseFloat(amountInput.value.trim());
+        const body = {
+          id: entry.id,
+          description: item.querySelector(".review-description").value.trim(),
+          amount: amt > 0 ? amt : undefined
+        };
         makeTransferBtn.disabled = true;
-        try {
-          await callApi("convertPendingToTransfer", {
-            id: entry.id,
-            description: item.querySelector(".review-description").value.trim(),
-            amount: amt > 0 ? amt : undefined
-          });
-        } catch (err) {
+        // Saves behind the screen (a refusal comes back as an alert and the card stays as it was).
+        saveBehindScreen_(() => callApi("convertPendingToTransfer", body), async () => {
           makeTransferBtn.disabled = false;
-          alert(err.message || String(err));
-          return;
-        }
-        refreshReviewQueue().catch(() => {});
-        refreshEntryList();
+          refreshReviewQueue().catch(() => {});
+          refreshEntryList();
+        });
       });
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
@@ -5490,6 +5488,16 @@ function showToast_(text) {
 // server call here. A "💾 Saving…" toast shows, the call runs behind the
 // screen, a refusal comes back as a message, and `after` (the refresh) runs
 // either way so the screen always ends up showing what the server has.
+// A save button inside a sheet that has already closed does nothing: a second tap (or click) arriving while the first save is
+// already on its way must not save the same thing twice.
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("button") : null;
+  if (b && /(-save(-btn)?|-record(-btn)?|-apply(-btn)?)$/.test(b.id) && b.closest("[hidden]")) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }
+}, true);
+
 function saveBehindScreen_(work, after) {
   showToast_(tr("common.savingToast"));
   (async () => {
@@ -10271,6 +10279,7 @@ function renderTidy_() {
 // Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
 async function applyTidy_(items, buttons) {
   buttons.forEach((b) => { b.disabled = true; });
+  showToast_(tr("common.savingToast"));
   try {
     const res = await callApi("applyTidyGroups", { items });
     if (!res.count) {
@@ -10932,6 +10941,7 @@ document.getElementById("cat-save-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("cat-form-error");
   errorEl.textContent = "";
   const btn = document.getElementById("cat-save-btn");
+  if (!document.getElementById("cat-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
   btn.disabled = true;
   try {
     const payload = {
@@ -11043,7 +11053,7 @@ fitsEl_("fits-close").addEventListener("click", () => { fitsEl_("fits-modal-back
 fitsEl_("fits-add-btn").addEventListener("click", async () => {
   const btn = fitsEl_("fits-add-btn");
   btn.disabled = true;
-  fitsEl_("fits-msg").textContent = "";
+  fitsEl_("fits-msg").textContent = tr("common.savingToast");
   try {
     const res = await callApi("applyProfile", { answers: fitsSel_, basics: true });
     if (meta && meta.settings) meta.settings.profile = (res.profile || []).join(",");
@@ -11702,6 +11712,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("trip-form-error");
   errorEl.textContent = "";
   const saveBtn = document.getElementById("trip-save-btn");
+  if (!document.getElementById("trip-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
   saveBtn.disabled = true;
   try {
     const budget = document.getElementById("trip-budget").value.trim();
@@ -12321,6 +12332,7 @@ document.getElementById("expected-save-btn").addEventListener("click", async () 
   const errorEl = document.getElementById("expected-form-error");
   errorEl.textContent = "";
   const saveBtn = document.getElementById("expected-save-btn");
+  if (!(parseFloat(document.getElementById("expected-amount").value) > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   saveBtn.disabled = true;
   try {
     const fields = {
@@ -12422,6 +12434,7 @@ document.getElementById("company-save-btn").addEventListener("click", async () =
   const errorEl = document.getElementById("company-form-error");
   errorEl.textContent = "";
   const saveBtn = document.getElementById("company-save-btn");
+  if (!document.getElementById("company-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
   saveBtn.disabled = true;
   try {
     const fields = {
@@ -12679,6 +12692,7 @@ document.getElementById("project-save-btn").addEventListener("click", async () =
   const errorEl = document.getElementById("project-form-error");
   errorEl.textContent = "";
   const saveBtn = document.getElementById("project-save-btn");
+  if (!document.getElementById("project-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
   saveBtn.disabled = true;
   try {
     const budgets = Array.from(document.querySelectorAll("#project-budgets .business-budget-row")).map((row) => ({
@@ -15026,13 +15040,9 @@ document.getElementById("pmm-save").addEventListener("click", async () => {
 document.getElementById("pmm-apply-all").addEventListener("click", async () => {
   if (!pmmState || pmmState.categoryId) return;
   if (!confirm(tr("pmm.applyAllConfirm", { name: projectionMethodLabel_(pmmState.selected) }))) return;
-  try {
-    await callApi("applyProjectionMethodToAll", { method: pmmState.selected });
-    closeProjectionMethodModal_();
-    afterProjectionMethodChange_();
-  } catch (err) {
-    document.getElementById("pmm-error").textContent = err.message;
-  }
+  const method = pmmState.selected;
+  closeProjectionMethodModal_();
+  saveBehindScreen_(() => callApi("applyProjectionMethodToAll", { method }), () => afterProjectionMethodChange_());
 });
 
 function pmmPct_(x) { return Math.round(x * 100); }
@@ -16188,22 +16198,16 @@ document.getElementById("reassign-delete").addEventListener("click", async () =>
     ? tr("reassign.confirmDeleteWithExtra", { friend: ctx.friendName, cur: r.currency, total, loans: moneyFmt(r.applied), extra: moneyFmt(r.gapAmount) })
     : tr("reassign.confirmDelete", { friend: ctx.friendName, cur: r.currency, total });
   if (!confirm(text)) return;
-  const btn = document.getElementById("reassign-delete");
-  btn.disabled = true;
+  const repaymentId = r.id;
   document.getElementById("reassign-error").textContent = "";
-  try {
-    await callConversion_("deleteRepayment", { id: r.id });   // a failure is undone by the server and announced
-  } catch (err) {
-    document.getElementById("reassign-error").textContent = err.message;
-    btn.disabled = false;
-    return;
-  }
-  btn.disabled = false;
   closeReassign_();
-  refreshEntriesInBackground_();
-  await refreshLoans();
-  await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
-  await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  // Saves behind the screen; a failure is undone by the server and announced as an alert.
+  saveBehindScreen_(() => callApi("deleteRepayment", { id: repaymentId }), async () => {
+    refreshEntriesInBackground_();
+    await refreshLoans();
+    await openLoanDetail(ctx.friendId, ctx.friendName, ctx.projectId);
+    await openRepaymentHistory_(ctx.friendId, ctx.friendName, ctx.projectId, document.getElementById("loan-detail-subtitle").textContent);
+  });
 });
 document.getElementById("reassign-save").addEventListener("click", () => {
   const ctx = historyCtx_;
@@ -16763,7 +16767,9 @@ document.getElementById("bank-early-close").addEventListener("click", () => { do
 document.getElementById("bank-early-cancel").addEventListener("click", () => { document.getElementById("bank-early-modal-backdrop").hidden = true; });
 document.getElementById("bank-early-save").addEventListener("click", () => {
   const ctx = bankEarlyCtx_;
-  document.getElementById("bank-early-error").textContent = "";
+  const earlyErr = document.getElementById("bank-early-error");
+  earlyErr.textContent = "";
+  if (!(bankNum_(document.getElementById("bank-early-principal").value) > 0)) { earlyErr.textContent = tr("error.validAmount"); return; }
   const payload = {
     loan_id: ctx.sched.loan.id,
     date: document.getElementById("bank-early-date").value,
