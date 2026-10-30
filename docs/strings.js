@@ -1905,7 +1905,7 @@
     "fits.title": { en: "Add suggested categories", es: "Agregar categorías sugeridas" },
     "fits.intro": { en: "Tap what is part of your life. The app adds the basic categories you don't have yet, plus one for each pick. Nothing you have is changed or removed, and un-ticking a pick deletes nothing.", es: "Toca lo que es parte de tu vida. La app agrega las categorías básicas que aún no tienes, y una por cada opción. Nada de lo que ya tienes se cambia ni se borra, y quitar una opción no borra nada." },
     "fits.add": { en: "Add categories", es: "Agregar categorías" },
-    "fits.added": { en: "Added {n} categories.", es: "Se agregaron {n} categorías." },
+    "fits.added": { en: { one: "Added {n} category.", other: "Added {n} categories." }, es: { one: "Se agregó {n} categoría.", other: "Se agregaron {n} categorías." } },
     "fits.none": { en: "You already have everything suggested.", es: "Ya tienes todo lo sugerido." },
     "fits.failed": { en: "Could not add them. Check your connection and try again.", es: "No se pudieron agregar. Revisa tu conexión e inténtalo de nuevo." },
     "fits.a.car": { en: "🚗 Car or motorbike", es: "🚗 Auto o moto" },
