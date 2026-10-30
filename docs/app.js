@@ -4590,6 +4590,7 @@ function flushAllQueuedEdits_() {
 // regardless of which tab is open) rather than a toast that could fade
 // away unnoticed. Called every time the queue changes, above.
 function renderSaveFailedBanner_() {
+  renderMoneyQueueStrips_();
   const banner = document.getElementById("save-failed-banner");
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
   const moneyFailed = getMoneyQueue_().filter((q) => q.status === "failed");
@@ -4639,9 +4640,10 @@ function pendingSaveCount_() {
 }
 
 // ctx: what the refresh afterwards needs ({ friendId, friendName, convert }); label: what the failed item is called.
-function queueMoneyAction_(action, payload, label, ctx) {
+// replaces: the id of a failed item this save is the corrected version of (it is dropped as the new one is queued).
+function queueMoneyAction_(action, payload, label, ctx, replaces) {
   const id = newClientEntryId_();
-  const items = getMoneyQueue_();
+  const items = getMoneyQueue_().filter((q) => q.id !== replaces);
   items.push({ id, action, payload: Object.assign({}, payload, { client_id: id }), label, ctx: ctx || {}, status: "saving", lastError: null, queuedAt: Date.now() });
   setMoneyQueue_(items);
   renderSaveFailedBanner_();
@@ -4706,15 +4708,96 @@ async function flushMoneyQueue_() {
 }
 
 // Tapping the banner when a money save failed: the reason, then "try again" or "throw it away" — nothing is dropped silently.
-function handleMoneyFailure_() {
-  const item = getMoneyQueue_().find((q) => q.status === "failed");
-  if (!item) return;
-  if (confirm(tr("money.failedRetry", { what: item.label, error: item.lastError || "" }))) {
+// A loan, forgiving or exchange reopens in its own form with what was typed and the reason; the rest can only be tried again.
+const MONEY_REOPENABLE_ = ["addLoan", "updateLoan", "forgiveLoan", "recordCurrencyExchange"];
+let moneyReopen_ = null;   // { id, kind }: the failed item whose form is open now; the next save of that kind replaces it
+
+function takeMoneyReopen_(kind) {
+  const id = moneyReopen_ && moneyReopen_.kind === kind ? moneyReopen_.id : "";
+  moneyReopen_ = null;
+  return id;
+}
+
+function reopenMoneyItem_(item) {
+  const p = item.payload, ctx = item.ctx || {};
+  const returnFriend = ctx.friendId ? { id: ctx.friendId, name: ctx.friendName } : null;
+  const reason = item.lastError || "";
+  if (item.action === "addLoan" || item.action === "updateLoan") {
+    // "Saved as typed" values go back in; an edit keeps its id, so the server edits the same loan.
+    openLoanModal(item.action === "updateLoan" ? { id: p.id, friend_id: p.friend_id, direction: p.direction, amount: p.amount, currency: p.currency, date: p.date, due_date: p.due_date, payment_method_id: p.payment_method_id, description: p.description, project_id: p.project_id } : null, returnFriend);
+    document.getElementById("loan-friend").value = p.friend_id;
+    setLoanDirection_(p.direction);
+    document.getElementById("loan-amount").value = p.amount;
+    document.getElementById("loan-currency").value = p.currency;
+    renderCurrencyChips("loan");
+    document.getElementById("loan-date").value = p.date;
+    document.getElementById("loan-due-date").value = p.due_date || "";
+    document.getElementById("loan-payment-method").value = p.payment_method_id || "";
+    document.getElementById("loan-description").value = p.description || "";
+    if (businessOn() && p.project_id !== undefined) document.getElementById("loan-project").value = p.project_id || "";
+    document.getElementById("loan-form-error").textContent = reason;
+    moneyReopen_ = { id: item.id, kind: "loan" };
+  } else if (item.action === "forgiveLoan" && ctx.loan) {
+    openForgiveModal(ctx.loan, returnFriend);
+    if (p.amount !== undefined) document.getElementById("forgive-amount").value = String(p.amount);
+    if (p.category_id) document.getElementById("forgive-category").value = p.category_id;
+    if (p.date) document.getElementById("forgive-date").value = p.date;
+    document.getElementById("forgive-form-error").textContent = reason;
+    moneyReopen_ = { id: item.id, kind: "forgive" };
+  } else if (item.action === "recordCurrencyExchange") {
+    openExchangeModal_({});
+    document.getElementById("exchange-date").value = p.date;
+    document.getElementById("exchange-out-account").value = p.out.payment_method_id || "";
+    document.getElementById("exchange-in-account").value = p.in.payment_method_id || "";
+    document.getElementById("exchange-out-currency").value = p.out.currency;
+    document.getElementById("exchange-in-currency").value = p.in.currency;
+    document.getElementById("exchange-out-amount").value = p.out.amount;
+    document.getElementById("exchange-in-amount").value = p.in.amount;
+    document.getElementById("exchange-house").value = p.house || "";
+    updateExchangeRateLine_();
+    document.getElementById("exchange-form-error").textContent = reason;
+    moneyReopen_ = { id: item.id, kind: "exchange" };
+  }
+}
+
+function handleMoneyFailure_(id) {
+  const item = id ? getMoneyQueue_().find((q) => q.id === id) : getMoneyQueue_().find((q) => q.status === "failed");
+  if (!item || item.status !== "failed") return;
+  const reopenable = MONEY_REOPENABLE_.includes(item.action) && !(item.action === "forgiveLoan" && !(item.ctx && item.ctx.loan));
+  if (reopenable) {
+    if (confirm(tr("money.failedOpen", { what: item.label, error: item.lastError || "" }))) {
+      reopenMoneyItem_(item);
+      return;
+    }
+  } else if (confirm(tr("money.failedRetry", { what: item.label, error: item.lastError || "" }))) {
     setMoneyItemStatus_(item.id, "saving", null);
     flushMoneyQueue_();
-  } else if (confirm(tr("money.failedDiscard", { what: item.label }))) {
-    removeMoneyItem_(item.id);
+    return;
   }
+  if (confirm(tr("money.failedDiscard", { what: item.label }))) removeMoneyItem_(item.id);
+}
+
+// The "💾 Saving…" / "⚠️ Couldn't save" rows at the top of the Loans tab and of a person's loan screen (loan, forgiving and
+// repayment changes only: the other money saves show in the top banner).
+const LOAN_QUEUE_ACTIONS_ = ["addLoan", "updateLoan", "forgiveLoan", "updateSettlement"];
+
+function renderMoneyQueueStrips_() {
+  const items = getMoneyQueue_().filter((q) => LOAN_QUEUE_ACTIONS_.includes(q.action));
+  const fill = (id, list) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = "";
+    el.hidden = !list.length;
+    list.forEach((q) => {
+      const row = document.createElement("div");
+      row.className = "money-queue-row" + (q.status === "failed" ? " money-queue-failed" : "");
+      row.textContent = tr(q.status === "failed" ? "money.rowFailed" : "money.rowSaving", { what: q.label });
+      if (q.status === "failed") row.addEventListener("click", () => handleMoneyFailure_(q.id));
+      el.appendChild(row);
+    });
+  };
+  fill("loans-queue-strip", items);
+  fill("loan-detail-queue", items.filter((q) => q.ctx && q.ctx.friendId && q.ctx.friendId === loanDetailScope_.friendId));
 }
 
 document.getElementById("save-failed-banner").addEventListener("click", () => {
@@ -5199,6 +5282,7 @@ function fillExchangeForm_(opts) {
 function closeExchangeModal_() {
   document.getElementById("exchange-modal-backdrop").hidden = true;
   exchangeContext_ = null;
+  moneyReopen_ = null;
 }
 
 document.getElementById("exchange-modal-close").addEventListener("click", closeExchangeModal_);
@@ -5237,6 +5321,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   // A plain new exchange saves behind the screen; turning a waiting (pending) entry into one leg stays foreground — it
   // changes an existing row, so it is not repeat-safe the way a new one is.
   if (moneyBackground_() && !ctx) {
+    const replaces = takeMoneyReopen_("exchange");
     if (wasInline) {
       document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
       updateRepaymentUi_();
@@ -5246,7 +5331,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
     }
     queueMoneyAction_("recordCurrencyExchange", {
       date, out, in: inn, house: document.getElementById("exchange-house").value.trim()
-    }, `${tr("money.labelExchange")} · ${out.currency} ${moneyFmt(out.amount)} → ${inn.currency} ${moneyFmt(inn.amount)}`, {});
+    }, `${tr("money.labelExchange")} · ${out.currency} ${moneyFmt(out.amount)} → ${inn.currency} ${moneyFmt(inn.amount)}`, {}, replaces);
     return;
   }
   saveBtn.disabled = true;
@@ -12178,9 +12263,11 @@ document.getElementById("expected-save-btn").addEventListener("click", async () 
       note: document.getElementById("expected-note").value.trim(),
       igv_included: !document.getElementById("expected-igv-row").hidden && document.getElementById("expected-igv").checked
     };
-    if (editingExpected_.payment) await callApi("updateExpectedPayment", Object.assign({ id: editingExpected_.payment.id }, fields));
-    else await callApi("addExpectedPayment", fields);
-    await afterExpectedChange_();
+    const paymentId = editingExpected_.payment ? editingExpected_.payment.id : null;
+    closeExpectedModal_();
+    saveBehindScreen_(
+      () => paymentId ? callApi("updateExpectedPayment", Object.assign({ id: paymentId }, fields)) : callApi("addExpectedPayment", fields),
+      async () => { await refreshBusinessDetail_(); refreshBusinessHomeCard_(); });
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -14872,9 +14959,8 @@ document.getElementById("pmm-save").addEventListener("click", async () => {
   errorEl.textContent = "";
   try {
     const payload = pmmState.categoryId ? { categoryId: pmmState.categoryId, method: pmmState.selected } : { method: pmmState.selected };
-    await callApi("setProjectionMethod", payload);
     closeProjectionMethodModal_();
-    afterProjectionMethodChange_();
+    saveBehindScreen_(() => callApi("setProjectionMethod", payload), afterProjectionMethodChange_);
   } catch (err) {
     errorEl.textContent = err.message;
   }
@@ -15381,6 +15467,7 @@ let loanDetailScope_ = { friendId: null, projectId: "" };
 async function openLoanDetail(friendId, friendName, projectId) {
   if (projectId === undefined) projectId = loanDetailScope_.friendId === friendId ? loanDetailScope_.projectId : "";
   loanDetailScope_ = { friendId, projectId };
+  renderMoneyQueueStrips_();   // this person's saving / failed changes show at the top of their list
   // Same pattern every other drill-down uses (see openBudgetDrilldown,
   // openCategoryProjectionDrilldown_) — lets refreshAfterPopupEdit(),
   // below, reload this same friend's sheet after editing a linked
@@ -16868,6 +16955,7 @@ function populateLoanProjectOptions_(keep) {
 function closeLoanModal() {
   document.getElementById("loan-modal-backdrop").hidden = true;
   editingLoanId = null;
+  moneyReopen_ = null;   // closed without saving: the failed item stays as it was
 }
 
 // After a save/delete: the main Loans list always refreshes, and if this
@@ -16943,8 +17031,9 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       const friend = meta.friends.find((f) => f.id === friendId);
       const ctx = { friendId: loanModalReturnFriend ? loanModalReturnFriend.id : friendId, friendName: loanModalReturnFriend ? loanModalReturnFriend.name : (friend ? friend.name : "") };
       const loanId = editingLoanId;
+      const replaces = takeMoneyReopen_("loan");
       closeLoanModal();
-      queueMoneyAction_(loanId ? "updateLoan" : "addLoan", loanId ? { id: loanId, ...fields } : fields, `${tr("money.labelLoan")} · ${friend ? friend.name : ""} ${currency} ${moneyFmt(amount)}`, ctx);
+      queueMoneyAction_(loanId ? "updateLoan" : "addLoan", loanId ? { id: loanId, ...fields } : fields, `${tr("money.labelLoan")} · ${friend ? friend.name : ""} ${currency} ${moneyFmt(amount)}`, ctx, replaces);
       return;
     }
 
@@ -17540,6 +17629,7 @@ function openForgiveModal(loan, returnFriend) {
 function closeForgiveModal() {
   document.getElementById("forgive-modal-backdrop").hidden = true;
   forgiveLoanTarget = null;
+  moneyReopen_ = null;
 }
 
 document.getElementById("forgive-modal-close").addEventListener("click", closeForgiveModal);
@@ -17570,6 +17660,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   if (moneyBackground_()) {
     const target = forgiveLoanTarget;
     const returnFriend = forgiveReturnFriend;
+    const replaces = takeMoneyReopen_("forgive");
     closeForgiveModal();
     const friend = meta.friends.find((f) => f.id === target.friend_id);
     queueMoneyAction_("forgiveLoan", {
@@ -17579,7 +17670,11 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
       category_id: categoryId,
       date
     }, `${tr("money.labelForgive")} · ${friend ? friend.name : ""} ${target.currency} ${moneyFmt(convert ? amount : target.remaining)}`,
-    { friendId: returnFriend ? returnFriend.id : target.friend_id, friendName: returnFriend ? returnFriend.name : (friend ? friend.name : ""), convert });
+    {
+      friendId: returnFriend ? returnFriend.id : target.friend_id, friendName: returnFriend ? returnFriend.name : (friend ? friend.name : ""), convert,
+      // What the form needs to open again if this save fails.
+      loan: { id: target.id, description: target.description, currency: target.currency, remaining: target.remaining, direction: target.direction, friend_id: target.friend_id }
+    }, replaces);
     return;
   }
 
