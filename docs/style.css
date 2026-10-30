@@ -2573,10 +2573,10 @@ body.income-revealed .sens-mask { display: none; }
 .pmm-option-name { font-weight: 600; }
 .pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
-.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
 .pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
-.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 
 /* ---- One calendar for a start and an end date ---- */
 .range-field { width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text, inherit); font: inherit; cursor: pointer; }
@@ -3210,3 +3210,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bank-inst-status { font-size: 0.8rem; font-weight: 600; }
 .bank-inst-status.paid { color: #2e9e5b; }
 .bank-inst-status.overdue { color: #d64545; }
+
+/* Overview: Loans card */
+.loans-ov-row { padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.loans-ov-row:last-child { border-bottom: 0; }
+.loans-ov-total { cursor: default; }
+.loans-ov-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 2px; }
+.loans-ov-parts { font-size: 0.8rem; color: var(--muted); }
+.loans-ov-net { font-size: 0.95rem; white-space: nowrap; }

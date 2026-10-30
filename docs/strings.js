@@ -456,6 +456,13 @@
     "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, Yape, una tarjeta de Starbucks…) para empezar a llevar su saldo." },
 
     // ---- invest ----
+    "loans.ov.title": { en: "Loans", es: "Préstamos" },
+    "loans.ov.hint": { en: "Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.", es: "Dinero pedido prestado, prestado y repagado en este periodo, por moneda. Incluye lo que los amigos te deben de cuentas compartidas y los préstamos de bancos. No es ingreso ni gasto, así que no entra en los totales de arriba." },
+    "loans.ov.borrowed": { en: "Borrowed", es: "Pedido prestado" },
+    "loans.ov.lent": { en: "Lent", es: "Prestado" },
+    "loans.ov.paidBack": { en: "You repaid", es: "Repagaste" },
+    "loans.ov.receivedBack": { en: "Repaid to you", es: "Te repagaron" },
+    "loans.ov.total": { en: "All loans", es: "Todos los préstamos" },
     "invest.periodTitle": { en: "Put in (+ withdrawals) this period", es: "Puesto (+ retiros) en este periodo" },
 
     // ---- budgets ----

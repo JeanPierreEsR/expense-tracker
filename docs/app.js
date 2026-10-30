@@ -5922,12 +5922,13 @@ function paintOverviewSummary_(data) {
     excludedNote.hidden = true;
   }
 
-  const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0;
+  const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
 
   renderBreakdowns(data.breakdowns[overviewType]);
   if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
+  renderLoansPeriod_(data.loans || { people: [], totals: [] });
 }
 
 async function refreshOverviewInner_() {
@@ -6005,6 +6006,36 @@ function renderInvestmentsPeriod_(items) {
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
   });
+}
+
+// Loans card: FLOWS of debts with friends and banks in the selected period, per person and per currency, never converted and
+// never part of income/expenses/net. The headline is the net in the owner's pocket (borrowed and repaid-to-you in, lent and
+// repaid-by-you out); under it each kind that happened. Tap a person to open their loans.
+const LOAN_OV_KINDS_ = [["borrowed", 1], ["lent", -1], ["paidBack", -1], ["receivedBack", 1]];
+function loansOvLineHtml_(l) {
+  const parts = LOAN_OV_KINDS_.filter(([k]) => l[k]).map(([k, sign]) => `${tr("loans.ov." + k)} ${signedMoney_(sign * l[k], l.currency)}`);
+  return `<div class="loans-ov-line">
+    <div class="loans-ov-parts">${escapeHtml(parts.join(" · "))}</div>
+    <div class="loans-ov-net ${l.net > 0 ? "pos-green" : ""}">${signedMoney_(l.net, l.currency)}</div>
+  </div>`;
+}
+function renderLoansPeriod_(loans) {
+  const list = document.getElementById("loans-ov-list");
+  document.getElementById("loans-ov-card").hidden = loans.people.length === 0;
+  list.innerHTML = "";
+  loans.people.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "loans-ov-row";
+    row.innerHTML = `<div class="balance-row-name">${escapeHtml(p.name)}<span class="loan-detail-row-chevron">›</span></div>${p.lines.map(loansOvLineHtml_).join("")}`;
+    row.addEventListener("click", () => openLoanDetail(p.id, p.name));
+    list.appendChild(row);
+  });
+  if (loans.people.length > 1) {
+    const total = document.createElement("div");
+    total.className = "loans-ov-row loans-ov-total";
+    total.innerHTML = `<div class="balance-row-name"><strong>${escapeHtml(tr("loans.ov.total"))}</strong></div>${loans.totals.map(loansOvLineHtml_).join("")}`;
+    list.appendChild(total);
+  }
 }
 
 function renderBreakdowns(breakdown) {
