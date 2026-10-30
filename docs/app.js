@@ -8772,21 +8772,16 @@ document.getElementById("extras-takeback-cancel").addEventListener("click", () =
   document.getElementById("extras-takeback-confirm").hidden = true;
   document.getElementById("extras-takeback-btn").hidden = false;
 });
-document.getElementById("extras-takeback-go").addEventListener("click", async () => {
-  const btn = document.getElementById("extras-takeback-go");
-  btn.disabled = true;
-  try {
+document.getElementById("extras-takeback-go").addEventListener("click", () => {
+  document.getElementById("extras-takeback-confirm").hidden = true;
+  saveBehindScreen_(async () => {
     await callApi("takeBackPermissions", { confirm: true });
     meta.capabilities = Object.assign({}, meta.capabilities, { keepAwake: false, bankEmails: false });
+    extrasMsg_(tr("extras.takenBack"));
+  }, async () => {
     refreshExtrasRow_();
     renderExtrasList_();
-    document.getElementById("extras-takeback-confirm").hidden = true;
-    extrasMsg_(tr("extras.takenBack"));
-  } catch (err) {
-    extrasMsg_(tr("extras.failed"));
-  } finally {
-    btn.disabled = false;
-  }
+  });
 });
 document.getElementById("extras-share-btn").addEventListener("click", () => {
   document.getElementById("extras-modal-backdrop").hidden = true;
@@ -14298,14 +14293,9 @@ async function openPaidPicker_(item, currency, isIncome) {
           <div class="link-candidate-date">${e.date} · ${e.currency} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
-      row.addEventListener("click", async () => {
-        try {
-          await callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id });
-          backdrop.hidden = true;
-          await refreshExpectedRecurring();
-        } catch (err) {
-          errorEl.textContent = err.message;
-        }
+      row.addEventListener("click", () => {
+        backdrop.hidden = true;
+        saveBehindScreen_(() => callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id }), () => refreshExpectedRecurring());
       });
       list.appendChild(row);
     });
