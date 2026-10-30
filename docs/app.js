@@ -5822,6 +5822,7 @@ function showScreen(name) {
     loansLoad_ = refreshLoans();
   }
   if (name === "more") {
+    document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;   // an older backend cannot edit friends
     applyBusinessVisibility_();
   }
 }
@@ -5864,7 +5865,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -12812,13 +12813,59 @@ function renderPeopleList_(people) {
   });
 }
 
+// ---- More → Friends: the plain friends, to rename, add or delete (owner's request, 2026-10-30) ----
+let friends_ = [];
+function showFriendsScreen_() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-friends"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  // Loading standard: nothing half-drawn; the list shows once it has arrived.
+  document.getElementById("friends-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  document.getElementById("friends-empty-note").hidden = true;
+  refreshFriendsList_();
+}
+async function refreshFriendsList_() {
+  const errorEl = document.getElementById("friends-error");
+  errorEl.textContent = "";
+  try {
+    friends_ = await callApi("listMyFriends", {});
+    renderFriendsList_();
+  } catch (err) {
+    document.getElementById("friends-list").innerHTML = "";
+    errorEl.textContent = tr("business.loadFailed", { error: err.message });
+  }
+}
+function renderFriendsList_() {
+  const box = document.getElementById("friends-list");
+  box.innerHTML = "";
+  document.getElementById("friends-empty-note").hidden = friends_.length > 0;
+  friends_.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    row.innerHTML = `
+      <div>
+        <div class="recurring-row-name">${escapeHtml(p.name)}</div>
+        <div class="recurring-row-sub">${p.totals.length ? "" : escapeHtml(tr("people.noDebts"))}</div>
+      </div>
+      <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
+    row.addEventListener("click", () => openPersonModal_(p, true));
+    box.appendChild(row);
+  });
+}
+document.getElementById("more-friends-btn").addEventListener("click", showFriendsScreen_);
+document.getElementById("friends-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("friends-add-btn").addEventListener("click", () => openPersonModal_(null, true));
+
 // ---- Person pop-up ----
 
 let editingPerson_ = null;
 
-function openPersonModal_(person) {
+let personModalFriends_ = false;   // the pop-up opened from More → Friends (a name only) instead of Companies & projects → People
+function openPersonModal_(person, friendsMode) {
+  personModalFriends_ = !!friendsMode;
   editingPerson_ = person || null;
-  document.getElementById("person-modal-title").textContent = tr(person ? "people.editTitle" : "people.addTitle");
+  document.getElementById("person-role-label").hidden = personModalFriends_;
+  document.getElementById("person-role").hidden = personModalFriends_;
+  document.getElementById("person-modal-title").textContent = tr(personModalFriends_ ? (person ? "friends.editTitle" : "friends.addTitle") : (person ? "people.editTitle" : "people.addTitle"));
   document.getElementById("person-form-error").textContent = "";
   document.getElementById("person-name").value = person ? person.name : "";
   const sel = document.getElementById("person-role");
@@ -12864,13 +12911,15 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   if (!name) { errorEl.textContent = tr("accounts.errName"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
   const editing = editingPerson_;
+  const fromFriends = personModalFriends_;
   closePersonModal_();
   saveBehindScreen_(async () => {
     const friend = editing
-      ? await callApi("updateFriend", { id: editing.id, name, role })
-      : await callApi("addFriend", { name, role });
+      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined } : { id: editing.id, name, role })
+      : await callApi("addFriend", fromFriends ? { name } : { name, role });
     rememberPerson_(friend);
-  }, () => refreshPeopleList_());
+    if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); }   // the pickers show the new name
+  }, () => (fromFriends ? refreshFriendsList_() : refreshPeopleList_()));
 });
 document.getElementById("person-debts-btn").addEventListener("click", () => {
   const person = editingPerson_;
@@ -12884,8 +12933,10 @@ document.getElementById("person-delete-btn").addEventListener("click", async () 
   try {
     await callApi("deleteFriend", { id: person.id });
     meta.friends = (meta.friends || []).filter((f) => f.id !== person.id);
+    const fromFriends = personModalFriends_;
     closePersonModal_();
-    await refreshPeopleList_();
+    if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); await refreshFriendsList_(); }
+    else await refreshPeopleList_();
   } catch (err) {
     document.getElementById("person-form-error").textContent = err.message;
   }
@@ -15484,9 +15535,9 @@ function markTipSeen_(key) {
   try { Spotlight.markSeen(localStorage, key); } catch (e) { /* ignore */ }
 }
 
-function runTip_(steps, afterFinish) {
+function runTip_(steps, afterFinish, note) {
   return Spotlight.run(steps, {
-    labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => { await afterFinish(how); }
   });
 }
@@ -15543,6 +15594,18 @@ async function tipWaitIdle_(maxMs) {
   return false;
 }
 
+// A practice save that the server refused (the phone keeps it as "couldn't save"): the practice cannot go on, so say so and stop;
+// stopping runs the usual cleanup. True = it stopped.
+function practiceSaveFailed_() {
+  if (!practice_ || !Spotlight.isRunning()) return false;
+  const bad = getQueuedEdits_().find((e) => e.id === practice_.entryId && e.status === "failed") ||
+    getMoneyQueue_().find((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === practice_.friendId);
+  if (!bad) return false;
+  alert(tr("spot.p.saveFailed", { error: bad.lastError || bad.error || "" }));
+  Spotlight.stop("skipped");
+  return true;
+}
+
 // Called from the new-entry save: the practice's own expense is the one with its name, saved while the practice is running.
 function tipNoteSavedEntry_(id, description) {
   if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
@@ -15577,6 +15640,9 @@ async function practiceRemoveNow_(p) {
   }
   let ok = true;
   if (p.entryId) {
+    if (getQueuedEdits_().some((e) => e.id === p.entryId && e.status === "failed")) unqueueEntryEdit_(p.entryId);
+    const stuck = getMoneyQueue_().filter((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === p.friendId);
+    if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
     await tipWaitIdle_();
     try {
       const loans = await callApi("getFriendLoanDetail", { friendId: p.friendId });
@@ -15651,39 +15717,57 @@ function practiceShare_() {
 
 function practiceSteps_() {
   const cur = homeCur();
+  const amountOf = (sel) => parseFloat((document.querySelector(sel) || {}).value);
   const amountDone = (sel) => () => {
     const el = document.querySelector(sel);
     return !!el && parseFloat(el.value) > 0 && document.activeElement !== el;
   };
+  const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
+  const lastError = (sel) => { const el = document.querySelector(sel); return el ? el.textContent.trim() : ""; };
   return [
+    { key: "intro", text: () => tr("spot.p.intro"), button: () => tr("spot.p.start") },
     { target: "#fab-new-entry", text: () => tr("spot.p.s1"), tap: "#fab-new-entry",
       before: async () => { showScreen("entries"); syncFab_(); } },
     { target: '#entry-type-tabs .type-tab[data-type="expense"]', text: () => tr("spot.p.s2"), tap: '#entry-type-tabs .type-tab[data-type="expense"]' },
     { target: "#category-picker", text: () => tr("spot.p.s3"), until: () => !document.getElementById("entry-form").hidden },
-    { target: "#amount", text: () => tr("spot.p.s4", { cur }), blurTap: true, until: amountDone("#amount"),
+    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.p.s4fix" : "spot.p.s4", { cur }), blurTap: true, until: amountDone("#amount"),
+      ok: () => amountOf("#amount") > 0, holdsUntil: "save",
       before: async () => {
         const d = document.getElementById("description");
-        d.value = tr("spot.p.name");
-        d.dispatchEvent(new Event("input", { bubbles: true }));
+        if (d.value !== tr("spot.p.name")) {
+          d.value = tr("spot.p.name");
+          d.dispatchEvent(new Event("input", { bubbles: true }));
+        }
       },
-      after: () => { practice_.amount = parseFloat(document.getElementById("amount").value) || 0; practiceSave_(); } },
+      after: () => { practice_.amount = amountOf("#amount") || 0; practiceSave_(); } },
     { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
       after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
-    { target: "#payment-method-field", text: () => tr("spot.p.s6"), visit: "#payment_method" },
-    { target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked },
-    { target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
-      until: practiceFriendOk_, wait: 8000 },
+    { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
+      ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
+    { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
+      ok: () => document.getElementById("split-toggle").checked, holdsUntil: "save" },
+    { key: "friend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
+      until: practiceFriendOk_, wait: 8000, ok: () => splitFriendIds.size > 0, holdsUntil: "save" },
     { target: "#split-detail", text: () => tr("spot.p.s9"), tap: '#split-mode-tabs .type-tab[data-mode="equal"]' },
-    { target: "#submit-btn", text: () => tr("spot.p.s10"), until: () => !!(practice_ && practice_.entryId) },
+    { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError("#form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
+      before: async () => { document.getElementById("form-error").textContent = ""; },   // an old message from before the fix
+      until: () => !!(practice_ && practice_.entryId) },
     { target: '.nav-btn[data-screen="loans"]', text: () => tr("spot.p.s11"), tap: '.nav-btn[data-screen="loans"]', wait: 15000 },
     { target: practiceFriendRow_, text: () => tr("spot.p.s12"), tap: practiceFriendRow_, wait: 45000,
-      poke: () => { if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
+      poke: () => { if (practiceSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
+    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+      before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     { target: "#record-repayment-btn", text: () => tr("spot.p.s13"), tap: "#record-repayment-btn", wait: 15000 },
-    { target: "#settlement-amount", text: () => tr("spot.p.s14", { cur: practice_ && practice_.currency || cur, amount: moneyFmt(practiceShare_()) }), blurTap: true, visit: "#settlement-amount", wait: 15000 },
+    { key: "repayAmount", target: "#settlement-amount", text: (fix) => tr(fix ? "spot.p.s14fix" : "spot.p.s14", { cur: practice_ && practice_.currency || cur, amount: moneyFmt(practiceShare_()) }),
+      blurTap: true, visit: "#settlement-amount", ok: () => amountOf("#settlement-amount") > 0, holdsUntil: "saveRepayment", wait: 15000 },
     { target: "#settlement-payment-method", text: () => tr("spot.p.s15"), visit: "#settlement-payment-method" },
-    { target: "#settlement-save-btn", text: () => tr("spot.p.s16"), until: () => document.getElementById("settlement-modal-backdrop").hidden },
+    { key: "saveRepayment", target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],
+      text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
+      before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
+      until: () => document.getElementById("settlement-modal-backdrop").hidden },
     { target: "#loan-detail-subtitle", text: () => tr("spot.p.s17"), button: () => tr("spot.p.finish"), wait: 20000,
-      before: async () => { await tipWaitIdle_(20000); } }
+      before: async () => { await tipWaitIdle_(20000); return !practiceSaveFailed_(); } }
   ];
 }
 
@@ -15697,7 +15781,7 @@ function startPractice_() {
     const ok = await practiceRemove_();
     if (document.getElementById("screen-loans").hidden) showScreen("loans");
     if (ok) showToast_(tr("spot.p.removed"));
-  });
+  }, tr("spot.p.note"));
   return true;
 }
 

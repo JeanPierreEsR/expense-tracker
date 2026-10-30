@@ -3284,6 +3284,10 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .spot-hole { position: absolute; border-radius: 12px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62); outline: 3px solid rgba(255, 255, 255, 0.95); pointer-events: none; transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .spot-hole[hidden] { display: none; }
 .spot-bubble { position: absolute; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; background: var(--card); color: var(--text); border-radius: var(--radius); padding: 14px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); pointer-events: auto; }
+.spot-lookcover { background: transparent; }
+.spot-lookcover[hidden] { display: none; }
+.spot-note { margin: 0 0 6px; color: var(--muted); font-size: 0.8rem; }
+.spot-note[hidden] { display: none; }
 .spot-arrow { position: absolute; width: 14px; height: 14px; background: var(--card); transform: translateX(-50%) rotate(45deg); }
 .spot-arrow[hidden] { display: none; }
 .spot-bubble[data-side="below"] .spot-arrow { top: -7px; }

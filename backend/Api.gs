@@ -204,6 +204,7 @@ function routeAction(action, payload) {
     case 'setBusinessFeatures': return setBusinessFeatures(payload);
     case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
     case 'listBusinessPeople': return listBusinessPeople();
+    case 'listMyFriends': return listMyFriends();
     case 'listExpectedPayments': return listExpectedPayments(payload);
     case 'addExpectedPayment': return addExpectedPayment(payload);
     case 'getCompanyIgv': return getCompanyIgv(payload);
