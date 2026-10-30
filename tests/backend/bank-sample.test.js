@@ -166,3 +166,23 @@ test("a bad sender address is refused before Gmail is touched; with e-mail readi
   rt.svc.props.set("FEATURES", "keepawake");
   assert.equal(errCode(rt, `listSampleEmails({ sender: "${SENDER}" })`), "feature_off");
 });
+
+// ---- from a row of More -> Not captured automatically: only the e-mails of that wording ----
+test("listing with a wording shows only that kind of e-mail, found even beyond the newest 15", () => {
+  const { rt } = freshApp({ small: true });
+  friend(rt);
+  rt.svc.gmail.addEmail({ from: SENDER, subject: "Aviso especial 111", body: "uno", daysAgo: 100 });
+  for (let i = 0; i < 20; i++) rt.svc.gmail.addEmail({ from: SENDER, subject: "Compra con tarjeta " + i, body: "x", daysAgo: 1 });
+  rt.svc.gmail.addEmail({ from: SENDER, subject: "Aviso especial 222", body: "dos", daysAgo: 50 });
+  const run = (extra) => JSON.parse(JSON.stringify(rt.run(`listSampleEmails({ sender: "${SENDER}"${extra} })`)));
+  const mine = run(', shape: "aviso especial #"');
+  assert.equal(mine.length, 2);
+  mine.forEach((m) => assert.match(m.subject, /^Aviso especial/));
+  assert.equal(run(', shape: "nada parecido"').length, 0);
+  assert.equal(run("").length, 15, "without a wording it is still the newest 15");
+  // an older e-mail of that wording can be opened with the same wording, not without it
+  const old = mine.find((m) => m.subject.endsWith("111"));
+  const got = JSON.parse(JSON.stringify(rt.run(`getSampleEmail({ id: "${old.id}", sender: "${SENDER}", shape: "aviso especial #" })`)));
+  assert.match(got.body, /uno/);
+  assert.equal(errCode(rt, `getSampleEmail({ id: "${old.id}", sender: "${SENDER}" })`), "sample_wrong_sender");
+});
