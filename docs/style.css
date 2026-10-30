@@ -368,7 +368,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .ov-sum-tile.expense { background: color-mix(in srgb, var(--expense) 10%, var(--card)); border-color: transparent; }
 .ov-sum-tile.investment { background: color-mix(in srgb, var(--investment) 10%, var(--card)); border-color: transparent; }
 .ov-sum-tile.loans { background: var(--card); }
-.ov-sum-tile .summary-value { font-size: 0.98rem; overflow-wrap: anywhere; }
+.ov-sum-tile .summary-value { font-size: 0.98rem; white-space: nowrap; }
 .ov-sum-sign { position: absolute; top: 8px; right: 12px; font-size: 0.9rem; font-weight: 700; color: var(--muted); }
 .ov-sum-tile.income .ov-sum-sign { color: var(--income); }
 .ov-sum-tile.expense .ov-sum-sign { color: var(--expense); }
@@ -385,7 +385,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   background: color-mix(in srgb, var(--accent) 8%, var(--card)); border: 2px solid var(--accent);
 }
 .ov-sum-net-label { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
-.ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); }
+.ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); white-space: nowrap; }
 .ov-sum-net-eq { font-size: 0.7rem; color: var(--muted); text-align: center; }
 
 /* ---- Breakdown pie charts ---- */

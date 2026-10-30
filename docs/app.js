@@ -5933,6 +5933,7 @@ function paintOverviewSummary_(data) {
   if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   renderLoansPeriod_(data.loans || { people: [], totals: [] });
+  fitOverviewSummary_();
 }
 
 async function refreshOverviewInner_() {
@@ -6010,6 +6011,37 @@ function renderInvestmentsPeriod_(items) {
     row.addEventListener("click", () => openBreakdownDrilldown("platform", item));
     list.appendChild(row);
   });
+}
+
+// The amounts of the Overview summary never wrap: the font shrinks until each one fits on ONE line. The four blocks share the
+// smallest size they need, so they stay aligned; What's left fits on its own. Runs after every paint and whenever the grid
+// changes size (a screen that was hidden has no width until it is shown).
+function fitOverviewSummary_() {
+  const room = (el) => {
+    const box = el.parentElement;
+    const st = getComputedStyle(box);
+    return box.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight);
+  };
+  const fit = (el) => {
+    el.style.fontSize = "";
+    const avail = room(el);
+    if (!(avail > 0)) return null;
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > avail + 0.5 && size > 9) { size -= 0.5; el.style.fontSize = size + "px"; }
+    return size;
+  };
+  const tiles = [...document.querySelectorAll(".ov-sum-tile .summary-value")];
+  const sizes = tiles.map(fit).filter((s) => s !== null);
+  if (sizes.length) {
+    const common = Math.min(...sizes);
+    tiles.forEach((el) => { el.style.fontSize = common + "px"; });
+  }
+  const net = document.getElementById("summary-net");
+  if (net) fit(net);
+}
+if (typeof ResizeObserver !== "undefined") {
+  const sumGrid = document.querySelector(".ov-sum-grid");
+  if (sumGrid) new ResizeObserver(() => fitOverviewSummary_()).observe(sumGrid);
 }
 
 // Loans card: FLOWS of debts with friends and banks in the selected period, per person and per currency, never converted and
