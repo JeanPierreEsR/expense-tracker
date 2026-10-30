@@ -12846,9 +12846,17 @@ function setFriendsEditing_(on, redraw = true) {
   document.getElementById("friends-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
   document.getElementById("friends-add-btn").hidden = on;
   document.getElementById("friends-editbar").hidden = !on;
+  document.getElementById("screen-friends").classList.toggle("friends-editing", on);
+  placeFriendsEditBar_();
   if (redraw) renderFriendsList_();
   else syncFriendsEditBar_();
 }
+// The bar sits just above the bottom menu, whatever its height on this phone (home-bar safe area included).
+function placeFriendsEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("friends-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (friendsEditing_) placeFriendsEditBar_(); });
 function syncFriendsEditBar_() {
   const n = friendsSelected_.size;
   const del = document.getElementById("friends-delete-selected-btn");
