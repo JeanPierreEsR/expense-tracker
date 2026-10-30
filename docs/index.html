@@ -569,8 +569,10 @@
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
-          <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
-          <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
+          <div class="loans-head-actions">
+            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
+            <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
+          </div>
         </div>
         <div class="budgets-summary-row" id="loans-owed-to-me-total-row" hidden>
           <span class="budgets-summary-label" data-i18n="loans.totalOwed">Total owed to you</span>
