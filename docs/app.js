@@ -74,7 +74,7 @@ let repaymentAutoPickedId_ = "";
 let repaymentFriendTouched_ = false;   // the person picked the Repayment / New loan friend by hand (see autoPickRepaymentGroup_)
 let splitMode = "equal";
 let customSplitAmounts = {};
-let splitPercents = {};   // "By %" mode: friend id -> typed percentage text
+let splitPercents = {};   // "%" mode: friend id -> typed percentage text
 // The owner's own box in Custom mode ("Me"). Blank = "not filled", same as
 // any friend's box: every blank box shares whatever the filled ones leave.
 let customOwnAmount = "";
@@ -1745,13 +1745,12 @@ function renderSplitRows() {
   if (splitMode === "percent") {
     // The owner's box is optional: blank = keeps whatever the friends' % leave.
     addRow("me", tr("common.me") + " (%)", () => splitPercents.me, (v) => { splitPercents.me = v; });
-    splitInputEls.me.placeholder = String(computePercentShares(0, [...splitFriendIds], splitPercents).ownPct);
     Array.from(splitFriendIds).forEach((id) => {
       const friend = meta.friends.find((f) => f.id === id);
       if (!friend) return;
       addRow(id, friend.name + " (%)", () => splitPercents[id], (v) => { splitPercents[id] = v; });
-      splitInputEls[id].placeholder = "0";
     });
+    showPercentPlaceholders_(splitInputEls, computePercentShares(0, [...splitFriendIds], splitPercents));
     return;
   }
   addRow("me", tr("common.me"), () => customOwnAmount, (v) => { customOwnAmount = v; });
@@ -1813,36 +1812,62 @@ function computeEqualShares(amount, friendIds) {
   return { shareEach: shareCentsEach / 100, ownerShare: ownerCents / 100 };
 }
 
-// "By %" mode: each friend types a percentage of the total; the amount is
-// rounded the normal way (nearest cent) and the owner keeps the rest, so an
-// extra or a missing cent lands on the owner. percents = {friendId: text}.
-// Returns { amounts: {friendId: number}, ownerShare, totalPct, over }.
+// "%" mode: any box the person filled is fixed; every EMPTY box (Me included)
+// shares what is left of the 100% equally, like Custom. Percentages are kept
+// in hundredths of a percent so they sum exactly (a leftover hundredth goes to
+// Me if its box is empty, otherwise to the last empty friend). Each friend's
+// amount is rounded the normal way (nearest cent) and the owner keeps the rest,
+// so an extra or a missing cent lands on the owner. percents = {key: text}
+// ("me" = the owner's box). Returns { amounts: {friendId: number}, ownerShare,
+// pcts: {key: effective %}, totalPct (friends only), ownPct, openKeys, over, notFull }.
 function computePercentShares(amount, friendIds, percents) {
   const totalCents = Math.round((amount || 0) * 100);
+  const keys = ["me", ...friendIds];
+  const raw = (k) => String(percents[k] == null ? "" : percents[k]).trim();
+  const isFilled = (k) => raw(k) !== "" && !isNaN(parseFloat(raw(k)));
+  const pcts = {};
+  let fixedHund = 0;
+  keys.filter(isFilled).forEach((k) => {
+    const h = Math.round(Math.max(parseFloat(raw(k)), 0) * 100);
+    pcts[k] = h / 100;
+    fixedHund += h;
+  });
+  const openKeys = keys.filter((k) => !isFilled(k));
+  const restHund = 10000 - fixedHund;
+  if (openKeys.length && restHund > 0) {
+    const each = Math.floor(restHund / openKeys.length);
+    const leftover = restHund - each * openKeys.length;
+    const leftoverKey = openKeys.includes("me") ? "me" : openKeys[openKeys.length - 1];
+    openKeys.forEach((k) => { pcts[k] = (each + (k === leftoverKey ? leftover : 0)) / 100; });
+  } else {
+    openKeys.forEach((k) => { pcts[k] = 0; });
+  }
   const amounts = {};
-  let totalPct = 0;
   let friendCents = 0;
+  let totalPct = 0;
   friendIds.forEach((id) => {
-    const pct = parseFloat(percents[id]);
-    const p = isNaN(pct) || pct < 0 ? 0 : pct;
-    totalPct += p;
-    const c = Math.round(totalCents * p / 100);
+    const c = Math.round(totalCents * pcts[id] / 100);
     amounts[id] = c / 100;
     friendCents += c;
+    totalPct += pcts[id];
   });
-  // The owner's own box (key "me") is optional: left blank, the owner keeps
-  // whatever the friends leave; filled in, all the boxes must add up to 100.
-  const ownRaw = parseFloat(percents.me);
-  const ownFilled = !isNaN(ownRaw) && ownRaw >= 0;
-  const allPct = totalPct + (ownFilled ? ownRaw : 0);
   return {
     amounts,
     ownerShare: (totalCents - friendCents) / 100,
-    totalPct,
-    ownPct: ownFilled ? ownRaw : Math.max(100 - totalPct, 0),
-    over: allPct > 100.0001,
-    notFull: ownFilled && allPct < 99.9999,
+    pcts,
+    totalPct: Math.round(totalPct * 100) / 100,
+    ownPct: pcts.me,
+    openKeys,
+    over: restHund < 0,
+    notFull: openKeys.length === 0 && restHund > 0,
   };
+}
+
+// Empty "%" boxes show what they would get, as their placeholder.
+function showPercentPlaceholders_(inputEls, p) {
+  Object.keys(inputEls).forEach((k) => {
+    inputEls[k].placeholder = p.openKeys.includes(k) && !p.over ? String(Math.round(p.pcts[k] * 100) / 100) : "0";
+  });
 }
 
 function renderSplitSummary() {
@@ -1864,7 +1889,7 @@ function renderSplitSummary() {
     summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else if (splitMode === "percent") {
     const p = computePercentShares(amount, friendIds, splitPercents);
-    if (splitInputEls.me) splitInputEls.me.placeholder = String(Math.round(p.ownPct * 100) / 100);
+    showPercentPlaceholders_(splitInputEls, p);
     if (p.over || p.notFull) {
       summaryEl.textContent = "";
       errorEl.textContent = tr(p.over ? "split.errPercentOver" : "split.errPercentNot100");
@@ -13311,8 +13336,7 @@ function renderRecurringSplitRows() {
     const input = document.createElement("input");
     input.type = "text";
     input.inputMode = "decimal";
-    input.setAttribute("data-me", "1");
-    input.placeholder = String(computePercentShares(0, Array.from(recurringSplitFriendIds), recurringSplitPercents).ownPct);
+    input.setAttribute("data-key", "me");
     input.value = recurringSplitPercents.me || "";
     input.addEventListener("input", (e) => {
       recurringSplitPercents.me = e.target.value;
@@ -13338,6 +13362,7 @@ function renderRecurringSplitRows() {
     input.type = "text";
     input.inputMode = "decimal";
     input.placeholder = pctMode ? "0" : "0.00";
+    if (pctMode) input.setAttribute("data-key", id);
     input.value = (pctMode ? recurringSplitPercents[id] : recurringCustomSplitAmounts[id]) || "";
     input.addEventListener("input", (e) => {
       if (pctMode) recurringSplitPercents[id] = e.target.value;
@@ -13370,8 +13395,9 @@ function renderRecurringSplitSummary() {
     summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else if (recurringSplitMode === "percent") {
     const p = computePercentShares(amount, friendIds, recurringSplitPercents);
-    const meBox = document.querySelector("#recurring-split-rows input[data-me]");
-    if (meBox) meBox.placeholder = String(Math.round(p.ownPct * 100) / 100);
+    const boxes = {};
+    document.querySelectorAll("#recurring-split-rows input[data-key]").forEach((el) => { boxes[el.getAttribute("data-key")] = el; });
+    showPercentPlaceholders_(boxes, p);
     if (p.over || p.notFull) {
       summaryEl.textContent = "";
       errorEl.textContent = tr(p.over ? "split.errPercentOver" : "split.errPercentNot100");
