@@ -6263,11 +6263,12 @@ function paintOverviewSummary_(data) {
   // The gray line under What's left spells the sum with the SIGNS the blocks actually show: "− Loans" when loans took money out,
   // "+ Investments" when more was taken out of investments than put in. A block that is zero keeps its usual sign.
   const sgn = (shown, usual) => (Math.abs(shown) < 0.004 ? usual : shown > 0 ? "+" : "−");
+  // Always in the order of the blocks: income, expenses, investments, loans (owner, 2026-10-29).
   const eqParts = [
     ["+", tr("summary.income")],
-    [sgn(data.totals.loans || 0, "+"), tr("summary.loans")],
     [sgn(-data.totals.expense, "−"), tr("summary.expenses")],
-    [sgn(-data.totals.investment, "−"), tr("summary.investments")]
+    [sgn(-data.totals.investment, "−"), tr("summary.investments")],
+    [sgn(data.totals.loans || 0, "+"), tr("summary.loans")]
   ];
   document.getElementById("summary-net-eq").textContent = eqParts.map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
