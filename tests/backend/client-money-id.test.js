@@ -74,6 +74,34 @@ test("the overpayment entry takes the phone's id and a repeat answers with it", 
   assert.equal(rt.rows("Entries").filter((e) => e.id === ID).length, 1);
 });
 
+test("recordRepayment with a client_id applies once: sent twice, one transfer and one set of settlements", () => {
+  const { rt } = freshApp({ entries: 20 });
+  const loan = rt.api("addLoan", { friend_id: friendOf(rt).id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2026-10-20" });
+  const payload = { friend_id: loan.friend_id, direction: "they_owe_me", amount: 40, currency: "PEN", date: "2026-10-21", client_id: ID };
+  const entries = rt.rows("Entries").length;
+  const settlements = rt.rows("Settlements").length;
+  const first = rt.api("recordRepayment", payload);
+  assert.equal(first.overpaid, 0);
+  assert.equal(rt.rows("Entries").length, entries + 1);
+  const again = rt.api("recordRepayment", payload);
+  assert.equal(again.repeat, true);
+  assert.equal(rt.rows("Entries").length, entries + 1, "no second transfer");
+  assert.equal(rt.rows("Settlements").length, settlements + 1, "no second settlement");
+});
+
+test("recordRepayment with a client_id, paying more than owed: the extra is made once", () => {
+  const { rt } = freshApp({ entries: 20 });
+  const loan = rt.api("addLoan", { friend_id: friendOf(rt).id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2026-10-20" });
+  const payload = { friend_id: loan.friend_id, direction: "they_owe_me", amount: 130, currency: "PEN", date: "2026-10-21", client_id: ID };
+  const entries = rt.rows("Entries").length;
+  const first = rt.api("recordRepayment", payload);
+  assert.ok(first.overpaid > 29.9 && first.overpaid < 30.1);
+  const after = rt.rows("Entries").length;
+  assert.equal(after, entries + 2, "the payment and the extra");
+  rt.api("recordRepayment", payload);
+  assert.equal(rt.rows("Entries").length, after);
+});
+
 test("the backend says it can take a client id for money saves", () => {
   const { rt } = freshApp({ entries: 20 });
   assert.equal(rt.api("getMeta", {}).capabilities.clientMoneyId, true);

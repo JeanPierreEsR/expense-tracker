@@ -101,6 +101,8 @@
     "loanModal.errBelowSettled": { en: "This loan already has {settled} repaid or forgiven — the amount can't be lower than that. Move or lower a repayment, or undo a forgiveness, first.", es: "Este préstamo ya tiene {settled} repagado o perdonado: el monto no puede ser menor. Mueve o baja un repago, o deshaz un perdón, primero." },
     "forgive.tooMuchPhone": { en: "That is more than is still owed ({remaining}). Forgive up to that amount.", es: "Eso es más de lo que aún se debe ({remaining}). Perdona hasta ese monto." },
     "money.labelRepaymentEdit": { en: "Repayment change", es: "Cambio de repago" },
+    "money.labelRepayment": { en: "Repayment", es: "Repago" },
+    "money.repaidExtra": { en: "Saved. {cur} {amount} was more than owed — it is in Needs review to categorise.", es: "Guardado. {cur} {amount} era más de lo que se debía: está en Por revisar para categorizarlo." },
     "money.labelLoan": { en: "Loan", es: "Préstamo" },
     "money.labelForgive": { en: "Forgiving a debt", es: "Perdonar una deuda" },
     "money.labelExchange": { en: "Currency exchange", es: "Cambio de moneda" },

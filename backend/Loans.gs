@@ -478,8 +478,12 @@ function ensureSettlementsLimitedColumn_() {
 }
 
 function createTransferEntry_(fields) {
+  if (fields.id) {
+    var already = getEntryById_(fields.id);
+    if (already) return already;   // a repeat of a save that already landed
+  }
   var entry = {
-    id: Utilities.getUuid(),
+    id: fields.id || Utilities.getUuid(),
     type: 'transfer',
     date: fields.date,
     amount: Number(fields.amount),
@@ -937,6 +941,18 @@ function recordRepayment(payload) {
   ensureSettlementsOffsetColumn_();
   ensureSettlementsTransferEntryColumn_();
 
+  // The phone sends a client_id so a repayment sent twice (a lost reply, the app closed mid-save) is applied once: the
+  // payment's transfer entry takes that id (or the extra's entry, when nothing was owed), and a repeat finds it. A first
+  // try that stopped halfway (entry made, settlements not) is finished, not skipped.
+  var clientId = clientSaveId_(payload);
+  if (clientId) {
+    var landed = getEntryById_(clientId);
+    if (landed && (landed.type !== 'transfer' ||
+        getAllRows('Settlements').some(function (st) { return st.transfer_entry_id === clientId; }))) {
+      return { overpaid: 0, currency: currency, overpayment_entry: null, repeat: true };
+    }
+  }
+
   var settledByLoan = buildSettlementTotalsByLoan_();
   var active = getAllRows('Loans')
     .filter(function (l) {
@@ -1004,6 +1020,7 @@ function recordRepayment(payload) {
   var transferEntryId = '';
   if (appliedAmount > 0.004) {
     var repaymentTransferEntry = createTransferEntry_({
+      id: clientId,
       date: payload.date,
       amount: appliedAmount,
       currency: currency,
@@ -1055,7 +1072,8 @@ function recordRepayment(payload) {
       date: payload.date,
       payment_method_id: payload.payment_method_id,
       category_id: payload.overpay_category_id || '',
-      pending: !payload.overpay_category_id
+      pending: !payload.overpay_category_id,
+      client_id: transferEntryId ? '' : clientId   // the payment's own entry already carries the id
     });
     // The owner paid a trip's group more than was owed: that leftover is his share of what others paid, so it
     // belongs to that trip (every way of recording the repayment lands here — the trip screen, the Entries tab,

@@ -2224,6 +2224,11 @@ function renderRateModalLabels_() {
 function openRateModal(currency, month, required, existingRate) {
   return new Promise((resolve) => {
     rateModalState = { currency, month, inverted: false, resolve, existingRate: existingRate != null ? existingRate : null };
+    // The previous month's rate (for the "that looks far off" check) is fetched while the person types,
+    // so Save has nothing to wait for before it can close.
+    const [yy, mm] = month.split("-").map(Number);
+    const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
+    rateModalState.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => r.rate).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
     document.getElementById("rate-modal-subtitle").textContent = existingRate != null
       ? tr("rateModal.editing", { currency, month })
@@ -2273,7 +2278,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const { currency, month, inverted } = rateModalState;
+  const { currency, month, inverted, prevRate } = rateModalState;
   const rate = inverted ? 1 / raw : raw;
   const saveBtn = document.getElementById("rate-save-btn");
   saveBtn.disabled = true;
@@ -2281,22 +2286,26 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     // A typo like 37 instead of 3.7 would silently rewrite every report for
     // that month, so a rate that differs a lot from the previous one has to be
     // confirmed (rule from specs/entries-and-categories.md, Exchange Rates).
-    const [yy, mm] = month.split("-").map(Number);
-    const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
-    const prev = (await callApi("getLatestRateOnOrBefore", { currency, month: prevMonth })).rate;
+    const prev = await prevRate;
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
       const pct = Math.round(Math.abs(rate / prev - 1) * 100);
-      if (!confirm(tr(rate > prev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate, pct, prev }))) {
-        saveBtn.disabled = false;
-        return;
-      }
+      if (!confirm(tr(rate > prev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate, pct, prev }))) return;
     }
-    await callApi("setExchangeRate", { currency, month, rate });
-    closeRateModal_(rate);
-  } catch (err) {
-    errorEl.textContent = err.message;
   } finally {
     saveBtn.disabled = false;
+  }
+  // The window closes at once and the rate is sent behind it; whoever opened the window gets the rate once the
+  // server has it (or nothing if it was refused, after the alert), so a new entry still waits for its rate.
+  const resolve = rateModalState.resolve;
+  rateModalState.resolve = null;
+  closeRateModal_(undefined);
+  showToast_(tr("common.savingToast"));
+  try {
+    await callApi("setExchangeRate", { currency, month, rate });
+    resolve(rate);
+  } catch (err) {
+    alert(tr("common.notSaved", { error: err.message }));
+    resolve(null);
   }
 });
 
@@ -4669,12 +4678,13 @@ function removeMoneyItem_(id) {
 // What has to refresh once a money save has landed (the screens show the server's truth, not a guess).
 async function afterMoneySaved_(item) {
   const ctx = item.ctx || {};
-  if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement"].includes(item.action)) {
+  if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement", "recordRepayment"].includes(item.action)) {
     refreshEntriesInBackground_();
     await refreshLoans();
     const detailOpen = !document.getElementById("loan-detail-modal-backdrop").hidden;
     if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) await openLoanDetail(ctx.friendId, ctx.friendName);
     if (ctx.convert) await refreshEntryList();
+    if (item.action === "recordRepayment") refreshReviewQueue().catch(() => {});
   } else {
     await refreshEntryList();
     refreshReviewQueue().catch(() => {});
@@ -4692,14 +4702,19 @@ async function flushMoneyQueue_() {
     for (;;) {
       const item = getMoneyQueue_().find((q) => q.status === "saving");
       if (!item) break;
+      let result;
       try {
-        await callApi(item.action, item.payload);
+        result = await callApi(item.action, item.payload);
       } catch (err) {
         setMoneyItemStatus_(item.id, "failed", err.message || String(err));
         continue;
       }
       removeMoneyItem_(item.id);
-      showToast_(tr("common.savedToast"));
+      if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
+        showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
+      } else {
+        showToast_(tr("common.savedToast"));
+      }
       try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
     }
   } finally {
@@ -4779,7 +4794,7 @@ function handleMoneyFailure_(id) {
 
 // The "💾 Saving…" / "⚠️ Couldn't save" rows at the top of the Loans tab and of a person's loan screen (loan, forgiving and
 // repayment changes only: the other money saves show in the top banner).
-const LOAN_QUEUE_ACTIONS_ = ["addLoan", "updateLoan", "forgiveLoan", "updateSettlement"];
+const LOAN_QUEUE_ACTIONS_ = ["addLoan", "updateLoan", "forgiveLoan", "updateSettlement", "recordRepayment"];
 
 function renderMoneyQueueStrips_() {
   const items = getMoneyQueue_().filter((q) => LOAN_QUEUE_ACTIONS_.includes(q.action));
@@ -10590,23 +10605,27 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const renamed = !before || plain(before.nickname) !== plain(nickname);
   if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
   if (renamed && plain(nickname) === "yape" && !confirm(tr("wallets.yapeAlone"))) return;
-  const saveBtn = document.getElementById("pm-save-btn");
-  saveBtn.disabled = true;
-  try {
+  // Closes at once and saves behind the screen (a refusal, such as a repeated name, comes back as an alert).
+  const state = { id: pmModalState.id, wallets: pmModalState.wallets };
+  const type = document.getElementById("pm-type").value;
+  const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
+  const slotsNow = pmWalletSlots_();
+  closePmModal_();
+  saveBehindScreen_(async () => {
     const saved = await callApi("savePaymentMethod", {
-      id: pmModalState.id || undefined,
+      id: state.id || undefined,
       nickname,
-      type: document.getElementById("pm-type").value,
-      bank_id: document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value,
+      type,
+      bank_id: bankId,
       last_4: last4
     });
     const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
     if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
     else meta.paymentMethods.push(saved);
     // Wallet links: ticked slots point at this account; slots it no longer offers (or that were unticked) are released.
-    const slots = pmWalletSlots_(), settings = meta.settings || (meta.settings = {}), links = {};
+    const slots = slotsNow, settings = meta.settings || (meta.settings = {}), links = {};
     ["yape_pen", "yape_usd", "plin_pen"].forEach((k) => {
-      if (slots.includes(k) && pmModalState.wallets.includes(k)) { if (String(settings[k] || "") !== String(saved.id)) links[k] = saved.id; }
+      if (slots.includes(k) && state.wallets.includes(k)) { if (String(settings[k] || "") !== String(saved.id)) links[k] = saved.id; }
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
@@ -10618,13 +10637,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       const sel = document.getElementById(id);
       if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
     });
-    closePmModal_();
-    renderAccountsList_();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  }, () => renderAccountsList_());
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
@@ -12507,28 +12520,24 @@ document.getElementById("igv-payment-amount").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
 });
-document.getElementById("igv-payment-save-btn").addEventListener("click", async () => {
+document.getElementById("igv-payment-save-btn").addEventListener("click", () => {
   if (!editingIgvPayment_) return;
   const errorEl = document.getElementById("igv-payment-error");
   errorEl.textContent = "";
-  const saveBtn = document.getElementById("igv-payment-save-btn");
-  saveBtn.disabled = true;
-  try {
-    const fields = {
-      amount: document.getElementById("igv-payment-amount").value.trim(),
-      currency: document.getElementById("igv-payment-currency").value.trim().toUpperCase(),
-      date: document.getElementById("igv-payment-date").value,
-      note: document.getElementById("igv-payment-note").value.trim()
-    };
-    if (editingIgvPayment_.payment) await callApi("updateIgvPayment", Object.assign({ id: editingIgvPayment_.payment.id }, fields));
-    else await callApi("addIgvPayment", Object.assign({ company_id: editingIgvPayment_.companyId }, fields));
-    closeIgvPaymentModal_();
-    await refreshIgvScreen_();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  const fields = {
+    amount: document.getElementById("igv-payment-amount").value.trim(),
+    currency: document.getElementById("igv-payment-currency").value.trim().toUpperCase(),
+    date: document.getElementById("igv-payment-date").value,
+    note: document.getElementById("igv-payment-note").value.trim()
+  };
+  if (!(parseFloat(fields.amount) > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
+  if (!fields.date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  const editing = editingIgvPayment_;
+  closeIgvPaymentModal_();
+  saveBehindScreen_(async () => {
+    if (editing.payment) await callApi("updateIgvPayment", Object.assign({ id: editing.payment.id }, fields));
+    else await callApi("addIgvPayment", Object.assign({ company_id: editing.companyId }, fields));
+  }, () => refreshIgvScreen_());
 });
 document.getElementById("igv-payment-delete-btn").addEventListener("click", async () => {
   if (!editingIgvPayment_ || !editingIgvPayment_.payment || !confirm(tr("igv.paymentConfirmDelete"))) return;
@@ -12760,25 +12769,21 @@ document.getElementById("person-modal-close").addEventListener("click", closePer
 document.getElementById("person-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "person-modal-backdrop") closePersonModal_();
 });
-document.getElementById("person-save-btn").addEventListener("click", async () => {
+document.getElementById("person-save-btn").addEventListener("click", () => {
   const errorEl = document.getElementById("person-form-error");
   errorEl.textContent = "";
-  const saveBtn = document.getElementById("person-save-btn");
-  saveBtn.disabled = true;
-  try {
-    const name = document.getElementById("person-name").value.trim();
-    const role = document.getElementById("person-role").value;
-    const friend = editingPerson_
-      ? await callApi("updateFriend", { id: editingPerson_.id, name, role })
+  const name = document.getElementById("person-name").value.trim();
+  const role = document.getElementById("person-role").value;
+  if (!name) { errorEl.textContent = tr("accounts.errName"); return; }
+  // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
+  const editing = editingPerson_;
+  closePersonModal_();
+  saveBehindScreen_(async () => {
+    const friend = editing
+      ? await callApi("updateFriend", { id: editing.id, name, role })
       : await callApi("addFriend", { name, role });
     rememberPerson_(friend);
-    closePersonModal_();
-    await refreshPeopleList_();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  }, () => refreshPeopleList_());
 });
 document.getElementById("person-debts-btn").addEventListener("click", () => {
   const person = editingPerson_;
@@ -17459,6 +17464,23 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // Loans.gs).
       await callApi("updateSettlement", { id: settlementId, amount, date, payment_method_id: paymentMethodId, loan_id: newLoanId || undefined });
       await refreshAfterSettlementChange_();
+      return;
+    }
+
+    if (moneyBackground_()) {
+      // Sent behind the screen like the others. The extra beyond what was owed (if any) is not asked about here: the
+      // server records it in the review queue to be categorised there, and the phone says so once the save lands.
+      queueMoneyAction_("recordRepayment", {
+        friend_id: friendId,
+        direction,
+        amount,
+        currency,
+        date,
+        payment_method_id: paymentMethodId,
+        description,
+        project_id: repaymentProjectId_ || undefined,
+        allocations: allocations.length ? allocations : undefined
+      }, `${tr("money.labelRepayment")} · ${friendName} ${currency} ${moneyFmt(amount)}`, { friendId, friendName });
       return;
     }
 
