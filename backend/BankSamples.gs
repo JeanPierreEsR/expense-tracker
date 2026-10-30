@@ -56,11 +56,21 @@ function bankSampleScrub_(text, sender, maxChars) {
 
 // ---- friend's copy: pick an e-mail from their own Gmail ----
 
+// The e-mails a sample may come from: the newest 15 of one sender, or - with a `shape` (the wording of a row of More -> Not captured
+// automatically, see unreadSubjectShape_) - the ones of that wording out of the newest 100, so an older one of that kind is still found.
+function bankSampleCandidates_(sender, shape) {
+  var wanted = String(shape || '').toLowerCase().trim().slice(0, 60);
+  if (!wanted) return gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 });
+  return gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 100 }).filter(function (m) {
+    return unreadSubjectShape_(m.getSubject()) === wanted;
+  });
+}
+
 function listSampleEmails(p) {
   requireFeature_('gmail', 'err.bankSampleGmailOff');
   var sender = bankSampleSender_(p && p.sender);
   if (!sender) throw codedError_('sample_bad_sender', tr_('err.bankSampleBadSender'));
-  var msgs = gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 });
+  var msgs = bankSampleCandidates_(sender, p && p.shape);
   return msgs.map(function (m) {
     return {
       id: m.getId(),
@@ -77,7 +87,7 @@ function getSampleEmail(p) {
   if (!sender || !/^[A-Za-z0-9_-]{2,64}$/.test(id)) throw codedError_('sample_bad_sender', tr_('err.bankSampleBadSender'));
   // only mail from the address the person named: this screen is not a general e-mail reader. The check is "was it in the
   // list this screen showed" (the same search), not a read of the From header, which Gmail may write in another form.
-  var listed = gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 }).some(function (x) { return x.getId() === id; });
+  var listed = bankSampleCandidates_(sender, p && p.shape).some(function (x) { return x.getId() === id; });
   if (!listed) throw codedError_('sample_wrong_sender', tr_('err.bankSampleWrongSender'));
   var m = gmailGetMessage_(id);
   return {

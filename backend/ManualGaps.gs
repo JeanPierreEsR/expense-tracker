@@ -155,7 +155,8 @@ function listUnreadEmails_(fromIso) {
   ensureUnreadEmailsSheet_();
   return getAllRows('Unread Emails')
     .filter(function (r) { return String(r.last_seen) >= fromIso; })
-    .sort(function (a, b) { return Number(b.count) - Number(a.count); })
-    .slice(0, 20)
+    // Every sender + wording + kind is a row (owner's request, 2026-10-29), grouped by sender, the most frequent wording first.
+    .sort(function (a, b) { return String(a.sender).localeCompare(String(b.sender)) || Number(b.count) - Number(a.count); })
+    .slice(0, 200)
     .map(function (r) { return { sender: String(r.sender), subject: String(r.subject), kind: String(r.kind), count: Number(r.count), last: String(r.last_seen) }; });
 }

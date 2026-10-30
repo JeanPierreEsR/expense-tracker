@@ -1432,6 +1432,7 @@
     "bankSample.pasteOnly": { en: "Paste an email", es: "Pegar un correo" },
     "bankSample.findHint": { en: "The app looks in this Gmail for emails from that address.", es: "La app busca en este Gmail correos de esa dirección." },
     "bankSample.pasteHint": { en: "Open one of the bank's emails there, copy all its text and paste it here.", es: "Abre allí uno de los correos del banco, copia todo su texto y pégalo aquí." },
+    "bankSample.noneOfWording": { en: "I couldn't find that email in this Gmail (it may have been deleted). If you still have it, paste its text below.", es: "No encontré ese correo en este Gmail (quizá lo borraste). Si aún lo tienes, pega su texto abajo." },
     "bankSample.finding": { en: "Looking…", es: "Buscando…" },
     "bankSample.noneFound": { en: "No emails from that address in the last 6 months. Check the address. Not in this Gmail? Use “My emails are in another email account”.", es: "No hay correos de esa dirección en los últimos 6 meses. Revisa la dirección. ¿No están en este Gmail? Usa “Mis correos están en otra cuenta de correo”." },
     "bankSample.pickTitle": { en: "Pick one of your emails below.", es: "Elige uno de tus correos de abajo." },

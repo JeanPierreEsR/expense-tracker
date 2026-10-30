@@ -8574,7 +8574,7 @@ fbEl_("fb-send").addEventListener("click", async () => {
 // text that would be sent (editable) → 4 thanks. The hiding is done here (docs/bank-sample.js) BEFORE anything is sent;
 // the owner's backend (BankSamples.gs) hides digits and addresses a second time. A friend's phone is not signed in to the
 // owner's copy, so the sample goes the same way the app-speed reports do (perfReportUrl_).
-const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "" };
+const bs_ = { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "", shape: "" };
 
 // ---- "Your bank is ready": told once, after an update brings the rule for a bank the person sent an e-mail from ----
 // The phone keeps the sender address of every sample it sent (localStorage "bankSamplesSent", the address only). When the app's
@@ -8656,7 +8656,7 @@ function bsStartKind_(kind) {
 }
 function openBankSampleModal_(opts) {
   const backdrop = bsEl_("bank-sample-modal-backdrop");
-  Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "" });
+  Object.assign(bs_, { sender: "", raw: "", subject: "", how: "picked", sending: false, kind: "", shape: (opts && opts.shape) || "" });
   I18n.applyStatic(backdrop);
   bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
@@ -8669,13 +8669,16 @@ function openBankSampleModal_(opts) {
   bsStep_(1);
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  // From a row of "Not captured automatically": go straight to the e-mails of that sender and wording, no address step.
+  if (bs_.shape && !bsEl_("bs-find").hidden) bsEl_("bs-find").click();
 }
 function bsSenderOrWarn_() {
   const sender = BankSample.parseSender(bsEl_("bs-sender").value);
   if (!sender) { bsMsg_(tr("bankSample.badSender")); return ""; }
   bs_.sender = sender;
   // Asked in order; all ticked: start again from the first. A kind the person tapped in the checklist is kept.
-  if (!bs_.kind) bsSetKind_(BankSample.nextKind(BankSample.kindsSent(bankSentList_(), sender)) || BankSample.KINDS[0]);
+  if (bs_.shape) bsSetKind_("");   // from a row of "Not captured automatically": no guided kind, the row already says which e-mail
+  else if (!bs_.kind) bsSetKind_(BankSample.nextKind(BankSample.kindsSent(bankSentList_(), sender)) || BankSample.KINDS[0]);
   return sender;
 }
 function bsShowPreview_() {
@@ -8693,25 +8696,33 @@ function bsRedo_() {
 bsEl_("bs-find").addEventListener("click", async () => {
   const sender = bsSenderOrWarn_();
   if (!sender) return;
+  const shape = bs_.shape;   // set only when opened from a row: then the list holds just that wording
+  if (shape) bsStep_(2);
   bsMsg_(tr("bankSample.finding"));
   try {
-    const list = await callApi("listSampleEmails", { sender });
+    const list = await callApi("listSampleEmails", shape ? { sender, shape } : { sender });
     const box = bsEl_("bs-list");
     box.textContent = "";
-    if (!list.length) { bsMsg_(tr("bankSample.noneFound")); return; }
+    if (!list.length) {
+      if (shape) { bsEl_("bs-pick").hidden = true; bsEl_("bs-paste-box").hidden = false; bsMsg_(tr("bankSample.noneOfWording")); }
+      else bsMsg_(tr("bankSample.noneFound"));
+      return;
+    }
+    const pick = async (m) => {
+      bsMsg_(tr("bankSample.finding"));
+      try {
+        const got = await callApi("getSampleEmail", shape ? { id: m.id, sender, shape } : { id: m.id, sender });
+        Object.assign(bs_, { raw: got.body || "", subject: got.subject || m.subject || "", how: "picked" });
+        bsShowPreview_();
+      } catch (e) { bsMsg_(bsReason_(e, "bankSample.openFailed")); }
+    };
+    if (shape && list.length === 1) { await pick(list[0]); return; }   // the only one of its kind: straight to the preview
     list.forEach((m) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "more-list-item";
       b.textContent = m.date + " · " + (m.subject || "-");
-      b.addEventListener("click", async () => {
-        bsMsg_(tr("bankSample.finding"));
-        try {
-          const got = await callApi("getSampleEmail", { id: m.id, sender });
-          Object.assign(bs_, { raw: got.body || "", subject: got.subject || m.subject || "", how: "picked" });
-          bsShowPreview_();
-        } catch (e) { bsMsg_(bsReason_(e, "bankSample.openFailed")); }
-      });
+      b.addEventListener("click", () => pick(m));
       box.appendChild(b);
     });
     bsEl_("bs-pick").hidden = false;
@@ -8732,7 +8743,7 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   bsShowPreview_();
 });
 bsEl_("bs-redo").addEventListener("click", bsRedo_);
-bsEl_("bs-back-2").addEventListener("click", () => { bsSetKind_(""); bsStep_(1); });
+bsEl_("bs-back-2").addEventListener("click", () => { bsSetKind_(""); if (bs_.shape) bsEl_("bank-sample-modal-backdrop").hidden = true; else bsStep_(1); });
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
 bsEl_("bs-skip-kind").addEventListener("click", () => { bsRenderKinds_(true); bsStep_(4); });
@@ -10344,7 +10355,7 @@ function renderNotauto_(data) {
       <strong>${escapeHtml(u.subject || u.sender)}</strong>
       <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
       <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.unread." + u.kind))}</div>
-      ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
+      ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}" data-shape="${escapeHtml(u.subject)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
     </div>`;
   }).join("");
   const share = document.getElementById("notauto-share");
@@ -10369,7 +10380,7 @@ function renderNotauto_(data) {
 // "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
 document.getElementById("notauto-unread-list").addEventListener("click", (ev) => {
   const btn = ev.target.closest(".notauto-send");
-  if (btn) openBankSampleModal_({ sender: btn.dataset.sender });
+  if (btn) openBankSampleModal_({ sender: btn.dataset.sender, shape: btn.dataset.shape });
 });
 document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
 document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));

@@ -199,6 +199,22 @@ function seedData(rt, options = {}) {
     { id: uuid(), category_id: pick(incomeCats).id, description: "Programmed foreign income USD", amount: 500, currency: "USD", frequency: "monthly", day: 29, month: 1, active: true, date: "" }
   ]);
 
+  // "Bank emails I couldn't read" (More → Not captured automatically): two made-up senders, three wordings, with matching mail in the fake Gmail.
+  // Only for the click-through server (demoUnreadMail): the backend tests count these tabs and mailboxes themselves.
+  if (o.demoUnreadMail) {
+  rt.run("ensureUnreadEmailsSheet_()");
+  const unreadDay = new Date().toISOString().slice(0, 10);
+  bulk("Unread Emails", [
+    { id: "alertas@examplebank.test|aviso especial #|no_rule", sender: "alertas@examplebank.test", subject: "aviso especial #", kind: "no_rule", count: 2, first_seen: unreadDay, last_seen: unreadDay },
+    { id: "alertas@examplebank.test|movimiento raro #|unreadable", sender: "alertas@examplebank.test", subject: "movimiento raro #", kind: "unreadable", count: 1, first_seen: unreadDay, last_seen: unreadDay },
+    { id: "avisos@otrobank.test|constancia #|no_rule", sender: "avisos@otrobank.test", subject: "constancia #", kind: "no_rule", count: 3, first_seen: unreadDay, last_seen: unreadDay }
+  ]);
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Aviso especial 101", body: "Texto de prueba uno", daysAgo: 3 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Aviso especial 102", body: "Texto de prueba dos", daysAgo: 1 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Movimiento raro 55", body: "Texto de prueba tres", daysAgo: 2 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Otro tema 9", body: "No es de las filas", daysAgo: 0 });
+  }
+
   return { friends, pms, payors, tags, cats, entries, loans, splits, settlements, months };
 }
 
