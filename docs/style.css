@@ -3032,6 +3032,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
 .own-name-actions button { flex: 1; }
 .review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-hint-btn { font-weight: 600; }
+.payee-suggest { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .notices-card { border-left: 4px solid #b26a00; }
 .notices-card h2 { margin: 0; font-size: 1rem; }
 .notices-list { list-style: none; margin: 6px 0 0; padding: 0; }

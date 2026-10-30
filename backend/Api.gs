@@ -394,6 +394,7 @@ function routeAction(action, payload) {
     case 'saveStatementFormat': return saveStatementFormat(payload);
     case 'deleteStatementFormat': return deleteStatementFormat(payload);
     case 'listPendingEntries': return listPendingEntries();
+    case 'suggestForDescription': return suggestForDescription(payload);
     case 'listSupportedSenders': return listSupportedSenders();
     case 'setRulePack': return setRulePack(payload);
     case 'confirmEntry': {
@@ -1148,6 +1149,7 @@ function listPendingEntries() {
   // A waiting entry can be a repayment's extra (income / expense with no category yet): it carries `link` like a confirmed one
   // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
+  var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
@@ -1155,6 +1157,9 @@ function listPendingEntries() {
     if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
     if (entry.type === 'expense' && !entry.trip_id) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
+    // "Looks like a loan to Ana again" (a place the person turned into a loan / repayment before): a suggestion only.
+    var loanHint = entry.source === 'email' ? payeeLoanHint_(entry, payeeHist) : null;
+    if (loanHint) entry.loan_hint = loanHint;
   });
   entries.sort(compareEntriesRecency_);
   return entries;

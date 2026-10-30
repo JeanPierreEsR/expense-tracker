@@ -1817,6 +1817,7 @@ function convertEntryInto_(payload, kind) {
         payment_method_id: payload.payment_method_id,
         description: payload.description
       });
+      rememberPayeeHabit_(entry, 'loan', payload);   // PayeeGuess.gs: the next one from this place gets a suggestion
       return { loan: loan };
     }
     var result = recordRepayment({
@@ -1830,6 +1831,7 @@ function convertEntryInto_(payload, kind) {
       overpay_category_id: payload.overpay_category_id,   // recordRepayment books the extra itself
       require_owed: payload.require_owed                  // Telegram: income with nothing owed stays income
     });
+    rememberPayeeHabit_(entry, 'repayment', payload);
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
     // Undo: remove whatever was written, put the original back exactly as

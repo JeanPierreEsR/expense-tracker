@@ -213,6 +213,10 @@
 
           <label for="description" data-i18n="field.description">Description</label>
           <input type="text" id="description" data-i18n-placeholder="common.optional" placeholder="Optional">
+          <div class="payee-suggest" id="payee-suggest" hidden>
+            <span id="payee-suggest-text"></span>
+            <button type="button" class="add-inline" id="payee-suggest-apply" data-i18n="payee.use">Use this</button>
+          </div>
 
           <label for="paid_by" id="paid-by-label" data-i18n="field.paidBy">Paid by</label>
           <select id="paid_by"></select>
