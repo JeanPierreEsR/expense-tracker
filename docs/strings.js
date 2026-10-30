@@ -1552,6 +1552,7 @@
     "spot.p.s16": { en: "Tap Save repayment.", es: "Toca Guardar repago." },
     "spot.p.s16err": { en: "Not saved: {error} Fix it, then tap Save repayment again.", es: "No se guardó: {error} Corrígelo y toca Guardar repago de nuevo." },
     "spot.p.s17": { en: "Done! The debt is paid. That is the whole cycle: record the expense, split it, then record the repayment. Tap the button and the practice is removed.", es: "¡Listo! La deuda está pagada. Ese es todo el ciclo: registrar el gasto, repartirlo y registrar el repago. Toca el botón y se borra la práctica." },
+    "spot.p.s17part": { en: "Done! The repayment is recorded. It was less than they owed, so the balance above is what is still owed. That is the whole cycle: record the expense, split it, then record the repayment. Tap the button and the practice is removed.", es: "¡Listo! El repago quedó registrado. Fue menos de lo que debía, así que el saldo de arriba es lo que aún debe. Ese es todo el ciclo: registrar el gasto, repartirlo y registrar el repago. Toca el botón y se borra la práctica." },
     "spot.p.finish": { en: "Finish and remove the practice", es: "Terminar y borrar la práctica" },
     "more.previewWelcome": { en: "👀 Preview the welcome flow", es: "👀 Ver el flujo de bienvenida" },
     "welcome.previewExit": { en: "Exit preview (nothing is saved)", es: "Salir de la vista previa (no se guarda nada)" },

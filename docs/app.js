@@ -15767,8 +15767,15 @@ function practiceSteps_() {
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
       before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
       until: () => document.getElementById("settlement-modal-backdrop").hidden },
-    { target: "#loan-detail-subtitle", text: () => tr("spot.p.s17"), button: () => tr("spot.p.finish"), wait: 20000,
-      before: async () => { await tipWaitIdle_(20000); return !practiceSaveFailed_(); } }
+    { target: "#loan-detail-subtitle", button: () => tr("spot.p.finish"), wait: 20000,
+      // Fully settled, or only partly (the person paid less than they owed): say which.
+      text: () => tr(document.getElementById("loan-detail-subtitle").textContent === tr("loanDetail.settled") ? "spot.p.s17" : "spot.p.s17part"),
+      before: async () => {
+        await tipWaitIdle_(30000);   // the repayment reaches the server...
+        if (practiceSaveFailed_()) return false;
+        // ...and the friend's page is reloaded HERE, so the balance it shows is the new one before anything is lit up.
+        if (practice_ && practice_.friendId) { try { await openLoanDetail(practice_.friendId, practice_.friendName); } catch (e) { /* the page keeps what it shows */ } }
+      } }
   ];
 }
 

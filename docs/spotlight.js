@@ -241,6 +241,16 @@
       return work.then(function () { root.remove(); resolve(how); });
     }
 
+    // The screen while something the person cannot see is still happening (a save on its way to the server): dimmed, one line, no highlight.
+    function showWaiting() {
+      cur = { step: null, targets: [] };
+      $(".spot-text").textContent = L.waiting;
+      $(".spot-count").textContent = "";
+      $(".spot-go").hidden = true;
+      $(".spot-stuck").hidden = true;
+      layout();
+    }
+
     function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); } }
 
     function shown(s) { return !s.available || s.available(); }
@@ -250,7 +260,10 @@
     // Shows step i and settles when the person has completed it: "done", "skip" (left out or skipped) or "stale" (closed).
     async function showStep(i, fixing) {
       var step = steps[i], token = ++stepToken, ok = true;
+      // A step that has to prepare something slowly (waiting for a save) must not leave the PREVIOUS step's highlight on screen meanwhile.
+      var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(); }, 250) : null;
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
+      if (waitTimer) clearTimeout(waitTimer);
       if (closed || token !== stepToken) return "stale";
       if (!ok) return "skip";
       // (a typing step keeps the box the app has just focused, so the keyboard does not close and open again)
@@ -264,13 +277,7 @@
         if (closed || token !== stepToken) return "stale";
         if (waited >= limit) return "skip";
         if (step.poke && waited - lastPoke >= 2000) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
-        if (waited >= 600) {   // a long wait (a save still reaching the server): say so, centred
-          cur = { step: null, targets: [] };
-          $(".spot-text").textContent = L.waiting;
-          $(".spot-count").textContent = "";
-          $(".spot-go").hidden = true;
-          layout();
-        }
+        if (waited >= 600) showWaiting();   // a long wait (a save still reaching the server): say so, centred
         await sleep(100); waited += 100;
       }
       if (closed || token !== stepToken) return "stale";
