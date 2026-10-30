@@ -667,6 +667,23 @@ function listBusinessPeople() {
   });
 }
 
+// More → Friends: the plain friends (clients, suppliers and partners live in Companies & projects → People; a trip's group is edited with
+// the trip), each with what is still owed in total per currency (they owe me positive, I owe them negative). Works in every copy.
+function listMyFriends() {
+  var settled = buildSettlementTotalsByLoan_();
+  var byFriend = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.status === 'forgiven') return;
+    var remaining = Number(l.amount) - (settled[l.id] || 0);
+    if (remaining <= 0.004) return;
+    var slot = byFriend[l.friend_id] || (byFriend[l.friend_id] = {});
+    slot[l.currency] = (slot[l.currency] || 0) + (l.direction === 'they_owe_me' ? remaining : -remaining);
+  });
+  return getAllRowsCached_('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) === 'friend'; }).map(function (f) {
+    return { id: f.id, name: f.name, notes: f.notes || '', totals: netMapToList_(byFriend[f.id] || {}) };
+  });
+}
+
 // What each person owes (or is owed) on ONE project, per currency — the project screen's "Owed" block.
 function getProjectDebts(payload) {
   requireBusiness_();
@@ -677,16 +694,19 @@ function getProjectDebts(payload) {
 
 function personKey_(name) { return searchNormalize_(String(name || '').trim()); }
 
+// Renames a person and/or changes their notes. A plain friend can be edited in ANY copy (More → Friends); a business role (client,
+// supplier, partner) needs the Business pack, so asking for one while it is off is refused like every other business action.
 function updateFriend(payload) {
-  requireBusiness_();
-  ensureBusinessSheets_();
+  var biz = businessOn_();
+  if (!biz && payload && payload.role && payload.role !== 'friend') requireBusiness_();
+  if (biz) ensureBusinessSheets_();
   var sheet = getSheet('Friends');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload && payload.id);
   if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
   var name = String(payload.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));
-  var role = BUSINESS_ROLES_[payload.role] ? payload.role : 'friend';
+  var role = biz ? (BUSINESS_ROLES_[payload.role] ? payload.role : 'friend') : 'friend';
   getAllRows('Friends').forEach(function (f) {
     if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_('business.errPersonExists'));
   });
@@ -694,7 +714,7 @@ function updateFriend(payload) {
   if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
   withWriteBatch_(function () {
     setCellByRow_(sheet, headers, rowIndex, 'name', name);
-    setCellByRow_(sheet, headers, rowIndex, 'role', role);
+    if (biz) setCellByRow_(sheet, headers, rowIndex, 'role', role);   // a personal copy has no role column
     if (payload.notes !== undefined) setCellByRow_(sheet, headers, rowIndex, 'notes', String(payload.notes));
   });
   return { id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : '') };
@@ -702,7 +722,6 @@ function updateFriend(payload) {
 
 // A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).
 function deleteFriend(payload) {
-  requireBusiness_();
   var id = String((payload && payload.id) || '');
   var friend = getAllRows('Friends').find(function (f) { return String(f.id) === id; });
   if (!friend) throw new Error(tr_('err.friendNotFound'));
