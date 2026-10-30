@@ -5815,7 +5815,7 @@ function showScreen(name) {
     refreshProjectionsScreen();
   }
   if (name === "loans") {
-    refreshLoans();
+    loansLoad_ = refreshLoans();
   }
   if (name === "more") {
     applyBusinessVisibility_();
@@ -15454,6 +15454,116 @@ function loansScopePayload_() {
   return loansScope_ === "personal" ? { personal: true } : { project_id: loansScope_ };
 }
 
+// ---- First-use tips (spotlight walkthroughs; docs/spotlight.js; owner's design, 2026-10-30) ----
+// A tip is offered ONCE per feature, as a small card at the top of its screen, only after the screen's data has arrived. "Show me"
+// runs the spotlight walkthrough; "Not now" and finishing it both mark the tip as seen on this phone (localStorage "tipsSeen").
+// More → Show tips again clears the list. A new feature ships with its tip: a step list, an invitation text, and a call to
+// offerTip_ at the end of the screen's refresh. The walkthrough moves with Next only (the dimmed area swallows taps) and
+// always puts back whatever it opened (tipCleanup_).
+let loansLoad_ = null;   // the Loans tab's latest load, so a walkthrough can wait for the list to be there
+let tipSheetOpen_ = false;   // the walkthrough itself opened the new-entry sheet
+let tipPrevType_ = "expense";
+
+function tipSeen_(key) {
+  try { return Spotlight.seen(localStorage, key); } catch (e) { return true; }   // no storage: do not nag on every open
+}
+function markTipSeen_(key) {
+  try { Spotlight.markSeen(localStorage, key); } catch (e) { /* ignore */ }
+}
+
+function runTip_(steps, afterFinish) {
+  return Spotlight.run(steps, {
+    labels: { next: tr("spot.next"), back: tr("spot.back"), skip: tr("spot.skip"), done: tr("spot.done"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async () => { tipCleanup_(); if (afterFinish) await afterFinish(); }
+  });
+}
+
+function offerTip_(key, boxId, inviteText, steps, afterFinish) {
+  const box = document.getElementById(boxId);
+  if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
+  if (!box.hidden) return;   // already on offer
+  box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.notNow"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
+  box.hidden = false;
+  box.querySelector(".tip-invite-no").addEventListener("click", () => { markTipSeen_(key); box.hidden = true; });
+  box.querySelector(".tip-invite-go").addEventListener("click", () => {
+    markTipSeen_(key);
+    box.hidden = true;
+    runTip_(steps(), afterFinish);
+  });
+}
+
+// Puts back anything a walkthrough opened: the new-entry sheet it filled in (never saved, never kept as a draft).
+function tipCleanup_() {
+  if (!tipSheetOpen_) return;
+  tipSheetOpen_ = false;
+  resetSplitState();
+  document.getElementById("entry-trip").value = "";
+  const prev = document.querySelector(`#entry-type-tabs .type-tab[data-type="${tipPrevType_}"]`);
+  if (prev) prev.click();   // the type the form was on before (this also puts its category picker back)
+  else showCategoryPicker();
+  closeNewEntrySheet_();
+}
+
+// Opens the real new-entry form on an expense, ready to show the split. False = leave these steps out: the person has
+// something half-typed (or is editing), and a walkthrough must never touch that.
+function tipCanUseEntryForm_() {
+  if (tipSheetOpen_) return true;
+  let draft = null;
+  try { draft = localStorage.getItem(ENTRY_DRAFT_KEY); } catch (e) { /* ignore */ }
+  return !(draft || document.getElementById("amount").value.trim() || document.getElementById("description").value.trim());
+}
+async function tipOpenEntryForm_() {
+  if (tipSheetOpen_) return true;
+  if (!tipCanUseEntryForm_()) return false;
+  openNewEntrySheet_();
+  if (!newEntrySheetOpen_) return false;
+  tipSheetOpen_ = true;
+  tipPrevType_ = selectedType;
+  const expenseTab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
+  if (expenseTab) expenseTab.click();
+  // The first category that is not Travel (picking Travel ticks the Annual tag, which would have to be undone).
+  const first = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense")))
+    .find((c) => !(c.key === "travel" || (!c.key && c.name === "Travel")));
+  showDetailForm(first || null);
+  return true;
+}
+
+async function tipShowSplit_() {
+  if (!(await tipOpenEntryForm_())) return false;
+  const toggle = document.getElementById("split-toggle");
+  if (!toggle.checked) { toggle.checked = true; toggle.dispatchEvent(new Event("change")); }
+  return true;
+}
+
+async function tipGoToLoans_() {
+  tipCleanup_();
+  if (document.getElementById("screen-loans").hidden) {
+    showScreen("loans");
+    try { await loansLoad_; } catch (e) { return false; }
+  }
+  return true;
+}
+
+function loansTipSteps_() {
+  return [
+    { target: "#fab-new-entry", text: () => tr("spot.loans.s1"), before: async () => { tipCleanup_(); showScreen("entries"); } },
+    { target: "#split-field .checkbox-row", text: () => tr("spot.loans.s2"), available: tipCanUseEntryForm_, before: tipOpenEntryForm_ },
+    { target: "#split-friend-chips", text: () => tr("spot.loans.s3"), available: tipCanUseEntryForm_, before: tipShowSplit_ },
+    { target: () => document.querySelector("#loans-owed-to-me-list .loan-row") || document.getElementById("loans-owed-card"), text: () => tr("spot.loans.s4"), before: tipGoToLoans_ },
+    { target: "#add-loan-btn", text: () => tr("spot.loans.s5"), before: tipGoToLoans_ }
+  ];
+}
+function offerLoansTip_() {
+  offerTip_("loans", "loans-tip-invite", tr("spot.loans.invite"), loansTipSteps_, async () => {
+    if (document.getElementById("screen-loans").hidden) await tipGoToLoans_();   // skipped halfway: back where the person started
+  });
+}
+
+document.getElementById("more-tips-again-btn").addEventListener("click", () => {
+  try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
+  showToast_(tr("spot.tipsReset"));
+});
+
 async function refreshLoans() {
   populateLoansScope_();
   const balances = await callApi("listLoanBalances", loansScopePayload_());
@@ -15481,6 +15591,7 @@ async function refreshLoans() {
   renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
   renderSettledPeople_();
+  offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
 // "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
