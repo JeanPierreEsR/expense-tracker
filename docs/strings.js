@@ -1560,6 +1560,7 @@
     "spot.p.s13a": { en: "This is your friend's page. At the top: what they owe you. Below: 💰 Record repayment (when they pay you back) and Repayment history. Then each debt, and the paid ones under “Show already paid”.", es: "Esta es la página de tu amigo. Arriba: lo que te debe. Debajo: 💰 Registrar repago (cuando te paga) e Historial de repagos. Luego cada deuda, y las ya pagadas en “Mostrar ya pagados”." },
     "spot.p.s14": { en: "The amount is already what they owe you: {cur} {amount}. Tap the box to check it (change it if they paid less), then tap anywhere outside the box.", es: "El monto ya es lo que te debe: {cur} {amount}. Toca la casilla para revisarlo (cámbialo si pagó menos) y luego toca fuera de la casilla." },
     "spot.p.s14fix": { en: "Type the amount they paid ({cur} {amount}), then tap anywhere outside the box.", es: "Escribe el monto que pagó ({cur} {amount}) y toca fuera de la casilla." },
+    "spot.p.s14over": { en: "That is more than they owe. For the practice, type {cur} {amount} or less, then tap anywhere outside the box.", es: "Eso es más de lo que debe. Para la práctica, escribe {cur} {amount} o menos y toca fuera de la casilla." },
     "spot.p.s15": { en: "Tap here and pick the account where the money arrived.", es: "Toca aquí y elige la cuenta donde llegó el dinero." },
     "spot.p.s16": { en: "Tap Save repayment.", es: "Toca Guardar repago." },
     "spot.p.s16err": { en: "Not saved: {error} Fix it, then tap Save repayment again.", es: "No se guardó: {error} Corrígelo y toca Guardar repago de nuevo." },
