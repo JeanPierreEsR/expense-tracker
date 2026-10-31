@@ -15711,7 +15711,7 @@ async function practiceRemoveNow_(p) {
     if (getQueuedEdits_().some((e) => e.id === p.entryId && e.status === "failed")) unqueueEntryEdit_(p.entryId);
     const stuck = getMoneyQueue_().filter((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === p.friendId);
     if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
-    await tipWaitIdle_();
+    await tipWaitIdle_(90000);   // a save still on its way must land BEFORE we delete (a late one would make a stray entry)
     try {
       const loans = await callApi("getFriendLoanDetail", { friendId: p.friendId });
       const mine = loans.filter((l) => l.origin === "entry" && l.entry_id === p.entryId).map((l) => l.id);
@@ -15735,6 +15735,7 @@ async function practiceRemoveNow_(p) {
       }
     }
   }
+  if (ok) await practiceSweepExtras_(p);
   if (ok) await practiceDeleteNewFriends_(p);
   if (ok) { practice_ = null; practiceSave_(); }
   clearEntryDraft_();
@@ -15742,6 +15743,24 @@ async function practiceRemoveNow_(p) {
   refreshLoans().catch(() => {});
   refreshBalances().catch(() => {});
   return ok;
+}
+
+// An "Overpayment from <friend>" entry waiting in Needs review that the practice left behind (it cannot normally happen: the practice
+// repayment is held to what is owed; this catches a save that landed late). Only the practice friend's, from the day it started, and only
+// when that friend was created by the practice or the amount is exactly the extra that was typed.
+async function practiceSweepExtras_(p) {
+  if (!p.friendName) return;
+  const created = Array.isArray(p.friendsBefore) && p.friendId && !p.friendsBefore.includes(p.friendId);
+  const extra = Math.round(((p.repaid || 0) - (p.share || 0)) * 100) / 100;
+  let pending = [];
+  try { pending = await callApi("listPendingEntries", {}); } catch (e) { return; }
+  const esc = p.friendName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("(Overpayment (from|to) " + esc + "|Pago de más (de|a) " + esc + ")", "i");
+  for (const e of pending) {
+    if (!re.test(e.description || "") || (p.startedOn && e.date < p.startedOn)) continue;
+    if (!created && !(extra > 0 && Math.abs(Number(e.amount) - extra) < 0.005)) continue;
+    try { await callApi("discardEntry", { id: e.id }); } catch (err) { /* it is the person's to discard in Needs review */ }
+  }
 }
 
 // A friend added during the practice is removed too, so nothing at all is kept. Only friends that did not exist when it started (an
@@ -15862,8 +15881,15 @@ function practiceSteps_() {
     { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     { target: "#record-repayment-btn", text: () => tr("spot.p.s13"), tap: "#record-repayment-btn", wait: 15000 },
-    { key: "repayAmount", target: "#settlement-amount", text: (fix) => tr(fix ? "spot.p.s14fix" : "spot.p.s14", { cur: practice_ && practice_.currency || cur, amount: moneyFmt(practiceShare_()) }),
-      blurTap: true, visit: "#settlement-amount", ok: () => amountOf("#settlement-amount") > 0, holdsUntil: "saveRepayment", wait: 15000 },
+    { key: "repayAmount", target: "#settlement-amount",
+      text: (fix) => {
+        const c = (practice_ && practice_.currency) || cur, owed = practiceShare_(), typed = amountOf("#settlement-amount");
+        if (owed > 0 && typed > owed + 0.004) return tr("spot.p.s14over", { cur: c, amount: moneyFmt(owed) });   // more than owed would leave an extra "overpayment" entry behind
+        return tr(fix ? "spot.p.s14fix" : "spot.p.s14", { cur: c, amount: moneyFmt(owed) });
+      },
+      blurTap: true, visit: "#settlement-amount", ok: () => { const v = amountOf("#settlement-amount"), owed = practiceShare_(); return v > 0 && (!(owed > 0) || v <= owed + 0.004); },
+      holdsUntil: "saveRepayment", wait: 15000,
+      after: () => { practice_.repaid = amountOf("#settlement-amount") || 0; practice_.share = practiceShare_(); practiceSave_(); } },
     { target: "#settlement-payment-method", text: () => tr("spot.p.s15"), visit: "#settlement-payment-method" },
     { key: "saveRepayment", target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
@@ -15884,7 +15910,7 @@ function practiceSteps_() {
 // Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
 function startPractice_() {
   if (!tipPrepareForm_()) return false;
-  practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0, friendsBefore: (meta.friends || []).map((f) => f.id) };
+  practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0, friendsBefore: (meta.friends || []).map((f) => f.id), startedOn: todayLocalISO() };
   practiceSave_();
   practiceHint_ = "";
   Object.keys(practiceFriendChecked_).forEach((k) => delete practiceFriendChecked_[k]);
