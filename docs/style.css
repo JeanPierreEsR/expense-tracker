@@ -3331,3 +3331,6 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
 /* room under the last friend so the fixed bar never covers it */
 #screen-friends.friends-editing .card { padding-bottom: 90px; }
+.friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
+.friends-hidden-box > .add-inline { padding-left: 0; }
+.friends-hidden-row { cursor: default; }

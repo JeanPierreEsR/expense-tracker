@@ -1512,7 +1512,7 @@ document.getElementById("repayment-friend").addEventListener("change", async (e)
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
-    meta.friends.push(friend);
+    rememberPerson_(friend);
     refreshFriendChips_();
     populateRepaymentFriendOptions_();
     document.getElementById("repayment-friend").value = friend.id;
@@ -1672,7 +1672,12 @@ function isGroupFriend_(f) { return !!f.trip_id; }
 // Business pack: a client / supplier / partner is listed (marked 🏢) only while Business features are on; the data stays when it is off.
 function isBusinessPerson_(f) { return !!f.role && f.role !== "friend"; }
 function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + f.name; }
-function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())); }
+// A friend hidden from More → Friends (they have history, so they were hidden instead of deleted) is left out of every picker, except while the
+// form in front of the person already uses them (an old entry paid by / shared with them being edited), so editing never changes who it was.
+function isHiddenFriend_(f) { return f.hidden === "yes" || f.hidden === true; }
+let hiddenFriendsShown_ = new Set();
+function friendPickable_(f) { return !isHiddenFriend_(f) || hiddenFriendsShown_.has(f.id) || splitFriendIds.has(f.id); }
+function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f)); }
 // Groups of trips that still exist, the most recent trip first.
 function groupFriendsNewestFirst_() {
   const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
@@ -1682,7 +1687,7 @@ function groupFriendsNewestFirst_() {
 // The friends the split can use: everyone ordinary, plus the group of the trip currently picked on the form.
 function splitFriendsList_() {
   const tripId = document.getElementById("entry-trip").value;
-  return meta.friends.filter((f) => (!isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn())) || (tripId && f.trip_id === tripId));
+  return meta.friends.filter((f) => (!isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f)) || (tripId && f.trip_id === tripId));
 }
 
 // The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
@@ -2055,8 +2060,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   const name = prompt(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
-  friend.last_used = todayLocalISO();
-  meta.friends.push(friend);
+  rememberPerson_(friend);   // a hidden friend with this name comes back instead of a second one being made
   refreshFriendChips_();
   splitFriendIds.add(friend.id);
   renderSplitFriendChips();
@@ -2122,7 +2126,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     e.target.value = "me";
     if (name && name.trim()) {
       const friend = await callApi("addFriend", { name: name.trim() });
-      meta.friends.push(friend);
+      rememberPerson_(friend);
       refreshFriendChips_();
       populatePaidByOptions();
       document.getElementById("paid_by").value = friend.id;
@@ -3761,6 +3765,7 @@ function applyEntryDraft_(d) {
   selectedType = d.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === d.type));
   populateCategoryOptions();
+  hiddenFriendsShown_ = new Set([d.paidBy]);
   populatePaidByOptions();
   const category = findCategory(d.categoryId);
   if (ICON_PICKER_TYPES.includes(d.type)) {
@@ -3898,6 +3903,7 @@ async function startEditEntry(entry) {
   selectedType = entry.type;
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === entry.type));
   populateCategoryOptions();
+  hiddenFriendsShown_ = new Set([entry.paid_by]);   // a hidden friend who paid this entry stays pickable while it is edited
   populatePaidByOptions();
 
   const category = findCategory(entry.category_id);
@@ -4033,6 +4039,7 @@ function exitEditMode() {
 // below for the "finishing an edit" case, which also resets these.
 function resetEntryFormFields_() {
   clearEntryDraft_();
+  hiddenFriendsShown_ = new Set();
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
   lastAutoDescription = "";
@@ -12825,6 +12832,8 @@ function showFriendsScreen_() {
   // Loading standard: nothing half-drawn; the list shows once it has arrived.
   document.getElementById("friends-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
   document.getElementById("friends-empty-note").hidden = true;
+  document.getElementById("friends-hidden-box").hidden = true;
+  friendsShowHidden_ = false;
   setFriendsEditing_(false, false);
   document.getElementById("friends-edit-btn").hidden = true;   // shown again once the list has arrived
   refreshFriendsList_();
@@ -12840,6 +12849,8 @@ async function refreshFriendsList_() {
     errorEl.textContent = tr("business.loadFailed", { error: err.message });
   }
 }
+let friendsShowHidden_ = false;
+const shownFriends_ = () => friends_.filter((p) => !p.hidden);
 function setFriendsEditing_(on, redraw = true) {
   friendsEditing_ = on;
   friendsSelected_ = new Set();
@@ -12862,15 +12873,17 @@ function syncFriendsEditBar_() {
   const del = document.getElementById("friends-delete-selected-btn");
   del.disabled = n === 0;
   del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
-  document.getElementById("friends-selectall-btn").textContent = tr(n && n === friends_.length ? "friends.selectNone" : "friends.selectAll");
+  document.getElementById("friends-selectall-btn").textContent = tr(n && n === shownFriends_().length ? "friends.selectNone" : "friends.selectAll");
 }
 function renderFriendsList_() {
   const box = document.getElementById("friends-list");
   box.innerHTML = "";
+  const shown = shownFriends_();
+  const hidden = friends_.filter((p) => p.hidden).sort((x, y) => x.name.localeCompare(y.name));
   document.getElementById("friends-empty-note").hidden = friends_.length > 0;
-  document.getElementById("friends-edit-btn").hidden = !(((meta && meta.capabilities) || {}).friendsBulkDelete && friends_.length);
-  if (friendsEditing_ && !friends_.length) { setFriendsEditing_(false); return; }
-  friends_.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
+  document.getElementById("friends-edit-btn").hidden = !(((meta && meta.capabilities) || {}).friendsBulkDelete && shown.length);
+  if (friendsEditing_ && !shown.length) { setFriendsEditing_(false); return; }
+  shown.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (friendsEditing_ ? " friends-check-row" : "");
     row.innerHTML = `
@@ -12888,38 +12901,73 @@ function renderFriendsList_() {
     });
     box.appendChild(row);
   });
+  // "Hidden friends (n)": friends with history that were deleted from the list; their history stays, Unhide brings them back.
+  const hiddenBox = document.getElementById("friends-hidden-box");
+  hiddenBox.hidden = friendsEditing_ || !hidden.length;
+  document.getElementById("friends-hidden-toggle").textContent = (friendsShowHidden_ ? "▾ " : "▸ ") + tr("friends.hiddenToggle", { n: hidden.length });
+  document.getElementById("friends-hidden-hint").hidden = !friendsShowHidden_;
+  const hiddenList = document.getElementById("friends-hidden-list");
+  hiddenList.innerHTML = "";
+  if (friendsShowHidden_) hidden.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row friends-hidden-row";
+    row.innerHTML = `<div class="recurring-row-name">${escapeHtml(p.name)}</div><button type="button" class="add-inline">${escapeHtml(tr("friends.unhide"))}</button>`;
+    row.querySelector("button").addEventListener("click", () => {
+      saveBehindScreen_(async () => {
+        await callApi("unhideFriend", { id: p.id });
+        const m = (meta.friends || []).find((f) => f.id === p.id);
+        if (m) m.hidden = "";
+        refreshFriendChips_(); populatePaidByOptions();
+      }, refreshFriendsList_);
+    });
+    hiddenList.appendChild(row);
+  });
   syncFriendsEditBar_();
 }
+document.getElementById("friends-hidden-toggle").addEventListener("click", () => { friendsShowHidden_ = !friendsShowHidden_; renderFriendsList_(); });
 document.getElementById("more-friends-btn").addEventListener("click", showFriendsScreen_);
 document.getElementById("friends-back-btn").addEventListener("click", () => { setFriendsEditing_(false); showScreen("more"); });
 document.getElementById("friends-add-btn").addEventListener("click", () => openPersonModal_(null, true));
 document.getElementById("friends-edit-btn").addEventListener("click", () => setFriendsEditing_(!friendsEditing_));
 document.getElementById("friends-selectall-btn").addEventListener("click", () => {
-  friendsSelected_ = friendsSelected_.size === friends_.length ? new Set() : new Set(friends_.map((p) => p.id));
+  const shown = shownFriends_();
+  friendsSelected_ = friendsSelected_.size === shown.length ? new Set() : new Set(shown.map((p) => p.id));
   renderFriendsList_();
 });
+// Delete = delete when nobody has a record with them, HIDE when they have history and nothing is owed (the history stays), keep when money is
+// still owed. The server decides per friend and says what it did.
+function deleteFriendsFlow_(chosen) {
+  const ids = chosen.map((p) => p.id);
+  let result = null;
+  // Saving standard: back to the list at once; the server works behind the screen and says if anyone was hidden or kept.
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteFriends", { ids });
+    const gone = new Set(result.deleted);
+    const hid = new Set((result.hidden || []).map((h) => h.id));
+    meta.friends = (meta.friends || []).filter((f) => !gone.has(f.id));
+    (meta.friends || []).forEach((f) => { if (hid.has(f.id)) f.hidden = "yes"; });
+    refreshFriendChips_(); populatePaidByOptions();
+  }, async () => {
+    await refreshFriendsList_();
+    if (!result) return;
+    const hidden = result.hidden || [];
+    const kept = result.kept.map((k) => k.name).filter(Boolean);
+    if (!hidden.length && !kept.length) return;
+    const lines = [];
+    if (result.deleted.length) lines.push(tr("friends.resultDeleted", { n: result.deleted.length }));
+    if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
+    if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
+    alert(lines.join("\n\n"));
+  });
+}
 document.getElementById("friends-delete-selected-btn").addEventListener("click", () => {
-  const chosen = friends_.filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
+  const chosen = shownFriends_().filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
   if (!chosen.length) return;
   const names = chosen.map((p) => p.name).join(", ");
   // ONE question for the whole batch.
   if (!confirm(tr(chosen.length === 1 ? "friends.confirmDeleteOne" : "friends.confirmDeleteMany", { n: chosen.length, names }))) return;
-  const ids = chosen.map((p) => p.id);
   setFriendsEditing_(false);
-  let result = null;
-  // Saving standard: back to the list at once; the server removes them behind the screen and says if someone had to be kept.
-  saveBehindScreen_(async () => {
-    result = await callApi("deleteFriends", { ids });
-    const gone = new Set(result.deleted);
-    meta.friends = (meta.friends || []).filter((f) => !gone.has(f.id));
-    refreshFriendChips_(); populatePaidByOptions();
-  }, async () => {
-    await refreshFriendsList_();
-    if (result && result.kept.length) {
-      const keptNames = result.kept.map((k) => k.name).filter(Boolean).join(", ");
-      alert(tr(result.deleted.length ? "friends.keptSome" : "friends.keptAll", { deleted: result.deleted.length, kept: result.kept.length, names: keptNames }));
-    }
-  });
+  deleteFriendsFlow_(chosen);
 });
 
 // ---- Person pop-up ----
@@ -12958,6 +13006,7 @@ function closePersonModal_() {
 
 // Keeps the app's own list of people (the entry form's pickers read it) in step with what the server just saved.
 function rememberPerson_(friend) {
+  if (friend.unhidden) showToast_(tr("friends.broughtBack", { name: friend.name }));   // the same name was hidden: it is that person again, with their history
   const i = (meta.friends || []).findIndex((f) => f.id === friend.id);
   if (i === -1) meta.friends.push(Object.assign({ last_used: todayLocalISO() }, friend));
   else meta.friends[i] = Object.assign({}, meta.friends[i], friend);
@@ -12996,14 +13045,20 @@ document.getElementById("person-debts-btn").addEventListener("click", () => {
 });
 document.getElementById("person-delete-btn").addEventListener("click", async () => {
   const person = editingPerson_;
-  if (!person || !confirm(tr("people.confirmDelete", { name: person.name }))) return;
+  if (!person) return;
+  if (personModalFriends_) {
+    // More → Friends: the same rules as Edit → Delete (deleted, or hidden when they have history).
+    if (!confirm(tr("friends.confirmDeleteOne", { names: person.name }))) return;
+    closePersonModal_();
+    deleteFriendsFlow_([person]);
+    return;
+  }
+  if (!confirm(tr("people.confirmDelete", { name: person.name }))) return;
   try {
     await callApi("deleteFriend", { id: person.id });
     meta.friends = (meta.friends || []).filter((f) => f.id !== person.id);
-    const fromFriends = personModalFriends_;
     closePersonModal_();
-    if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); await refreshFriendsList_(); }
-    else await refreshPeopleList_();
+    await refreshPeopleList_();
   } catch (err) {
     document.getElementById("person-form-error").textContent = err.message;
   }

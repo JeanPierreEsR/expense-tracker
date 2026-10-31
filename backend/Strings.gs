@@ -87,6 +87,7 @@ var BACKEND_STRINGS_ = {
   "business.errCompanyInUse": { en: "This company still has projects or entries. Move or delete them first.", es: "Esta empresa todavía tiene proyectos o movimientos. Muévelos o elimínalos primero." },
   "business.errProjectMove": { en: "A project that already has entries can't move to another company.", es: "Un proyecto que ya tiene movimientos no se puede pasar a otra empresa." },
   "business.errBudget": { en: "A budget must be a number greater than 0, with a 3-letter currency.", es: "Un presupuesto debe ser un número mayor que 0, con una moneda de 3 letras." },
+  "friends.errHiddenName": { en: "A friend with that name is hidden. Show them again from \"Hidden friends\" on the Friends screen.", es: "Un amigo con ese nombre está oculto. Vuelve a mostrarlo desde \"Amigos ocultos\" en la pantalla Amigos." },
   "business.errPersonExists": { en: "You already have a person with that name.", es: "Ya tienes una persona con ese nombre." },
   "business.errPersonInUse": { en: "This person still has debts, shared expenses or entries. Settle or move them first.", es: "Esta persona todavía tiene deudas, gastos compartidos o movimientos. Salda o muévelos primero." },
   "business.errPersonGroup": { en: "A trip's group can't be changed here.", es: "El grupo de un viaje no se puede cambiar aquí." },

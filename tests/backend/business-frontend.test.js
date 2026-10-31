@@ -68,8 +68,8 @@ test("the project budget button says 'Add a budget' in both languages", () => {
 test("step 2: People is a remembered More screen; business people hide from ordinary pickers while the pack is off", () => {
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-people"'));
   assert.ok(html.includes('id="screen-business-people"'));
-  assert.match(app, /function plainFriends_\(\) \{ return meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\); \}/);
-  assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\) \|\| \(tripId/, "the split list follows the same rule");
+  assert.match(app, /function plainFriends_\(\) \{ return meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\); \}/);
+  assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\) \|\| \(tripId/, "the split list follows the same rule");
 });
 
 test("step 2: a repayment from a project sheet carries the project; the Loans tab never does", () => {
