@@ -15586,6 +15586,7 @@ function loansScopePayload_() {
 // The Loans tip is a PRACTICE: the person really records a shared expense with a friend, sees the share in Loans and records the
 // repayment; at the end (or on Exit, or the next time the app opens if it was closed midway) everything it made is removed again,
 // in the order the server needs: the repayment first, then the expense (which takes its loan with it).
+let loansOwingIds_ = null;   // who has an open debt (from the Loans tab's last load): the practice's quick check of a chosen friend
 let loansLoad_ = null;   // the Loans tab's latest load, so a walkthrough can wait for the list to be there
 const PRACTICE_KEY_ = "tipPractice";
 let practice_ = null;    // { entryId, friendId, friendName, currency, amount, armed }: what the practice has made so far
@@ -15734,12 +15735,27 @@ async function practiceRemoveNow_(p) {
       }
     }
   }
+  if (ok) await practiceDeleteNewFriends_(p);
   if (ok) { practice_ = null; practiceSave_(); }
   clearEntryDraft_();
   refreshEntryList().catch(() => {});
   refreshLoans().catch(() => {});
   refreshBalances().catch(() => {});
   return ok;
+}
+
+// A friend added during the practice is removed too, so nothing at all is kept. Only friends that did not exist when it started (an
+// existing friend typed again is the same person, not a new one), and only where the backend can delete friends.
+async function practiceDeleteNewFriends_(p) {
+  if (!Array.isArray(p.friendsBefore) || !((meta && meta.capabilities) || {}).friendsEdit) return;
+  const created = (meta.friends || []).filter((f) => !p.friendsBefore.includes(f.id));
+  for (const f of created) {
+    try {
+      await callApi("deleteFriend", { id: f.id });
+      meta.friends = (meta.friends || []).filter((x) => x.id !== f.id);
+    } catch (err) { /* used somewhere else: it stays */ }
+  }
+  if (created.length) { try { refreshFriendChips_(); populatePaidByOptions(); } catch (e) { /* the pickers refresh on the next load */ } }
 }
 
 // A practice left behind (the app was closed midway): offered once when Home opens.
@@ -15756,23 +15772,34 @@ function practiceFriendRow_() {
 }
 
 let practiceHint_ = "";
+const practiceFriendChecked_ = {};   // friend id -> true (the server confirmed they owe nothing) / false (they have debts) / "checking"
+function practiceRejectFriend_(id) {
+  const friend = (meta.friends || []).find((f) => f.id === id);
+  splitFriendIds.delete(id);
+  delete splitPercents[id];
+  renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
+  practiceHint_ = tr("spot.p.s8dirty", { name: friend ? friend.name : "" });
+}
 // A friend with other debts could have the practice repayment mixed into them, so the practice only goes ahead with a friend who owes
-// nothing (either way); anyone else is un-picked with a message.
-async function practiceFriendOk_() {
+// nothing (either way); anyone else is un-picked with a message. The answer is instant (the Loans tab's list is already on the phone);
+// the server double-checks in the background, and if it disagrees the friend is un-picked and the walkthrough goes back to this step.
+function practiceFriendOk_() {
   if (splitFriendIds.size > 1) {
     [...splitFriendIds].slice(1).forEach((id) => splitFriendIds.delete(id));
     renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
   }
   if (splitFriendIds.size === 0) return false;   // (the message about a friend who was un-picked stays until a good one is chosen)
   const id = [...splitFriendIds][0];
-  const loans = await callApi("getFriendLoanDetail", { friendId: id });
-  if (loans.some((l) => l.status !== "forgiven" && l.remaining > 0.004)) {
-    const friend = (meta.friends || []).find((f) => f.id === id);
-    splitFriendIds.delete(id);
-    renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
-    practiceHint_ = tr("spot.p.s8dirty", { name: friend ? friend.name : "" });
-    return false;
+  if (loansOwingIds_ && loansOwingIds_.has(id)) { practiceRejectFriend_(id); return false; }
+  if (!(id in practiceFriendChecked_)) {
+    practiceFriendChecked_[id] = "checking";
+    callApi("getFriendLoanDetail", { friendId: id }).then((loans) => {
+      const dirty = loans.some((l) => l.status !== "forgiven" && l.remaining > 0.004);
+      practiceFriendChecked_[id] = !dirty;
+      if (dirty && splitFriendIds.has(id)) practiceRejectFriend_(id);
+    }).catch(() => { practiceFriendChecked_[id] = true; });
   }
+  if (practiceFriendChecked_[id] === false) { practiceRejectFriend_(id); return false; }
   practiceHint_ = "";
   return true;
 }
@@ -15789,6 +15816,11 @@ function practiceSteps_() {
     const el = document.querySelector(sel);
     return !!el && parseFloat(el.value) > 0 && document.activeElement !== el;
   };
+  // The friend's own % box in the split (the practice has exactly one friend).
+  const pctInput = () => splitInputEls[[...splitFriendIds][0]] || null;
+  const pctOf = () => { const el = pctInput(); return el ? parseFloat(el.value) : NaN; };
+  const pctValid = () => { const v = pctOf(); return splitMode === "percent" && v > 0 && v <= 100; };
+  const pctDone = () => pctValid() && document.activeElement !== pctInput();
   const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
   const lastError = (sel) => { const el = document.querySelector(sel); return el ? el.textContent.trim() : ""; };
   return [
@@ -15815,7 +15847,11 @@ function practiceSteps_() {
       ok: () => document.getElementById("split-toggle").checked, holdsUntil: "save" },
     { key: "friend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
       until: practiceFriendOk_, wait: 8000, ok: () => splitFriendIds.size > 0, holdsUntil: "save" },
-    { target: "#split-detail", text: () => tr("spot.p.s9"), tap: '#split-mode-tabs .type-tab[data-mode="equal"]' },
+    { key: "mode", target: "#split-mode-tabs", text: () => tr("spot.p.s9"), tap: '#split-mode-tabs .type-tab[data-mode="percent"]',
+      ok: () => splitMode === "percent", holdsUntil: "save" },
+    { key: "percent", target: "#split-rows", text: (fix) => tr(fix ? "spot.p.s9bfix" : "spot.p.s9b"), blurTap: true, until: pctDone,
+      ok: pctValid, holdsUntil: "save", wait: 8000,
+      after: () => { practice_.percent = pctOf(); practiceSave_(); } },
     { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = lastError("#form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
       before: async () => { document.getElementById("form-error").textContent = ""; },   // an old message from before the fix
@@ -15848,9 +15884,10 @@ function practiceSteps_() {
 // Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
 function startPractice_() {
   if (!tipPrepareForm_()) return false;
-  practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0 };
+  practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0, friendsBefore: (meta.friends || []).map((f) => f.id) };
   practiceSave_();
   practiceHint_ = "";
+  Object.keys(practiceFriendChecked_).forEach((k) => delete practiceFriendChecked_[k]);
   runTip_(practiceSteps_(), async () => {
     const ok = await practiceRemove_();
     if (document.getElementById("screen-loans").hidden) showScreen("loans");
@@ -15890,6 +15927,7 @@ async function refreshLoans() {
 
   const owedToMe = sectionFor(1);
   const iOwe = sectionFor(-1);
+  loansOwingIds_ = new Set(balances.filter((b) => (b.balances || []).some((l) => Math.abs(l.net) > 0.004)).map((b) => b.friend_id));   // for the first-use practice
 
   renderLoanBalanceList_("loans-owed-to-me-list", "loans-owed-to-me-empty-note", owedToMe, "owed-to-me");
   renderLoanBalanceList_("loans-i-owe-list", "loans-i-owe-empty-note", iOwe, "i-owe");

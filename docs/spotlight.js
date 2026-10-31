@@ -260,6 +260,7 @@
     // Shows step i and settles when the person has completed it: "done", "skip" (left out or skipped) or "stale" (closed).
     async function showStep(i, fixing) {
       var step = steps[i], token = ++stepToken, ok = true;
+      root.dataset.step = String(i) + (step.key ? ":" + step.key : "");   // which step is on (shown in tests and bug reports)
       // A step that has to prepare something slowly (waiting for a save) must not leave the PREVIOUS step's highlight on screen meanwhile.
       var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(); }, 250) : null;
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
@@ -318,15 +319,16 @@
           try {
             var t = step.text(!!fixing);
             if ($(".spot-text").textContent !== t) { $(".spot-text").textContent = t; layoutSoon(); }
-            // Something an earlier step collected no longer holds (an error on Save): go back to that step.
-            for (var k = 0; k < i; k++) {
-              var prev = steps[k];
-              if (prev.ok && prev.holdsUntil && keyIndex(prev.holdsUntil) >= i && !prev.ok()) { end("rewind:" + k); return; }
-            }
+            // Done first: a step whose own condition is met is finished even if the form it came from has just been cleared (Save does that).
             if (step.until && (await step.until())) { end("done"); return; }
             if (step.visit) {
               var el = doc.querySelector(step.visit);
               if (el && visited && doc.activeElement !== el && (!step.ok || step.ok())) { end("done"); return; }
+            }
+            // Not done: something an earlier step collected no longer holds (an error on Save): go back to that step.
+            for (var k = 0; k < i; k++) {
+              var prev = steps[k];
+              if (prev.ok && prev.holdsUntil && keyIndex(prev.holdsUntil) >= i && !prev.ok()) { end("rewind:" + k); return; }
             }
           } catch (e) { /* a check that throws just is not done yet */ }
           finally { checking = false; }
