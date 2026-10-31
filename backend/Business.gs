@@ -669,7 +669,8 @@ function listBusinessPeople() {
 
 // More → Friends: the plain friends (clients, suppliers and partners live in Companies & projects → People; a trip's group is edited with
 // the trip), each with what is still owed in total per currency (they owe me positive, I owe them negative). Works in every copy.
-function listMyFriends() {
+// What is still owed per friend and currency ({ friendId: { CUR: net } }; positive = they owe me). Forgiven and fully repaid loans count as nothing.
+function friendOpenBalances_() {
   var settled = buildSettlementTotalsByLoan_();
   var byFriend = {};
   getAllRows('Loans').forEach(function (l) {
@@ -679,8 +680,14 @@ function listMyFriends() {
     var slot = byFriend[l.friend_id] || (byFriend[l.friend_id] = {});
     slot[l.currency] = (slot[l.currency] || 0) + (l.direction === 'they_owe_me' ? remaining : -remaining);
   });
+  return byFriend;
+}
+
+// More → Friends: every plain friend, hidden ones included (flagged `hidden`), so the screen can offer "Hidden friends" and Unhide.
+function listMyFriends() {
+  var byFriend = friendOpenBalances_();
   return getAllRowsCached_('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) === 'friend'; }).map(function (f) {
-    return { id: f.id, name: f.name, notes: f.notes || '', totals: netMapToList_(byFriend[f.id] || {}) };
+    return { id: f.id, name: f.name, notes: f.notes || '', hidden: String(f.hidden) === 'yes', totals: netMapToList_(byFriend[f.id] || {}) };
   });
 }
 
@@ -708,7 +715,7 @@ function updateFriend(payload) {
   if (!name) throw new Error(tr_('err.enterName'));
   var role = biz ? (BUSINESS_ROLES_[payload.role] ? payload.role : 'friend') : 'friend';
   getAllRows('Friends').forEach(function (f) {
-    if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_('business.errPersonExists'));
+    if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_(String(f.hidden) === 'yes' ? 'friends.errHiddenName' : 'business.errPersonExists'));
   });
   var existing = getAllRows('Friends').find(function (f) { return String(f.id) === String(payload.id); });
   if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
@@ -734,9 +741,34 @@ function deleteFriend(payload) {
   return { done: true };
 }
 
-// Several friends at once (More → Friends → Edit). Same rule as deleteFriend, checked for each one: a person who is used anywhere is
-// KEPT and reported with the reason, the rest are deleted in one pass. Never throws for a single person, so one kept friend does not
-// undo the others. Returns { deleted: [ids], kept: [{ id, name, reason: 'used' | 'group' | 'missing' }] }.
+// Header of the Friends sheet's `hidden` column ('yes' = hidden from lists and pickers; the history stays). Created on first use, like Categories' one.
+function ensureFriendsHiddenColumn_() {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('hidden') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('hidden');
+    headers.push('hidden');
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
+function setFriendHidden_(id, hidden) {
+  var headers = ensureFriendsHiddenColumn_();
+  var sheet = getSheet('Friends');
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
+  setCellByRow_(sheet, headers, rowIndex, 'hidden', hidden ? 'yes' : '');
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+}
+
+// Several friends at once (More → Friends → Edit → Delete), one pass, never throws for a single person (one refusal must not undo the others):
+//  - nobody has any record with them → deleted;
+//  - they have history (loans, shared expenses, entries they paid) and NOTHING is owed either way → HIDDEN, the history stays and old entries
+//    keep showing their name (adding the same name later brings them back, see addFriend);
+//  - money is still owed either way, or the person is a trip's group → kept as they are ('balance' / 'group');
+//  - an unknown id → 'missing'.
+// Returns { deleted: [ids], hidden: [{ id, name }], kept: [{ id, name, reason }] }.
 function deleteFriends(payload) {
   var ids = ((payload && payload.ids) || []).map(String);
   var friends = getAllRows('Friends');
@@ -744,20 +776,32 @@ function deleteFriends(payload) {
   getAllRows('Loans').forEach(function (l) { inUse[String(l.friend_id)] = true; });
   getAllRows('Entry Splits').forEach(function (s) { inUse[String(s.friend_id)] = true; });
   getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) inUse[String(e.paid_by)] = true; });
-  var deleted = [], kept = [], seen = {};
+  var open = friendOpenBalances_();
+  var deleted = [], hidden = [], kept = [], seen = {};
   ids.forEach(function (id) {
     if (seen[id]) return;
     seen[id] = true;
     var friend = friends.find(function (f) { return String(f.id) === id; });
-    if (!friend) kept.push({ id: id, name: '', reason: 'missing' });
-    else if (friend.trip_id) kept.push({ id: id, name: String(friend.name), reason: 'group' });
-    else if (inUse[id]) kept.push({ id: id, name: String(friend.name), reason: 'used' });
-    else deleted.push(id);
+    if (!friend) { kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(friend.name);
+    if (friend.trip_id) kept.push({ id: id, name: name, reason: 'group' });
+    else if (!inUse[id]) deleted.push(id);
+    else if (Object.keys(open[id] || {}).some(function (c) { return Math.abs(open[id][c]) > 0.004; })) kept.push({ id: id, name: name, reason: 'balance' });
+    else hidden.push({ id: id, name: name });
   });
   if (deleted.length) {
     var gone = {};
     deleted.forEach(function (id) { gone[id] = true; });
     deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
   }
-  return { deleted: deleted, kept: kept };
+  hidden.forEach(function (h) { setFriendHidden_(h.id, true); });
+  return { deleted: deleted, hidden: hidden, kept: kept };
+}
+
+// Brings a hidden friend back to the lists and pickers (More → Friends → Hidden friends → Unhide).
+function unhideFriend(payload) {
+  var id = String((payload && payload.id) || '');
+  if (!getAllRows('Friends').some(function (f) { return String(f.id) === id; })) throw new Error(tr_('err.friendNotFound'));
+  setFriendHidden_(id, false);
+  return { id: id, hidden: false };
 }

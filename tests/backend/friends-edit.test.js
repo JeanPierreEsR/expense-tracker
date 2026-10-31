@@ -44,18 +44,47 @@ test("a friend with debts or shared expenses cannot be deleted; an unused one ca
   assert.throws(() => rt.api("deleteFriend", { id: "ghost" }), /not found|No se encontr/i);
 });
 
-test("deleting several friends at once removes the unused ones and reports the ones kept, without undoing the rest", () => {
+test("Delete on several friends: unused ones are deleted, ones with history are hidden, ones with money still owed are kept", () => {
   const rt = setup();
   assert.equal(rt.api("getMeta", {}).capabilities.friendsBulkDelete, true);
-  const ana = rt.api("addFriend", { name: "Ana Test" });
+  const owing = rt.api("addFriend", { name: "Owing Test" });
+  const history = rt.api("addFriend", { name: "History Test" });
   const a = rt.api("addFriend", { name: "Free One" });
   const b = rt.api("addFriend", { name: "Free Two" });
-  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-10-05" });
-  const out = rt.api("deleteFriends", { ids: [a.id, ana.id, b.id, a.id, "ghost"] });
+  rt.api("addLoan", { friend_id: owing.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-10-05" });
+  // History but nothing owed: a loan that was fully repaid.
+  const loan = rt.api("addLoan", { friend_id: history.id, direction: "they_owe_me", amount: 20, currency: "PEN", date: "2026-10-05" });
+  rt.api("recordRepayment", { friend_id: history.id, direction: "they_owe_me", amount: 20, currency: "PEN", date: "2026-10-06", payment_method_id: rt.rows("Payment Methods")[0].id });
+  assert.equal(rt.api("listMyFriends", {}).find((f) => f.id === history.id).totals.length, 0, "history friend owes nothing");
+  const out = rt.api("deleteFriends", { ids: [a.id, owing.id, b.id, a.id, history.id, "ghost"] });
   assert.deepEqual(out.deleted.sort(), [a.id, b.id].sort());
-  assert.deepEqual(out.kept.map((k) => [k.id, k.reason]).sort(), [[ana.id, "used"], ["ghost", "missing"]].sort());
-  assert.equal(out.kept.find((k) => k.id === ana.id).name, "Ana Test");
-  const left = rt.api("listMyFriends", {}).map((f) => f.id);
-  assert.ok(left.includes(ana.id) && !left.includes(a.id) && !left.includes(b.id));
-  assert.deepEqual(rt.api("deleteFriends", { ids: [] }), { deleted: [], kept: [] });
+  assert.deepEqual(out.hidden, [{ id: history.id, name: "History Test" }]);
+  assert.deepEqual(out.kept.map((k) => [k.id, k.reason]).sort(), [[owing.id, "balance"], ["ghost", "missing"]].sort());
+  const list = rt.api("listMyFriends", {});
+  assert.ok(!list.some((f) => f.id === a.id || f.id === b.id), "unused ones are gone");
+  assert.equal(list.find((f) => f.id === history.id).hidden, true);
+  assert.equal(list.find((f) => f.id === owing.id).hidden, false);
+  assert.ok(rt.rows("Loans").some((l) => l.id === loan.id), "the history is untouched");
+  assert.equal(rt.api("getMeta", {}).friends.find((f) => f.id === history.id).hidden, "yes", "the app still gets the name (old entries show it) but flagged hidden");
+  assert.deepEqual(rt.api("deleteFriends", { ids: [] }), { deleted: [], hidden: [], kept: [] });
+});
+
+test("adding a friend whose name is hidden brings the hidden one back; Unhide does the same; renaming onto a hidden name says so", () => {
+  const rt = setup();
+  const ana = rt.api("addFriend", { name: "Ana Hidden" });
+  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 20, currency: "PEN", date: "2026-10-05" });
+  rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 20, currency: "PEN", date: "2026-10-06", payment_method_id: rt.rows("Payment Methods")[0].id });
+  assert.equal(rt.api("deleteFriends", { ids: [ana.id] }).hidden.length, 1);
+  const again = rt.api("addFriend", { name: "ana hidden" });
+  assert.equal(again.id, ana.id, "no second person");
+  assert.equal(again.unhidden, true);
+  assert.equal(rt.api("listMyFriends", {}).filter((f) => /ana hidden/i.test(f.name)).length, 1);
+  assert.equal(rt.api("listMyFriends", {}).find((f) => f.id === ana.id).hidden, false);
+  rt.api("deleteFriends", { ids: [ana.id] });
+  assert.deepEqual(rt.api("unhideFriend", { id: ana.id }), { id: ana.id, hidden: false });
+  assert.equal(rt.api("listMyFriends", {}).find((f) => f.id === ana.id).hidden, false);
+  assert.throws(() => rt.api("unhideFriend", { id: "ghost" }), /not found|No se encontr/i);
+  rt.api("deleteFriends", { ids: [ana.id] });
+  const ben = rt.api("addFriend", { name: "Ben Plain" });
+  assert.throws(() => rt.api("updateFriend", { id: ben.id, name: "Ana Hidden" }), /hidden|oculto/i);
 });

@@ -923,6 +923,11 @@
         <p class="hint" data-i18n="friends.hint">The people you share expenses and loans with. Tap one to rename them or see what they owe. A new friend is also added when you split an expense.</p>
         <div id="friends-list"></div>
         <p class="hint" id="friends-empty-note" hidden data-i18n="friends.empty">No friends yet. Add one here, or when you split an expense.</p>
+        <div id="friends-hidden-box" class="friends-hidden-box" hidden>
+          <button type="button" class="add-inline" id="friends-hidden-toggle"></button>
+          <p class="hint" id="friends-hidden-hint" hidden data-i18n="friends.hiddenHint">These friends are hidden from your lists. Their history stays. Adding the same name again also brings them back.</p>
+          <div id="friends-hidden-list"></div>
+        </div>
         <p class="hint" id="friends-error" style="color:#d64545;"></p>
         <div class="friends-editbar" id="friends-editbar" hidden>
           <button type="button" class="add-inline" id="friends-selectall-btn" data-i18n="friends.selectAll">Select all</button>

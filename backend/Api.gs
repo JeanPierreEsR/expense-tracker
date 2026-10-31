@@ -217,6 +217,7 @@ function routeAction(action, payload) {
     case 'updateFriend': return updateFriend(payload);
     case 'deleteFriend': return deleteFriend(payload);
     case 'deleteFriends': return deleteFriends(payload);
+    case 'unhideFriend': return unhideFriend(payload);
     case 'getProjectDebts': return getProjectDebts(payload);
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
@@ -1393,7 +1394,11 @@ function addFriend(payload) {
   var existing = getAllRows('Friends').find(function (f) {
     return String(f.name).trim().toLowerCase() === name.toLowerCase();
   });
-  if (existing) return existing;
+  if (existing) {
+    // A HIDDEN friend with this name comes back (with their history) instead of a second person being created.
+    if (String(existing.hidden) === 'yes') { setFriendHidden_(existing.id, false); existing.hidden = ''; existing.unhidden = true; }
+    return existing;
+  }
   var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };
   // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
   var role = businessRoleFromPayload_(payload.role);
