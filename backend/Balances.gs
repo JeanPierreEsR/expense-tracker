@@ -115,8 +115,9 @@ function openingForCurrency_(openings, currency) {
 // ON the same day only count if they were logged after the snapshot
 // (created_at) — otherwise they're already inside the balance the owner
 // typed in, and counting them again would double them. A row with no
-// as_of (dated a past day, or saved before this existed) is treated as
-// start-of-day: every entry on its date counts.
+// as_of (dated a past day, or saved before this existed) is the END of
+// that day (owner's rule, 2026-10-31): every entry dated that day is
+// already inside it, only later days count.
 //
 // One refinement for a snapshot taken from a STATEMENT closing on that day: an
 // entry dated on the closing day but logged after the snapshot's moment is
@@ -129,7 +130,7 @@ function entryCountsAfterOpening_(entry, opening) {
   if (!opening || !opening.date) return true;
   if (entry.date > opening.date) return true;
   if (entry.date < opening.date) return false;
-  if (!opening.as_of) return true;
+  if (!opening.as_of) return false;
   if (!(entry.created_at && entry.created_at >= opening.as_of)) return false;
   return !statementCoversEntry_(entry.id, opening.date);
 }
