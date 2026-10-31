@@ -3313,12 +3313,21 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 /* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */
 .friends-header-actions { display: inline-flex; gap: 14px; align-items: center; }
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push + Friend below Edit. */
+.friends-header-actions button.add-inline { margin: 0; white-space: nowrap; }
 .friends-check-row { gap: 12px; justify-content: flex-start; }
 .friends-check-row > div:nth-child(2) { flex: 1; min-width: 0; }
 .friends-check-row > .recurring-row-amount { margin-left: auto; }
 .friends-check { -webkit-appearance: checkbox; appearance: auto; width: 22px; height: 22px; min-height: 0; flex: 0 0 22px; margin: 0; padding: 0; accent-color: #d64545; pointer-events: none; }
+/* The bar stays on screen the whole time Edit is on: fixed just above the bottom menu (its `bottom` is set from the menu's real height
+   in app.js), as wide as the page. A sticky bar only stuck inside the card, so it showed only once the list was scrolled to its end. */
 .friends-editbar {
-  position: sticky; bottom: 64px; background: var(--card, #fff); border-top: 1px solid var(--border);
-  padding: 10px 0 6px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  position: fixed; left: 50%; transform: translateX(-50%); width: min(100%, 480px); box-sizing: border-box; z-index: 140;
+  bottom: 67px; background: var(--card, #fff); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+  padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
-.friends-editbar button.primary { width: auto; margin-top: 0; padding: 12px 22px; }
+.friends-editbar[hidden] { display: none; }
+.friends-editbar button.add-inline { white-space: nowrap; }
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+/* room under the last friend so the fixed bar never covers it */
+#screen-friends.friends-editing .card { padding-bottom: 90px; }

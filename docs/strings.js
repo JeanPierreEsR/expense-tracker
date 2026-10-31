@@ -1297,7 +1297,7 @@
     "friends.selectAll": { en: "Select all", es: "Seleccionar todo" },
     "friends.selectNone": { en: "Select none", es: "Quitar selección" },
     "friends.deleteN": { en: "Delete ({n})", es: "Eliminar ({n})" },
-    "friends.deletePick": { en: "Check the friends to delete", es: "Marca los amigos a eliminar" },
+    "friends.deletePick": { en: "Delete", es: "Eliminar" },
     "friends.confirmDeleteOne": { en: "Delete {names}?\n\nIf they still have loans, shared expenses or entries, they are kept.", es: "¿Eliminar a {names}?\n\nSi todavía tiene préstamos, gastos compartidos o movimientos, se conserva." },
     "friends.confirmDeleteMany": { en: "Delete these {n} friends?\n\n{names}\n\nAnyone who still has loans, shared expenses or entries is kept.", es: "¿Eliminar a estos {n} amigos?\n\n{names}\n\nQuien todavía tenga préstamos, gastos compartidos o movimientos se conserva." },
     "friends.keptSome": { en: "Deleted: {deleted}. Kept: {kept} (they still have loans, shared expenses or entries): {names}. Settle or move those first.", es: "Eliminados: {deleted}. Conservados: {kept} (todavía tienen préstamos, gastos compartidos o movimientos): {names}. Salda o mueve eso primero." },
