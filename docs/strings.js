@@ -1574,6 +1574,8 @@
     "spot.p.note": { en: "🧹 Practice: everything is deleted when you finish.", es: "🧹 Práctica: todo se borra al terminar." },
     "spot.p.gotIt": { en: "Got it", es: "Entendido" },
     "spot.p.saveFailed": { en: "The practice could not save that ({error}). I am stopping it and removing what it made.", es: "La práctica no pudo guardar eso ({error}). La detengo y borro lo que creó." },
+    "spot.p.removing": { en: "🧹 Removing the practice data in the background…", es: "🧹 Borrando los datos de la práctica en segundo plano…" },
+    "spot.p.stillRemoving": { en: "The last practice is still being removed. Try again in a moment.", es: "Aún se está borrando la última práctica. Vuelve a intentarlo en un momento." },
     "spot.p.busy": { en: "Close the entry you have open first, then try again.", es: "Primero cierra el movimiento que tienes abierto y vuelve a intentarlo." },
     "spot.p.draftAsk": { en: "An unfinished entry is saved as a draft (you may not see it): {what}. The practice needs an empty form. Discard that draft and start the practice?", es: "Hay un movimiento sin terminar guardado como borrador (puede que no lo veas): {what}. La práctica necesita el formulario vacío. ¿Descartar ese borrador y empezar la práctica?" },
     "spot.p.draftAmount": { en: "amount {amount}", es: "monto {amount}" },
