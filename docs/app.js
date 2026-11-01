@@ -14585,7 +14585,7 @@ async function startRecurringBulkDelete_(items) {
     <p class="hint"><b>${escapeHtml(tr("recBulk.intro", { pay: effectful.length, n: items.length }))}</b></p>
     <button type="button" class="primary" id="recurring-bulk-stop">${escapeHtml(tr("recBulk.stopBtn"))}</button>
     <p class="hint">${escapeHtml(tr("recBulk.stopHint", { k: stoppable.length })
-      + (rest.length ? tr("recBulk.stopRest", { m: rest.length }) : "") + (fixed.length ? tr("recBulk.stopFixed", { f: fixed.length }) : ""))}</p>
+      + (rest.length ? tr("recBulk.stopRest", { m: rest.length }) : "") + (fixed.length ? tr("recBulk.stopFixed", { f: fixed.length }) : "") + tr("recBulk.stopEditLater"))}</p>
     <button type="button" class="primary danger" id="recurring-bulk-delete">${escapeHtml(tr("recBulk.deleteBtn"))}</button>
     <p class="hint">${escapeHtml(tr("recBulk.deleteHint", { n: items.length, amount }))}</p>`;
   document.getElementById("recurring-bulk-delete").addEventListener("click", deleteAll);
