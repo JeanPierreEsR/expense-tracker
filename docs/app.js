@@ -16164,6 +16164,19 @@ function practiceSteps_() {
       ok: () => splitMode === "percent", holdsUntil: "save" },
     { key: "percent", target: "#split-rows", text: (fix) => tr(fix ? "spot.p.s9bfix" : "spot.p.s9b"), blurTap: true, until: pctDone,
       ok: pctValid, holdsUntil: "save", wait: 8000,
+      before: async () => {
+        // Only the friend's box can be typed in: a number in "Me" too made the total pass 100% and blocked Save.
+        const me = splitInputEls.me;
+        if (me) {
+          splitPercents.me = "";
+          me.value = "";
+          me.readOnly = true;
+          me.tabIndex = -1;
+          me.style.opacity = "0.45";
+          me.style.pointerEvents = "none";
+          renderSplitSummary();
+        }
+      },
       after: () => { practice_.percent = pctOf(); practiceSave_(); } },
     { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = lastError("#form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
