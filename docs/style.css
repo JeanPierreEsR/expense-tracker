@@ -3304,9 +3304,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .spot-buttons button[hidden] { display: none; }
 .spot-buttons .spot-stuck { color: var(--accent); }
 .spot-buttons .spot-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-/* During a practice the repayment sheet hides the friend's PAST repayments: they were confusing next to the one being recorded. */
-body:has(.spot-root) #settlement-list,
-body:has(.spot-root) #settlement-list-empty-note { display: none; }
+/* The repayment sheet is only for the NEW repayment: past ones (to fix, move or delete) are in the person's Repayment history. */
+#settlement-list,
+#settlement-list-empty-note { display: none; }
 
 .tip-invite { display: flex; flex-direction: column; gap: 10px; background: #fff8e1; }
 .tip-invite[hidden] { display: none; }
