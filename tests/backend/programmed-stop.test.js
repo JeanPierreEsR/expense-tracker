@@ -50,35 +50,31 @@ test("preview: a paused item still counts (its history is excluded until it is d
   assert.equal(rt.api("previewProgrammedDelete", { ids: [pay.id] }).items[0].monthlyEffectPen, 0);
 });
 
-test("Stop it ends the item today: history stays explained (no change to the average), it stops projecting, and it moves to Past", () => {
+test("Stop it = the person picks an end date: history stays explained (no change to the average), nothing is forecast after it", () => {
   const { rt, gym } = setup();
-  const out = rt.api("stopRecurringExpenses", { ids: [gym.id] });
-  assert.deepEqual(out.stopped, [gym.id]);
-  assert.equal(out.end_date, today());
+  const lastPaid = rt.api("previewProgrammedDelete", { ids: [gym.id] }).items[0].lastPaid;
+  assert.equal(lastPaid, ago(0, 1), "the calendar opens on the month of the last matched payment");
+  rt.api("updateRecurringExpense", { id: gym.id, end_date: lastPaid, active: true });
   const row = rt.api("listRecurringExpenses", {}).find((x) => x.id === gym.id);
-  assert.equal(row.end_date, today());
+  assert.equal(row.end_date, lastPaid);
   assert.ok(Math.abs(rate(rt)) < 0.01, "stopping does not push its payments into the average");
   const prog = rt.api("listCategoryProjections", { displayPeriodType: "year" }).categories.find((c) => c.category_id === CAT).programmedRemainingPen;
-  assert.equal(prog, 0, "nothing is projected after today");
+  assert.equal(prog, 0, "nothing is projected after the end date");
 });
 
-test("Delete it pushes the payments into the average; Stop it first does not", () => {
+test("the preview reports no last payment for an item that was never paid and for a one-time item", () => {
+  const { rt } = setup();
+  const idle = rt.api("addRecurringExpense", { category_id: CAT, description: "Never paid", amount: 55, currency: "PEN", frequency: "monthly", day: 9 });
+  const once = rt.api("addRecurringExpense", { category_id: CAT, description: "One off", amount: 90, currency: "PEN", frequency: "once", date: ago(0, 1) });
+  const items = rt.api("previewProgrammedDelete", { ids: [idle.id, once.id] }).items;
+  assert.deepEqual(items.map((x) => x.lastPaid), ["", ""]);
+});
+
+test("Delete it pushes the payments into the average", () => {
   const { rt, gym } = setup();
   const out = rt.api("deleteRecurringExpenses", { ids: [gym.id] });
   assert.deepEqual(out.deleted, [gym.id]);
   assert.ok(rate(rt) > 90, "deleted: ordinary spending again");
-});
-
-test("Stop leaves one-time items, unstarted items and unknown ids alone, and reactivates a legacy paused item", () => {
-  const { rt, gym } = setup();
-  const once = rt.api("addRecurringExpense", { category_id: CAT, description: "Laptop", amount: 900, currency: "PEN", frequency: "once", date: ago(0, 1) });
-  const future = rt.api("addRecurringExpense", { category_id: CAT, description: "Starts later", amount: 10, currency: "PEN", frequency: "monthly", day: 3, start_date: `${Y + 1}-01-03` });
-  rt.api("updateRecurringExpense", { id: gym.id, active: false });
-  const out = rt.api("stopRecurringExpenses", { ids: [once.id, future.id, "ghost", gym.id, gym.id] });
-  assert.deepEqual(out.stopped, [gym.id]);
-  assert.deepEqual(out.skipped.map((s) => s.reason).sort(), ["missing", "notStarted", "once"]);
-  assert.equal(rt.api("listRecurringExpenses", {}).find((x) => x.id === gym.id).active, true, "the pause is replaced by the end date");
-  assert.equal(rt.api("listRecurringExpenses", {}).find((x) => x.id === once.id).end_date, "");
 });
 
 test("deleting several items removes their splits and skipped months too", () => {

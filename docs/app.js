@@ -13957,6 +13957,8 @@ async function openRecurringModal(re, prefill) {
     // only; the saved day stays the item's own (see the save handler).
     const day = Math.min(re.day || 1, new Date(now.getFullYear(), monthNum, 0).getDate());
     startValue = `${now.getFullYear()}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    // An item that already ended must not show a made-up start AFTER its end ("Nov 20 – Nov 1"): use its last occurrence on or before the end.
+    if (re.end_date && startValue > re.end_date) startValue = standInStartBefore_(re);
     recurringStartStandIn = startValue;
   } else if (restart) {
     // Start again: the next time its day comes round (today when it is today), with a real start date; no stand-in.
@@ -14342,6 +14344,21 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
   }
 });
 
+// The latest date, on or before the item's end date, on which its day (and month, when yearly) falls: the stand-in start shown for an item with no
+// start date, so it never reads as starting after it ends. Display only; nothing is saved from it.
+function standInStartBefore_(re) {
+  const [ey, em] = re.end_date.split("-").map(Number);
+  const day = re.day || 1;
+  const make = (y, m) => `${y}-${pad2(m)}-${pad2(Math.min(day, new Date(y, m, 0).getDate()))}`;   // m is 1-12
+  if (re.frequency === "yearly") {
+    const month = re.month || 1;
+    return make(make(ey, month) > re.end_date ? ey - 1 : ey, month);
+  }
+  const thisMonth = make(ey, em);
+  if (thisMonth <= re.end_date) return thisMonth;
+  return em === 1 ? make(ey - 1, 12) : make(ey, em - 1);
+}
+
 // The next date (today included) on which a repeating item's own day (and month, for a yearly one) comes round; today for any other kind.
 function nextOccurrenceDate_(frequency, day, month) {
   const now = new Date();
@@ -14390,9 +14407,23 @@ function runRecurringDelete_(re) {
   closeRecurringModal();
   saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
 }
-function runRecurringStop_(re) {
+// "Stop it": the person picks the item's LAST DAY on a calendar (no default: today is rarely right). The calendar opens on the month of its last
+// matched payment and says so. onPick(endDate) runs only if they confirm.
+function pickRecurringEndDate_(item, lastPaid, onPick) {
+  const startEl = document.createElement("input"), endEl = document.createElement("input");
+  startEl.type = endEl.type = "date";
+  startEl.value = item.start_date || "";
+  endEl.value = item.end_date || "";
+  openDateRangePicker_({
+    titleKey: "recDel.endPickTitle", doneKey: "recDel.stopDone", endOnly: true, startRequired: false, noEnd: "open",
+    anchor: lastPaid || item.end_date || "",
+    hint: lastPaid ? tr("recDel.lastPaid", { date: rangeFmt_(lastPaid) }) : tr("recDel.noPayment"),
+    onDone: (picked) => onPick(picked.end)
+  }, startEl, endEl);
+}
+function runRecurringStopOn_(re, endDate) {
   closeRecurringModal();
-  saveBehindScreen_(() => callApi("stopRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
+  saveBehindScreen_(() => callApi("updateRecurringExpense", { id: re.id, end_date: endDate, active: true }), afterRecurringChange_);
 }
 function closeRecurringDeleteSheet_() { document.getElementById("recurring-delete-backdrop").hidden = true; }
 document.getElementById("recurring-delete-close").addEventListener("click", closeRecurringDeleteSheet_);
@@ -14412,10 +14443,11 @@ async function startRecurringDelete_(re) {
   body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
-  let effect = 0;
+  let effect = 0, lastPaid = "";
   try {
     const out = await callApi("previewProgrammedDelete", { ids: [re.id] });
     effect = ((out.items || [])[0] || {}).monthlyEffectPen || 0;
+    lastPaid = ((out.items || [])[0] || {}).lastPaid || "";
   } catch (err) {
     body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
@@ -14434,10 +14466,13 @@ async function startRecurringDelete_(re) {
   body.innerHTML = `
     <p class="hint"><b>${escapeHtml(recurringDeleteWhat_(re))}</b></p>
     <button type="button" class="primary" id="recurring-stop-btn">${escapeHtml(tr("recDel.stopBtn"))}</button>
-    <p class="hint">${escapeHtml(tr("recDel.stopHint", { date: recurringDateLabel_(todayLocalISO()) }))}</p>
+    <p class="hint">${escapeHtml(tr("recDel.stopHint"))}</p>
     <button type="button" class="primary danger" id="recurring-delete-confirm-btn">${escapeHtml(tr("recDel.deleteBtn"))}</button>
     <p class="hint">${escapeHtml(tr("recDel.deleteHint", { amount }))}</p>`;
-  document.getElementById("recurring-stop-btn").addEventListener("click", () => { closeRecurringDeleteSheet_(); runRecurringStop_(re); });
+  document.getElementById("recurring-stop-btn").addEventListener("click", () => {
+    closeRecurringDeleteSheet_();
+    pickRecurringEndDate_(re, lastPaid, (endDate) => runRecurringStopOn_(re, endDate));
+  });
   document.getElementById("recurring-delete-confirm-btn").addEventListener("click", () => { closeRecurringDeleteSheet_(); runRecurringDelete_(re); });
 }
 document.getElementById("recurring-delete-btn").addEventListener("click", () => {
@@ -14487,8 +14522,8 @@ async function maybeAskPausedProgrammed_() {
 async function renderPausedDecision_() {
   const listEl = document.getElementById("paused-decision-list");
   const items = (meta.pausedProgrammed || []).slice();
-  let effects = {};
-  try { ((await callApi("previewProgrammedDelete", { ids: items.map((x) => x.id) })).items || []).forEach((x) => { effects[x.id] = x.monthlyEffectPen; }); } catch (err) { /* no number: Delete asks plainly */ }
+  let effects = {}, lastPaid = {};
+  try { ((await callApi("previewProgrammedDelete", { ids: items.map((x) => x.id) })).items || []).forEach((x) => { effects[x.id] = x.monthlyEffectPen; lastPaid[x.id] = x.lastPaid; }); } catch (err) { /* no number: Delete asks plainly */ }
   listEl.innerHTML = "";
   items.forEach((it) => {
     const row = document.createElement("div");
@@ -14503,14 +14538,11 @@ async function renderPausedDecision_() {
         <button type="button" class="add-inline" data-act="delete" style="color:#d64545;">${escapeHtml(tr("paused.delete"))}</button>
       </div>
       <p class="hint paused-error" style="color:#d64545;"></p>`;
-    row.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", async () => {
-      const act = btn.dataset.act;
-      if (act === "delete" && (effects[it.id] || 0) >= 0.5 && !confirm(tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }))) return;
+    // Runs one of the three answers, then takes the row out of the sheet (and closes the sheet when it was the last).
+    const run = async (work) => {
       row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
       try {
-        if (act === "reactivate") await callApi("updateRecurringExpense", { id: it.id, active: true });
-        else if (act === "stop") await callApi("stopRecurringExpenses", { ids: [it.id] });
-        else await callApi("deleteRecurringExpenses", { ids: [it.id] });
+        await work();
         meta.pausedProgrammed = (meta.pausedProgrammed || []).filter((x) => x.id !== it.id);
         row.remove();
         if (!meta.pausedProgrammed.length) {
@@ -14522,6 +14554,15 @@ async function renderPausedDecision_() {
         row.querySelector(".paused-error").textContent = tr("paused.error", { error: err.message });
         row.querySelectorAll("button").forEach((b) => { b.disabled = false; });
       }
+    };
+    row.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => {
+      const act = btn.dataset.act;
+      if (act === "stop") {   // the person picks its last day; closing the calendar leaves the item as it was
+        pickRecurringEndDate_(it, lastPaid[it.id], (endDate) => run(() => callApi("updateRecurringExpense", { id: it.id, end_date: endDate, active: true })));
+        return;
+      }
+      if (act === "delete" && (effects[it.id] || 0) >= 0.5 && !confirm(tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }))) return;
+      run(() => act === "reactivate" ? callApi("updateRecurringExpense", { id: it.id, active: true }) : callApi("deleteRecurringExpenses", { ids: [it.id] }));
     }));
     listEl.appendChild(row);
   });
@@ -20006,6 +20047,7 @@ function ensureRangeDom_() {
       </div>
       <div class="range-weekdays">${RANGE_WEEKDAY_KEYS_.map((k) => `<span>${escapeHtml(tr(k))}</span>`).join("")}</div>
       <div class="range-grid" id="range-grid"></div>
+      <p class="hint" id="range-hint" hidden></p>
       <p class="hint" id="range-summary"></p>
       <div class="range-actions">
         <button type="button" class="add-inline" id="range-remove-end">${escapeHtml(tr("range.removeEnd"))}</button>
@@ -20016,7 +20058,7 @@ function ensureRangeDom_() {
   document.body.appendChild(backdrop);
   const dom = {
     backdrop, title: backdrop.querySelector("#range-title"), month: backdrop.querySelector("#range-month"),
-    grid: backdrop.querySelector("#range-grid"), summary: backdrop.querySelector("#range-summary"),
+    grid: backdrop.querySelector("#range-grid"), summary: backdrop.querySelector("#range-summary"), hint: backdrop.querySelector("#range-hint"),
     removeEnd: backdrop.querySelector("#range-remove-end"), clear: backdrop.querySelector("#range-clear"),
     done: backdrop.querySelector("#range-done")
   };
@@ -20036,6 +20078,8 @@ function ensureRangeDom_() {
   dom.done.addEventListener("click", () => {
     const s = rangeSession_;
     if (!s) return;
+    // An end-only pick (Programmed items → Stop it) hands the chosen end date to its caller instead of writing into the form.
+    if (s.cfg.onDone) { const picked = { start: s.state.start, end: s.state.end }; close(); s.cfg.onDone(picked); return; }
     // Written to the real inputs, which then tell every existing listener ("change") as if typed.
     s.startEl.value = s.state.start;
     s.endEl.value = s.state.end;
@@ -20062,31 +20106,37 @@ function renderRange_() {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = d;
+    b.disabled = !!s.cfg.endOnly && !!start && iso < start;   // an end cannot come before the start
     b.className = "range-day"
-      + (iso === start ? " is-start" : "") + (iso === end ? " is-end" : "")
+      + (iso === start && !s.cfg.endOnly ? " is-start" : "") + (iso === end ? " is-end" : "")
       + (start && end && iso > start && iso < end ? " in-range" : "")
       + (iso === today ? " is-today" : "");
-    b.addEventListener("click", () => { s.state = rangeTap_(s.state, iso); renderRange_(); });
+    b.addEventListener("click", () => { s.state = s.cfg.endOnly ? { start: s.state.start, end: iso } : rangeTap_(s.state, iso); renderRange_(); });
     dom.grid.appendChild(b);
   }
   const cfg = s.cfg;
-  dom.summary.textContent = !start
+  dom.summary.textContent = cfg.endOnly
+    ? (end ? tr("range.until", { end: rangeFmt_(end) }) : tr("recDel.endPrompt"))
+    : !start
     ? tr("range.promptStart")
     : !end
       ? tr(cfg.noEnd === "single" ? "range.promptEndSingle" : "range.promptEndOpen")
       : rangeSummary_(cfg.noEnd, start, end);
   // visibility, not `hidden`: the pop-up must keep its height, or the days jump under the finger between taps
-  dom.removeEnd.style.visibility = end ? "visible" : "hidden";
-  dom.clear.style.visibility = cfg.startRequired || (!start && !end) ? "hidden" : "visible";
-  dom.done.disabled = !!cfg.startRequired && !start;
+  dom.removeEnd.style.visibility = end && !cfg.endOnly ? "visible" : "hidden";
+  dom.clear.style.visibility = cfg.endOnly || cfg.startRequired || (!start && !end) ? "hidden" : "visible";
+  dom.done.disabled = cfg.endOnly ? !end : (!!cfg.startRequired && !start);
 }
 
 function openDateRangePicker_(cfg, startEl, endEl) {
   const dom = ensureRangeDom_();
   const state = { start: startEl.value || "", end: endEl.value || "" };
-  const anchor = state.start || state.end || todayLocalISO();
+  const anchor = cfg.anchor || state.start || state.end || todayLocalISO();
   rangeSession_ = { cfg, startEl, endEl, state, viewY: Number(anchor.slice(0, 4)), viewM: Number(anchor.slice(5, 7)) };
   dom.title.textContent = tr(cfg.titleKey);
+  dom.done.textContent = tr(cfg.doneKey || "range.done");
+  dom.hint.textContent = cfg.hint || "";
+  dom.hint.hidden = !cfg.hint;
   bringModalToFront_(dom.backdrop);
   dom.backdrop.hidden = false;
   renderRange_();
