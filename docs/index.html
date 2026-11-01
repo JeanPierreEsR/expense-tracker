@@ -1369,6 +1369,10 @@
         <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
       </div>
+      <div class="loan-opening-offer" id="loan-detail-opening" hidden>
+        <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
+        <button type="button" class="add-inline" id="loan-detail-opening-btn" data-i18n="loanDetail.openingBtn">➕ Add a debt from before</button>
+      </div>
       <div class="money-queue-strip" id="loan-detail-queue" hidden></div>
       <div class="currency-option-list" id="loan-detail-list"></div>
       <p class="hint" id="loan-detail-empty-note" hidden data-i18n="loanDetail.empty">No loans with this friend yet.</p>
@@ -1700,6 +1704,12 @@
           <div class="type-tab" data-direction="i_owe_them" data-i18n="loanModal.iOweThem">I owe them</div>
         </div>
 
+        <label class="checkbox-row" id="loan-opening-row">
+          <input type="checkbox" id="loan-opening">
+          <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+        </label>
+        <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
+
         <label for="loan-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
 
@@ -1707,16 +1717,18 @@
         <input type="hidden" id="loan-currency" value="PEN">
         <div class="currency-chips" id="loan-currency-chips"></div>
 
-        <label for="loan-date" data-i18n="field.date">Date</label>
+        <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
 
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
         <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
 
+        <div id="loan-pm-field">
         <label for="loan-payment-method" data-i18n="field.paymentMethod">Payment method</label>
         <select id="loan-payment-method"></select>
         <p class="hint" data-i18n="loanModal.pmHint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
+        </div>
 
         <label for="loan-description" data-i18n="field.description">Description</label>
         <input type="text" id="loan-description" data-i18n-placeholder="common.optional" placeholder="Optional">

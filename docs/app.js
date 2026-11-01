@@ -16516,6 +16516,10 @@ async function openLoanDetail(friendId, friendName, projectId) {
     openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
+  // Nothing owed either way: the person may have a debt from before the app that was never recorded (no repayment button without a debt).
+  const openingOffer = document.getElementById("loan-detail-opening");
+  openingOffer.hidden = netParts.length > 0 || !!projectId || !((meta && meta.capabilities) || {}).openingLoan;
+  document.getElementById("loan-detail-opening-btn").onclick = () => openLoanModal(null, { id: friendId, name: friendName }, { opening: true, friendId });
   repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
 
   const list = document.getElementById("loan-detail-list");
@@ -16613,7 +16617,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${l.date}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
@@ -16998,6 +17002,7 @@ function openReassignRepayment_(r) {
   populateSettlementPaymentMethodOptions();
   const pmSel = document.getElementById("reassign-pm");
   pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
+  { const none = document.createElement("option"); none.value = ""; none.textContent = tr("form.noneAccount"); pmSel.prepend(none); }   // fixing a recorded repayment can still clear its account
   pmSel.value = r.payment_method_id || "";
   document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
@@ -17827,17 +17832,35 @@ document.getElementById("loan-friend").addEventListener("change", async (e) => {
 function populateLoanPaymentMethodOptions() {
   const select = document.getElementById("loan-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
     select.appendChild(opt);
   });
 }
+
+// The "from before the app" choice: no account (nothing moved now), no automatic due date, and the date is a rough "since when".
+function updateLoanOpeningUi_(fresh) {
+  const on = document.getElementById("loan-opening").checked;
+  document.getElementById("loan-opening-hint").hidden = !on;
+  document.getElementById("loan-pm-field").hidden = on;
+  const label = document.getElementById("loan-date-label");
+  label.textContent = on ? tr("loanModal.openingDate") : tr("field.date");
+  if (fresh) {
+    const date = document.getElementById("loan-date").value;
+    document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
+  }
+}
+document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
 
 function setLoanDirection_(direction) {
   loanDirection = direction;
@@ -17853,7 +17876,7 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 // `loan` is null to add a new one, or an existing loan (from
 // getFriendLoanDetail) to edit it. `returnFriend` is {id, name} when
 // opened from that friend's detail sheet, so it can be refreshed after.
-function openLoanModal(loan, returnFriend) {
+function openLoanModal(loan, returnFriend, opts) {
   editingLoanId = loan ? loan.id : null;
   loanModalReturnFriend = returnFriend || null;
   loanModalApplyLoan_ = loan || null;
@@ -17865,7 +17888,7 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-form-error").textContent = "";
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
-  document.getElementById("loan-friend").value = loan ? loan.friend_id : (meta.friends.length ? meta.friends[0].id : "");
+  document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
   setLoanDirection_(loan ? loan.direction : "they_owe_me");
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
@@ -17876,6 +17899,14 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
   populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
+  // "From before the app": a choice for a NEW loan; an existing one shows what it is and cannot be switched.
+  const openingBox = document.getElementById("loan-opening");
+  openingBox.checked = loan ? loan.opening === "1" || loan.opening === 1 : !!(opts && opts.opening);
+  openingBox.disabled = !!loan;
+  const openingOk = !!((meta && meta.capabilities) || {}).openingLoan;   // an older backend would make a normal loan with a money entry
+  document.getElementById("loan-opening-row").hidden = !openingOk || (!!loan && !openingBox.checked);   // an ordinary loan being edited: the choice does not apply
+  if (!openingOk) openingBox.checked = false;
+  updateLoanOpeningUi_(!loan);
 
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -17951,8 +17982,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
+    const opening = document.getElementById("loan-opening").checked;
     // Same as an entry: an account is not mandatory, but when the person HAS accounts and picked none, ask once.
-    if (!paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
+    // (A debt from before the app moves no money, so it has no account to ask about.)
+    if (!opening && !paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
       throw new Error(tr("error.pickPaymentMethod"));
     }
 
@@ -17963,9 +17996,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       currency,
       date,
       due_date: dueDate,
-      payment_method_id: paymentMethodId,
+      payment_method_id: opening ? "" : paymentMethodId,
       description
     };
+    if (opening && !editingLoanId) fields.opening = true;
     if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
 
     if (moneyBackground_()) {
@@ -18057,11 +18091,15 @@ let pendingOverpay = null;
 function populateSettlementPaymentMethodOptions() {
   const select = document.getElementById("settlement-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -18101,6 +18139,15 @@ function settlementFriendContext_() {
     : tr("settle.contextIOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(amount) });
 }
 
+// A new repayment starts on an account, never on "None": the one used for the last repayment recorded on this phone, else the first account.
+function defaultRepaymentAccount_() {
+  const select = document.getElementById("settlement-payment-method");
+  const ids = Array.from(select.options).map((o) => o.value).filter(Boolean);
+  let last = "";
+  try { last = localStorage.getItem("lastRepaymentAccount") || ""; } catch (e) { /* no storage */ }
+  return ids.includes(last) ? last : (ids[0] || "");
+}
+
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
 function resetSettlementForm_() {
@@ -18111,7 +18158,7 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form-error").textContent = "";
   document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
   document.getElementById("settlement-date").value = todayLocalISO();
-  document.getElementById("settlement-payment-method").value = "";
+  document.getElementById("settlement-payment-method").value = defaultRepaymentAccount_();
   document.getElementById("settlement-description").value = "";
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
@@ -18389,6 +18436,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   // doesn't sit and wait for the server. A failure is reported with an alert
   // (the modal is gone), and the lists are re-fetched so they show the truth.
   // Captured first: closing the modal resets the editing state.
+  if (!editingSettlementId && paymentMethodId) { try { localStorage.setItem("lastRepaymentAccount", paymentMethodId); } catch (e) { /* no storage */ } }
   const settlementId = editingSettlementId;
   const friendId = repaymentFriendId;
   const friendName = repaymentFriendName;
@@ -18722,11 +18770,15 @@ document.getElementById("review-transfer-friend").addEventListener("change", asy
 function populateReviewTransferPaymentMethodOptions() {
   const select = document.getElementById("review-transfer-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");

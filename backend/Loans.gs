@@ -435,6 +435,17 @@ function forgivenessOfEntry_(entryId) {
   return found;
 }
 
+// Column marking a loan as "existed before the app" (opening debt): it has no money entry. Self-healing like the other Loans columns.
+function ensureLoansOpeningColumn_() {
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('opening') === -1) sheet.getRange(1, headers.length + 1).setValue('opening');
+}
+
+function isOpeningLoan_(loan) {
+  return String(loan.opening || '') === '1';
+}
+
 function ensureLoansTransferEntryColumn_() {
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
@@ -558,7 +569,13 @@ function createLoan_(fields) {
     project_id: fields.project_id || ''   // Business pack: the project this debt belongs to (blank = personal)
   };
   if (loan.project_id) ensureBusinessSheets_();   // the column is created by the pack's first use, never on a copy that does not opt in
-  if (fields.origin === 'cash') {
+  if (fields.opening) {
+    // A debt from BEFORE the person started using the app: only the debt is recorded, no money moved now, so no money entry
+    // and no account (nothing on Home, no balance changes). A later repayment is the only thing that moves money.
+    ensureLoansOpeningColumn_();
+    loan.opening = '1';
+    loan.payment_method_id = '';
+  } else if (fields.origin === 'cash') {
     var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
     var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : tr_('label.unknownFriend'));
     loan.transfer_entry_id = transferEntry.id;
@@ -651,6 +668,7 @@ function addLoan(payload) {
     var already = getAllRows('Loans').find(function (l) { return l.id === clientId; });
     if (already) return already;   // a repeat of a save that already landed
   }
+  var opening = payload.opening === true || payload.opening === 'true' || payload.opening === 1 || payload.opening === '1';
   return createLoan_({
     id: clientId,
     friend_id: payload.friend_id,
@@ -659,10 +677,12 @@ function addLoan(payload) {
     amount: Number(payload.amount),
     currency: payload.currency || homeCurrency_(),
     date: payload.date,
-    due_date: payload.due_date || defaultLoanDueDate_(payload.date),
-    payment_method_id: payload.payment_method_id || '',
+    // An opening debt gets no automatic due date (it would be "overdue" from the first day): only one the person typed.
+    due_date: payload.due_date || (opening ? '' : defaultLoanDueDate_(payload.date)),
+    payment_method_id: opening ? '' : (payload.payment_method_id || ''),
     description: payload.description || '',
-    project_id: projectIdForLoan_(payload.project_id)
+    project_id: projectIdForLoan_(payload.project_id),
+    opening: opening
   });
 }
 
@@ -706,8 +726,11 @@ function updateLoan(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error(tr_('err.loanNotFound'));
 
+  var wasOpening = isOpeningLoan_(existing);
   ['friend_id', 'direction', 'amount', 'currency', 'date', 'due_date', 'payment_method_id', 'description'].forEach(function (field) {
-    setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
+    var value = payload[field] !== undefined ? payload[field] : '';
+    if (wasOpening && field === 'payment_method_id') value = '';   // an opening debt moved no money, so it has no account
+    setCellByRow_(sheet, headers, rowIndex, field, value);
   });
   // Business pack: the project label may be moved even after repayments (the money history does not change).
   if (businessOn_() && payload.project_id !== undefined) {
