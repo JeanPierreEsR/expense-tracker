@@ -42,7 +42,7 @@ test("the first open after an update aligns the Sheet's zone with the script's, 
     assert.equal(rt.run(SHEET_TZ()), "America/Lima", "the Sheet now has the script's zone");
     assert.deepEqual(datesOf(rt, ids), before, "every date reads exactly as before");
     assert.deepEqual(before, { entry: "2026-10-26", loan: "2026-10-21", loanDue: "2026-10-28" });
-    assert.equal(rt.svc.props.get("HEALS_DONE"), "sheet-time-zone");
+    assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("sheet-time-zone"));
   } finally { done(); }
 });
 
@@ -53,7 +53,7 @@ test("it runs once: a later open does not touch the Sheet again", () => {
     rt.svc.ss.failSetTimeZone = true;   // would throw if the heal tried to change the zone again
     rt.api("getMeta", {});
     rt.api("getMeta", {});
-    assert.equal(rt.svc.props.get("HEALS_DONE"), "sheet-time-zone");
+    assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("sheet-time-zone"));
   } finally { done(); }
 });
 
@@ -65,12 +65,12 @@ test("a refusal from Google never breaks the app: nothing changes, it is not mar
     const meta = rt.api("getMeta", {});
     assert.ok(meta.categories.length > 0, "the app still opens");
     assert.equal(rt.run(SHEET_TZ()), "UTC");
-    assert.ok(!rt.svc.props.get("HEALS_DONE"));
+    assert.ok(!String(rt.svc.props.get("HEALS_DONE") || "").split(",").includes("sheet-time-zone"), "the failed heal is not marked done (the other heal, which did not fail, is)");
     assert.equal(datesOf(rt, ids).entry, "2026-10-26");
     rt.svc.ss.failSetTimeZone = false;
     rt.api("getMeta", {});
     assert.equal(rt.run(SHEET_TZ()), "America/Lima");
-    assert.equal(rt.svc.props.get("HEALS_DONE"), "sheet-time-zone");
+    assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("sheet-time-zone"));
     assert.equal(datesOf(rt, ids).entry, "2026-10-26");
   } finally { done(); }
 });
@@ -82,7 +82,7 @@ test("a copy whose Sheet already has the script's zone is left alone (and the he
     rt.svc.props.set("FEATURES", "base");
     rt.svc.ss.failSetTimeZone = true;   // would throw if it tried
     rt.api("getMeta", {});
-    assert.equal(rt.svc.props.get("HEALS_DONE"), "sheet-time-zone");
+    assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("sheet-time-zone"));
   } finally { done(); }
 });
 
@@ -112,6 +112,6 @@ test("a server that still reads dates the OLD way (in the script's zone) shows t
 test("heals are listed once each, in order, with ids that are never reused", () => {
   const rt = freshApp({ small: true }).rt;
   const ids = JSON.parse(rt.run("JSON.stringify(HEALS_.map(function (h) { return h.id; }))"));
-  assert.deepEqual(ids, ["sheet-time-zone"]);
+  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended"]);
   assert.equal(new Set(ids).size, ids.length);
 });

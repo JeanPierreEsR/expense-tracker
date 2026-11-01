@@ -110,3 +110,93 @@ test("a one-time item is flagged paid once its date has come and a real entry ma
 test("the backend says it has the Programmed items Stop / Delete calls", () => {
   assert.equal(setup().rt.api("getMeta", {}).capabilities.programmedStop, true);
 });
+
+// ---- Pause was removed: paused items are converted (heal on friends' copies, once on the owner's) -------------------------------------
+const figures = (rt, cat = CAT) => ["month", "year"].map((displayPeriodType) => {
+  const c = rt.api("listCategoryProjections", { displayPeriodType }).categories.find((x) => x.category_id === cat);
+  return [c.ratePerMonth, c.programmedRemainingPen, c.expectedRemainingPen, c.actualPen, c.totalPen].map((n) => Math.round(n * 100) / 100);
+});
+const expectedItems = (rt) => JSON.stringify(rt.api("listExpectedRecurringItems", {}));
+const rowOf = (rt, id) => rt.rows("Recurring Expenses").find((r) => r.id === id);
+const convert = (rt) => JSON.parse(rt.run("JSON.stringify(convertPausedProgrammed_())"));
+
+// gym: 13 paid months, paused (clean: converts). oldSub: paid months 7..2 ago on the 20th, end date 2 months ago, paused (clean, keeps its end).
+// The rest cannot be converted without changing a figure and stay paused: never paid, a month missed in the middle, one-time, not started yet.
+function pausedScenario() {
+  const { rt, data, add, gym } = setup();
+  const item = (extra) => rt.api("addRecurringExpense", Object.assign({ category_id: CAT, currency: "PEN", frequency: "monthly" }, extra));
+  const pause = (it) => { rt.api("updateRecurringExpense", { id: it.id, active: false }); return it; };
+  pause(gym);
+  for (let k = 7; k >= 2; k--) add(ago(k, 20), 33, "Old sub");
+  const oldSub = pause(item({ description: "Old sub", amount: 33, day: 20, end_date: ago(2, 28) }));
+  const never = pause(item({ description: "Never paid", amount: 55, day: 9 }));
+  for (const k of [6, 5, 3, 2]) add(ago(k, 14), 71, "Gappy");   // month 4 ago is missing
+  const gappy = pause(item({ description: "Gappy", amount: 71, day: 14 }));
+  const once = pause(item({ description: "One off", amount: 90, frequency: "once", date: ago(0, 1) }));
+  const future = pause(item({ description: "Later", amount: 20, day: 3, start_date: `${Y + 1}-01-03` }));
+  return { rt, data, add, gym, oldSub, never, gappy, once, future };
+}
+
+test("converting paused items changes NO figure; the ones that would change a figure stay paused", () => {
+  const { rt, gym, oldSub, never, gappy, once, future } = pausedScenario();
+  const before = figures(rt), beforeList = expectedItems(rt);
+  const res = convert(rt);
+  assert.equal(res.converted, 2, "gym and old sub");
+  assert.deepEqual(res.remaining.sort(), [never.id, gappy.id, once.id, future.id].sort());
+  assert.deepEqual(figures(rt), before, "month and year projections are identical");
+  assert.equal(expectedItems(rt), beforeList, "Programmed this month is identical");
+  assert.equal(String(rowOf(rt, gym.id).active), "true");
+  assert.equal(rowOf(rt, gym.id).start_date, ago(12, 1), "no start date before: its first paid occurrence");
+  assert.equal(rowOf(rt, gym.id).end_date, ago(0, 1), "ended on its last paid occurrence (this month's, paid on the 1st)");
+  assert.equal(rowOf(rt, oldSub.id).end_date, ago(2, 28), "an existing end date is kept; only the pause is switched off");
+  assert.equal(rowOf(rt, oldSub.id).start_date, ago(7, 20));
+  [never, gappy, once, future].forEach((x) => assert.equal(String(rowOf(rt, x.id).active), "false", "left for the person to decide"));
+  // Idempotent.
+  const again = convert(rt);
+  assert.equal(again.converted, 0);
+  assert.deepEqual(again.remaining.sort(), res.remaining.sort());
+  assert.deepEqual(figures(rt), before);
+  // And the converted items now read as Past / ended in the list.
+  const list = rt.api("listRecurringExpenses", {});
+  assert.equal(list.find((x) => x.id === gym.id).end_date, ago(0, 1));
+});
+
+test("an item already ended before being paused keeps its end date and nothing changes", () => {
+  const { rt, add } = setup();
+  const sub = rt.api("addRecurringExpense", { category_id: CAT, description: "Sub", amount: 40, currency: "PEN", frequency: "monthly", day: 15, end_date: ago(3, 28) });
+  for (let k = 6; k >= 3; k--) add(ago(k, 15), 40, "Sub");
+  rt.api("updateRecurringExpense", { id: sub.id, active: false });
+  const before = figures(rt);
+  assert.equal(convert(rt).converted, 1);
+  assert.deepEqual(figures(rt), before);
+});
+
+test("a friend's copy is healed at its first open (nobody is asked); only what could not be converted is offered by getMeta", () => {
+  const { rt, gym, oldSub } = pausedScenario();
+  rt.svc.props.set("FEATURES", "base");   // a friend's copy
+  const before = figures(rt);
+  const meta = rt.api("getMeta", {});
+  assert.deepEqual(meta.pausedProgrammed.map((x) => x.description).sort(), ["Gappy", "Later", "Never paid", "One off"]);
+  assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("paused-programmed-to-ended"));
+  assert.equal(String(rowOf(rt, gym.id).active), "true");
+  assert.equal(String(rowOf(rt, oldSub.id).active), "true");
+  assert.deepEqual(figures(rt), before);
+  assert.equal(rt.api("getMeta", {}).pausedProgrammed.length, 4, "a second open changes nothing");
+});
+
+test("the owner's copy converts once through the app's call; a second call does nothing; a friend's copy says it was healed instead", () => {
+  const { rt, gym } = pausedScenario();
+  const before = figures(rt);
+  const first = rt.api("convertPausedProgrammedForOwnerOnce", {});
+  assert.equal(first.ran, true);
+  assert.equal(first.converted, 2);
+  assert.equal(first.remaining.length, 4);
+  assert.deepEqual(figures(rt), before);
+  assert.equal(String(rowOf(rt, gym.id).active), "true");
+  assert.equal(rt.api("convertPausedProgrammedForOwnerOnce", {}).ran, false);
+  const friend = pausedScenario().rt;
+  friend.svc.props.set("FEATURES", "base");
+  const out = friend.api("convertPausedProgrammedForOwnerOnce", {});
+  assert.equal(out.ran, false);
+  assert.equal(out.remaining.length, 6, "nothing converted here: the heal does it on a friend's copy");
+});

@@ -1063,6 +1063,90 @@ function pausedProgrammedForApp_() {
   });
 }
 
+// Pause no longer exists (2026-10-31). A PAUSED repeating item behaves like one that ended on its last paid occurrence: nothing is projected, and
+// the payments it explains (every one matched up to today, even made after the pause) stay out of the averages. So a paused item becomes ACTIVE
+// with end_date = its last paid occurrence (and start_date = its first paid occurrence when it had none), and NO figure changes. That only holds
+// when the converted item has no UNPAID occurrence (an active item counts those as "Programmed", a paused one counted nothing) and explains
+// exactly the same payments, so every candidate is simulated first (pausedConversionPlan_) and anything that would change a figure stays paused
+// for the person to decide: never paid, missed months, one-time items, items whose start is still ahead. Nothing is ever deleted.
+// Idempotent: a converted item is no longer paused. Returns { converted: n, remaining: [ids still paused] }.
+function convertPausedProgrammed_() {
+  var rows = getRecurringExpenseRows_();
+  var paused = rows.filter(function (r) { return String(r.active) === 'false'; });
+  if (!paused.length) return { converted: 0, remaining: [] };
+  var today = formatCalendarDate_(new Date());
+  var categories = rowsById_(getAllRows('Categories'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  var wanted = {};
+  paused.forEach(function (r) { wanted[r.category_id] = true; });
+  var byCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wanted[e.category_id] && cat && e.type === cat.type) (byCategory[e.category_id] = byCategory[e.category_id] || []).push(e);
+  });
+  var sheet = getSheet('Recurring Expenses');
+  var headers = getHeaders(sheet);
+  var converted = 0, remaining = [];
+  paused.forEach(function (r) {
+    var plan = normalizeRecurringFrequency_(r.frequency) === 'once' || (r.start_date && String(r.start_date) > today)
+      ? null
+      : pausedConversionPlan_(r, byCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    var rowIndex = plan ? findRowIndexById(sheet, headers, r.id) : -1;
+    if (!plan || rowIndex === -1) { remaining.push(String(r.id)); return; }
+    setCellByRow_(sheet, headers, rowIndex, 'active', 'true');
+    if (!r.start_date) setCellByRow_(sheet, headers, rowIndex, 'start_date', plan.start);
+    if (!r.end_date) setCellByRow_(sheet, headers, rowIndex, 'end_date', plan.end);
+    converted++;
+  });
+  return { converted: converted, remaining: remaining };
+}
+
+// { start, end } for a paused repeating item, or null when converting it would change a figure (see convertPausedProgrammed_).
+function pausedConversionPlan_(r, entries, today, entrySplitSums, recurringSplitSums) {
+  if (!entries.length) return null;
+  var minDate = '9999-99-99';
+  entries.forEach(function (e) { if (String(e.date) < minDate) minDate = String(e.date); });
+  var history = Object.assign({}, r, { active: 'true' });
+  function matches_(item, e, occ) { return entryMatchesRecurringOccurrence_(e, item, occ, entrySplitSums, recurringSplitSums); }
+  // The entries this item explains today (what ProjectionMethods.buildMonthlySeries_ leaves out of the averages), as a set of ids.
+  function explained_(item) {
+    var occ = recurringExpenseOccurrencesInRange_(item, minDate, today);
+    var ids = {};
+    if (occ.length) entries.forEach(function (e) { if (matches_(item, e, occ)) ids[e.id] = true; });
+    return ids;
+  }
+  var from = r.start_date && String(r.start_date) < minDate ? String(r.start_date) : minDate;
+  var paid = recurringExpenseOccurrencesInRange_(history, from, today).filter(function (o) {
+    return entries.some(function (e) { return matches_(history, e, [o]); });
+  }).map(String).sort();
+  if (!paid.length) return null;   // never paid: nothing to anchor an end date to, and its past occurrences would turn into "unpaid"
+  var start = r.start_date ? String(r.start_date) : paid[0];
+  var end = r.end_date ? String(r.end_date) : paid[paid.length - 1];
+  var candidate = Object.assign({}, history, { start_date: start, end_date: end });
+  // Every occurrence of the converted item must already be paid, or it would show up as "Programmed" ...
+  var candidateFrom = start < minDate ? start : minDate;
+  var unpaid = recurringExpenseOccurrencesInRange_(candidate, candidateFrom, today).some(function (o) {
+    return !entries.some(function (e) { return matches_(candidate, e, [o]); });
+  });
+  if (unpaid) return null;
+  // ... and it must explain exactly the payments it explains now, or the averages would move.
+  var before = explained_(history), after = explained_(candidate);
+  var same = Object.keys(before).length === Object.keys(after).length && Object.keys(before).every(function (id) { return after[id]; });
+  return same ? { start: start, end: end } : null;
+}
+
+// Your own copy is not healed (heals are for friends' copies): the app calls this once when it finds paused items, and it does the same
+// conversion one time (the answer is remembered). A friend's copy answers "skip": its heal did it. Returns { ran, converted, remaining }.
+function convertPausedProgrammedForOwnerOnce() {
+  var props = PropertiesService.getScriptProperties();
+  if (isFriendCopy_() || props.getProperty('PAUSED_CONVERTED_OWNER') === 'yes') return { ran: false, converted: 0, remaining: pausedProgrammedForApp_().map(function (x) { return x.id; }) };
+  var out = convertPausedProgrammed_();
+  props.setProperty('PAUSED_CONVERTED_OWNER', 'yes');
+  return { ran: true, converted: out.converted, remaining: out.remaining };
+}
+
 // Several items at once (the Delete choices on More → Programmed items). One pass over the three sheets.
 function deleteRecurringExpenses(payload) {
   var ids = {};

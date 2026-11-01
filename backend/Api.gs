@@ -370,6 +370,7 @@ function routeAction(action, payload) {
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'convertPausedProgrammedForOwnerOnce': return convertPausedProgrammedForOwnerOnce();
     case 'deleteRecurringExpenses': return deleteRecurringExpenses(payload);
     case 'stopRecurringExpenses': return stopRecurringExpenses(payload);
     case 'previewProgrammedDelete': return withRowsMemo_(function () { return previewProgrammedDelete(payload); });

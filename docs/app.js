@@ -505,6 +505,7 @@ function saveStartupCache_(bundle) {
 // skipFlush) and never skips anything else, since nothing on screen has
 // been touched yet at this point in a fresh app open.
 async function renderCachedStartupBundle_(bundle) {
+  bundle.meta.fromCache_ = true;   // the saved snapshot may be stale: nothing that asks the person to act is built from it (see maybeAskPausedProgrammed_)
   await loadMeta(bundle.meta);
   await refreshEntryList(bundle.entries);
   await refreshReviewQueue(bundle.pending, true);
@@ -14434,9 +14435,30 @@ document.getElementById("recurring-delete-btn").addEventListener("click", () => 
 // Stopped (end date today) or Deleted; a one-time item has no end date, so it only offers Reactivate / Delete.
 let pausedAskOpen_ = false;
 let pausedAskRetries_ = 0;
-function maybeAskPausedProgrammed_() {
+let pausedConvertPromise_ = null;
+async function maybeAskPausedProgrammed_() {
+  if (!recurringStopCapable_() || !((meta && meta.pausedProgrammed) || []).length || pausedAskOpen_) return;
+  if (meta.fromCache_) return;   // fresh data from the server is on its way and calls this again
+  // Your own copy has no heal: the server converts the paused items ONCE (an ended item with the same numbers) before anyone is asked.
+  // A friend's copy was healed when the app opened, so only what could not be converted (one-time items, items not started) is left.
+  if (!pausedConvertPromise_) {
+    pausedConvertPromise_ = (async () => {
+      try {
+        const before = (meta.pausedProgrammed || []).length;
+        const out = await callApi("convertPausedProgrammedForOwnerOnce", {});
+        const still = new Set(out.remaining || []);
+        meta.pausedProgrammed = (meta.pausedProgrammed || []).filter((x) => still.has(x.id));
+        if (out.ran && out.converted) {
+          showToast_(tr("paused.converted", { n: out.converted }));
+          if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses();
+        }
+        return before;
+      } catch (err) { /* an older backend: the sheet below asks about every item */ return 0; }
+    })();
+  }
+  await pausedConvertPromise_;
   const list = (meta && meta.pausedProgrammed) || [];
-  if (!recurringStopCapable_() || !list.length || pausedAskOpen_) return;
+  if (!list.length || pausedAskOpen_) return;
   if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {   // not on top of another question
     if (pausedAskRetries_++ < 40) setTimeout(maybeAskPausedProgrammed_, 4000);
     return;
