@@ -3342,3 +3342,4 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .paused-actions .add-inline { padding-left: 0; padding-right: 0; margin: 0; white-space: nowrap; }
 #recurring-restart-btn { padding-left: 0; }
 .range-day:disabled { opacity: 0.3; cursor: default; }
+#screen-recurring.recurring-editing .card { padding-bottom: 90px; }

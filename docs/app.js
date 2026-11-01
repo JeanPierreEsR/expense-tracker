@@ -8036,7 +8036,7 @@ async function init() {
 // ---- More tab ----
 
 document.getElementById("more-recurring-btn").addEventListener("click", showRecurringScreen);
-document.getElementById("recurring-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("recurring-back-btn").addEventListener("click", () => { setRecurringEditing_(false); showScreen("more"); });
 document.getElementById("more-exchange-rates-btn").addEventListener("click", showExchangeRatesScreen);
 document.getElementById("more-perf-btn").addEventListener("click", showPerfScreen);
 
@@ -13533,15 +13533,21 @@ function renderRecurringRow_(re) {
   const isIncome = re.category_type === "income";
   const todayISO = localTodayISO_();
   const row = document.createElement("div");
-  row.className = "recurring-row" + (recurringIsPast_(re, todayISO) || !re.active ? " inactive" : "");
+  row.className = "recurring-row" + (recurringIsPast_(re, todayISO) || !re.active ? " inactive" : "") + (recurringEditing_ ? " friends-check-row" : "");
   row.innerHTML = `
+    ${recurringEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${recurringSelected_.has(re.id) ? " checked" : ""}>` : ""}
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
       <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
-  row.addEventListener("click", () => openRecurringModal(re));
+  row.addEventListener("click", () => {
+    if (!recurringEditing_) { openRecurringModal(re); return; }
+    if (recurringSelected_.has(re.id)) recurringSelected_.delete(re.id); else recurringSelected_.add(re.id);
+    row.querySelector(".friends-check").checked = recurringSelected_.has(re.id);
+    syncRecurringEditBar_();
+  });
   return row;
 }
 
@@ -13552,8 +13558,8 @@ let showPastRecurring = false;
 function renderRecurringPastToggle_(count) {
   const btn = document.getElementById("recurring-past-toggle");
   const section = document.getElementById("recurring-past-section");
-  btn.hidden = count === 0;
-  if (count === 0) showPastRecurring = false;
+  btn.hidden = count === 0 || recurringEditing_;   // in Edit mode the past items stay open so every item can be ticked
+  if (count === 0 && !recurringEditing_) showPastRecurring = false;
   section.hidden = !showPastRecurring;
   btn.textContent = showPastRecurring
     ? tr("recurring.hidePast", { n: count })
@@ -13566,11 +13572,52 @@ document.getElementById("recurring-past-toggle").addEventListener("click", () =>
   renderRecurringPastToggle_(count);
 });
 
+// ---- Programmed items: Edit mode (tick several items, delete them at once; owner's request, 2026-10-30) ----
+// The same bar and checkboxes as More → Friends → Edit. Delete asks Stop them / Delete them all when the items have payments (see startRecurringBulkDelete_).
+let recurringItems_ = [];
+let recurringEditing_ = false;
+let recurringSelected_ = new Set();
+let recurringPastBeforeEdit_ = false;
+
+function setRecurringEditing_(on, redraw = true) {
+  if (on === recurringEditing_ && redraw) return;
+  recurringEditing_ = on;
+  recurringSelected_ = new Set();
+  if (on) { recurringPastBeforeEdit_ = showPastRecurring; showPastRecurring = true; }   // every item must be reachable: the past ones open
+  else showPastRecurring = recurringPastBeforeEdit_;
+  document.getElementById("recurring-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  document.getElementById("add-recurring-btn").hidden = on;
+  document.getElementById("recurring-editbar").hidden = !on;
+  document.getElementById("screen-recurring").classList.toggle("recurring-editing", on);
+  placeRecurringEditBar_();
+  if (redraw) renderRecurringLists_();
+}
+function placeRecurringEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("recurring-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (recurringEditing_) placeRecurringEditBar_(); });
+function syncRecurringEditBar_() {
+  const n = recurringSelected_.size;
+  const del = document.getElementById("recurring-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("recurring-selectall-btn").textContent = tr(n && n === recurringItems_.length ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("recurring-edit-btn").addEventListener("click", () => setRecurringEditing_(!recurringEditing_));
+document.getElementById("recurring-selectall-btn").addEventListener("click", () => {
+  recurringSelected_ = recurringSelected_.size === recurringItems_.length ? new Set() : new Set(recurringItems_.map((re) => re.id));
+  renderRecurringLists_();
+});
+document.getElementById("recurring-delete-selected-btn").addEventListener("click", () => {
+  const chosen = recurringItems_.filter((re) => recurringSelected_.has(re.id));
+  if (chosen.length === 1) { setRecurringEditing_(false); startRecurringDelete_(chosen[0]); return; }   // one item: the same Stop it (pick its last day) / Delete it as in its edit window
+  if (chosen.length) startRecurringBulkDelete_(chosen);
+});
+
 async function refreshRecurringExpenses() {
   const list = document.getElementById("recurring-list");
-  const emptyNote = document.getElementById("recurring-empty-note");
   const onetimeList = document.getElementById("recurring-onetime-list");
-  const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
   list.innerHTML = loadingHtml_();
   onetimeList.innerHTML = "";
   let items;
@@ -13580,7 +13627,19 @@ async function refreshRecurringExpenses() {
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
     return;
   }
+  recurringItems_ = items;
+  const still = new Set(items.map((re) => re.id));
+  recurringSelected_ = new Set([...recurringSelected_].filter((id) => still.has(id)));
+  renderRecurringLists_();
+}
 
+// Draws the three lists from recurringItems_ (no server call): also used by Edit mode.
+function renderRecurringLists_() {
+  const items = recurringItems_;
+  const list = document.getElementById("recurring-list");
+  const emptyNote = document.getElementById("recurring-empty-note");
+  const onetimeList = document.getElementById("recurring-onetime-list");
+  const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
   const todayISO = localTodayISO_();
   const allRecurring = items.filter((re) => re.frequency !== "once");
   const recurring = allRecurring.filter((re) => !recurringIsPast_(re, todayISO));
@@ -13589,6 +13648,9 @@ async function refreshRecurringExpenses() {
     .sort((a, b) => (b.end_date || b.date || "").localeCompare(a.end_date || a.date || ""));
   const onetime = items.filter((re) => re.frequency === "once" && !recurringIsPast_(re, todayISO));
 
+  const canEdit = !!(meta && meta.capabilities && meta.capabilities.programmedStop);
+  document.getElementById("recurring-edit-btn").hidden = !(canEdit && items.length);
+  if (recurringEditing_ && !items.length) { setRecurringEditing_(false, false); }
   document.getElementById("recurring-income-toggle").hidden = !items.some((re) => re.category_type === "income");
   syncIncomeToggles_();
   list.innerHTML = "";
@@ -13604,6 +13666,7 @@ async function refreshRecurringExpenses() {
   onetimeList.innerHTML = "";
   onetimeEmptyNote.hidden = onetime.length > 0;
   onetime.forEach((re) => onetimeList.appendChild(renderRecurringRow_(re)));
+  syncRecurringEditBar_();
 }
 
 const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i, true));   // capitalised in Spanish: every use starts a label
@@ -14478,6 +14541,66 @@ async function startRecurringDelete_(re) {
 document.getElementById("recurring-delete-btn").addEventListener("click", () => {
   if (editingRecurringItem) startRecurringDelete_(editingRecurringItem);
 });
+
+// Edit → Delete on several items. Items with no payments in the last 12 months are simply deleted; when some have payments the person chooses ONE
+// answer for the batch: Stop them (each of those ends on the date of ITS OWN last payment: no date is asked and no figure changes; the ones without
+// payments are deleted; one-time items cannot be stopped and stay) or Delete them all (with the monthly effect written out).
+async function startRecurringBulkDelete_(items) {
+  const backdrop = document.getElementById("recurring-delete-backdrop");
+  const body = document.getElementById("recurring-delete-body");
+  document.getElementById("recurring-delete-title").textContent = tr("recDel.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  const ids = items.map((re) => re.id);
+  let preview;
+  try {
+    preview = await callApi("previewProgrammedDelete", { ids });
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const effectOf = {};
+  (preview.items || []).forEach((x) => { effectOf[x.id] = x.monthlyEffectPen || 0; });
+  const nameOf = (re) => re.description || re.category_name || "";
+  const effectful = items.filter((re) => effectOf[re.id] >= 0.5);
+  const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
+  // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
+  const finish = (work, after) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after); };
+  const deleteAll = () => finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_);
+  if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
+    closeRecurringDeleteSheet_();
+    if (confirm(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", ") }))) deleteAll();
+    return;
+  }
+  const stoppable = effectful.filter(recurringStoppable_);
+  const fixed = effectful.filter((re) => !recurringStoppable_(re));   // paid one-time items: no end date to set
+  if (!stoppable.length) {
+    closeRecurringDeleteSheet_();
+    if (confirm(tr("recBulk.onlyFixed", { amount, n: items.length }))) deleteAll();
+    return;
+  }
+  const rest = items.filter((re) => !effectful.includes(re));   // no payments to protect: deleted either way
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(tr("recBulk.intro", { pay: effectful.length, n: items.length }))}</b></p>
+    <button type="button" class="primary" id="recurring-bulk-stop">${escapeHtml(tr("recBulk.stopBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("recBulk.stopHint", { k: stoppable.length })
+      + (rest.length ? tr("recBulk.stopRest", { m: rest.length }) : "") + (fixed.length ? tr("recBulk.stopFixed", { f: fixed.length }) : ""))}</p>
+    <button type="button" class="primary danger" id="recurring-bulk-delete">${escapeHtml(tr("recBulk.deleteBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("recBulk.deleteHint", { n: items.length, amount }))}</p>`;
+  document.getElementById("recurring-bulk-delete").addEventListener("click", deleteAll);
+  document.getElementById("recurring-bulk-stop").addEventListener("click", () => {
+    let result = null;
+    finish(async () => {
+      result = await callApi("stopRecurringAtLastPayment", { ids: stoppable.map((re) => re.id) });
+      if (rest.length) await callApi("deleteRecurringExpenses", { ids: rest.map((re) => re.id) });
+    }, async () => {
+      afterRecurringChange_();
+      const left = fixed.concat(items.filter((re) => result && result.skipped.some((x) => x.id === re.id)));
+      if (left.length) alert(tr("recBulk.leftAsIs", { names: left.map(nameOf).join(", ") }));
+    });
+  });
+}
 
 // ---- Items still paused from before: Pause no longer exists, so the person chooses once (owner's rule, 2026-10-31) ----
 // meta.pausedProgrammed lists them (the server only sends it while some exist). The sheet cannot be closed until each one is Reactivated,
