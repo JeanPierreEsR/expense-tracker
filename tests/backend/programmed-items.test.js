@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { freshApp, today } = require("./helpers");
 
-const ym = (d = new Date()) => d.toISOString().slice(0, 7);
+const ym = () => today().slice(0, 7);   // the backend's month (Lima), not UTC: UTC is already next month on the last evening of a month
 const jr = (rt, code) => JSON.parse(rt.run(`JSON.stringify(${code})`));
 const rowOf = (rt, id) => jr(rt, `getRecurringExpenseRows_().filter(function (r) { return r.id === ${JSON.stringify(id)}; })[0]`);
 const occ = (rt, id, a, b) => jr(rt, `recurringExpenseOccurrencesInRange_(getRecurringExpenseRows_().filter(function (r) { return r.id === ${JSON.stringify(id)}; })[0], '${a}', '${b}')`);

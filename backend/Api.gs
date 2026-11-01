@@ -370,6 +370,10 @@ function routeAction(action, payload) {
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'convertPausedProgrammedForOwnerOnce': return convertPausedProgrammedForOwnerOnce();
+    case 'deleteRecurringExpenses': return deleteRecurringExpenses(payload);
+    case 'stopRecurringExpenses': return stopRecurringExpenses(payload);
+    case 'previewProgrammedDelete': return withRowsMemo_(function () { return previewProgrammedDelete(payload); });
     case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
     case 'unskipRecurringOccurrence': return unskipRecurringOccurrence(payload);
     case 'linkEntryToRecurring': return linkEntryToRecurring(payload);
@@ -627,7 +631,9 @@ function getMeta() {
     // Which Google account's inbox bank e-mails are read from, and the banks whose e-mails have a rule (EmailParser.gs): More → Bank emails.
     emailInfo: getEmailInfo_(),
     // "Is this you?" (OwnerNames.gs): the name the Home card asks about, '' when there is none.
-    ownNameAsk: ownerNameAsk_()
+    ownNameAsk: ownerNameAsk_(),
+    // Programmed items still PAUSED (Pause no longer exists: the app makes the person choose Reactivate / Stop / Delete for each, once).
+    pausedProgrammed: pausedProgrammedForApp_()
   };
 }
 

@@ -97,9 +97,9 @@ function monthKeyAdd_(key, delta) {
 // ids asked for). `totals` is the NON-recurring spend: own share, PEN at the
 // entry's month rate, entries matched to a programmed item left out, entries
 // tagged Annual left out of `totals` and counted in `annual` instead (the trace
-// reports them). `firstMonth` is the month of the first confirmed entry of any
+// reports them). `excludeRecurringIds` (optional) leaves those programmed items out, as if deleted. `firstMonth` is the month of the first confirmed entry of any
 // type in the category — nothing existed before it, so zero there means nothing.
-function buildMonthlySeries_(categoryIds) {
+function buildMonthlySeries_(categoryIds, excludeRecurringIds) {
   var wanted = {};
   getAllRows('Categories').forEach(function (c) {
     if (c.type !== 'expense' && c.type !== 'investment') return;
@@ -123,6 +123,8 @@ function buildMonthlySeries_(categoryIds) {
   var recurringByCategory = {};
   getRecurringExpenseRows_().forEach(function (r) {
     if (!wanted[r.category_id]) return;
+    // "What if these programmed items were deleted?" (previewProgrammedDelete): they explain no payment, so those fall into the series.
+    if (excludeRecurringIds && excludeRecurringIds.indexOf(String(r.id)) !== -1) return;
     // A PAUSED item (Active off) projects nothing, but its past payments are still
     // its own history: they stay out of the averages until the item is DELETED
     // (owner's rule, 2026-10-19). An ended item (end date) already keeps matching

@@ -3334,3 +3334,10 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
 .friends-hidden-box > .add-inline { padding-left: 0; }
 .friends-hidden-row { cursor: default; }
+
+/* ---- Programmed items: the paused-items decision sheet ---- */
+.paused-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.paused-row:last-child { border-bottom: none; }
+.paused-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.paused-actions .add-inline { padding-left: 0; padding-right: 0; margin: 0; white-space: nowrap; }
+#recurring-restart-btn { padding-left: 0; }

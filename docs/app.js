@@ -505,6 +505,7 @@ function saveStartupCache_(bundle) {
 // skipFlush) and never skips anything else, since nothing on screen has
 // been touched yet at this point in a fresh app open.
 async function renderCachedStartupBundle_(bundle) {
+  bundle.meta.fromCache_ = true;   // the saved snapshot may be stale: nothing that asks the person to act is built from it (see maybeAskPausedProgrammed_)
   await loadMeta(bundle.meta);
   await refreshEntryList(bundle.entries);
   await refreshReviewQueue(bundle.pending, true);
@@ -917,6 +918,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   if (typeof maybeShowWelcome_ === "function") maybeShowWelcome_();
   syncLanguageSetting_();
   renderOwnNameCard_();
+  maybeAskPausedProgrammed_();
   if (skipFormPopulate) return;
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
@@ -13505,7 +13507,8 @@ function localTodayISO_() {
 // are never "past" here — a one-time item whose date went by may still be
 // unpaid, so it stays visible. See specs/recurring.md.
 function recurringIsPast_(re, todayISO) {
-  if (re.frequency === "once") return false;
+  // A one-time item is past only once its date has gone by AND a real entry matches it (paid); one that may still be unpaid stays visible.
+  if (re.frequency === "once") return !!re.paid && !!re.date && re.date < todayISO;
   return !re.active || (!!re.end_date && re.end_date < todayISO);
 }
 
@@ -13515,7 +13518,7 @@ function recurringDateLabel_(iso) {
 
 // " · Paused", " · Ended 30 Sep 2026" or " · Ends 30 Nov 2026" (still running).
 function recurringStatusLabel_(re, todayISO) {
-  if (re.frequency === "once") return "";
+  if (re.frequency === "once") return recurringIsPast_(re, todayISO) ? tr("recurring.paidDone") : "";
   if (!re.active) return tr("recurring.paused");
   if (!re.end_date) return "";
   return re.end_date < todayISO ? tr("recurring.ended", { date: recurringDateLabel_(re.end_date) }) : tr("recurring.ends", { date: recurringDateLabel_(re.end_date) });
@@ -13581,10 +13584,10 @@ async function refreshRecurringExpenses() {
   const todayISO = localTodayISO_();
   const allRecurring = items.filter((re) => re.frequency !== "once");
   const recurring = allRecurring.filter((re) => !recurringIsPast_(re, todayISO));
-  // Most recently ended first; paused ones (no end date) after them.
-  const past = allRecurring.filter((re) => recurringIsPast_(re, todayISO))
-    .sort((a, b) => (b.end_date || "").localeCompare(a.end_date || ""));
-  const onetime = items.filter((re) => re.frequency === "once");
+  // Most recently ended first (a paid one-time item by its date); old paused ones (no end date) after them.
+  const past = items.filter((re) => recurringIsPast_(re, todayISO))
+    .sort((a, b) => (b.end_date || b.date || "").localeCompare(a.end_date || a.date || ""));
+  const onetime = items.filter((re) => re.frequency === "once" && !recurringIsPast_(re, todayISO));
 
   document.getElementById("recurring-income-toggle").hidden = !items.some((re) => re.category_type === "income");
   syncIncomeToggles_();
@@ -13930,13 +13933,14 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-currency").value = src ? src.currency : homeCur();
   renderCurrencyChips("recurring");
 
-  const frequency = re ? re.frequency : "monthly";
-  document.getElementById("recurring-variable-toggle").checked = !!(prefill || (re && re.variable));
+  const restart = !re && !!(prefill && prefill.restart);   // "Start again": a new item that copies an ended one
+  const frequency = re ? re.frequency : ((prefill && prefill.frequency) || "monthly");
+  document.getElementById("recurring-variable-toggle").checked = restart ? !!prefill.variable : !!(prefill || (re && re.variable));
   document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
   fillTripOptions_(document.getElementById("recurring-trip"), re && re.trip_id ? re.trip_id : "");
   setRecurringFrequency_(frequency);
-  document.getElementById("recurring-interval").value = re && re.frequency === "custom" ? re.interval : 1;
-  document.getElementById("recurring-interval-unit").value = re && re.frequency === "custom" ? re.interval_unit : "weeks";
+  document.getElementById("recurring-interval").value = re && re.frequency === "custom" ? re.interval : (restart && prefill.interval ? prefill.interval : 1);
+  document.getElementById("recurring-interval-unit").value = re && re.frequency === "custom" ? re.interval_unit : (restart && prefill.interval_unit ? prefill.interval_unit : "weeks");
   document.getElementById("recurring-occurrence-date").value =
     frequency === "once" && re && re.date ? re.date : todayLocalISO();
   // Monthly/yearly: "Starts on" is the one date. An older item saved before
@@ -13954,6 +13958,10 @@ async function openRecurringModal(re, prefill) {
     const day = Math.min(re.day || 1, new Date(now.getFullYear(), monthNum, 0).getDate());
     startValue = `${now.getFullYear()}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     recurringStartStandIn = startValue;
+  } else if (restart) {
+    // Start again: the next time its day comes round (today when it is today), with a real start date; no stand-in.
+    startValue = nextOccurrenceDate_(prefill.frequency, prefill.day, prefill.month);
+    recurringStartStandIn = "";
   } else if (!re && prefill) {
     // A proposal from "Look for variable payments": the bill already existed
     // before today, so treat it like an older item with no start date — show
@@ -13967,6 +13975,10 @@ async function openRecurringModal(re, prefill) {
   }
   document.getElementById("recurring-start-date").value = startValue;
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
+  // There is no Pause any more: the Active box only shows for an item that is still paused from before, so it can be reactivated.
+  document.getElementById("recurring-active-row").hidden = !(re && !re.active);
+  // "Start again": an ended (or old paused) repeating item can be added anew with the same details.
+  document.getElementById("recurring-restart-btn").hidden = !(re && re.frequency !== "once" && recurringIsPast_(re, localTodayISO_()));
   document.getElementById("recurring-delete-btn").hidden = !re;
   document.getElementById("recurring-end-date").value = re ? (re.end_date || "") : "";
   renderRecurringSkips_(re);
@@ -14330,18 +14342,190 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
   }
 });
 
-document.getElementById("recurring-delete-btn").addEventListener("click", async () => {
-  if (!editingRecurringId) return;
-  const recLabel = document.getElementById("recurring-description").value.trim();
-  const recAmount = document.getElementById("recurring-amount").value.trim();
-  const recCurrency = document.getElementById("recurring-currency").value;
-  if (!confirm(tr("recModal.confirmDelete", { what: describeForConfirm_(recLabel, recAmount ? `${recCurrency} ${recAmount}` : "") }))) return;
-  const id = editingRecurringId;
+// The next date (today included) on which a repeating item's own day (and month, for a yearly one) comes round; today for any other kind.
+function nextOccurrenceDate_(frequency, day, month) {
+  const now = new Date();
+  const clamp = (y, m, d) => Math.min(d, new Date(y, m, 0).getDate());   // m is 1-12
+  const iso = (y, m, d) => `${y}-${pad2(m)}-${pad2(clamp(y, m, d))}`;
+  const today = todayLocalISO();
+  if (frequency === "monthly" && day) {
+    const thisMonth = iso(now.getFullYear(), now.getMonth() + 1, day);
+    return thisMonth >= today ? thisMonth : iso(now.getFullYear() + (now.getMonth() === 11 ? 1 : 0), (now.getMonth() + 1) % 12 + 1, day);
+  }
+  if (frequency === "yearly" && day && month) {
+    const thisYear = iso(now.getFullYear(), month, day);
+    return thisYear >= today ? thisYear : iso(now.getFullYear() + 1, month, day);
+  }
+  return today;
+}
+
+document.getElementById("recurring-restart-btn").addEventListener("click", async () => {
+  const re = editingRecurringItem;
+  if (!re) return;
+  const prefill = {
+    restart: true, description: re.description, category_id: re.category_id, currency: re.currency, frequency: re.frequency,
+    amount: re.amount, base_amount: re.base_amount, variable: re.variable, match_words: re.match_words,
+    interval: re.interval, interval_unit: re.interval_unit, day: re.day, month: re.month, split: []
+  };
+  try {
+    if (re.split_total > 0.005) prefill.split = await callApi("getRecurringExpenseSplits", { recurringExpenseId: re.id });
+  } catch (err) { /* the split is only a convenience: the new item can be shared again by hand */ }
   closeRecurringModal();
-  await callApi("deleteRecurringExpense", { id });
+  openRecurringModal(null, prefill);
+});
+
+// ---- Programmed items: Delete = Stop it (end today) or Delete it (owner's design, 2026-10-31) ----
+// Deleting an item turns the payments it explains back into ordinary spending, which raises the Expected average (see specs/recurring.md
+// § Stop or delete). So Delete asks only when that matters: with no payments in the last 12 months it is a plain confirmation; otherwise the
+// person chooses Stop it (the end date becomes today, history stays explained) or Delete it (with the monthly effect written out).
+const recurringStopCapable_ = () => !!(meta && meta.capabilities && meta.capabilities.programmedStop);
+const recurringStoppable_ = (re) => re.frequency !== "once" && !(re.start_date && re.start_date > localTodayISO_());
+const recurringDeleteWhat_ = (re) => describeForConfirm_(re.description || re.category_name || "", re.amount ? `${re.currency} ${re.amount}` : "");
+
+function afterRecurringChange_() {
   refreshRecurringExpenses();
   if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
+}
+function runRecurringDelete_(re) {
+  closeRecurringModal();
+  saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
+}
+function runRecurringStop_(re) {
+  closeRecurringModal();
+  saveBehindScreen_(() => callApi("stopRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
+}
+function closeRecurringDeleteSheet_() { document.getElementById("recurring-delete-backdrop").hidden = true; }
+document.getElementById("recurring-delete-close").addEventListener("click", closeRecurringDeleteSheet_);
+
+async function startRecurringDelete_(re) {
+  if (!recurringStopCapable_()) {   // an older backend: the plain question, as before
+    if (!confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re) }))) return;
+    closeRecurringModal();
+    await callApi("deleteRecurringExpense", { id: re.id });
+    afterRecurringChange_();
+    return;
+  }
+  // Loading standard: the sheet opens at once with "Loading…" and shows the choices only when the effect is known.
+  const backdrop = document.getElementById("recurring-delete-backdrop");
+  const body = document.getElementById("recurring-delete-body");
+  document.getElementById("recurring-delete-title").textContent = tr("recDel.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let effect = 0;
+  try {
+    const out = await callApi("previewProgrammedDelete", { ids: [re.id] });
+    effect = ((out.items || [])[0] || {}).monthlyEffectPen || 0;
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
+  if (effect < 0.5) {   // nothing in the last 12 months depends on it: the plain question
+    closeRecurringDeleteSheet_();
+    if (confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re) }))) runRecurringDelete_(re);
+    return;
+  }
+  if (!recurringStoppable_(re)) {   // a paid one-time item has no end date to set: say what deleting does
+    closeRecurringDeleteSheet_();
+    if (confirm(tr("recDel.onceWarn", { amount }))) runRecurringDelete_(re);
+    return;
+  }
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(recurringDeleteWhat_(re))}</b></p>
+    <button type="button" class="primary" id="recurring-stop-btn">${escapeHtml(tr("recDel.stopBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("recDel.stopHint", { date: recurringDateLabel_(todayLocalISO()) }))}</p>
+    <button type="button" class="primary danger" id="recurring-delete-confirm-btn">${escapeHtml(tr("recDel.deleteBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("recDel.deleteHint", { amount }))}</p>`;
+  document.getElementById("recurring-stop-btn").addEventListener("click", () => { closeRecurringDeleteSheet_(); runRecurringStop_(re); });
+  document.getElementById("recurring-delete-confirm-btn").addEventListener("click", () => { closeRecurringDeleteSheet_(); runRecurringDelete_(re); });
+}
+document.getElementById("recurring-delete-btn").addEventListener("click", () => {
+  if (editingRecurringItem) startRecurringDelete_(editingRecurringItem);
 });
+
+// ---- Items still paused from before: Pause no longer exists, so the person chooses once (owner's rule, 2026-10-31) ----
+// meta.pausedProgrammed lists them (the server only sends it while some exist). The sheet cannot be closed until each one is Reactivated,
+// Stopped (end date today) or Deleted; a one-time item has no end date, so it only offers Reactivate / Delete.
+let pausedAskOpen_ = false;
+let pausedAskRetries_ = 0;
+let pausedConvertPromise_ = null;
+async function maybeAskPausedProgrammed_() {
+  if (!recurringStopCapable_() || !((meta && meta.pausedProgrammed) || []).length || pausedAskOpen_) return;
+  if (meta.fromCache_) return;   // fresh data from the server is on its way and calls this again
+  // Your own copy has no heal: the server converts the paused items ONCE (an ended item with the same numbers) before anyone is asked.
+  // A friend's copy was healed when the app opened, so only what could not be converted (one-time items, items not started) is left.
+  if (!pausedConvertPromise_) {
+    pausedConvertPromise_ = (async () => {
+      try {
+        const before = (meta.pausedProgrammed || []).length;
+        const out = await callApi("convertPausedProgrammedForOwnerOnce", {});
+        const still = new Set(out.remaining || []);
+        meta.pausedProgrammed = (meta.pausedProgrammed || []).filter((x) => still.has(x.id));
+        if (out.ran && out.converted) {
+          showToast_(tr("paused.converted", { n: out.converted }));
+          if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses();
+        }
+        return before;
+      } catch (err) { /* an older backend: the sheet below asks about every item */ return 0; }
+    })();
+  }
+  await pausedConvertPromise_;
+  const list = (meta && meta.pausedProgrammed) || [];
+  if (!list.length || pausedAskOpen_) return;
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {   // not on top of another question
+    if (pausedAskRetries_++ < 40) setTimeout(maybeAskPausedProgrammed_, 4000);
+    return;
+  }
+  pausedAskOpen_ = true;
+  renderPausedDecision_();
+  const backdrop = document.getElementById("paused-decision-backdrop");
+  I18n.applyStatic(backdrop);
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+async function renderPausedDecision_() {
+  const listEl = document.getElementById("paused-decision-list");
+  const items = (meta.pausedProgrammed || []).slice();
+  let effects = {};
+  try { ((await callApi("previewProgrammedDelete", { ids: items.map((x) => x.id) })).items || []).forEach((x) => { effects[x.id] = x.monthlyEffectPen; }); } catch (err) { /* no number: Delete asks plainly */ }
+  listEl.innerHTML = "";
+  items.forEach((it) => {
+    const row = document.createElement("div");
+    row.className = "paused-row";
+    const stoppable = it.frequency !== "once" && !(it.start_date && it.start_date > localTodayISO_());
+    row.innerHTML = `
+      <div class="recurring-row-name">${it.category_icon ? escapeHtml(it.category_icon) + " " : ""}${escapeHtml(it.description || it.category_name)}</div>
+      <div class="recurring-row-sub">${escapeHtml(it.category_name)} · ${escapeHtml(it.currency)} ${moneyFmt(it.amount)}</div>
+      <div class="paused-actions">
+        <button type="button" class="add-inline" data-act="reactivate">${escapeHtml(tr("paused.reactivate"))}</button>
+        ${stoppable ? `<button type="button" class="add-inline" data-act="stop">${escapeHtml(tr("paused.stop"))}</button>` : ""}
+        <button type="button" class="add-inline" data-act="delete" style="color:#d64545;">${escapeHtml(tr("paused.delete"))}</button>
+      </div>
+      <p class="hint paused-error" style="color:#d64545;"></p>`;
+    row.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", async () => {
+      const act = btn.dataset.act;
+      if (act === "delete" && (effects[it.id] || 0) >= 0.5 && !confirm(tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }))) return;
+      row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      try {
+        if (act === "reactivate") await callApi("updateRecurringExpense", { id: it.id, active: true });
+        else if (act === "stop") await callApi("stopRecurringExpenses", { ids: [it.id] });
+        else await callApi("deleteRecurringExpenses", { ids: [it.id] });
+        meta.pausedProgrammed = (meta.pausedProgrammed || []).filter((x) => x.id !== it.id);
+        row.remove();
+        if (!meta.pausedProgrammed.length) {
+          document.getElementById("paused-decision-backdrop").hidden = true;
+          pausedAskOpen_ = false;
+          if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses();
+        }
+      } catch (err) {
+        row.querySelector(".paused-error").textContent = tr("paused.error", { error: err.message });
+        row.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+      }
+    }));
+    listEl.appendChild(row);
+  });
+}
 
 // ---- Programmed income is hidden by default ----
 // Income amounts (a salary, say) can be sensitive, so every programmed-income

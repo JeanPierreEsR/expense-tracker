@@ -18,7 +18,11 @@ var HEALS_ = [
   // Sheets made before 2026-10-25 have no time zone of their own (GMT, most likely) while the script runs in another: the app then had to read
   // dates through two zones, and a server that did not (an old one) read them a day early. Aligning the Sheet's zone with the script's removes
   // the mismatch for every version of the code. A date cell holds the day as written (a serial number), so changing the zone changes no date.
-  { id: 'sheet-time-zone', run: healSheetTimeZone_ }
+  { id: 'sheet-time-zone', run: healSheetTimeZone_ },
+  // Pause was removed from Programmed items (2026-10-31). A paused repeating item is turned into an ended one (end date = its last paid occurrence)
+  // so every figure stays exactly the same and nobody has to decide. DELIBERATE EXCEPTION to "a heal never rewrites data" (owner's OK, 2026-11-01):
+  // it changes two fields of those items (Active, End date) and loses nothing. See convertPausedProgrammed_ in RecurringExpenses.gs.
+  { id: 'paused-programmed-to-ended', run: function () { convertPausedProgrammed_(); } }
 ];
 
 function healSheetTimeZone_() {

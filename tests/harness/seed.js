@@ -68,9 +68,12 @@ function seedData(rt, options = {}) {
 
   // Exchange rates: monthly, 3 currencies, slow drift
   const today = new Date();
+  // The newest month is the one the BACKEND calls "this month" (its own time zone), not the UTC month: on the last evening of a month UTC is
+  // already next month, which shifted every rate by one and broke tests that expect the current month's seeded rate.
+  const [ty, tm] = new Intl.DateTimeFormat("en-CA", { timeZone: process.env.SCRIPT_TZ || "America/Lima", year: "numeric", month: "2-digit" }).format(today).split("-").map(Number);
   const months = [];
   for (let i = o.months - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1));
+    const d = new Date(Date.UTC(ty, tm - 1 - i, 1));
     months.push(d.toISOString().slice(0, 7));
   }
   const base = { USD: 3.7, EUR: 4.0, CLP: 0.0041 };
