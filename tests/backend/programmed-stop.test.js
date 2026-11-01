@@ -196,3 +196,21 @@ test("the owner's copy converts once through the app's call; a second call does 
   assert.equal(out.ran, false);
   assert.equal(out.remaining.length, 6, "nothing converted here: the heal does it on a friend's copy");
 });
+
+test("bulk Stop: each repeating item ends on ITS OWN last paid occurrence, no figure changes; one-time, unstarted and never-paid items are reported and left alone", () => {
+  const { rt, gym, add } = setup();
+  for (let k = 6; k >= 3; k--) add(ago(k, 14), 71, "Other sub");
+  const other = rt.api("addRecurringExpense", { category_id: CAT, description: "Other sub", amount: 71, currency: "PEN", frequency: "monthly", day: 14 });
+  const never = rt.api("addRecurringExpense", { category_id: CAT, description: "Never paid", amount: 55, currency: "PEN", frequency: "monthly", day: 9, start_date: ago(14, 9) });
+  const once = rt.api("addRecurringExpense", { category_id: CAT, description: "One off", amount: 90, currency: "PEN", frequency: "once", date: ago(0, 1) });
+  const future = rt.api("addRecurringExpense", { category_id: CAT, description: "Later", amount: 20, currency: "PEN", frequency: "monthly", day: 3, start_date: `${Y + 1}-01-03` });
+  rt.api("updateRecurringExpense", { id: other.id, start_date: ago(6, 14) });   // so its earlier unpaid months do not count
+  const before = figures(rt);
+  const out = rt.api("stopRecurringAtLastPayment", { ids: [gym.id, other.id, never.id, once.id, future.id, "ghost", gym.id] });
+  assert.deepEqual(out.stopped.map((x) => [x.id, x.end_date]).sort(), [[gym.id, ago(0, 1)], [other.id, ago(3, 14)]].sort());
+  assert.deepEqual(out.skipped.map((x) => x.reason).sort(), ["missing", "neverPaid", "notStarted", "once"]);
+  assert.equal(rowOf(rt, gym.id).end_date, ago(0, 1));
+  assert.equal(rowOf(rt, other.id).end_date, ago(3, 14), "its own last payment, not the other item's");
+  assert.equal(rowOf(rt, never.id).end_date, "", "untouched");
+  assert.deepEqual(figures(rt).map((a) => a.slice(0, 1)), before.map((a) => a.slice(0, 1)), "the averages do not move");
+});

@@ -1172,6 +1172,49 @@ function deleteRecurringExpenses(payload) {
   return { deleted: deleted };
 }
 
+// Bulk "Stop them" (Edit → Delete on More → Programmed items): each repeating item ends on the date of ITS OWN last matched payment (the same date the
+// "choose its last day" calendar opens on), so no date is asked and no figure changes (what it explained stays explained; nothing is forecast after
+// it). It also switches the item on if it was paused. Skipped, and reported back: a one-time item (no end date), an item whose start is still ahead,
+// an item that was never paid (nothing to anchor to), an unknown id. An item whose end date is already on or before that date is left as it is.
+// Returns { stopped: [{ id, end_date }], skipped: [{ id, reason: 'once' | 'notStarted' | 'neverPaid' | 'missing' }] }.
+function stopRecurringAtLastPayment(payload) {
+  ensureRecurringExpensesSheet_();
+  var rows = getRecurringExpenseRows_();
+  var today = formatCalendarDate_(new Date());
+  var categories = rowsById_(getAllRows('Categories'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  var ids = ((payload && payload.ids) || []).map(String);
+  var wanted = {};
+  rows.forEach(function (r) { if (ids.indexOf(String(r.id)) !== -1) wanted[r.category_id] = true; });
+  var byCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wanted[e.category_id] && cat && e.type === cat.type) (byCategory[e.category_id] = byCategory[e.category_id] || []).push(e);
+  });
+  var sheet = getSheet('Recurring Expenses');
+  var headers = getHeaders(sheet);
+  var stopped = [], skipped = [], seen = {};
+  ids.forEach(function (id) {
+    if (seen[id]) return;
+    seen[id] = true;
+    var r = rows.find(function (x) { return String(x.id) === id; });
+    if (!r) { skipped.push({ id: id, reason: 'missing' }); return; }
+    if (normalizeRecurringFrequency_(r.frequency) === 'once') { skipped.push({ id: id, reason: 'once' }); return; }
+    if (r.start_date && String(r.start_date) > today) { skipped.push({ id: id, reason: 'notStarted' }); return; }
+    var paid = paidOccurrenceDates_(r, byCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    if (!paid.length) { skipped.push({ id: id, reason: 'neverPaid' }); return; }
+    var last = paid[paid.length - 1];
+    var rowIndex = findRowIndexById(sheet, headers, id);
+    var end = r.end_date && String(r.end_date) <= last ? String(r.end_date) : last;
+    if (String(r.end_date || '') !== end) setCellByRow_(sheet, headers, rowIndex, 'end_date', end);
+    if (String(r.active) === 'false') setCellByRow_(sheet, headers, rowIndex, 'active', 'true');
+    stopped.push({ id: id, end_date: end });
+  });
+  return { stopped: stopped, skipped: skipped };
+}
+
 // What deleting these programmed items would add to each category's monthly average ("Expected"), in the main currency: the payments they
 // explain stop being explained and become ordinary spending. Worked out with the category's own projection method, from the same series
 // Projections uses, once with the items and once without. Income and one-time items that explain nothing in the window come out as 0.

@@ -371,6 +371,7 @@ function routeAction(action, payload) {
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
     case 'convertPausedProgrammedForOwnerOnce': return convertPausedProgrammedForOwnerOnce();
+    case 'stopRecurringAtLastPayment': return stopRecurringAtLastPayment(payload);
     case 'deleteRecurringExpenses': return deleteRecurringExpenses(payload);
     case 'previewProgrammedDelete': return withRowsMemo_(function () { return previewProgrammedDelete(payload); });
     case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
