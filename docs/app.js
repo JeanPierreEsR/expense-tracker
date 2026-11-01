@@ -16516,6 +16516,10 @@ async function openLoanDetail(friendId, friendName, projectId) {
     openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
+  // Nothing owed either way: the person may have a debt from before the app that was never recorded (no repayment button without a debt).
+  const openingOffer = document.getElementById("loan-detail-opening");
+  openingOffer.hidden = netParts.length > 0 || !!projectId || !((meta && meta.capabilities) || {}).openingLoan;
+  document.getElementById("loan-detail-opening-btn").onclick = () => openLoanModal(null, { id: friendId, name: friendName }, { opening: true, friendId });
   repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
 
   const list = document.getElementById("loan-detail-list");
@@ -16613,7 +16617,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${l.date}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
@@ -17844,6 +17848,20 @@ function populateLoanPaymentMethodOptions() {
   });
 }
 
+// The "from before the app" choice: no account (nothing moved now), no automatic due date, and the date is a rough "since when".
+function updateLoanOpeningUi_(fresh) {
+  const on = document.getElementById("loan-opening").checked;
+  document.getElementById("loan-opening-hint").hidden = !on;
+  document.getElementById("loan-pm-field").hidden = on;
+  const label = document.getElementById("loan-date-label");
+  label.textContent = on ? tr("loanModal.openingDate") : tr("field.date");
+  if (fresh) {
+    const date = document.getElementById("loan-date").value;
+    document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
+  }
+}
+document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
+
 function setLoanDirection_(direction) {
   loanDirection = direction;
   document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((t) => {
@@ -17858,7 +17876,7 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 // `loan` is null to add a new one, or an existing loan (from
 // getFriendLoanDetail) to edit it. `returnFriend` is {id, name} when
 // opened from that friend's detail sheet, so it can be refreshed after.
-function openLoanModal(loan, returnFriend) {
+function openLoanModal(loan, returnFriend, opts) {
   editingLoanId = loan ? loan.id : null;
   loanModalReturnFriend = returnFriend || null;
   loanModalApplyLoan_ = loan || null;
@@ -17870,7 +17888,7 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-form-error").textContent = "";
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
-  document.getElementById("loan-friend").value = loan ? loan.friend_id : (meta.friends.length ? meta.friends[0].id : "");
+  document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
   setLoanDirection_(loan ? loan.direction : "they_owe_me");
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
@@ -17881,6 +17899,14 @@ function openLoanModal(loan, returnFriend) {
   document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
   populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
+  // "From before the app": a choice for a NEW loan; an existing one shows what it is and cannot be switched.
+  const openingBox = document.getElementById("loan-opening");
+  openingBox.checked = loan ? loan.opening === "1" || loan.opening === 1 : !!(opts && opts.opening);
+  openingBox.disabled = !!loan;
+  const openingOk = !!((meta && meta.capabilities) || {}).openingLoan;   // an older backend would make a normal loan with a money entry
+  document.getElementById("loan-opening-row").hidden = !openingOk || (!!loan && !openingBox.checked);   // an ordinary loan being edited: the choice does not apply
+  if (!openingOk) openingBox.checked = false;
+  updateLoanOpeningUi_(!loan);
 
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -17956,8 +17982,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
+    const opening = document.getElementById("loan-opening").checked;
     // Same as an entry: an account is not mandatory, but when the person HAS accounts and picked none, ask once.
-    if (!paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
+    // (A debt from before the app moves no money, so it has no account to ask about.)
+    if (!opening && !paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
       throw new Error(tr("error.pickPaymentMethod"));
     }
 
@@ -17968,9 +17996,10 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       currency,
       date,
       due_date: dueDate,
-      payment_method_id: paymentMethodId,
+      payment_method_id: opening ? "" : paymentMethodId,
       description
     };
+    if (opening && !editingLoanId) fields.opening = true;
     if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
 
     if (moneyBackground_()) {
