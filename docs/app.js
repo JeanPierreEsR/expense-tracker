@@ -1637,11 +1637,13 @@ function resetSplitDue_() {
   document.getElementById("split-due").value = "";
   document.getElementById("split-due-block").hidden = true;
   document.getElementById("split-due-add").hidden = false;
+  paintSplitDueChips_();
 }
 function showSplitDue_(value) {
   document.getElementById("split-due").value = value || "";
   document.getElementById("split-due-block").hidden = false;
   document.getElementById("split-due-add").hidden = true;
+  paintSplitDueChips_();
 }
 // yyyy-mm-dd plus whole days, in local time (no time-zone surprises).
 function splitDueShift_(iso, days) {
@@ -1650,14 +1652,26 @@ function splitDueShift_(iso, days) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 function splitDueBase_() { return document.getElementById("date").value || localTodayISO_(); }
-document.getElementById("split-due-add").addEventListener("click", () => showSplitDue_(""));
-document.getElementById("split-due-week").addEventListener("click", () => { document.getElementById("split-due").value = splitDueShift_(splitDueBase_(), 7); });
-document.getElementById("split-due-month").addEventListener("click", () => {
+// A chip is blue whenever the date field equals what it would set (typed by hand or tapped); "No date" when empty.
+function splitDueMonthEnd_() {
   const d = new Date(splitDueBase_() + "T00:00:00");
   const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  document.getElementById("split-due").value = last.getFullYear() + "-" + String(last.getMonth() + 1).padStart(2, "0") + "-" + String(last.getDate()).padStart(2, "0");
-});
-document.getElementById("split-due-clear").addEventListener("click", () => { document.getElementById("split-due").value = ""; });
+  return last.getFullYear() + "-" + String(last.getMonth() + 1).padStart(2, "0") + "-" + String(last.getDate()).padStart(2, "0");
+}
+function paintSplitDueChips_() {
+  const v = document.getElementById("split-due").value || "";
+  document.getElementById("split-due-week").classList.toggle("selected", v !== "" && v === splitDueShift_(splitDueBase_(), 7));
+  document.getElementById("split-due-month").classList.toggle("selected", v !== "" && v === splitDueMonthEnd_());
+  document.getElementById("split-due-clear").classList.toggle("selected", v === "");
+}
+function setSplitDue_(v) { document.getElementById("split-due").value = v; paintSplitDueChips_(); }
+document.getElementById("split-due-add").addEventListener("click", () => showSplitDue_(""));
+document.getElementById("split-due-week").addEventListener("click", () => setSplitDue_(splitDueShift_(splitDueBase_(), 7)));
+document.getElementById("split-due-month").addEventListener("click", () => setSplitDue_(splitDueMonthEnd_()));
+document.getElementById("split-due-clear").addEventListener("click", () => setSplitDue_(""));
+document.getElementById("split-due").addEventListener("input", paintSplitDueChips_);
+document.getElementById("split-due").addEventListener("change", paintSplitDueChips_);
+document.getElementById("date").addEventListener("change", paintSplitDueChips_);
 
 // The friend picker shows at most 3 rows, most-recently-used first (by
 // `last_used`, see getFriendsWithLastUsed_ in Api.gs); a "More…" chip ends
