@@ -16998,6 +16998,7 @@ function openReassignRepayment_(r) {
   populateSettlementPaymentMethodOptions();
   const pmSel = document.getElementById("reassign-pm");
   pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
+  { const none = document.createElement("option"); none.value = ""; none.textContent = tr("form.noneAccount"); pmSel.prepend(none); }   // fixing a recorded repayment can still clear its account
   pmSel.value = r.payment_method_id || "";
   document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
@@ -17827,11 +17828,15 @@ document.getElementById("loan-friend").addEventListener("change", async (e) => {
 function populateLoanPaymentMethodOptions() {
   const select = document.getElementById("loan-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -18057,11 +18062,15 @@ let pendingOverpay = null;
 function populateSettlementPaymentMethodOptions() {
   const select = document.getElementById("settlement-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
@@ -18732,11 +18741,15 @@ document.getElementById("review-transfer-friend").addEventListener("change", asy
 function populateReviewTransferPaymentMethodOptions() {
   const select = document.getElementById("review-transfer-payment-method");
   select.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = tr("form.noneAccount");
-  select.appendChild(noneOpt);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!accounts.length) {
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = tr("form.noneAccount");
+    select.appendChild(noneOpt);
+  }
+  accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
