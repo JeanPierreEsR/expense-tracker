@@ -16130,22 +16130,9 @@ async function practiceRemoveNow_(p) {
     if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
     await tipWaitIdle_(90000);   // a save still on its way must land BEFORE we delete (a late one would make a stray entry)
     try {
-      // Each call to the server takes a few seconds on a phone, so only the ones that can matter are made: with no repayment typed
-      // yet (the practice was left before that step) there is nothing to look for, and the expense is simply deleted.
-      const loans = p.repaid ? await callApi("getFriendLoanDetail", { friendId: p.friendId }) : [];
-      const mine = loans.filter((l) => l.origin === "entry" && l.entry_id === p.entryId).map((l) => l.id);
-      if (mine.length) {
-        const settlements = await callApi("listSettlementsForFriendCurrency", { friendId: p.friendId, currency: p.currency });
-        const done = new Set();
-        for (const st of settlements) {
-          if (!mine.includes(st.loan_id) || st.offset_loan_id) continue;
-          const key = st.transfer_entry_id || st.id;
-          if (done.has(key)) continue;
-          done.add(key);
-          await callApi("deleteRepayment", { id: st.id });   // the repayment first: an expense with a repayment on it would turn it into a refund loan
-        }
-      }
-      await callApi("discardEntry", { id: p.entryId });
+      // ONE call to the server (each takes a few seconds on a phone): deleting the expense with "cancel" also cancels the repayment
+      // made on its loans, and the repayment's money movement goes with it (the server does it in the right order).
+      await callApi("discardEntry", { id: p.entryId, repayments: "cancel" });
     } catch (err) {
       // An expense that never reached the server is simply not there: nothing to remove.
       if (!/not found|no se encontr/i.test(String(err.message))) {
@@ -16170,7 +16157,7 @@ async function practiceSweepExtras_(p) {
   if (!p.friendName) return;
   const created = Array.isArray(p.friendsBefore) && p.friendId && !p.friendsBefore.includes(p.friendId);
   const extra = Math.round(((p.repaid || 0) - (p.share || 0)) * 100) / 100;
-  if (!created && !(extra > 0)) return;   // nothing it could have left behind: no need to ask the server
+  if (!(extra > 0)) return;   // the repayment is held to what is owed, so normally nothing can be left: no need to ask the server
   let pending = [];
   try { pending = await callApi("listPendingEntries", {}); } catch (e) { return; }
   const esc = p.friendName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
