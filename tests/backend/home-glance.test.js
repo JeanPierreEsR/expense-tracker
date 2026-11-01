@@ -70,7 +70,7 @@ test("pace: running totals per day for this month (up to today) and for the whol
   const g = rt.api("getHomeGlance", {});
   assert.equal(g.pace.curDay, day);
   assert.equal(g.pace.cur.length, day);
-  assert.equal(g.pace.cur[0], 10);
+  assert.equal(g.pace.cur[0], day === 1 ? 15 : 10);   // on the 1st both entries fall on day 1
   assert.equal(g.pace.cur[day - 1], 15, "ends at this month's total");
   assert.equal(g.pace.prevDays, new Date(y, m - 1, 0).getDate());
   assert.equal(g.pace.prev.length, g.pace.prevDays);
