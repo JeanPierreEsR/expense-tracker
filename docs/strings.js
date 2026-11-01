@@ -1599,7 +1599,7 @@
     "spot.p.s14": { en: "The amount is already what they owe you: {cur} {amount}. Tap the box to check it (change it if they paid less), then tap anywhere outside the box.", es: "El monto ya es lo que te debe: {cur} {amount}. Toca la casilla para revisarlo (cámbialo si pagó menos) y luego toca fuera de la casilla." },
     "spot.p.s14fix": { en: "Type the amount they paid ({cur} {amount}), then tap anywhere outside the box.", es: "Escribe el monto que pagó ({cur} {amount}) y toca fuera de la casilla." },
     "spot.p.s14over": { en: "That is more than they owe. For the practice, type {cur} {amount} or less, then tap anywhere outside the box.", es: "Eso es más de lo que debe. Para la práctica, escribe {cur} {amount} o menos y toca fuera de la casilla." },
-    "spot.p.s15": { en: "Tap here and pick the account where the money arrived.", es: "Toca aquí y elige la cuenta donde llegó el dinero." },
+    "spot.p.s15": { en: "This is the account where the money arrived. Tap here to check it, and change it if it was a different one.", es: "Esta es la cuenta donde llegó el dinero. Toca aquí para revisarla y cámbiala si fue otra." },
     "spot.p.s16": { en: "Tap Save repayment.", es: "Toca Guardar repago." },
     "spot.p.s16err": { en: "Not saved: {error} Fix it, then tap Save repayment again.", es: "No se guardó: {error} Corrígelo y toca Guardar repago de nuevo." },
     "spot.p.s17": { en: "Done! The debt is paid. That is the whole cycle: record the expense, split it, then record the repayment. Tap the button and the practice is removed.", es: "¡Listo! La deuda está pagada. Ese es todo el ciclo: registrar el gasto, repartirlo y registrar el repago. Toca el botón y se borra la práctica." },

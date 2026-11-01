@@ -18101,6 +18101,15 @@ function settlementFriendContext_() {
     : tr("settle.contextIOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(amount) });
 }
 
+// A new repayment starts on an account, never on "None": the one used for the last repayment recorded on this phone, else the first account.
+function defaultRepaymentAccount_() {
+  const select = document.getElementById("settlement-payment-method");
+  const ids = Array.from(select.options).map((o) => o.value).filter(Boolean);
+  let last = "";
+  try { last = localStorage.getItem("lastRepaymentAccount") || ""; } catch (e) { /* no storage */ }
+  return ids.includes(last) ? last : (ids[0] || "");
+}
+
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
 function resetSettlementForm_() {
@@ -18111,7 +18120,7 @@ function resetSettlementForm_() {
   document.getElementById("settlement-form-error").textContent = "";
   document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
   document.getElementById("settlement-date").value = todayLocalISO();
-  document.getElementById("settlement-payment-method").value = "";
+  document.getElementById("settlement-payment-method").value = defaultRepaymentAccount_();
   document.getElementById("settlement-description").value = "";
   document.getElementById("settlement-form").hidden = false;
   document.getElementById("settlement-overpay-section").hidden = true;
@@ -18389,6 +18398,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   // doesn't sit and wait for the server. A failure is reported with an alert
   // (the modal is gone), and the lists are re-fetched so they show the truth.
   // Captured first: closing the modal resets the editing state.
+  if (!editingSettlementId && paymentMethodId) { try { localStorage.setItem("lastRepaymentAccount", paymentMethodId); } catch (e) { /* no storage */ } }
   const settlementId = editingSettlementId;
   const friendId = repaymentFriendId;
   const friendName = repaymentFriendName;
