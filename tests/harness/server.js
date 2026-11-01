@@ -17,6 +17,9 @@ let rt, data;
 function boot() {
   rt = createRuntime();
   data = seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000), demoUnreadMail: true });
+  // Made-up demo scenarios to try the newest features by hand (friends to delete/hide, programmed items in every state, legacy paused items for the
+  // heal). NO_DEMO=1 leaves them out. The automated tests never go through this file.
+  if (!process.env.NO_DEMO) require("./demo-data").seedDemo(rt, data);
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
@@ -42,6 +45,12 @@ http.createServer((req, res) => {
     return;
   }
   if (req.method === "POST" && url === "/__reset") { boot(); res.end("reset"); return; }
+  // Opening http://<this computer>:<port>/login signs this browser in to the test copy (the real sign-in text only accepts "localhost").
+  if (url === "/login") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.removeItem("startupCache"); location.replace("/");</script>`);
+    return;
+  }
   if (url === "/__mail") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(rt.svc.mailLog.map((m) => ({ to: m.to, subject: m.subject, body: m.body, attachments: m.attachments.map((a) => ({ name: a.name, chars: a.data.length, head: a.data.slice(0, 300) })) }))));
