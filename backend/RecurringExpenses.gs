@@ -1103,6 +1103,19 @@ function convertPausedProgrammed_() {
   return { converted: converted, remaining: remaining };
 }
 
+// The occurrence dates (ascending, up to today) of a repeating item that a confirmed entry already matches, ignoring pause and nothing else: its
+// own start/end dates and skipped months still apply. [] when nothing was ever paid.
+function paidOccurrenceDates_(r, entries, today, entrySplitSums, recurringSplitSums) {
+  if (!entries.length) return [];
+  var minDate = '9999-99-99';
+  entries.forEach(function (e) { if (String(e.date) < minDate) minDate = String(e.date); });
+  var history = Object.assign({}, r, { active: 'true' });
+  var from = r.start_date && String(r.start_date) < minDate ? String(r.start_date) : minDate;
+  return recurringExpenseOccurrencesInRange_(history, from, today).filter(function (o) {
+    return entries.some(function (e) { return entryMatchesRecurringOccurrence_(e, history, [o], entrySplitSums, recurringSplitSums); });
+  }).map(String).sort();
+}
+
 // { start, end } for a paused repeating item, or null when converting it would change a figure (see convertPausedProgrammed_).
 function pausedConversionPlan_(r, entries, today, entrySplitSums, recurringSplitSums) {
   if (!entries.length) return null;
@@ -1117,10 +1130,7 @@ function pausedConversionPlan_(r, entries, today, entrySplitSums, recurringSplit
     if (occ.length) entries.forEach(function (e) { if (matches_(item, e, occ)) ids[e.id] = true; });
     return ids;
   }
-  var from = r.start_date && String(r.start_date) < minDate ? String(r.start_date) : minDate;
-  var paid = recurringExpenseOccurrencesInRange_(history, from, today).filter(function (o) {
-    return entries.some(function (e) { return matches_(history, e, [o]); });
-  }).map(String).sort();
+  var paid = paidOccurrenceDates_(r, entries, today, entrySplitSums, recurringSplitSums);
   if (!paid.length) return null;   // never paid: nothing to anchor an end date to, and its past occurrences would turn into "unpaid"
   var start = r.start_date ? String(r.start_date) : paid[0];
   var end = r.end_date ? String(r.end_date) : paid[paid.length - 1];
@@ -1162,37 +1172,10 @@ function deleteRecurringExpenses(payload) {
   return { deleted: deleted };
 }
 
-// "Stop it": ends repeating items TODAY (the end date; an end date of today still counts as running today), so everything already paid stays
-// explained by the item and nothing is forecast after today. One-time items have no end date; an item that has not started yet cannot end
-// before it starts. Those are reported back as `skipped` and left as they are. Returns { stopped: [ids], skipped: [{ id, reason }] }.
-function stopRecurringExpenses(payload) {
-  ensureRecurringExpensesSheet_();
-  var today = formatCalendarDate_(new Date());
-  var rows = getAllRows('Recurring Expenses');
-  var sheet = getSheet('Recurring Expenses');
-  var headers = getHeaders(sheet);
-  var stopped = [], skipped = [], seen = {};
-  ((payload && payload.ids) || []).forEach(function (rawId) {
-    var id = String(rawId);
-    if (seen[id]) return;
-    seen[id] = true;
-    var r = rows.find(function (x) { return String(x.id) === id; });
-    if (!r) { skipped.push({ id: id, reason: 'missing' }); return; }
-    if (normalizeRecurringFrequency_(r.frequency) === 'once') { skipped.push({ id: id, reason: 'once' }); return; }
-    if (r.start_date && String(r.start_date) > today) { skipped.push({ id: id, reason: 'notStarted' }); return; }
-    var rowIndex = findRowIndexById(sheet, headers, id);
-    setCellByRow_(sheet, headers, rowIndex, 'end_date', today);
-    // A legacy PAUSED item is reactivated by stopping it: its end date now does the job a pause did (history stays explained up to today).
-    if (String(r.active) === 'false') setCellByRow_(sheet, headers, rowIndex, 'active', 'true');
-    stopped.push(id);
-  });
-  return { stopped: stopped, skipped: skipped, end_date: today };
-}
-
 // What deleting these programmed items would add to each category's monthly average ("Expected"), in the main currency: the payments they
 // explain stop being explained and become ordinary spending. Worked out with the category's own projection method, from the same series
 // Projections uses, once with the items and once without. Income and one-time items that explain nothing in the window come out as 0.
-// Returns { items: [{ id, monthlyEffectPen }], totalPen }; the total is per category, so items sharing a category are not double counted.
+// Returns { items: [{ id, monthlyEffectPen, lastPaid }], totalPen }; the total is per category, so items sharing a category are not double counted.
 function previewProgrammedDelete(payload) {
   var ids = ((payload && payload.ids) || []).map(String);
   var rows = getRecurringExpenseRows_().filter(function (r) { return ids.indexOf(String(r.id)) !== -1; });
@@ -1211,7 +1194,22 @@ function previewProgrammedDelete(payload) {
     if (!cat || (cat.type !== 'expense' && cat.type !== 'investment')) return;   // income has no average to fall back on
     (byCategory[r.category_id] = byCategory[r.category_id] || []).push(String(r.id));
   });
-  var items = rows.map(function (r) { return { id: String(r.id), monthlyEffectPen: 0 }; });
+  // The date of each repeating item's last matched payment: where the "choose its last day" calendar opens (and what it tells the person).
+  var today = formatCalendarDate_(new Date());
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  var wantedCats = {};
+  rows.forEach(function (r) { wantedCats[r.category_id] = true; });
+  var entriesByCategory = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wantedCats[e.category_id] && cat && e.type === cat.type) (entriesByCategory[e.category_id] = entriesByCategory[e.category_id] || []).push(e);
+  });
+  var items = rows.map(function (r) {
+    var paid = normalizeRecurringFrequency_(r.frequency) === 'once' ? [] : paidOccurrenceDates_(r, entriesByCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    return { id: String(r.id), monthlyEffectPen: 0, lastPaid: paid.length ? paid[paid.length - 1] : '' };
+  });
   var total = 0;
   Object.keys(byCategory).forEach(function (categoryId) {
     var group = byCategory[categoryId];
