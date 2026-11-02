@@ -21963,11 +21963,21 @@ async function readInprocFiles_(files) {
         failed = err.message || tr("photo.couldntRead");
       }
     }
-    const ticked = new Map(inprocItems_.map((it) => [[it.name, it.when, it.amount, it.currency].join("|"), it.on]));
-    inprocItems_ = InProcess.mergeItems(inprocLists_).map((it) => {
-      const key = [it.name, it.when, it.amount, it.currency].join("|");
-      return Object.assign({}, it, { on: ticked.has(key) ? ticked.get(key) : true });
-    });
+    // A row keeps its tick when the list is rebuilt. Identical rows are told apart by their order among their twins ("#1", "#2"),
+    // so unticking one of two identical payments does not tick or untick the other.
+    const tickKeys = (items) => {
+      const seen = {};
+      return items.map((it) => {
+        const base = [it.name, it.when, it.amount, it.currency].join("|");
+        seen[base] = (seen[base] || 0) + 1;
+        return base + "#" + seen[base];
+      });
+    };
+    const oldKeys = tickKeys(inprocItems_);
+    const ticked = new Map(inprocItems_.map((it, i) => [oldKeys[i], it.on]));
+    const merged = InProcess.mergeItems(inprocLists_);
+    const newKeys = tickKeys(merged);
+    inprocItems_ = merged.map((it, i) => Object.assign({}, it, { on: ticked.has(newKeys[i]) ? ticked.get(newKeys[i]) : true }));
     renderInproc_();
     if (failed) inprocSay_(failed, true);
     else if (!inprocItems_.length) inprocSay_(tr("inproc.none"), true);
