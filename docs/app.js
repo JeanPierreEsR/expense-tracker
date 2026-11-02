@@ -20010,10 +20010,13 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     // Saving standard: the form closes at once; the loan's row says "Deleting…" until the server is done.
     const loanId = editingLoanId;
     markDeleting_("loan:" + loanId);
+    // The first-use practice's loan counts as deleted from the tap: the form closes now, and a walkthrough that waited for the
+    // server's answer saw "form closed, loan not deleted" and went back a step (bank-loan practice, found 2026-11-02). A refused
+    // delete changes nothing for it: the practice's cleanup removes its loan anyway.
+    tipNoteLoanDeleted_(loanDesc);
     closeLoanModal();
     try { await callApi("deleteLoan", { id: loanId, repayments }); }
     catch (e) { unmarkDeleting_("loan:" + loanId); throw e; }
-    tipNoteLoanDeleted_(loanDesc);   // the first-use practice's loan is gone
     await refreshAfterLoanModalChange_();
   } catch (err) {
     if (document.getElementById("loan-modal-backdrop").hidden) alert(err.message);   // the form already closed
