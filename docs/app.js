@@ -5613,6 +5613,7 @@ function kickHomeGlance_() {
 function refreshHomeGlance_(force) {
   setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
   setTimeout(practiceBLeftover_, 4000);
+  setTimeout(practiceRLeftover_, 6000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -13643,6 +13644,7 @@ async function refreshRecurringExpenses() {
   const still = new Set(items.map((re) => re.id));
   recurringSelected_ = new Set([...recurringSelected_].filter((id) => still.has(id)));
   renderRecurringLists_();
+  offerRecurringTip_();   // only now that everything has arrived (loading standard)
 }
 
 // Draws the three lists from recurringItems_ (no server call): also used by Edit mode.
@@ -13965,7 +13967,7 @@ function setRecurringFrequency_(freq) {
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
-  tab.addEventListener("click", () => setRecurringFrequency_(tab.dataset.frequency));
+  tab.addEventListener("click", () => { recurringFreqTouched_ = true; setRecurringFrequency_(tab.dataset.frequency); });   // (the first-use practice waits for the touch)
 });
 
 // The variable-amount part of the modal (see specs/recurring.md): a tick box,
@@ -14386,6 +14388,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     pendingSuggestionBox_ = null;
     closeRecurringModal();
     showToast_(tr("recModal.saving"));
+    const practiceDone = practiceRTrack_(fields);   // (the first-use practice's own item: its cleanup waits for this save)
     (async () => {
       try {
         let recurringExpenseId = savingId;
@@ -14407,8 +14410,10 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
           document.getElementById("recurring-suggest-empty").hidden = list.children.length > 0;
         }
       } catch (err) {
+        practiceRFailed_ = err.message || String(err);
         alert(tr("recModal.saveFailed", { error: err.message }));
       }
+      practiceDone();
       refreshRecurringExpenses();
       if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
     })();
@@ -14479,6 +14484,7 @@ function afterRecurringChange_() {
   if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
 }
 function runRecurringDelete_(re) {
+  if (practiceR_ && isPracticeProgrammedName_(re.description)) { practiceR_.deleted = true; practiceRSave_(); }   // (the first-use practice's last real step)
   closeRecurringModal();
   saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
 }
@@ -16389,6 +16395,171 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- First-use practice: Programmed items ----
+// The person programs a "Practice item", sees it on Home, records its payment through "Mark as paid… > Record the payment…" and deletes
+// the item (a real delete). Cleanup = one backend call (removePracticeProgrammed): the item, its payment entry (named like it) and
+// nothing else; a real entry the person linked is only unlinked. Background, like the other practices.
+const PRACTICE_R_KEY_ = "tipPracticeProgrammed";
+let practiceR_ = null;          // { saved, deleted, startedOn }
+let practiceRSaving_ = 0;       // saves of the practice item still on their way to the server
+let practiceRFailed_ = "";
+let practiceRRemoving_ = false;
+let practiceRLeftoverAsked_ = false;
+let recurringFreqTouched_ = false;
+
+function practiceRLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_R_KEY_) || "null"); } catch (e) { return null; } }
+function practiceRSave_() {
+  try { if (practiceR_) localStorage.setItem(PRACTICE_R_KEY_, JSON.stringify(practiceR_)); else localStorage.removeItem(PRACTICE_R_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeProgrammedName_(name) { return /^(Practice item|Elemento de práctica)$/.test(String(name || "").trim()); }
+
+// Called when the item form is saved: returns the function to call once the save has finished (a no-op for any other item).
+function practiceRTrack_(fields) {
+  if (!practiceR_ || !isPracticeProgrammedName_(fields && fields.description)) return () => {};
+  practiceR_.saved = true;
+  practiceRSave_();
+  practiceRSaving_++;
+  return () => { practiceRSaving_--; };
+}
+
+function offerRecurringTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceProgrammed) return;   // an older backend could not clean the practice up
+  offerTip_("programmed", "recurring-tip-invite", tr("spot.r.invite"), startProgrammedPractice_);
+}
+
+function practiceRRow_() {
+  return Array.from(document.querySelectorAll("#recurring-list .recurring-row")).find((r) => {
+    const n = r.querySelector(".recurring-row-name");
+    return n && isPracticeProgrammedName_(n.textContent.replace(/^\S+\s/u, "").trim() || n.textContent);
+  }) || Array.from(document.querySelectorAll("#recurring-list .recurring-row")).find((r) => /Practice item|Elemento de práctica/.test(r.textContent)) || null;
+}
+
+// On Home: the card's group (expense side) that holds the practice item, its summary line and the item's own box.
+function practiceRCardEntry_() {
+  return Array.from(document.querySelectorAll("#expected-recurring-groups .expected-recurring-entry")).find((e) => /Practice item|Elemento de práctica/.test(e.textContent)) || null;
+}
+function practiceRCardSummary_() {
+  const entry = practiceRCardEntry_();
+  const group = entry && entry.closest(".expected-recurring-group");
+  return group ? group.querySelector(".expected-recurring-summary") : null;
+}
+
+function practiceRSteps_() {
+  const cur = homeCur();
+  const amountEl = () => document.getElementById("recurring-amount");
+  const amountVal = () => parseFloat(amountEl().value);
+  const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
+  const expenseChosen = () => { const c = meta.categories.find((x) => x.id === selectedRecurringCategoryId); return !!c && c.type === "expense"; };
+  const nameIt = () => {
+    const el = document.getElementById("recurring-description");
+    if (el.value !== tr("spot.r.name")) { el.value = tr("spot.r.name"); el.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  const itemOpen = () => !document.getElementById("recurring-modal-backdrop").hidden;
+  return [
+    { key: "intro", text: () => tr("spot.r.intro"), button: () => tr("spot.r.start") },
+    { target: "#add-recurring-btn", text: () => tr("spot.r.s1"), tap: "#add-recurring-btn", before: async () => { if (document.getElementById("screen-recurring").hidden) showRecurringScreen(); } },
+    { key: "category", target: "#recurring-category-chips", text: (fix) => (fix || (selectedRecurringCategoryId && !expenseChosen())) ? tr("spot.r.s2fix") : tr("spot.r.s2"),
+      until: expenseChosen, ok: expenseChosen, holdsUntil: "save", before: async () => { nameIt(); } },
+    { key: "amount", target: "#recurring-amount", text: (fix) => tr(fix ? "spot.r.s3fix" : "spot.r.s3", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "save" },
+    { target: "#recurring-frequency-tabs", text: () => tr(recurringFrequency === "once" ? "spot.r.s4once" : "spot.r.s4"),
+      until: () => recurringFreqTouched_ && recurringFrequency !== "once", before: async () => { recurringFreqTouched_ = false; } },
+    { look: true, target: "#recurring-window-fields", text: () => tr("spot.r.s5"), button: () => tr("spot.r.gotIt"), available: () => !document.getElementById("recurring-window-fields").hidden },
+    { key: "save", target: () => [document.getElementById("recurring-save-btn"), document.getElementById("recurring-form-error")],
+      text: () => { const err = (document.getElementById("recurring-form-error").textContent || "").trim(); return err ? tr("spot.r.s6err", { error: err }) : tr("spot.r.s6"); },
+      before: async () => { nameIt(); document.getElementById("recurring-form-error").textContent = ""; },
+      until: () => !itemOpen() },
+    { look: true, target: practiceRRow_, text: () => tr("spot.r.s7"), button: () => tr("spot.r.gotIt"), wait: 45000,
+      poke: () => {
+        if (practiceRFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
+        if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses().catch(() => {});
+      } },
+    { target: practiceRCardSummary_, text: () => tr("spot.r.s8"), wait: 45000,
+      tap: practiceRCardSummary_,
+      before: async () => { showScreen("entries"); try { await refreshExpectedRecurring(); } catch (e) { /* the card keeps what it shows */ } },
+      poke: () => { refreshExpectedRecurring().catch(() => {}); } },
+    { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
+      tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
+    { look: true, target: () => document.querySelector("#paid-picker-modal-backdrop .currency-modal"), text: () => tr("spot.r.s10"), button: () => tr("spot.r.gotIt"), wait: 15000 },
+    { target: "#paid-new-save", text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 10000 },
+    { look: true, target: "#amount", text: () => tr("spot.r.s12"), button: () => tr("spot.r.gotIt"), wait: 15000,
+      before: async () => {   // the sheet opens a moment after the tap (the item's saved split is fetched first)
+        const t0 = Date.now();
+        while (!newEntrySheetOpen_ && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 200));
+        return newEntrySheetOpen_;
+      } },
+    { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
+      after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
+    { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
+      ok: () => !Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__") || !!document.getElementById("payment_method").value, holdsUntil: "pay" },
+    { key: "pay", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
+      before: async () => {
+        document.getElementById("form-error").textContent = "";
+        const d = document.getElementById("description");
+        if (d.value !== tr("spot.r.name")) { d.value = tr("spot.r.name"); d.dispatchEvent(new Event("input", { bubbles: true })); }   // the cleanup finds the payment by this name
+      },
+      until: () => !newEntrySheetOpen_ },
+    { target: practiceRRow_, text: () => tr("spot.r.s13"), tap: practiceRRow_, wait: 30000,
+      before: async () => { showRecurringScreen(); } },
+    { target: "#recurring-delete-btn", text: () => tr("spot.r.s14"), tap: "#recurring-delete-btn", wait: 10000 },
+    { target: "#recurring-delete-confirm-btn", text: () => tr("spot.r.s15"), until: () => !!(practiceR_ && practiceR_.deleted), wait: 15000 },
+    { text: () => tr("spot.r.s16"), button: () => tr("spot.r.finish") }
+  ];
+}
+
+function startProgrammedPractice_() {
+  if (practiceRRemoving_) { showToast_(tr("spot.r.stillRemoving")); return false; }
+  const open = ["recurring-modal-backdrop", "paid-picker-modal-backdrop", "recurring-delete-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.r.busy")); return false; }
+  practiceR_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
+  practiceRSave_();
+  practiceRFailed_ = "";
+  runTip_(practiceRSteps_(), async () => {
+    if (document.getElementById("screen-recurring").hidden) showRecurringScreen();
+    showToast_(tr("spot.r.removing"));
+    practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceRRemove_() {
+  if (practiceRRemoving_) return false;
+  const p = practiceR_ || practiceRLoad_();
+  if (!p) return true;
+  practiceRRemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (!document.getElementById("paid-picker-modal-backdrop").hidden) document.getElementById("paid-picker-modal-backdrop").hidden = true;
+    if (!document.getElementById("recurring-delete-backdrop").hidden) closeRecurringDeleteSheet_();
+    if (!document.getElementById("recurring-modal-backdrop").hidden) closeRecurringModal();
+    if (newEntrySheetOpen_ && payingRecurringId_) closeNewEntrySheet_();
+    // The item and its payment must have reached the server BEFORE the delete (a late one would make a stray item or entry).
+    const t0 = Date.now();
+    while (practiceRSaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeProgrammed", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.r.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceR_ = null; practiceRSave_(); }
+    practiceRFailed_ = "";
+    refreshRecurringExpenses().catch(() => {});
+    refreshExpectedRecurring().catch(() => {});
+    refreshEntryList().catch(() => {});
+    refreshBalances().catch(() => {});
+    return ok;
+  } finally { practiceRRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceRLeftover_() {
+  if (practiceRLeftoverAsked_ || practiceRRemoving_ || Spotlight.isRunning() || !practiceRLoad_()) return;
+  practiceRLeftoverAsked_ = true;
+  if (confirm(tr("spot.r.leftover"))) practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); });
+}
 
 // ---- First-use practice: Budgets ----
 // The person creates a "Practice budget" with the real buttons, sees its row and detail, and deletes it (the last step is a real
