@@ -3261,6 +3261,42 @@ let entriesShown = ENTRY_PAGE_SIZE;
 const deletingEntryIds_ = new Set();
 
 // Marks the rows already on screen for this entry, without a re-render.
+// "🗑️ Deleting…" on ANY list row while its delete runs behind the screen (owner, 2026-11-02: the status was missing for
+// everything but an entry deleted from its own form). A row carries data-del-key = "<kind>:<id>" (delKey_); markDeleting_ adds
+// the key and paints every row that has it, also rows drawn later (delKey_ checks the set). A deleted thing disappears with the
+// list's next refresh, so a key needs no removing except when the delete failed (unmarkDeleting_).
+const deletingKeys_ = new Set();
+function delKey_(row, key) {
+  row.dataset.delKey = key;
+  if (deletingKeys_.has(key)) { row.classList.add("row-deleting"); row.dataset.delLabel = tr("entry.deleting"); }
+}
+function paintDeleting_() {
+  document.querySelectorAll("[data-del-key]").forEach((row) => {
+    const on = deletingKeys_.has(row.dataset.delKey);
+    row.classList.toggle("row-deleting", on);
+    if (on) row.dataset.delLabel = tr("entry.deleting");
+  });
+}
+function markDeleting_(key) { deletingKeys_.add(key); paintDeleting_(); }
+function unmarkDeleting_(key) { deletingKeys_.delete(key); paintDeleting_(); }
+
+// When a practice finishes or is left, its cleanup runs behind the screen: everything it made shows "Deleting…" until it is gone.
+const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Practice item", "Elemento de práctica", "Practice purchase", "Compra de práctica",
+  "Practice charge", "Cargo de práctica", "Practice trip expense", "Gasto de viaje de práctica", "Practice deposit", "Depósito de práctica",
+  "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica"];
+const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
+function markPracticeDeleting_() {
+  (lastRenderedEntries_ || []).forEach((e) => {
+    const d = String(e.description || "").trim();
+    if (e.source === "practice" || PRACTICE_ENTRY_NAMES_APP_.includes(d) || /\((Practice exchange|Cambio de práctica)\)$/.test(d) || /: (Practice bank loan|Préstamo bancario de práctica)$/.test(d)) {
+      deletingEntryIds_.add(e.id);
+      markEntryRowsDeleting_(e.id);
+    }
+  });
+  document.querySelectorAll("[data-del-key]").forEach((row) => { if (PRACTICE_OBJECT_RE_.test(row.textContent)) deletingKeys_.add(row.dataset.delKey); });
+  paintDeleting_();
+}
+
 function markEntryRowsDeleting_(id) {
   document.querySelectorAll(".entry[data-entry-id]").forEach((row) => {
     if (row.dataset.entryId !== String(id) || row.classList.contains("entry-deleting")) return;
@@ -7248,6 +7284,7 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
   if (!drilldownBudget) return;
   if (!practiceNoConfirm_(isPracticeBudgetName_(drilldownBudget.name)) && !confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
   const id = drilldownBudget.id;
+  markDeleting_("budget:" + id);
   if (practiceB_ && isPracticeBudgetName_(drilldownBudget.name)) { practiceB_.deleted = true; practiceBSave_(); }   // (the first-use practice's last real step)
   closeDrilldown();
   try {
@@ -7471,9 +7508,11 @@ document.getElementById("budget-delete-btn").addEventListener("click", async () 
   const budgetLabel = document.getElementById("budget-name").value.trim() || (b && b.category_name) || "";
   if (!practiceNoConfirm_(isPracticeBudgetName_(document.getElementById("budget-name").value)) && !confirm(tr(budgetPeriodType === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "") }))) return;
   const id = editingBudgetId;
+  markDeleting_("budget:" + id);
   closeBudgetModal();
   closeDrilldown();
-  await callApi("deleteBudget", { id });
+  try { await callApi("deleteBudget", { id }); }
+  catch (err) { unmarkDeleting_("budget:" + id); alert(tr("budget.deleteFailed", { error: err.message })); }
   refreshBudgetsInBackground_();
 });
 
@@ -7547,6 +7586,7 @@ async function refreshBudgets() {
 
     const row = document.createElement("div");
     row.className = "budget-row";
+    delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
     row.innerHTML = `
       <div class="budget-row-top">
@@ -10600,6 +10640,7 @@ function renderAccountsList_() {
   const addRow_ = (pm, parent) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "");
+    delKey_(row, "pm:" + pm.id);
     const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div>
@@ -10820,14 +10861,19 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
   if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !confirm(tr("accounts.confirmDelete", { name: pm.nickname })))) return;
+  // Saving standard: back to the list at once; the account's row says "Deleting…" until the server is done.
+  markDeleting_("pm:" + pm.id);
+  closePmModal_();
   try {
     await callApi("deletePaymentMethod", { id: pm.id });
     if (practiceA_ && isPracticeAccountName_(pm.nickname)) { practiceA_.deleted = true; practiceASave_(); }   // (the first-use practice's last real step)
     meta.paymentMethods = meta.paymentMethods.filter((p) => p.id !== pm.id);
     refreshAccountPickers_();
-    closePmModal_();
     renderAccountsList_();
-  } catch (err) { errorEl.textContent = err.message; }   // in use: the message says so and points to Hide
+  } catch (err) {
+    unmarkDeleting_("pm:" + pm.id);
+    alert(err.message);   // in use: the message says so and points to Hide
+  }
 });
 
 document.getElementById("pm-modal-close").addEventListener("click", closePmModal_);
@@ -11292,6 +11338,7 @@ function renderTripsList_(trips) {
     }
     const row = document.createElement("div");
     row.className = "recurring-row";
+    delKey_(row, "trip:" + t.id);
     const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 }),
       t.estimateCount ? tr("trips.estimateCount", { n: t.estimateCount }) : ""].filter(Boolean).join(" · ");
     const budget = Number(t.budget_amount) > 0
@@ -11834,16 +11881,20 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
   if (!editingTripId_) return;
   const trip = (meta.trips || []).find((t) => t.id === editingTripId_);
   if (!trip || (!practiceNoConfirm_(isPracticeTripName_(trip.name)) && !confirm(tr("trips.confirmDelete", { name: trip.name })))) return;
-  const errorEl = document.getElementById("trip-form-error");
+  // Saving standard: back to the list at once; the trip's row says "Deleting…" until the server is done.
+  markDeleting_("trip:" + trip.id);
+  closeTripModal_();
+  tripDetailId_ = null;
+  const listShown = showTripsScreen();
   try {
     await callApi("deleteTrip", { id: trip.id });
     if (practiceT_ && isPracticeTripName_(trip.name)) { practiceT_.deleted = true; practiceTSave_(); }   // (first-use practice: the real delete is its last step)
-    closeTripModal_();
-    tripDetailId_ = null;
-    await showTripsScreen();
   } catch (err) {
-    errorEl.textContent = err.message;
+    unmarkDeleting_("trip:" + trip.id);
+    alert(err.message);
   }
+  await listShown;
+  await showTripsScreen();
 });
 
 // ---- Business pack (specs/business.md): optional, hidden until the person turns it on ----
@@ -12951,6 +13002,7 @@ function renderFriendsList_() {
   shown.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (friendsEditing_ ? " friends-check-row" : "");
+    delKey_(row, "friend:" + p.id);
     row.innerHTML = `
       ${friendsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}>` : ""}
       <div>
@@ -13003,6 +13055,7 @@ document.getElementById("friends-selectall-btn").addEventListener("click", () =>
 // still owed. The server decides per friend and says what it did.
 function deleteFriendsFlow_(chosen) {
   const ids = chosen.map((p) => p.id);
+  ids.forEach((id) => markDeleting_("friend:" + id));
   let result = null;
   // Saving standard: back to the list at once; the server works behind the screen and says if anyone was hidden or kept.
   saveBehindScreen_(async () => {
@@ -13583,6 +13636,7 @@ function renderRecurringRow_(re) {
   const todayISO = localTodayISO_();
   const row = document.createElement("div");
   row.className = "recurring-row" + (recurringIsPast_(re, todayISO) || !re.active ? " inactive" : "") + (recurringEditing_ ? " friends-check-row" : "");
+  delKey_(row, "recurring:" + re.id);
   row.innerHTML = `
     ${recurringEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${recurringSelected_.has(re.id) ? " checked" : ""}>` : ""}
     <div>
@@ -14520,6 +14574,7 @@ function afterRecurringChange_() {
   if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
 }
 function runRecurringDelete_(re) {
+  markDeleting_("recurring:" + re.id);
   if (practiceR_ && isPracticeProgrammedName_(re.description)) { practiceR_.deleted = true; practiceRSave_(); }   // (the first-use practice's last real step)
   closeRecurringModal();
   saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
@@ -14622,7 +14677,7 @@ async function startRecurringBulkDelete_(items) {
   const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
   // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
   const finish = (work, after) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after); };
-  const deleteAll = () => finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_);
+  const deleteAll = () => { ids.forEach((id) => markDeleting_("recurring:" + id)); finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_); };
   if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
     closeRecurringDeleteSheet_();
     if (confirm(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", ") }))) deleteAll();
@@ -16093,7 +16148,7 @@ function practicePickAccount_() {
 function runTip_(steps, afterFinish, note) {
   return Spotlight.run(steps, {
     labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
-    onFinish: async (how) => { await afterFinish(how); }
+    onFinish: async (how) => { markPracticeDeleting_(); await afterFinish(how); }
   });
 }
 
@@ -17601,22 +17656,8 @@ function practiceXSteps_() {
     { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s11"), button: () => tr("spot.x.gotIt"), wait: 45000,
       before: async () => { goHome(); },
       poke: () => { if (practiceXSaveFailed_()) return; refreshEntryList().catch(() => {}); } },
-    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.x.s12"), tap: '.nav-btn[data-screen="overview"]', wait: 5000,
-      available: practiceXBalancesShown_,
-      before: async () => { try { await refreshBalances(); } catch (e) { /* keep what is shown */ } practiceXBalances_ = practiceXBalancesShown_(); return practiceXBalances_; } },
-    { look: true, target: "#balances-totals", text: () => tr("spot.x.s13"), button: () => tr("spot.x.gotIt"), wait: 20000, available: practiceXBalancesShown_,
-      // Overview paints its other cards a moment after opening and pushes Balances down: wait until it has finished, so the light lands on the right place.
-      before: async () => {
-        const t0 = Date.now();
-        while (overviewBusyCount_ > 0 && Date.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 200));
-        await new Promise((r) => setTimeout(r, 400));
-        return practiceXBalances_;
-      },
-      poke: () => { refreshBalances().catch(() => {}); } },
-    { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.x.s14"), tap: '.nav-btn[data-screen="entries"]', available: practiceXBalancesShown_,
-      before: async () => practiceXBalances_ },
-    // The two sides of an exchange are separate entries, and deleting one leaves the other (the app does not pair them): so the practice
-    // does NOT make the person delete one; it explains how to undo an exchange properly (both entries) and removes both itself.
+    // (Owner, 2026-11-02: no detour to the balances.) Deleting one side now offers to delete the other; the practice explains it
+    // and removes both itself at the end.
     { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s15"), button: () => tr("spot.x.gotIt"), wait: 15000,
       before: async () => { goHome(); } },
     { text: () => tr("spot.x.s17"), button: () => tr("spot.x.finish"), before: async () => { if (practiceXSaveFailed_()) return false; } }
@@ -18218,6 +18259,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   // overwritten the next time the expense itself is touched.
   const row = document.createElement("div");
   row.className = "loan-detail-row editable";
+  delKey_(row, "loan:" + l.id);
   // Only the description/amount/date block opens the edit; the Forgive button below sits OUTSIDE that tap area, so a near-miss on it
   // never opens the loan by mistake.
   row.innerHTML = `
@@ -18378,7 +18420,9 @@ async function deleteOrphanLoan_(l, friend) {
     } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) {
       return;
     }
-    await callApi("deleteLoan", { id: l.id, repayments });
+    markDeleting_("loan:" + l.id);
+    try { await callApi("deleteLoan", { id: l.id, repayments }); }
+    catch (e) { unmarkDeleting_("loan:" + l.id); throw e; }
     await openLoanDetail(friend.id, friend.name);
     refreshLoans();
   } catch (err) {
@@ -19697,12 +19741,17 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     } else if (!practiceNoConfirm_(isPracticeLoanText_(loanDesc)) && !confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
       return;
     }
-    await callApi("deleteLoan", { id: editingLoanId, repayments });
-    tipNoteLoanDeleted_(loanDesc);   // the first-use practice's loan is gone
+    // Saving standard: the form closes at once; the loan's row says "Deleting…" until the server is done.
+    const loanId = editingLoanId;
+    markDeleting_("loan:" + loanId);
     closeLoanModal();
+    try { await callApi("deleteLoan", { id: loanId, repayments }); }
+    catch (e) { unmarkDeleting_("loan:" + loanId); throw e; }
+    tipNoteLoanDeleted_(loanDesc);   // the first-use practice's loan is gone
     await refreshAfterLoanModalChange_();
   } catch (err) {
-    errorEl.textContent = err.message;
+    if (document.getElementById("loan-modal-backdrop").hidden) alert(err.message);   // the form already closed
+    else errorEl.textContent = err.message;
   }
 });
 

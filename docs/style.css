@@ -1390,6 +1390,9 @@ body.sheet-open {
 }
 
 .entry.entry-deleting { opacity: 0.5; pointer-events: none; }
+/* Any other list row while its delete runs behind the screen (markDeleting_ in app.js). */
+.row-deleting { opacity: 0.5; pointer-events: none; position: relative; }
+.row-deleting::after { content: attr(data-del-label); position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: #fff; color: #555; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; box-shadow: 0 0 0 1px #ddd; }
 
 .entry-queue-failed {
   color: var(--expense);
