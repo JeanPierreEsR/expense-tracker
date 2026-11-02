@@ -5618,6 +5618,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceBLeftover_, 4000);
   setTimeout(practiceRLeftover_, 6000);
   setTimeout(practiceNLeftover_, 8000);
+  setTimeout(practiceMLeftover_, 10000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -16392,8 +16393,13 @@ function startPractice_() {
   return true;
 }
 
+// One card, three practices, in this order: shared expense -> standalone loan -> bank loan. The next one is offered only after the previous
+// was seen (Show me or Dismiss), and never two at once (they share the card). The last two need a backend that can clean them up.
 function offerLoansTip_() {
-  offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_);
+  if (!tipSeen_("loans")) { offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_); return; }
+  if (!((meta && meta.capabilities) || {}).practiceLoansMore) return;   // an older backend could not clean the practice up
+  if (!tipSeen_("loans-standalone")) { offerTip_("loans-standalone", "loans-tip-invite", tr("spot.l.invite"), () => startLoansMorePractice_("standalone")); return; }
+  if (!tipSeen_("loans-bank")) offerTip_("loans-bank", "loans-tip-invite", tr("spot.k.invite"), () => startLoansMorePractice_("bank"));
 }
 
 // More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
@@ -16551,6 +16557,286 @@ function practiceNLeftover_() {
   if (practiceNLeftoverAsked_ || practiceNRemoving_ || Spotlight.isRunning() || !practiceNLoad_()) return;
   practiceNLeftoverAsked_ = true;
   if (confirm(tr("spot.n.leftover"))) practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
+}
+
+// ---- First-use practices: a standalone loan, and a bank loan ----
+// Two more Loans practices (offered one after the other by offerLoansTip_, after the shared-expense one). Both create real things with an
+// unmistakable name and delete them at the end with ONE backend call (removePracticeLoans):
+//   standalone: a "Practice loan" (cash lent or borrowed, no expense behind it) with a friend who owed nothing; the last real step is
+//     a real Delete. A friend added during it is deleted at the end too.
+//   bank: a "Practice bank loan" from "Practice Bank" with a small schedule of 3 installments; ONE installment is recorded (its
+//     principal is a repayment, its interest + fees one pending expense) and the loan is deleted. The cleanup also removes that expense.
+// Neither ever sends a reminder (the server's overdue check skips loans with these names). Background cleanup like the other practices.
+const PRACTICE_M_KEY_ = "tipPracticeLoansMore";
+let practiceM_ = null;           // { kind: "standalone" | "bank", saved, recorded, deleted, friendId, startedOn, friendsBefore }
+let practiceMSaving_ = 0;        // saves of the practice loan / installment (and the refresh after them) still on their way
+let practiceMFailed_ = "";       // the server's refusal of one of them
+let practiceMRemoving_ = false;
+let practiceMLeftoverAsked_ = false;
+let practiceMHint_ = "";
+let loanFriendAdding_ = false;   // "+ Add friend…" is adding a friend in the loan form
+let loanFriendTouched_ = false;
+let loanFriendFocused_ = false;
+let bankFillClicks_ = 0;
+const practiceMChecked_ = {};    // friend id -> true (owes nothing) / false (has debts) / "checking"
+
+function practiceMLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_M_KEY_) || "null"); } catch (e) { return null; } }
+function practiceMSave_() {
+  try { if (practiceM_) localStorage.setItem(PRACTICE_M_KEY_, JSON.stringify(practiceM_)); else localStorage.removeItem(PRACTICE_M_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeLoanText_(t) { return /^(Practice loan|Préstamo de práctica|Practice bank loan|Préstamo bancario de práctica)$/.test(String(t || "").trim()); }
+
+(function practiceMWatchers_() {
+  const sel = document.getElementById("loan-friend");
+  sel.addEventListener("focusin", () => { loanFriendFocused_ = true; });
+  sel.addEventListener("change", () => { loanFriendTouched_ = true; });
+  sel.addEventListener("blur", () => { if (loanFriendFocused_) loanFriendTouched_ = true; });
+  document.getElementById("bank-gen-btn").addEventListener("click", () => { bankFillClicks_++; });
+})();
+
+// Called from the loan form's save: the practice's own loan is the one with its name, saved while a practice runs.
+function tipNoteLoanSaved_(fields) {
+  if (!practiceM_ || !Spotlight.isRunning() || !isPracticeLoanText_(fields && fields.description)) return;
+  practiceM_.saved = true;
+  practiceM_.friendId = fields.friend_id;
+  practiceMSave_();
+}
+// Called from the loan form's delete once the server has deleted it.
+function tipNoteLoanDeleted_(description) {
+  if (!practiceM_ || !isPracticeLoanText_(description)) return;
+  practiceM_.deleted = true;
+  practiceMSave_();
+}
+// Wraps a bank loan / installment save so the practice knows it is on its way (the cleanup waits for it) and whether the server refused
+// it. `flag` is what to remember ("saved" or "recorded"). A save of anything else is returned unchanged.
+function practiceMTrack_(work, after, description, flag) {
+  if (!practiceM_ || !Spotlight.isRunning() || !isPracticeLoanText_(description)) return { work, after };
+  practiceM_[flag] = true;
+  practiceMSave_();
+  practiceMSaving_++;
+  let released = false;
+  return {
+    work: async () => { try { await work(); } catch (err) { practiceMFailed_ = err.message || String(err); throw err; } },
+    after: async () => { try { if (after) await after(); } finally { if (!released) { released = true; practiceMSaving_--; } } }
+  };
+}
+
+// A practice save the server refused: the practice cannot go on. True = it stopped.
+function practiceMSaveFailed_() {
+  if (!practiceM_ || !Spotlight.isRunning()) return false;
+  const bad = getMoneyQueue_().find((i) => i.status === "failed" && i.action === "addLoan" && isPracticeLoanText_(i.payload && i.payload.description));
+  if (bad) {
+    alert(tr("spot.l.saveFailed", { error: bad.lastError || "" }));
+    Spotlight.stop("skipped");
+    return true;
+  }
+  if (practiceMFailed_) { Spotlight.stop("skipped"); return true; }   // (saveBehindScreen_ has already told the person why)
+  return false;
+}
+
+// A friend with other debts could have the practice mixed into them, so the standalone practice only goes ahead with a friend who owes
+// nothing (either way). Instant from the Loans list already on the phone; the server double-checks in the background.
+function practiceMFriendOk_() {
+  if (loanFriendAdding_) return false;   // + Add friend… is still adding the new one
+  const sel = document.getElementById("loan-friend");
+  const id = sel.value;
+  if (!id || id === "__add__") return false;
+  const name = () => { const f = (meta.friends || []).find((x) => x.id === id); return f ? f.name : ""; };
+  if (loansOwingIds_ && loansOwingIds_.has(id)) { practiceMHint_ = tr("spot.l.s2dirty", { name: name() }); return false; }
+  if (!(id in practiceMChecked_)) {
+    practiceMChecked_[id] = "checking";
+    callApi("getFriendLoanDetail", { friendId: id }).then((loans) => {
+      practiceMChecked_[id] = !loans.some((l) => l.status !== "forgiven" && l.remaining > 0.004);
+    }).catch(() => { practiceMChecked_[id] = true; });
+  }
+  if (practiceMChecked_[id] === false) { practiceMHint_ = tr("spot.l.s2dirty", { name: name() }); return false; }
+  practiceMHint_ = "";
+  return true;
+}
+
+function practiceMRow_() {
+  const id = practiceM_ && practiceM_.friendId;
+  if (!id) return null;
+  return Array.from(document.querySelectorAll("#loans-owed-to-me-list .loan-row, #loans-i-owe-list .loan-row")).find((r) => r.dataset.friendId === id) || null;
+}
+function practiceMLoanRow_() {
+  return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-row-main")).find((r) => /Practice (bank )?loan|Préstamo (bancario )?de práctica/.test(r.textContent)) || null;
+}
+function practiceMSchedBtn_() {
+  return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-forgive-btn")).find((b) => b.textContent.includes("📅")) || null;
+}
+
+function practiceMOpen_(id) { const el = document.getElementById(id); return !!el && !el.hidden; }
+const practiceMSleep_ = (ms) => new Promise((r) => setTimeout(r, ms));
+const practiceMErr_ = (sel) => { const el = document.querySelector(sel); return el ? el.textContent.trim() : ""; };
+const practiceMAmountDone_ = (sel) => () => { const el = document.querySelector(sel); return !!el && parseFloat(el.value) > 0 && document.activeElement !== el; };
+const practiceMAmountOk_ = (sel) => () => parseFloat((document.querySelector(sel) || {}).value) > 0;
+const practiceMSetValue_ = (id, value) => { const el = document.getElementById(id); if (el && el.value !== value) { el.value = value; el.dispatchEvent(new Event("input", { bubbles: true })); } };
+
+function practiceLSteps_() {
+  const cur = homeCur();
+  const hasAccounts = () => Array.from(document.querySelectorAll("#loan-payment-method option")).some((o) => o.value);
+  const nameIt = () => practiceMSetValue_("loan-description", tr("spot.l.name"));
+  const formOpen = () => practiceMOpen_("loan-modal-backdrop");
+  return [
+    { key: "intro", text: () => tr("spot.l.intro"), button: () => tr("spot.l.start") },
+    { key: "add", target: "#add-loan-btn", text: () => tr("spot.l.s1"), tap: "#add-loan-btn",
+      before: async () => { if (document.getElementById("screen-loans").hidden) showScreen("loans"); },
+      ok: () => formOpen() || !!(practiceM_ && practiceM_.saved), holdsUntil: "save" },
+    { key: "friend", target: "#loan-friend", text: () => practiceMHint_ || tr("spot.l.s2"),
+      before: async () => { loanFriendTouched_ = false; loanFriendFocused_ = false; practiceMHint_ = ""; },
+      until: () => loanFriendTouched_ && practiceMFriendOk_(), ok: () => loanFriendAdding_ || practiceMFriendOk_(), holdsUntil: "save" },
+    { target: () => document.getElementById("loan-direction-tabs"), text: () => tr("spot.l.s3"), tap: () => document.getElementById("loan-direction-tabs") },
+    { key: "amount", target: "#loan-amount", text: (fix) => tr(fix ? "spot.l.s4fix" : "spot.l.s4", { cur }), blurTap: true,
+      until: practiceMAmountDone_("#loan-amount"), ok: practiceMAmountOk_("#loan-amount"), holdsUntil: "save", before: async () => { nameIt(); } },
+    { look: true, target: "#loan-opening-row", text: () => tr("spot.l.s5"), button: () => tr("spot.l.gotIt"),
+      available: () => !!((meta && meta.capabilities) || {}).openingLoan,
+      before: async () => {
+        if (!((meta && meta.capabilities) || {}).openingLoan) return false;
+        const box = document.getElementById("loan-opening");
+        if (box.checked) { box.checked = false; updateLoanOpeningUi_(true); }   // the practice is a loan that moves money now
+      } },
+    { key: "account", target: "#loan-pm-field", text: (fix) => tr(fix ? "spot.l.s6fix" : "spot.l.s6"), visit: "#loan-payment-method",
+      available: hasAccounts, before: async () => hasAccounts(),
+      ok: () => !hasAccounts() || !!document.getElementById("loan-payment-method").value, holdsUntil: "save" },
+    { key: "save", target: () => [document.getElementById("loan-save-btn"), document.getElementById("loan-form-error")],
+      text: () => { const err = practiceMErr_("#loan-form-error"); return err ? tr("spot.l.s7err", { error: err }) : tr("spot.l.s7"); },
+      before: async () => { nameIt(); document.getElementById("loan-form-error").textContent = ""; },
+      until: () => !formOpen() && !!(practiceM_ && practiceM_.saved) },
+    { key: "row", target: practiceMRow_, text: () => tr("spot.l.s8"), tap: practiceMRow_, wait: 45000,
+      poke: () => { if (practiceMSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
+    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.l.s9"), button: () => tr("spot.l.gotIt"), wait: 15000,
+      before: async () => { await practiceMSleep_(600); } },
+    { target: practiceMLoanRow_, text: () => tr("spot.l.s10"), tap: practiceMLoanRow_, wait: 15000,
+      ok: () => formOpen() || !!(practiceM_ && practiceM_.deleted), holdsUntil: "del" },
+    { key: "del", target: "#loan-delete-btn", text: () => tr("spot.l.s11"), until: () => !!(practiceM_ && practiceM_.deleted), wait: 10000 },
+    { text: () => tr("spot.l.s12"), button: () => tr("spot.l.finish"), before: async () => { if (practiceMSaveFailed_()) return false; } }
+  ];
+}
+
+function practiceKSteps_() {
+  const cur = homeCur();
+  const hasAccounts = () => Array.from(document.querySelectorAll("#bank-account option")).some((o) => o.value);
+  const nameIt = () => { practiceMSetValue_("bank-lender", tr("spot.k.lender")); practiceMSetValue_("bank-description", tr("spot.k.name")); };
+  const formOpen = () => practiceMOpen_("bank-loan-modal-backdrop");
+  const rowsOk = () => !!bankDraft_ && bankDraft_.rows.length > 0 && !document.getElementById("bank-save").disabled;
+  let fillBase = 0;
+  const recordOpen = () => practiceMOpen_("bank-record-modal-backdrop");
+  return [
+    { key: "intro", text: () => tr("spot.k.intro"), button: () => tr("spot.k.start") },
+    { key: "add", target: "#add-bank-loan-btn", text: () => tr("spot.k.s1"), tap: "#add-bank-loan-btn",
+      before: async () => { if (document.getElementById("screen-loans").hidden) showScreen("loans"); },
+      ok: () => formOpen() || !!(practiceM_ && practiceM_.saved), holdsUntil: "save" },
+    { look: true, target: () => [document.getElementById("bank-lender"), document.getElementById("bank-description")], text: () => tr("spot.k.s2"), button: () => tr("spot.l.gotIt"),
+      before: async () => { nameIt(); } },
+    { key: "amount", target: "#bank-amount", text: (fix) => tr(fix ? "spot.k.s3fix" : "spot.k.s3", { cur }), blurTap: true,
+      until: practiceMAmountDone_("#bank-amount"), ok: practiceMAmountOk_("#bank-amount"), holdsUntil: "save" },
+    { key: "account", target: () => [document.getElementById("bank-date"), document.getElementById("bank-account")], text: (fix) => tr(fix ? "spot.k.s4fix" : "spot.k.s4"),
+      visit: "#bank-account", available: hasAccounts, before: async () => hasAccounts(),
+      ok: () => !hasAccounts() || !!document.getElementById("bank-account").value, holdsUntil: "save" },
+    { key: "fill", target: "#bank-gen-btn",
+      text: (fix) => { const err = practiceMErr_("#bank-error"); return err ? tr("spot.k.s5err", { error: err }) : tr(fix ? "spot.k.s5fix" : "spot.k.s5"); },
+      before: async () => {
+        practiceMSetValue_("bank-gen-count", "3"); practiceMSetValue_("bank-gen-rate", "12"); practiceMSetValue_("bank-gen-fee", "1");
+        fillBase = bankFillClicks_;
+      },
+      until: () => bankFillClicks_ > fillBase && rowsOk(), ok: rowsOk, holdsUntil: "save" },
+    { look: true, target: () => [document.getElementById("bank-rows"), document.getElementById("bank-totals")], text: () => tr("spot.k.s6"), button: () => tr("spot.l.gotIt") },
+    { key: "save", target: () => [document.getElementById("bank-save"), document.getElementById("bank-error")],
+      text: () => { const err = practiceMErr_("#bank-error"); return err ? tr("spot.k.s7err", { error: err }) : tr("spot.k.s7"); },
+      before: async () => { nameIt(); document.getElementById("bank-error").textContent = ""; },
+      until: () => !formOpen() && !!(practiceM_ && practiceM_.saved) },
+    { key: "sched", target: practiceMSchedBtn_, text: () => tr("spot.k.s8"), tap: practiceMSchedBtn_, wait: 45000,
+      poke: () => { practiceMSaveFailed_(); } },
+    { key: "inst", target: () => document.querySelector("#bank-schedule-list .bank-inst.tappable"), text: () => tr("spot.k.s9"), wait: 20000,
+      tap: () => document.querySelector("#bank-schedule-list .bank-inst.tappable"),
+      ok: () => recordOpen() || !!(practiceM_ && practiceM_.recorded), holdsUntil: "record" },
+    { key: "record", target: () => [document.getElementById("bank-record-save"), document.getElementById("bank-record-error")],
+      text: () => { const err = practiceMErr_("#bank-record-error"); return err ? tr("spot.k.s10err", { error: err }) : tr("spot.k.s10"); },
+      until: () => !recordOpen() && !!(practiceM_ && practiceM_.recorded) },
+    { target: "#bank-schedule-close", text: () => tr("spot.k.s11"), tap: "#bank-schedule-close",
+      // the installment is still being saved, and the schedule refreshes itself when it lands: wait for that first
+      before: async () => {
+        const t0 = Date.now();
+        while (practiceMSaving_ > 0 && Date.now() - t0 < 60000) await practiceMSleep_(200);
+        if (practiceMSaveFailed_()) return false;
+      } },
+    { target: practiceMLoanRow_, text: () => tr("spot.k.s12"), tap: practiceMLoanRow_, wait: 15000,
+      ok: () => practiceMOpen_("loan-modal-backdrop") || !!(practiceM_ && practiceM_.deleted), holdsUntil: "choice" },
+    { target: "#loan-delete-btn", text: () => tr("spot.k.s13"), tap: "#loan-delete-btn", wait: 10000 },
+    { key: "choice", target: "#repay-choice-cancel", text: () => tr("spot.k.s14"), until: () => !!(practiceM_ && practiceM_.deleted), wait: 15000 },
+    { text: () => tr("spot.k.s15"), button: () => tr("spot.l.finish"), before: async () => { if (practiceMSaveFailed_()) return false; } }
+  ];
+}
+
+function startLoansMorePractice_(kind) {
+  if (practiceMRemoving_ || practiceRemoving_) { showToast_(tr("spot.l.stillRemoving")); return false; }
+  const open = ["loan-modal-backdrop", "loan-detail-modal-backdrop", "bank-loan-modal-backdrop", "bank-schedule-modal-backdrop", "bank-record-modal-backdrop",
+    "settlement-modal-backdrop", "repay-choice-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => practiceMOpen_(id));
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.l.busy")); return false; }
+  practiceM_ = { kind, saved: false, recorded: false, deleted: false, friendId: "", startedOn: todayLocalISO(), friendsBefore: (meta.friends || []).map((f) => f.id) };
+  practiceMSave_();
+  practiceMFailed_ = "";
+  practiceMHint_ = "";
+  Object.keys(practiceMChecked_).forEach((k) => delete practiceMChecked_[k]);
+  runTip_(kind === "bank" ? practiceKSteps_() : practiceLSteps_(), async () => {
+    if (document.getElementById("screen-loans").hidden) showScreen("loans");
+    showToast_(tr("spot.l.removing"));
+    practiceMRemove_().then((ok) => { if (ok) showToast_(tr("spot.l.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceMRemove_() {
+  if (practiceMRemoving_) return false;
+  const p = practiceM_ || practiceMLoad_();
+  if (!p) return true;
+  practiceMRemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (practiceMOpen_("repay-choice-backdrop")) document.getElementById("repay-choice-back").click();
+    if (practiceMOpen_("bank-record-modal-backdrop")) document.getElementById("bank-record-modal-backdrop").hidden = true;
+    if (practiceMOpen_("bank-schedule-modal-backdrop")) document.getElementById("bank-schedule-modal-backdrop").hidden = true;
+    if (practiceMOpen_("bank-loan-modal-backdrop")) closeBankLoanForm_();
+    if (practiceMOpen_("loan-modal-backdrop")) closeLoanModal();
+    if (practiceMOpen_("loan-detail-modal-backdrop")) closeLoanDetail();
+    // A save still on its way must land BEFORE the delete (a late one would make a stray loan).
+    const t0 = Date.now();
+    while (practiceMSaving_ > 0 && Date.now() - t0 < 60000) await practiceMSleep_(300);
+    const stuck = getMoneyQueue_().filter((i) => i.status === "failed" && i.action === "addLoan" && isPracticeLoanText_(i.payload && i.payload.description));
+    if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    const caps = (meta && meta.capabilities) || {};
+    const added = caps.friendsEdit && Array.isArray(p.friendsBefore) ? (meta.friends || []).filter((f) => !p.friendsBefore.includes(f.id)).map((f) => f.id) : [];
+    if (p.saved || p.recorded || p.friendId || added.length) {
+      try {
+        const res = await callApi("removePracticeLoans", { started_on: p.startedOn || "", delete_friend_ids: added });
+        const gone = new Set(res.friends_deleted || []);
+        if (gone.size) {
+          meta.friends = (meta.friends || []).filter((x) => !gone.has(x.id));
+          try { refreshFriendChips_(); populatePaidByOptions(); } catch (e) { /* the pickers refresh on the next load */ }
+        }
+      } catch (err) {
+        ok = false;
+        alert(tr("spot.l.removeFailed", { error: err.message }));
+      }
+    }
+    if (ok) { practiceM_ = null; practiceMSave_(); }
+    practiceMFailed_ = "";
+    refreshLoans().catch(() => {});
+    refreshEntryList().catch(() => {});
+    refreshBalances().catch(() => {});
+    refreshReviewQueue().catch(() => {});
+    return ok;
+  } finally { practiceMRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceMLeftover_() {
+  if (practiceMLeftoverAsked_ || practiceMRemoving_ || Spotlight.isRunning() || !practiceMLoad_()) return;
+  practiceMLeftoverAsked_ = true;
+  if (confirm(tr("spot.l.leftover"))) practiceMRemove_().then((ok) => { if (ok) showToast_(tr("spot.l.removed")); });
 }
 
 // ---- First-use practice: Programmed items ----
@@ -18026,7 +18312,7 @@ document.getElementById("bank-save").addEventListener("click", () => {
   } : null;
   closeBankLoanForm_();
   let friend;
-  saveBehindScreen_(async () => {
+  const bankWork_ = async () => {
     if (newLoan) {
       const res = await callApi("saveBankLoan", newLoan);
       friend = { id: res.loan.friend_id, name: lender };
@@ -18034,13 +18320,16 @@ document.getElementById("bank-save").addEventListener("click", () => {
       await callApi("saveLoanSchedule", { loan_id: draft.loanId, installments: rows });
       friend = draft.friend;
     }
-  }, async () => {
+  };
+  const bankAfter_ = async () => {
     refreshEntriesInBackground_();
     await refreshLoans();
     if (!friend) return;   // refused: the lists above are already showing the truth
     if (draft.mode === "edit") await openBankSchedule_(draft.loanId, friend);
     else await openLoanDetail(friend.id, friend.name);
-  });
+  };
+  const tracked = practiceMTrack_(bankWork_, bankAfter_, newLoan && newLoan.description, "saved");   // the first-use practice follows its own save
+  saveBehindScreen_(tracked.work, tracked.after);
 });
 
 // The loan's schedule: every installment, paid or not; a tap on an unpaid one records it.
@@ -18248,12 +18537,13 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
   };
   const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
   document.getElementById("bank-record-modal-backdrop").hidden = true;
-  saveBehindScreen_(() => callApi("recordInstallment", payload), async () => {
+  const tracked = practiceMTrack_(() => callApi("recordInstallment", payload), async () => {
     refreshEntriesInBackground_();
     refreshReviewQueue().catch(() => {});
     await refreshLoans();
     await openBankSchedule_(ctx.sched.loan.id, friend);
-  });
+  }, ctx.sched.loan.description, "recorded");   // the first-use practice follows its own installment
+  saveBehindScreen_(tracked.work, tracked.after);
 });
 
 function closeLoanDetail() {
@@ -18306,11 +18596,14 @@ document.getElementById("loan-friend").addEventListener("change", async (e) => {
   const name = prompt(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
-    const friend = await callApi("addFriend", { name: name.trim() });
-    meta.friends.push(friend);
-    refreshFriendChips_();
-    populateLoanFriendOptions();
-    document.getElementById("loan-friend").value = friend.id;
+    loanFriendAdding_ = true;   // (the first-use loan practice waits for the new friend to be picked)
+    try {
+      const friend = await callApi("addFriend", { name: name.trim() });
+      meta.friends.push(friend);
+      refreshFriendChips_();
+      populateLoanFriendOptions();
+      document.getElementById("loan-friend").value = friend.id;
+    } finally { loanFriendAdding_ = false; }
   }
 });
 
@@ -18486,6 +18779,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     };
     if (opening && !editingLoanId) fields.opening = true;
     if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
+    if (!editingLoanId) tipNoteLoanSaved_(fields);   // the first-use practice remembers its own loan
 
     if (moneyBackground_()) {
       // The server's refusals for an edit are checked here first (same rules as updateLoan in Loans.gs), so the message shows
@@ -18543,6 +18837,7 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
       return;
     }
     await callApi("deleteLoan", { id: editingLoanId, repayments });
+    tipNoteLoanDeleted_(loanDesc);   // the first-use practice's loan is gone
     closeLoanModal();
     await refreshAfterLoanModalChange_();
   } catch (err) {
