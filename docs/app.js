@@ -10636,8 +10636,8 @@ function openPmModal_(pm) {
   document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
-  // An investment platform keeps its type; it isn't offered for new accounts.
-  const types = pm && pm.type === "investment" ? [...PM_TYPES_, "investment"] : PM_TYPES_;
+  // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
+  const types = [...PM_TYPES_, "investment"];
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
