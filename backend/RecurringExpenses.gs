@@ -514,6 +514,7 @@ function validateRecurringWindow_(startDate, endDate) {
 // for everyone. This lets specific historical Entries be pointed at the
 // recurring item they actually represent instead.
 function ensureEntriesRecurringLinkColumn_() {
+  if (memoHasColumns_('Entries', ['recurring_expense_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('recurring_expense_id') === -1) {

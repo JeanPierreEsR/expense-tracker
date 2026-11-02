@@ -149,6 +149,8 @@ class FakeSheet {
   getName() { return this.name; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return this.lastCol; }
+  // Everything from A1 to the last row and column with content (one range, as real Sheets does).
+  getDataRange() { return new FakeRange(this, 1, 1, Math.max(1, this.rows.length), Math.max(1, this.lastCol)); }
   getMaxRows() { return this.tightRows ? this.rows.length + this.extraRows : Math.max(1000, this.rows.length); }
   setFrozenRows(n) { this.frozen = n; }
   getRange(row, col, nrows, ncols) {

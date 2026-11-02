@@ -100,6 +100,7 @@ function plainNickname_(s) {
 
 // The three columns that remember how an account's name was made (older sheets get them on first use).
 function ensurePaymentMethodAliasColumns_() {
+  if (memoHasColumns_('Payment Methods', ['alias_kind', 'alias_auto', 'alias_show_last4'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Payment Methods');
   var headers = getHeaders(sheet);
   var added = false;

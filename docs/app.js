@@ -349,7 +349,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
+  "createEntry", "saveEntryAll", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -365,7 +365,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "saveEntryAll", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
@@ -4548,6 +4548,12 @@ function unqueueReviewAction_(id) {
 }
 
 async function applyReviewAction_(a) {
+  if (a.action === "confirm" && entrySaveOne_()) {
+    // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
+    const res = await callApi("saveEntryAll", { kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined });
+    unqueueReviewAction_(a.id);
+    return res && res.follow ? res.follow : null;
+  }
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
     const res = await callApi("confirmEntry", { id: a.id });
@@ -4785,6 +4791,11 @@ function commitCreateToLastRendered_(edit, created) {
 // instead of firing a second overlapping request.
 const entryEditFlushing_ = new Set();
 
+// The backend saves an entry with its split, tags and bill in one call (capability entrySaveOne); an older one gets them one by one.
+function entrySaveOne_() {
+  return !!(meta && meta.capabilities && meta.capabilities.entrySaveOne);
+}
+
 async function flushEntryEdit_(id) {
   if (entryEditFlushing_.has(id)) return;
   entryEditFlushing_.add(id);
@@ -4804,7 +4815,19 @@ async function flushEntryEdit_(id) {
       let created = null;
       let linkFailed = false;
       try {
-        if (edit.kind === "create") {
+        if (entrySaveOne_()) {
+          // One trip to Google for the entry and everything that goes with it (backend saveEntryAll; was 2-4 trips in a row).
+          const isCreate = edit.kind === "create";
+          const withSplits = isCreate
+            ? edit.fields.type === "expense" && (edit.fields.paid_by !== "me" || (edit.splits && edit.splits.length))
+            : edit.splits !== null;
+          const out = await callApi("saveEntryAll", isCreate
+            ? { kind: "create", fields: Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }), link_recurring_id: edit.linkRecurringId || "",
+                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined }
+            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined });
+          if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
+          else if (out && out.follow) followed = out.follow;
+        } else if (edit.kind === "create") {
           // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
           created = await callApi("createEntry", Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }));
           if (edit.linkRecurringId) {

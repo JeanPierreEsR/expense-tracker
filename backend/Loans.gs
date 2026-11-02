@@ -392,6 +392,7 @@ function transferCategoryId_() {
 // Self-healing, same pattern as the column below: links a forgiven loan to
 // the expense/income entry its forgiveness booked.
 function ensureLoansForgivenessEntryColumn_() {
+  if (memoHasColumns_('Loans', ['forgiveness_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('forgiveness_entry_id') === -1) {
@@ -404,6 +405,7 @@ function ensureLoansForgivenessEntryColumn_() {
 // as JSON in this column of the loan itself; the loan's amount never changes (the money that moved did not), and the parts count
 // toward what is settled, so every balance already derived from the settled totals shrinks by itself.
 function ensureLoansForgivenPartsColumn_() {
+  if (memoHasColumns_('Loans', ['forgiven_parts'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('forgiven_parts') === -1) {
@@ -437,6 +439,7 @@ function forgivenessOfEntry_(entryId) {
 
 // Column marking a loan as "existed before the app" (opening debt): it has no money entry. Self-healing like the other Loans columns.
 function ensureLoansOpeningColumn_() {
+  if (memoHasColumns_('Loans', ['opening'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('opening') === -1) sheet.getRange(1, headers.length + 1).setValue('opening');
@@ -447,6 +450,7 @@ function isOpeningLoan_(loan) {
 }
 
 function ensureLoansTransferEntryColumn_() {
+  if (memoHasColumns_('Loans', ['transfer_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('transfer_entry_id') === -1) {
@@ -455,6 +459,7 @@ function ensureLoansTransferEntryColumn_() {
 }
 
 function ensureSettlementsTransferEntryColumn_() {
+  if (memoHasColumns_('Settlements', ['transfer_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('transfer_entry_id') === -1) {
@@ -465,6 +470,7 @@ function ensureSettlementsTransferEntryColumn_() {
 // gap_entry_id = the income (or expense) entry holding the part of this repayment that is not on any loan, so the
 // repayment can be shown and edited as ONE total (owner's request, 2026-10-27).
 function ensureSettlementsGapColumn_() {
+  if (memoHasColumns_('Settlements', ['gap_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('gap_entry_id') === -1) sheet.getRange(1, headers.length + 1).setValue('gap_entry_id');
@@ -483,6 +489,7 @@ function gapEntryOfRows_(rows) {
 
 // "limited" = this repayment was set to pay ONLY its selected loans (1), so reopening it shows that choice again.
 function ensureSettlementsLimitedColumn_() {
+  if (memoHasColumns_('Settlements', ['limited'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('limited') === -1) sheet.getRange(1, headers.length + 1).setValue('limited');
@@ -852,6 +859,7 @@ function getLoanDeleteInfo(payload) {
 // original "pick one loan, settle it" design.
 
 function ensureSettlementsOffsetColumn_() {
+  if (memoHasColumns_('Settlements', ['offset_loan_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('offset_loan_id') === -1) {
