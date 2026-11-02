@@ -4121,8 +4121,10 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A repayment's transfer entry takes the repayment with it — say so first.
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
   let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
+  let exchangePartner = null;   // the other side of a currency exchange, when this entry is one side
   if (["transfer", "expense", "income"].includes(originalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id });
+    exchangePartner = links.exchangePartner || null;
     if (links.forgiveness) {
       const f = links.forgiveness;
       confirmText = tr(f.direction === "they_owe_me" ? "delete.forgivenessTheyOweMe" : "delete.forgivenessIOweThem", { friend: f.friend });
@@ -4158,8 +4160,18 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
     }
   }
   if (!repaymentsChoice && !confirm(confirmText)) return false;
+  // One side of a currency exchange: the other side is a separate entry. Offer to delete it too, so half an exchange
+  // (and a balance that is off) is never left behind (owner, 2026-11-02). OK = both, Cancel = only this one.
+  let partner = null;
+  if (originalType === "transfer" && exchangePartner) {
+    if (confirm(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: exchangePartner.date }))) partner = exchangePartner;
+  }
   if (onConfirmed) onConfirmed();
   await callApi("discardEntry", { id, repayments: repaymentsChoice });
+  if (partner) {
+    try { await callApi("discardEntry", { id: partner.id }); }
+    catch (err) { alert(tr("delete.exchangeBothFailed", { error: err.message })); }
+  }
   refreshLoans().catch(() => {});
   return true;
 }

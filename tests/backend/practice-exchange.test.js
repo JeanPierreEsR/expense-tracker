@@ -95,3 +95,15 @@ test("the backend says it can clean the Currency exchange practice up", () => {
   const { rt } = setup();
   assert.equal(rt.api("getMeta").capabilities.practiceExchange, true);
 });
+
+test("deleting one side of an exchange: the delete check names the other side so the phone can offer to delete both", () => {
+  const { rt, data } = freshApp();
+  const pen = data.pms.find((p) => p.type !== "investment").id;
+  const res = rt.api("recordCurrencyExchange", { date: today(), out: { payment_method_id: pen, amount: 370, currency: "PEN" }, in: { payment_method_id: pen, amount: 100, currency: "USD" } });
+  const links = rt.api("getEntryRepaymentLinks", { id: res.out.id });
+  assert.ok(links.exchangePartner, "the other side is named");
+  assert.equal(links.exchangePartner.id, res.in.id);
+  assert.equal(links.exchangePartner.currency, "USD");
+  const plain = rt.api("createEntry", { type: "expense", date: today(), amount: 5, currency: "PEN", category_id: data.cats.find((c) => c.type === "expense").id, description: "Lunch", paid_by: "me", payment_method_id: pen });
+  assert.equal(rt.api("getEntryRepaymentLinks", { id: plain.id }).exchangePartner, undefined, "a normal entry has none");
+});

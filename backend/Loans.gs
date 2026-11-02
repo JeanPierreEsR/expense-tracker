@@ -2222,7 +2222,19 @@ function releaseEntryRepaidLoans(payload) {
   });
 }
 
+// What the phone asks before deleting an entry. Also names the OTHER side of a currency exchange (the two sides are separate
+// entries), so the person can delete both together and never leave half an exchange (owner, 2026-11-02).
 function getEntryRepaymentLinks(payload) {
+  var out = getEntryRepaymentLinksBase_(payload);
+  if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
+    var entry = getEntryById_(payload.id);
+    var partner = entry ? exchangeLegPartner_(entry) : null;
+    if (partner) out.exchangePartner = { id: partner.id, amount: Number(partner.amount), currency: partner.currency, date: String(partner.date) };
+  }
+  return out;
+}
+
+function getEntryRepaymentLinksBase_(payload) {
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
   var id = payload.id;
