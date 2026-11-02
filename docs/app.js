@@ -22125,14 +22125,23 @@ function renderInproc_() {
   }
 }
 
+// The number typed in the box, as the account's balance: signed like a starting balance (the "Negative" box or a typed minus make it negative).
+function inprocTypedBalance_() {
+  const raw = document.getElementById("inproc-balance").value.replace(/,/g, "").replace(/[−–]/g, "-").trim();
+  const x = Number(raw);
+  if (!raw || !isFinite(x)) return null;
+  return document.getElementById("inproc-negative").checked || x < 0 ? -Math.abs(x) : Math.abs(x);
+}
+
 // Balance in the bank app + the in-process total (negative for money out) = what is really left. Only for a single currency.
 function updateInprocAfter_(sums) {
   sums = sums || InProcess.sumsByCurrency(inprocItems_.filter((it) => it.on));
   const after = document.getElementById("inproc-after");
   const curs = Object.keys(sums);
-  const raw = document.getElementById("inproc-balance").value.replace(/,/g, "").trim();
-  const bal = Number(raw);
-  if (!raw || !isFinite(bal) || curs.length !== 1) { after.textContent = curs.length > 1 ? tr("inproc.afterNote") : ""; return; }
+  const typed = inprocTypedBalance_();
+  // A card is shown as a debt (the opposite sign of its balance).
+  const bal = typed === null ? 0 : (inprocDebt_ ? -typed : typed);
+  if (typed === null || curs.length !== 1) { after.textContent = curs.length > 1 ? tr("inproc.afterNote") : ""; return; }
   const cur = curs[0];
   // An account: balance minus what is in process. A card: debt plus what is in process (money out raises the debt).
   const left = inprocDebt_ ? Math.round(bal * 100) - sums[cur] : Math.round(bal * 100) + sums[cur];
@@ -22210,7 +22219,10 @@ function openInprocModal_() {
   hintP.dataset.i18n = inprocDebt_ ? "inproc.debtHint" : "inproc.balanceHint";
   hintP.textContent = tr(hintP.dataset.i18n);
   // Opened from an account's balance sheet: start from the balance the person already typed in "Check against my app".
-  document.getElementById("inproc-balance").value = document.getElementById("balance-check-input").value || "";
+  // A card's balance is what is owed, so its "Negative" box starts ticked (same as the balance sheet's new rows).
+  const prefill = (document.getElementById("balance-check-input").value || "").replace(/[−–]/g, "-").trim();
+  document.getElementById("inproc-balance").value = prefill.replace(/^-/, "");
+  document.getElementById("inproc-negative").checked = prefill.startsWith("-") || inprocDebt_;
   inprocSay_("");
   renderInproc_();
   document.getElementById("inproc-modal-backdrop").hidden = false;
@@ -22231,6 +22243,40 @@ document.getElementById("inproc-input").addEventListener("change", (e) => {
   if (files.length) readInprocFiles_(files);
 });
 document.getElementById("inproc-balance").addEventListener("input", () => updateInprocAfter_());
+document.getElementById("inproc-negative").addEventListener("change", () => updateInprocAfter_());
+
+// Puts the new balance (the number typed, or the balance this app shows now, plus the in-process total) into the balance sheet behind this one.
+// Nothing is saved here: the person reviews the row and presses Save in the balance sheet.
+document.getElementById("inproc-apply").addEventListener("click", () => {
+  const sums = InProcess.sumsByCurrency(inprocItems_.filter((it) => it.on));
+  const curs = Object.keys(sums);
+  if (!curs.length) { inprocSay_(tr("inproc.applyNothing"), true); return; }
+  const pmId = balanceFormPmId_;
+  const tracked = pmId && balancesCache.find((b) => b.id === pmId);
+  const typed = curs.length === 1 ? inprocTypedBalance_() : null;
+  const newCents = {};
+  for (const cur of curs) {
+    let base = typed;
+    if (base === null) {
+      const have = tracked && tracked.balances.find((b) => b.currency === cur);
+      if (!have) { inprocSay_(tr("inproc.applyNeedNumber", { cur }), true); return; }
+      base = have.amount;
+    }
+    newCents[cur] = Math.round(base * 100) + sums[cur];
+  }
+  curs.forEach((cur) => {
+    let row = balanceFormRows.find((r) => r.currency === cur);
+    if (!row) row = balanceFormRows.find((r) => !String(r.amount).trim());
+    if (!row) { row = { amount: "", negative: false, currency: cur, date: todayLocalISO() }; balanceFormRows.push(row); }
+    row.currency = cur;
+    row.amount = (Math.abs(newCents[cur]) / 100).toFixed(2);
+    row.negative = newCents[cur] < 0;
+    row.date = todayLocalISO();
+  });
+  renderBalanceRows_();
+  closeInprocModal_();
+  showToast_(tr("inproc.applied"));
+});
 
 document.getElementById("bill-photo-again").addEventListener("click", () => { if (receiptFormFile_) readBillPhoto_(receiptFormFile_); });
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());

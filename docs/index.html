@@ -1680,8 +1680,11 @@
         <div id="inproc-balance-box" hidden>
           <label for="inproc-balance"><span data-i18n="inproc.balance">Optional: the balance your bank app shows now</span> (<span id="inproc-balance-cur">PEN</span>)</label>
           <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <label class="checkbox-row"><input type="checkbox" id="inproc-negative"><span data-i18n="balance.negative">Negative — I owe this (e.g. a credit card)</span></label>
           <p class="hint" data-i18n="inproc.balanceHint">Type the number exactly as your bank app shows it. That number does not include the payments above yet, so the app takes them off for you.</p>
           <p class="hint" id="inproc-after"></p>
+          <button type="button" class="primary" id="inproc-apply" data-i18n="inproc.apply">Put the new balance in the balance sheet</button>
+          <p class="hint" data-i18n="inproc.applyHint">Leave the box empty to take the payments off the balance this app shows now. The new balance is filled in below the starting balances; nothing is saved until you tap Save there.</p>
         </div>
       </div>
       <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
