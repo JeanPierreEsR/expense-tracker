@@ -1698,6 +1698,22 @@
     </div>
   </div>
 
+  <!-- A currency exchange as ONE thing: both sides, edit either, delete both (openExchangePairSheet_ in app.js). -->
+  <div id="xpair-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="xpair-title"></span>
+        <button type="button" id="xpair-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="xpair-summary"></p>
+        <p class="hint" data-i18n="xch.pairHint">One exchange, saved as two sides (one per currency) so each account's balance moves. Edit a side, or delete the whole exchange.</p>
+        <div id="xpair-sides"></div>
+        <button type="button" class="delete-entry-btn" id="xpair-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
+      </div>
+    </div>
+  </div>
+
   <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">

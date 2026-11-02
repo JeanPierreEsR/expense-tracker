@@ -2164,14 +2164,24 @@ function exchangeLegSide_(entry) {
 
 // The other side of an exchange, as far as the app can tell (the two sides are not linked): an exchange leg on the opposite
 // side, in another currency, within 3 days (the same rule unpairedExchangeLegs_ pairs by); the closest date wins. null if none.
+// Exchanges saved since 2026-11-02 carry the same `exchange_pair` on both sides; an older one is paired with the opposite-side leg
+// in another currency on the SAME day (owner, 2026-11-02), the closest in saving time when there are several.
 function exchangeLegPartner_(entry) {
   var side = exchangeLegSide_(entry);
   if (!side) return null;
-  var best = null, bestDiff = 99;
-  getAllRows('Entries').forEach(function (x) {
-    if (x.id === entry.id || x.currency === entry.currency || exchangeLegSide_(x) === side || !exchangeLegSide_(x)) return;
-    var diff = exchangeDayDiff_(x.date, entry.date);
-    if (diff <= 3 && diff < bestDiff) { best = x; bestDiff = diff; }
+  var all = getAllRows('Entries');
+  var pair = String(entry.exchange_pair || '');
+  if (pair) {
+    var mate = all.find(function (x) { return x.id !== entry.id && String(x.exchange_pair || '') === pair; });
+    if (mate) return mate;
+  }
+  var best = null, bestGap = Infinity;
+  var t0 = Date.parse(String(entry.created_at || '')) || 0;
+  all.forEach(function (x) {
+    if (x.id === entry.id || x.currency === entry.currency || !exchangeLegSide_(x) || exchangeLegSide_(x) === side) return;
+    if (String(x.date) !== String(entry.date) || String(x.exchange_pair || '')) return;   // same day; a leg already paired by id is taken
+    var gap = Math.abs((Date.parse(String(x.created_at || '')) || 0) - t0);
+    if (gap < bestGap) { best = x; bestGap = gap; }
   });
   return best;
 }
