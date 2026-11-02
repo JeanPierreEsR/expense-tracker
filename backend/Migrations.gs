@@ -218,6 +218,7 @@ var RETIRED_CATEGORY_NAMES_ = ['Savings', 'Loan'];
 // Same as ensureCategoryPeriodTypeColumn_: an existing sheet can't have its
 // headers recreated, so the one missing column is appended in place.
 function ensureCategoryKeyColumn_() {
+  if (memoHasColumns_('Categories', ['key'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('key') !== -1) return;

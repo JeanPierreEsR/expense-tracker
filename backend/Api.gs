@@ -94,7 +94,11 @@ function doPost(e) {
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
-      response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
+      var payload = body.payload || {};
+      var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
+      if (thenReads) delete payload._then;
+      response = { ok: true, data: routeActionOnce_(body.action, payload) };
+      if (thenReads) response.then = runThenReads_(thenReads);
     }
   } catch (err) {
     response = { ok: false, error: err.message, code: err.code || undefined };
@@ -120,12 +124,27 @@ var ONCE_ACTIONS_ = {
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
+  saveEntryAll: 1,   // may create an entry (the lock also keeps a resend from running next to the first)
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
   // next to the first (the lock below makes it wait, then get the first one's answer).
   applyStatementDecisions: 1, undoStatementBatch: 1,
   applyTidyGroups: 1   // a resend must not run a second copy next to the first
 };
+
+// Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
+// [[action, payload], …]); each costs the phone a whole extra trip to Google otherwise (~2.5 s). Only looking actions
+// (get…/list…), at most 5; each answers { ok, data } or { ok: false } on its own, never failing the save that already
+// happened. Capability thenReads.
+function runThenReads_(reads) {
+  if (!Array.isArray(reads)) return [];
+  return reads.slice(0, 5).map(function (r) {
+    var action = r && r[0];
+    if (typeof action !== 'string' || !/^(get|list)[A-Z]/.test(action)) return { ok: false };
+    try { return { ok: true, data: routeAction(action, (r[1] && typeof r[1] === 'object') ? r[1] : {}) }; }
+    catch (e) { return { ok: false }; }
+  });
+}
 
 function routeActionOnce_(action, payload) {
   var id = payload && payload._requestId;
@@ -149,7 +168,19 @@ function routeActionOnce_(action, payload) {
   }
 }
 
+// Speed (2026-11-02): a call that only LOOKS (get…/list…) reads each sheet from Google once and reuses it (withRowsMemo_);
+// these used to re-read the same sheet 2-9 times per call. getMeta repairs sheets as it goes, so it stays as it was (the
+// start-up bundle handles its own memory). Anything that opens a sheet to change it drops that sheet's copy (getSheet).
+var MEMO_SKIP_ACTIONS_ = { getMeta: 1, getStartupBundle: 1 };
+
 function routeAction(action, payload) {
+  if (/^(get|list)[A-Z]/.test(action) && !MEMO_SKIP_ACTIONS_[action]) {
+    return withRowsMemo_(function () { return routeActionSwitch_(action, payload); });
+  }
+  return routeActionSwitch_(action, payload);
+}
+
+function routeActionSwitch_(action, payload) {
   switch (action) {
     case 'logout': return logout();
     case 'listSessions': return listSessions();
@@ -168,6 +199,7 @@ function routeAction(action, payload) {
     case 'saveRailLinks': return saveRailLinks(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
+    case 'saveEntryAll': return saveEntryAll(payload);
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
@@ -404,13 +436,7 @@ function routeAction(action, payload) {
     case 'suggestForDescription': return suggestForDescription(payload);
     case 'listSupportedSenders': return listSupportedSenders();
     case 'setRulePack': return setRulePack(payload);
-    case 'confirmEntry': {
-      confirmEntryWithLearning_(payload.id);
-      // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
-      var followed = null;
-      try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
-      return followed ? { done: true, follow: followed } : { done: true };
-    }
+    case 'confirmEntry': return confirmEntryFromApp_(payload);
     case 'createPracticePending': return createPracticePending(payload);
     case 'removePracticeReview': return removePracticeReview(payload);
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
@@ -481,7 +507,14 @@ function routeAction(action, payload) {
 
 // ---- Generic sheet helpers ----
 
+// Whoever asks for the sheet itself may be about to change it: while the per-request read memory is on (withRowsMemo_), that
+// sheet's remembered rows are dropped, so a later getAllRows reads it again instead of handing back rows from before the change.
 function getSheet(name) {
+  if (ROWS_MEMO_) { delete ROWS_MEMO_[name]; delete ROWS_MEMO_['@h:' + name]; }
+  return sheetRaw_(name);
+}
+
+function sheetRaw_(name) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
   if (!sheet) throw new Error('Sheet not found: ' + name);
   return sheet;
@@ -546,6 +579,22 @@ function withRowsMemo_(fn) {
   }
 }
 
+// True when, in this request, the sheet's columns were already read (and the sheet has not been opened for a change since)
+// and every one of `cols` is among them; a "make sure the column exists" check can then stop without a call to Google.
+// Anything uncertain answers false and the check runs as it always did. Outside withRowsMemo_ always false.
+function memoHasColumns_(sheetName, cols) {
+  if (!ROWS_MEMO_) return false;
+  var headers = ROWS_MEMO_['@h:' + sheetName];
+  if (!headers && !ROWS_MEMO_[sheetName]) {
+    // Not read yet in this request: read it now (a looking call reads it right after anyway), so the check and the read
+    // that follows cost one trip to Google instead of two.
+    try { getAllRows(sheetName); } catch (e) { return false; }
+    headers = ROWS_MEMO_ && ROWS_MEMO_['@h:' + sheetName];
+  }
+  if (!headers) return false;
+  return cols.every(function (c) { return headers.indexOf(c) !== -1; });
+}
+
 function getAllRows(sheetName) {
   if (ROWS_MEMO_ && ROWS_MEMO_[sheetName]) {
     return ROWS_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
@@ -565,26 +614,59 @@ function sheetDateTz_() {
   return Session.getScriptTimeZone();
 }
 
+// Speed (2026-11-02): ONE read of the whole sheet (headers + rows) instead of four calls to Google (last row, last column,
+// headers, rows); the Sheet's time zone asked once per request; and each date converted once (the same day repeats across
+// thousands of rows, and every Utilities.formatDate is a call into Google's side). See CHANGELOG.md § Speed pass.
 function readAllRows_(sheetName) {
-  var sheet = getSheet(sheetName);
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  var headers = getHeaders(sheet);
-  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  var tz = sheetDateTz_();
-  return values.map(function (row) {
-    var obj = {};
-    headers.forEach(function (h, i) {
-      var v = row[i];
-      if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
-        v = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]);
-      } else if (STRING_FIELDS[h] && v !== '' && v != null) {
-        v = String(v);
-      }
-      obj[h] = v;
-    });
-    return obj;
+  var sheet = sheetRaw_(sheetName);
+  var all = sheet.getDataRange().getValues();
+  var headers = all[0] || [];
+  if (ROWS_MEMO_) ROWS_MEMO_['@h:' + sheetName] = headers.slice();   // for memoHasColumns_
+  if (all.length < 2) return [];
+  var values = all.slice(1);
+  var tz = ROWS_MEMO_ ? (ROWS_MEMO_['@tz'] || (ROWS_MEMO_['@tz'] = sheetDateTz_())) : sheetDateTz_();
+  var dates = {};
+  return values.map(function (row) { return rowToObject_(headers, row, tz, dates); });
+}
+
+// One sheet row as the object getAllRows gives (dates back to text, ids as text). `dates` remembers converted dates.
+function rowToObject_(headers, row, tz, dates) {
+  var obj = {};
+  headers.forEach(function (h, i) {
+    var v = row[i];
+    if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
+      var key = DATE_FIELD_FORMATS[h] + '|' + v.getTime();
+      v = dates[key] || (dates[key] = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]));
+    } else if (STRING_FIELDS[h] && v !== '' && v != null) {
+      v = String(v);
+    }
+    obj[h] = v;
   });
+  return obj;
+}
+
+// The FIRST row whose id is `id` (exactly what getAllRows(sheetName).find(id) gives), without reading the whole sheet:
+// the id column, then that one row. Speed (2026-11-02): looking up one entry read all of Entries (thousands of rows x
+// ~30 columns) and a single save did it up to ten times. Inside withRowsMemo_ the remembered rows are used instead.
+function findRowById_(sheetName, id) {
+  if (ROWS_MEMO_) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var sheet = sheetRaw_(sheetName);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return undefined;
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var idCol = headers.indexOf('id');
+  if (idCol === -1) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    var v = ids[i][0];
+    var asText = (v !== '' && v != null) ? String(v) : v;   // as getAllRows hands it back
+    if (asText === id) {
+      var row = sheet.getRange(i + 2, 1, 1, lastCol).getValues()[0];
+      return rowToObject_(headers, row, sheetDateTz_(), {});
+    }
+  }
+  return undefined;
 }
 
 function appendRowObject(sheetName, obj) {
@@ -823,6 +905,45 @@ function createEntry(payload) {
   if (!payload.tag_ids) autoTagTravelEntry_(entry);
 
   return entry;
+}
+
+function confirmEntryFromApp_(payload) {
+  confirmEntryWithLearning_(payload.id);
+  // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
+  var followed = null;
+  try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
+  return followed ? { done: true, follow: followed } : { done: true };
+}
+
+// Speed (2026-11-02): one trip to Google for what used to be 2-4 in a row (each costs ~2.5 s on a phone before any work).
+// The same functions run in the same order as the separate calls did:
+//   create:  createEntry (fields carry client_id + tag_ids), then the Programmed-item link, the split and the bill;
+//   update:  updateEntry, then the split, the tags and the bill;
+//   confirm: updateEntry, confirmEntry, then the split and the tags (a waiting entry from Needs review).
+// A create sent again answers with the entry its client_id already made and lays the split / bill over it again (each
+// replaces what is there), so a resend after a lost reply is safe. A failed Programmed-item link does not fail the save
+// (the entry is kept; `link_failed` says so), as before.
+function saveEntryAll(payload) {
+  var kind = payload.kind;
+  var id, out;
+  if (kind === 'create') {
+    out = createEntry(payload.fields || {});
+    id = out.id;
+    if (payload.link_recurring_id) {
+      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id }); }
+      catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
+    }
+  } else if (kind === 'update' || kind === 'confirm') {
+    id = payload.id;
+    out = updateEntryFromApp_({ id: id, fields: payload.fields === undefined ? null : payload.fields });
+    if (kind === 'confirm') out = confirmEntryFromApp_({ id: id });
+  } else {
+    throw new Error('Unknown kind: ' + kind);
+  }
+  if (payload.splits) saveEntrySplits(id, payload.splits);
+  if (kind !== 'create' && payload.tag_ids) saveEntryTags({ entryId: id, tagIds: payload.tag_ids });
+  if (payload.bill) saveEntryBill({ entryId: id, bill: payload.bill });
+  return out;
 }
 
 // entry id -> its tag ids, from one read of the Entry Tags tab.

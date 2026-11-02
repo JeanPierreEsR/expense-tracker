@@ -30,6 +30,7 @@
 //                                        (see buildInboundTransferIds_)
 
 function ensureColumn_(sheetName, header) {
+  if (memoHasColumns_(sheetName, [header])) return;   // already there (read earlier in this request)
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   if (headers.indexOf(header) === -1) {

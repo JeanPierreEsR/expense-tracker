@@ -114,6 +114,7 @@ function projectionPeriodBounds_(displayPeriodType, anchorDate) {
 // time it's needed. Blank/missing on any existing row reads as 'monthly'
 // (the default, unchanged behavior) — nothing needs backfilling.
 function ensureCategoryPeriodTypeColumn_() {
+  if (memoHasColumns_('Categories', ['period_type'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('period_type') !== -1) return;

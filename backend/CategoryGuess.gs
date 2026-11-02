@@ -34,6 +34,7 @@ var AUTO_REASON_FIRST_TIMES_ = 3;
 // Entries pre-date this column, so it's appended in place the first time
 // it's needed — same self-heal as recurring_expense_id.
 function ensureEntriesMerchantColumn_() {
+  if (memoHasColumns_('Entries', ['merchant'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('merchant') === -1) {

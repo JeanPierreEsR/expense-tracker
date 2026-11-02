@@ -71,6 +71,7 @@ function getProjectionDefaultMethod_() {
 // Categories already held real data when this was added: append the column in
 // place, once (blank = "use the default"), like period_type.
 function ensureCategoryProjectionMethodColumn_() {
+  if (memoHasColumns_('Categories', ['projection_method'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('projection_method') !== -1) return;
