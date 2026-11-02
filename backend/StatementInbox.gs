@@ -178,6 +178,7 @@ function updateRowFields_(sheetName, id, fields) {
 function stmtInboxAccounts_(item, pms, banksById) {
   var sender = statementSenders_().filter(function (s) { return s.address === item.sender_key; })[0] || {};
   return pms.filter(function (pm) {
+    if (isPracticeAccount_(pm)) return false;   // first-use practice account
     var bank = String((banksById[pm.bank_id] || {}).name || '').toLowerCase();
     if (bank.indexOf(item.bank_keyword) < 0) return false;
     if (sender.creditOnly && pm.type !== 'credit') return false;

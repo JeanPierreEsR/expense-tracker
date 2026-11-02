@@ -5619,6 +5619,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceRLeftover_, 6000);
   setTimeout(practiceNLeftover_, 8000);
   setTimeout(practiceMLeftover_, 10000);
+  setTimeout(practiceALeftover_, 12000);
   setTimeout(practiceILeftover_, 14000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
@@ -10565,7 +10566,10 @@ function showAccountsScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderAccountsList_();
-  offerInvestmentsTip_();   // (the list comes from what the phone already has: nothing left to load)
+  // The list is built from what the phone already holds (nothing to wait for): offer the first-use practices, Accounts first
+  // (Investments is offered only once the Accounts one was seen, so the two cards never show together).
+  offerAccountsTip_();
+  offerInvestmentsTip_();
 }
 
 function renderAccountsList_() {
@@ -10739,7 +10743,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
   closePmModal_();
-  saveBehindScreen_(practiceITrack_(async () => {
+  saveBehindScreen_(practiceATrack_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
       id: state.id || undefined,
       nickname,
@@ -10765,7 +10769,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       const sel = document.getElementById(id);
       if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
     });
-  }, { nickname, type }), () => renderAccountsList_());
+  }, { nickname, type }), nickname), () => renderAccountsList_());
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
@@ -10802,6 +10806,7 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
   if (!pm || !confirm(tr("accounts.confirmDelete", { name: pm.nickname }))) return;
   try {
     await callApi("deletePaymentMethod", { id: pm.id });
+    if (practiceA_ && isPracticeAccountName_(pm.nickname)) { practiceA_.deleted = true; practiceASave_(); }   // (the first-use practice's last real step)
     meta.paymentMethods = meta.paymentMethods.filter((p) => p.id !== pm.id);
     refreshAccountPickers_();
     closePmModal_();
@@ -17088,6 +17093,189 @@ function practiceILeftover_() {
   if (confirm(tr("spot.i.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
 }
 
+// ---- First-use practice: Accounts, cards & platforms ----
+// The person adds a "Practice account" (no bank, no digits: nothing automatic can ever reach it), gives it a starting balance from
+// Overview's Balances card, sees it there, and deletes it the real way (a real delete). Cleanup = one backend call
+// (removePracticeAccounts): the account, its starting balances and any pointer to it; a real entry that somehow got it only loses the account.
+const PRACTICE_A_KEY_ = "tipPracticeAccounts";
+let practiceA_ = null;          // { saved, deleted, startedOn }
+let practiceASaving_ = 0;       // saves of the practice account / its balance still on their way to the server
+let practiceAFailed_ = "";
+let practiceARemoving_ = false;
+let practiceALeftoverAsked_ = false;
+let practiceABalancesWere_ = null;   // whether the Balances card was expanded before the practice opened it
+
+function practiceALoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_A_KEY_) || "null"); } catch (e) { return null; } }
+function practiceASave_() {
+  try { if (practiceA_) localStorage.setItem(PRACTICE_A_KEY_, JSON.stringify(practiceA_)); else localStorage.removeItem(PRACTICE_A_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeAccountName_(name) { return /^(Practice account|Cuenta de práctica)$/i.test(String(name || "").trim()); }
+function practiceAPm_() { return ((meta && meta.paymentMethods) || []).find((pm) => isPracticeAccountName_(pm.nickname)) || null; }
+
+// Wraps the account save so the practice knows one is on its way (the cleanup waits for it) and whether the server refused it.
+function practiceATrack_(work, nickname) {
+  if (!practiceA_ || !isPracticeAccountName_(nickname)) return work;
+  practiceA_.saved = true;
+  practiceASave_();
+  return async () => {
+    practiceASaving_++;
+    try { return await work(); } catch (err) { practiceAFailed_ = err.message || String(err); throw err; } finally { practiceASaving_--; }
+  };
+}
+// The same for the practice account's starting balance (it must reach the server before the account is deleted).
+function practiceATrackBalance_(pmId, work) {
+  const pm = practiceA_ && ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+  if (!pm || !isPracticeAccountName_(pm.nickname)) return work;
+  return async () => {
+    practiceASaving_++;
+    try { return await work(); } catch (err) { practiceAFailed_ = err.message || String(err); throw err; } finally { practiceASaving_--; }
+  };
+}
+
+function offerAccountsTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceAccounts) return;   // an older backend could not keep the practice account away from real e-mails
+  offerTip_("accounts", "accounts-tip-invite", tr("spot.a.invite"), startAccountsPractice_);
+}
+
+function practiceARow_() {
+  return Array.from(document.querySelectorAll("#accounts-list .recurring-row")).find((r) => {
+    const n = r.querySelector(".recurring-row-name");
+    return n && isPracticeAccountName_(n.textContent);
+  }) || null;
+}
+function practiceABalanceRow_() {
+  return Array.from(document.querySelectorAll("#balances-list .balance-row")).find((r) => /Practice account|Cuenta de práctica/.test(r.textContent)) || null;
+}
+
+function practiceASteps_() {
+  const cur = homeCur();
+  const nick = () => document.getElementById("pm-nickname");
+  const bankEl = () => document.getElementById("pm-bank");
+  const digitsEl = () => document.getElementById("pm-last4");
+  const amountEl = () => document.querySelector("#balance-rows .balance-row-amount-input");
+  const amountVal = () => { const el = amountEl(); return el ? parseFloat(String(el.value).replace(/,/g, "")) : NaN; };
+  const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
+  // The name, "no bank" and no digits are put in by the practice itself (re-applied in the Save step): nothing automatic may ever reach it.
+  const fillForm = () => {
+    if (nick().value !== tr("spot.a.name")) { nick().value = tr("spot.a.name"); nick().dispatchEvent(new Event("input", { bubbles: true })); }
+    if (bankEl().value) { bankEl().value = ""; bankEl().dispatchEvent(new Event("change", { bubbles: true })); }
+    if (digitsEl().value) { digitsEl().value = ""; digitsEl().dispatchEvent(new Event("input", { bubbles: true })); }
+    if (pmModalState && pmModalState.wallets && pmModalState.wallets.length) { pmModalState.wallets = []; renderPmWallets_(); }   // no Yape / Plin link either
+  };
+  const pmOpen = () => !document.getElementById("pm-modal-backdrop").hidden;
+  const balOpen = () => !document.getElementById("balance-modal-backdrop").hidden;
+  const unfocus = () => { try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) { /* ignore */ } };
+  return [
+    { key: "intro", text: () => tr("spot.a.intro"), button: () => tr("spot.a.start") },
+    { target: "#accounts-add-btn", text: () => tr("spot.a.s1"), tap: "#accounts-add-btn", before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
+    { look: true, target: "#pm-nickname", text: () => tr("spot.a.s2"), button: () => tr("spot.a.gotIt"), before: async () => { fillForm(); await new Promise((r) => setTimeout(r, 150)); unfocus(); } },
+    { target: "#pm-type", text: () => tr("spot.a.s3"), visit: "#pm-type" },
+    { look: true, target: () => [bankEl(), digitsEl()], text: () => tr("spot.a.s4"), button: () => tr("spot.a.gotIt") },
+    { key: "save", target: () => [document.getElementById("pm-save-btn"), document.getElementById("pm-form-error")],
+      text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s5err", { error: err }) : tr("spot.a.s5"); },
+      before: async () => { fillForm(); document.getElementById("pm-form-error").textContent = ""; },
+      until: () => !pmOpen() },
+    { look: true, target: practiceARow_, text: () => tr("spot.a.s6"), button: () => tr("spot.a.gotIt"), wait: 45000,
+      poke: () => { if (practiceAFailed_) Spotlight.stop("skipped"); } },   // the server refused it (an alert already said why): clean up and stop
+    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.a.s7"), tap: '.nav-btn[data-screen="overview"]' },
+    { target: "#add-balance-btn", text: () => tr("spot.a.s8"), tap: "#add-balance-btn", wait: 15000,
+      before: async () => {   // Overview is still drawing (its cards grow and move the button): light the button up only once it has settled
+        const t0 = Date.now();
+        while (overviewBusyCount_ > 0 && Date.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) => setTimeout(r, 200));
+      } },
+    { look: true, target: "#balance-account-picker-wrap", text: () => tr("spot.a.s9"), button: () => tr("spot.a.gotIt"), wait: 10000,
+      before: async () => {   // the practice account is chosen for the person (their other accounts are never offered as the practice's)
+        const pm = practiceAPm_();
+        const picker = document.getElementById("balance-account-picker");
+        if (pm && picker && picker.value !== pm.id && Array.from(picker.options).some((o) => o.value === pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
+      } },
+    { key: "amount", target: amountEl, text: (fix) => tr(fix ? "spot.a.s10fix" : "spot.a.s10", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "balsave" },
+    { look: true, target: () => document.querySelector("#balance-rows .balance-form-row"), text: () => tr("spot.a.s11", { cur }), button: () => tr("spot.a.gotIt") },
+    { key: "balsave", target: () => [document.getElementById("balance-save-btn"), document.getElementById("balance-form-error")],
+      text: () => { const err = (document.getElementById("balance-form-error").textContent || "").trim(); return err ? tr("spot.a.s12err", { error: err }) : tr("spot.a.s12"); },
+      before: async () => { document.getElementById("balance-form-error").textContent = ""; },
+      until: () => !balOpen() },
+    { look: true, target: practiceABalanceRow_, text: () => tr("spot.a.s13"), button: () => tr("spot.a.gotIt"), wait: 45000,
+      before: async () => {   // the account rows are folded away by default: open them for the practice (put back at the end)
+        if (practiceABalancesWere_ === null) practiceABalancesWere_ = balancesExpanded_;
+        balancesExpanded_ = true; applyBalancesExpanded_();
+      },
+      poke: () => {
+        if (practiceAFailed_) { Spotlight.stop("skipped"); return; }
+        refreshBalances().catch(() => {});
+      } },
+    { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.a.s14"), tap: '.nav-btn[data-screen="more"]' },
+    { target: practiceARow_, text: () => tr("spot.a.s15"), tap: practiceARow_, wait: 15000,
+      before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
+    { look: true, target: "#pm-manage", text: () => tr("spot.a.s16"), button: () => tr("spot.a.gotIt"), wait: 10000 },
+    { target: () => [document.getElementById("pm-delete-btn"), document.getElementById("pm-form-error")],
+      text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s17err", { error: err }) : tr("spot.a.s17"); },
+      until: () => !!(practiceA_ && practiceA_.deleted), wait: 10000 },
+    { text: () => tr("spot.a.s18"), button: () => tr("spot.a.finish") }
+  ];
+}
+
+function startAccountsPractice_() {
+  if (practiceARemoving_) { showToast_(tr("spot.a.stillRemoving")); return false; }
+  const open = ["pm-modal-backdrop", "balance-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.a.busy")); return false; }
+  if (practiceAPm_()) {   // a practice account from an earlier try is still there (the server would refuse the same name): remove it first
+    showToast_(tr("spot.a.alreadyThere"));
+    practiceARemove_(true).then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
+    return false;
+  }
+  practiceA_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
+  practiceASave_();
+  practiceAFailed_ = "";
+  practiceABalancesWere_ = null;
+  runTip_(practiceASteps_(), async () => {
+    if (document.getElementById("screen-accounts").hidden) showAccountsScreen();
+    showToast_(tr("spot.a.removing"));
+    practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceARemove_(force) {
+  if (practiceARemoving_) return false;
+  const p = practiceA_ || practiceALoad_() || (force ? { saved: true } : null);
+  if (!p) return true;
+  practiceARemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (!document.getElementById("pm-modal-backdrop").hidden) closePmModal_();
+    if (!document.getElementById("balance-modal-backdrop").hidden) closeBalanceModal();
+    if (practiceABalancesWere_ !== null) { balancesExpanded_ = practiceABalancesWere_; practiceABalancesWere_ = null; applyBalancesExpanded_(); }
+    // The account and its balance must have reached the server BEFORE the delete (a late one would make a stray account or balance).
+    const t0 = Date.now();
+    while (practiceASaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeAccounts", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.a.removeFailed", { error: err.message })); }
+    }
+    if (ok) {
+      practiceA_ = null; practiceASave_();
+      if (meta && meta.paymentMethods) meta.paymentMethods = meta.paymentMethods.filter((pm) => !isPracticeAccountName_(pm.nickname));
+      refreshAccountPickers_();
+    }
+    practiceAFailed_ = "";
+    renderAccountsList_();
+    refreshBalances().catch(() => {});
+    return ok;
+  } finally { practiceARemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceALeftover_() {
+  if (practiceALeftoverAsked_ || practiceARemoving_ || Spotlight.isRunning() || !practiceALoad_()) return;
+  practiceALeftoverAsked_ = true;
+  if (confirm(tr("spot.a.leftover"))) practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
+}
+
 // ---- First-use practice: Programmed items ----
 // The person programs a "Practice item", sees it on Home, records its payment through "Mark as paid… > Record the payment…" and deletes
 // the item (a real delete). Cleanup = one backend call (removePracticeProgrammed): the item, its payment entry (named like it) and
@@ -20227,7 +20415,7 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
       return { currency: row.currency, amount: row.negative ? -Math.abs(parsed) : parsed, date: row.date };
     });
     closeBalanceModal();
-    saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }), refreshBalances);
+    saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances })), refreshBalances);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {

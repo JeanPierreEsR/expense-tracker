@@ -197,6 +197,7 @@ function saveOnboardingPlatforms(payload) {
 // Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but an INTERBANK CREDIT CARD
 // can pay through Plin (owner, 2026-10-19; narrowed 2026-10-23: only Interbank cards, no other card offers Yape or Plin).
 function railAllowsAccount_(rail, pm) {
+  if (isPracticeAccount_(pm)) return false;   // the practice account never carries Yape / Plin payments
   var banks = getAllRows('Banks');
   var bank = banks.find(function (b) { return String(b.id) === String(pm.bank_id); });
   var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
@@ -265,7 +266,8 @@ function relocalizeAutoAliases_(lang) {
   lang = normalizeLang_(lang);
   if (!lang) return 0;
   var rows = getAllRows('Payment Methods');
-  var bankAccounts = rows.filter(function (pm) { return pm.type === 'debit' || pm.type === 'credit'; });
+  // The first-use practice's account ("Practice account") is nobody's real account: it must not stop the rename.
+  var bankAccounts = rows.filter(function (pm) { return (pm.type === 'debit' || pm.type === 'credit') && !isPracticeAccount_(pm); });
   if (!bankAccounts.length) return 0;
   var allAuto = bankAccounts.every(function (pm) { return String(pm.alias_auto) === 'yes' && ACCOUNT_KINDS_.indexOf(String(pm.alias_kind)) !== -1; });
   if (!allAuto) return 0;
@@ -290,4 +292,57 @@ function relocalizeAutoAliases_(lang) {
   });
   if (changed) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
   return changed;
+}
+
+// ---- First-use practice: Accounts, cards & platforms ----
+// The practice adds an account named like this (both languages), gives it a starting balance and deletes it again. It is made-up money:
+// no e-mail, statement line, Telegram message or rail may ever land on it, so every place that PICKS an account for something automatic
+// leaves it out (withoutPracticeAccounts_), and the cleanup below removes it. See tests/backend/practice-accounts.test.js.
+function isPracticeAccount_(pm) {
+  return /^(Practice account|Cuenta de pr\u00e1ctica)$/i.test(String((pm && pm.nickname) || '').trim());
+}
+function withoutPracticeAccounts_(list) {
+  return (list || []).filter(function (pm) { return !isPracticeAccount_(pm); });
+}
+
+// The cleanup in ONE call: every account with the practice's name, its starting balances, and anything pointing at it. A REAL entry (or loan,
+// repayment, statement record) that somehow got the practice account is never deleted: it only loses the account, like a deleted one would.
+//   payload: { started_on }  (kept for symmetry with the other practices; the account is removed whatever the date)
+// Returns { accounts, balances, cleared }.
+function removePracticeAccounts(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { accounts: 0, balances: 0, cleared: 0 };
+    var ids = {};
+    getAllRows('Payment Methods').filter(isPracticeAccount_).forEach(function (pm) { ids[String(pm.id)] = true; });
+    if (!Object.keys(ids).length) return out;
+    getAllRows('Entries').forEach(function (e) {
+      ['payment_method_id', 'to_payment_method_id'].forEach(function (f) {
+        if (ids[String(e[f] || '')]) { setEntryField_(e.id, f, ''); out.cleared++; }
+      });
+    });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    [['Loans', ['payment_method_id']], ['Settlements', ['payment_method_id']],
+     ['Statement Uploads', ['payment_method_id']], ['Statement Gaps', ['payment_method_id']]].forEach(function (spec) {
+      if (!ss.getSheetByName(spec[0])) return;
+      getAllRows(spec[0]).forEach(function (r) {
+        spec[1].forEach(function (f) {
+          if (ids[String(r[f] || '')]) { updateRowFields_(spec[0], r.id, (function (o) { o[f] = ''; return o; })({})); out.cleared++; }
+        });
+      });
+    });
+    var settings = getSettingsMap();
+    RAIL_LINK_KEYS_.forEach(function (k) { if (ids[String(settings[k] || '')]) setSetting_(k, ''); });
+    ensureAccountOpeningBalancesSheet_();
+    out.balances = getAllRows('Account Opening Balances').filter(function (row) { return !!ids[String(row.payment_method_id)]; }).length;
+    deleteRowsWhere_('Account Opening Balances', function (row) { return !!ids[String(row.payment_method_id)]; });
+    var sheet = getSheet('Payment Methods');
+    var headers = getHeaders(sheet);
+    Object.keys(ids).forEach(function (id) {
+      var idx = findRowIndexById(sheet, headers, id);
+      if (idx !== -1) { deleteSheetRows_(sheet, idx, 1); out.accounts++; }
+    });
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+    bumpStructureVersion_();
+    return out;
+  });
 }

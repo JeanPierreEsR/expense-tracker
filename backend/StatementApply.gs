@@ -120,7 +120,7 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k; }) || null;
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
 }
 
 function stmtTitleCase_(text) {

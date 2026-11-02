@@ -361,7 +361,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
   });
   if (duplicate) { photoReply_(chatId, replyToMessageId, tr_('photo.duplicate')); return; }
 
-  var allPaymentMethods = getAllRows('Payment Methods');
+  var allPaymentMethods = withoutPracticeAccounts_(getAllRows('Payment Methods'));
   var pm = (parsed.rail ? railAccount_(parsed.rail, parsed.currency, allPaymentMethods) : null) || allPaymentMethods.find(function (p) {
     return plainNickname_(p.nickname) === plainNickname_(parsed.accountByCurrency[parsed.currency]);
   });
