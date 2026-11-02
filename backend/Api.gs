@@ -413,6 +413,7 @@ function routeAction(action, payload) {
     }
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
     case 'removePracticeBudgets': return removePracticeBudgets();
+    case 'removePracticeExchange': return removePracticeExchange(payload);
     case 'removePracticeData': return removePracticeData(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
