@@ -34,9 +34,11 @@ function getBudgetPeriodBounds_(periodType, refDate) {
 // total). Building this context ONCE and computing every budget's progress
 // from the in-memory result instead keeps it to a handful of sheet reads
 // regardless of how many budgets exist.
-function buildBudgetContext_() {
+// opts.skipPractice: leave out the first-use practices' own entries (the alert check; see Practice.gs).
+function buildBudgetContext_(opts) {
+  var skipPractice = !!(opts && opts.skipPractice);
   var entries = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.type === 'expense';
+    return e.status === 'confirmed' && e.type === 'expense' && !(skipPractice && isPracticeEntry_(e));
   });
 
   var splitSumByEntry = {};
@@ -712,7 +714,7 @@ function checkBudgetsLocked_() {
   }
 
   var categoryById = rowsById_(getAllRows('Categories'));
-  var ctx = buildBudgetContext_();
+  var ctx = buildBudgetContext_({ skipPractice: true });   // a practice's own expense never sets off an alert (Practice.gs)
   var alertedSet = {};
   getAllRows('Budget Alert Log').forEach(function (a) {
     alertedSet[a.budget_id + '|' + a.period + '|' + a.threshold] = true;
