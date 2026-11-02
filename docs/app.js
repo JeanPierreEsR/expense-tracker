@@ -5431,6 +5431,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   // changes an existing row, so it is not repeat-safe the way a new one is.
   if (moneyBackground_() && !ctx) {
     const replaces = takeMoneyReopen_("exchange");
+    practiceXTrack_(document.getElementById("exchange-house").value, out, inn);   // first-use practice: it has an exchange on its way
     if (wasInline) {
       document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
       updateRepaymentUi_();
@@ -5622,6 +5623,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceALeftover_, 12000);
   setTimeout(practiceILeftover_, 14000);
   setTimeout(practiceTLeftover_, 16000);
+  setTimeout(practiceXLeftover_, 18000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -10550,6 +10552,7 @@ async function refreshExchangeRates() {
     });
     list.appendChild(row);
   });
+  offerExchangeTip_();   // only now that everything has arrived (loading standard)
 }
 
 // ---- Accounts & cards (More tab) ----
@@ -17473,6 +17476,179 @@ function practiceTLeftover_() {
   if (practiceTLeftoverAsked_ || practiceTRemoving_ || Spotlight.isRunning() || !practiceTLoad_()) return;
   practiceTLeftoverAsked_ = true;
   if (confirm(tr("spot.t.leftover"))) practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
+}
+
+// ---- First-use practice: Currency exchange ----
+// Offered on More → Exchange rates. The person records a real currency exchange between two of their own accounts through the "+"
+// sheet (Transfer → Type of transfer → Currency exchange), sees its two entries on Home and the balances move, and is told how to undo an
+// exchange properly (delete BOTH entries; the app does not pair them, so the practice does not delete one for them). The exchange is named "Practice exchange" / "Cambio de práctica" (the form's "exchange house or note" box, filled in
+// by the practice); recording an exchange never writes an exchange rate (the rate line in the form is only shown), so none is left behind.
+// Cleanup = one backend call (removePracticeExchange): the entries with that name made since the practice started, nothing else.
+const PRACTICE_X_KEY_ = "tipPracticeExchange";
+let practiceX_ = null;          // { saved, startedOn, accounts }
+let practiceXRemoving_ = false;
+let practiceXLeftoverAsked_ = false;
+let practiceXBalances_ = false; // the two accounts are on the Balances card (they have a starting balance): the Overview steps show
+
+function practiceXLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_X_KEY_) || "null"); } catch (e) { return null; } }
+function practiceXSave_() {
+  try { if (practiceX_) localStorage.setItem(PRACTICE_X_KEY_, JSON.stringify(practiceX_)); else localStorage.removeItem(PRACTICE_X_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeExchangeHouse_(name) { return /^(Practice exchange|Cambio de práctica)$/i.test(String(name || "").trim()); }
+
+// Called from the exchange form's Save once the phone has checked it: the practice remembers it has an exchange on its way and which
+// two accounts it uses (for the balances step).
+function practiceXTrack_(house, out, inn) {
+  if (!practiceX_ || !isPracticeExchangeHouse_(house)) return;
+  practiceX_.saved = true;
+  practiceX_.accounts = [out.payment_method_id, inn.payment_method_id].filter(Boolean);
+  practiceXSave_();
+}
+
+function offerExchangeTip_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!caps.practiceExchange || !caps.clientMoneyId) return;   // an older backend could not clean the practice up / keep the save behind the screen
+  if (!(meta.paymentMethods || []).some((pm) => pm.type !== "investment" && !pmHidden_(pm))) return;   // an exchange needs one of the person's own accounts
+  offerTip_("exchange", "exchange-rates-tip-invite", tr("spot.x.invite"), startExchangePractice_);
+}
+
+// The practice's own entries on Home (not the ones already being deleted).
+function practiceXRows_() {
+  return Array.from(document.querySelectorAll("#entry-list .entry[data-entry-id]")).filter((r) => {
+    const d = r.querySelector(".entry-desc");
+    return !r.classList.contains("entry-deleting") && d && /\((Practice exchange|Cambio de práctica)\)\s*$/i.test(d.textContent.trim());
+  });
+}
+
+function practiceXFailedItem_() {
+  return getMoneyQueue_().find((i) => i.status === "failed" && i.action === "recordCurrencyExchange" && i.payload && isPracticeExchangeHouse_(i.payload.house));
+}
+// The server refused the practice exchange (the phone keeps it as "couldn't save"): say why and stop; stopping runs the usual cleanup.
+function practiceXSaveFailed_() {
+  if (!practiceX_ || !Spotlight.isRunning()) return false;
+  const bad = practiceXFailedItem_();
+  if (!bad) return false;
+  alert(tr("spot.x.saveFailed", { error: bad.lastError || "" }));
+  Spotlight.stop("skipped");
+  return true;
+}
+
+function practiceXBalancesShown_() {
+  const mine = (practiceX_ && practiceX_.accounts) || [];
+  return (balancesCache || []).some((r) => mine.includes(r.id));
+}
+
+function practiceXSteps_() {
+  const el = (id) => document.getElementById(id);
+  const ownAccount = (id) => { const v = el(id).value; return !!v && v !== "__pick__"; };   // "" = someone else's account
+  const amt = (id) => parseFloat(el(id).value);
+  const amtDone = (id) => () => amt(id) > 0 && document.activeElement !== el(id);
+  const rowOf = (id) => () => el(id).parentElement;
+  const curOf = (which) => el(`exchange-${which}-currency`).value;
+  const bothAmounts = () => amt("exchange-in-amount") > 0 && curOf("out") !== curOf("in");
+  const nameIt = () => {
+    const h = el("exchange-house");
+    if (h.value !== tr("spot.x.name")) { h.value = tr("spot.x.name"); h.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  const goHome = () => { if (document.getElementById("screen-entries").hidden) { showScreen("entries"); syncFab_(); } };
+  const err = () => (el("exchange-form-error").textContent || "").trim();
+  return [
+    { key: "intro", text: () => tr("spot.x.intro"), button: () => tr("spot.x.start") },
+    { target: "#fab-new-entry", text: () => tr("spot.x.s1"), tap: "#fab-new-entry", before: async () => { goHome(); } },
+    { target: '#entry-type-tabs .type-tab[data-type="transfer"]', text: () => tr("spot.x.s2"), tap: '#entry-type-tabs .type-tab[data-type="transfer"]' },
+    { target: "#transfer-kind", text: () => tr("spot.x.s3"), until: () => el("transfer-kind").value === "exchange" && exchangeFormIsInline_() },
+    { key: "outAcc", target: "#exchange-out-account", text: (fix) => tr(fix ? "spot.x.s4fix" : "spot.x.s4"), until: () => ownAccount("exchange-out-account"),
+      ok: () => ownAccount("exchange-out-account"), holdsUntil: "save" },
+    { key: "outAmt", target: rowOf("exchange-out-amount"), text: (fix) => tr(fix ? "spot.x.s5fix" : "spot.x.s5", { cur: curOf("out") }), blurTap: true,
+      until: amtDone("exchange-out-amount"), ok: () => amt("exchange-out-amount") > 0, holdsUntil: "save" },
+    { key: "inAcc", target: "#exchange-in-account", text: (fix) => tr(fix ? "spot.x.s6fix" : "spot.x.s6"), until: () => ownAccount("exchange-in-account"),
+      ok: () => ownAccount("exchange-in-account"), holdsUntil: "save" },
+    { key: "inAmt", target: rowOf("exchange-in-amount"), text: (fix) => tr(fix || (amt("exchange-in-amount") > 0 && curOf("out") === curOf("in")) ? "spot.x.s7fix" : "spot.x.s7", { cur: curOf("in") }), blurTap: true,
+      until: () => amtDone("exchange-in-amount")() && bothAmounts(), ok: bothAmounts, holdsUntil: "save" },
+    { look: true, target: "#exchange-rate-line", text: () => tr("spot.x.s8"), button: () => tr("spot.x.gotIt"), available: () => !el("exchange-rate-line").hidden },
+    { look: true, target: "#exchange-house", text: () => tr("spot.x.s9"), button: () => tr("spot.x.gotIt"), before: async () => { nameIt(); } },
+    { key: "save", target: () => [el("exchange-save-btn"), el("exchange-form-error")],
+      text: () => { const e = err(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
+      before: async () => { nameIt(); el("exchange-date").value = todayLocalISO(); el("exchange-form-error").textContent = ""; },   // the cleanup finds it by name and day
+      until: () => !!(practiceX_ && practiceX_.saved) },
+    { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s11"), button: () => tr("spot.x.gotIt"), wait: 45000,
+      before: async () => { goHome(); },
+      poke: () => { if (practiceXSaveFailed_()) return; refreshEntryList().catch(() => {}); } },
+    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.x.s12"), tap: '.nav-btn[data-screen="overview"]', wait: 5000,
+      available: practiceXBalancesShown_,
+      before: async () => { try { await refreshBalances(); } catch (e) { /* keep what is shown */ } practiceXBalances_ = practiceXBalancesShown_(); return practiceXBalances_; } },
+    { look: true, target: "#balances-totals", text: () => tr("spot.x.s13"), button: () => tr("spot.x.gotIt"), wait: 20000, available: practiceXBalancesShown_,
+      // Overview paints its other cards a moment after opening and pushes Balances down: wait until it has finished, so the light lands on the right place.
+      before: async () => {
+        const t0 = Date.now();
+        while (overviewBusyCount_ > 0 && Date.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 400));
+        return practiceXBalances_;
+      },
+      poke: () => { refreshBalances().catch(() => {}); } },
+    { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.x.s14"), tap: '.nav-btn[data-screen="entries"]', available: practiceXBalancesShown_,
+      before: async () => practiceXBalances_ },
+    // The two sides of an exchange are separate entries, and deleting one leaves the other (the app does not pair them): so the practice
+    // does NOT make the person delete one; it explains how to undo an exchange properly (both entries) and removes both itself.
+    { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s15"), button: () => tr("spot.x.gotIt"), wait: 15000,
+      before: async () => { goHome(); } },
+    { text: () => tr("spot.x.s17"), button: () => tr("spot.x.finish"), before: async () => { if (practiceXSaveFailed_()) return false; } }
+  ];
+}
+
+function startExchangePractice_() {
+  if (practiceXRemoving_) { showToast_(tr("spot.x.stillRemoving")); return false; }
+  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+  if (!tipPrepareForm_()) return false;
+  practiceX_ = { saved: false, startedOn: todayLocalISO(), accounts: [] };
+  practiceXSave_();
+  practiceXBalances_ = false;
+  runTip_(practiceXSteps_(), async () => {
+    if (document.getElementById("screen-exchange-rates").hidden) showExchangeRatesScreen();
+    showToast_(tr("spot.x.removing"));
+    practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceXRemove_() {
+  if (practiceXRemoving_) return false;
+  const p = practiceX_ || practiceXLoad_();
+  if (!p) return true;
+  practiceXRemoving_ = true;
+  try {
+    // What the practice may have left open: the sheet showing the exchange fields (they go back to their pop-up), the edit sheet of one side.
+    if (newEntrySheetOpen_) {
+      document.getElementById("transfer-kind").value = "between";
+      updateRepaymentUi_();
+      closeNewEntrySheet_();
+    } else if (editingViaPopup) {
+      cancelEdit();
+    }
+    if (!document.getElementById("exchange-modal-backdrop").hidden) closeExchangeModal_();
+    // A refused practice exchange is only dropped from the phone's queue; one still on its way must land BEFORE the delete (a late one would make a stray entry).
+    const stuck = getMoneyQueue_().filter((i) => i.status === "failed" && i.action === "recordCurrencyExchange" && i.payload && isPracticeExchangeHouse_(i.payload.house));
+    if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeExchange", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.x.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceX_ = null; practiceXSave_(); }
+    refreshEntryList().catch(() => {});
+    refreshBalances().catch(() => {});
+    refreshHomeGlance_(true);
+    return ok;
+  } finally { practiceXRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceXLeftover_() {
+  if (practiceXLeftoverAsked_ || practiceXRemoving_ || Spotlight.isRunning() || !practiceXLoad_()) return;
+  practiceXLeftoverAsked_ = true;
+  if (confirm(tr("spot.x.leftover"))) practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); });
 }
 
 // ---- First-use practice: Programmed items ----
