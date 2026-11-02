@@ -91,6 +91,7 @@ function getCapabilities_() {
     practiceLoansMore: true,   // removePracticeLoans + the overdue check skips the practice's loans: the standalone-loan and bank-loan practices are only offered where this exists
     practiceInvestments: true,   // removePracticeInvestments: the Investments practice is only offered where this exists
     practiceAccounts: true,   // removePracticeAccounts + the automatic matchers (e-mail, statements, Telegram, Yape/Plin) skip the practice's account: the Accounts practice is only offered where this exists
+    practiceTrips: true,   // removePracticeTrips + suggestions/alerts skip the practice trip: the Trips & events practice is only offered where this exists
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
     practiceReview: true,   // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch

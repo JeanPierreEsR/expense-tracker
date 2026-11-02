@@ -381,10 +381,20 @@ function getTripDetail(payload) {
 
 // ---- Suggestions by date (always confirmed by the owner; nothing links on its own) ----
 
-// The trips/events whose dates include `date` (YYYY-MM-DD).
+// First-use Trips practice: its trip and its expense are named like this (both languages). Every cleanup below only ever touches these names.
+function isPracticeTrip_(t) {
+  return /^(Practice trip|Viaje de pr\u00e1ctica)$/.test(String((t && t.name) || '').trim());
+}
+function isPracticeTripExpense_(e) {
+  return /^(Practice trip expense|Gasto de viaje de pr\u00e1ctica)$/.test(String((e && e.description) || '').trim());
+}
+
+// The trips/events whose dates include `date` (YYYY-MM-DD). The practice trip never counts: a suggestion ("Will be linked to...",
+// the review queue's pre-selected trip, Telegram's default link, "repayment" with no name) must not point a REAL entry at it, and it
+// must not make a real trip ambiguous (two covering one date = no guess).
 function tripsCoveringDate_(date, trips) {
   var d = String(date || '');
-  return (trips || getTripRows_()).filter(function (t) { return d >= t.start_date && d <= t.end_date; });
+  return (trips || getTripRows_()).filter(function (t) { return !isPracticeTrip_(t) && d >= t.start_date && d <= t.end_date; });
 }
 
 // The one trip a date points to — or '' when none or SEVERAL cover it (never guess between two).
@@ -467,6 +477,28 @@ function linkEntriesToTrip(payload) {
   return { linked: linked };
 }
 
+// First-use Trips practice cleanup in ONE call: deletes every trip named like the practice's (with its hidden group friend and alert
+// history, through deleteTrip) and the expense the practice recorded for it (named like it, dated since the practice started). A REAL
+// entry the person linked to the practice trip is never deleted, only unlinked (deleteTrip does that).
+//   payload: { started_on }  -> { trips, entries, unlinked }
+function removePracticeTrips(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { trips: 0, entries: 0, unlinked: 0 };
+    ensureTripsSheet_();
+    var ids = getTripRows_().filter(isPracticeTrip_).map(function (t) { return String(t.id); });
+    var startedOn = String((payload && payload.started_on) || '');
+    getAllRows('Entries').forEach(function (e) {
+      if (e.type === 'expense' && isPracticeTripExpense_(e) && (!startedOn || String(e.date) >= startedOn)) {
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+      } else if (ids.indexOf(String(e.trip_id)) !== -1) {
+        out.unlinked++;
+      }
+    });
+    ids.forEach(function (id) { deleteTrip({ id: id }); out.trips++; });
+    return out;
+  });
+}
+
 // ---- Budget alerts through Telegram (same idea and cycle as category budgets) ----
 // A trip with a budget warns when what it counts (paid + estimates, the same figure as its budget bar)
 // first crosses each alert percentage. Dedup is by the shared Budget Alert Log with the trip's id as
@@ -493,7 +525,7 @@ function checkTripBudgets() {
 function checkTripBudgetsLocked_() {
   var cutoff = formatCalendarDate_(new Date(Date.now() - TRIP_ALERT_GRACE_DAYS_ * 24 * 3600 * 1000));
   var trips = listTrips().filter(function (t) {
-    return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff;
+    return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff && !isPracticeTrip_(t);   // (the first-use practice's trip never alerts)
   });
   // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
   var baseline = alertBaselinePending_('trips');

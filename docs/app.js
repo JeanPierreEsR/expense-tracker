@@ -5621,6 +5621,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceMLeftover_, 10000);
   setTimeout(practiceALeftover_, 12000);
   setTimeout(practiceILeftover_, 14000);
+  setTimeout(practiceTLeftover_, 16000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -11251,6 +11252,7 @@ async function refreshTripsList_() {
     meta.trips = trips;
     populateTripOptions_();
     renderTripsList_(trips);
+    offerTripsTip_();   // only now that everything has arrived (loading standard)
   } catch (err) {
     errorEl.textContent = tr("trips.loadFailed", { error: err.message });
   }
@@ -11287,6 +11289,9 @@ function renderTripsList_(trips) {
       </div>
       <div class="recurring-row-amount"><span class="primary-amt">${t.estimatedMain > 0.004 ? "≈ " : ""}${t.cur || homeCur()} ${moneyFmt(t.spentMain || 0)}</span>${budget}</div>
     `;
+    row.dataset.tripId = t.id;   // (for the first-use practice)
+    row.dataset.tripName = t.name;
+    row.dataset.entryCount = String(t.entryCount || 0);
     row.addEventListener("click", () => showTripDetail_(t.id));
     list.appendChild(row);
   }));
@@ -11798,7 +11803,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
     const tripId = editingTripId_;
     closeTripModal_();
     saveBehindScreen_(
-      () => tripId ? callApi("updateTrip", Object.assign({ id: tripId }, fields)) : callApi("addTrip", fields),
+      practiceTTrack_(() => tripId ? callApi("updateTrip", Object.assign({ id: tripId }, fields)) : callApi("addTrip", fields), fields),
       async () => {
         await refreshTripsList_();
         if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
@@ -11817,6 +11822,7 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
   const errorEl = document.getElementById("trip-form-error");
   try {
     await callApi("deleteTrip", { id: trip.id });
+    if (practiceT_ && isPracticeTripName_(trip.name)) { practiceT_.deleted = true; practiceTSave_(); }   // (first-use practice: the real delete is its last step)
     closeTripModal_();
     tripDetailId_ = null;
     await showTripsScreen();
@@ -17274,6 +17280,199 @@ function practiceALeftover_() {
   if (practiceALeftoverAsked_ || practiceARemoving_ || Spotlight.isRunning() || !practiceALoad_()) return;
   practiceALeftoverAsked_ = true;
   if (confirm(tr("spot.a.leftover"))) practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
+}
+
+// ---- First-use practice: Trips & events ----
+// The person creates a "Practice trip" (budget, dates), opens its page, records one expense linked to it, sees the total change and
+// deletes the trip (a real delete). Cleanup = one backend call (removePracticeTrips): the trip(s) with that name (and their hidden group
+// friend) and the expense named "Practice trip expense"; a real entry the person linked is only unlinked. The practice trip never alerts
+// and is never suggested for a real entry (the server skips it). Background, like the other practices.
+const PRACTICE_T_KEY_ = "tipPracticeTrips";
+let practiceT_ = null;          // { saved, deleted, startedOn }
+let practiceTSaving_ = 0;       // saves of the practice trip still on their way to the server
+let practiceTFailed_ = "";
+let practiceTSwitched_ = false;   // the picker was put back on the practice trip (a real trip had been chosen)
+let practiceTRemoving_ = false;
+let practiceTLeftoverAsked_ = false;
+
+function practiceTLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_T_KEY_) || "null"); } catch (e) { return null; } }
+function practiceTSave_() {
+  try { if (practiceT_) localStorage.setItem(PRACTICE_T_KEY_, JSON.stringify(practiceT_)); else localStorage.removeItem(PRACTICE_T_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeTripName_(name) { return /^(Practice trip|Viaje de práctica)$/.test(String(name || "").trim()); }
+
+// Wraps the trip save so the practice knows one is on its way (the cleanup waits for it) and whether the server refused it.
+function practiceTTrack_(work, fields) {
+  if (!practiceT_ || !isPracticeTripName_(fields && fields.name)) return work;
+  practiceT_.saved = true;
+  practiceTSave_();
+  return async () => {
+    practiceTSaving_++;
+    try { return await work(); } catch (err) { practiceTFailed_ = err.message || String(err); throw err; } finally { practiceTSaving_--; }
+  };
+}
+
+function offerTripsTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceTrips) return;   // an older backend could not keep the practice trip silent or clean it up
+  offerTip_("trips", "trips-tip-invite", tr("spot.t.invite"), startTripsPractice_);
+}
+
+function practiceTRow_(needExpense) {
+  return Array.from(document.querySelectorAll("#trips-list .recurring-row")).find((r) =>
+    isPracticeTripName_(r.dataset.tripName) && (!needExpense || Number(r.dataset.entryCount) > 0)) || null;
+}
+
+function practiceTSteps_() {
+  const cur = homeCur();
+  const budgetEl = () => document.getElementById("trip-budget");
+  const budgetVal = () => parseFloat(budgetEl().value);
+  const budgetDone = () => budgetVal() > 0 && document.activeElement !== budgetEl();
+  const amountEl = () => document.getElementById("amount");
+  const amountVal = () => parseFloat(amountEl().value);
+  const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
+  const tripSel = () => document.getElementById("entry-trip");
+  const practiceTrip = () => (meta.trips || []).find((t) => isPracticeTripName_(t.name));
+  const pickedPractice = () => { const t = practiceTrip(); return !!t && tripSel().value === t.id; };
+  const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
+  const lastError = (id) => (document.getElementById(id).textContent || "").trim();
+  const setValue = (el, v) => { if (el.value !== v) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); } };
+  // The trip form: the practice's name and three days from today (so an expense paid today is "during" the trip).
+  const fillTrip = () => {
+    setValue(document.getElementById("trip-name"), tr("spot.t.name"));
+    const d = new Date(); d.setDate(d.getDate() + 2);
+    const end = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const start = todayLocalISO();
+    const s = document.getElementById("trip-start"), e = document.getElementById("trip-end");
+    if (s.value !== start || e.value !== end) { s.value = start; e.value = end; s.dispatchEvent(new Event("change", { bubbles: true })); }
+  };
+  const nameExpense = () => setValue(document.getElementById("description"), tr("spot.t.expenseName"));
+  // The text says "Type {cur} 60" in the main currency, and the practice trip counts in it too: the expense is in that currency (a form that
+  // still holds another one, e.g. right after the main currency was switched, would need an exchange rate and show a converted total).
+  const mainCurrencyOnForm = () => {
+    if ((document.getElementById("currency").value || "").toUpperCase() === cur) return;
+    document.getElementById("currency").value = cur;
+    renderCurrencyChips("entry");
+    renderSplitSummary();
+  };
+  const detailParts = () => {
+    const total = document.querySelector("#trip-detail-body .trip-total"), phases = document.querySelector("#trip-detail-body .trip-phases");
+    return total && phases ? [total, phases] : null;
+  };
+  return [
+    { key: "intro", text: () => tr("spot.t.intro"), button: () => tr("spot.t.start") },
+    { target: "#trips-add-btn", text: () => tr("spot.t.s1"), tap: "#trips-add-btn", before: async () => { if (document.getElementById("screen-trips").hidden) await showTripsScreen(); } },
+    { look: true, target: () => [document.getElementById("trip-kind-tabs"), document.getElementById("trip-name"), document.querySelector("#trip-modal-backdrop .range-field")], text: () => tr("spot.t.s2"),
+      button: () => tr("spot.t.gotIt"), before: async () => { fillTrip(); } },
+    { key: "budget", target: () => [budgetEl(), document.getElementById("trip-alert-fields")], text: (fix) => tr(fix ? "spot.t.s3fix" : "spot.t.s3", { cur }), blurTap: true, until: budgetDone,
+      ok: () => budgetVal() > 0, holdsUntil: "save", before: async () => { fillTrip(); } },
+    { key: "save", target: () => [document.getElementById("trip-save-btn"), document.getElementById("trip-form-error")],
+      text: () => { const err = lastError("trip-form-error"); return err ? tr("spot.t.s4err", { error: err }) : tr("spot.t.s4"); },
+      before: async () => { fillTrip(); document.getElementById("trip-form-error").textContent = ""; },
+      until: () => document.getElementById("trip-modal-backdrop").hidden },
+    { target: () => practiceTRow_(false), text: () => tr("spot.t.s5"), tap: () => practiceTRow_(false), wait: 45000,
+      poke: () => {
+        if (practiceTFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
+        if (!document.getElementById("screen-trips").hidden) refreshTripsList_().catch(() => {});
+      } },
+    { look: true, target: detailParts, text: () => tr("spot.t.s6"), button: () => tr("spot.t.gotIt"), wait: 20000 },
+    { target: "#fab-new-entry", text: () => tr("spot.t.s7"), tap: "#fab-new-entry",
+      before: async () => { showScreen("entries"); syncFab_(); } },
+    { target: "#category-picker", text: () => tr("spot.t.s8"), until: () => !document.getElementById("entry-form").hidden,
+      before: async () => {   // the picker is for an Expense
+        const tab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
+        if (selectedType !== "expense" && tab) tab.click();
+      } },
+    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.p.s4fix" : "spot.p.s4", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "saveEntry", before: async () => { nameExpense(); mainCurrencyOnForm(); } },
+    { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method", available: hasAccounts,
+      ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "saveEntry" },
+    // (A change in the picker ends a visit step by itself, so a wrong pick cannot hold the walkthrough here: it is put right at once, and the
+    // next step says so. The practice expense must never join a REAL trip.)
+    { key: "trip", target: "#trip-field", visit: "#entry-trip", ok: pickedPractice, holdsUntil: "saveEntry",
+      text: (fix) => tr(fix ? "spot.t.s9fix" : pickedPractice() ? "spot.t.s9" : "spot.t.s9pick"),
+      after: () => { const mine = practiceTrip(); if (mine && tripSel().value !== mine.id) { setTripPick_(mine.id); practiceTSwitched_ = true; } } },
+    { key: "saveEntry", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError("form-error"); return err ? tr("spot.p.s10err", { error: err }) : (practiceTSwitched_ ? tr("spot.t.s9switched") + " " : "") + tr("spot.p.s10"); },
+      before: async () => {
+        document.getElementById("form-error").textContent = "";
+        nameExpense();   // the cleanup finds the expense by this name
+        mainCurrencyOnForm();
+        // SAFETY: the practice expense must never land in a REAL trip (it would count toward that trip's budget and could set off its alert
+        // before the cleanup): whatever the picker shows now, it is the practice trip at Save.
+        const mine = practiceTrip();
+        if (mine && tripSel().value !== mine.id) setTripPick_(mine.id);
+        const pb = document.getElementById("paid_by");
+        if (pb.value !== "me") { pb.value = "me"; pb.dispatchEvent(new Event("change", { bubbles: true })); }   // the practice is about the owner's own money
+      },
+      until: () => !newEntrySheetOpen_ },
+    { target: () => practiceTRow_(true), text: () => tr("spot.t.s10"), tap: () => practiceTRow_(true), wait: 45000,
+      before: async () => { await showTripsScreen(); },
+      poke: () => { if (!document.getElementById("screen-trips").hidden) refreshTripsList_().catch(() => {}); } },
+    { look: true, target: () => { const p = detailParts(), c = document.getElementById("trip-detail-entries"); return p && c && c.children.length ? [...p, c] : null; },
+      text: () => tr("spot.t.s11"), button: () => tr("spot.t.gotIt"), wait: 20000 },
+    { target: "#trip-detail-edit-btn", text: () => tr("spot.t.s12"), tap: "#trip-detail-edit-btn", wait: 10000 },
+    { target: "#trip-delete-btn", text: () => tr("spot.t.s13"), until: () => !!(practiceT_ && practiceT_.deleted), wait: 10000 },
+    { text: () => tr("spot.t.s14"), button: () => tr("spot.t.finish") }
+  ];
+}
+
+function startTripsPractice_() {
+  if (practiceTRemoving_) { showToast_(tr("spot.t.stillRemoving")); return false; }
+  const open = ["trip-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || !tipPrepareForm_()) { if (open) showToast_(tr("spot.t.busy")); return false; }
+  practiceT_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
+  practiceTSave_();
+  practiceTFailed_ = "";
+  practiceTSwitched_ = false;
+  runTip_(practiceTSteps_(), async () => {
+    if (document.getElementById("screen-trips").hidden) showTripsScreen().catch(() => {});
+    showToast_(tr("spot.t.removing"));
+    practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceTRemove_() {
+  if (practiceTRemoving_) return false;
+  const p = practiceT_ || practiceTLoad_();
+  if (!p) return true;
+  practiceTRemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (!document.getElementById("trip-modal-backdrop").hidden) closeTripModal_();
+    if (newEntrySheetOpen_) {
+      resetSplitState();
+      document.getElementById("amount").value = "";
+      document.getElementById("description").value = "";
+      document.getElementById("entry-trip").value = "";
+      clearEntryDraft_();
+      closeNewEntrySheet_();
+    }
+    // The trip and the expense must have reached the server BEFORE the delete (a late one would make a stray trip or entry).
+    const t0 = Date.now();
+    while (practiceTSaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeTrips", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.t.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceT_ = null; practiceTSave_(); }
+    practiceTFailed_ = "";
+    clearEntryDraft_();
+    tripDetailId_ = null;
+    refreshTripsList_().catch(() => {});
+    refreshEntryList().catch(() => {});
+    refreshBalances().catch(() => {});
+    return ok;
+  } finally { practiceTRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceTLeftover_() {
+  if (practiceTLeftoverAsked_ || practiceTRemoving_ || Spotlight.isRunning() || !practiceTLoad_()) return;
+  practiceTLeftoverAsked_ = true;
+  if (confirm(tr("spot.t.leftover"))) practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
 }
 
 // ---- First-use practice: Programmed items ----
