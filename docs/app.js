@@ -4372,6 +4372,7 @@ async function flushQueuedReviewActions_() {
       const followed = await applyReviewAction_(a);
       if (followed) onCategoryFollowed_(followed);
     } catch (err) {
+      practiceNActionFailed_(a.id, err);
       // Unreachable — leave it queued, the next flush retries it. A REFUSAL (the server said no) would never pass on a
       // retry and would keep the entry hidden: drop it, so the entry shows in the review list again, and say why.
       if (!isUnreachable_(err)) {
@@ -5134,7 +5135,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
       const tripEl = item.querySelector(".review-trip");
       if (tripEl) fields.trip_id = tripEl.value;
-      betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));
+      if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -5148,6 +5149,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
+        practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
 
@@ -5166,14 +5168,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       }
       if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
 
-      betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
+      if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
       queueReviewAction_(entry.id, "discard", null);
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
-      applyReviewAction_({ id: entry.id, action: "discard", fields: null }).catch(() => {
+      applyReviewAction_({ id: entry.id, action: "discard", fields: null }).catch((err) => {
         // Stays queued, same as above.
+        practiceNActionFailed_(entry.id, err);
       });
     });
 
@@ -5614,6 +5617,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
   setTimeout(practiceBLeftover_, 4000);
   setTimeout(practiceRLeftover_, 6000);
+  setTimeout(practiceNLeftover_, 8000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -5832,6 +5836,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+    if (homeTipsReady_) offerReviewTip_();
 
   }
   if (name === "overview") {
@@ -7916,6 +7921,8 @@ async function init() {
     }
     await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
     if (paintedFromCache) setRecurringCheckStatus_("hidden");
+    homeTipsReady_ = true;
+    offerReviewTip_();   // only now that Needs review and the lists have arrived (loading standard)
 
     if (!paintedFromCache) {
       if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -16395,6 +16402,156 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- First-use practice: Needs review ----
+// The person sees how an automatic capture waits in "Needs review": two made-up purchases arrive (one server call, createPracticePending),
+// they pick a category and confirm one (it shows up in the day's list and counts) and discard the other. The practice entries carry the
+// source "practice" and no account / merchant / category, and the server ignores them for every kind of learning, guessing, name question,
+// suggested trip and statement matching (backend/PracticeReview.gs). Cleanup = one call (removePracticeReview), in the background like the
+// others; it first waits until the practice's own confirm / discard have reached the server (they travel through the review-action queue).
+const PRACTICE_N_KEY_ = "tipPracticeReview";
+const PRACTICE_N_AMOUNT_ = 38.5;   // the made-up purchase (backend/PracticeReview.gs makes it the same)
+let practiceN_ = null;             // { created, startedOn, purchaseId, chargeId }
+let practiceNCreating_ = null;     // the creation call (never rejects)
+let practiceNFailed_ = "";
+let practiceNRemoving_ = false;
+let practiceNLeftoverAsked_ = false;
+let homeTipsReady_ = false;        // Home has loaded at least once: tips may be offered
+
+function practiceNLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_N_KEY_) || "null"); } catch (e) { return null; } }
+function practiceNSave_() {
+  try { if (practiceN_) localStorage.setItem(PRACTICE_N_KEY_, JSON.stringify(practiceN_)); else localStorage.removeItem(PRACTICE_N_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeReviewEntry_(e) {
+  return !!e && (e.source === "practice" || /^(Practice purchase|Compra de práctica|Practice charge|Cargo de práctica)$/.test(String(e.description || "").trim()));
+}
+
+function offerReviewTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceReview) return;   // an older backend would let the practice entries teach the app
+  offerTip_("review", "home-tip-invite", tr("spot.n.invite"), startReviewPractice_);
+}
+
+function practiceNRow_(id) {
+  if (!id) return null;
+  return Array.from(document.querySelectorAll("#review-list .review-item")).find((r) => r.dataset.entryId === id) || null;
+}
+function practiceNEntryRow_() {
+  const names = /^(Practice purchase|Compra de práctica)$/;
+  return Array.from(document.querySelectorAll("#entry-list .entry")).find((r) => {
+    const d = r.querySelector(".entry-desc");
+    return d && names.test(d.textContent.trim());
+  }) || null;
+}
+
+// The server refused (or could not be reached for) the practice's own Confirm / Discard: the practice cannot go on, so say why once and
+// stop; stopping runs the usual cleanup. The action is taken out of the review queue first, so the cleanup does not wait for it.
+function practiceNActionFailed_(id, err) {
+  if (!practiceN_ || !id || (id !== practiceN_.purchaseId && id !== practiceN_.chargeId) || !Spotlight.isRunning()) return;
+  unqueueReviewAction_(id);
+  alert(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
+  Spotlight.stop("skipped");
+}
+
+// True when the practice entries are on the server and in the list; otherwise the practice stops with the reason.
+async function practiceNReady_() {
+  await practiceNCreating_;
+  if (practiceNFailed_) {
+    const msg = practiceNFailed_;
+    practiceNFailed_ = "";
+    alert(tr("spot.n.createFailed", { error: msg }));
+    setTimeout(() => Spotlight.stop("skipped"), 0);
+    return false;
+  }
+  if (document.getElementById("screen-entries").hidden) showScreen("entries");
+  return true;
+}
+
+function practiceNSteps_() {
+  const purchase = () => practiceNRow_(practiceN_ && practiceN_.purchaseId);
+  const charge = () => practiceNRow_(practiceN_ && practiceN_.chargeId);
+  const part = (sel) => () => { const r = purchase(); return r ? r.querySelector(sel) : null; };
+  const category = () => { const el = part(".review-category")(); return el && el.value ? el.value : ""; };
+  const fieldOf = (sel) => () => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
+  return [
+    { key: "intro", text: () => tr("spot.n.intro"), button: () => tr("spot.n.start") },
+    { look: true, wait: 30000,
+      target: () => { const c = document.getElementById("review-queue-card"); return c && !c.hidden && purchase() ? [c.querySelector("h2"), c.querySelector(".hint")] : null; },
+      text: () => tr("spot.n.s1"), button: () => tr("spot.n.gotIt"),
+      before: async () => practiceNReady_() },
+    { look: true, target: part(".review-item-top"), text: () => tr("spot.n.s2", { cur: homeCur(), amount: moneyFmt(PRACTICE_N_AMOUNT_) }), button: () => tr("spot.n.gotIt"), wait: 10000 },
+    { key: "category", target: fieldOf(".review-category"), text: (fix) => tr(fix ? "spot.n.s3fix" : "spot.n.s3"), until: () => !!category(),
+      ok: () => !!category(), holdsUntil: "confirm", wait: 10000 },
+    { look: true, target: () => [fieldOf(".review-description")(), fieldOf(".review-amount")()].filter(Boolean), text: () => tr("spot.n.s4"), button: () => tr("spot.n.gotIt"), wait: 10000 },
+    { key: "confirm", target: part(".review-confirm-btn"), text: () => tr(category() ? "spot.n.s5" : "spot.n.s5err"), until: () => !purchase(), wait: 10000,
+      after: () => { if (practiceN_) { practiceN_.confirmed = true; practiceNSave_(); } } },
+    { look: true, target: practiceNEntryRow_, text: () => tr("spot.n.s6"), button: () => tr("spot.n.gotIt"), wait: 60000,
+      before: async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); },
+      poke: () => { refreshEntryList().catch(() => {}); } },
+    { key: "discard", target: () => { const r = charge(); return r ? r.querySelector(".review-discard-btn") : null; }, text: () => tr("spot.n.s7"), until: () => !charge(), wait: 15000 },
+    { text: () => tr("spot.n.s8"), button: () => tr("spot.n.finish") }
+  ];
+}
+
+function startReviewPractice_() {
+  if (practiceNRemoving_) { showToast_(tr("spot.n.stillRemoving")); return false; }
+  const open = ["edit-entry-modal-backdrop", "review-transfer-modal-backdrop", "drilldown-modal-backdrop", "exchange-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) { showToast_(tr("spot.n.busy")); return false; }
+  practiceN_ = { created: true, confirmed: false, startedOn: todayLocalISO(), purchaseId: "", chargeId: "" };   // (created: the call below is on its way; the cleanup waits for it)
+  practiceNSave_();
+  practiceNFailed_ = "";
+  // The two waiting entries are made while the person reads the first screen, so the next one is there at once.
+  practiceNCreating_ = callApi("createPracticePending", { lang: I18n.getLang() })
+    .then(async (res) => {
+      if (practiceN_) { practiceN_.purchaseId = res.purchase_id; practiceN_.chargeId = res.charge_id; practiceNSave_(); }
+      await refreshReviewQueue();
+    })
+    .catch((err) => {
+      practiceNFailed_ = (err && err.message) || String(err);
+      if (practiceN_) { practiceN_.created = false; practiceNSave_(); }
+      if (Spotlight.isRunning()) practiceNReady_();   // say why and stop now, not at the first step that waits for the entries
+    });
+  runTip_(practiceNSteps_(), async () => {
+    if (document.getElementById("screen-entries").hidden) showScreen("entries");
+    showToast_(tr("spot.n.removing"));
+    practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceNRemove_() {
+  if (practiceNRemoving_) return false;
+  const p = practiceN_ || practiceNLoad_();
+  if (!p) return true;
+  practiceNRemoving_ = true;
+  try {
+    if (practiceNCreating_) await practiceNCreating_;
+    const done = practiceN_ || p;
+    // The confirm / discard the person tapped travel through the review-action queue: they must reach the server BEFORE the delete.
+    const mine = () => getQueuedReviewActions_().filter((a) => a.id === done.purchaseId || a.id === done.chargeId);
+    const t0 = Date.now();
+    while (mine().length && Date.now() - t0 < 90000) await new Promise((r) => setTimeout(r, 300));
+    if (mine().length) setQueuedReviewActions_(getQueuedReviewActions_().filter((a) => !mine().includes(a)));
+    let ok = true;
+    if (p.created) {
+      try { await callApi("removePracticeReview", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.n.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceN_ = null; practiceNSave_(); }
+    practiceNFailed_ = "";
+    refreshReviewQueue().catch(() => {});
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshBalances().catch(() => {});
+    return ok;
+  } finally { practiceNRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceNLeftover_() {
+  if (practiceNLeftoverAsked_ || practiceNRemoving_ || Spotlight.isRunning() || !practiceNLoad_()) return;
+  practiceNLeftoverAsked_ = true;
+  if (confirm(tr("spot.n.leftover"))) practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
+}
 
 // ---- First-use practice: Programmed items ----
 // The person programs a "Practice item", sees it on Home, records its payment through "Mark as paid… > Record the payment…" and deletes

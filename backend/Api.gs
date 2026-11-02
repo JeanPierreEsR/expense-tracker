@@ -411,6 +411,8 @@ function routeAction(action, payload) {
       try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
       return followed ? { done: true, follow: followed } : { done: true };
     }
+    case 'createPracticePending': return createPracticePending(payload);
+    case 'removePracticeReview': return removePracticeReview(payload);
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
     case 'removePracticeBudgets': return removePracticeBudgets();
     case 'removePracticeData': return removePracticeData(payload);
@@ -1168,7 +1170,7 @@ function listPendingEntries() {
     entry.twins = findSameDayTwins_(entry, all);
     if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
-    if (entry.type === 'expense' && !entry.trip_id) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
+    if (entry.type === 'expense' && !entry.trip_id && !isPracticeReview_(entry)) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
     // "Looks like a loan to Ana again" (a place the person turned into a loan / repayment before): a suggestion only.
     var loanHint = entry.source === 'email' ? payeeLoanHint_(entry, payeeHist) : null;
     if (loanHint) entry.loan_hint = loanHint;

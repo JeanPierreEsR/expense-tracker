@@ -367,7 +367,7 @@ function analyzeStatements(payload) {
     });
   });
   tick('small_tables');
-  var allEntries = getAllRows('Entries');
+  var allEntries = getAllRows('Entries').filter(function (e) { return !isPracticeReview_(e); });   // the Needs review practice never pairs with a statement line
   var entries = lo === null ? [] : allEntries.filter(function (e) {
     return e.date >= covAddDays_(lo, -12) && e.date <= covAddDays_(hi, 12);
   });

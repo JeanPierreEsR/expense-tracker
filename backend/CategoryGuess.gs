@@ -79,7 +79,7 @@ function buildGuessContext_() {
 
   var history = {};
   getAllRows('Entries').forEach(function (e) {
-    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id]) return;
+    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id] || isPracticeReview_(e)) return;
     if (e.status !== 'confirmed' && e.source !== 'import') return;
     var h = history[e.merchant] || (history[e.merchant] = { counts: {}, total: 0 });
     h.counts[e.category_id] = (h.counts[e.category_id] || 0) + 1;
