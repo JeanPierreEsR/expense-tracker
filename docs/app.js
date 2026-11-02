@@ -22094,8 +22094,14 @@ function updateInprocAfter_(sums) {
   const raw = document.getElementById("inproc-balance").value.replace(/,/g, "").trim();
   const bal = Number(raw);
   if (!raw || !isFinite(bal) || curs.length !== 1) { after.textContent = curs.length > 1 ? tr("inproc.afterNote") : ""; return; }
-  const left = Math.round(bal * 100) + sums[curs[0]];
-  after.textContent = tr("inproc.after", { amount: formatAmount(Math.abs(left) / 100, curs[0], left < 0 ? "−" : "") });
+  const cur = curs[0];
+  const left = Math.round(bal * 100) + sums[cur];
+  // The whole sum is shown, so it is clear which number is which: what the bank app shows, minus what is in process, = what is left.
+  after.textContent = tr("inproc.after", {
+    balance: formatAmount(Math.abs(bal), cur, bal < 0 ? "−" : ""),
+    process: formatAmount(Math.abs(sums[cur]) / 100, cur),
+    left: formatAmount(Math.abs(left) / 100, cur, left < 0 ? "−" : "")
+  });
 }
 
 async function readInprocFiles_(files) {
