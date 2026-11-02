@@ -18030,6 +18030,29 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => setLoanDirection_(tab.dataset.direction));
 });
 
+// ---- Credit card warning for money moving to or from a person (owner's request, 2026-11-01) ----
+// A credit card does not normally receive money from a person or lend it to one, so picking one in the loan form, the
+// repayment form or the Transfer tab's Repayment / New loan asks once ("Use it anyway?"). Cancel puts the previous account
+// back. Only a pick by hand asks: an account already saved on an entry never does, and nothing is ever blocked.
+function warnCreditCardPick_(select, moneyComesIn) {
+  const pm = (meta.paymentMethods || []).find((p) => p.id === select.value);
+  if (!pm || pm.type !== "credit") { select.dataset.prev = select.value; return; }
+  if (confirm(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }))) { select.dataset.prev = select.value; return; }
+  select.value = select.dataset.prev || "";
+}
+function watchCreditCardPick_(selectId, moneyComesIn) {
+  const select = document.getElementById(selectId);
+  select.addEventListener("focus", () => { select.dataset.prev = select.value; });
+  select.addEventListener("change", () => { if (select.value !== "__add__") warnCreditCardPick_(select, moneyComesIn()); });
+}
+watchCreditCardPick_("loan-payment-method", () => loanDirection === "i_owe_them");          // I borrowed: the money comes in
+watchCreditCardPick_("settlement-payment-method", () => repaymentDirection === "they_owe_me");   // they pay me: it comes in
+document.getElementById("payment_method").addEventListener("focus", (e) => { e.target.dataset.prev = e.target.value; });
+document.getElementById("payment_method").addEventListener("change", (e) => {
+  if (e.target.value === "__add__" || typeof repaymentActive_ !== "function" || !repaymentActive_()) return;
+  warnCreditCardPick_(e.target, repaymentDirectionChoice !== "i_owe_them");   // "I paid them" = money goes out
+});
+
 // `loan` is null to add a new one, or an existing loan (from
 // getFriendLoanDetail) to edit it. `returnFriend` is {id, name} when
 // opened from that friend's detail sheet, so it can be refreshed after.
