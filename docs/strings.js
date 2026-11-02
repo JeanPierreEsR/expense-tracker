@@ -3013,6 +3013,8 @@
     "inproc.reading": { en: "Reading screenshot {i} of {n}…", es: "Leyendo captura {i} de {n}…" },
     "inproc.none": { en: "No payment marked \"En proceso\" was found. Make sure the screenshot shows the movements list (Interbank's layout is the one this reads).", es: "No se encontró ningún pago marcado \"En proceso\". Verifica que la captura muestre la lista de movimientos (se lee el formato de Interbank)." },
     "inproc.found": { en: { one: "Found {n} payment in process. Uncheck any that is not right.", other: "Found {n} payments in process. Uncheck any that is not right." }, es: { one: "Se encontró {n} pago en proceso. Desmarca el que no corresponda.", other: "Se encontraron {n} pagos en proceso. Desmarca los que no correspondan." } },
+    "inproc.skipped": { en: { one: " {n} other row was not marked in process.", other: " {n} other rows were not marked in process." }, es: { one: " {n} otra fila no estaba marcada en proceso.", other: " {n} otras filas no estaban marcadas en proceso." } },
+    "inproc.rawSummary": { en: "What the phone read", es: "Lo que leyó el celular" },
     "inproc.total": { en: "In process ({cur})", es: "En proceso ({cur})" },
     "inproc.balance": { en: "Balance your bank app shows", es: "Saldo que muestra la app de tu banco" },
     "inproc.after": { en: "After the payments in process: {amount}", es: "Después de los pagos en proceso: {amount}" },

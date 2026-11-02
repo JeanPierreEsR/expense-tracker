@@ -1,7 +1,7 @@
 // Bank-app movements text -> the payments still "En proceso" (docs/in-process.js). Made-up lists only.
 const test = require("node:test");
 const assert = require("node:assert");
-const { parseInProcess, mergeItems, sumsByCurrency } = require("../../docs/in-process.js");
+const { parseInProcess, mergeItems, mergeReads, sumsByCurrency } = require("../../docs/in-process.js");
 
 // How the lines come out when the amount and the name share a line (the usual read).
 const MERGED = [
@@ -46,6 +46,36 @@ test("nothing marked, or no amounts at all, gives an empty list", () => {
   assert.deepStrictEqual(parseInProcess("Tienda Uno -S/ 25.88\nDom 01 Nov | 7:03pm").items, []);
   assert.deepStrictEqual(parseInProcess("Movimientos\nTodos").items, []);
   assert.deepStrictEqual(parseInProcess("").items, []);
+});
+
+test("a read that drops a row is completed by another read of the same screenshot, without doubling the rest", () => {
+  const big = parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:03pm En proceso\nCafe Dos -S/ 5.00 >\nSáb 31 Oct | 6:00pm En proceso").items;
+  const small = parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:O3pm En proceso\nCafe Dos -S/ 5.00 >\nSáb 31 Oct | 6:00pm En proceso\nGrifo Tres -S/ 12.29 >\nJue 29 Oct | 7:09pm En proceso").items;
+  assert.strictEqual(mergeReads([big, small]).length, 3);
+  assert.deepStrictEqual(sumsByCurrency(mergeReads([big, small])), { PEN: -2729 });
+});
+
+test("En proceso is recognised through common OCR slips", () => {
+  ["Fn proceso", "En praceso", "En proceso", "EN PROCESO"].forEach((status) => {
+    assert.strictEqual(parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:03pm " + status).items.length, 1, status);
+  });
+  assert.strictEqual(parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:03pm").items.length, 0);
+});
+
+test("a lowercase s/ and an amount whose sign and currency were both lost are still read when En proceso follows", () => {
+  const lower = parseInProcess("Tienda Seis   -s/ 12.29\nJue 29 Oct 7:09pm   En proceso").items;
+  assert.deepStrictEqual(lower.map((i) => [i.name, i.amount, i.currency]), [["Tienda Seis", -12.29, "PEN"]]);
+  const bare = parseInProcess("Tienda Seis   12.29\nJue 29 Oct 7:09p9m   En proceso").items;
+  assert.deepStrictEqual(bare.map((i) => [i.name, i.amount, i.when]), [["Tienda Seis", -12.29, "29 Oct"]]);   // the garbled time is dropped, the day is kept
+  // a bare amount WITHOUT the status (a posted row, a heading) never counts
+  assert.strictEqual(parseInProcess("Pago Tarj Web App   173.99\nDom 01 Nov 8:22am").items.length, 0);
+  assert.strictEqual(parseInProcess("Total   45.00").items.length, 0);
+});
+
+test("the two real-world readings of one row (marks lost at one size, lowercase at the other) merge to one payment", () => {
+  const big = parseInProcess("Tienda Seis   12.29\nJue 29 Oct 7:09p9m   En proceso").items;
+  const small = parseInProcess("Tienda Seis   -s/ 12.29\nJue 29 Oct 7:09pm   En proceso").items;
+  assert.strictEqual(mergeReads([big, small]).length, 1);
 });
 
 test("a misread time does not split one payment in two; two identical rows in one screenshot stay two", () => {

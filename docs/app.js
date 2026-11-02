@@ -22002,6 +22002,8 @@ async function readBillPhoto_(file) {
 // Screenshots are read on the phone (same reader as receipts); nothing is saved or sent. See specs/accounts.md § Payments in process.
 let inprocLists_ = [];       // one list of items per screenshot read
 let inprocItems_ = [];       // merged, each with .on (ticked)
+let inprocRaw_ = "";         // what the reader saw, shown under "What the phone read"
+let inprocPosted_ = 0;       // rows of the screenshots that were NOT marked in process
 
 function inprocSay_(text, bad) {
   const status = document.getElementById("inproc-status");
@@ -22074,13 +22076,21 @@ async function readInprocFiles_(files) {
   try {
     for (let i = 0; i < files.length; i++) {
       inprocSay_(tr("inproc.reading", { i: i + 1, n: files.length }));
-      try {
-        const canvas = await prepareReceiptImage_(files[i], { crop: false, maxLong: 2400 });
-        const text = await recognizeReceiptText_(canvas, () => {});
-        inprocLists_.push(InProcess.parseInProcess(text).items);
-      } catch (err) {
-        failed = err.message || tr("photo.couldntRead");
+      // Two readings at different image sizes: a phone sometimes drops a row at one size that the other keeps.
+      const reads = [];
+      for (const size of [2400, 1600]) {
+        try {
+          const canvas = await prepareReceiptImage_(files[i], { crop: false, maxLong: size });
+          const text = await recognizeReceiptText_(canvas, () => {});
+          const parsed = InProcess.parseInProcess(text);
+          reads.push(parsed.items);
+          inprocPosted_ = Math.max(inprocPosted_, parsed.posted);
+          inprocRaw_ += (inprocRaw_ ? "\n\n" : "") + "— " + (i + 1) + " / " + size + " —\n" + text;
+        } catch (err) {
+          failed = err.message || tr("photo.couldntRead");
+        }
       }
+      if (reads.length) { failed = ""; inprocLists_.push(InProcess.mergeReads(reads)); }
     }
     // A row keeps its tick when the list is rebuilt. Identical rows are told apart by their order among their twins ("#1", "#2"),
     // so unticking one of two identical payments does not tick or untick the other.
@@ -22098,9 +22108,11 @@ async function readInprocFiles_(files) {
     const newKeys = tickKeys(merged);
     inprocItems_ = merged.map((it, i) => Object.assign({}, it, { on: ticked.has(newKeys[i]) ? ticked.get(newKeys[i]) : true }));
     renderInproc_();
+    document.getElementById("inproc-raw-text").value = inprocRaw_;
+    document.getElementById("inproc-raw").hidden = !inprocRaw_;
     if (failed) inprocSay_(failed, true);
     else if (!inprocItems_.length) inprocSay_(tr("inproc.none"), true);
-    else inprocSay_(tr("inproc.found", { n: inprocItems_.length }));
+    else inprocSay_(tr("inproc.found", { n: inprocItems_.length }) + (inprocPosted_ ? tr("inproc.skipped", { n: inprocPosted_ }) : ""));
   } finally {
     btn.disabled = false;
   }
@@ -22109,6 +22121,9 @@ async function readInprocFiles_(files) {
 function openInprocModal_() {
   inprocLists_ = [];
   inprocItems_ = [];
+  inprocRaw_ = "";
+  inprocPosted_ = 0;
+  document.getElementById("inproc-raw").hidden = true;
   // Opened from an account's balance sheet: start from the balance the person already typed in "Check against my app".
   document.getElementById("inproc-balance").value = document.getElementById("balance-check-input").value || "";
   inprocSay_("");
