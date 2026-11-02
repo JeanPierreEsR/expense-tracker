@@ -62,6 +62,22 @@ test("En proceso is recognised through common OCR slips", () => {
   assert.strictEqual(parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:03pm").items.length, 0);
 });
 
+test("a lowercase s/ and an amount whose sign and currency were both lost are still read when En proceso follows", () => {
+  const lower = parseInProcess("Tienda Seis   -s/ 12.29\nJue 29 Oct 7:09pm   En proceso").items;
+  assert.deepStrictEqual(lower.map((i) => [i.name, i.amount, i.currency]), [["Tienda Seis", -12.29, "PEN"]]);
+  const bare = parseInProcess("Tienda Seis   12.29\nJue 29 Oct 7:09p9m   En proceso").items;
+  assert.deepStrictEqual(bare.map((i) => [i.name, i.amount, i.when]), [["Tienda Seis", -12.29, "29 Oct"]]);   // the garbled time is dropped, the day is kept
+  // a bare amount WITHOUT the status (a posted row, a heading) never counts
+  assert.strictEqual(parseInProcess("Pago Tarj Web App   173.99\nDom 01 Nov 8:22am").items.length, 0);
+  assert.strictEqual(parseInProcess("Total   45.00").items.length, 0);
+});
+
+test("the two real-world readings of one row (marks lost at one size, lowercase at the other) merge to one payment", () => {
+  const big = parseInProcess("Tienda Seis   12.29\nJue 29 Oct 7:09p9m   En proceso").items;
+  const small = parseInProcess("Tienda Seis   -s/ 12.29\nJue 29 Oct 7:09pm   En proceso").items;
+  assert.strictEqual(mergeReads([big, small]).length, 1);
+});
+
 test("a misread time does not split one payment in two; two identical rows in one screenshot stay two", () => {
   const a = parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:03pm En proceso\nTienda Uno -S/ 10.00 >\nDom 01 Nov | 7:09pm En proceso").items;
   const b = parseInProcess("Tienda Uno -S/ 10.00 >\nDom 01 Nov | 7:O3pm En proceso").items;

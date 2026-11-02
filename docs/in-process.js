@@ -8,7 +8,7 @@
 
   const MONTHS = "ene|feb|mar|abr|may|jun|jul|ago|set|sep|oct|nov|dic";
   // OCR often turns "S/" into "5/" or "$/" and "US$" into "USS"/"U$S".
-  const AMOUNT = /([-−–+])?\s*(S\/\.?|5\/|\$\/|US\s?[$S5]|U\$S|\$)?\s*(\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})(?!\d)/g;
+  const AMOUNT = /([-−–+])?\s*(S\/\.?|5\/|\$\/|US\s?[$S5]|U\$S|\$)?\s*(\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})(?!\d)/gi;
   // "En proceso" with the slips OCR makes ("Fn proceso", "En praceso", "En proceso" with a stray mark).
   const IN_PROCESS = /[eEfF][nN]\s*pr\w{2,5}s[o0]\b/i;
   const DATE = new RegExp("(\\d{1,2})\\s+(" + MONTHS + ")\\b[^|]*\\|?\\s*(\\d{1,2}:\\d{2}\\s*[ap]m)?", "i");
@@ -30,6 +30,10 @@
     return out;
   }
 
+  // A row whose sign and currency mark were both lost by OCR ("Tienda Uno   12.29"): name, then an amount at the end of the line.
+  // Only kept when "En proceso" follows it, so a posted row or a heading with a number never counts.
+  const BARE_AMOUNT_ROW = /^(.*[A-Za-zÁÉÍÓÚáéíóúñÑ].*?)\s{2,}(\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})\s*$/;
+
   function cleanName(s) {
     return String(s || "").replace(/[>›»|]+/g, " ").replace(/\s+/g, " ").trim();
   }
@@ -42,6 +46,13 @@
     let previousText = "";
     lines.forEach((line) => {
       const amounts = amountsOnLine(line);
+      const bare = !amounts.length && BARE_AMOUNT_ROW.exec(line);
+      if (bare) {
+        current = { name: cleanName(bare[1]), when: "", amount: -Number(bare[2].replace(/,/g, "")), currency: "PEN", inProcess: false };
+        rows.push(current);
+        previousText = "";
+        return;
+      }
       if (amounts.length) {
         const a = amounts[amounts.length - 1];
         current = { name: cleanName(line.slice(0, a.index)) || cleanName(previousText), when: "", amount: a.sign === 1 ? a.value : -a.value, currency: a.currency, inProcess: false };
