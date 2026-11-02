@@ -1205,7 +1205,7 @@
     "more.categories": { en: "🏷️ Categories", es: "🏷️ Categorías" },
     "more.exchangeRates": { en: "💱 Exchange rates", es: "💱 Tipos de cambio" },
     "more.friends": { en: "👥 Friends", es: "👥 Amigos" },
-    "more.perf": { en: "⏱ Performance log", es: "⏱ Registro de rendimiento" },
+    "more.perf": { en: "⏱️ Performance log", es: "⏱️ Registro de rendimiento" },
     "more.statements": { en: "🏦 Statements", es: "🏦 Estados de cuenta" },
     "more.import": { en: "📥 Import data", es: "📥 Importar datos" },
     "stmt.toImport": { en: "Have an export from another app? Use Import data ›", es: "¿Tienes una exportación de otra app? Usa Importar datos ›" },

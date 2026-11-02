@@ -215,7 +215,7 @@ main {
 }
 
 .nav-btn { min-width: 0; }
-.nav-btn .nav-icon { font-size: 1.2rem; }
+.nav-btn .nav-icon { font-size: 1.2rem; height: 29px; line-height: 29px; }
 /* All six labels share one size and shrink together with the phone's width
    (vw), so the longest word in each language ("Presupuestos"/"Proyecciones"
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
@@ -3347,3 +3347,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #recurring-restart-btn { padding-left: 0; }
 .range-day:disabled { opacity: 0.3; cursor: default; }
 #screen-recurring.recurring-editing .card { padding-bottom: 90px; }
+/* Text links that start a line on their own: their 8px of tap padding made the words sit 8px right of the fields
+   above and below. Pull the box back so the WORDS line up with the edge. */
+#receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
+#projections-method-btn { margin-left: -8px; }
