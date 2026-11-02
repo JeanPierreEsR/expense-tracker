@@ -94,7 +94,11 @@ function doPost(e) {
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
-      response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
+      var payload = body.payload || {};
+      var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
+      if (thenReads) delete payload._then;
+      response = { ok: true, data: routeActionOnce_(body.action, payload) };
+      if (thenReads) response.then = runThenReads_(thenReads);
     }
   } catch (err) {
     response = { ok: false, error: err.message, code: err.code || undefined };
@@ -127,6 +131,20 @@ var ONCE_ACTIONS_ = {
   applyStatementDecisions: 1, undoStatementBatch: 1,
   applyTidyGroups: 1   // a resend must not run a second copy next to the first
 };
+
+// Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
+// [[action, payload], …]); each costs the phone a whole extra trip to Google otherwise (~2.5 s). Only looking actions
+// (get…/list…), at most 5; each answers { ok, data } or { ok: false } on its own, never failing the save that already
+// happened. Capability thenReads.
+function runThenReads_(reads) {
+  if (!Array.isArray(reads)) return [];
+  return reads.slice(0, 5).map(function (r) {
+    var action = r && r[0];
+    if (typeof action !== 'string' || !/^(get|list)[A-Z]/.test(action)) return { ok: false };
+    try { return { ok: true, data: routeAction(action, (r[1] && typeof r[1] === 'object') ? r[1] : {}) }; }
+    catch (e) { return { ok: false }; }
+  });
+}
 
 function routeActionOnce_(action, payload) {
   var id = payload && payload._requestId;
@@ -608,20 +626,47 @@ function readAllRows_(sheetName) {
   var values = all.slice(1);
   var tz = ROWS_MEMO_ ? (ROWS_MEMO_['@tz'] || (ROWS_MEMO_['@tz'] = sheetDateTz_())) : sheetDateTz_();
   var dates = {};
-  return values.map(function (row) {
-    var obj = {};
-    headers.forEach(function (h, i) {
-      var v = row[i];
-      if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
-        var key = DATE_FIELD_FORMATS[h] + '|' + v.getTime();
-        v = dates[key] || (dates[key] = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]));
-      } else if (STRING_FIELDS[h] && v !== '' && v != null) {
-        v = String(v);
-      }
-      obj[h] = v;
-    });
-    return obj;
+  return values.map(function (row) { return rowToObject_(headers, row, tz, dates); });
+}
+
+// One sheet row as the object getAllRows gives (dates back to text, ids as text). `dates` remembers converted dates.
+function rowToObject_(headers, row, tz, dates) {
+  var obj = {};
+  headers.forEach(function (h, i) {
+    var v = row[i];
+    if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
+      var key = DATE_FIELD_FORMATS[h] + '|' + v.getTime();
+      v = dates[key] || (dates[key] = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]));
+    } else if (STRING_FIELDS[h] && v !== '' && v != null) {
+      v = String(v);
+    }
+    obj[h] = v;
   });
+  return obj;
+}
+
+// The FIRST row whose id is `id` (exactly what getAllRows(sheetName).find(id) gives), without reading the whole sheet:
+// the id column, then that one row. Speed (2026-11-02): looking up one entry read all of Entries (thousands of rows x
+// ~30 columns) and a single save did it up to ten times. Inside withRowsMemo_ the remembered rows are used instead.
+function findRowById_(sheetName, id) {
+  if (ROWS_MEMO_) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var sheet = sheetRaw_(sheetName);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return undefined;
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var idCol = headers.indexOf('id');
+  if (idCol === -1) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    var v = ids[i][0];
+    var asText = (v !== '' && v != null) ? String(v) : v;   // as getAllRows hands it back
+    if (asText === id) {
+      var row = sheet.getRange(i + 2, 1, 1, lastCol).getValues()[0];
+      return rowToObject_(headers, row, sheetDateTz_(), {});
+    }
+  }
+  return undefined;
 }
 
 function appendRowObject(sheetName, obj) {

@@ -376,7 +376,70 @@ function newRequestId_() {
 
 // How many calls are waiting on the server right now; sending app-speed reports (below) never starts while any are.
 let perfInflight_ = 0;
+
+// ---- Fewer trips to Google (speed pass, 2026-11-02) ----
+// Every call costs ~2.5 s on a phone before the server does anything, so:
+//  (1) a save can bring back the lists that are reloaded right after it (`withThen_` adds `_then`; the backend runs those
+//      reads after the save, in the same request — capability thenReads). The answers wait here, each used ONCE by the
+//      identical read that follows within 15 s (same action, same payload), instead of a second trip;
+//  (2) two identical reads at the same time share one trip.
+// Any other save in between makes what is waiting here stale: it is dropped (apiWriteGen_ moves on at the start AND the end
+// of every save, so a read that was already travelling during a save is never handed to a later caller).
+const API_READ_RE_ = /^(get|list)[A-Z]/;
+// Calls that change nothing any list shows (alerts / notices come back in their own answer): they neither drop what is waiting
+// nor wait in line as a save. The automatic alert check right after every save used to throw the save's lists away.
+const API_NEUTRAL_ = new Set(["checkAlertsNow", "markNoticesSeen", "syncEntrySearchIndex", "reportPerf", "reportBeta", "reportFeedback"]);
+let apiWriteGen_ = 0;
+const apiPrefill_ = new Map();     // key -> { gen, at, data }
+const apiInflight_ = new Map();    // key -> { gen, promise }
+const apiThenAnswers_ = new WeakMap();   // the `_then` list of a request -> what the server answered for it
+function apiReadKey_(action, payload) {
+  const clean = {};
+  Object.keys(payload || {}).sort().forEach((k) => { if (k[0] !== "_") clean[k] = payload[k]; });
+  return action + "|" + JSON.stringify(clean);
+}
+const apiCopy_ = (d) => (d === undefined ? d : JSON.parse(JSON.stringify(d)));
+// payload + the reads to bring back with it ([[action, payload], …]); only where the backend understands it.
+function withThen_(payload, reads) {
+  const ok = meta && meta.capabilities && meta.capabilities.thenReads;
+  const list = (reads || []).filter(Boolean).map(([a, p]) => [a, p || {}]);
+  return ok && list.length ? Object.assign({}, payload, { _then: list }) : payload;
+}
+
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
+  if (attempt > 1 || API_NEUTRAL_.has(action)) return callApiCounted_(action, payload, attempt, startedAt);
+  if (API_READ_RE_.test(action)) {
+    const key = apiReadKey_(action, payload);
+    const pre = apiPrefill_.get(key);
+    if (pre) {
+      apiPrefill_.delete(key);
+      if (pre.gen === apiWriteGen_ && Date.now() - pre.at < 15000) return pre.data;
+    }
+    const flying = apiInflight_.get(key);
+    if (flying && flying.gen === apiWriteGen_) return flying.promise.then(apiCopy_);
+    const promise = callApiCounted_(action, payload, attempt, startedAt);
+    const mine = { gen: apiWriteGen_, promise };
+    apiInflight_.set(key, mine);
+    promise.then(() => {}, () => {}).then(() => { if (apiInflight_.get(key) === mine) apiInflight_.delete(key); });
+    return promise;
+  }
+  apiWriteGen_++;
+  apiPrefill_.clear();
+  const reads = payload && payload._then;
+  try {
+    return await callApiCounted_(action, payload, attempt, startedAt);
+  } finally {
+    apiWriteGen_++;
+    const answers = reads && apiThenAnswers_.get(reads);
+    if (answers) {
+      reads.forEach(([a, p], i) => {
+        if (answers[i] && answers[i].ok) apiPrefill_.set(apiReadKey_(a, p), { gen: apiWriteGen_, at: Date.now(), data: answers[i].data });
+      });
+    }
+  }
+}
+
+async function callApiCounted_(action, payload, attempt, startedAt) {
   perfInflight_++;
   try {
     const out = await callApiOnce_(action, payload, attempt, startedAt);
@@ -447,6 +510,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
   } else if (!json.ok) {
     betaRecordError_(action, PerfShare.errorCode({ code: json.code }));
   }
+  if (json.ok && json.then && payload && payload._then) apiThenAnswers_.set(payload._then, json.then);
   if (!json.ok) {
     const failure = new Error(json.error || tr("error.unknown"));
     failure.code = json.code;   // the app recognises some errors by code, not by their (translated) text
@@ -4550,7 +4614,8 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", { kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined });
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined },
+      [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     return res && res.follow ? res.follow : null;
   }
@@ -4791,6 +4856,18 @@ function commitCreateToLastRendered_(edit, created) {
 // instead of firing a second overlapping request.
 const entryEditFlushing_ = new Set();
 
+// The list the person is LOOKING AT once an entry has landed, brought back by the save itself (withThen_). Only that one:
+// every extra read makes the save itself land later (measured: three lists cost more than the trip they saved); Home's own
+// row is already drawn on the phone, the rest reloads on its own as before.
+function entryThenReads_(edit, withSplits) {
+  const f = edit.fields || {};
+  const onScreen = (id) => { const el = document.getElementById(id); return !!el && !el.hidden; };
+  return [
+    (f.trip_id || onScreen("screen-trips")) && ["listTrips", {}],   // (an expense in a trip: the Trips screen is where it is checked next)
+    (withSplits || (f.paid_by && f.paid_by !== "me")) && onScreen("screen-loans") && ["listLoanBalances", loansScopePayload_()]
+  ];
+}
+
 // The backend saves an entry with its split, tags and bill in one call (capability entrySaveOne); an older one gets them one by one.
 function entrySaveOne_() {
   return !!(meta && meta.capabilities && meta.capabilities.entrySaveOne);
@@ -4821,10 +4898,11 @@ async function flushEntryEdit_(id) {
           const withSplits = isCreate
             ? edit.fields.type === "expense" && (edit.fields.paid_by !== "me" || (edit.splits && edit.splits.length))
             : edit.splits !== null;
-          const out = await callApi("saveEntryAll", isCreate
+          const out = await callApi("saveEntryAll", withThen_(isCreate
             ? { kind: "create", fields: Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }), link_recurring_id: edit.linkRecurringId || "",
                 splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined }
-            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined });
+            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined },
+          entryThenReads_(edit, withSplits)));
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
         } else if (edit.kind === "create") {
@@ -4865,7 +4943,11 @@ async function flushEntryEdit_(id) {
         unqueueEntryEdit_(id);
         renderEntryListFromCache_();
         refreshHomeGlance_(true);   // the totals at the top of Home now include this edit
-        if (edit.loan) refreshLoans().catch(() => {});
+        // A shared or friend-paid expense changes what friends owe: a Loans tab on screen shows it as soon as the save lands
+        // (it used to wait for the next reload — the Loans practice sat on "One moment…" meanwhile).
+        const sharedExpense = edit.fields && (edit.fields.type === "expense" || edit.fields.type === undefined)
+          && ((edit.kind === "create" ? (edit.splits && edit.splits.length) : edit.splits !== null) || (edit.fields.paid_by && edit.fields.paid_by !== "me"));
+        if (edit.loan || (sharedExpense && !document.getElementById("screen-loans").hidden)) refreshLoans().catch(() => {});
         if (edit.kind === "create") {
           // The real row (PEN value, guessed category…) replaces the typed one a moment later.
           refreshEntryList().catch(() => {});
@@ -4994,6 +5076,15 @@ async function afterMoneySaved_(item) {
   }
 }
 
+// The lists afterMoneySaved_ reloads, brought back by the save itself (withThen_).
+function moneyThenReads_(item) {
+  const ctx = item.ctx || {};
+  if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement", "recordRepayment"].includes(item.action)) {
+    return [["listLoanBalances", loansScopePayload_()]];
+  }
+  return [["listEntries", { limit: entriesShown + 1 }]];   // (only the list on screen: more reads make the save land later)
+}
+
 let moneyFlushing_ = false;
 
 // One at a time, in the order saved. Called after every save, at startup, and when a failed one is retried.
@@ -5006,7 +5097,7 @@ async function flushMoneyQueue_() {
       if (!item) break;
       let result;
       try {
-        result = await callApi(item.action, item.payload);
+        result = await callApi(item.action, withThen_(item.payload, moneyThenReads_(item)));
       } catch (err) {
         setMoneyItemStatus_(item.id, "failed", err.message || String(err));
         continue;
@@ -7666,7 +7757,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     closeBudgetModal();
     closeDrilldown();
     saveBehindScreen_(
-      practiceBTrack_(() => budgetId ? callApi("updateBudget", Object.assign({ id: budgetId }, fields)) : callApi("addBudget", fields), fields),
+      practiceBTrack_(() => budgetId ? callApi("updateBudget", withThen_(Object.assign({ id: budgetId }, fields), [["listBudgets", projectionPeriodPayload_()]])) : callApi("addBudget", withThen_(fields, [["listBudgets", projectionPeriodPayload_()]])), fields),
       async () => { refreshBudgetsInBackground_(); });
   } catch (err) {
     errorEl.textContent = err.message;
@@ -7713,8 +7804,7 @@ async function refreshBudgets() {
   // year), but never narrows a yearly budget down to a month. All-time
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
-  const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
-  const { budgets, summary } = await callApi("listBudgets", { displayPeriodType: periodType, anchorDate });
+  const { budgets, summary } = await callApi("listBudgets", projectionPeriodPayload_());
   budgetsLoaded_ = budgets;   // (the first-use practice checks it for a budget the person already has)
   const list = document.getElementById("budgets-list");
   const emptyNote = document.getElementById("budgets-empty-note");
@@ -12038,7 +12128,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
     const tripId = editingTripId_;
     closeTripModal_();
     saveBehindScreen_(
-      practiceTTrack_(() => tripId ? callApi("updateTrip", Object.assign({ id: tripId }, fields)) : callApi("addTrip", fields), fields),
+      practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields),
       async () => {
         await refreshTripsList_();
         if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
@@ -14655,17 +14745,19 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
     (async () => {
       try {
         let recurringExpenseId = savingId;
+        // (the list reloaded below comes back with the last of these saves: one trip less)
+        const listBack = [["listRecurringExpenses", {}]];
         if (savingId) {
-          await callApi("updateRecurringExpense", Object.assign({ id: savingId }, fields));
+          await callApi("updateRecurringExpense", splits !== null ? Object.assign({ id: savingId }, fields) : withThen_(Object.assign({ id: savingId }, fields), listBack));
         } else {
-          const created = await callApi("addRecurringExpense", fields);
+          const created = await callApi("addRecurringExpense", splits !== null ? fields : withThen_(fields, listBack));
           recurringExpenseId = created.id;
         }
         // Always sent, even as [] — that's how a previously-split item gets
         // its split cleared when the toggle is turned back off, same as the
         // entry form's own saveEntrySplits call.
         if (splits !== null) {
-          await callApi("saveRecurringExpenseSplits", { recurringExpenseId, splits });
+          await callApi("saveRecurringExpenseSplits", withThen_({ recurringExpenseId, splits }, listBack));
         }
         if (suggestionBox) {
           const list = document.getElementById("recurring-suggest-list");
@@ -16321,7 +16413,8 @@ function practicePickAccount_() {
 function runTip_(steps, afterFinish, note) {
   return Spotlight.run(steps, {
     labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
-    onFinish: async (how) => { markPracticeDeleting_(); await afterFinish(how); }
+    onFinish: async (how) => { markPracticeDeleting_(); await afterFinish(how); },
+    busy: () => perfInflight_ > 0   // a call still on its way: a step's reload waits for it (no stacked reloads)
   });
 }
 
@@ -16779,7 +16872,7 @@ function startReviewPractice_() {
   practiceNSave_();
   practiceNFailed_ = "";
   // The two waiting entries are made while the person reads the first screen, so the next one is there at once.
-  practiceNCreating_ = callApi("createPracticePending", { lang: I18n.getLang() })
+  practiceNCreating_ = callApi("createPracticePending", withThen_({ lang: I18n.getLang() }, [["listPendingEntries", {}]]))
     .then(async (res) => {
       if (practiceN_) { practiceN_.purchaseId = res.purchase_id; practiceN_.chargeId = res.charge_id; practiceNSave_(); }
       await refreshReviewQueue();

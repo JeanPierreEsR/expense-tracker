@@ -1528,7 +1528,7 @@ function fuzzyFindPaymentMethod_(text) {
 }
 
 function getEntryById_(entryId) {
-  return getAllRows('Entries').find(function (e) { return e.id === entryId; });
+  return findRowById_('Entries', entryId);   // the id column and one row, not the whole sheet (Api.gs)
 }
 
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {

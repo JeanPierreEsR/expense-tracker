@@ -34,10 +34,16 @@ http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
+      const readsBefore = rt.stats.reads, cellsBefore = rt.stats.cellsRead;
       const reply = rt.rawPost(body);
-      // Open to other localhost pages, like the real web app is: a second harness (a friend's copy) reports app speed to this one.
-      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify(reply));
+      // SLOW=1: answer as late as the real backend does on a phone (fitted to the owner's speed log, 2026-10: ~2.3 s per
+      // trip to Google, ~0.1 s per read call, ~10 ms per 1,000 cells read), to feel and time waits the instant fake hides.
+      const wait = process.env.SLOW ? 2300 + 100 * (rt.stats.reads - readsBefore) + (rt.stats.cellsRead - cellsBefore) / 100 : 0;
+      setTimeout(() => {
+        // Open to other localhost pages, like the real web app is: a second harness (a friend's copy) reports app speed to this one.
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify(reply));
+      }, wait);
     });
     return;
   }

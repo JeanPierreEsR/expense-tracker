@@ -108,3 +108,22 @@ test("a read call still sees what it changed itself (a sheet opened for a change
   assert.equal(n[1], n[0] + 1);
   assert.equal(n[2], "Memo Check 2");
 });
+
+test("a save can bring back the lists reloaded after it (then reads), answered after the save", () => {
+  const { rt, fields } = setup();
+  const id = uuid();
+  const reply = rt.rawPost(JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "saveEntryAll", payload: {
+    kind: "create", fields: Object.assign({}, fields, { client_id: id }),
+    _then: [["listEntries", { limit: 5 }], ["getHomeGlance", {}], ["addTrip", { name: "nope" }], ["getEntry", { id: "missing" }]]
+  } }));
+  assert.equal(reply.ok, true);
+  assert.equal(reply.data.id, id);
+  assert.equal(reply.then.length, 4);
+  assert.equal(reply.then[0].ok, true);
+  assert.ok(reply.then[0].data.some((e) => e.id === id), "the list already holds the entry just saved");
+  assert.equal(reply.then[1].ok, true);
+  assert.equal(reply.then[2].ok, false, "only looking actions run");
+  assert.equal(rt.rows("Trips").filter((t) => t.name === "nope").length, 0);
+  assert.equal(rt.rows("Entries").filter((e) => e.id === id).length, 1);
+  assert.equal(rt.api("getMeta", {}).capabilities.thenReads, true);
+});
