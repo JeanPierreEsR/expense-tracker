@@ -7246,7 +7246,7 @@ document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
 document.getElementById("drilldown-menu-delete").addEventListener("click", async () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (!drilldownBudget) return;
-  if (!confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
+  if (!practiceNoConfirm_(isPracticeBudgetName_(drilldownBudget.name)) && !confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
   const id = drilldownBudget.id;
   if (practiceB_ && isPracticeBudgetName_(drilldownBudget.name)) { practiceB_.deleted = true; practiceBSave_(); }   // (the first-use practice's last real step)
   closeDrilldown();
@@ -7469,7 +7469,7 @@ document.getElementById("budget-delete-btn").addEventListener("click", async () 
   if (!editingBudgetId) return;
   const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : null;
   const budgetLabel = document.getElementById("budget-name").value.trim() || (b && b.category_name) || "";
-  if (!confirm(tr(budgetPeriodType === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "") }))) return;
+  if (!practiceNoConfirm_(isPracticeBudgetName_(document.getElementById("budget-name").value)) && !confirm(tr(budgetPeriodType === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "") }))) return;
   const id = editingBudgetId;
   closeBudgetModal();
   closeDrilldown();
@@ -10819,7 +10819,7 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("pm-form-error");
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
-  if (!pm || !confirm(tr("accounts.confirmDelete", { name: pm.nickname }))) return;
+  if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !confirm(tr("accounts.confirmDelete", { name: pm.nickname })))) return;
   try {
     await callApi("deletePaymentMethod", { id: pm.id });
     if (practiceA_ && isPracticeAccountName_(pm.nickname)) { practiceA_.deleted = true; practiceASave_(); }   // (the first-use practice's last real step)
@@ -11833,7 +11833,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
 document.getElementById("trip-delete-btn").addEventListener("click", async () => {
   if (!editingTripId_) return;
   const trip = (meta.trips || []).find((t) => t.id === editingTripId_);
-  if (!trip || !confirm(tr("trips.confirmDelete", { name: trip.name }))) return;
+  if (!trip || (!practiceNoConfirm_(isPracticeTripName_(trip.name)) && !confirm(tr("trips.confirmDelete", { name: trip.name })))) return;
   const errorEl = document.getElementById("trip-form-error");
   try {
     await callApi("deleteTrip", { id: trip.id });
@@ -14546,6 +14546,7 @@ function closeRecurringDeleteSheet_() { document.getElementById("recurring-delet
 document.getElementById("recurring-delete-close").addEventListener("click", closeRecurringDeleteSheet_);
 
 async function startRecurringDelete_(re) {
+  if (practiceNoConfirm_(isPracticeProgrammedName_(re.description))) { runRecurringDelete_(re); return; }   // the practice item: no question
   if (!recurringStopCapable_()) {   // an older backend: the plain question, as before
     if (!confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re) }))) return;
     closeRecurringModal();
@@ -16074,6 +16075,21 @@ function markTipSeen_(key) {
   try { Spotlight.markSeen(localStorage, key); } catch (e) { /* ignore */ }
 }
 
+// While a practice runs, deleting ITS OWN object (named with the practice's marker) asks nothing: a Cancel there used to
+// leave the walkthrough waiting for a delete that never came (owner, 2026-11-02). Real objects always get the question.
+function practiceNoConfirm_(isPracticeObject) {
+  return !!isPracticeObject && Spotlight.isRunning();
+}
+
+// The entry form's account, chosen by the practice when the person has not picked one (a step for it added nothing to learn):
+// the first account in the list. Nothing when there are no accounts (the entry is then saved without one, as usual).
+function practicePickAccount_() {
+  const sel = document.getElementById("payment_method");
+  if (!sel || sel.value) return;
+  const first = Array.from(sel.options).find((o) => o.value && o.value !== "__add__");
+  if (first) { sel.value = first.value; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+}
+
 function runTip_(steps, afterFinish, note) {
   return Spotlight.run(steps, {
     labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
@@ -17399,8 +17415,6 @@ function practiceTSteps_() {
       } },
     { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.p.s4fix" : "spot.p.s4", { cur }), blurTap: true, until: amountDone,
       ok: () => amountVal() > 0, holdsUntil: "saveEntry", before: async () => { nameExpense(); mainCurrencyOnForm(); } },
-    { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method", available: hasAccounts,
-      ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "saveEntry" },
     // (A change in the picker ends a visit step by itself, so a wrong pick cannot hold the walkthrough here: it is put right at once, and the
     // next step says so. The practice expense must never join a REAL trip.)
     { key: "trip", target: "#trip-field", visit: "#entry-trip", ok: pickedPractice, holdsUntil: "saveEntry",
@@ -17412,6 +17426,7 @@ function practiceTSteps_() {
         document.getElementById("form-error").textContent = "";
         nameExpense();   // the cleanup finds the expense by this name
         mainCurrencyOnForm();
+        practicePickAccount_();
         // SAFETY: the practice expense must never land in a REAL trip (it would count toward that trip's budget and could set off its alert
         // before the cleanup): whatever the picker shows now, it is the practice trip at Save.
         const mine = practiceTrip();
@@ -17758,20 +17773,19 @@ function practiceRSteps_() {
       } },
     { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
       after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
-    { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
-      ok: () => !Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__") || !!document.getElementById("payment_method").value, holdsUntil: "pay" },
     { key: "pay", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
       before: async () => {
         document.getElementById("form-error").textContent = "";
         const d = document.getElementById("description");
         if (d.value !== tr("spot.r.name")) { d.value = tr("spot.r.name"); d.dispatchEvent(new Event("input", { bubbles: true })); }   // the cleanup finds the payment by this name
+        practicePickAccount_();
       },
       until: () => !newEntrySheetOpen_ },
     { target: practiceRRow_, text: () => tr("spot.r.s13"), tap: practiceRRow_, wait: 30000,
       before: async () => { showRecurringScreen(); } },
     { target: "#recurring-delete-btn", text: () => tr("spot.r.s14"), tap: "#recurring-delete-btn", wait: 10000 },
-    { target: "#recurring-delete-confirm-btn", text: () => tr("spot.r.s15"), until: () => !!(practiceR_ && practiceR_.deleted), wait: 15000 },
+    { text: () => tr("spot.r.s15"), button: () => tr("spot.r.gotIt"), available: () => !!(practiceR_ && practiceR_.deleted) },
     { text: () => tr("spot.r.s16"), button: () => tr("spot.r.finish") }
   ];
 }
@@ -19680,7 +19694,7 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     if (info.hasRepayments) {
       repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: loanWho, currency: info.currency, total: info.paid }]);
       if (!repayments) return;
-    } else if (!confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
+    } else if (!practiceNoConfirm_(isPracticeLoanText_(loanDesc)) && !confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
       return;
     }
     await callApi("deleteLoan", { id: editingLoanId, repayments });
