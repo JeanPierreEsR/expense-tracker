@@ -128,3 +128,44 @@ function ensureInvestmentPlatforms_() {
   var any = getAllRows('Payment Methods').some(function (pm) { return pm.type === 'investment'; });
   if (!any) adminSetupInvestmentPlatforms({ dryRun: false });
 }
+
+// ---- First-use Investments practice ----
+// The practice adds a platform named like this (both languages), records a deposit and a withdrawal with it and hides/removes it again.
+// Nothing here is ever an alert or a learning rule: budgets count expenses only, the payee/category memory is read from the entries (which
+// are deleted below), and Telegram never hears about a confirmed manual entry.
+function isPracticePlatform_(pm) {
+  return !!pm && String(pm.type) === 'investment' && /^(Practice platform|Plataforma de práctica)$/.test(String(pm.nickname || '').trim());
+}
+function isPracticeInvestmentEntry_(e) {
+  return !!e && String(e.type) === 'investment' && /^(Practice deposit|Depósito de práctica|Practice withdrawal|Retiro de práctica)$/.test(String(e.description || '').trim());
+}
+
+// The Investments practice cleanup in ONE call: the practice's deposit and withdrawal entries (dated since the practice started),
+// then every platform named like the practice's. A REAL entry that points at the practice platform is never deleted, only unpointed
+// (its platform cleared). A platform something else still uses is kept (and counted in `kept`).
+//   payload: { started_on }   Returns { entries, platforms, unlinked, kept }.
+function removePracticeInvestments(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { entries: 0, platforms: 0, unlinked: 0, kept: 0 };
+    var startedOn = String((payload && payload.started_on) || '');
+    var platforms = getAllRows('Payment Methods').filter(isPracticePlatform_);
+    var ids = {};
+    platforms.forEach(function (pm) { ids[String(pm.id)] = true; });
+    getAllRows('Entries').forEach(function (e) {
+      if (isPracticeInvestmentEntry_(e) && (!startedOn || String(e.date) >= startedOn)) {
+        deleteEntry_(e.id);
+        out.entries++;
+      } else if (ids[String(e.to_payment_method_id || '')] || ids[String(e.payment_method_id || '')]) {
+        if (ids[String(e.to_payment_method_id || '')]) setEntryField_(e.id, 'to_payment_method_id', '');
+        if (ids[String(e.payment_method_id || '')]) setEntryField_(e.id, 'payment_method_id', '');
+        out.unlinked++;
+      }
+    });
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+    platforms.forEach(function (pm) {
+      try { deletePaymentMethod({ id: String(pm.id) }); out.platforms++; }
+      catch (err) { out.kept++; }   // something else uses it (a statement, a loan): it stays, hidden from the pickers
+    });
+    return out;
+  });
+}
