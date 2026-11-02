@@ -3395,6 +3395,20 @@ function pairExchangeLegs_(dayEntries) {
   });
   return out;
 }
+// Any list (search results, Overview / drill-down / trip lists): the same pairing, day by day, keeping the list's order.
+function pairExchangeLegsByDay_(entries) {
+  const byDay = new Map();
+  entries.forEach((e) => { if (!byDay.has(e.date)) byDay.set(e.date, []); byDay.get(e.date).push(e); });
+  const items = [];
+  const placed = new Set();
+  entries.forEach((e) => {
+    if (placed.has(e.date)) return;
+    placed.add(e.date);
+    pairExchangeLegs_(byDay.get(e.date)).forEach((x) => items.push(x));
+  });
+  return items;
+}
+
 // The exchange house the person named, if any ("Currency exchange (Kambista)" -> "Kambista"); the generic wording otherwise.
 function exchangeHouseOf_(p) {
   const m = /\(([^)]+)\)\s*$/.exec(String(p.out.description || p.in.description || ""));
@@ -3451,7 +3465,12 @@ function openExchangePairSheet_(p) {
     edit.type = "button";
     edit.className = "add-inline";
     edit.textContent = tr("xch.pairEdit");
-    edit.addEventListener("click", () => { closeExchangePairSheet_(); if (blockedWhileSavingEdit_(leg.id)) return; currentDrilldown = null; openEditPopup(leg); });
+    edit.addEventListener("click", () => {
+      closeExchangePairSheet_();
+      if (blockedWhileSavingEdit_(leg.id)) return;
+      if (searchActive) currentDrilldown = { refetch: refreshSearchAfterEdit_ };
+      openEditPopup(leg);
+    });
     box.appendChild(edit);
     sides.appendChild(box);
   });
@@ -3471,6 +3490,8 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
   closeExchangePairSheet_();
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.add(id));
   renderEntryListFromCache_();
+  if (searchActive) renderSearchResults_();
+  document.querySelectorAll(".entry-exchange").forEach((r) => { if (r.dataset.entryId === p.out.id) { r.classList.add("entry-deleting"); } });
   try {
     await callApi("discardEntry", { id: p.out.id });
     await callApi("discardEntry", { id: p.in.id });
@@ -3481,6 +3502,8 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.delete(id));
   renderEntryListFromCache_();
   refreshBalances().catch(() => {});
+  if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+  if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
 });
 
 // Adds (or replaces) the Load more button at the end of the list.
@@ -3615,7 +3638,7 @@ function dayHeadLabel_(isoDate) {
 // While searching, the tab shows only the search box and its results.
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_PAGE_SIZE = 50;
-const SEARCH_CACHE_VERSION = 4;          // bump to drop every phone's saved copy
+const SEARCH_CACHE_VERSION = 5;          // bump to drop every phone's saved copy
 const SEARCH_FULL_RELOAD_MS = 24 * 3600 * 1000; // hand edits in the Sheet aren't tracked
 let searchIndex = null;          // array once loaded (from the phone's copy or the server)
 let searchSync = null;           // {structureVersion, entriesVersion, since, fullAt}
@@ -3770,7 +3793,7 @@ function renderSearchResults_() {
     box.innerHTML = `<div class="status-msg">${escapeHtml(tr("search.noMatch", { term }))}</div>`;
     return;
   }
-  matches.slice(0, searchShown).forEach((entry) => box.appendChild(buildSearchRow_(entry)));
+  pairExchangeLegsByDay_(matches.slice(0, searchShown)).forEach((item) => box.appendChild(item._exchangePair ? buildExchangePairRow_(item) : buildSearchRow_(item)));
   if (matches.length > searchShown) {
     const more = document.createElement("button");
     more.type = "button";
@@ -7177,7 +7200,8 @@ function renderEntriesInto_(list, entries, emptyKey) {
     return;
   }
 
-  entries.forEach((entry) => {
+  pairExchangeLegsByDay_(entries).forEach((entry) => {
+    if (entry._exchangePair) { list.appendChild(buildExchangePairRow_(entry)); return; }
     const headline = entryHeadline_(entry);
 
     const row = document.createElement("div");

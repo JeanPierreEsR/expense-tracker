@@ -1130,6 +1130,7 @@ function buildSearchIndexRows_(entries) {
       tagIds: tagIdsByEntry[e.id] || [],
       trip_id: e.trip_id || '',
       exchange: e.exchange ? '1' : '',
+      exchange_pair: e.exchange_pair || '',
       _s: entrySearchText_(e, lk)
     };
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
