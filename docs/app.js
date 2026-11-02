@@ -5614,6 +5614,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
   setTimeout(practiceBLeftover_, 4000);
   setTimeout(practiceRLeftover_, 6000);
+  setTimeout(practiceILeftover_, 8000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -10556,6 +10557,7 @@ function showAccountsScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderAccountsList_();
+  offerInvestmentsTip_();   // (the list comes from what the phone already has: nothing left to load)
 }
 
 function renderAccountsList_() {
@@ -10634,8 +10636,8 @@ function openPmModal_(pm) {
   document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
-  // An investment platform keeps its type; it isn't offered for new accounts.
-  const types = pm && pm.type === "investment" ? [...PM_TYPES_, "investment"] : PM_TYPES_;
+  // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
+  const types = [...PM_TYPES_, "investment"];
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
@@ -10729,7 +10731,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
   closePmModal_();
-  saveBehindScreen_(async () => {
+  saveBehindScreen_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
       id: state.id || undefined,
       nickname,
@@ -10755,7 +10757,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       const sel = document.getElementById(id);
       if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
     });
-  }, () => renderAccountsList_());
+  }, { nickname, type }), () => renderAccountsList_());
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
@@ -16115,6 +16117,7 @@ function practiceSaveFailed_() {
 
 // Called from the new-entry save: the practice's own expense is the one with its name, saved while the practice is running.
 function tipNoteSavedEntry_(id, description) {
+  practiceINoteSaved_(id, description);   // (the Investments practice's deposit / withdrawal)
   if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
   const friendId = [...splitFriendIds][0] || "";
   const friend = (meta.friends || []).find((f) => f.id === friendId);
@@ -16395,6 +16398,248 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- First-use practice: Investments ----
+// The person adds a "Practice platform" (More → Accounts, cards & platforms → + Add → type Investment platform), records a deposit and a
+// withdrawal with it from Home, sees the flow in Overview, and hides the platform (a platform with entries cannot be deleted, so Hide is
+// the real way). Investments are FLOWS only (CLAUDE.md §3.7): the walkthrough says so and never mentions a balance or a value.
+// Cleanup = one backend call (removePracticeInvestments): the deposit and withdrawal entries since the practice started, then the
+// platform. Background, like the other practices. It cannot alert anyone: budgets count expenses only, and nothing here is a bank e-mail.
+const PRACTICE_I_KEY_ = "tipPracticeInvestments";
+let practiceI_ = null;          // { saved, startedOn, platformSent, depositId, withdrawalId, deposit }
+let practiceISaving_ = 0;       // saves of the practice platform still on their way to the server
+let practiceIFailed_ = "";      // the server's refusal of that save
+let practiceIRemoving_ = false;
+let practiceILeftoverAsked_ = false;
+
+function practiceILoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_I_KEY_) || "null"); } catch (e) { return null; } }
+function practiceISave_() {
+  try { if (practiceI_) localStorage.setItem(PRACTICE_I_KEY_, JSON.stringify(practiceI_)); else localStorage.removeItem(PRACTICE_I_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticePlatformName_(name) { return /^(Practice platform|Plataforma de práctica)$/.test(String(name || "").trim()); }
+function isPracticeInvestmentDesc_(d) { return /^(Practice deposit|Depósito de práctica|Practice withdrawal|Retiro de práctica)$/.test(String(d || "").trim()); }
+function practicePlatform_() { return ((meta && meta.paymentMethods) || []).find((pm) => pm.type === "investment" && isPracticePlatformName_(pm.nickname)) || null; }
+
+// Wraps the platform save so the practice knows one is on its way (the cleanup waits for it) and whether the server refused it.
+function practiceITrack_(work, fields) {
+  if (!practiceI_ || !fields || fields.type !== "investment" || !isPracticePlatformName_(fields.nickname)) return work;
+  practiceI_.saved = true;
+  practiceI_.platformSent = true;
+  practiceISave_();
+  practiceISaving_++;
+  return async () => {
+    try { return await work(); } catch (err) { practiceIFailed_ = err.message || String(err); throw err; } finally { practiceISaving_--; }
+  };
+}
+
+// Called when the new-entry form queues an entry: the practice's own deposit / withdrawal is the one with its description.
+function practiceINoteSaved_(id, description) {
+  if (!practiceI_ || !Spotlight.isRunning() || !isPracticeInvestmentDesc_(description)) return;
+  if (/^(Practice withdrawal|Retiro de práctica)$/.test(String(description).trim())) practiceI_.withdrawalId = id; else practiceI_.depositId = id;
+  practiceI_.saved = true;
+  practiceISave_();
+}
+
+// An entry the server refused (the phone keeps it as "couldn't save"): the practice cannot go on. True = it stopped.
+function practiceISaveFailed_() {
+  if (!practiceI_ || !Spotlight.isRunning()) return false;
+  const bad = practiceIFailed_ ? { lastError: practiceIFailed_ }
+    : getQueuedEdits_().find((e) => (e.id === practiceI_.depositId || e.id === practiceI_.withdrawalId) && e.status === "failed");
+  if (!bad) return false;
+  alert(tr("spot.i.saveFailed", { error: bad.lastError || bad.error || practiceIFailed_ || "" }));
+  Spotlight.stop("skipped");
+  return true;
+}
+
+function offerInvestmentsTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceInvestments) return;   // an older backend could not clean the practice platform up
+  if (!tipSeen_("accounts")) return;   // one practice at a time on this screen: the Accounts one is offered first
+  offerTip_("investments", "investments-tip-invite", tr("spot.i.invite"), startInvestmentsPractice_);
+}
+
+function practiceIRow_() {
+  return Array.from(document.querySelectorAll("#accounts-list .recurring-row")).find((r) => {
+    const n = r.querySelector(".recurring-row-name");
+    return n && isPracticePlatformName_(n.textContent);
+  }) || null;
+}
+
+function practiceISteps_() {
+  const cur = homeCur();
+  const modalOpen = () => !document.getElementById("pm-modal-backdrop").hidden;
+  const typeOk = () => document.getElementById("pm-type").value === "investment";
+  const nameIt = () => {
+    const el = document.getElementById("pm-nickname");
+    if (el.value !== tr("spot.i.platform")) { el.value = tr("spot.i.platform"); el.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  const describe = (key) => () => {
+    const d = document.getElementById("description");
+    if (d.value !== tr(key)) { d.value = tr(key); d.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  const amountEl = () => document.getElementById("amount");
+  const amountVal = () => parseFloat(amountEl().value);
+  const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
+  const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
+  const accountSet = () => !hasAccounts() || !!document.getElementById("payment_method").value;
+  const platformChosen = () => { const p = practicePlatform_(); return !!p && document.getElementById("to_payment_method").value === p.id; };
+  const lastError = (sel) => { const el = document.querySelector(sel); return el ? el.textContent.trim() : ""; };
+  const typeTab = '#entry-type-tabs .type-tab[data-type="investment"]';
+  const onInvestmentForm = () => selectedType === "investment" && newEntrySheetOpen_ && !document.getElementById("entry-form").hidden;
+  // The platform arrives from the server a moment after Save: the entry form cannot offer it before.
+  const waitForPlatform = async () => {
+    const t0 = Date.now();
+    while (!practicePlatform_() && Date.now() - t0 < 45000) {
+      if (practiceIFailed_) { Spotlight.stop("skipped"); return false; }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (document.getElementById("screen-entries").hidden) showScreen("entries");
+    syncFab_();
+    return true;
+  };
+  const maxWithdrawal = () => (practiceI_ && practiceI_.deposit) || 0;
+  const withdrawalOk = () => { const v = amountVal(), m = maxWithdrawal(); return v > 0 && (!(m > 0) || v < m); };
+  return [
+    { key: "intro", text: () => tr("spot.i.intro"), button: () => tr("spot.i.start") },
+    { key: "add", target: "#accounts-add-btn", text: () => tr("spot.i.s1"), tap: "#accounts-add-btn",
+      ok: () => modalOpen() || !!(practiceI_ && practiceI_.platformSent), holdsUntil: "row",
+      before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
+    { key: "type", target: "#pm-type", text: () => tr("spot.i.s2"), until: typeOk, ok: () => !modalOpen() || typeOk(), holdsUntil: "save",
+      before: async () => { nameIt(); } },
+    { key: "save", target: () => [document.getElementById("pm-save-btn"), document.getElementById("pm-form-error")],
+      text: () => { const err = lastError("#pm-form-error"); return err ? tr("spot.i.s3err", { error: err }) : tr("spot.i.s3"); },
+      before: async () => { nameIt(); document.getElementById("pm-form-error").textContent = ""; },
+      until: () => !modalOpen() && !!(practiceI_ && practiceI_.platformSent) },
+    { key: "row", look: true, target: practiceIRow_, text: () => tr("spot.i.s4"), button: () => tr("spot.i.gotIt"), wait: 45000,
+      poke: () => { if (practiceIFailed_) Spotlight.stop("skipped"); } },
+    // ---- a deposit ----
+    { target: "#fab-new-entry", text: () => tr("spot.i.d1"), tap: "#fab-new-entry", before: waitForPlatform },
+    { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; } },
+    { key: "dfrom", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.i.d3fix" : "spot.i.d3"), visit: "#payment_method",
+      ok: accountSet, holdsUntil: "dsave", before: async () => { setInvestmentDirection("deposit"); } },
+    { key: "dplatform", target: "#to-payment-method-field", text: (fix) => tr(fix ? "spot.i.d4fix" : "spot.i.d4"), until: platformChosen,
+      ok: platformChosen, holdsUntil: "dsave", wait: 8000 },
+    { key: "damount", target: "#amount", text: (fix) => tr(fix ? "spot.i.d5fix" : "spot.i.d5", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "dsave", before: async () => { describe("spot.i.deposit")(); },
+      after: () => { practiceI_.deposit = amountVal() || 0; practiceISave_(); } },
+    { key: "dsave", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError("#form-error"); return err ? tr("spot.i.d6err", { error: err }) : tr("spot.i.d6"); },
+      before: async () => { document.getElementById("form-error").textContent = ""; describe("spot.i.deposit")(); },
+      until: () => !!(practiceI_ && practiceI_.depositId) },
+    // ---- a withdrawal ----
+    { target: "#fab-new-entry", text: () => tr("spot.i.w1"), tap: "#fab-new-entry",
+      before: async () => { if (practiceISaveFailed_()) return false; if (document.getElementById("screen-entries").hidden) showScreen("entries"); syncFab_(); } },
+    { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; },
+      available: () => !(practiceI_ && practiceI_.depositId && selectedType === "investment") },   // (the form often stays on Investment after the deposit)
+    { target: "#investment-direction-tabs", text: () => tr("spot.i.w3"), tap: '#investment-direction-tabs .type-tab[data-direction="withdrawal"]' },
+    { key: "wto", target: "#payment-method-field", text: () => tr("spot.i.w3b"), visit: "#payment_method",
+      ok: accountSet, holdsUntil: "wsave" },
+    { key: "wplatform", target: "#to-payment-method-field", text: (fix) => tr(fix ? "spot.i.d4fix" : "spot.i.d4"), until: platformChosen,
+      ok: platformChosen, holdsUntil: "wsave", wait: 8000 },
+    { key: "wamount", target: "#amount", text: (fix) => tr(fix || (maxWithdrawal() > 0 && amountVal() >= maxWithdrawal()) ? "spot.i.w5fix" : "spot.i.w5", { cur, max: moneyFmt(maxWithdrawal()) }), blurTap: true,
+      until: () => withdrawalOk() && document.activeElement !== amountEl(), ok: withdrawalOk, holdsUntil: "wsave",
+      before: async () => { describe("spot.i.withdrawal")(); } },
+    { key: "wsave", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError("#form-error"); return err ? tr("spot.i.d6err", { error: err }) : tr("spot.i.d6"); },
+      before: async () => { document.getElementById("form-error").textContent = ""; describe("spot.i.withdrawal")(); },
+      until: () => !!(practiceI_ && practiceI_.withdrawalId) },
+    // ---- where the flows show ----
+    { look: true, target: "#investments-card", text: () => tr("spot.i.o1"), button: () => tr("spot.i.gotIt"), wait: 30000,
+      before: async () => {
+        if (practiceISaveFailed_()) return false;
+        await tipWaitIdle_(40000);   // the two entries save behind the screen: Overview must read them from the server
+        showScreen("overview");
+        await refreshOverview().catch(() => {});
+      },
+      poke: () => { if (!practiceISaveFailed_() && !document.getElementById("screen-overview").hidden) refreshOverview().catch(() => {}); } },
+    // ---- hide the platform (delete is refused for a platform with entries: Hide is the real way) ----
+    { target: practiceIRow_, text: () => tr("spot.i.h1"), tap: practiceIRow_, wait: 15000, before: async () => { showAccountsScreen(); } },
+    { target: "#pm-hide-btn", text: () => tr("spot.i.h2"), tap: "#pm-hide-btn", wait: 10000 },
+    { text: () => tr("spot.i.done"), button: () => tr("spot.i.finish") }
+  ];
+}
+
+// The invitation sits on the Accounts screen; a leftover draft of a previous practice is cleared silently, anything else is the person's.
+function practiceIClearOwnDraft_() {
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (e) { draft = null; }
+  const descEl = document.getElementById("description");
+  if ((draft && isPracticeInvestmentDesc_(draft.description)) || isPracticeInvestmentDesc_(descEl.value)) {
+    clearEntryDraft_();
+    document.getElementById("amount").value = "";
+    descEl.value = "";
+    document.getElementById("to_payment_method").value = "";
+  }
+}
+
+function startInvestmentsPractice_() {
+  if (practiceIRemoving_) { showToast_(tr("spot.i.stillRemoving")); return false; }
+  const open = ["pm-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.i.busy")); return false; }
+  if (practicePlatform_()) {   // a platform of an earlier practice is still there (its cleanup never ran): remove it first, then try again
+    showToast_(tr("spot.i.stillRemoving"));
+    practiceIRemove_(true).then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
+    return false;
+  }
+  practiceIClearOwnDraft_();
+  if (!tipPrepareForm_()) return false;
+  practiceI_ = { saved: false, startedOn: todayLocalISO(), platformSent: false, depositId: "", withdrawalId: "", deposit: 0 };
+  practiceISave_();
+  practiceIFailed_ = "";
+  runTip_(practiceISteps_(), async () => {
+    if (document.getElementById("screen-accounts").hidden) showAccountsScreen();
+    showToast_(tr("spot.i.removing"));
+    practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceIRemove_(force) {
+  if (practiceIRemoving_) return false;
+  const p = practiceI_ || practiceILoad_() || (force ? { saved: true, startedOn: "" } : null);
+  if (!p) return true;
+  practiceIRemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (!document.getElementById("pm-modal-backdrop").hidden) closePmModal_();
+    if (newEntrySheetOpen_) {
+      clearEntryDraft_();
+      document.getElementById("amount").value = "";
+      document.getElementById("description").value = "";
+      document.getElementById("to_payment_method").value = "";
+      setInvestmentDirection("deposit");
+      closeNewEntrySheet_();
+      clearEntryDraft_();
+    }
+    // The platform and the two entries must have reached the server BEFORE the delete (a late one would leave a stray one behind).
+    const t0 = Date.now();
+    while (practiceISaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
+    await tipWaitIdle_(90000);
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeInvestments", { started_on: p.startedOn || "" }); }
+      catch (err) { ok = false; alert(tr("spot.i.removeFailed", { error: err.message })); }
+    }
+    if (ok) {
+      practiceI_ = null; practiceISave_();
+      meta.paymentMethods = meta.paymentMethods.filter((pm) => !(pm.type === "investment" && isPracticePlatformName_(pm.nickname)));
+      refreshAccountPickers_();
+    }
+    practiceIFailed_ = "";
+    renderAccountsList_();
+    refreshEntryList().catch(() => {});
+    refreshBalances().catch(() => {});
+    refreshHomeGlance_(true);
+    if (!document.getElementById("screen-overview").hidden) refreshOverview().catch(() => {});
+    return ok;
+  } finally { practiceIRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceILeftover_() {
+  if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !practiceILoad_()) return;
+  practiceILeftoverAsked_ = true;
+  if (confirm(tr("spot.i.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
+}
 
 // ---- First-use practice: Programmed items ----
 // The person programs a "Practice item", sees it on Home, records its payment through "Mark as paid… > Record the payment…" and deletes
