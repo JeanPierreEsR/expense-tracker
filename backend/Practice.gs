@@ -8,9 +8,13 @@
 // Entry descriptions the practices give the entries they create, in both languages. Add a practice's markers here.
 var PRACTICE_ENTRY_NAMES_ = [
   'Practice expense', 'Gasto de práctica',            // Loans: the shared expense
-  'Practice item', 'Elemento de práctica'             // Programmed items: the recorded payment
+  'Practice item', 'Elemento de práctica',            // Programmed items: the recorded payment
+  'Practice purchase', 'Compra de práctica',          // Needs review: the capture the person confirms
+  'Practice charge', 'Cargo de práctica'              // Needs review: the capture the person discards
 ];
 
+// Also any entry a practice created on the server itself (source 'practice', e.g. the Needs review practice's captures).
 function isPracticeEntry_(e) {
-  return PRACTICE_ENTRY_NAMES_.indexOf(String((e && e.description) || '').trim()) !== -1;
+  if (!e) return false;
+  return String(e.source || '') === 'practice' || PRACTICE_ENTRY_NAMES_.indexOf(String(e.description || '').trim()) !== -1;
 }
