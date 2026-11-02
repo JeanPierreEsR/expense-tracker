@@ -3357,6 +3357,132 @@ function buildEntryRow_(entry) {
   return row;
 }
 
+// ---- A currency exchange shows as ONE row (owner, 2026-11-02) ----
+// It is stored as two one-sided transfers (one per currency, so each account's balance moves). On Home they are drawn as one row,
+// "PEN 500.00 → USD 100.00", and tapping it opens one sheet for the whole exchange. Sides are paired by their shared exchange_pair id
+// (saved since 2026-11-02) or, for older ones, by the same day: the opposite side in another currency, closest in saving time.
+function exchangeSideOf_(e) {
+  if (!e || e.type !== "transfer" || e._queueStatus) return "";
+  if (String(e.exchange || "") !== "1" && !/^(Currency exchange|Cambio de moneda)/i.test(String(e.description || ""))) return "";
+  if (!!e.payment_method_id === !!e.to_payment_method_id) return "";
+  return e.payment_method_id ? "out" : "in";
+}
+function pairExchangeLegs_(dayEntries) {
+  const used = new Set();
+  const out = [];
+  const legs = dayEntries.filter((e) => exchangeSideOf_(e));
+  const partnerOf = (e) => {
+    const side = exchangeSideOf_(e);
+    const pair = String(e.exchange_pair || "");
+    if (pair) return legs.find((x) => x !== e && !used.has(x.id) && String(x.exchange_pair || "") === pair) || null;
+    const t = Date.parse(e.created_at || "") || 0;
+    let best = null, gap = Infinity;
+    legs.forEach((x) => {
+      if (x === e || used.has(x.id) || String(x.exchange_pair || "") || exchangeSideOf_(x) === side || x.currency === e.currency) return;
+      const g = Math.abs((Date.parse(x.created_at || "") || 0) - t);
+      if (g < gap) { best = x; gap = g; }
+    });
+    return best;
+  };
+  dayEntries.forEach((e) => {
+    if (used.has(e.id)) return;
+    const side = exchangeSideOf_(e);
+    const mate = side ? partnerOf(e) : null;
+    if (!mate) { out.push(e); return; }
+    used.add(e.id); used.add(mate.id);
+    const legOut = side === "out" ? e : mate, legIn = side === "out" ? mate : e;
+    out.push({ _exchangePair: true, id: legOut.id, date: e.date, out: legOut, in: legIn });
+  });
+  return out;
+}
+// The exchange house the person named, if any ("Currency exchange (Kambista)" -> "Kambista"); the generic wording otherwise.
+function exchangeHouseOf_(p) {
+  const m = /\(([^)]+)\)\s*$/.exec(String(p.out.description || p.in.description || ""));
+  return m ? m[1] : "";
+}
+function exchangeRateText_(p) {
+  const home = homeCur(), a = Number(p.out.amount), b = Number(p.in.amount);
+  if (!(a > 0 && b > 0)) return "";
+  if (p.out.currency === home) return tr("xch.rowRate", { cur: p.in.currency, rate: (a / b).toFixed(2), home });
+  if (p.in.currency === home) return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(2), home });
+  return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(4), home: p.in.currency });
+}
+function buildExchangePairRow_(p) {
+  const row = document.createElement("div");
+  row.className = "entry entry-exchange";
+  row.dataset.entryId = p.out.id;
+  const deleting = deletingEntryIds_.has(p.out.id) || deletingEntryIds_.has(p.in.id);
+  if (deleting) row.classList.add("entry-deleting");
+  const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : ""; };
+  const house = exchangeHouseOf_(p);
+  const accounts = [pmName(p.out.payment_method_id), pmName(p.in.to_payment_method_id)].filter(Boolean).join(" → ");
+  const left = document.createElement("div");
+  left.className = "entry-left";
+  left.innerHTML = `
+    <div class="entry-category">💱 ${escapeHtml(tr("transfer.kind.exchange"))}</div>
+    ${house ? `<div class="entry-desc">${escapeHtml(house)}</div>` : ""}
+    <div class="entry-meta">${escapeHtml([p.date, accounts].filter(Boolean).join(" · "))}</div>
+    ${deleting ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
+  `;
+  const amount = document.createElement("div");
+  amount.className = "entry-amount";
+  const rate = exchangeRateText_(p);
+  amount.innerHTML = `<span class="primary-amt">${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
+  row.appendChild(left);
+  row.appendChild(amount);
+  row.addEventListener("click", () => openExchangePairSheet_(p));
+  return row;
+}
+let exchangePairOpen_ = null;
+function openExchangePairSheet_(p) {
+  exchangePairOpen_ = p;
+  const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : tr("xch.outside"); };
+  document.getElementById("xpair-title").textContent = tr("transfer.kind.exchange");
+  document.getElementById("xpair-summary").textContent = [exchangeHouseOf_(p), p.date, exchangeRateText_(p)].filter(Boolean).join(" · ");
+  const sides = document.getElementById("xpair-sides");
+  sides.innerHTML = "";
+  [["out", p.out, p.out.payment_method_id, "xch.left"], ["in", p.in, p.in.to_payment_method_id, "xch.arrived"]].forEach(([side, leg, pmId, label]) => {
+    const box = document.createElement("div");
+    box.className = "link-candidate-row";
+    box.style.display = "block";
+    box.innerHTML = `<div class="hint" style="margin:0 0 4px;font-weight:600;">${escapeHtml(tr(label))}</div>
+      <div><b>${formatAmount(leg.amount, leg.currency)}</b> · ${escapeHtml(pmName(pmId))}</div>`;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "add-inline";
+    edit.textContent = tr("xch.pairEdit");
+    edit.addEventListener("click", () => { closeExchangePairSheet_(); if (blockedWhileSavingEdit_(leg.id)) return; currentDrilldown = null; openEditPopup(leg); });
+    box.appendChild(edit);
+    sides.appendChild(box);
+  });
+  const backdrop = document.getElementById("xpair-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function closeExchangePairSheet_() { document.getElementById("xpair-backdrop").hidden = true; }
+document.getElementById("xpair-close").addEventListener("click", closeExchangePairSheet_);
+document.getElementById("xpair-backdrop").addEventListener("click", (e) => { if (e.target.id === "xpair-backdrop") closeExchangePairSheet_(); });
+document.getElementById("xpair-delete-btn").addEventListener("click", async () => {
+  const p = exchangePairOpen_;
+  if (!p) return;
+  const what = `${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}`;
+  if (!confirm(tr("xch.pairConfirm", { what }))) return;
+  // Saving standard: the sheet closes at once and the row says "Deleting…" until both sides are gone.
+  closeExchangePairSheet_();
+  [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.add(id));
+  renderEntryListFromCache_();
+  try {
+    await callApi("discardEntry", { id: p.out.id });
+    await callApi("discardEntry", { id: p.in.id });
+  } catch (err) {
+    alert(tr("common.notSaved", { error: err.message }));
+  }
+  await refreshEntryList().catch(() => {});
+  [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.delete(id));
+  renderEntryListFromCache_();
+  refreshBalances().catch(() => {});
+});
+
 // Adds (or replaces) the Load more button at the end of the list.
 function setLoadMoreButton_(list, hasMore) {
   const old = document.getElementById("entry-load-more");
@@ -3377,9 +3503,9 @@ function setLoadMoreButton_(list, hasMore) {
       const page = more ? fetched.slice(0, ENTRY_PAGE_SIZE) : fetched;
       btn.remove();
       lastRenderedEntries_ = lastRenderedEntries_.concat(page);
-      applyQueuedEditOverlay_(page).forEach((entry) => list.appendChild(buildEntryRow_(entry)));
       entriesShown += page.length;
-      setLoadMoreButton_(list, more);
+      lastRenderedHasMore_ = more;
+      renderEntryListFromCache_();   // whole list again: the two sides of an exchange can arrive on different pages
     } catch (err) {
       btn.disabled = false;
       btn.textContent = tr("common.loadMore");
@@ -3459,7 +3585,7 @@ function renderEntryListFromCache_() {
     const total = Math.abs(net) < 0.005 ? "" : `${net < 0 ? "−" : "+"}${formatPen(Math.abs(net))}`;
     head.innerHTML = `<span>${escapeHtml(dayHeadLabel_(sameDay[0].date))}</span><span class="day-total">${total}</span>`;
     list.appendChild(head);
-    sameDay.forEach((e) => list.appendChild(buildEntryRow_(e)));
+    pairExchangeLegs_(sameDay).forEach((e) => list.appendChild(e._exchangePair ? buildExchangePairRow_(e) : buildEntryRow_(e)));
     sameDay.length = 0;
   };
   entries.forEach((entry) => {
@@ -17598,7 +17724,7 @@ function offerExchangeTip_() {
 function practiceXRows_() {
   return Array.from(document.querySelectorAll("#entry-list .entry[data-entry-id]")).filter((r) => {
     const d = r.querySelector(".entry-desc");
-    return !r.classList.contains("entry-deleting") && d && /\((Practice exchange|Cambio de práctica)\)\s*$/i.test(d.textContent.trim());
+    return !r.classList.contains("entry-deleting") && d && /(^|\()(Practice exchange|Cambio de práctica)\)?\s*$/i.test(d.textContent.trim());
   });
 }
 

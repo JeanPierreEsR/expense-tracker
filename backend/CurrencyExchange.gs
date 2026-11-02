@@ -130,6 +130,9 @@ function recordCurrencyExchange(payload) {
   if (pending && !(pendingLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
   ensureEntriesToPaymentMethodColumn_();
   ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  // Both sides carry the same pair id, so the app can show and delete them as ONE exchange (owner, 2026-11-02).
+  var pairId = clientId || Utilities.getUuid();
 
   var result = { out: null, in: null };
   [['out', out], ['in', inn]].forEach(function (pair) {
@@ -144,6 +147,7 @@ function recordCurrencyExchange(payload) {
       // Turned in place so its e-mail reference stays: a later back-check must not make it again.
       fields.status = 'confirmed';
       fields.exchange = '1';
+      fields.exchange_pair = pairId;
       fields.merchant = '';
       fields.trip_id = '';
       updateRowFields_('Entries', pending.id, fields);
@@ -151,7 +155,7 @@ function recordCurrencyExchange(payload) {
     } else {
       if (legIds) fields.client_id = legIds[side];
       result[side] = createEntry(fields);
-      updateRowFields_('Entries', result[side].id, { exchange: '1' });
+      updateRowFields_('Entries', result[side].id, { exchange: '1', exchange_pair: pairId });
       result[side] = getEntryById_(result[side].id);
     }
   });
