@@ -4855,6 +4855,16 @@ function commitCreateToLastRendered_(edit, created) {
 // same id (another tap, or the startup flush racing a fresh edit) waits
 // instead of firing a second overlapping request.
 const entryEditFlushing_ = new Set();
+// When each in-flight send began. A send that has heard nothing for this long is dead (a phone that paused the app mid-send never
+// answers): the next flush sends it again instead of waiting for it forever. Safe to repeat: a new entry carries its own id.
+const entryEditFlushStarted_ = new Map();
+const ENTRY_SEND_DEAD_MS_ = 90000;
+
+// Redrawing the list is never allowed to stop a save: at startup the lists it draws from may not be loaded yet (that is what left
+// a saved-while-away entry on "Saving…" for good).
+function redrawEntriesSafely_() {
+  try { renderEntryListFromCache_(); } catch (err) { /* the list redraws itself on the next refresh */ }
+}
 
 // The list the person is LOOKING AT once an entry has landed, brought back by the save itself (withThen_). Only that one:
 // every extra read makes the save itself land later (measured: three lists cost more than the trip they saved); Home's own
@@ -4874,8 +4884,10 @@ function entrySaveOne_() {
 }
 
 async function flushEntryEdit_(id) {
-  if (entryEditFlushing_.has(id)) return;
+  if (entryEditFlushing_.has(id) && Date.now() - (entryEditFlushStarted_.get(id) || 0) < ENTRY_SEND_DEAD_MS_) return;
+  const mySend = Date.now() + Math.random();
   entryEditFlushing_.add(id);
+  entryEditFlushStarted_.set(id, mySend);
   try {
     // Loops so that if this entry's queued edit gets REPLACED by a newer
     // one while this attempt is still sending — the one case where that
@@ -4888,7 +4900,7 @@ async function flushEntryEdit_(id) {
       const edit = findQueuedEdit_(id);
       if (!edit) break;
       markQueuedEditStatus_(id, "saving", null);
-      renderEntryListFromCache_();
+      redrawEntriesSafely_();
       let created = null;
       let linkFailed = false;
       try {
@@ -4926,7 +4938,7 @@ async function flushEntryEdit_(id) {
         }
       } catch (err) {
         markQueuedEditStatus_(id, "failed", err.message);
-        renderEntryListFromCache_();
+        redrawEntriesSafely_();
         break;
       }
       const stillSame = findQueuedEdit_(id);
@@ -4941,7 +4953,7 @@ async function flushEntryEdit_(id) {
           commitEditToLastRendered_(edit);
         }
         unqueueEntryEdit_(id);
-        renderEntryListFromCache_();
+        redrawEntriesSafely_();
         refreshHomeGlance_(true);   // the totals at the top of Home now include this edit
         // A shared or friend-paid expense changes what friends owe: a Loans tab on screen shows it as soon as the save lands
         // (it used to wait for the next reload — the Loans practice sat on "One moment…" meanwhile).
@@ -4965,7 +4977,10 @@ async function flushEntryEdit_(id) {
     }
     if (followed) onCategoryFollowed_(followed);
   } finally {
-    entryEditFlushing_.delete(id);
+    if (entryEditFlushStarted_.get(id) === mySend) {
+      entryEditFlushing_.delete(id);
+      entryEditFlushStarted_.delete(id);
+    }
   }
 }
 
@@ -4975,6 +4990,20 @@ async function flushEntryEdit_(id) {
 function flushAllQueuedEdits_() {
   getQueuedEdits_().forEach((e) => flushEntryEdit_(e.id));
 }
+
+// The startup retry waits until the app's lists are loaded (a save's follow-up work reads them); it never waits forever.
+function flushQueuedEditsWhenReady_(tries) {
+  tries = tries || 0;
+  if ((meta && meta.categories) || tries >= 200) { flushAllQueuedEdits_(); return; }
+  setTimeout(() => flushQueuedEditsWhenReady_(tries + 1), 300);
+}
+
+// Coming back to an app that stayed open: a save still marked "Saving…" with nothing sending it (or whose send has gone silent) is
+// sent again. Without this a save interrupted by the phone pausing the app waited for the next full restart.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !(meta && meta.categories)) return;
+  getQueuedEdits_().filter((e) => e.status === "saving").forEach((e) => flushEntryEdit_(e.id));
+});
 
 // The one thing about a background edit that has to be impossible to
 // miss: a FAILED save, since it means that edit effectively never
@@ -8110,7 +8139,7 @@ async function init() {
   // than silently waiting for the owner to notice and re-open that entry
   // — and if one already failed last session, the banner says so right
   // away instead of only after the next action touches the queue.
-  flushAllQueuedEdits_();
+  flushQueuedEditsWhenReady_();
   flushMoneyQueue_();
   renderSaveFailedBanner_();
 
