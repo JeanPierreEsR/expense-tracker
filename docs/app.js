@@ -4172,7 +4172,6 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   try {
     ok = await confirmAndDiscardEntry_(id, editingEntryOriginalType, editingEntrySummary_, () => {
       // Close the form at once; the row shows "Deleting…" until the server is done.
-      practiceXNoteDeleted_(id);   // first-use Currency exchange practice
       deletingEntryIds_.add(id);
       exitEditMode();
       if (wasPopup) {
@@ -16402,12 +16401,12 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
 
 // ---- First-use practice: Currency exchange ----
 // Offered on More → Exchange rates. The person records a real currency exchange between two of their own accounts through the "+"
-// sheet (Transfer → Type of transfer → Currency exchange), sees its two entries on Home and the balances move, and deletes it (a real
-// delete of one side). The exchange is named "Practice exchange" / "Cambio de práctica" (the form's "exchange house or note" box, filled in
+// sheet (Transfer → Type of transfer → Currency exchange), sees its two entries on Home and the balances move, and is told how to undo an
+// exchange properly (delete BOTH entries; the app does not pair them, so the practice does not delete one for them). The exchange is named "Practice exchange" / "Cambio de práctica" (the form's "exchange house or note" box, filled in
 // by the practice); recording an exchange never writes an exchange rate (the rate line in the form is only shown), so none is left behind.
 // Cleanup = one backend call (removePracticeExchange): the entries with that name made since the practice started, nothing else.
 const PRACTICE_X_KEY_ = "tipPracticeExchange";
-let practiceX_ = null;          // { saved, deleted, startedOn, accounts }
+let practiceX_ = null;          // { saved, startedOn, accounts }
 let practiceXRemoving_ = false;
 let practiceXLeftoverAsked_ = false;
 let practiceXBalances_ = false; // the two accounts are on the Balances card (they have a starting balance): the Overview steps show
@@ -16425,13 +16424,6 @@ function practiceXTrack_(house, out, inn) {
   practiceX_.saved = true;
   practiceX_.accounts = [out.payment_method_id, inn.payment_method_id].filter(Boolean);
   practiceXSave_();
-}
-
-// Called when a delete has been confirmed on the edit sheet: was it one of the practice's two entries?
-function practiceXNoteDeleted_(id) {
-  if (!practiceX_ || !Spotlight.isRunning()) return;
-  const e = (lastRenderedEntries_ || []).find((x) => x.id === id);
-  if (e && /\((Practice exchange|Cambio de práctica)\)\s*$/i.test(String(e.description || ""))) { practiceX_.deleted = true; practiceXSave_(); }
 }
 
 function offerExchangeTip_() {
@@ -16492,7 +16484,7 @@ function practiceXSteps_() {
       until: amtDone("exchange-out-amount"), ok: () => amt("exchange-out-amount") > 0, holdsUntil: "save" },
     { key: "inAcc", target: "#exchange-in-account", text: (fix) => tr(fix ? "spot.x.s6fix" : "spot.x.s6"), until: () => ownAccount("exchange-in-account"),
       ok: () => ownAccount("exchange-in-account"), holdsUntil: "save" },
-    { key: "inAmt", target: rowOf("exchange-in-amount"), text: (fix) => tr(fix ? "spot.x.s7fix" : "spot.x.s7", { cur: curOf("in") }), blurTap: true,
+    { key: "inAmt", target: rowOf("exchange-in-amount"), text: (fix) => tr(fix || (amt("exchange-in-amount") > 0 && curOf("out") === curOf("in")) ? "spot.x.s7fix" : "spot.x.s7", { cur: curOf("in") }), blurTap: true,
       until: () => amtDone("exchange-in-amount")() && bothAmounts(), ok: bothAmounts, holdsUntil: "save" },
     { look: true, target: "#exchange-rate-line", text: () => tr("spot.x.s8"), button: () => tr("spot.x.gotIt"), available: () => !el("exchange-rate-line").hidden },
     { look: true, target: "#exchange-house", text: () => tr("spot.x.s9"), button: () => tr("spot.x.gotIt"), before: async () => { nameIt(); } },
@@ -16517,9 +16509,10 @@ function practiceXSteps_() {
       poke: () => { refreshBalances().catch(() => {}); } },
     { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.x.s14"), tap: '.nav-btn[data-screen="entries"]', available: practiceXBalancesShown_,
       before: async () => practiceXBalances_ },
-    { target: () => practiceXRows_()[0] || null, text: () => tr("spot.x.s15"), tap: () => practiceXRows_()[0] || null, wait: 15000,
+    // The two sides of an exchange are separate entries, and deleting one leaves the other (the app does not pair them): so the practice
+    // does NOT make the person delete one; it explains how to undo an exchange properly (both entries) and removes both itself.
+    { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s15"), button: () => tr("spot.x.gotIt"), wait: 15000,
       before: async () => { goHome(); } },
-    { target: "#delete-entry-btn", text: () => tr("spot.x.s16"), until: () => !!(practiceX_ && practiceX_.deleted), wait: 10000 },
     { text: () => tr("spot.x.s17"), button: () => tr("spot.x.finish"), before: async () => { if (practiceXSaveFailed_()) return false; } }
   ];
 }
@@ -16529,7 +16522,7 @@ function startExchangePractice_() {
   const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
   if (!tipPrepareForm_()) return false;
-  practiceX_ = { saved: false, deleted: false, startedOn: todayLocalISO(), accounts: [] };
+  practiceX_ = { saved: false, startedOn: todayLocalISO(), accounts: [] };
   practiceXSave_();
   practiceXBalances_ = false;
   runTip_(practiceXSteps_(), async () => {
