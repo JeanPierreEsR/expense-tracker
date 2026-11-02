@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.28.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="7dc51fb16d774ad15a3731872b4719cc8cded3c2"><meta name="app-pairs" content="ad6d48b,9ab07b9,d6bf44b,7519af4,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="1.40.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="4453202c150484ad5901778fb9b60eaab91f91c3"><meta name="app-pairs" content="7dc51fb,ad6d48b,d6bf44b,7519af4,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-10-29T03:44:19Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-02T12:12:10Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -107,6 +107,8 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after Needs review has loaded. -->
+      <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
           <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
@@ -213,6 +215,10 @@
 
           <label for="description" data-i18n="field.description">Description</label>
           <input type="text" id="description" data-i18n-placeholder="common.optional" placeholder="Optional">
+          <div class="payee-suggest" id="payee-suggest" hidden>
+            <span id="payee-suggest-text"></span>
+            <button type="button" class="add-inline" id="payee-suggest-apply" data-i18n="payee.use">Use this</button>
+          </div>
 
           <label for="paid_by" id="paid-by-label" data-i18n="field.paidBy">Paid by</label>
           <select id="paid_by"></select>
@@ -241,6 +247,7 @@
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
                 <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
+                <div class="type-tab" data-mode="percent" data-i18n="split.percent">%</div>
                 <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
               </div>
 
@@ -252,12 +259,25 @@
               <div id="split-rows"></div>
               <p class="hint" id="split-summary"></p>
               <p class="hint" id="split-error" style="color:#d64545;"></p>
+
+              <div class="add-inline" id="split-due-add" data-i18n="split.addDue">+ Add due date</div>
+              <div id="split-due-block" hidden>
+                <label for="split-due" data-i18n="loan.dueDateOptional">Due date (optional)</label>
+                <input type="date" id="split-due">
+                <div class="tags-list">
+                  <div class="tag-chip" id="split-due-week" data-i18n="split.dueWeek">In 1 week</div>
+                  <div class="tag-chip" id="split-due-month" data-i18n="split.dueMonthEnd">End of month</div>
+                  <div class="tag-chip" id="split-due-clear" data-i18n="split.dueClear">No date</div>
+                </div>
+                <p class="hint" data-i18n="loan.dueDateHint">Optional. Without a date there is no overdue reminder.</p>
+              </div>
             </div>
           </div>
 
           <div id="tags-field">
             <label data-i18n="field.tags">Tags</label>
             <div class="tags-list" id="tags-list"></div>
+            <p class="hint" id="annual-tag-hint" hidden></p>
             <div class="add-inline" id="add-tag-btn" data-i18n="common.addTag">+ Add tag…</div>
           </div>
 
@@ -327,6 +347,17 @@
         <p class="hint" id="notices-more" hidden></p>
       </div>
 
+      <div class="card own-name-card" id="own-name-card" hidden>
+        <h2 data-i18n="ownName.title">Is this you?</h2>
+        <p class="own-name-name" id="own-name-name"></p>
+        <p class="hint" data-i18n="ownName.hint">We saw this name on your bank statements or emails. If it is you, the app can tell your own transfers apart from payments to other people.</p>
+        <div class="own-name-actions">
+          <button type="button" class="primary" id="own-name-yes" data-i18n="ownName.yes">✓ Yes, it's me</button>
+          <button type="button" id="own-name-no" data-i18n="ownName.no">✗ Not me</button>
+        </div>
+        <p class="hint" id="own-name-error" style="color:#d64545;"></p>
+      </div>
+
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
@@ -382,23 +413,33 @@
       </div>
 
       <div class="card ov-period">
-        <div class="summary-grid">
-          <div class="summary-item">
+        <div class="ov-sum-grid">
+          <div class="ov-sum-tile income">
+            <span class="ov-sum-sign" aria-hidden="true">+</span>
             <span class="summary-label" data-i18n="summary.income">Income</span>
             <span class="summary-value income" id="summary-income">0.00</span>
           </div>
-          <div class="summary-item">
+          <div class="ov-sum-tile expense">
+            <span class="ov-sum-sign" aria-hidden="true">−</span>
             <span class="summary-label" data-i18n="summary.expenses">Expenses</span>
             <span class="summary-value expense" id="summary-expense">0.00</span>
           </div>
-          <div class="summary-item">
+          <div class="ov-sum-tile investment">
+            <span class="ov-sum-sign" aria-hidden="true">±</span>
             <span class="summary-label" data-i18n="summary.investments">Investments</span>
             <span class="summary-value investment" id="summary-investment">0.00</span>
           </div>
-          <div class="summary-item">
-            <span class="summary-label" data-i18n="summary.net">Net</span>
-            <span class="summary-value" id="summary-net">0.00</span>
+          <div class="ov-sum-tile loans">
+            <span class="ov-sum-sign" aria-hidden="true">±</span>
+            <span class="summary-label" data-i18n="summary.loans">Loans</span>
+            <span class="summary-value" id="summary-loans">0.00</span>
           </div>
+        </div>
+        <div class="ov-sum-eq" aria-hidden="true">=</div>
+        <div class="ov-sum-net">
+          <span class="ov-sum-net-label" data-i18n="summary.net">What's left</span>
+          <span class="ov-sum-net-value" id="summary-net">0.00</span>
+          <span class="ov-sum-net-eq" id="summary-net-eq"></span>
         </div>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
@@ -439,6 +480,12 @@
         <div id="investments-period-list"></div>
       </div>
 
+      <div class="card ov-period" id="loans-ov-card" hidden>
+        <h2 data-i18n="loans.ov.title">Loans</h2>
+        <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.</p>
+        <div id="loans-ov-list"></div>
+      </div>
+
       <div class="card ov-period">
         <div class="type-tabs overview-type-tabs" id="overview-type-tabs">
           <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
@@ -474,6 +521,8 @@
     </div>
 
     <div id="screen-budgets" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="budgets-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <h2 data-i18n="nav.budgets">Budgets</h2>
@@ -519,10 +568,16 @@
         <label for="loans-scope" data-i18n="loans.scope">Showing</label>
         <select id="loans-scope"></select>
       </div>
-      <div class="card">
+      <div class="money-queue-strip" id="loans-queue-strip" hidden></div>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="loans-tip-invite" hidden></div>
+      <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
-          <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
+          <div class="loans-head-actions">
+            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
+            <button type="button" class="add-inline" id="add-loan-btn" data-i18n="loans.add">+ Add loan</button>
+          </div>
         </div>
         <div class="budgets-summary-row" id="loans-owed-to-me-total-row" hidden>
           <span class="budgets-summary-label" data-i18n="loans.totalOwed">Total owed to you</span>
@@ -579,6 +634,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
             <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-friends-btn" hidden>
+            <span data-i18n="more.friends">👥 Friends</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-main-currency-btn">
@@ -672,10 +731,15 @@
     </div>
 
     <div id="screen-recurring" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="recurring-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="recurring-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="add-inline" id="add-recurring-btn" data-i18n="common.add">+ Add</button>
+          <span class="friends-header-actions">
+            <button type="button" class="add-inline" id="recurring-edit-btn" hidden data-i18n="friends.edit">Edit</button>
+            <button type="button" class="add-inline" id="add-recurring-btn" data-i18n="common.add">+ Add</button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
         <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
@@ -708,10 +772,17 @@
           <div id="recurring-onetime-list"></div>
           <p class="hint" id="recurring-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
         </div>
+        <div class="friends-editbar" id="recurring-editbar" hidden>
+          <button type="button" class="add-inline" id="recurring-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="primary danger" id="recurring-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
     <div id="screen-accounts" class="screen" hidden>
+      <!-- First-use tip invitations (spotlight.js / offerTip_ in app.js): Accounts first; Investments only after the Accounts one was seen. -->
+      <div class="card tip-invite" id="accounts-tip-invite" hidden></div>
+      <div class="card tip-invite" id="investments-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
@@ -733,11 +804,14 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
+        <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">+ Add suggested categories</button>
         <div id="categories-list"></div>
       </div>
     </div>
 
     <div id="screen-trips" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="trips-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="trips-back-btn" data-i18n="common.back">‹ Back</button>
@@ -855,7 +929,35 @@
       </div>
     </div>
 
+    <div id="screen-friends" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="friends-back-btn" data-i18n="common.back">‹ Back</button>
+          <span class="friends-header-actions">
+            <button type="button" class="add-inline" id="friends-edit-btn" hidden data-i18n="friends.edit">Edit</button>
+            <button type="button" class="add-inline" id="friends-add-btn" data-i18n="friends.add">+ Friend</button>
+          </span>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="friends.title">Friends</h2>
+        <p class="hint" data-i18n="friends.hint">The people you share expenses and loans with. Tap one to rename them or see what they owe. A new friend is also added when you split an expense.</p>
+        <div id="friends-list"></div>
+        <p class="hint" id="friends-empty-note" hidden data-i18n="friends.empty">No friends yet. Add one here, or when you split an expense.</p>
+        <div id="friends-hidden-box" class="friends-hidden-box" hidden>
+          <button type="button" class="add-inline" id="friends-hidden-toggle"></button>
+          <p class="hint" id="friends-hidden-hint" hidden data-i18n="friends.hiddenHint">These friends are hidden from your lists. Their history stays. Adding the same name again also brings them back.</p>
+          <div id="friends-hidden-list"></div>
+        </div>
+        <p class="hint" id="friends-error" style="color:#d64545;"></p>
+        <div class="friends-editbar" id="friends-editbar" hidden>
+          <button type="button" class="add-inline" id="friends-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="primary danger" id="friends-delete-selected-btn" disabled></button>
+        </div>
+      </div>
+    </div>
+
     <div id="screen-exchange-rates" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="exchange-rates-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="exchange-rates-back-btn" data-i18n="common.back">‹ Back</button>
@@ -1222,6 +1324,7 @@
         <button type="button" class="add-inline" id="bill-photo-btn" data-i18n="bill.photo">📷 Read the items from a photo</button>
         <input type="file" id="bill-photo-input" accept="image/*" hidden>
         <p class="hint" id="bill-photo-status" hidden></p>
+        <button type="button" class="add-inline" id="bill-photo-again" hidden data-i18n="bill.photoAgain">↻ Read the entry's photo again for the items</button>
         <details id="bill-photo-raw" hidden>
           <summary class="hint" data-i18n="bill.rawSummary">What the phone read — you can correct it here</summary>
           <p class="hint" data-i18n="bill.rawHint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
@@ -1281,11 +1384,177 @@
         <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
       </div>
+      <div class="loan-opening-offer" id="loan-detail-opening" hidden>
+        <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
+        <button type="button" class="add-inline" id="loan-detail-opening-btn" data-i18n="loanDetail.openingBtn">➕ Add a debt from before</button>
+      </div>
+      <div class="money-queue-strip" id="loan-detail-queue" hidden></div>
       <div class="currency-option-list" id="loan-detail-list"></div>
       <p class="hint" id="loan-detail-empty-note" hidden data-i18n="loanDetail.empty">No loans with this friend yet.</p>
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+    </div>
+  </div>
+
+  <div id="bank-loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-loan-title" data-i18n="bank.formTitle">Bank loan</span>
+        <button type="button" id="bank-loan-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <div id="bank-loan-fields">
+          <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
+          <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
+          <datalist id="bank-lender-list"></datalist>
+          <label for="bank-description" data-i18n="field.description">Description</label>
+          <input type="text" id="bank-description" data-i18n-placeholder="common.optional" placeholder="Optional">
+          <label for="bank-amount" data-i18n="field.amount">Amount</label>
+          <input type="text" inputmode="decimal" id="bank-amount" placeholder="0.00">
+          <label for="bank-currency" data-i18n="field.currency">Currency</label>
+          <select id="bank-currency"></select>
+          <label for="bank-date" data-i18n="bank.receivedOn">Date received</label>
+          <input type="date" id="bank-date">
+          <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
+          <select id="bank-account"></select>
+        </div>
+        <div id="bank-mode-box">
+          <strong data-i18n="bank.mode">How do you want to enter it?</strong>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="rate" checked><span data-i18n="bank.modeRate">Amount, rate and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="installment"><span data-i18n="bank.modeInstallment">Amount, installment and term</span></label>
+          <label class="settle-choose-row"><input type="radio" name="bank-mode" value="manual"><span data-i18n="bank.modeManual">The bank's schedule, row by row</span></label>
+          <p class="hint" id="bank-mode-hint"></p>
+        </div>
+        <div class="reassign-limit-box" id="bank-gen-box">
+          <strong data-i18n="bank.genTitle">Fill the schedule</strong>
+          <p class="hint" data-i18n="bank.genHint">A quick way to fill the rows below. Then type over any number with what the bank's own schedule says.</p>
+          <label for="bank-gen-count" data-i18n="bank.count">Number of installments</label>
+          <input type="text" inputmode="numeric" id="bank-gen-count" placeholder="12">
+          <label for="bank-gen-first" data-i18n="bank.firstDue">First due date</label>
+          <input type="date" id="bank-gen-first">
+          <label for="bank-gen-freq" data-i18n="bank.frequency">Payment frequency</label>
+          <select id="bank-gen-freq">
+            <option value="weekly" data-i18n="bank.freqWeekly">Weekly</option>
+            <option value="biweekly" data-i18n="bank.freqBiweekly">Every 2 weeks</option>
+            <option value="monthly" selected data-i18n="bank.freqMonthly">Monthly</option>
+            <option value="bimonthly" data-i18n="bank.freqBimonthly">Every 2 months</option>
+            <option value="quarterly" data-i18n="bank.freqQuarterly">Every 3 months</option>
+            <option value="semiannual" data-i18n="bank.freqSemiannual">Every 6 months</option>
+            <option value="yearly" data-i18n="bank.freqYearly">Yearly</option>
+          </select>
+          <label for="bank-gen-grace" data-i18n="bank.grace">Grace period: how many payment periods before the installments (0 = none)</label>
+          <input type="text" inputmode="numeric" id="bank-gen-grace" placeholder="0" value="0">
+          <div id="bank-gen-grace-type-box" hidden>
+            <label for="bank-gen-grace-type" data-i18n="bank.graceType">During the grace period</label>
+            <select id="bank-gen-grace-type">
+              <option value="partial" selected data-i18n="bank.gracePartial">Pay interest only</option>
+              <option value="total" data-i18n="bank.graceTotal">No payments (the interest is added to the loan)</option>
+            </select>
+          </div>
+          <div id="bank-gen-payment-block" hidden>
+            <label for="bank-gen-payment" data-i18n="bank.paymentRequired">Installment total (what the bank charges each time)</label>
+            <input type="text" inputmode="decimal" id="bank-gen-payment" placeholder="0.00">
+          </div>
+          <div id="bank-gen-rate-block">
+            <label for="bank-gen-rate" data-i18n="bank.rate">Interest rate %</label>
+            <input type="text" inputmode="decimal" id="bank-gen-rate" placeholder="0.00">
+            <label for="bank-gen-rate-type" data-i18n="bank.rateType">How the rate is stated</label>
+            <select id="bank-gen-rate-type">
+              <option value="tea" selected data-i18n="bank.rateTea">Annual effective rate (TEA, actual days / 360)</option>
+              <option value="period" data-i18n="bank.ratePeriod">Per payment period (for monthly payments, the monthly rate)</option>
+            </select>
+          </div>
+          <label for="bank-gen-fee" data-i18n="bank.feePer">Insurance / fees per installment (optional)</label>
+          <input type="text" inputmode="decimal" id="bank-gen-fee" placeholder="0.00">
+          <p class="hint" id="bank-gen-implied"></p>
+          <button type="button" class="add-inline" id="bank-gen-btn" data-i18n="bank.generate">Fill the rows</button>
+        </div>
+        <h3 data-i18n="bank.rowsTitle">Installments</h3>
+        <div id="bank-rows"></div>
+        <button type="button" class="add-inline" id="bank-add-row" data-i18n="bank.addRow">+ Add installment</button>
+        <p class="hint" id="bank-totals"></p>
+        <p class="hint" id="bank-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-save" data-i18n="bank.save">Save bank loan</button>
+        <button type="button" class="cancel-edit-btn" id="bank-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-schedule-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-schedule-title" data-i18n="bank.scheduleTitle">Installments</span>
+        <button type="button" id="bank-schedule-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="bank-schedule-loading"></p>
+        <div id="bank-schedule-content" hidden>
+          <p class="hint" id="bank-schedule-summary"></p>
+          <div id="bank-schedule-list"></div>
+          <button type="button" class="add-inline" id="bank-schedule-edit" data-i18n="bank.editSchedule">Edit the schedule</button>
+          <button type="button" class="add-inline" id="bank-schedule-early" data-i18n="bank.earlyButton">Early payment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-early-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="bank.earlyTitle">Early payment</span>
+        <button type="button" id="bank-early-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="bank.earlyHint">Extra principal paid ahead of the schedule. The fee the bank charges for it is optional (0 if none) and is recorded as one expense.</p>
+        <label for="bank-early-date" data-i18n="bank.recordDate">Paid on</label>
+        <input type="date" id="bank-early-date">
+        <label for="bank-early-account" data-i18n="bank.recordAccount">Paid from</label>
+        <select id="bank-early-account"></select>
+        <label for="bank-early-principal" data-i18n="bank.earlyPrincipal">Principal you are paying now</label>
+        <input type="text" inputmode="decimal" id="bank-early-principal" placeholder="0.00">
+        <label for="bank-early-fee" data-i18n="bank.earlyFee">Early payment fee</label>
+        <input type="text" inputmode="decimal" id="bank-early-fee" placeholder="0.00" value="0">
+        <label for="bank-early-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
+        <select id="bank-early-category"></select>
+        <p class="hint" data-i18n="bank.earlyMode"><strong>What happens to the remaining installments</strong></p>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="shorten" checked><span data-i18n="bank.earlyShorten">Shorter term: same installments, so the loan ends sooner. Interest is recalculated on the lower balance.</span></label>
+        <label class="settle-choose-row"><input type="radio" name="bank-early-mode" value="reduce"><span data-i18n="bank.earlyReduce">Same term: every remaining installment gets smaller. Interest is recalculated on the lower balance.</span></label>
+        <p class="hint" data-i18n="bank.earlyEstimate">The interest is worked out from the rate your schedule implies. If the bank's new schedule differs, use "Edit the schedule" and type its numbers.</p>
+        <p class="hint" id="bank-early-preview"></p>
+        <p class="hint" id="bank-early-total"></p>
+        <p class="hint" id="bank-early-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-early-save" data-i18n="bank.earlySave">Record early payment</button>
+        <button type="button" class="cancel-edit-btn" id="bank-early-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bank-record-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="bank-record-title"></span>
+        <button type="button" id="bank-record-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="bank.recordHint">The principal is a repayment of the loan. The interest and fees are one expense. Type over the numbers with what the bank really charged.</p>
+        <label for="bank-record-date" data-i18n="bank.recordDate">Paid on</label>
+        <input type="date" id="bank-record-date">
+        <label for="bank-record-account" data-i18n="bank.recordAccount">Paid from</label>
+        <select id="bank-record-account"></select>
+        <label for="bank-record-principal" data-i18n="bank.principal">Principal</label>
+        <input type="text" inputmode="decimal" id="bank-record-principal" placeholder="0.00">
+        <label for="bank-record-interest" data-i18n="bank.interest">Interest</label>
+        <input type="text" inputmode="decimal" id="bank-record-interest" placeholder="0.00">
+        <label for="bank-record-fees" data-i18n="bank.fees">Fees</label>
+        <input type="text" inputmode="decimal" id="bank-record-fees" placeholder="0.00">
+        <label for="bank-record-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
+        <select id="bank-record-category"></select>
+        <p class="hint" id="bank-record-total"></p>
+        <p class="hint" id="bank-record-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="bank-record-save" data-i18n="bank.recordSave">Record installment</button>
+        <button type="button" class="cancel-edit-btn" id="bank-record-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -1374,7 +1643,7 @@
         </div>
 
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
-        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Entries on or after each "from" date are added to (or taken from) it; earlier ones are ignored.</p>
+        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
@@ -1450,6 +1719,12 @@
           <div class="type-tab" data-direction="i_owe_them" data-i18n="loanModal.iOweThem">I owe them</div>
         </div>
 
+        <label class="checkbox-row" id="loan-opening-row">
+          <input type="checkbox" id="loan-opening">
+          <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+        </label>
+        <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
+
         <label for="loan-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
 
@@ -1457,16 +1732,18 @@
         <input type="hidden" id="loan-currency" value="PEN">
         <div class="currency-chips" id="loan-currency-chips"></div>
 
-        <label for="loan-date" data-i18n="field.date">Date</label>
+        <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
 
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
         <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
 
+        <div id="loan-pm-field">
         <label for="loan-payment-method" data-i18n="field.paymentMethod">Payment method</label>
         <select id="loan-payment-method"></select>
         <p class="hint" data-i18n="loanModal.pmHint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
+        </div>
 
         <label for="loan-description" data-i18n="field.description">Description</label>
         <input type="text" id="loan-description" data-i18n-placeholder="common.optional" placeholder="Optional">
@@ -1636,6 +1913,27 @@
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
+      <div id="welcome-fits" hidden>
+        <p class="hint" id="wf-step"></p>
+        <h2 data-i18n="wf.title">What fits you?</h2>
+        <p class="hint" data-i18n="wf.intro">Tap any that apply. Each one adds a few categories you will probably use. This step is optional, and you can add more any time in More → Categories.</p>
+        <div id="wf-chips"></div>
+        <p class="hint" data-i18n="wf.basics">Always included: Groceries, Restaurants, Home (with your household bills), Transport, Travel, Sports, Bank fees and Other.</p>
+        <div id="wb-block" hidden>
+          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
+          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
+          <div class="welcome-choices">
+            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
+            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
+          </div>
+        </div>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wf-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wf-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+        <button type="button" class="add-inline" id="wf-skip-btn" data-i18n="wp.skip">Skip this step</button>
+      </div>
+
       <div id="welcome-accounts" hidden>
         <div id="wa-root">
           <p class="hint" id="wa-step"></p>
@@ -1648,6 +1946,11 @@
           <button type="button" class="add-inline" id="wa-add-bank-btn" data-i18n="wa.addBank">+ Add another bank</button>
           <p class="hint" data-i18n="wa.wallets" style="font-weight:600;">Heads up: don't add wallets that are tied to a bank account (for example, other banks' wallet apps). Add the bank account behind them instead. Only wallets that stand on their own, like Starbucks or other loyalty programs, are added separately, later, in More → Accounts, cards &amp; platforms.</p>
           <div id="wa-note"></div>
+          <div id="wa-name-block" hidden>
+            <h3 data-i18n="wa.nameTitle">Your full name</h3>
+            <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
+            <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
+          </div>
           <p class="hint" id="wa-error" style="color:#d64545;"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
@@ -1693,14 +1996,6 @@
         <div class="wp-add">
           <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
           <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
-        </div>
-        <div id="wb-block" hidden>
-          <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
-          <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
-          <div class="welcome-choices">
-            <button type="button" class="welcome-choice active" data-welcome-business="no" data-i18n="wb.no">No, only my personal money</button>
-            <button type="button" class="welcome-choice" data-welcome-business="yes" data-i18n="wb.yes">Yes, I also have a business or projects</button>
-          </div>
         </div>
         <p class="hint" id="wp-error" style="color:#d64545;"></p>
         <div class="welcome-tour-buttons">
@@ -1901,6 +2196,21 @@
           <p class="hint" data-i18n="feedback.thanks">Thank you! I read it, and I'll write back if I need to ask you something. — JP</p>
           <button type="button" class="primary" id="fb-done" data-i18n="feedback.done">Close</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="fits-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="fits.title">Add suggested categories</span>
+        <button type="button" id="fits-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="fits.intro">Tap what is part of your life. The app adds the basic categories you don't have yet, plus one for each pick. Nothing you have is changed or removed, and un-ticking a pick deletes nothing.</p>
+        <div id="fits-chips"></div>
+        <p class="hint" id="fits-msg" role="status"></p>
+        <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
       </div>
     </div>
   </div>
@@ -2333,7 +2643,7 @@
         <label for="person-name" data-i18n="people.name">Name</label>
         <input type="text" id="person-name" maxlength="60">
 
-        <label for="person-role" data-i18n="people.role">Role</label>
+        <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
 
         <p class="hint" id="person-form-error" style="color:#d64545;"></p>
@@ -2503,6 +2813,7 @@
           <div id="recurring-split-detail" hidden>
             <div class="type-tabs budget-period-tabs" id="recurring-split-mode-tabs">
               <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
+              <div class="type-tab" data-mode="percent" data-i18n="split.percent">%</div>
               <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
             </div>
 
@@ -2553,7 +2864,7 @@
           <label data-i18n="recModal.dates">Starts on — ends on (optional)</label>
           <div><input type="date" id="recurring-start-date"><input type="date" id="recurring-end-date"></div>
           <p class="hint" id="recurring-start-hint"></p>
-          <p class="hint" data-i18n="recModal.endHint">Leave blank for no end. After an end date the item stops counting, but the months before it keep their history. "Active" off removes the whole item from every period instead.</p>
+          <p class="hint" data-i18n="recModal.endHint">Leave blank for no end. After an end date the item stops counting, but the months before it keep their history.</p>
         </div>
 
         <div id="recurring-skips-section" hidden>
@@ -2561,9 +2872,9 @@
           <div id="recurring-skips-list"></div>
         </div>
 
-        <label class="checkbox-row">
+        <label class="checkbox-row" id="recurring-active-row" hidden>
           <input type="checkbox" id="recurring-active-checkbox" checked>
-          <span data-i18n="recModal.active">Active</span>
+          <span data-i18n="recModal.activePaused">Active (this item is paused: check to reactivate it)</span>
         </label>
 
         <div id="recurring-link-section" hidden>
@@ -2578,7 +2889,30 @@
 
         <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="recurring-save-btn" data-i18n="common.save">Save</button>
+        <button type="button" class="add-inline" id="recurring-restart-btn" hidden data-i18n="recModal.restart">🔁 Start again</button>
         <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden data-i18n="recModal.delete">Delete this item</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="recurring-delete-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="recurring-delete-title"></span>
+        <button type="button" id="recurring-delete-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="recurring-delete-body"></div>
+    </div>
+  </div>
+
+  <div id="paused-decision-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="paused.title">Pause has been replaced</span>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="paused.intro">Programmed items can no longer be paused. Choose what to do with each of these paused items.</p>
+        <div id="paused-decision-list"></div>
       </div>
     </div>
   </div>
@@ -2723,6 +3057,7 @@
       <div class="welcome-choices">
         <button type="button" class="welcome-choice" id="tour-choice-basic"><b data-i18n="tourChoice.basic">📖 The basics</b><br><span class="hint" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></button>
         <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Advanced features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
+        <button type="button" class="welcome-choice" id="tour-choice-tips"><b data-i18n="tourChoice.tips">💡 Practice tips</b><br><span class="hint" data-i18n="tourChoice.tipsHint">Show the hands-on practice tips again, like the one in Loans.</span></button>
       </div>
       <button type="button" class="cancel-edit-btn" id="tour-choice-close" data-i18n="common.close">Close</button>
     </div>
@@ -2784,21 +3119,22 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="i18n.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="tour-scenes.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="signin-link.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="country-guess.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="rate-quotes.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="bank-sample.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="perf-share.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="receipt-parse.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="receipt-fields.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="bill-split.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="app.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="statement-sample.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="statement-table.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="statement-parsers.js?v=2026-10-29T03:44:19Z"></script>
-  <script src="statements.js?v=2026-10-29T03:44:19Z"></script>
+  <script src="strings.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="i18n.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="tour-scenes.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="signin-link.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="country-guess.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="rate-quotes.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="bank-sample.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="perf-share.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="spotlight.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="receipt-parse.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="receipt-fields.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="bill-split.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="app.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="statement-sample.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="statement-table.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="statement-parsers.js?v=2026-11-02T12:12:10Z"></script>
+  <script src="statements.js?v=2026-11-02T12:12:10Z"></script>
 </body>
 </html>
