@@ -241,3 +241,17 @@ test("the first-use practice's budget (named like it, any amount) never alerts; 
   assert.equal(notices(rt).length, 1, "any other name alerts as usual");
   assert.match(notices(rt)[0].text, /My own budget/);
 });
+
+test("a first-use practice's own expense never pushes a real budget over an alert threshold", () => {
+  const { rt, data } = freshApp();
+  const { budget, spendMore } = budgetOver(rt, data, { amount: 1000, spend: 400, thresholds: "50,90" });
+  spendMore(600, "Practice expense");          // the Loans practice's shared expense: would make it 100%
+  spendMore(100, "Elemento de práctica");       // the Programmed items practice's payment (Spanish)
+  rt.run("checkBudgets()");
+  assert.deepEqual(notices(rt), [], "40% real spending: no alert while the practice entries exist");
+  assert.equal(alertRows(rt, budget.id).length, 0);
+  spendMore(200, "Real dinner");
+  rt.run("checkBudgets()");
+  assert.equal(notices(rt).length, 1, "real spending still alerts (60% crosses 50%)");
+  assert.match(notices(rt)[0].text, /6\d%/, "and the figure leaves the practice entries out");
+});

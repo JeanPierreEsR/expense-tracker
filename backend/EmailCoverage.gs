@@ -24,7 +24,7 @@ function overlapKey_(currency, amount) { return String(currency) + '|' + Number(
 function buildEntryOverlapIndex_() {
   var index = {};
   getAllRows('Entries').forEach(function (e) {
-    if (e.source === 'email') return;
+    if (e.source === 'email' || isPracticeReview_(e)) return;
     var day = overlapDayNumber_(e.date);
     if (day === null || !(Number(e.amount) > 0)) return;
     var key = overlapKey_(e.currency, e.amount);

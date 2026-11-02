@@ -107,6 +107,8 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after Needs review has loaded. -->
+      <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
           <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
@@ -729,6 +731,8 @@
     </div>
 
     <div id="screen-recurring" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="recurring-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="recurring-back-btn" data-i18n="common.back">‹ Back</button>
@@ -776,6 +780,9 @@
     </div>
 
     <div id="screen-accounts" class="screen" hidden>
+      <!-- First-use tip invitations (spotlight.js / offerTip_ in app.js): Accounts first; Investments only after the Accounts one was seen. -->
+      <div class="card tip-invite" id="accounts-tip-invite" hidden></div>
+      <div class="card tip-invite" id="investments-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
@@ -803,6 +810,8 @@
     </div>
 
     <div id="screen-trips" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="trips-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="trips-back-btn" data-i18n="common.back">‹ Back</button>
@@ -947,6 +956,8 @@
     </div>
 
     <div id="screen-exchange-rates" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="exchange-rates-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="exchange-rates-back-btn" data-i18n="common.back">‹ Back</button>

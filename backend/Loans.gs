@@ -2222,7 +2222,19 @@ function releaseEntryRepaidLoans(payload) {
   });
 }
 
+// What the phone asks before deleting an entry. Also names the OTHER side of a currency exchange (the two sides are separate
+// entries), so the person can delete both together and never leave half an exchange (owner, 2026-11-02).
 function getEntryRepaymentLinks(payload) {
+  var out = getEntryRepaymentLinksBase_(payload);
+  if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
+    var entry = getEntryById_(payload.id);
+    var partner = entry ? exchangeLegPartner_(entry) : null;
+    if (partner) out.exchangePartner = { id: partner.id, amount: Number(partner.amount), currency: partner.currency, date: String(partner.date) };
+  }
+  return out;
+}
+
+function getEntryRepaymentLinksBase_(payload) {
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
   var id = payload.id;
@@ -2359,6 +2371,55 @@ function removePracticeData(payload) {
     }
     ((payload && payload.delete_friend_ids) || []).forEach(function (id) {
       try { deleteFriend({ id: String(id) }); out.friends_deleted.push(String(id)); } catch (err) { /* used somewhere else: it stays */ }
+    });
+    return out;
+  });
+}
+
+// The first-use Loans practices (a standalone loan, a bank loan) name what they create like this (both languages): the loan's
+// description is "Practice loan" / "Practice bank loan", the bank loan's lender is "Practice Bank". The cleanup and the overdue
+// check only ever look at these names.
+function isPracticeLoan_(loan) {
+  return /^(Practice loan|Préstamo de práctica|Practice bank loan|Préstamo bancario de práctica)$/.test(String((loan && loan.description) || '').trim());
+}
+
+function isPracticeBankName_(name) {
+  return /^(Practice Bank|Banco de práctica)$/.test(String(name || '').trim());
+}
+
+// A money entry the practice loans made: the loan's own movement ("Practice loan"), an installment's movement and its interest +
+// fees expense ("Installment 1/3: Practice bank loan", "Interest and fees, installment 1/3: ..."), an early payment and its fee.
+function isPracticeLoanEntryText_(text) {
+  return /^(Practice loan|Préstamo de práctica)$/.test(text) ||
+    /^((Installment|Cuota) \d+\/\d+|(Interest and fees, installment|Intereses y comisiones, cuota) \d+\/\d+|Early payment|Early payment fee|Pago anticipado|Comisión por pago anticipado): (Practice bank loan|Préstamo bancario de práctica)$/.test(text);
+}
+
+// The Loans practices' cleanup in ONE call (a standalone loan and a bank loan share it): deletes every loan named like the
+// practice's (with its installments, repayments and the money entries they made), the money entries still carrying the practice's
+// text dated since the practice started (e.g. the interest + fees expense of an installment, which stays when a loan is deleted with
+// "cancel the repayments"), every loan of the "Practice Bank" lender (a "keep the repayments" delete leaves a refund loan), the lender and the friends the practice added, when nothing else uses them. A real
+// entry or loan is never touched: only the practice's exact names. payload: { started_on, delete_friend_ids: [ids] }
+// Returns { loans, entries, friends_deleted: [ids] }.
+function removePracticeLoans(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { loans: 0, entries: 0, friends_deleted: [] };
+    var startedOn = String((payload && payload.started_on) || '');
+    // Loans named like the practice's, and every loan with the practice lender (deleting a bank loan with "keep the repayments" leaves
+    // a refund loan with that lender under another description).
+    var bankIds = {};
+    getAllRows('Friends').forEach(function (f) { if (isPracticeBankName_(f.name)) bankIds[String(f.id)] = true; });
+    getAllRows('Loans').filter(function (l) { return isPracticeLoan_(l) || bankIds[String(l.friend_id)]; }).forEach(function (loan) {
+      try { deleteLoan(loan.id, 'cancel'); out.loans++; } catch (err) { /* it stays: the person can delete it by hand */ }
+    });
+    getAllRows('Entries').forEach(function (e) {
+      if (!isPracticeLoanEntryText_(String(e.description || '').trim())) return;
+      if (startedOn && String(e.date) < startedOn) return;
+      try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays in Needs review / Home for the person to delete */ }
+    });
+    var ids = ((payload && payload.delete_friend_ids) || []).map(String);
+    getAllRows('Friends').forEach(function (f) { if (isPracticeBankName_(f.name) && ids.indexOf(String(f.id)) === -1) ids.push(String(f.id)); });
+    ids.forEach(function (id) {
+      try { deleteFriend({ id: id }); out.friends_deleted.push(id); } catch (err) { /* used somewhere else: it stays */ }
     });
     return out;
   });
@@ -2596,6 +2657,7 @@ function buildSettlementTotalsByLoan_() {
 // loan has nothing left to be "overdue" about).
 function isLoanOverdue_(loan, remaining) {
   if (loan.status === 'forgiven') return false;
+  if (isPracticeLoan_(loan)) return false;   // the first-use practice's own loan never raises a reminder or notice (it is deleted minutes later)
   if (!loan.due_date) return false;
   if (remaining <= 0.004) return false;
   var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');

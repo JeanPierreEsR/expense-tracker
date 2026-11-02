@@ -86,8 +86,15 @@ function getCapabilities_() {
     bankReady: true,
     // This backend takes a rule pack from the phone (setRulePack, RulePack.gs); an older one lacks it and the app then never sends one.
     rulePack: true,
+    practiceProgrammed: true,   // removePracticeProgrammed: the Programmed items practice is only offered where this exists
     practiceBudgets: true,   // removePracticeBudgets + the alert check skips the practice's budget: the Budgets practice is only offered where this exists
+    practiceLoansMore: true,   // removePracticeLoans + the overdue check skips the practice's loans: the standalone-loan and bank-loan practices are only offered where this exists
+    practiceInvestments: true,   // removePracticeInvestments: the Investments practice is only offered where this exists
+    practiceAccounts: true,   // removePracticeAccounts + the automatic matchers (e-mail, statements, Telegram, Yape/Plin) skip the practice's account: the Accounts practice is only offered where this exists
+    practiceTrips: true,   // removePracticeTrips + suggestions/alerts skip the practice trip: the Trips & events practice is only offered where this exists
+    practiceExchange: true,   // removePracticeExchange + the exchange-house / pairing / last-account memories skip the practice's legs: the Currency exchange practice is only offered where this exists
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
+    practiceReview: true,   // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button

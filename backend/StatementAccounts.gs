@@ -76,7 +76,7 @@ function createStatementAccounts(payload) {
     if (ACCOUNT_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
     if (!bankName) throw new Error(tr_('err.pmBank'));
-    var already = pms.find(function (pm) { return covKey_(pm.last_4) === covKey_(last4); }) || created.filter(function (c) { return c.last_4 === last4; })[0];
+    var already = pms.find(function (pm) { return covKey_(pm.last_4) === covKey_(last4) && !isPracticeAccount_(pm); }) || created.filter(function (c) { return c.last_4 === last4; })[0];
     if (already) { existing.push({ id: already.id, nickname: already.nickname, last_4: last4 }); return; }
     var bank = getAllRows('Banks').find(function (b) { return plainNickname_(b.name) === plainNickname_(bankName); }) || addBank({ name: bankName });
     var nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bank.name), kind, last4, true, lang), last4, taken);

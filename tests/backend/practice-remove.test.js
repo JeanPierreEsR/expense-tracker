@@ -101,3 +101,30 @@ test("removePracticeBudgets deletes only the practice's budget (either language)
   assert.equal(rt.api("getMeta").capabilities.practiceBudgets, true);
   void data;
 });
+
+test("removePracticeProgrammed deletes the practice item and ITS payment entry, unlinks a real entry, and leaves other items alone", () => {
+  const { rt, data } = practice();
+  const cat = data.cats.find((c) => c.type === "expense");
+  const mk = (description, frequency = "monthly") => rt.api("addRecurringExpense", { category_id: cat.id, description, amount: 12, currency: "PEN", frequency, day: 5, start_date: today(), active: true });
+  const mine = mk("Practice item");
+  const es = mk("Elemento de práctica");
+  const real = mk("Gym");
+  const paid = rt.api("createEntry", { type: "expense", date: today(), amount: 12, currency: "PEN", category_id: cat.id, description: "Practice item", paid_by: "me", payment_method_id: data.pms[3].id });
+  rt.api("linkEntryToRecurring", { entryId: paid.id, recurringExpenseId: mine.id });
+  const realEntry = rt.api("createEntry", { type: "expense", date: today(), amount: 30, currency: "PEN", category_id: cat.id, description: "Real lunch", paid_by: "me", payment_method_id: data.pms[3].id });
+  rt.api("linkEntryToRecurring", { entryId: realEntry.id, recurringExpenseId: mine.id });
+  const entriesBefore = rt.rows("Entries").length;
+  const res = rt.api("removePracticeProgrammed", { started_on: today() });
+  assert.equal(res.items, 2);
+  assert.equal(res.entries, 1);
+  assert.equal(res.unlinked, 1);
+  const items = rt.rows("Recurring Expenses").map((r) => r.id);
+  assert.ok(!items.includes(mine.id) && !items.includes(es.id));
+  assert.ok(items.includes(real.id), "a real programmed item stays");
+  assert.equal(rt.rows("Entries").length, entriesBefore - 1);
+  const kept = rt.rows("Entries").find((e) => e.id === realEntry.id);
+  assert.ok(kept, "a real entry the person had linked is NOT deleted");
+  assert.equal(String(kept.recurring_expense_id || ""), "", "it is only unlinked");
+  assert.equal(rt.api("removePracticeProgrammed", {}).items, 0, "a repeat is harmless");
+  assert.equal(rt.api("getMeta").capabilities.practiceProgrammed, true);
+});

@@ -191,7 +191,7 @@ function ownerNameAsk_() {
 // expense with no category whose description is a person's full name and that carries no merchant (a transfer rule stores the recipient
 // as the description; a purchase stores a merchant). The Needs review row shows a quiet "Maybe yours?".
 function ownerNameMaybeOwn_(entry) {
-  if (ownerNameSets_().length) return false;
+  if (ownerNameSets_().length || isPracticeReview_(entry)) return false;
   return entry.source === 'email' && entry.type === 'expense' && !entry.category_id && !entry.merchant && ownerNameLooksReal_(entry.description);
 }
 
