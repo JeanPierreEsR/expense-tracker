@@ -717,7 +717,7 @@ function processEmails(opts) {
     if (e.external_id) existingExternalIds[e.external_id] = true;
   });
   var banks = getAllRows('Banks');
-  var paymentMethods = getAllRows('Payment Methods');
+  var paymentMethods = withoutPracticeAccounts_(getAllRows('Payment Methods'));   // the first-use practice's account never receives an e-mail
   ensureEntriesMerchantColumn_();
   ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
