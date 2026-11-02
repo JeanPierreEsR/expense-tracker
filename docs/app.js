@@ -1608,6 +1608,7 @@ function toggleSplitFieldVisibility() {
 
 function resetSplitState() {
   receiptFormText_ = "";
+  receiptFormFile_ = null;
   billState = null;
   billApplied = false;
   billItemsEdited = false;
@@ -19379,6 +19380,8 @@ document.getElementById("balance-clear-btn").addEventListener("click", async () 
 let billState = null;
 // The text the entry form's photo reader already read: a blank "split by items" starts from it instead of asking for the photo again.
 let receiptFormText_ = "";
+// The photo itself, kept in the phone's memory only (never saved or sent) until the entry is left, so the items split can read it again.
+let receiptFormFile_ = null;
 let billItemsEdited = false;    // items typed/changed/inserted by hand since the last photo read
 let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
@@ -19500,6 +19503,7 @@ async function openBillModal() {
       billPhotoSay_(tr("bill.fromFormPhoto", { n: dishes }) + (known.warnings.length ? " " + known.warnings.join(" ") : ""), known.warnings.length > 0);
     }
   }
+  document.getElementById("bill-photo-again").hidden = !receiptFormFile_;
   document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || homeCur()).toUpperCase();
   document.getElementById("bill-total").value = billState.total;
   syncBillTabs_();
@@ -20187,6 +20191,7 @@ async function readBillPhoto_(file) {
   }
 }
 
+document.getElementById("bill-photo-again").addEventListener("click", () => { if (receiptFormFile_) readBillPhoto_(receiptFormFile_); });
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
 document.getElementById("bill-photo-reparse").addEventListener("click", () => {
   const parsed = ReceiptParse.parseReceipt(document.getElementById("bill-photo-text").value);
@@ -20317,6 +20322,7 @@ async function readReceiptPhoto_(file) {
     document.getElementById("receipt-read-raw").hidden = false;
     if (!best.score) { receiptReadSay_(tr("receipt.nothing"), true); return; }
     const { found, igvNote } = applyReceiptFields_(best.fields);
+    receiptFormFile_ = file;
     receiptFormText_ = best.text;   // after filling the form: filling may reset the split state
     // "Couldn't find" means the reader found nothing for it (a payer that was read but is not in the person's list has its own note).
     const f = best.fields;

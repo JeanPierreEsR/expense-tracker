@@ -2745,6 +2745,7 @@
     // ---- bill ----
     "bill.title": { en: "🧾 Split a bill by items", es: "🧾 Repartir una boleta por ítems" },
     "bill.fromFormPhoto": { en: { one: "Used the {n} item already read from your receipt photo. Check every line, then tap who shared each one.", other: "Used the {n} items already read from your receipt photo. Check every line, then tap who shared each one." }, es: { one: "Se usó el {n} ítem ya leído de la foto de tu boleta. Revisa cada línea y luego toca quién compartió cada uno.", other: "Se usaron los {n} ítems ya leídos de la foto de tu boleta. Revisa cada línea y luego toca quién compartió cada uno." } },
+    "bill.photoAgain": { en: "↻ Read the entry's photo again for the items", es: "↻ Volver a leer la foto del movimiento para los ítems" },
     "bill.photo": { en: "📷 Read the items from a photo", es: "📷 Leer los ítems desde una foto" },
     "bill.rawSummary": { en: "What the phone read — you can correct it here", es: "Lo que leyó el celular: puedes corregirlo aquí" },
     "bill.rawHint": { en: "Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.", es: "Corrige una línea o un número mal leído en este texto y toca el botón: los ítems, descuentos y total se calculan de nuevo a partir de él. Quién compartió qué se conserva en las líneas que no cambiaste." },
