@@ -21990,7 +21990,8 @@ async function readInprocFiles_(files) {
 function openInprocModal_() {
   inprocLists_ = [];
   inprocItems_ = [];
-  document.getElementById("inproc-balance").value = "";
+  // Opened from an account's balance sheet: start from the balance the person already typed in "Check against my app".
+  document.getElementById("inproc-balance").value = document.getElementById("balance-check-input").value || "";
   inprocSay_("");
   renderInproc_();
   document.getElementById("inproc-modal-backdrop").hidden = false;

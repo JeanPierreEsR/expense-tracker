@@ -791,7 +791,6 @@
         <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
         <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
         <div id="accounts-bank-note"></div>
-        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <div id="accounts-list"></div>
         <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
       </div>
@@ -1315,29 +1314,6 @@
     </div>
   </div>
 
-  <div id="inproc-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal bill-modal">
-      <div class="currency-modal-header">
-        <span data-i18n="inproc.title">🕒 Payments in process</span>
-        <button type="button" id="inproc-modal-close" class="currency-modal-close">✕</button>
-      </div>
-      <div class="bill-scroll">
-        <p class="hint" data-i18n="inproc.hint">Your bank app's balance leaves out payments still "in process". Add screenshots of its movements list and the app adds up the ones marked "En proceso". Nothing is saved, and the photos never leave your phone.</p>
-        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
-        <input type="file" id="inproc-input" accept="image/*" multiple hidden>
-        <p class="hint" id="inproc-status" hidden></p>
-        <div id="inproc-list"></div>
-        <div id="inproc-totals"></div>
-        <div id="inproc-balance-box" hidden>
-          <label for="inproc-balance"><span data-i18n="inproc.balance">Balance your bank app shows</span> (<span id="inproc-balance-cur">PEN</span>)</label>
-          <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
-          <p class="hint" id="inproc-after"></p>
-        </div>
-      </div>
-      <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
-    </div>
-  </div>
-
   <div id="bill-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal bill-modal">
       <div class="currency-modal-header">
@@ -1666,6 +1642,7 @@
           <p class="hint" id="balance-check-result"></p>
         </div>
 
+        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
         <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
@@ -1680,6 +1657,29 @@
           <div id="balance-movements"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="inproc-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal bill-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="inproc.title">🕒 Payments in process</span>
+        <button type="button" id="inproc-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="bill-scroll">
+        <p class="hint" data-i18n="inproc.hint">Your bank app's balance leaves out payments still "in process". Add screenshots of its movements list and the app adds up the ones marked "En proceso". Nothing is saved, and the photos never leave your phone.</p>
+        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
+        <input type="file" id="inproc-input" accept="image/*" multiple hidden>
+        <p class="hint" id="inproc-status" hidden></p>
+        <div id="inproc-list"></div>
+        <div id="inproc-totals"></div>
+        <div id="inproc-balance-box" hidden>
+          <label for="inproc-balance"><span data-i18n="inproc.balance">Balance your bank app shows</span> (<span id="inproc-balance-cur">PEN</span>)</label>
+          <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <p class="hint" id="inproc-after"></p>
+        </div>
+      </div>
+      <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
     </div>
   </div>
 
