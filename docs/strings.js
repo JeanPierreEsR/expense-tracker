@@ -711,6 +711,8 @@
     "loanModal.pmHint": { en: "Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.", es: "Opcional: por qué cuenta se movió el dinero, si fue por alguna. Si llevas el saldo de esa cuenta, prestar lo baja y pedir prestado lo sube." },
     "loanModal.save": { en: "Save loan", es: "Guardar préstamo" },
     "loanModal.delete": { en: "Delete this loan", es: "Eliminar este préstamo" },
+    "creditCard.warnIn": { en: "“{name}” is a credit card. A credit card doesn't normally receive money from a person. Use it anyway? (OK = use it, Cancel = change the account)", es: "“{name}” es una tarjeta de crédito. Una tarjeta de crédito normalmente no recibe dinero de una persona. ¿Usarla de todos modos? (Aceptar = usarla, Cancelar = cambiar la cuenta)" },
+    "creditCard.warnOut": { en: "“{name}” is a credit card. Money you give a person doesn't normally come from a credit card. Use it anyway? (OK = use it, Cancel = change the account)", es: "“{name}” es una tarjeta de crédito. El dinero que le das a una persona normalmente no sale de una tarjeta de crédito. ¿Usarla de todos modos? (Aceptar = usarla, Cancelar = cambiar la cuenta)" },
     "loanModal.confirmNoAccount": { en: "No account or card is picked. Save this loan without one? You can add it later by editing the loan.", es: "No elegiste una cuenta o tarjeta. ¿Guardar este préstamo sin una? Puedes añadirla después editando el préstamo." },
     "loanModal.edit": { en: "Edit loan", es: "Editar préstamo" },
     "loanModal.confirmDelete": { en: "Delete the loan {what}? This can't be undone.", es: "¿Eliminar el préstamo {what}? No se puede deshacer." },
