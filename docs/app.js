@@ -1607,6 +1607,7 @@ function toggleSplitFieldVisibility() {
 }
 
 function resetSplitState() {
+  receiptFormText_ = "";
   billState = null;
   billApplied = false;
   billItemsEdited = false;
@@ -19376,6 +19377,8 @@ document.getElementById("balance-clear-btn").addEventListener("click", async () 
 // with each friend's total — the entry is then saved the usual way, so
 // category, account, date and the debts all go through the existing flow.
 let billState = null;
+// The text the entry form's photo reader already read: a blank "split by items" starts from it instead of asking for the photo again.
+let receiptFormText_ = "";
 let billItemsEdited = false;    // items typed/changed/inserted by hand since the last photo read
 let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
@@ -19488,6 +19491,14 @@ async function openBillModal() {
     billState = newBillState_();
     document.getElementById("bill-photo-status").hidden = true;
     document.getElementById("bill-photo-raw").hidden = true;
+    const known = receiptFormText_ ? ReceiptParse.parseReceipt(receiptFormText_) : null;
+    if (known && known.items.length) {
+      applyReceiptToBill_(known, { noConfirm: true });
+      document.getElementById("bill-photo-text").value = receiptFormText_;
+      document.getElementById("bill-photo-raw").hidden = false;
+      const dishes = known.items.filter((i) => !i.discount).length;
+      billPhotoSay_(tr("bill.fromFormPhoto", { n: dishes }) + (known.warnings.length ? " " + known.warnings.join(" ") : ""), known.warnings.length > 0);
+    }
   }
   document.getElementById("bill-currency").textContent = (document.getElementById("currency").value || homeCur()).toUpperCase();
   document.getElementById("bill-total").value = billState.total;
@@ -20306,6 +20317,7 @@ async function readReceiptPhoto_(file) {
     document.getElementById("receipt-read-raw").hidden = false;
     if (!best.score) { receiptReadSay_(tr("receipt.nothing"), true); return; }
     const { found, igvNote } = applyReceiptFields_(best.fields);
+    receiptFormText_ = best.text;   // after filling the form: filling may reset the split state
     // "Couldn't find" means the reader found nothing for it (a payer that was read but is not in the person's list has its own note).
     const f = best.fields;
     const wanted = selectedType === "income"
