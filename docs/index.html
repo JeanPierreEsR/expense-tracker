@@ -1671,6 +1671,10 @@
         <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
         <input type="file" id="inproc-input" accept="image/*" multiple hidden>
         <p class="hint" id="inproc-status" hidden></p>
+        <details id="inproc-raw" hidden>
+          <summary class="hint" data-i18n="inproc.rawSummary">What the phone read</summary>
+          <textarea id="inproc-raw-text" class="bill-photo-text" rows="9" readonly spellcheck="false"></textarea>
+        </details>
         <div id="inproc-list"></div>
         <div id="inproc-totals"></div>
         <div id="inproc-balance-box" hidden>
