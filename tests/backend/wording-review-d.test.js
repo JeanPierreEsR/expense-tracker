@@ -39,10 +39,10 @@ test("C15: the Telegram parser takes 'account' / 'cuenta' and still takes the ol
   assert.match(telegram, /received\\s\*\(\?:at\|in\)/);
 });
 
-test("C17: the alert fields of budgets and trips are hidden when this copy has no Telegram (and kept when the backend does not say)", () => {
+test("C17 (changed 2026-11-02): the alert fields of budgets and trips are shown on every copy, because alerts always arrive on Home", () => {
   assert.match(index, /<div id="budget-alert-fields">[\s\S]*?budget-thresholds[\s\S]*?<\/div>/);
   assert.match(index, /<div id="trip-alert-fields">[\s\S]*?trip-alerts[\s\S]*?<\/div>/);
-  assert.match(app, /capabilities\.telegram === false/);
+  assert.ok(!/capabilities\.telegram === false/.test(app), "no copy hides the alert fields any more");
   assert.match(app, /refreshTelegramFields_\(\);\s*\n\s*if \(typeof refreshExtrasRow_/);
 });
 

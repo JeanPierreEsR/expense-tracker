@@ -893,11 +893,10 @@ function syncLanguageSetting_() {
 }
 
 let homeCurFormDone_ = false;
-// Spending alerts (budgets and trip budgets) are delivered by Telegram, so the "Alert at (%)" fields are shown only when this copy has
-// Telegram connected. A copy that says nothing about it (an older backend) keeps showing them.
+// Spending alerts (budgets and trip budgets) always arrive on Home (the Alerts card) and, when Telegram is connected, on Telegram too,
+// so the "Alert at (%)" fields are shown on every copy (they used to be hidden without Telegram, before alerts had a home in the app).
 function refreshTelegramFields_() {
-  const hide = !!(meta && meta.capabilities && meta.capabilities.telegram === false);
-  ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = hide; });
+  ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = false; });
 }
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
@@ -16038,9 +16037,13 @@ function offerTip_(key, boxId, inviteText, start) {
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
   if (!box.hidden) return;   // already on offer
-  box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.notNow"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
+  box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
-  box.querySelector(".tip-invite-no").addEventListener("click", () => { markTipSeen_(key); box.hidden = true; });
+  box.querySelector(".tip-invite-no").addEventListener("click", () => {
+    markTipSeen_(key);
+    box.hidden = true;
+    alert(tr("spot.dismissed"));   // say once how to bring the practice back
+  });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
     if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
