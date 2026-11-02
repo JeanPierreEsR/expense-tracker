@@ -5607,6 +5607,7 @@ function kickHomeGlance_() {
 
 function refreshHomeGlance_(force) {
   setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
+  setTimeout(practiceBLeftover_, 4000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -7218,6 +7219,7 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
   if (!drilldownBudget) return;
   if (!confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
   const id = drilldownBudget.id;
+  if (practiceB_ && isPracticeBudgetName_(drilldownBudget.name)) { practiceB_.deleted = true; practiceBSave_(); }   // (the first-use practice's last real step)
   closeDrilldown();
   try {
     await callApi("deleteBudget", { id });
@@ -7238,6 +7240,7 @@ const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     budgetPeriodType = tab.dataset.period;
+    budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
   });
 });
@@ -7424,7 +7427,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     closeBudgetModal();
     closeDrilldown();
     saveBehindScreen_(
-      () => budgetId ? callApi("updateBudget", Object.assign({ id: budgetId }, fields)) : callApi("addBudget", fields),
+      practiceBTrack_(() => budgetId ? callApi("updateBudget", Object.assign({ id: budgetId }, fields)) : callApi("addBudget", fields), fields),
       async () => { refreshBudgetsInBackground_(); });
   } catch (err) {
     errorEl.textContent = err.message;
@@ -7471,6 +7474,7 @@ async function refreshBudgets() {
   // own current period in those views (anchorDate is ignored server-side).
   const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
   const { budgets, summary } = await callApi("listBudgets", { displayPeriodType: periodType, anchorDate });
+  budgetsLoaded_ = budgets;   // (the first-use practice checks it for a budget the person already has)
   const list = document.getElementById("budgets-list");
   const emptyNote = document.getElementById("budgets-empty-note");
   const summaryCard = document.getElementById("budgets-summary-card");
@@ -7479,6 +7483,7 @@ async function refreshBudgets() {
   if (budgets.length === 0) {
     emptyNote.hidden = false;
     summaryCard.hidden = true;
+    offerBudgetsTip_();
     return;
   }
   emptyNote.hidden = true;
@@ -7513,6 +7518,7 @@ async function refreshBudgets() {
 
     const row = document.createElement("div");
     row.className = "budget-row";
+    row.dataset.budgetName = b.name || "";
     row.innerHTML = `
       <div class="budget-row-top">
         <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
@@ -7562,6 +7568,7 @@ async function refreshBudgets() {
   } else {
     overlapNote.hidden = true;
   }
+  offerBudgetsTip_();   // only now that everything has arrived (loading standard)
 }
 
 // ---- Init ----
@@ -16373,6 +16380,135 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- First-use practice: Budgets ----
+// The person creates a "Practice budget" with the real buttons, sees its row and detail, and deletes it (the last step is a real
+// delete). The practice budget never alerts (the server's alert check skips a budget with its name), so any amount is safe.
+// Cleanup = one backend call that deletes every budget with that name (removePracticeBudgets), in the background like the Loans one.
+const PRACTICE_B_KEY_ = "tipPracticeBudgets";
+let practiceB_ = null;          // { saved, deleted }: what the Budgets practice has done so far
+let practiceBSaving_ = 0;       // saves of the practice budget still on their way to the server
+let practiceBFailed_ = "";      // the server's refusal of one of them
+let practiceBRemoving_ = false;
+let practiceBLeftoverAsked_ = false;
+let budgetPeriodTouched_ = false;
+let budgetsLoaded_ = [];
+
+function practiceBLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_B_KEY_) || "null"); } catch (e) { return null; } }
+function practiceBSave_() {
+  try { if (practiceB_) localStorage.setItem(PRACTICE_B_KEY_, JSON.stringify(practiceB_)); else localStorage.removeItem(PRACTICE_B_KEY_); } catch (e) { /* ignore */ }
+}
+function isPracticeBudgetName_(name) { return /^(Practice budget|Presupuesto de práctica)$/.test(String(name || "").trim()); }
+
+// Wraps the budget save so the practice knows one is on its way (the cleanup waits for it) and whether the server refused it.
+function practiceBTrack_(work, fields) {
+  if (!practiceB_ || !isPracticeBudgetName_(fields && fields.name)) return work;
+  practiceB_.saved = true;
+  practiceBSave_();
+  return async () => {
+    practiceBSaving_++;
+    try { return await work(); } catch (err) { practiceBFailed_ = err.message || String(err); throw err; } finally { practiceBSaving_--; }
+  };
+}
+
+function offerBudgetsTip_() {
+  if (!((meta && meta.capabilities) || {}).practiceBudgets) return;   // an older backend could not keep the practice budget from alerting
+  offerTip_("budgets", "budgets-tip-invite", tr("spot.b.invite"), startBudgetPractice_);
+}
+
+function practiceBRow_() {
+  return Array.from(document.querySelectorAll("#budgets-list .budget-row")).find((r) => isPracticeBudgetName_(r.dataset.budgetName)) || null;
+}
+
+function practiceBSteps_() {
+  const cur = homeCur();
+  const amountEl = () => document.getElementById("budget-amount");
+  const amountVal = () => parseFloat(amountEl().value);
+  const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
+  const periodWord = () => tr(budgetPeriodType === "yearly" ? "period.yearly" : "period.monthly").toLowerCase();
+  // A budget on the same categories and period already exists (the server refuses a second one): the walkthrough goes back to the category.
+  const duplicate = () => {
+    if (!selectedBudgetCategoryIds.size) return false;
+    const allIds = allExpenseCategoryIds_();
+    const every = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
+    const mine = every ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(",");
+    return budgetsLoaded_.some((b) => (b.period_type === "yearly" ? "yearly" : "monthly") === budgetPeriodType &&
+      (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === mine);
+  };
+  const nameIt = () => {
+    const el = document.getElementById("budget-name");
+    if (el.value !== tr("spot.b.name")) { el.value = tr("spot.b.name"); el.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  return [
+    { key: "intro", text: () => tr("spot.b.intro"), button: () => tr("spot.b.start") },
+    { target: "#add-budget-btn", text: () => tr("spot.b.s1"), tap: "#add-budget-btn", before: async () => { if (document.getElementById("screen-budgets").hidden) showScreen("budgets"); } },
+    { key: "category", target: "#budget-category-chips", text: (fix) => (fix || duplicate()) ? tr("spot.b.s2fix", { period: periodWord() }) : tr("spot.b.s2"),
+      until: () => selectedBudgetCategoryIds.size > 0 && !duplicate(), ok: () => selectedBudgetCategoryIds.size > 0 && !duplicate(), holdsUntil: "save" },
+    { key: "amount", target: "#budget-amount", text: (fix) => tr(fix ? "spot.b.s3fix" : "spot.b.s3", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "save", before: async () => { nameIt(); } },
+    { target: "#budget-period-tabs", text: () => tr("spot.b.s4"), until: () => budgetPeriodTouched_, before: async () => { budgetPeriodTouched_ = false; } },
+    // (The alert boxes only exist on a copy with Telegram connected: without it this step is simply not there.)
+    { look: true, target: "#budget-alert-fields", text: () => tr("spot.b.s5"), button: () => tr("spot.b.gotIt"), available: () => !document.getElementById("budget-alert-fields").hidden },
+    { key: "save", target: () => [document.getElementById("budget-save-btn"), document.getElementById("budget-form-error")],
+      text: () => { const err = (document.getElementById("budget-form-error").textContent || "").trim(); return err ? tr("spot.b.s6err", { error: err }) : tr("spot.b.s6"); },
+      before: async () => { nameIt(); document.getElementById("budget-form-error").textContent = ""; },
+      until: () => document.getElementById("budget-modal-backdrop").hidden },
+    { target: practiceBRow_, text: () => tr("spot.b.s7"), tap: practiceBRow_, wait: 45000,
+      poke: () => {
+        if (practiceBFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
+        if (!document.getElementById("screen-budgets").hidden) refreshBudgets().catch(() => {});
+      } },
+    { target: "#drilldown-menu-btn", text: () => tr("spot.b.s8"), tap: "#drilldown-menu-btn", wait: 20000 },
+    { target: "#drilldown-menu-delete", text: () => tr("spot.b.s9"), until: () => !!(practiceB_ && practiceB_.deleted), wait: 10000 },
+    { text: () => tr("spot.b.s10"), button: () => tr("spot.b.finish") }
+  ];
+}
+
+function startBudgetPractice_() {
+  if (practiceBRemoving_) { showToast_(tr("spot.b.stillRemoving")); return false; }
+  const open = ["budget-modal-backdrop", "drilldown-modal-backdrop", "edit-entry-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.b.busy")); return false; }
+  practiceB_ = { saved: false, deleted: false };
+  practiceBSave_();
+  practiceBFailed_ = "";
+  runTip_(practiceBSteps_(), async () => {
+    if (document.getElementById("screen-budgets").hidden) showScreen("budgets");
+    showToast_(tr("spot.b.removing"));
+    practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });
+  }, tr("spot.p.note"));
+  return true;
+}
+
+async function practiceBRemove_() {
+  if (practiceBRemoving_) return false;
+  const p = practiceB_ || practiceBLoad_();
+  if (!p) return true;
+  practiceBRemoving_ = true;
+  try {
+    // What the practice may have left open.
+    if (!document.getElementById("budget-modal-backdrop").hidden) closeBudgetModal();
+    if (!document.getElementById("drilldown-modal-backdrop").hidden) closeDrilldown();
+    // A save still on its way must land BEFORE the delete (a late one would make a stray budget).
+    const t0 = Date.now();
+    while (practiceBSaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
+    let ok = true;
+    if (p.saved) {
+      try { await callApi("removePracticeBudgets", {}); }
+      catch (err) { ok = false; alert(tr("spot.b.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceB_ = null; practiceBSave_(); }
+    practiceBFailed_ = "";
+    refreshBudgetsInBackground_();
+    return ok;
+  } finally { practiceBRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceBLeftover_() {
+  if (practiceBLeftoverAsked_ || practiceBRemoving_ || Spotlight.isRunning() || !practiceBLoad_()) return;
+  practiceBLeftoverAsked_ = true;
+  if (confirm(tr("spot.b.leftover"))) practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });
+}
 
 async function refreshLoans() {
   populateLoansScope_();

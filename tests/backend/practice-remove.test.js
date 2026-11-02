@@ -83,3 +83,21 @@ test("capability: a backend that can do the cleanup in one call says so", () => 
   const { rt } = practice();
   assert.equal(rt.api("getMeta").capabilities.practiceRemove, true);
 });
+
+test("removePracticeBudgets deletes only the practice's budget (either language) and its alert history", () => {
+  const { rt, data } = practice();
+  const cat = (n) => { const id = "cat-pb-" + n; rt.run(`appendRowObject('Categories', { id: ${JSON.stringify(id)}, name: 'PB ${n}', type: 'expense', icon: '', color: '#ccc', parent_id: '' });`); return id; };
+  const mine = rt.api("addBudget", { category_id: cat(1), amount: 1, currency: "PEN", period_type: "monthly", name: "Practice budget" });
+  const es = rt.api("addBudget", { category_id: cat(2), amount: 1, currency: "PEN", period_type: "yearly", name: "Presupuesto de práctica" });
+  const real = rt.api("addBudget", { category_id: cat(3), amount: 500, currency: "PEN", period_type: "monthly", name: "Real budget" });
+  rt.run(`appendRowObject('Budget Alert Log', { id: 'log-pb', budget_id: ${JSON.stringify(mine.id)}, threshold: 50, period: '2026-11', sent_at: '2026-11-01' });`);
+  const res = rt.api("removePracticeBudgets", {});
+  assert.equal(res.removed, 2);
+  const ids = rt.rows("Budgets").map((b) => b.id);
+  assert.ok(!ids.includes(mine.id) && !ids.includes(es.id));
+  assert.ok(ids.includes(real.id), "a real budget stays");
+  assert.equal(rt.rows("Budget Alert Log").some((r) => r.budget_id === mine.id), false, "alert history gone with it");
+  assert.equal(rt.api("removePracticeBudgets", {}).removed, 0, "a repeat is harmless");
+  assert.equal(rt.api("getMeta").capabilities.practiceBudgets, true);
+  void data;
+});

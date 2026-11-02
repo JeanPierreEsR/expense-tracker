@@ -411,6 +411,7 @@ function routeAction(action, payload) {
       try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
       return followed ? { done: true, follow: followed } : { done: true };
     }
+    case 'removePracticeBudgets': return removePracticeBudgets();
     case 'removePracticeData': return removePracticeData(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
