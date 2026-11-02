@@ -11,7 +11,9 @@ var PRACTICE_ENTRY_NAMES_ = [
   'Practice item', 'Elemento de práctica',            // Programmed items: the recorded payment
   'Practice purchase', 'Compra de práctica',          // Needs review: the capture the person confirms
   'Practice charge', 'Cargo de práctica',             // Needs review: the capture the person discards
-  'Practice trip expense', 'Gasto de viaje de práctica'   // Trips & events: the expense linked to the practice trip
+  'Practice trip expense', 'Gasto de viaje de práctica',  // Trips & events: the expense linked to the practice trip
+  'Interest and fees, installment 1/3: Practice bank loan',          // Bank loan practice: the installment's interest + fees
+  'Intereses y comisiones, cuota 1/3: Préstamo bancario de práctica'
 ];
 
 // Also any entry a practice created on the server itself (source 'practice', e.g. the Needs review practice's captures).
