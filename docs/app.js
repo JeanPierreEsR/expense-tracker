@@ -4372,6 +4372,7 @@ async function flushQueuedReviewActions_() {
       const followed = await applyReviewAction_(a);
       if (followed) onCategoryFollowed_(followed);
     } catch (err) {
+      practiceNActionFailed_(a.id, err);
       // Unreachable — leave it queued, the next flush retries it. A REFUSAL (the server said no) would never pass on a
       // retry and would keep the entry hidden: drop it, so the entry shows in the review list again, and say why.
       if (!isUnreachable_(err)) {
@@ -5148,6 +5149,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
+        practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
 
@@ -5172,8 +5174,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
-      applyReviewAction_({ id: entry.id, action: "discard", fields: null }).catch(() => {
+      applyReviewAction_({ id: entry.id, action: "discard", fields: null }).catch((err) => {
         // Stays queued, same as above.
+        practiceNActionFailed_(entry.id, err);
       });
     });
 
@@ -16440,6 +16443,15 @@ function practiceNEntryRow_() {
   }) || null;
 }
 
+// The server refused (or could not be reached for) the practice's own Confirm / Discard: the practice cannot go on, so say why once and
+// stop; stopping runs the usual cleanup. The action is taken out of the review queue first, so the cleanup does not wait for it.
+function practiceNActionFailed_(id, err) {
+  if (!practiceN_ || !id || (id !== practiceN_.purchaseId && id !== practiceN_.chargeId) || !Spotlight.isRunning()) return;
+  unqueueReviewAction_(id);
+  alert(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
+  Spotlight.stop("skipped");
+}
+
 // True when the practice entries are on the server and in the list; otherwise the practice stops with the reason.
 async function practiceNReady_() {
   await practiceNCreating_;
@@ -16493,7 +16505,11 @@ function startReviewPractice_() {
       if (practiceN_) { practiceN_.purchaseId = res.purchase_id; practiceN_.chargeId = res.charge_id; practiceNSave_(); }
       await refreshReviewQueue();
     })
-    .catch((err) => { practiceNFailed_ = (err && err.message) || String(err); if (practiceN_) { practiceN_.created = false; practiceNSave_(); } });
+    .catch((err) => {
+      practiceNFailed_ = (err && err.message) || String(err);
+      if (practiceN_) { practiceN_.created = false; practiceNSave_(); }
+      if (Spotlight.isRunning()) practiceNReady_();   // say why and stop now, not at the first step that waits for the entries
+    });
   runTip_(practiceNSteps_(), async () => {
     if (document.getElementById("screen-entries").hidden) showScreen("entries");
     showToast_(tr("spot.n.removing"));

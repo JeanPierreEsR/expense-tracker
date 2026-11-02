@@ -1656,6 +1656,7 @@
     "spot.n.leftover": { en: "A “Needs review” practice was left half-finished. Remove its practice entries now?", es: "Quedó una práctica de “Por revisar” a medias. ¿Borrar ahora sus movimientos de práctica?" },
     "spot.n.stillRemoving": { en: "The last practice is still being removed. Try again in a moment.", es: "Aún se está borrando la última práctica. Vuelve a intentarlo en un momento." },
     "spot.n.removeFailed": { en: "The practice could not be removed: {error} You can delete the entries “Practice purchase” and “Practice charge” by hand.", es: "No se pudo borrar la práctica: {error} Puedes borrar a mano los movimientos “Compra de práctica” y “Cargo de práctica”." },
+    "spot.n.actionFailed": { en: "The practice cannot go on: {error} The practice entries are being deleted now.", es: "La práctica no puede continuar: {error} Los movimientos de práctica se están borrando ahora." },
     "spot.n.createFailed": { en: "The practice could not start: {error}", es: "No se pudo empezar la práctica: {error}" },
     "spot.p.busy": { en: "Close the entry you have open first, then try again.", es: "Primero cierra el movimiento que tienes abierto y vuelve a intentarlo." },
     "spot.p.draftAsk": { en: "An unfinished entry is saved as a draft (you may not see it): {what}. The practice needs an empty form. Discard that draft and start the practice?", es: "Hay un movimiento sin terminar guardado como borrador (puede que no lo veas): {what}. La práctica necesita el formulario vacío. ¿Descartar ese borrador y empezar la práctica?" },
