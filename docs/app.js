@@ -16411,6 +16411,7 @@ const PRACTICE_T_KEY_ = "tipPracticeTrips";
 let practiceT_ = null;          // { saved, deleted, startedOn }
 let practiceTSaving_ = 0;       // saves of the practice trip still on their way to the server
 let practiceTFailed_ = "";
+let practiceTSwitched_ = false;   // the picker was put back on the practice trip (a real trip had been chosen)
 let practiceTRemoving_ = false;
 let practiceTLeftoverAsked_ = false;
 
@@ -16465,6 +16466,14 @@ function practiceTSteps_() {
     if (s.value !== start || e.value !== end) { s.value = start; e.value = end; s.dispatchEvent(new Event("change", { bubbles: true })); }
   };
   const nameExpense = () => setValue(document.getElementById("description"), tr("spot.t.expenseName"));
+  // The text says "Type {cur} 60" in the main currency, and the practice trip counts in it too: the expense is in that currency (a form that
+  // still holds another one, e.g. right after the main currency was switched, would need an exchange rate and show a converted total).
+  const mainCurrencyOnForm = () => {
+    if ((document.getElementById("currency").value || "").toUpperCase() === cur) return;
+    document.getElementById("currency").value = cur;
+    renderCurrencyChips("entry");
+    renderSplitSummary();
+  };
   const detailParts = () => {
     const total = document.querySelector("#trip-detail-body .trip-total"), phases = document.querySelector("#trip-detail-body .trip-phases");
     return total && phases ? [total, phases] : null;
@@ -16494,16 +16503,24 @@ function practiceTSteps_() {
         if (selectedType !== "expense" && tab) tab.click();
       } },
     { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.p.s4fix" : "spot.p.s4", { cur }), blurTap: true, until: amountDone,
-      ok: () => amountVal() > 0, holdsUntil: "saveEntry", before: async () => { nameExpense(); } },
+      ok: () => amountVal() > 0, holdsUntil: "saveEntry", before: async () => { nameExpense(); mainCurrencyOnForm(); } },
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method", available: hasAccounts,
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "saveEntry" },
+    // (A change in the picker ends a visit step by itself, so a wrong pick cannot hold the walkthrough here: it is put right at once, and the
+    // next step says so. The practice expense must never join a REAL trip.)
     { key: "trip", target: "#trip-field", visit: "#entry-trip", ok: pickedPractice, holdsUntil: "saveEntry",
-      text: (fix) => tr(fix ? "spot.t.s9fix" : pickedPractice() ? "spot.t.s9" : "spot.t.s9pick") },
+      text: (fix) => tr(fix ? "spot.t.s9fix" : pickedPractice() ? "spot.t.s9" : "spot.t.s9pick"),
+      after: () => { const mine = practiceTrip(); if (mine && tripSel().value !== mine.id) { setTripPick_(mine.id); practiceTSwitched_ = true; } } },
     { key: "saveEntry", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
-      text: () => { const err = lastError("form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
+      text: () => { const err = lastError("form-error"); return err ? tr("spot.p.s10err", { error: err }) : (practiceTSwitched_ ? tr("spot.t.s9switched") + " " : "") + tr("spot.p.s10"); },
       before: async () => {
         document.getElementById("form-error").textContent = "";
         nameExpense();   // the cleanup finds the expense by this name
+        mainCurrencyOnForm();
+        // SAFETY: the practice expense must never land in a REAL trip (it would count toward that trip's budget and could set off its alert
+        // before the cleanup): whatever the picker shows now, it is the practice trip at Save.
+        const mine = practiceTrip();
+        if (mine && tripSel().value !== mine.id) setTripPick_(mine.id);
         const pb = document.getElementById("paid_by");
         if (pb.value !== "me") { pb.value = "me"; pb.dispatchEvent(new Event("change", { bubbles: true })); }   // the practice is about the owner's own money
       },
@@ -16526,6 +16543,7 @@ function startTripsPractice_() {
   practiceT_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
   practiceTSave_();
   practiceTFailed_ = "";
+  practiceTSwitched_ = false;
   runTip_(practiceTSteps_(), async () => {
     if (document.getElementById("screen-trips").hidden) showTripsScreen().catch(() => {});
     showToast_(tr("spot.t.removing"));
