@@ -95,3 +95,38 @@ test("a person with no platform at all can add one from Accounts (type Investmen
   assert.equal(rt.api("removePracticeInvestments", {}).platforms, 1);
   assert.equal(rt.rows("Payment Methods").length, before);
 });
+
+// ---- removing the practice platform must never make the app invent the four starter platforms ----
+const post = (rt, action, payload = {}) => rt.rawPost(JSON.stringify({ accessCode: rt.ACCESS_CODE, action, payload }));
+const platformNames = (rt) => Array.from(rt.rows("Payment Methods")).filter((p) => p.type === "investment").map((p) => p.nickname);
+const noPlatforms = (rt) => {
+  rt.sheet("Payment Methods").rows.length = 1;   // header only
+  rt.run("ROWS_MEMO_ = null; RATES_MEMO_ = null; bumpStructureVersion_();");
+};
+
+test("a friend's copy with NO platform: practice platform added, removed, app reloaded -> still no platform (the four starters are never made)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base");
+  noPlatforms(rt);
+  post(rt, "getMeta");
+  assert.deepEqual(platformNames(rt), []);
+  rt.api("savePaymentMethod", { nickname: "Practice platform", type: "investment" });
+  post(rt, "getMeta");
+  assert.deepEqual(platformNames(rt), ["Practice platform"]);
+  assert.equal(rt.api("removePracticeInvestments", {}).platforms, 1);
+  post(rt, "getMeta");
+  post(rt, "getMeta");
+  assert.deepEqual(platformNames(rt), [], "nothing was created out of nowhere");
+});
+
+test("the owner's copy: its own four platforms are untouched by the practice, and loading after the cleanup adds nothing", () => {
+  const { rt } = freshApp({ small: true });
+  noPlatforms(rt);
+  post(rt, "getMeta");   // (the owner's copy heals itself on load: this is the starter set, made BEFORE any practice)
+  const before = platformNames(rt).sort();
+  assert.deepEqual(before, ["Binance", "Hapi", "Inteligo", "Prestamype"]);
+  rt.api("savePaymentMethod", { nickname: "Practice platform", type: "investment" });
+  rt.api("removePracticeInvestments", {});
+  post(rt, "getMeta");
+  assert.deepEqual(platformNames(rt).sort(), before, "the same four, no duplicates, nothing extra");
+});

@@ -10636,8 +10636,8 @@ function openPmModal_(pm) {
   document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
-  // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
-  const types = [...PM_TYPES_, "investment"];
+  // An investment platform keeps its type; it isn't offered for new accounts.
+  const types = pm && pm.type === "investment" ? [...PM_TYPES_, "investment"] : PM_TYPES_;
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
@@ -16454,6 +16454,8 @@ function practiceISaveFailed_() {
 function offerInvestmentsTip_() {
   if (!((meta && meta.capabilities) || {}).practiceInvestments) return;   // an older backend could not clean the practice platform up
   if (!tipSeen_("accounts")) return;   // one practice at a time on this screen: the Accounts one is offered first
+  // The practice's deposit leaves from one of the person's own accounts: with none (only platforms, or all hidden) there is nothing to practise with.
+  if (!meta.paymentMethods.some((pm) => pm.type !== "investment" && !pmHidden_(pm))) return;
   offerTip_("investments", "investments-tip-invite", tr("spot.i.invite"), startInvestmentsPractice_);
 }
 
@@ -16496,12 +16498,20 @@ function practiceISteps_() {
     syncFab_();
     return true;
   };
+  // The account and the platform are one step: both fields sit together, and the step ends when both are right.
+  const accountAndPlatform = () => [document.getElementById("payment-method-field"), document.getElementById("to-payment-method-field")];
+  const accountAndPlatformOk = () => accountSet() && platformChosen() && !["payment_method", "to_payment_method"].includes((document.activeElement || {}).id);
+  const accountAndPlatformText = (fix, key) => {
+    if (document.getElementById("to_payment_method").value && !platformChosen()) return tr("spot.i.d4fix");   // another platform
+    if (fix && !accountSet()) return tr("spot.i.d3fix");
+    return tr(key);
+  };
   const maxWithdrawal = () => (practiceI_ && practiceI_.deposit) || 0;
   const withdrawalOk = () => { const v = amountVal(), m = maxWithdrawal(); return v > 0 && (!(m > 0) || v < m); };
   return [
     { key: "intro", text: () => tr("spot.i.intro"), button: () => tr("spot.i.start") },
     { key: "add", target: "#accounts-add-btn", text: () => tr("spot.i.s1"), tap: "#accounts-add-btn",
-      ok: () => modalOpen() || !!(practiceI_ && practiceI_.platformSent), holdsUntil: "row",
+      ok: () => modalOpen() || !!(practiceI_ && practiceI_.platformSent), holdsUntil: "dsave",
       before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
     { key: "type", target: "#pm-type", text: () => tr("spot.i.s2"), until: typeOk, ok: () => !modalOpen() || typeOk(), holdsUntil: "save",
       before: async () => { nameIt(); } },
@@ -16509,15 +16519,11 @@ function practiceISteps_() {
       text: () => { const err = lastError("#pm-form-error"); return err ? tr("spot.i.s3err", { error: err }) : tr("spot.i.s3"); },
       before: async () => { nameIt(); document.getElementById("pm-form-error").textContent = ""; },
       until: () => !modalOpen() && !!(practiceI_ && practiceI_.platformSent) },
-    { key: "row", look: true, target: practiceIRow_, text: () => tr("spot.i.s4"), button: () => tr("spot.i.gotIt"), wait: 45000,
-      poke: () => { if (practiceIFailed_) Spotlight.stop("skipped"); } },
     // ---- a deposit ----
     { target: "#fab-new-entry", text: () => tr("spot.i.d1"), tap: "#fab-new-entry", before: waitForPlatform },
     { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; } },
-    { key: "dfrom", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.i.d3fix" : "spot.i.d3"), visit: "#payment_method",
-      ok: accountSet, holdsUntil: "dsave", before: async () => { setInvestmentDirection("deposit"); } },
-    { key: "dplatform", target: "#to-payment-method-field", text: (fix) => tr(fix ? "spot.i.d4fix" : "spot.i.d4"), until: platformChosen,
-      ok: platformChosen, holdsUntil: "dsave", wait: 8000 },
+    { key: "dfp", target: accountAndPlatform, text: (fix) => accountAndPlatformText(fix, "spot.i.d3"), until: accountAndPlatformOk,
+      ok: accountAndPlatformOk, holdsUntil: "dsave", before: async () => { setInvestmentDirection("deposit"); } },
     { key: "damount", target: "#amount", text: (fix) => tr(fix ? "spot.i.d5fix" : "spot.i.d5", { cur }), blurTap: true, until: amountDone,
       ok: () => amountVal() > 0, holdsUntil: "dsave", before: async () => { describe("spot.i.deposit")(); },
       after: () => { practiceI_.deposit = amountVal() || 0; practiceISave_(); } },
@@ -16531,10 +16537,8 @@ function practiceISteps_() {
     { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; },
       available: () => !(practiceI_ && practiceI_.depositId && selectedType === "investment") },   // (the form often stays on Investment after the deposit)
     { target: "#investment-direction-tabs", text: () => tr("spot.i.w3"), tap: '#investment-direction-tabs .type-tab[data-direction="withdrawal"]' },
-    { key: "wto", target: "#payment-method-field", text: () => tr("spot.i.w3b"), visit: "#payment_method",
-      ok: accountSet, holdsUntil: "wsave" },
-    { key: "wplatform", target: "#to-payment-method-field", text: (fix) => tr(fix ? "spot.i.d4fix" : "spot.i.d4"), until: platformChosen,
-      ok: platformChosen, holdsUntil: "wsave", wait: 8000 },
+    { key: "wfp", target: accountAndPlatform, text: (fix) => accountAndPlatformText(fix, "spot.i.w3b"), until: accountAndPlatformOk,
+      ok: accountAndPlatformOk, holdsUntil: "wsave" },
     { key: "wamount", target: "#amount", text: (fix) => tr(fix || (maxWithdrawal() > 0 && amountVal() >= maxWithdrawal()) ? "spot.i.w5fix" : "spot.i.w5", { cur, max: moneyFmt(maxWithdrawal()) }), blurTap: true,
       until: () => withdrawalOk() && document.activeElement !== amountEl(), ok: withdrawalOk, holdsUntil: "wsave",
       before: async () => { describe("spot.i.withdrawal")(); } },
