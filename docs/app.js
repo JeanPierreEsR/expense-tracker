@@ -10904,7 +10904,12 @@ async function refreshExchangeRates() {
 // save updates meta in place, so nothing is re-fetched. Cards show only the
 // last 4 digits — the app never asks for a full number.
 
-const PM_TYPES_ = ["credit", "debit", "cash", "transfer", "wallet"];
+// "transfer" is not offered for a new account any more (owner, 2026-11-02); an account that already has it keeps it.
+const PM_TYPES_ = ["credit", "debit", "cash", "wallet"];
+// The built-in Cash account every copy has (backend ensureCashAccount_): renamed freely, never deleted, hidden or retyped.
+function isBasicCashPm_(pm) { const id = String((meta && meta.settings && meta.settings.cash_account_id) || ""); return !!pm && !!id && String(pm.id) === id; }
+// One Delete that hides an account with history (backend removePaymentMethod); an older backend keeps Delete + Hide.
+function pmRemoveOne_() { return !!(meta && meta.capabilities && meta.capabilities.pmRemove); }
 let accountsHiddenOpen_ = false; // the "Hidden accounts" group on the accounts screen starts collapsed
 let pmModalState = null; // { id } while the window is open; id is null when adding
 
@@ -10998,7 +11003,7 @@ function openPmModal_(pm) {
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
   // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
-  const types = [...PM_TYPES_, "investment"];
+  const types = [...PM_TYPES_, ...(pm && pm.type === "transfer" ? ["transfer"] : []), "investment"];
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
@@ -11006,6 +11011,9 @@ function openPmModal_(pm) {
     typeSel.appendChild(o);
   });
   typeSel.value = pm ? pm.type : "credit";
+  const basicCash = isBasicCashPm_(pm);
+  typeSel.disabled = basicCash;
+  document.getElementById("pm-cash-hint").hidden = !basicCash;
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
   typeSel.onchange = () => { walletWarn(); renderPmWallets_(); };
@@ -11015,9 +11023,16 @@ function openPmModal_(pm) {
   fillPmBankOptions_(pmModalState.lastBank);
   renderPmWallets_();
   document.getElementById("pm-form-error").textContent = "";
-  // Delete / Hide only exist for an account that is already saved.
-  document.getElementById("pm-manage").hidden = !pm;
-  if (pm) document.getElementById("pm-hide-btn").textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
+  // Delete only exists for an account that is already saved, and never for the built-in Cash. One Delete decides by itself
+  // (unused = deleted, with history = hidden); the other button only shows to bring a hidden account back (or on an older backend).
+  document.getElementById("pm-manage").hidden = !pm || basicCash;
+  if (pm) {
+    const one = pmRemoveOne_();
+    const hideBtn = document.getElementById("pm-hide-btn");
+    hideBtn.hidden = one && !pmHidden_(pm);
+    hideBtn.textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
+    document.getElementById("pm-manage-hint").textContent = tr(one ? "accounts.deleteHint" : "accounts.hideHint");
+  }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -11152,14 +11167,22 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
   const errorEl = document.getElementById("pm-form-error");
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
-  if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !confirm(tr("accounts.confirmDelete", { name: pm.nickname })))) return;
+  const one = pmRemoveOne_();
+  if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !confirm(tr(one ? "accounts.confirmRemove" : "accounts.confirmDelete", { name: pm.nickname })))) return;
   // Saving standard: back to the list at once; the account's row says "Deleting…" until the server is done.
   markDeleting_("pm:" + pm.id);
   closePmModal_();
+  if (practiceA_ && isPracticeAccountName_(pm.nickname)) { practiceA_.deleted = true; practiceASave_(); }   // (the first-use practice's last real step: counts from the tap)
   try {
-    await callApi("deletePaymentMethod", { id: pm.id });
-    if (practiceA_ && isPracticeAccountName_(pm.nickname)) { practiceA_.deleted = true; practiceASave_(); }   // (the first-use practice's last real step)
-    meta.paymentMethods = meta.paymentMethods.filter((p) => p.id !== pm.id);
+    const res = await callApi(one ? "removePaymentMethod" : "deletePaymentMethod", { id: pm.id });
+    if (res && res.hidden === "yes") {
+      // It has history: hidden instead (its past entries keep it), like a friend with history.
+      unmarkDeleting_("pm:" + pm.id);
+      pm.hidden = "yes";
+      showToast_(tr("accounts.hiddenInstead", { name: pm.nickname }));
+    } else {
+      meta.paymentMethods = meta.paymentMethods.filter((p) => p.id !== pm.id);
+    }
     refreshAccountPickers_();
     renderAccountsList_();
   } catch (err) {
@@ -17556,7 +17579,9 @@ function practiceASteps_() {
     { key: "intro", text: () => tr("spot.a.intro"), button: () => tr("spot.a.start") },
     { target: "#accounts-add-btn", text: () => tr("spot.a.s1"), tap: "#accounts-add-btn", before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
     { look: true, target: "#pm-nickname", text: () => tr("spot.a.s2"), button: () => tr("spot.a.gotIt"), before: async () => { fillForm(); await new Promise((r) => setTimeout(r, 150)); unfocus(); } },
-    { target: "#pm-type", text: () => tr("spot.a.s3"), visit: "#pm-type" },
+    // The practice account is a CREDIT CARD (owner, 2026-11-02): that is what shows the "Negative — I owe this" box at work.
+    { key: "type", target: "#pm-type", visit: "#pm-type", ok: () => document.getElementById("pm-type").value === "credit", holdsUntil: "save",
+      text: (fix) => tr(fix || document.getElementById("pm-type").value !== "credit" ? "spot.a.s3fix" : "spot.a.s3") },
     { look: true, target: () => [bankEl(), digitsEl()], text: () => tr("spot.a.s4"), button: () => tr("spot.a.gotIt") },
     { key: "save", target: () => [document.getElementById("pm-save-btn"), document.getElementById("pm-form-error")],
       text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s5err", { error: err }) : tr("spot.a.s5"); },
@@ -17579,6 +17604,12 @@ function practiceASteps_() {
       } },
     { key: "amount", target: amountEl, text: (fix) => tr(fix ? "spot.a.s10fix" : "spot.a.s10", { cur }), blurTap: true, until: amountDone,
       ok: () => amountVal() > 0, holdsUntil: "balsave" },
+    { look: true, target: () => { const b = document.querySelector("#balance-rows .balance-row-negative"); return b ? b.closest("label") : null; },
+      text: () => tr("spot.a.s10neg", { cur }), button: () => tr("spot.a.gotIt"),
+      before: async () => {   // a credit card's row starts ticked; the practice makes sure of it
+        const b = document.querySelector("#balance-rows .balance-row-negative");
+        if (b && !b.checked) { b.checked = true; b.dispatchEvent(new Event("change", { bubbles: true })); }
+      } },
     { look: true, target: () => document.querySelector("#balance-rows .balance-form-row"), text: () => tr("spot.a.s11", { cur }), button: () => tr("spot.a.gotIt") },
     { key: "balsave", target: () => [document.getElementById("balance-save-btn"), document.getElementById("balance-form-error")],
       text: () => { const err = (document.getElementById("balance-form-error").textContent || "").trim(); return err ? tr("spot.a.s12err", { error: err }) : tr("spot.a.s12"); },
@@ -21059,10 +21090,17 @@ async function loadBalanceMovements_(pmId) {
 }
 
 let balanceFormRows = [];
+let balanceFormPmId_ = "";
+// A credit card's balance is what is owed on it: its new rows start with "Negative — I owe this" ticked (owner, 2026-11-02).
+function balanceNegDefault_() {
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === balanceFormPmId_);
+  return !!pm && pm.type === "credit";
+}
 
 // Rows for the form: the account's saved balances if it has any, else one
 // blank PEN row.
 function loadBalanceRowsFor_(pmId) {
+  balanceFormPmId_ = pmId || "";
   const existing = balancesCache.find((b) => b.id === pmId);
   balanceFormRows = existing
     ? existing.openings.map((o) => ({
@@ -21074,7 +21112,7 @@ function loadBalanceRowsFor_(pmId) {
         // moment on save — setPaymentMethodOpeningBalance) from a changed one.
         saved: { amount: o.amount, currency: o.currency, date: o.date || "", asOf: o.as_of || "" }
       }))
-    : [{ amount: "", negative: false, currency: homeCur(), date: todayLocalISO() }];
+    : [{ amount: "", negative: balanceNegDefault_(), currency: homeCur(), date: todayLocalISO() }];
 }
 
 // What moment a balance row stands for, in words. Mirrors the backend: a row
@@ -21128,7 +21166,7 @@ function renderBalanceRows_() {
 document.getElementById("balance-add-row-btn").addEventListener("click", () => {
   const used = new Set(balanceFormRows.map((r) => r.currency));
   const next = ["USD", homeCur(), "EUR"].find((c) => !used.has(c)) || "USD";
-  balanceFormRows.push({ amount: "", negative: false, currency: next, date: todayLocalISO() });
+  balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: next, date: todayLocalISO() });
   renderBalanceRows_();
 });
 
