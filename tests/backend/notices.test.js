@@ -225,3 +225,19 @@ test("capabilities: notices are offered, and Telegram counts as linked only with
   caps = rt.api("getMeta").capabilities;
   assert.equal(caps.telegramLinked, true);
 });
+
+test("the first-use practice's budget (named like it, any amount) never alerts; a real one does", () => {
+  const { rt, data } = freshApp();
+  const { budget } = budgetOver(rt, data, { amount: 100, spend: 95, thresholds: "50,90" });
+  rt.api("updateBudget", { id: budget.id, name: "Practice budget" });
+  rt.run("checkBudgets()");
+  assert.deepEqual(notices(rt), [], "no notice for the practice budget");
+  assert.equal(alertRows(rt, budget.id).length, 0, "and nothing logged");
+  rt.api("updateBudget", { id: budget.id, name: "Presupuesto de práctica" });
+  rt.run("checkBudgets()");
+  assert.deepEqual(notices(rt), [], "the Spanish name is skipped too");
+  rt.api("updateBudget", { id: budget.id, name: "My own budget" });
+  rt.run("checkBudgets()");
+  assert.equal(notices(rt).length, 1, "any other name alerts as usual");
+  assert.match(notices(rt)[0].text, /My own budget/);
+});
