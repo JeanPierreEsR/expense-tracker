@@ -262,6 +262,7 @@ function routeActionSwitch_(action, payload) {
     case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
+    case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
     case 'addBank': return addBank(payload);
@@ -699,6 +700,7 @@ function findRowIndexById(sheet, headers, id) {
 function getMeta() {
   runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
   ensureInvestmentPlatforms_();
+  ensureCashAccount_();   // every copy has one built-in Cash account (owner, 2026-11-02)
   ensureRailDefaults_();
   ensureAnnualTag_();
   ensureAllTripGroupFriends_();
@@ -1581,6 +1583,40 @@ function addPaymentMethod(payload) {
 // ---- Accounts & cards screen (More tab): add + edit in one action ----
 
 var PAYMENT_METHOD_TYPES_ = ['credit', 'debit', 'cash', 'transfer', 'wallet', 'investment'];
+// 'transfer' is no longer offered for a NEW account (owner, 2026-11-02: a bank transfer always leaves a real account, and the
+// word already means a move between your own accounts); an account that has it keeps it.
+
+// ---- The built-in Cash account (owner, 2026-11-02) ----
+// Every copy has one account for cash, in any currency (soles and dollars together: balances are kept per currency). It is made
+// on the first open (or the first existing cash account is adopted, so nobody gets a second one), remembered in Settings
+// `cash_account_id`, and can be renamed but never deleted, hidden or turned into another type.
+function cashAccountId_() {
+  return String(getSettingsMap().cash_account_id || '');
+}
+function isBasicCashAccount_(id) {
+  var cid = cashAccountId_();
+  return !!cid && String(id || '') === cid;
+}
+function ensureCashAccount_() {
+  var pms = getAllRows('Payment Methods');
+  var cid = cashAccountId_();
+  if (cid && pms.some(function (p) { return String(p.id) === cid; })) return;
+  var existing = pms.find(function (p) { return p.type === 'cash' && String(p.hidden || '') !== 'yes'; }) ||
+    pms.find(function (p) { return p.type === 'cash'; });
+  if (existing) {
+    if (String(existing.hidden || '') === 'yes') setPaymentMethodHidden({ id: existing.id, hidden: false });
+    setSetting_('cash_account_id', String(existing.id));
+    return;
+  }
+  var taken = {};
+  pms.forEach(function (p) { taken[String(p.nickname).trim().toLowerCase()] = true; });
+  var name = tr_('pm.cashName'), n = 2;
+  while (taken[name.toLowerCase()]) name = tr_('pm.cashName') + ' ' + (n++);
+  var pm = { id: Utilities.getUuid(), nickname: name, type: 'cash', bank_id: '', last_4: '' };
+  appendRowObject('Payment Methods', pm);
+  setSetting_('cash_account_id', pm.id);
+  bumpStructureVersion_();
+}
 
 // last_4 is digits that may start with 0 ("0123"): Sheets turns a typed "0123"
 // into the number 123 unless the cell is text first (CLAUDE.md: text-date trap).
@@ -1608,6 +1644,8 @@ function savePaymentMethod(payload) {
     throw new Error(tr_('err.pmBank'));
   }
   var id = payload.id ? String(payload.id) : '';
+  if (!id && type === 'transfer') throw new Error(tr_('err.pmType'));
+  if (id && type !== 'cash' && isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashType'));
   var taken = getAllRows('Payment Methods').some(function (pm) {
     return String(pm.id) !== id && String(pm.nickname).trim().toLowerCase() === nickname.toLowerCase();
   });
@@ -1677,6 +1715,7 @@ function deletePaymentMethod(payload) {
   var headers = getHeaders(sheet);
   var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
   if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  if (isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
   var used = paymentMethodUsage_(id);
   if (used > 0) throw new Error(tr_('err.pmInUse', { n: used }));
   var settings = getSettingsMap();
@@ -1686,6 +1725,24 @@ function deletePaymentMethod(payload) {
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
   bumpStructureVersion_();
   return { id: id, deleted: true };
+}
+
+// The account window's one Delete (owner, 2026-11-02 — the same rule as deleting a friend): an account nothing uses is deleted
+// (with its starting balances); one with history (entries, loans, repayments, statements) is HIDDEN instead, so its past records
+// keep their account. One linked to Yape / Plin is still refused (hiding it would leave the wallet pointing at a hidden account);
+// the built-in Cash is refused. Answers { deleted: true } or { hidden: 'yes', used: n }.
+function removePaymentMethod(payload) {
+  var id = String((payload && payload.id) || '');
+  if (isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
+  if (!getAllRows('Payment Methods').some(function (p) { return String(p.id) === id; })) throw new Error(tr_('err.pmNotFound'));
+  var settings = getSettingsMap();
+  if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
+  var used = paymentMethodUsage_(id);
+  if (used > 0) {
+    setPaymentMethodHidden({ id: id, hidden: true });
+    return { id: id, hidden: 'yes', used: used };
+  }
+  return deletePaymentMethod({ id: id });
 }
 
 // Hide / show an account. A hidden account keeps its row (past records still show its name
@@ -1702,6 +1759,7 @@ function setPaymentMethodHidden(payload) {
   var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
   if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
   var hidden = payload.hidden === true || payload.hidden === 'yes' ? 'yes' : '';
+  if (hidden && isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
   setCellByRow_(sheet, headers, rowIndex, 'hidden', hidden);
   bumpStructureVersion_();
   return { id: id, hidden: hidden };

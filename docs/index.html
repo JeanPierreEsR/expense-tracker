@@ -2974,6 +2974,7 @@
 
       <label for="pm-type" data-i18n="accounts.type">Type</label>
       <select id="pm-type"></select>
+      <p class="hint" id="pm-cash-hint" hidden data-i18n="accounts.cashHint">Cash is built in: everyone has it, it holds any currency (soles and dollars together) and it can't be deleted. You can rename it.</p>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
@@ -2994,7 +2995,7 @@
       <button type="button" class="primary" id="pm-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="pm-cancel-btn" data-i18n="common.cancel">Cancel</button>
       <div id="pm-manage" hidden>
-        <p class="hint" data-i18n="accounts.hideHint">Delete only works for an account nothing uses. Hide keeps past records intact but removes the account from every list you pick from.</p>
+        <p class="hint" id="pm-manage-hint" data-i18n="accounts.deleteHint">Delete removes an account nothing uses. One with past entries is hidden instead: its history stays, and it leaves every list you pick from.</p>
         <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
       </div>
