@@ -21879,6 +21879,139 @@ async function readBillPhoto_(file) {
   }
 }
 
+// ---- 🕒 Payments in process (More → Accounts): adds up what a bank app's movements list still shows as "En proceso" ----
+// Screenshots are read on the phone (same reader as receipts); nothing is saved or sent. See specs/accounts.md § Payments in process.
+let inprocLists_ = [];       // one list of items per screenshot read
+let inprocItems_ = [];       // merged, each with .on (ticked)
+
+function inprocSay_(text, bad) {
+  const status = document.getElementById("inproc-status");
+  status.hidden = !text;
+  status.textContent = text || "";
+  status.className = "hint" + (bad ? " bill-check-bad" : "");
+}
+
+function renderInproc_() {
+  const list = document.getElementById("inproc-list");
+  list.innerHTML = "";
+  inprocItems_.forEach((it, i) => {
+    const row = document.createElement("label");
+    row.className = "inproc-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = it.on;
+    box.addEventListener("change", () => { it.on = box.checked; renderInproc_(); });
+    const what = document.createElement("span");
+    what.className = "inproc-what";
+    const name = document.createElement("div");
+    name.textContent = it.name || "—";
+    const when = document.createElement("div");
+    when.className = "inproc-when";
+    when.textContent = it.when;
+    what.append(name, when);
+    const amount = document.createElement("span");
+    amount.textContent = formatAmount(Math.abs(it.amount), it.currency, it.amount < 0 ? "−" : "+");
+    row.append(box, what, amount);
+    list.appendChild(row);
+  });
+  const sums = InProcess.sumsByCurrency(inprocItems_.filter((it) => it.on));
+  const totals = document.getElementById("inproc-totals");
+  totals.innerHTML = "";
+  const curs = Object.keys(sums);
+  curs.forEach((cur) => {
+    const row = document.createElement("div");
+    row.className = "inproc-total";
+    const a = document.createElement("span");
+    a.textContent = tr("inproc.total", { cur });
+    const b = document.createElement("span");
+    b.textContent = formatAmount(Math.abs(sums[cur]) / 100, cur, sums[cur] < 0 ? "−" : "+");
+    row.append(a, b);
+    totals.appendChild(row);
+  });
+  const box = document.getElementById("inproc-balance-box");
+  box.hidden = !curs.length;
+  if (curs.length) {
+    document.getElementById("inproc-balance-cur").textContent = curs.length === 1 ? curs[0] : curs.join(" / ");
+    updateInprocAfter_(sums);
+  }
+}
+
+// Balance in the bank app + the in-process total (negative for money out) = what is really left. Only for a single currency.
+function updateInprocAfter_(sums) {
+  sums = sums || InProcess.sumsByCurrency(inprocItems_.filter((it) => it.on));
+  const after = document.getElementById("inproc-after");
+  const curs = Object.keys(sums);
+  const raw = document.getElementById("inproc-balance").value.replace(/,/g, "").trim();
+  const bal = Number(raw);
+  if (!raw || !isFinite(bal) || curs.length !== 1) { after.textContent = curs.length > 1 ? tr("inproc.afterNote") : ""; return; }
+  const left = Math.round(bal * 100) + sums[curs[0]];
+  after.textContent = tr("inproc.after", { amount: formatAmount(Math.abs(left) / 100, curs[0], left < 0 ? "−" : "") });
+}
+
+async function readInprocFiles_(files) {
+  const btn = document.getElementById("inproc-pick");
+  btn.disabled = true;
+  let failed = "";
+  try {
+    for (let i = 0; i < files.length; i++) {
+      inprocSay_(tr("inproc.reading", { i: i + 1, n: files.length }));
+      try {
+        const canvas = await prepareReceiptImage_(files[i], { crop: false, maxLong: 2400 });
+        const text = await recognizeReceiptText_(canvas, () => {});
+        inprocLists_.push(InProcess.parseInProcess(text).items);
+      } catch (err) {
+        failed = err.message || tr("photo.couldntRead");
+      }
+    }
+    // A row keeps its tick when the list is rebuilt. Identical rows are told apart by their order among their twins ("#1", "#2"),
+    // so unticking one of two identical payments does not tick or untick the other.
+    const tickKeys = (items) => {
+      const seen = {};
+      return items.map((it) => {
+        const base = [it.name, it.when, it.amount, it.currency].join("|");
+        seen[base] = (seen[base] || 0) + 1;
+        return base + "#" + seen[base];
+      });
+    };
+    const oldKeys = tickKeys(inprocItems_);
+    const ticked = new Map(inprocItems_.map((it, i) => [oldKeys[i], it.on]));
+    const merged = InProcess.mergeItems(inprocLists_);
+    const newKeys = tickKeys(merged);
+    inprocItems_ = merged.map((it, i) => Object.assign({}, it, { on: ticked.has(newKeys[i]) ? ticked.get(newKeys[i]) : true }));
+    renderInproc_();
+    if (failed) inprocSay_(failed, true);
+    else if (!inprocItems_.length) inprocSay_(tr("inproc.none"), true);
+    else inprocSay_(tr("inproc.found", { n: inprocItems_.length }));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openInprocModal_() {
+  inprocLists_ = [];
+  inprocItems_ = [];
+  document.getElementById("inproc-balance").value = "";
+  inprocSay_("");
+  renderInproc_();
+  document.getElementById("inproc-modal-backdrop").hidden = false;
+}
+function closeInprocModal_() {
+  document.getElementById("inproc-modal-backdrop").hidden = true;
+  inprocLists_ = [];
+  inprocItems_ = [];
+}
+document.getElementById("inproc-open-btn").addEventListener("click", openInprocModal_);
+document.getElementById("inproc-modal-close").addEventListener("click", closeInprocModal_);
+document.getElementById("inproc-close").addEventListener("click", closeInprocModal_);
+document.getElementById("inproc-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "inproc-modal-backdrop") closeInprocModal_(); });
+document.getElementById("inproc-pick").addEventListener("click", () => document.getElementById("inproc-input").click());
+document.getElementById("inproc-input").addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  if (files.length) readInprocFiles_(files);
+});
+document.getElementById("inproc-balance").addEventListener("input", () => updateInprocAfter_());
+
 document.getElementById("bill-photo-again").addEventListener("click", () => { if (receiptFormFile_) readBillPhoto_(receiptFormFile_); });
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
 document.getElementById("bill-photo-reparse").addEventListener("click", () => {
