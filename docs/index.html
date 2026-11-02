@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.40.3"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.41.1"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-02T15:04:57Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-02T16:39:07Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1642,6 +1642,7 @@
           <p class="hint" id="balance-check-result"></p>
         </div>
 
+        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
         <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
@@ -1656,6 +1657,29 @@
           <div id="balance-movements"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="inproc-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal bill-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="inproc.title">🕒 Payments in process</span>
+        <button type="button" id="inproc-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="bill-scroll">
+        <p class="hint" data-i18n="inproc.hint">Your bank app's balance leaves out payments still "in process". Add screenshots of its movements list and the app adds up the ones marked "En proceso". Nothing is saved, and the photos never leave your phone.</p>
+        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
+        <input type="file" id="inproc-input" accept="image/*" multiple hidden>
+        <p class="hint" id="inproc-status" hidden></p>
+        <div id="inproc-list"></div>
+        <div id="inproc-totals"></div>
+        <div id="inproc-balance-box" hidden>
+          <label for="inproc-balance"><span data-i18n="inproc.balance">Balance your bank app shows</span> (<span id="inproc-balance-cur">PEN</span>)</label>
+          <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <p class="hint" id="inproc-after"></p>
+        </div>
+      </div>
+      <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
     </div>
   </div>
 
@@ -3135,22 +3159,23 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="i18n.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="tour-scenes.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="signin-link.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="country-guess.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="rate-quotes.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="bank-sample.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="perf-share.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="spotlight.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="receipt-parse.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="receipt-fields.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="bill-split.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="app.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="statement-sample.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="statement-table.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="statement-parsers.js?v=2026-11-02T15:04:57Z"></script>
-  <script src="statements.js?v=2026-11-02T15:04:57Z"></script>
+  <script src="strings.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="i18n.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="tour-scenes.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="signin-link.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="country-guess.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="rate-quotes.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="bank-sample.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="perf-share.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="spotlight.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="receipt-parse.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="receipt-fields.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="in-process.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="bill-split.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="app.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="statement-sample.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="statement-table.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="statement-parsers.js?v=2026-11-02T16:39:07Z"></script>
+  <script src="statements.js?v=2026-11-02T16:39:07Z"></script>
 </body>
 </html>
