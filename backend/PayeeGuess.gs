@@ -88,6 +88,7 @@ function buildPayeeHistory_() {
   };
   getAllRows('Entries').forEach(function (e) {
     if (e.status !== 'confirmed' && e.source !== 'import') return;
+    if (isPracticeReview_(e)) return;   // the Needs review practice teaches nothing
     var t = payeeTreatmentOf_(e);
     if (!t) return;
     var key = followKey_(e);

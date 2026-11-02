@@ -89,6 +89,7 @@ function getCapabilities_() {
     practiceProgrammed: true,   // removePracticeProgrammed: the Programmed items practice is only offered where this exists
     practiceBudgets: true,   // removePracticeBudgets + the alert check skips the practice's budget: the Budgets practice is only offered where this exists
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
+    practiceReview: true,   // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button

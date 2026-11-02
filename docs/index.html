@@ -107,6 +107,8 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after Needs review has loaded. -->
+      <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
           <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
