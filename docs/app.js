@@ -16337,15 +16337,12 @@ function practiceSteps_() {
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
       before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
       until: () => document.getElementById("settlement-modal-backdrop").hidden },
-    { target: "#loan-detail-subtitle", button: () => tr("spot.p.finish"), wait: 20000,
+    // No target and no waiting for the server: the repayment keeps saving behind this screen, and the cleanup below waits for it
+    // (a screen that said "Saving… one moment" for as long as the server took felt like the practice had hung).
+    { button: () => tr("spot.p.finish"),
       // Fully settled, or only partly (the person paid less than they owed): say which.
-      text: () => tr(document.getElementById("loan-detail-subtitle").textContent === tr("loanDetail.settled") ? "spot.p.s17" : "spot.p.s17part"),
-      before: async () => {
-        await tipWaitIdle_(30000);   // the repayment reaches the server...
-        if (practiceSaveFailed_()) return false;
-        // ...and the friend's page is reloaded HERE, so the balance it shows is the new one before anything is lit up.
-        if (practice_ && practice_.friendId) { try { await openLoanDetail(practice_.friendId, practice_.friendName); } catch (e) { /* the page keeps what it shows */ } }
-      } }
+      text: () => tr(practice_ && practice_.share > 0 && practice_.repaid < practice_.share - 0.004 ? "spot.p.s17part" : "spot.p.s17"),
+      before: async () => { if (practiceSaveFailed_()) return false; } }
   ];
 }
 
