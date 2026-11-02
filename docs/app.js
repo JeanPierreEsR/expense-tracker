@@ -16535,7 +16535,7 @@ function practiceISteps_() {
     { target: "#fab-new-entry", text: () => tr("spot.i.w1"), tap: "#fab-new-entry",
       before: async () => { if (practiceISaveFailed_()) return false; if (document.getElementById("screen-entries").hidden) showScreen("entries"); syncFab_(); } },
     { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; },
-      available: () => !(practiceI_ && practiceI_.depositId && selectedType === "investment") },   // (the form often stays on Investment after the deposit)
+      available: () => !!(practiceI_ && practiceI_.depositId) && selectedType !== "investment" },   // (the form normally stays on Investment after the deposit: not counted unless it really shows)
     { target: "#investment-direction-tabs", text: () => tr("spot.i.w3"), tap: '#investment-direction-tabs .type-tab[data-direction="withdrawal"]' },
     { key: "wfp", target: accountAndPlatform, text: (fix) => accountAndPlatformText(fix, "spot.i.w3b"), until: accountAndPlatformOk,
       ok: accountAndPlatformOk, holdsUntil: "wsave" },
