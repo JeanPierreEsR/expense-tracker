@@ -2393,7 +2393,8 @@ body.income-revealed .sens-mask { display: none; }
 .bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
 .bill-item .tags-list { margin-top: 8px; }
 .bill-adj .budget-period-tabs { margin: 8px 0 0; }
-.bill-add-row { display: flex; gap: 16px; }
+.bill-add-row { display: flex; align-items: center; gap: 16px; }
+.bill-add-row .add-inline, .bill-add-row .add-inline + .add-inline { display: flex; align-items: center; margin: 0; }
 .bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
 .bill-check-ok { color: #2e8b57; }
