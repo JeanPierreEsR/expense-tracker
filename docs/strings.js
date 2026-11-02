@@ -3018,6 +3018,7 @@
     "inproc.total": { en: "In process ({cur})", es: "En proceso ({cur})" },
     "inproc.balance": { en: "Balance your bank app shows", es: "Saldo que muestra la app de tu banco" },
     "inproc.after": { en: "After the payments in process: {amount}", es: "Después de los pagos en proceso: {amount}" },
+    "inproc.balanceHint": { en: "Type the number your bank app shows for this account (for a card: the available credit). The app takes the payments in process off it.", es: "Escribe el número que muestra la app de tu banco para esta cuenta (en una tarjeta: la línea disponible). La app le resta los pagos en proceso." },
     "inproc.afterNote": { en: "Only add a balance in the currency you want to check; the total above is for that currency.", es: "Solo agrega un saldo de la moneda que quieras revisar; el total de arriba es de esa moneda." },
     "bill.photo": { en: "📷 Read the items from a photo", es: "📷 Leer los ítems desde una foto" },
     "bill.rawSummary": { en: "What the phone read — you can correct it here", es: "Lo que leyó el celular: puedes corregirlo aquí" },
