@@ -22032,6 +22032,7 @@ async function readBillPhoto_(file) {
 let inprocLists_ = [];       // one list of items per screenshot read
 let inprocItems_ = [];       // merged, each with .on (ticked)
 let inprocRaw_ = "";         // what the reader saw, shown under "What the phone read"
+let inprocDebt_ = false;     // opened for a credit card: the box takes the card's total DEBT and the payments are added to it
 let inprocPosted_ = 0;       // rows of the screenshots that were NOT marked in process
 
 function inprocSay_(text, bad) {
@@ -22094,8 +22095,15 @@ function updateInprocAfter_(sums) {
   const raw = document.getElementById("inproc-balance").value.replace(/,/g, "").trim();
   const bal = Number(raw);
   if (!raw || !isFinite(bal) || curs.length !== 1) { after.textContent = curs.length > 1 ? tr("inproc.afterNote") : ""; return; }
-  const left = Math.round(bal * 100) + sums[curs[0]];
-  after.textContent = tr("inproc.after", { amount: formatAmount(Math.abs(left) / 100, curs[0], left < 0 ? "−" : "") });
+  const cur = curs[0];
+  // An account: balance minus what is in process. A card: debt plus what is in process (money out raises the debt).
+  const left = inprocDebt_ ? Math.round(bal * 100) - sums[cur] : Math.round(bal * 100) + sums[cur];
+  // The whole sum is shown, so it is clear which number is which: what the bank app shows, minus what is in process, = what is left.
+  after.textContent = tr(inprocDebt_ ? "inproc.debtAfter" : "inproc.after", {
+    balance: formatAmount(Math.abs(bal), cur, bal < 0 ? "−" : ""),
+    process: formatAmount(Math.abs(sums[cur]) / 100, cur),
+    left: formatAmount(Math.abs(left) / 100, cur, left < 0 ? "−" : "")
+  });
 }
 
 async function readInprocFiles_(files) {
@@ -22153,6 +22161,16 @@ function openInprocModal_() {
   inprocRaw_ = "";
   inprocPosted_ = 0;
   document.getElementById("inproc-raw").hidden = true;
+  // Which account is the balance sheet behind this one showing? A credit card is thought of as a debt, not a balance.
+  const pmId = typeof balanceModalPmId !== "undefined" && (balanceModalPmId || (document.getElementById("balance-account-picker") || {}).value);
+  const pm = pmId && (meta.paymentMethods || []).find((p) => p.id === pmId);
+  inprocDebt_ = !!pm && pm.type === "credit";
+  const labelSpan = document.querySelector("#inproc-balance-box label span");
+  labelSpan.dataset.i18n = inprocDebt_ ? "inproc.debt" : "inproc.balance";
+  labelSpan.textContent = tr(labelSpan.dataset.i18n);
+  const hintP = document.querySelector("#inproc-balance-box .hint[data-i18n]");
+  hintP.dataset.i18n = inprocDebt_ ? "inproc.debtHint" : "inproc.balanceHint";
+  hintP.textContent = tr(hintP.dataset.i18n);
   // Opened from an account's balance sheet: start from the balance the person already typed in "Check against my app".
   document.getElementById("inproc-balance").value = document.getElementById("balance-check-input").value || "";
   inprocSay_("");
