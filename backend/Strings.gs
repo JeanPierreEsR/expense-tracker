@@ -40,6 +40,7 @@ var BACKEND_STRINGS_ = {
   "review.alreadyHandled": { en: "This entry was already confirmed, changed or removed elsewhere — refreshing the list.", es: "Este movimiento ya se confirmó, cambió o eliminó en otro lugar: se está actualizando la lista." },
   "err.loanNotFound": { en: "Loan not found", es: "No se encontró el préstamo" },
   "err.repaymentNotFound": { en: "Repayment not found", es: "No se encontró el repago" },
+  "err.notPractice": { en: "That entry is not a practice expense, so it was not removed.", es: "Ese movimiento no es un gasto de práctica, así que no se eliminó." },
   "err.friendNotFound": { en: "Friend not found", es: "No se encontró al amigo" },
   "err.paymentMethodNotFound": { en: "Account not found", es: "No se encontró la cuenta" },
   "err.budgetNotFound": { en: "Budget not found", es: "No se encontró el presupuesto" },

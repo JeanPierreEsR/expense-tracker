@@ -2326,6 +2326,44 @@ function discardEntryWithRepayments_(entryId, repayments) {
   return { done: true, undone_repayment: !!links.repayment, undone_forgiveness: !!links.forgiveness };
 }
 
+// First-use practice cleanup in ONE call (the phone's practice used to make five or six, each a few seconds): deletes the practice
+// expense WITH the repayment made on it (money entry included), removes an "Overpayment" leftover of the practice friend when an
+// extra was typed, and deletes the friends the practice added. Only ever touches an expense named like the practice's own
+// ("Practice expense" / "Gasto de práctica"), so it cannot be used to delete a real entry.
+//   payload: { entry_id, extra, friend_id, started_on, delete_friend_ids: [ids the practice added] }
+// Returns { removed, friends_deleted: [ids], swept }.
+function removePracticeData(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { removed: false, friends_deleted: [], swept: 0 };
+    var entryId = String((payload && payload.entry_id) || '');
+    if (entryId) {
+      var entry = getEntryById_(entryId);
+      if (entry) {
+        if (!/^(Practice expense|Gasto de pr\u00e1ctica)$/.test(String(entry.description || ''))) throw new Error(tr_('err.notPractice'));
+        refuseRepaymentPartDiscard_(entryId);
+        discardEntryWithRepayments_(entryId, 'cancel');
+        out.removed = true;
+      }
+    }
+    var extra = Number((payload && payload.extra) || 0);
+    var friend = payload && payload.friend_id ? getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; }) : null;
+    if (friend && extra > 0.004) {
+      var names = [tr_('desc.overpaymentFrom', { name: friend.name }, 'en'), tr_('desc.overpaymentTo', { name: friend.name }, 'en'),
+        tr_('desc.overpaymentFrom', { name: friend.name }, 'es'), tr_('desc.overpaymentTo', { name: friend.name }, 'es')];
+      getAllRows('Entries').forEach(function (e) {
+        if (e.status !== 'pending' || names.indexOf(String(e.description || '')) === -1) return;
+        if (payload.started_on && String(e.date) < String(payload.started_on)) return;
+        if (Math.abs(Number(e.amount) - extra) > 0.005) return;
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.swept++; } catch (err) { /* it stays in Needs review for the person to discard */ }
+      });
+    }
+    ((payload && payload.delete_friend_ids) || []).forEach(function (id) {
+      try { deleteFriend({ id: String(id) }); out.friends_deleted.push(String(id)); } catch (err) { /* used somewhere else: it stays */ }
+    });
+    return out;
+  });
+}
+
 function findOrCreatePayorByName_(name) {
   var lower = name.toLowerCase();
   var existing = getPayorRows_().find(function (p) { return p.name.toLowerCase() === lower; });

@@ -16124,36 +16124,47 @@ async function practiceRemoveNow_(p) {
     closeNewEntrySheet_();
   }
   let ok = true;
+  const caps = (meta && meta.capabilities) || {};
   if (p.entryId) {
     if (getQueuedEdits_().some((e) => e.id === p.entryId && e.status === "failed")) unqueueEntryEdit_(p.entryId);
     const stuck = getMoneyQueue_().filter((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === p.friendId);
     if (stuck.length) setMoneyQueue_(getMoneyQueue_().filter((i) => !stuck.includes(i)));
     await tipWaitIdle_(90000);   // a save still on its way must land BEFORE we delete (a late one would make a stray entry)
+  }
+  if (caps.practiceRemove) {
+    // ONE call to the server does it all (each call takes a few seconds on a phone): the expense with its repayment, an overpayment
+    // leftover when an extra was typed, and the friends the practice added. The server only accepts an expense named like the practice's.
+    const added = caps.friendsEdit && Array.isArray(p.friendsBefore) ? (meta.friends || []).filter((f) => !p.friendsBefore.includes(f.id)).map((f) => f.id) : [];
     try {
-      const loans = await callApi("getFriendLoanDetail", { friendId: p.friendId });
-      const mine = loans.filter((l) => l.origin === "entry" && l.entry_id === p.entryId).map((l) => l.id);
-      if (mine.length) {
-        const settlements = await callApi("listSettlementsForFriendCurrency", { friendId: p.friendId, currency: p.currency });
-        const done = new Set();
-        for (const st of settlements) {
-          if (!mine.includes(st.loan_id) || st.offset_loan_id) continue;
-          const key = st.transfer_entry_id || st.id;
-          if (done.has(key)) continue;
-          done.add(key);
-          await callApi("deleteRepayment", { id: st.id });   // the repayment first: an expense with a repayment on it would turn it into a refund loan
+      const res = await callApi("removePracticeData", {
+        entry_id: p.entryId || "", friend_id: p.friendId || "", started_on: p.startedOn || "",
+        extra: Math.max(0, Math.round(((p.repaid || 0) - (p.share || 0)) * 100) / 100), delete_friend_ids: added
+      });
+      const gone = new Set(res.friends_deleted || []);
+      if (gone.size) {
+        meta.friends = (meta.friends || []).filter((x) => !gone.has(x.id));
+        try { refreshFriendChips_(); populatePaidByOptions(); } catch (e) { /* the pickers refresh on the next load */ }
+      }
+    } catch (err) {
+      ok = false;
+      alert(tr("spot.p.removeFailed", { error: err.message }));
+    }
+  } else {
+    // An older backend (a friend not yet updated): the same cleanup, step by step.
+    if (p.entryId) {
+      try {
+        // Deleting the expense with "cancel" also cancels the repayment made on its loans and removes the repayment's money movement.
+        await callApi("discardEntry", { id: p.entryId, repayments: "cancel" });
+      } catch (err) {
+        // An expense that never reached the server is simply not there: nothing to remove.
+        if (!/not found|no se encontr/i.test(String(err.message))) {
+          ok = false;
+          alert(tr("spot.p.removeFailed", { error: err.message }));
         }
       }
-      await callApi("discardEntry", { id: p.entryId });
-    } catch (err) {
-      // An expense that never reached the server is simply not there: nothing to remove.
-      if (!/not found|no se encontr/i.test(String(err.message))) {
-        ok = false;
-        alert(tr("spot.p.removeFailed", { error: err.message }));
-      }
     }
+    if (ok) await Promise.all([practiceSweepExtras_(p), practiceDeleteNewFriends_(p)]);   // independent of each other: done together
   }
-  if (ok) await practiceSweepExtras_(p);
-  if (ok) await practiceDeleteNewFriends_(p);
   if (ok) { practice_ = null; practiceSave_(); }
   clearEntryDraft_();
   refreshEntryList().catch(() => {});
@@ -16169,6 +16180,7 @@ async function practiceSweepExtras_(p) {
   if (!p.friendName) return;
   const created = Array.isArray(p.friendsBefore) && p.friendId && !p.friendsBefore.includes(p.friendId);
   const extra = Math.round(((p.repaid || 0) - (p.share || 0)) * 100) / 100;
+  if (!(extra > 0)) return;   // the repayment is held to what is owed, so normally nothing can be left: no need to ask the server
   let pending = [];
   try { pending = await callApi("listPendingEntries", {}); } catch (e) { return; }
   const esc = p.friendName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -16339,15 +16351,17 @@ function practiceSteps_() {
 
 // Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
 function startPractice_() {
+  if (practiceRemoving_) { showToast_(tr("spot.p.stillRemoving")); return false; }   // the last practice is still being removed
   if (!tipPrepareForm_()) return false;
   practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0, friendsBefore: (meta.friends || []).map((f) => f.id), startedOn: todayLocalISO() };
   practiceSave_();
   practiceHint_ = "";
   Object.keys(practiceFriendChecked_).forEach((k) => delete practiceFriendChecked_[k]);
   runTip_(practiceSteps_(), async () => {
-    const ok = await practiceRemove_();
+    // The cleanup carries on behind the screen: the person is not kept waiting for the server (a toast says when it is done).
     if (document.getElementById("screen-loans").hidden) showScreen("loans");
-    if (ok) showToast_(tr("spot.p.removed"));
+    showToast_(tr("spot.p.removing"));
+    practiceRemove_().then((ok) => { if (ok) showToast_(tr("spot.p.removed")); });
   }, tr("spot.p.note"));
   return true;
 }
