@@ -1237,6 +1237,10 @@ function populateTags() {
     });
     container.appendChild(chip);
   });
+  // The Annual tag changes what budgets count, and nothing else says so while tagging: a line appears while it is ticked.
+  const annualHint = document.getElementById("annual-tag-hint");
+  annualHint.hidden = !selectedTagIds.has("system-annual");
+  if (!annualHint.hidden) annualHint.textContent = tr("tags.annualHint");
 }
 
 function togglePaymentMethodVisibility() {
@@ -16451,6 +16455,7 @@ function practiceBSteps_() {
       ok: () => amountVal() > 0, holdsUntil: "save", before: async () => { nameIt(); } },
     { target: "#budget-period-tabs", text: () => tr("spot.b.s4"), until: () => budgetPeriodTouched_, before: async () => { budgetPeriodTouched_ = false; } },
     // (The alert boxes only exist on a copy with Telegram connected: without it this step is simply not there.)
+    { look: true, target: "#budget-period-tabs", text: () => tr("spot.b.s4b"), button: () => tr("spot.b.gotIt") },
     { look: true, target: "#budget-alert-fields", text: () => tr("spot.b.s5"), button: () => tr("spot.b.gotIt"), available: () => !document.getElementById("budget-alert-fields").hidden },
     { key: "save", target: () => [document.getElementById("budget-save-btn"), document.getElementById("budget-form-error")],
       text: () => { const err = (document.getElementById("budget-form-error").textContent || "").trim(); return err ? tr("spot.b.s6err", { error: err }) : tr("spot.b.s6"); },
