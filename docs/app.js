@@ -968,6 +968,8 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   syncPairWithBackend_();
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
+  // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
+  if (meta.settings) I18n.setDateOrder(String(meta.settings.date_format || "").toLowerCase());
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
   try {
     const fav = meta.settings && meta.settings.favorite_currencies;
@@ -6810,7 +6812,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "deleted-entries"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -10110,7 +10112,7 @@ function showWelcomeStep_(step) {
 
 // ---- Welcome step 2: "What fits you?" (optional) ----
 // Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
-// welcome is saved). The same chips are used by More → Categories → "Add suggested categories".
+// welcome is saved). The same chips are used by More → My profile → What fits me.
 const FITS_GROUPS_ = [
   { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"] },
   { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
@@ -10408,7 +10410,7 @@ async function finishWelcome_() {
     if (welcome_.ownName && meta && meta.capabilities && meta.capabilities.ownName) await callApi("saveOwnerNames", { names: [welcome_.ownName] });   // a typed name is confirmed at once
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
-    // welcome: the same packs can be added later from More → Categories → "Add suggested categories".
+    // welcome: the same packs can be added later from More → My profile → What fits me.
     if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
     }
@@ -10777,7 +10779,7 @@ async function answerOwnName_(yes) {
 document.getElementById("own-name-yes").addEventListener("click", () => answerOwnName_(true));
 document.getElementById("own-name-no").addEventListener("click", () => answerOwnName_(false));
 
-// ---- My names (More → My names): the person's own names, learned from statements and bank e-mails (backend/OwnerNames.gs) ----
+// ---- My names (More → My profile): the person's own names, learned from statements and bank e-mails (backend/OwnerNames.gs) ----
 const ownerNamesEl_ = (id) => document.getElementById(id);
 function renderOwnerNames_(res) {
   const list = ownerNamesEl_("owner-names-list");
@@ -10817,18 +10819,56 @@ function saveOwnerNames_(names) {
   });
   return ownerNamesSaves_;
 }
-async function openOwnerNamesModal_() {
+// ---- More → My profile (owner's design, 2026-11-03): My names, What fits me and How I type dates on one screen ----
+// Opens at once with "Loading…" and shows its three cards only when the names have arrived (loading standard). The names keep the same
+// list, queue and texts they had as a pop-up; "What fits me" is the former "Add suggested categories" pop-up; the dates card is new.
+async function showMyProfileScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-my-profile"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => { btn.classList.toggle("active", btn.dataset.screen === "more"); });
+  window.scrollTo(0, 0);
+  const loading = document.getElementById("my-profile-loading"), body = document.getElementById("my-profile-body");
+  const caps = (meta && meta.capabilities) || {};
+  body.hidden = true;
+  loading.innerHTML = loadingHtml_();
   ownerNamesEl_("owner-names-error").textContent = "";
   ownerNamesEl_("owner-names-input").value = "";
-  ownerNamesEl_("owner-names-list").innerHTML = loadingHtml_();
-  bringModalToFront_(ownerNamesEl_("owner-names-backdrop"));
-  ownerNamesEl_("owner-names-backdrop").hidden = false;
-  try { renderOwnerNames_(await callApi("getOwnerNames", {})); }
-  catch (e) { ownerNamesEl_("owner-names-list").innerHTML = ""; ownerNamesEl_("owner-names-error").textContent = e.message; }
+  fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
+  fitsEl_("fits-msg").textContent = "";
+  document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
+  document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
+  try {
+    renderOwnerNames_(await callApi("getOwnerNames", {}));
+    fitsDraw_();
+    drawProfileDates_();
+    loading.innerHTML = "";
+    body.hidden = false;
+  } catch (e) {
+    loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
+  }
 }
-document.getElementById("more-owner-names-btn").addEventListener("click", openOwnerNamesModal_);
-ownerNamesEl_("owner-names-close").addEventListener("click", () => { ownerNamesEl_("owner-names-backdrop").hidden = true; });
-ownerNamesEl_("owner-names-backdrop").addEventListener("click", (e) => { if (e.target.id === "owner-names-backdrop") e.target.hidden = true; });
+document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
+document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
+// How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
+function drawProfileDates_() {
+  const now = I18n.effectiveDateOrder();
+  document.querySelectorAll("[data-profile-order]").forEach((b) => b.classList.toggle("active", b.dataset.profileOrder === now));
+  document.getElementById("my-profile-dates-example").textContent = tr("prof.datesExample", { example: I18n.fmtDateAs(new Date(2026, 8, 25), now) });
+}
+document.querySelectorAll("[data-profile-order]").forEach((b) => b.addEventListener("click", async () => {
+  const order = b.dataset.profileOrder, msg = document.getElementById("my-profile-dates-example");
+  if (order === I18n.effectiveDateOrder() && I18n.getDateOrder() === order) return;
+  document.querySelectorAll("[data-profile-order]").forEach((x) => { x.disabled = true; });
+  msg.textContent = tr("common.savingToast");
+  try {
+    await callApi("saveDateOrder", { dateOrder: order });
+    I18n.setDateOrder(order);
+    if (meta && meta.settings) meta.settings.date_format = order;
+    window.location.reload();   // like the language picker: every screen is rebuilt, so no date is left in the old order
+  } catch (e) {
+    document.querySelectorAll("[data-profile-order]").forEach((x) => { x.disabled = false; });
+    msg.textContent = tr("prof.datesFailed");
+  }
+}));
 ownerNamesEl_("owner-names-add-btn").addEventListener("click", () => {
   const input = ownerNamesEl_("owner-names-input");
   const name = input.value.trim();
@@ -12652,23 +12692,14 @@ document.getElementById("more-categories-btn").addEventListener("click", showCat
 document.getElementById("categories-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("categories-add-btn").addEventListener("click", () => openCatModal_(null));
 
-// "Add suggested categories": the same "What fits you?" chips for people who already use the app. Adds the common categories they
+// "What fits me" (More → My profile): the same "What fits you?" chips for people who already use the app. Adds the common categories they
 // don't have (an equivalent such as "Mobile Phone" counts as having "Phone") plus the packs of what they pick. Never removes anything.
 let fitsSel_ = [];
 const fitsEl_ = (id) => document.getElementById(id);
 function fitsDraw_() {
   fillFitsChips_(fitsEl_("fits-chips"), fitsSel_, (a) => { fitsSel_ = fitsToggled_(fitsSel_, a); fitsDraw_(); });
 }
-document.getElementById("categories-suggest-btn").addEventListener("click", () => {
-  fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
-  const backdrop = fitsEl_("fits-modal-backdrop");
-  I18n.applyStatic(backdrop);
-  fitsEl_("fits-msg").textContent = "";
-  fitsDraw_();
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
-});
-fitsEl_("fits-close").addEventListener("click", () => { fitsEl_("fits-modal-backdrop").hidden = true; });
+document.getElementById("categories-suggest-btn").addEventListener("click", showMyProfileScreen);   // a one-line link on Categories
 fitsEl_("fits-add-btn").addEventListener("click", async () => {
   const btn = fitsEl_("fits-add-btn");
   btn.disabled = true;

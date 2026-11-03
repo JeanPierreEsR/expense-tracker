@@ -28,6 +28,11 @@
   };
 
   let lang = DEFAULT_LANG;
+  // The order written dates take: "dmy" | "mdy" | "ymd" (More → My profile → How I type dates). "" = never chosen, so the language decides
+  // exactly as it always did (English month first, Spanish day first). Remembered on the phone so the first screen already uses it.
+  const DATE_ORDERS = ["dmy", "mdy", "ymd"];
+  const ORDER_KEY = "dateOrder";
+  let dateOrder = "";
 
   function strings() {
     if (root.STRINGS) return root.STRINGS;
@@ -44,8 +49,20 @@
   function loadStoredLang() {
     let stored = null;
     try { stored = root.localStorage.getItem(STORAGE_KEY); } catch (err) { /* blocked storage: use the default */ }
+    try { setDateOrder(root.localStorage.getItem(ORDER_KEY), true); } catch (err) { /* blocked storage: the language decides */ }
     return setLang(stored);
   }
+  // Anything that is not one of the three orders means "not chosen". `skipStore` is for reading what is already stored.
+  function setDateOrder(next, skipStore) {
+    dateOrder = DATE_ORDERS.indexOf(next) >= 0 ? next : "";
+    if (!skipStore) {
+      try { if (dateOrder) root.localStorage.setItem(ORDER_KEY, dateOrder); else root.localStorage.removeItem(ORDER_KEY); } catch (err) { /* ignore */ }
+    }
+    return dateOrder;
+  }
+  function getDateOrder() { return dateOrder; }
+  // The order actually used: the chosen one, otherwise the one that goes with the language.
+  function effectiveDateOrder() { return dateOrder || (lang === "es" ? "dmy" : "mdy"); }
   // True once the person has picked a language on this phone (rather than the default).
   function hasChosenLang() {
     try { return !!root.localStorage.getItem(STORAGE_KEY); } catch (err) { return false; }
@@ -86,16 +103,27 @@
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
   // "Sep 5, 2026" / "5 sep 2026"
+  // The day, month and year written in the chosen order, with the month as a word ("5 Sep 2026", "Sep 5, 2026", "2026 Sep 5").
+  function joinDate(d, order, withYear) {
+    const day = d.getDate(), mon = MONTHS[lang].short[d.getMonth()], year = d.getFullYear();
+    if (order === "dmy") return `${day} ${mon}${withYear ? " " + year : ""}`;
+    if (order === "ymd") return `${withYear ? year + " " : ""}${mon} ${day}`;
+    return `${mon} ${day}${withYear ? ", " + year : ""}`;
+  }
+  // One date written in a given order (for the examples on the My profile screen).
+  function fmtDateAs(d, order) { return joinDate(asDate(d), order, true); }
   function fmtDateMedium(d) {
     d = asDate(d);
-    if (lang === "es") return `${d.getDate()} ${MONTHS.es.short[d.getMonth()]} ${d.getFullYear()}`;
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    if (lang === "es" && effectiveDateOrder() === "dmy") return `${d.getDate()} ${MONTHS.es.short[d.getMonth()]} ${d.getFullYear()}`;
+    if (lang === "en" && effectiveDateOrder() === "mdy") return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    return joinDate(d, effectiveDateOrder(), true);
   }
   // "Sep 5" / "5 sep" — with the year added on request
   function fmtMonthDay(d, withYear) {
     d = asDate(d);
-    if (lang === "es") return `${d.getDate()} ${MONTHS.es.short[d.getMonth()]}${withYear ? " " + d.getFullYear() : ""}`;
-    return d.toLocaleDateString("en-US", withYear ? { month: "short", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
+    if (lang === "es" && effectiveDateOrder() === "dmy") return `${d.getDate()} ${MONTHS.es.short[d.getMonth()]}${withYear ? " " + d.getFullYear() : ""}`;
+    if (lang === "en" && effectiveDateOrder() === "mdy") return d.toLocaleDateString("en-US", withYear ? { month: "short", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
+    return joinDate(d, effectiveDateOrder(), !!withYear);
   }
   // "Sep 5, 2026, 3:07 PM" / "5 sep 2026, 15:07" (Spanish uses 24 hours)
   function fmtDateTime(d) {
@@ -104,6 +132,7 @@
       const pad = (n) => String(n).padStart(2, "0");
       return `${fmtDateMedium(d)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
+    if (effectiveDateOrder() !== "mdy") return `${fmtDateMedium(d)}, ${d.toLocaleTimeString("en-US", { timeStyle: "short" })}`;
     return d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
   }
   // 0 = January. "Sep" in English; Spanish is "sep", or "Sep" when the month
@@ -125,6 +154,7 @@
 
   const api = {
     SUPPORTED, DEFAULT_LANG, MONTHS,
+    DATE_ORDERS, fmtDateAs, setDateOrder, getDateOrder, effectiveDateOrder,
     tr, setLang, getLang, loadStoredLang, saveLang, hasChosenLang, applyStatic,
     fmtMonthYear, fmtDateMedium, fmtMonthDay, fmtDateTime, monthShort
   };

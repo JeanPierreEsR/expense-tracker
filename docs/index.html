@@ -671,8 +671,8 @@
             <span data-i18n="more.myData">🗂️ My data</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-owner-names-btn">
-            <span data-i18n="more.ownerNames">👤 My names</span>
+          <button type="button" class="more-list-item" id="more-my-profile-btn">
+            <span data-i18n="more.myProfile">👤 My profile</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -821,7 +821,7 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
-        <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">+ Add suggested categories</button>
+        <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">Pick what fits you ›</button>
         <div id="categories-list"></div>
         <div class="friends-editbar" id="categories-editbar" hidden>
           <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
@@ -1222,6 +1222,47 @@
           <span><span class="md-title">📤 <span data-i18n="md.export">Export my data</span></span><span class="hint md-sub" data-i18n="md.exportSub">Get your entries as files, or a backup copy.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
+      </div>
+    </div>
+
+    <div id="screen-my-profile" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="my-profile-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="prof.title">My profile</h2>
+        <div id="my-profile-loading"></div>
+        <div id="my-profile-body" hidden>
+          <h3 class="md-head" data-i18n="ownerNames.title">My names</h3>
+          <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails.</p>
+          <div id="owner-names-list"></div>
+          <p class="hint" id="owner-names-waiting"></p>
+          <div class="stmt-loading" id="owner-names-status" role="status" aria-live="polite" hidden><span class="stmt-spinner" aria-hidden="true"></span><span data-i18n="ownerNames.saving">Saving…</span></div>
+          <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
+          <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
+          <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
+          <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
+
+          <div id="my-profile-fits-card">
+            <h3 class="md-head" data-i18n="prof.fitsHead">What fits me</h3>
+            <p class="hint" data-i18n="fits.intro">Tap what is part of your life.</p>
+            <div id="fits-chips"></div>
+            <p class="hint" id="fits-msg" role="status"></p>
+            <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
+          </div>
+
+          <div id="my-profile-dates-card">
+            <h3 class="md-head" data-i18n="prof.datesHead">How I type dates</h3>
+            <p class="hint" data-i18n="prof.datesHint">Used for the order dates are written in the app and for dates you type to the Telegram bot.</p>
+            <div class="welcome-choices" id="my-profile-dates">
+              <button type="button" class="welcome-choice" data-profile-order="dmy" data-i18n="welcome.dateDmy">Day first: 3/4/2026 is 3 April</button>
+              <button type="button" class="welcome-choice" data-profile-order="mdy" data-i18n="welcome.dateMdy">Month first: 3/4/2026 is 4 March</button>
+              <button type="button" class="welcome-choice" data-profile-order="ymd" data-i18n="welcome.dateYmd">Year first: 2026/4/3 is 3 April</button>
+            </div>
+            <p class="hint" id="my-profile-dates-example" role="status"></p>
+            <p class="hint" data-i18n="prof.datesPickers">The calendar wheels that open when you tap a date follow your iPhone's own setting (Settings → General → Language &amp; Region).</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2094,25 +2135,6 @@
     </div>
   </div>
 
-  <div id="owner-names-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
-      <div class="currency-modal-header">
-        <span data-i18n="ownerNames.title">My names</span>
-        <button type="button" id="owner-names-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
-      </div>
-      <div class="budget-modal-body">
-        <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. A name is trusted once two different accounts or banks show it. You can correct the list here.</p>
-        <div id="owner-names-list"></div>
-        <p class="hint" id="owner-names-waiting"></p>
-        <div class="stmt-loading" id="owner-names-status" role="status" aria-live="polite" hidden><span class="stmt-spinner" aria-hidden="true"></span><span data-i18n="ownerNames.saving">Saving…</span></div>
-        <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
-        <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
-        <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
-        <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
-      </div>
-    </div>
-  </div>
-
   <div id="welcome-overlay" class="welcome-overlay" hidden>
     <button type="button" id="welcome-preview-exit" class="welcome-preview-exit" hidden data-i18n="welcome.previewExit">Exit preview (nothing is saved)</button>
     <div class="welcome-card">
@@ -2431,21 +2453,6 @@
           <p class="hint" data-i18n="feedback.thanks">Thank you! I read it, and I'll write back if I need to ask you something. — JP</p>
           <button type="button" class="primary" id="fb-done" data-i18n="feedback.done">Close</button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="fits-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
-      <div class="currency-modal-header">
-        <span data-i18n="fits.title">Add suggested categories</span>
-        <button type="button" id="fits-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
-      </div>
-      <div class="budget-modal-body">
-        <p class="hint" data-i18n="fits.intro">Tap what is part of your life. The app adds the basic categories you don't have yet, plus one for each pick. Nothing you have is changed or removed, and un-ticking a pick deletes nothing.</p>
-        <div id="fits-chips"></div>
-        <p class="hint" id="fits-msg" role="status"></p>
-        <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
       </div>
     </div>
   </div>

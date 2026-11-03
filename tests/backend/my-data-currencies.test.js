@@ -19,7 +19,7 @@ const group2 = () => {
 
 test("group (2) is alphabetical with Currencies and My data, and the old fourth group is gone", () => {
   const ids = [...group2().matchAll(/id="more-([a-z-]+)-btn"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ["accounts", "bank-mail", "categories", "exchange-rates", "friends", "my-data", "owner-names"]);
+  assert.deepEqual(ids, ["accounts", "bank-mail", "categories", "exchange-rates", "friends", "my-data", "my-profile"]);
   assert.equal((html.match(/more-group-az/g) || []).length, 1, "only one A-Z group is left");
   ["more-main-currency-btn", "more-export-btn", "more-import-btn", "more-statements-btn", "more-tidy-btn"].forEach((id) => {
     assert.ok(!html.includes('id="' + id + '"'), id + " no longer exists");
@@ -27,7 +27,7 @@ test("group (2) is alphabetical with Currencies and My data, and the old fourth 
 });
 
 test("the hub has its four rows in three headed groups, and each opens the screen it used to", () => {
-  const hub = html.slice(html.indexOf('id="screen-my-data"'), html.indexOf('id="screen-statements"'));
+  const hub = html.slice(html.indexOf('id="screen-my-data"'), html.indexOf('id="screen-my-profile"'));
   ["data-statements-btn", "data-import-btn", "data-tidy-btn", "data-export-btn"].forEach((id) => assert.ok(hub.includes('id="' + id + '"'), id));
   assert.equal((hub.match(/class="md-head"/g) || []).length, 3);
   assert.match(stmt, /\$\("data-statements-btn"\)\.addEventListener\("click", \(\) => showStatementsScreen\("bank"\)\)/);

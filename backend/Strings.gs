@@ -237,6 +237,7 @@ var BACKEND_STRINGS_ = {
   "export.noEmail": { en: "No export email address is set up yet.", es: "Aún no hay un correo configurado para las exportaciones." },
   "export.badEmail": { en: "That does not look like an email address.", es: "Eso no parece una dirección de correo." },
   "export.dateFormat": { en: "Dates must look like 2026-01-31.", es: "Las fechas deben verse así: 2026-01-31." },
+  "profile.badDateOrder": { en: "Pick day-month-year, month-day-year or year-month-day.", es: "Elige día-mes-año, mes-día-año o año-mes-día." },
   "export.dateOrder": { en: "The start date is after the end date.", es: "La fecha de inicio es posterior a la fecha de fin." },
   "export.tooLarge": { en: "The export is too large to email ({mb} MB). Try a shorter date range, or send only one file.", es: "La exportación es demasiado grande para enviarla por correo ({mb} MB). Prueba con un rango de fechas más corto o envía solo un archivo." },
 
