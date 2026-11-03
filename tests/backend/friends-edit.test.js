@@ -66,7 +66,7 @@ test("Delete on several friends: unused ones are deleted, ones with history are 
   assert.equal(list.find((f) => f.id === owing.id).hidden, false);
   assert.ok(rt.rows("Loans").some((l) => l.id === loan.id), "the history is untouched");
   assert.equal(rt.api("getMeta", {}).friends.find((f) => f.id === history.id).hidden, "yes", "the app still gets the name (old entries show it) but flagged hidden");
-  assert.deepEqual(rt.api("deleteFriends", { ids: [] }), { deleted: [], hidden: [], kept: [] });
+  assert.deepEqual(rt.api("deleteFriends", { ids: [] }), { deleted: [], deletedRows: [], hidden: [], kept: [] });
 });
 
 test("adding a friend whose name is hidden brings the hidden one back; Unhide does the same; renaming onto a hidden name says so", () => {

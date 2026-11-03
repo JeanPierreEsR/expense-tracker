@@ -253,6 +253,7 @@ function routeActionSwitch_(action, payload) {
     case 'deleteFriend': return deleteFriend(payload);
     case 'deleteFriends': return deleteFriends(payload);
     case 'unhideFriend': return unhideFriend(payload);
+    case 'restoreFriends': return restoreFriends(payload);
     case 'getProjectDebts': return getProjectDebts(payload);
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
@@ -271,6 +272,7 @@ function routeActionSwitch_(action, payload) {
     case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
+    case 'restorePaymentMethods': return restorePaymentMethods(payload);
     case 'addBank': return addBank(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
@@ -398,6 +400,7 @@ function routeActionSwitch_(action, payload) {
     case 'deleteCategories': return deleteCategories(payload);
     case 'getCategoryCounts': return getCategoryCounts();
     case 'setCategoryHidden': return setCategoryHidden(payload);
+    case 'showCategories': return showCategories(payload);
     case 'addCategoryKeyword':
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);
@@ -1874,12 +1877,50 @@ function removePaymentMethods(payload) {
     gone[id] = true;
     out.deleted.push({ id: id, name: name });
   });
+  out.deletedRows = { accounts: [], balances: [] };   // kept for Undo (restorePaymentMethods)
   if (out.deleted.length) {
+    out.deletedRows.accounts = Object.keys(gone).map(function (id) { return byId[id]; });
+    out.deletedRows.balances = getAllRows('Account Opening Balances').filter(function (row) { return gone[String(row.payment_method_id)] === true; });
     deleteRowsWhere_('Account Opening Balances', function (row) { return gone[String(row.payment_method_id)] === true; });
     deleteRowsWhere_('Payment Methods', function (row) { return gone[String(row.id)] === true; });
     bumpStructureVersion_();
   }
   toHide.forEach(function (id) { setPaymentMethodHidden({ id: id, hidden: true }); });
+  return out;
+}
+
+// Undo of a bulk delete AND the bulk "Show again" (More → Accounts → Edit): shows the given hidden accounts again and puts back the accounts that were
+// deleted (an account is only deleted when nothing uses it, so the row and its starting balances are the whole account). One pass, never throws for one
+// account: an id that no longer exists is skipped; a deleted account whose id or nickname is back already is skipped, never duplicated.
+// Answers { shown: n, restored: n, skipped: [names] }.
+function restorePaymentMethods(payload) {
+  payload = payload || {};
+  var methods = getAllRows('Payment Methods');
+  var byId = {}, names = {};
+  methods.forEach(function (p) { byId[String(p.id)] = p; names[String(p.nickname).trim().toLowerCase()] = true; });
+  var out = { shown: 0, restored: 0, skipped: [] };
+  uniqueIds_(payload.show).forEach(function (id) {
+    if (!byId[id]) return;
+    setPaymentMethodHidden({ id: id, hidden: false });
+    out.shown++;
+  });
+  var rows = payload.rows || {}, add = [], addedIds = {};
+  (rows.accounts || []).forEach(function (r) {
+    var id = String((r && r.id) || ''), name = String((r && r.nickname) || '').trim();
+    if (!id || !name) return;
+    if (byId[id] || names[name.toLowerCase()]) { out.skipped.push(name); return; }
+    byId[id] = true; names[name.toLowerCase()] = true; addedIds[id] = true;
+    var copy = {};
+    Object.keys(r).forEach(function (k) { copy[k] = r[k]; });
+    copy.hidden = '';
+    add.push(copy);
+  });
+  if (add.length) {
+    appendObjectsBatch_('Payment Methods', add);
+    var bal = (rows.balances || []).filter(function (b) { return b && addedIds[String(b.payment_method_id)]; });
+    appendObjectsBatch_('Account Opening Balances', bal);
+    out.restored = add.length;
+  }
   return out;
 }
 
