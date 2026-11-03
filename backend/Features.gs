@@ -105,6 +105,7 @@ function getCapabilities_() {
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
     programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
+    pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
     ownName: true,   // answerOwnName + `ownNameAsk` in getMeta: the Home "Is this you?" card and the welcome name line; an older backend lacks them
     profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.

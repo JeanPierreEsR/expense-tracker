@@ -264,6 +264,7 @@ function routeActionSwitch_(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
+    case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
     case 'addBank': return addBank(payload);
@@ -1749,6 +1750,66 @@ function removePaymentMethod(payload) {
     return { id: id, hidden: 'yes', used: used };
   }
   return deletePaymentMethod({ id: id });
+}
+
+// How many records point at each of several accounts, in ONE pass over the sheets (paymentMethodUsage_ asks about one). A record counts once per account.
+function paymentMethodUsageMap_(ids) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var want = {}, usage = {};
+  ids.forEach(function (id) { want[String(id)] = true; usage[String(id)] = 0; });
+  [['Entries', ['payment_method_id', 'to_payment_method_id']], ['Loans', ['payment_method_id']],
+   ['Settlements', ['payment_method_id']], ['Statement Uploads', ['payment_method_id']],
+   ['Statement Gaps', ['payment_method_id']]].forEach(function (spec) {
+    if (!ss.getSheetByName(spec[0])) return;
+    getAllRows(spec[0]).forEach(function (r) {
+      var counted = {};
+      spec[1].forEach(function (f) {
+        var v = String(r[f] || '');
+        if (want[v] && !counted[v]) { counted[v] = true; usage[v]++; }
+      });
+    });
+  });
+  return usage;
+}
+
+// Several accounts at once (More → Accounts → Edit, owner's request 2026-11-03): the SAME rule as removePaymentMethod for each one, decided in one pass and
+// never throwing for a single account: unused → deleted (with its starting balances); with history → hidden (its past records keep it; the Balances card
+// is not affected by Hide); the built-in Cash, one linked to Yape / Plin, one that no longer exists, or one that is already hidden → left as it is.
+// Answers { deleted: [{id,name}], hidden: [{id,name,used}], kept: [{id,name,reason: cash|rail|missing|hiddenAlready}] }.
+function removePaymentMethods(payload) {
+  var ids = [], seen = {};
+  ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (id && !seen[id]) { seen[id] = true; ids.push(id); } });
+  var out = { deleted: [], hidden: [], kept: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Payment Methods').forEach(function (p) { byId[String(p.id)] = p; });
+  var settings = getSettingsMap();
+  var linked = {};
+  RAIL_LINK_KEYS_.forEach(function (k) { if (settings[k]) linked[String(settings[k])] = true; });
+  var usage = paymentMethodUsageMap_(ids);
+  var gone = {}, toHide = [];
+  ids.forEach(function (id) {
+    var pm = byId[id];
+    if (!pm) { out.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(pm.nickname || '');
+    if (isBasicCashAccount_(id)) { out.kept.push({ id: id, name: name, reason: 'cash' }); return; }
+    if (linked[id]) { out.kept.push({ id: id, name: name, reason: 'rail' }); return; }
+    if (usage[id] > 0) {
+      if (String(pm.hidden || '') === 'yes') { out.kept.push({ id: id, name: name, reason: 'hiddenAlready' }); return; }
+      toHide.push(id);
+      out.hidden.push({ id: id, name: name, used: usage[id] });
+      return;
+    }
+    gone[id] = true;
+    out.deleted.push({ id: id, name: name });
+  });
+  if (out.deleted.length) {
+    deleteRowsWhere_('Account Opening Balances', function (row) { return gone[String(row.payment_method_id)] === true; });
+    deleteRowsWhere_('Payment Methods', function (row) { return gone[String(row.id)] === true; });
+    bumpStructureVersion_();
+  }
+  toHide.forEach(function (id) { setPaymentMethodHidden({ id: id, hidden: true }); });
+  return out;
 }
 
 // Hide / show an account. A hidden account keeps its row (past records still show its name

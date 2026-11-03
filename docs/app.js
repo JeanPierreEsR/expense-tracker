@@ -6197,9 +6197,13 @@ function ensurePeriodSelectorIn(screenName) {
 
 let budgetsSummary_ = null;
 let budgetsEditing_ = false;
+let accountsEditing_ = false;
+let accountsSelected_ = new Set();
+let accountsHiddenBeforeEdit_ = false;
 let budgetsSelected_ = new Set();   // Budgets → Edit state (declared here so showScreen can end Edit mode when the tab is left)
 function showScreen(name) {
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
+  if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -11023,6 +11027,7 @@ const PM_TYPES_ = ["credit", "debit", "cash", "wallet"];
 function isBasicCashPm_(pm) { const id = String((meta && meta.settings && meta.settings.cash_account_id) || ""); return !!pm && !!id && String(pm.id) === id; }
 // One Delete that hides an account with history (backend removePaymentMethod); an older backend keeps Delete + Hide.
 function pmRemoveOne_() { return !!(meta && meta.capabilities && meta.capabilities.pmRemove); }
+function pmBulkRemove_() { return pmRemoveOne_() && !!(meta && meta.capabilities && meta.capabilities.pmBulkRemove); }
 let accountsHiddenOpen_ = false; // the "Hidden accounts" group on the accounts screen starts collapsed
 let pmModalState = null; // { id } while the window is open; id is null when adding
 
@@ -11043,23 +11048,39 @@ function renderAccountsList_() {
   const bankName = (id) => { const b = (meta.banks || []).find((x) => x.id === id); return b ? b.name : ""; };
   const rows = meta.paymentMethods.slice().sort((a, b) => a.nickname.localeCompare(b.nickname));
   document.getElementById("accounts-empty-note").hidden = rows.length > 0;
+  const selectable = rows.filter((pm) => !isBasicCashPm_(pm));
+  document.getElementById("accounts-edit-btn").hidden = !(pmBulkRemove_() && selectable.length);
+  if (accountsEditing_ && !selectable.length) setAccountsEditing_(false, false);
+  const stillThere = new Set(selectable.map((pm) => pm.id));
+  accountsSelected_ = new Set([...accountsSelected_].filter((id) => stillThere.has(id)));
   list.innerHTML = "";
   fillBankNote_(document.getElementById("accounts-bank-note"), rows.filter((pm) => pm.type === "credit" || pm.type === "debit").map((pm) => bankName(pm.bank_id)));
   // Three groups (owner, 2026-10-19): bank accounts + credit cards, wallets + cash + transfer, investment platforms.
   const groupOf = (pm) => (pm.type === "investment" ? "platform" : pm.type === "credit" || pm.type === "debit" ? "bank" : "wallet");
   const addRow_ = (pm, parent) => {
     const row = document.createElement("div");
-    row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "");
+    const isCash = isBasicCashPm_(pm);   // the built-in Cash can never be deleted or hidden: no checkbox in Edit mode
+    row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "") + (accountsEditing_ ? " friends-check-row" : "");
     delKey_(row, "pm:" + pm.id);
     const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    const lead = !accountsEditing_ ? ""
+      : isCash ? `<span class="friends-check-spacer"></span>`
+      : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${accountsSelected_.has(pm.id) ? " checked" : ""}>`;
     row.innerHTML = `
+      ${lead}
       <div>
         <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
       </div>
       <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
     `;
-    row.addEventListener("click", () => openPmModal_(pm));
+    row.addEventListener("click", () => {
+      if (!accountsEditing_) { openPmModal_(pm); return; }   // Edit mode: a tap ticks instead of opening
+      if (isCash) return;
+      if (accountsSelected_.has(pm.id)) accountsSelected_.delete(pm.id); else accountsSelected_.add(pm.id);
+      row.querySelector(".friends-check").checked = accountsSelected_.has(pm.id);
+      syncAccountsEditBar_();
+    });
     parent.appendChild(row);
   };
   ["bank", "wallet", "platform"].forEach((g) => rows.filter((pm) => !pmHidden_(pm) && groupOf(pm) === g).forEach((pm, i) => {
@@ -11078,14 +11099,15 @@ function renderAccountsList_() {
     head.type = "button";
     head.className = "accounts-group-title accounts-hidden-toggle";
     const box = document.createElement("div");
-    box.hidden = !accountsHiddenOpen_;
-    const paint = () => { head.textContent = `${accountsHiddenOpen_ ? "▾" : "▸"} ${tr("accounts.group.hidden")} (${hiddenRows.length})`; };
-    head.addEventListener("click", () => { accountsHiddenOpen_ = !accountsHiddenOpen_; box.hidden = !accountsHiddenOpen_; paint(); });
+    box.hidden = !accountsHiddenOpen_ && !accountsEditing_;
+    const paint = () => { const open = accountsHiddenOpen_ || accountsEditing_; head.textContent = `${open ? "▾" : "▸"} ${tr("accounts.group.hidden")} (${hiddenRows.length})`; };
+    head.addEventListener("click", () => { if (accountsEditing_) return; accountsHiddenOpen_ = !accountsHiddenOpen_; box.hidden = !accountsHiddenOpen_; paint(); });   // (every account stays reachable while Edit is on)
     paint();
     hiddenRows.forEach((pm) => addRow_(pm, box));
     list.appendChild(head);
     list.appendChild(box);
   }
+  syncAccountsEditBar_();
 }
 
 function fillPmBankOptions_(selectedId) {
@@ -11302,6 +11324,78 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     unmarkDeleting_("pm:" + pm.id);
     alert(err.message);   // in use: the message says so and points to Hide
   }
+});
+
+// ---- Accounts: Edit mode (tick several accounts, delete them at once; owner's request, 2026-11-03) ----
+// The same pencil, checkboxes and fixed bar as Friends / Programmed items / Budgets. Delete asks ONE question for the whole batch; the server then
+// applies the single Delete's rule to each account (removePaymentMethods): unused → deleted, with history → hidden (its records keep it), the built-in
+// Cash and the ones linked to Yape / Plin are left as they are. The result names everyone.
+function setAccountsEditing_(on, redraw = true) {
+  if (on === accountsEditing_ && redraw) return;
+  accountsEditing_ = on;
+  accountsSelected_ = new Set();
+  setEditIcon_(document.getElementById("accounts-edit-btn"), on);
+  document.getElementById("accounts-add-btn").hidden = on;
+  document.getElementById("accounts-editbar").hidden = !on;
+  document.getElementById("screen-accounts").classList.toggle("accounts-editing", on);
+  placeAccountsEditBar_();
+  if (redraw) renderAccountsList_();
+}
+function placeAccountsEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("accounts-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (accountsEditing_) placeAccountsEditBar_(); });
+function syncAccountsEditBar_() {
+  const n = accountsSelected_.size;
+  const del = document.getElementById("accounts-delete-selected-btn");
+  const total = ((meta && meta.paymentMethods) || []).filter((pm) => !isBasicCashPm_(pm)).length;
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("accounts-selectall-btn").textContent = tr(n && n === total ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("accounts-edit-btn").addEventListener("click", () => setAccountsEditing_(!accountsEditing_));
+document.getElementById("accounts-done-btn").addEventListener("click", () => setAccountsEditing_(false));
+document.getElementById("accounts-back-btn").addEventListener("click", () => setAccountsEditing_(false));
+document.getElementById("accounts-selectall-btn").addEventListener("click", () => {
+  const all = meta.paymentMethods.filter((pm) => !isBasicCashPm_(pm)).map((pm) => pm.id);
+  accountsSelected_ = accountsSelected_.size === all.length ? new Set() : new Set(all);
+  renderAccountsList_();
+});
+document.getElementById("accounts-delete-selected-btn").addEventListener("click", () => {
+  const chosen = meta.paymentMethods.filter((pm) => accountsSelected_.has(pm.id)).sort((a, b) => a.nickname.localeCompare(b.nickname));
+  if (!chosen.length) return;
+  const names = chosen.map((pm) => pm.nickname).join(", ");
+  if (!confirm(tr(chosen.length === 1 ? "accounts.confirmRemove" : "accounts.confirmDeleteMany", { n: chosen.length, names, name: names }))) return;
+  const ids = chosen.map((pm) => pm.id);
+  setAccountsEditing_(false);
+  ids.forEach((id) => markDeleting_("pm:" + id));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("removePaymentMethods", { ids });
+    const gone = new Set(result.deleted.map((d) => d.id));
+    const hid = new Set(result.hidden.map((h) => h.id));
+    meta.paymentMethods = meta.paymentMethods.filter((pm) => !gone.has(pm.id));
+    meta.paymentMethods.forEach((pm) => { if (hid.has(pm.id)) pm.hidden = "yes"; });
+    refreshAccountPickers_();
+  }, async () => {
+    renderAccountsList_();
+    if (!result) return;
+    const by = (reason) => result.kept.filter((k) => k.reason === reason).map((k) => k.name).filter(Boolean);
+    const other = result.kept.filter((k) => k.reason === "cash" || k.reason === "missing").map((k) => k.name).filter(Boolean);
+    if (!result.hidden.length && !result.kept.length) return;   // everything was simply deleted: the "done" toast names them
+    const lines = [];
+    if (result.deleted.length) lines.push(tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }));
+    if (result.hidden.length) lines.push(tr("accounts.resultHidden", { names: result.hidden.map((h) => h.name).join(", ") }));
+    if (by("rail").length) lines.push(tr("accounts.resultRail", { names: by("rail").join(", ") }));
+    if (by("hiddenAlready").length) lines.push(tr("accounts.resultHiddenAlready", { names: by("hiddenAlready").join(", ") }));
+    if (other.length) lines.push(tr("accounts.resultKept", { names: other.join(", ") }));
+    alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && !result.hidden.length && !result.kept.length && result.deleted.length
+      ? tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
+  });
 });
 
 document.getElementById("pm-modal-close").addEventListener("click", closePmModal_);

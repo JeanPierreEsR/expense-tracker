@@ -795,13 +795,21 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="accounts-add-btn" data-i18n-aria-label="accounts.addAria" aria-label="Add account or card"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="accounts-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="accounts-add-btn" data-i18n-aria-label="accounts.addAria" aria-label="Add account or card"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
         <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
         <div id="accounts-bank-note"></div>
         <div id="accounts-list"></div>
         <p class="hint" id="accounts-empty-note" hidden data-i18n="accounts.empty">No accounts yet.</p>
+        <div class="friends-editbar" id="accounts-editbar" hidden>
+          <button type="button" class="add-inline" id="accounts-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="accounts-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="accounts-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
