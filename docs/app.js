@@ -8512,6 +8512,44 @@ function setEditIcon_(btn, on) {
   btn.setAttribute("aria-label", tr(on ? "friends.done" : "friends.edit"));
 }
 
+// ---- Hidden items in Edit mode: Undo after a bulk delete / hide, and a bulk "Show again" (Friends, Accounts, Categories; owner's request, 2026-11-03) ----
+// A hidden friend, account or category can be checked in Edit mode too. One checked selection holds ONE kind (shown or hidden), so the bar's last button
+// is never ambiguous: Delete (n) for shown ones, Show again (n) for hidden ones. Checking an item of the other kind starts a new selection.
+const bulkShowAgain_ = () => !!(meta && meta.capabilities && meta.capabilities.bulkShowAgain);
+function tickOneKind_(selected, id, isHidden) {
+  const next = new Set(selected);
+  if (next.has(id)) { next.delete(id); return { next, switched: false }; }
+  const mixed = [...selected].some((o) => isHidden(o) !== isHidden(id));
+  if (mixed) next.clear();
+  next.add(id);
+  return { next, switched: mixed };
+}
+// Select all takes every item of the kind already checked (shown ones when nothing is); pressed again with all of that kind checked, it clears.
+function selectAllOneKind_(selected, shownIds, hiddenIds, isHidden) {
+  const kind = selected.size ? ([...selected].some(isHidden) ? hiddenIds : shownIds) : (shownIds.length ? shownIds : hiddenIds);
+  return selected.size && selected.size === kind.length ? new Set() : new Set(kind);
+}
+function syncOneKindBar_(deleteBtn, selectAllBtn, n, hiddenKind, kindTotal) {
+  deleteBtn.disabled = n === 0;
+  deleteBtn.classList.toggle("danger", !hiddenKind);
+  deleteBtn.textContent = hiddenKind ? tr("bulkShow.showN", { n }) : n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  selectAllBtn.textContent = tr(n && n === kindTotal ? "friends.selectNone" : "friends.selectAll");
+}
+function shortNames_(names, max = 3) {
+  return names.length > max ? tr("reviewBulk.andMore", { names: names.slice(0, max).join(", "), n: names.length - max }) : names.join(", ");
+}
+// What a bulk delete did, with an Undo (10 s): names of the ones deleted for good and of the ones hidden instead. `undo` brings them all back.
+function offerBulkUndo_(deletedNames, hiddenNames, undo) {
+  const parts = [];
+  if (deletedNames.length) parts.push(tr("bulkUndo.deleted", { n: deletedNames.length, names: shortNames_(deletedNames) }));
+  if (hiddenNames.length) parts.push(tr("bulkUndo.hidden", { n: hiddenNames.length, names: shortNames_(hiddenNames) }));
+  showUndoToast_(parts.join(" "), undo);
+}
+// A server answer to a restore that could not bring some back (their name is in use again).
+function alertNotRestored_(skipped) {
+  if (skipped && skipped.length) alert(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
+}
+
 // ---- Budgets: Edit mode (tick several budgets, delete them at once; owner's request, 2026-11-02) ----
 // The same bar and checkboxes as More → Friends → Edit. One question for the whole batch, then the list returns at once and the server works
 // behind the screen (saving standard). Only the budgets (and their alert history) go: entries are never touched.
@@ -11869,7 +11907,9 @@ function renderAccountsList_() {
     row.addEventListener("click", () => {
       if (!accountsEditing_) { openPmModal_(pm); return; }   // Edit mode: a tap ticks instead of opening
       if (isCash) return;
-      if (accountsSelected_.has(pm.id)) accountsSelected_.delete(pm.id); else accountsSelected_.add(pm.id);
+      const { next, switched } = tickOneKind_(accountsSelected_, pm.id, accountTickHidden_);
+      accountsSelected_ = next;
+      if (switched) { renderAccountsList_(); return; }
       row.querySelector(".friends-check").checked = accountsSelected_.has(pm.id);
       syncAccountsEditBar_();
     });
@@ -12138,24 +12178,39 @@ function placeAccountsEditBar_() {
   if (nav && nav.offsetHeight) document.getElementById("accounts-editbar").style.bottom = nav.offsetHeight + "px";
 }
 window.addEventListener("resize", () => { if (accountsEditing_) placeAccountsEditBar_(); });
+// Only where the backend can show accounts again in bulk is a hidden account a different kind of tick (otherwise it is one more account to delete).
+const accountTickHidden_ = (id) => { const pm = ((meta && meta.paymentMethods) || []).find((x) => x.id === id); return bulkShowAgain_() && !!pm && pmHidden_(pm); };
+const accountsSelectable_ = () => ((meta && meta.paymentMethods) || []).filter((pm) => !isBasicCashPm_(pm));
 function syncAccountsEditBar_() {
   const n = accountsSelected_.size;
-  const del = document.getElementById("accounts-delete-selected-btn");
-  const total = ((meta && meta.paymentMethods) || []).filter((pm) => !isBasicCashPm_(pm)).length;
-  del.disabled = n === 0;
-  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
-  document.getElementById("accounts-selectall-btn").textContent = tr(n && n === total ? "friends.selectNone" : "friends.selectAll");
+  const hiddenKind = n > 0 && [...accountsSelected_].some(accountTickHidden_);
+  syncOneKindBar_(document.getElementById("accounts-delete-selected-btn"), document.getElementById("accounts-selectall-btn"), n, hiddenKind,
+    hiddenKind ? accountsSelectable_().filter((pm) => accountTickHidden_(pm.id)).length : bulkShowAgain_() ? accountsSelectable_().filter((pm) => !pmHidden_(pm)).length : accountsSelectable_().length);
 }
 document.getElementById("accounts-edit-btn").addEventListener("click", () => setAccountsEditing_(!accountsEditing_));
 document.getElementById("accounts-done-btn").addEventListener("click", () => setAccountsEditing_(false));
 document.getElementById("accounts-back-btn").addEventListener("click", () => setAccountsEditing_(false));
 document.getElementById("accounts-selectall-btn").addEventListener("click", () => {
-  const all = meta.paymentMethods.filter((pm) => !isBasicCashPm_(pm)).map((pm) => pm.id);
-  accountsSelected_ = accountsSelected_.size === all.length ? new Set() : new Set(all);
+  const sel = accountsSelectable_();
+  accountsSelected_ = selectAllOneKind_(accountsSelected_, sel.filter((pm) => !accountTickHidden_(pm.id)).map((pm) => pm.id), sel.filter((pm) => accountTickHidden_(pm.id)).map((pm) => pm.id), accountTickHidden_);
   renderAccountsList_();
 });
+function showAccountsAgainFlow_(chosen) {
+  const ids = chosen.map((pm) => pm.id);
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("restorePaymentMethods", { show: ids });
+    meta.paymentMethods.forEach((pm) => { if (ids.includes(pm.id)) pm.hidden = ""; });
+    refreshAccountPickers_();
+  }, renderAccountsList_, {
+    busy: "bulkShow.busy",
+    done: () => result ? tr("bulkShow.done", { n: result.shown, names: shortNames_(chosen.map((pm) => pm.nickname)) }) : "",
+  });
+}
 document.getElementById("accounts-delete-selected-btn").addEventListener("click", () => {
-  const chosen = meta.paymentMethods.filter((pm) => accountsSelected_.has(pm.id)).sort((a, b) => a.nickname.localeCompare(b.nickname));
+  const picked = meta.paymentMethods.filter((pm) => accountsSelected_.has(pm.id)).sort((a, b) => a.nickname.localeCompare(b.nickname));
+  if (picked.length && picked.every((pm) => accountTickHidden_(pm.id))) { setAccountsEditing_(false); showAccountsAgainFlow_(picked); return; }
+  const chosen = picked;
   if (!chosen.length) return;
   const names = chosen.map((pm) => pm.nickname).join(", ");
   if (!confirm(tr(chosen.length === 1 ? "accounts.confirmRemove" : "accounts.confirmDeleteMany", { n: chosen.length, names, name: names }))) return;
@@ -12175,17 +12230,29 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
     if (!result) return;
     const by = (reason) => result.kept.filter((k) => k.reason === reason).map((k) => k.name).filter(Boolean);
     const other = result.kept.filter((k) => k.reason === "cash" || k.reason === "missing").map((k) => k.name).filter(Boolean);
-    if (!result.hidden.length && !result.kept.length) return;   // everything was simply deleted: the "done" toast names them
-    const lines = [];
-    if (result.deleted.length) lines.push(tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }));
-    if (result.hidden.length) lines.push(tr("accounts.resultHidden", { names: result.hidden.map((h) => h.name).join(", ") }));
-    if (by("rail").length) lines.push(tr("accounts.resultRail", { names: by("rail").join(", ") }));
-    if (by("hiddenAlready").length) lines.push(tr("accounts.resultHiddenAlready", { names: by("hiddenAlready").join(", ") }));
-    if (other.length) lines.push(tr("accounts.resultKept", { names: other.join(", ") }));
-    alert(lines.join("\n\n"));
+    const deletedRows = result.deletedRows || { accounts: [], balances: [] };
+    const canUndo = bulkShowAgain_() && (result.hidden.length || (deletedRows.accounts || []).length);
+    if (!result.hidden.length && !result.kept.length && !canUndo) return;   // everything was simply deleted: the "done" toast names them
+    if (result.kept.length || !canUndo) {   // something was left as it was: say why (the Undo toast alone would not)
+      const lines = [];
+      if (result.deleted.length) lines.push(tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }));
+      if (result.hidden.length) lines.push(tr("accounts.resultHidden", { names: result.hidden.map((h) => h.name).join(", ") }));
+      if (by("rail").length) lines.push(tr("accounts.resultRail", { names: by("rail").join(", ") }));
+      if (by("hiddenAlready").length) lines.push(tr("accounts.resultHiddenAlready", { names: by("hiddenAlready").join(", ") }));
+      if (other.length) lines.push(tr("accounts.resultKept", { names: other.join(", ") }));
+      alert(lines.join("\n\n"));
+    }
+    if (canUndo) offerBulkUndo_(result.deleted.map((d) => d.name), result.hidden.map((h) => h.name), async () => {
+      const back = await callApi("restorePaymentMethods", { show: result.hidden.map((h) => h.id), rows: deletedRows });
+      await loadMeta();
+      refreshAccountPickers_();
+      renderAccountsList_();
+      showToast_(tr("tidy.undone"));
+      alertNotRestored_(back.skipped);
+    });
   }, {
     busy: "common.deletingToast",
-    done: () => result && !result.hidden.length && !result.kept.length && result.deleted.length
+    done: () => result && !result.hidden.length && !result.kept.length && result.deleted.length && !(bulkShowAgain_() && ((result.deletedRows || {}).accounts || []).length)
       ? tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
   });
 });
@@ -12286,7 +12353,9 @@ function renderCategoriesList_() {
       row.addEventListener("click", () => {
         if (!categoriesEditing_) { openCatModal_(c); return; }   // Edit mode: a tap ticks instead of opening
         if (isOther) return;
-        if (categoriesSelected_.has(c.id)) categoriesSelected_.delete(c.id); else categoriesSelected_.add(c.id);
+        const { next, switched } = tickOneKind_(categoriesSelected_, c.id, categoryTickHidden_);
+        categoriesSelected_ = next;
+        if (switched) { renderCategoriesList_(); return; }
         row.querySelector(".friends-check").checked = categoriesSelected_.has(c.id);
         syncCategoriesEditBar_();
       });
@@ -12318,28 +12387,37 @@ function placeCategoriesEditBar_() {
   if (nav && nav.offsetHeight) document.getElementById("categories-editbar").style.bottom = nav.offsetHeight + "px";
 }
 window.addEventListener("resize", () => { if (categoriesEditing_) placeCategoriesEditBar_(); });
+const categoryTickHidden_ = (id) => { const c = ((meta && meta.categories) || []).find((x) => x.id === id); return bulkShowAgain_() && !!c && catHidden_(c); };
+const categoriesSelectable_ = () => ((meta && meta.categories) || []).filter((c) => !isOtherCategory_(c));
 function syncCategoriesEditBar_() {
   const n = categoriesSelected_.size;
-  const del = document.getElementById("categories-delete-selected-btn");
-  const total = ((meta && meta.categories) || []).filter((c) => !isOtherCategory_(c)).length;
-  del.disabled = n === 0;
-  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
-  document.getElementById("categories-selectall-btn").textContent = tr(n && n === total ? "friends.selectNone" : "friends.selectAll");
+  const hiddenKind = n > 0 && [...categoriesSelected_].some(categoryTickHidden_);
+  syncOneKindBar_(document.getElementById("categories-delete-selected-btn"), document.getElementById("categories-selectall-btn"), n, hiddenKind,
+    hiddenKind ? categoriesSelectable_().filter((c) => categoryTickHidden_(c.id)).length : bulkShowAgain_() ? categoriesSelectable_().filter((c) => !catHidden_(c)).length : categoriesSelectable_().length);
 }
 document.getElementById("categories-edit-btn").addEventListener("click", () => setCategoriesEditing_(!categoriesEditing_));
 document.getElementById("categories-done-btn").addEventListener("click", () => setCategoriesEditing_(false));
 document.getElementById("categories-back-btn").addEventListener("click", () => setCategoriesEditing_(false));
 document.getElementById("categories-selectall-btn").addEventListener("click", () => {
-  const all = meta.categories.filter((c) => !isOtherCategory_(c)).map((c) => c.id);
-  categoriesSelected_ = categoriesSelected_.size === all.length ? new Set() : new Set(all);
+  const sel = categoriesSelectable_();
+  categoriesSelected_ = selectAllOneKind_(categoriesSelected_, sel.filter((c) => !categoryTickHidden_(c.id)).map((c) => c.id), sel.filter((c) => categoryTickHidden_(c.id)).map((c) => c.id), categoryTickHidden_);
   renderCategoriesList_();
 });
+function showCategoriesAgainFlow_(chosen) {
+  const ids = chosen.map((c) => c.id);
+  let result = null;
+  saveBehindScreen_(async () => { result = await callApi("showCategories", { ids }); }, refreshCategoriesAfterChange_, {
+    busy: "bulkShow.busy",
+    done: () => result ? tr("bulkShow.done", { n: result.shown, names: shortNames_(chosen.map((c) => c.name)) }) : "",
+  });
+}
 function closeCatBulkSheet_() { document.getElementById("cat-bulk-backdrop").hidden = true; }
 document.getElementById("cat-bulk-close").addEventListener("click", closeCatBulkSheet_);
 
 document.getElementById("categories-delete-selected-btn").addEventListener("click", () => {
-  const chosen = meta.categories.filter((c) => categoriesSelected_.has(c.id));
-  if (chosen.length) startCategoriesBulkDelete_(chosen);
+  const picked = meta.categories.filter((c) => categoriesSelected_.has(c.id));
+  if (picked.length && picked.every((c) => categoryTickHidden_(c.id))) { setCategoriesEditing_(false); showCategoriesAgainFlow_(picked); return; }
+  if (picked.length) startCategoriesBulkDelete_(picked);
 });
 
 async function startCategoriesBulkDelete_(chosen) {
@@ -12415,6 +12493,11 @@ function runCategoriesDelete_(chosen, opts) {
   const bothTypes = categoryNamesInBothTypes_();
   let result = null;
   const namesOf = (list) => list.map((x) => x.name).join(", ");
+  const offerCategoryUndo_ = () => offerBulkUndo_([], result.hidden.map((h) => h.name), async () => {
+    await callApi("showCategories", { ids: result.hidden.map((h) => h.id) });
+    await refreshCategoriesAfterChange_();
+    showToast_(tr("tidy.undone"));
+  });
   saveBehindScreen_(async () => {
     result = await callApi("deleteCategories", { ids, reassign: opts.reassign, hideUsed: !!opts.hideUsed });
   }, async () => {
@@ -12423,6 +12506,10 @@ function runCategoriesDelete_(chosen, opts) {
     if (result.movedEntries) refreshEntriesInBackground_();
     const plain = !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to);
     if (plain) return;   // everything was simply deleted: the "done" toast names them
+    // Only a hide can be undone (a deleted category may have moved entries, budgets and keywords). When nothing else needs explaining the Undo toast says it all.
+    const canUndo = bulkShowAgain_() && result.hidden.length > 0;
+    const needsAlert = !canUndo || result.kept.length || result.deleted.length;
+    if (!needsAlert) { offerCategoryUndo_(); return; }
     const lines = [];
     const plainDeleted = result.deleted.filter((d) => !d.to);
     if (plainDeleted.length) lines.push(tr("catBulk.resultDeleted", { n: plainDeleted.length, names: namesOf(plainDeleted) }));
@@ -12436,6 +12523,7 @@ function runCategoriesDelete_(chosen, opts) {
     const other = result.kept.filter((k) => (k.reason === "protected" || k.reason === "missing") && k.name);
     if (other.length) lines.push(tr("catBulk.resultKept", { names: namesOf(other) }));
     alert(lines.join("\n\n"));
+    if (canUndo) offerCategoryUndo_();
   }, {
     busy: "common.deletingToast",
     done: () => result && result.deleted.length && !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to)
@@ -14688,6 +14776,10 @@ async function refreshFriendsList_() {
 }
 let friendsShowHidden_ = false;
 const shownFriends_ = () => friends_.filter((p) => !p.hidden);
+const hiddenFriends_ = () => friends_.filter((p) => p.hidden);
+const friendHidden_ = (id) => { const f = friends_.find((x) => x.id === id); return !!(f && f.hidden); };
+// With Show again built in, Edit also works on a list that holds only hidden friends.
+const friendsEditable_ = () => (bulkShowAgain_() ? friends_.length : shownFriends_().length);
 function setFriendsEditing_(on, redraw = true) {
   friendsEditing_ = on;
   friendsSelected_ = new Set();
@@ -14707,10 +14799,16 @@ function placeFriendsEditBar_() {
 window.addEventListener("resize", () => { if (friendsEditing_) placeFriendsEditBar_(); });
 function syncFriendsEditBar_() {
   const n = friendsSelected_.size;
-  const del = document.getElementById("friends-delete-selected-btn");
-  del.disabled = n === 0;
-  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
-  document.getElementById("friends-selectall-btn").textContent = tr(n && n === shownFriends_().length ? "friends.selectNone" : "friends.selectAll");
+  const hiddenKind = n > 0 && [...friendsSelected_].some(friendHidden_);
+  syncOneKindBar_(document.getElementById("friends-delete-selected-btn"), document.getElementById("friends-selectall-btn"), n, hiddenKind,
+    (hiddenKind ? hiddenFriends_() : shownFriends_()).length);
+}
+function tickFriend_(id, row) {
+  const { next, switched } = tickOneKind_(friendsSelected_, id, friendHidden_);
+  friendsSelected_ = next;
+  if (switched) { renderFriendsList_(); return; }
+  row.querySelector(".friends-check").checked = friendsSelected_.has(id);
+  syncFriendsEditBar_();
 }
 function renderFriendsList_() {
   const box = document.getElementById("friends-list");
@@ -14718,8 +14816,9 @@ function renderFriendsList_() {
   const shown = shownFriends_();
   const hidden = friends_.filter((p) => p.hidden).sort((x, y) => x.name.localeCompare(y.name));
   document.getElementById("friends-empty-note").hidden = friends_.length > 0;
-  document.getElementById("friends-edit-btn").hidden = !(((meta && meta.capabilities) || {}).friendsBulkDelete && shown.length);
-  if (friendsEditing_ && !shown.length) { setFriendsEditing_(false); return; }
+  document.getElementById("friends-edit-btn").hidden = !(((meta && meta.capabilities) || {}).friendsBulkDelete && friendsEditable_());
+  if (friendsEditing_ && !friendsEditable_()) { setFriendsEditing_(false); return; }
+  friendsSelected_ = new Set([...friendsSelected_].filter((id) => friends_.some((f) => f.id === id)));
   shown.slice().sort((x, y) => x.name.localeCompare(y.name)).forEach((p) => {
     const row = document.createElement("div");
     row.className = "recurring-row" + (friendsEditing_ ? " friends-check-row" : "");
@@ -14733,20 +14832,29 @@ function renderFriendsList_() {
       <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
     row.addEventListener("click", () => {
       if (!friendsEditing_) { openPersonModal_(p, true); return; }
-      if (friendsSelected_.has(p.id)) friendsSelected_.delete(p.id); else friendsSelected_.add(p.id);
-      row.querySelector(".friends-check").checked = friendsSelected_.has(p.id);
-      syncFriendsEditBar_();
+      tickFriend_(p.id, row);
     });
     box.appendChild(row);
   });
   // "Hidden friends (n)": friends with history that were deleted from the list; their history stays, Unhide brings them back.
+  // In Edit mode (when the backend can show them again in bulk) the hidden friends are listed open, with checkboxes, instead of the Unhide buttons.
+  const hiddenEdit = friendsEditing_ && bulkShowAgain_();
   const hiddenBox = document.getElementById("friends-hidden-box");
-  hiddenBox.hidden = friendsEditing_ || !hidden.length;
-  document.getElementById("friends-hidden-toggle").textContent = (friendsShowHidden_ ? "▾ " : "▸ ") + tr("friends.hiddenToggle", { n: hidden.length });
-  document.getElementById("friends-hidden-hint").hidden = !friendsShowHidden_;
+  hiddenBox.hidden = (friendsEditing_ && !hiddenEdit) || !hidden.length;
+  const hiddenOpen = friendsShowHidden_ || hiddenEdit;
+  document.getElementById("friends-hidden-toggle").textContent = (hiddenOpen ? "▾ " : "▸ ") + tr("friends.hiddenToggle", { n: hidden.length });
+  document.getElementById("friends-hidden-hint").hidden = !hiddenOpen || hiddenEdit;
   const hiddenList = document.getElementById("friends-hidden-list");
   hiddenList.innerHTML = "";
-  if (friendsShowHidden_) hidden.forEach((p) => {
+  if (hiddenEdit) hidden.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "recurring-row friends-hidden-row friends-check-row";
+    delKey_(row, "friend:" + p.id);
+    row.innerHTML = `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}><div class="recurring-row-name">${escapeHtml(p.name)}</div>`;
+    row.addEventListener("click", () => tickFriend_(p.id, row));
+    hiddenList.appendChild(row);
+  });
+  else if (friendsShowHidden_) hidden.forEach((p) => {
     const row = document.createElement("div");
     row.className = "recurring-row friends-hidden-row";
     row.innerHTML = `<div class="recurring-row-name">${escapeHtml(p.name)}</div><button type="button" class="add-inline">${escapeHtml(tr("friends.unhide"))}</button>`;
@@ -14762,14 +14870,13 @@ function renderFriendsList_() {
   });
   syncFriendsEditBar_();
 }
-document.getElementById("friends-hidden-toggle").addEventListener("click", () => { friendsShowHidden_ = !friendsShowHidden_; renderFriendsList_(); });
+document.getElementById("friends-hidden-toggle").addEventListener("click", () => { if (friendsEditing_) return; friendsShowHidden_ = !friendsShowHidden_; renderFriendsList_(); });   // (every hidden friend stays reachable while Edit is on)
 document.getElementById("more-friends-btn").addEventListener("click", showFriendsScreen_);
 document.getElementById("friends-back-btn").addEventListener("click", () => { setFriendsEditing_(false); showScreen("more"); });
 document.getElementById("friends-add-btn").addEventListener("click", () => openPersonModal_(null, true));
 document.getElementById("friends-edit-btn").addEventListener("click", () => setFriendsEditing_(!friendsEditing_));
 document.getElementById("friends-selectall-btn").addEventListener("click", () => {
-  const shown = shownFriends_();
-  friendsSelected_ = friendsSelected_.size === shown.length ? new Set() : new Set(shown.map((p) => p.id));
+  friendsSelected_ = selectAllOneKind_(friendsSelected_, shownFriends_().map((p) => p.id), hiddenFriends_().map((p) => p.id), friendHidden_);
   renderFriendsList_();
 });
 // Delete = delete when nobody has a record with them, HIDE when they have history and nothing is owed (the history stays), keep when money is
@@ -14793,23 +14900,49 @@ function deleteFriendsFlow_(chosen) {
     const kept = result.kept.map((k) => k.name).filter(Boolean);
     const goneIds = new Set(result.deleted);
     const deletedNames = chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name);
-    if (!hidden.length && !kept.length) return;   // everyone was simply deleted: the "done" toast names them
-    const lines = [];
-    if (deletedNames.length) lines.push(tr("friends.resultDeleted", { n: deletedNames.length, names: deletedNames.join(", ") }));
-    if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
-    if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
-    alert(lines.join("\n\n"));
+    const deletedRows = result.deletedRows || [];
+    const canUndo = bulkShowAgain_() && (hidden.length || deletedRows.length);
+    if (!hidden.length && !kept.length && !canUndo) return;   // everyone was simply deleted: the "done" toast names them
+    if (kept.length || !canUndo) {   // something was left as it was: say why (the Undo toast alone would not)
+      const lines = [];
+      if (deletedNames.length) lines.push(tr("friends.resultDeleted", { n: deletedNames.length, names: deletedNames.join(", ") }));
+      if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
+      if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
+      alert(lines.join("\n\n"));
+    }
+    if (canUndo) offerBulkUndo_(deletedNames, hidden.map((h) => h.name), async () => {
+      const back = await callApi("restoreFriends", { show: hidden.map((h) => h.id), rows: deletedRows });
+      await loadMeta();
+      await refreshFriendsList_();
+      showToast_(tr("tidy.undone"));
+      alertNotRestored_(back.skipped);
+    });
   }, {
     busy: "common.deletingToast",
     done: () => {
-      if (!result || (result.hidden || []).length || (result.kept || []).length) return "";
+      if (!result || (result.hidden || []).length || (result.kept || []).length || (bulkShowAgain_() && (result.deletedRows || []).length)) return "";
       const goneIds = new Set(result.deleted);
       return tr("friends.resultDeleted", { n: goneIds.size, names: chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name).join(", ") });
     }
   });
 }
+// Show again (bulk): no question to ask, it changes nothing about the history and can be hidden again by Delete.
+function showFriendsAgainFlow_(chosen) {
+  const ids = chosen.map((p) => p.id);
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("restoreFriends", { show: ids });
+    (meta.friends || []).forEach((f) => { if (ids.includes(f.id)) f.hidden = ""; });
+    refreshFriendChips_(); populatePaidByOptions();
+  }, refreshFriendsList_, {
+    busy: "bulkShow.busy",
+    done: () => result ? tr("bulkShow.done", { n: result.shown, names: shortNames_(chosen.map((p) => p.name)) }) : "",
+  });
+}
 document.getElementById("friends-delete-selected-btn").addEventListener("click", () => {
-  const chosen = shownFriends_().filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
+  const picked = friends_.filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
+  if (picked.length && picked.every((p) => p.hidden)) { setFriendsEditing_(false); showFriendsAgainFlow_(picked); return; }
+  const chosen = picked.filter((p) => !p.hidden);
   if (!chosen.length) return;
   const names = chosen.map((p) => p.name).join(", ");
   // ONE question for the whole batch.

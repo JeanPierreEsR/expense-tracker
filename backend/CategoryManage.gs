@@ -180,6 +180,27 @@ function setCategoryHidden(payload) {
 // deleted either way. The built-in "Other" and anything that is not an expense / income category are never touched.
 
 // For each id, how many entries use it and how many records of any kind (entries, programmed items, projection overrides, budgets, children) point at it.
+// Bulk "Show again" and the Undo of a bulk hide (More → Categories → Edit): one pass, a category that no longer exists is skipped.
+function showCategories(payload) {
+  var ids = uniqueIds_(payload && payload.ids);
+  var out = { shown: 0 };
+  if (!ids.length) return out;
+  var headers = ensureCategoriesHiddenColumn_();
+  var sheet = getSheet('Categories');
+  var byId = {};
+  getAllRows('Categories').forEach(function (c) { byId[String(c.id)] = c; });
+  ids.forEach(function (id) {
+    if (!byId[id]) return;
+    var rowIndex = findRowIndexById(sheet, headers, id);
+    if (rowIndex === -1) return;
+    setCellByRow_(sheet, headers, rowIndex, 'hidden', '');
+    out.shown++;
+  });
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
+  bumpStructureVersion_();
+  return out;
+}
+
 function categoryUsageMap_(ids) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var want = {}, entries = {}, used = {};

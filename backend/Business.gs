@@ -925,13 +925,47 @@ function deleteFriends(payload) {
     else if (Object.keys(open[id] || {}).some(function (c) { return Math.abs(open[id][c]) > 0.004; })) kept.push({ id: id, name: name, reason: 'balance' });
     else hidden.push({ id: id, name: name });
   });
+  var deletedRows = [];
   if (deleted.length) {
     var gone = {};
     deleted.forEach(function (id) { gone[id] = true; });
+    deletedRows = friends.filter(function (f) { return gone[String(f.id)] === true; });   // kept for Undo (restoreFriends)
     deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
   }
   hidden.forEach(function (h) { setFriendHidden_(h.id, true); });
-  return { deleted: deleted, hidden: hidden, kept: kept };
+  return { deleted: deleted, deletedRows: deletedRows, hidden: hidden, kept: kept };
+}
+
+// Undo of a bulk delete AND the bulk "Show again" (More → Friends → Edit): shows the given hidden friends again and puts back the friends that were
+// deleted for good (a friend deleted that way had no history at all, so the row is the whole friend). One pass, never throws for one person:
+// an id that no longer exists is skipped; a deleted friend whose id or name is back already (added again meanwhile) is skipped, never duplicated.
+// Answers { shown: n, restored: n, skipped: [names] }.
+function restoreFriends(payload) {
+  payload = payload || {};
+  var friends = getAllRows('Friends');
+  var byId = {}, names = {};
+  friends.forEach(function (f) { byId[String(f.id)] = f; names[String(f.name).trim().toLowerCase()] = true; });
+  var out = { shown: 0, restored: 0, skipped: [] };
+  uniqueIds_(payload.show).forEach(function (id) {
+    if (!byId[id]) return;
+    setFriendHidden_(id, false);
+    out.shown++;
+  });
+  var add = [];
+  (payload.rows || []).forEach(function (r) {
+    var id = String((r && r.id) || ''), name = String((r && r.name) || '').trim();
+    if (!id || !name) return;
+    if (byId[id] || names[name.toLowerCase()]) { out.skipped.push(name); return; }
+    byId[id] = true; names[name.toLowerCase()] = true;
+    add.push({ id: id, name: name, notes: String(r.notes || ''), phone: String(r.phone || ''), hidden: '' });
+  });
+  if (add.length) {
+    ensureFriendsPhoneColumn_();
+    ensureFriendsHiddenColumn_();
+    appendObjectsBatch_('Friends', add);
+    out.restored = add.length;
+  }
+  return out;
 }
 
 // Brings a hidden friend back to the lists and pickers (More → Friends → Hidden friends → Unhide).
