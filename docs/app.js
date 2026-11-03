@@ -6197,6 +6197,8 @@ function ensurePeriodSelectorIn(screenName) {
 
 let budgetsSummary_ = null;
 let budgetsEditing_ = false;
+let tripsEditing_ = false;
+let tripsSelected_ = new Set();
 let accountsEditing_ = false;
 let accountsSelected_ = new Set();
 let accountsHiddenBeforeEdit_ = false;
@@ -6204,6 +6206,7 @@ let budgetsSelected_ = new Set();   // Budgets → Edit state (declared here so 
 function showScreen(name) {
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
+  if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -11845,6 +11848,10 @@ function renderTripsList_(trips) {
   const list = document.getElementById("trips-list");
   list.innerHTML = "";
   document.getElementById("trips-empty-note").hidden = trips.length > 0;
+  document.getElementById("trips-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.tripsBulkDelete && trips.length);
+  if (tripsEditing_ && !trips.length) setTripsEditing_(false, false);
+  const stillThere = new Set(trips.map((t) => t.id));
+  tripsSelected_ = new Set([...tripsSelected_].filter((id) => stillThere.has(id)));
   const today = todayLocalISO();
   const groups = { active: [], upcoming: [], past: [] };
   trips.forEach((t) => groups[tripGroupOf_(t, today)].push(t));
@@ -11859,7 +11866,7 @@ function renderTripsList_(trips) {
       list.appendChild(head);
     }
     const row = document.createElement("div");
-    row.className = "recurring-row";
+    row.className = "recurring-row" + (tripsEditing_ ? " friends-check-row" : "");
     delKey_(row, "trip:" + t.id);
     const sub = [tr(`trips.kind.${t.kind === "event" ? "event" : "trip"}`), tripDatesText_(t), tr("trips.entryCount", { n: t.entryCount || 0 }),
       t.estimateCount ? tr("trips.estimateCount", { n: t.estimateCount }) : ""].filter(Boolean).join(" · ");
@@ -11867,6 +11874,7 @@ function renderTripsList_(trips) {
       ? `<span class="original-amt">${escapeHtml(tr("trips.ofBudget", { cur: t.cur || homeCur(), amount: moneyFmt(t.budget_amount) }))}</span>`
       : "";
     row.innerHTML = `
+      ${tripsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${tripsSelected_.has(t.id) ? " checked" : ""}>` : ""}
       <div>
         <div class="recurring-row-name">${escapeHtml(tripLabel_(t))}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
@@ -11876,10 +11884,76 @@ function renderTripsList_(trips) {
     row.dataset.tripId = t.id;   // (for the first-use practice)
     row.dataset.tripName = t.name;
     row.dataset.entryCount = String(t.entryCount || 0);
-    row.addEventListener("click", () => showTripDetail_(t.id));
+    row.addEventListener("click", () => {
+      if (!tripsEditing_) { showTripDetail_(t.id); return; }   // Edit mode: a tap ticks instead of opening
+      if (tripsSelected_.has(t.id)) tripsSelected_.delete(t.id); else tripsSelected_.add(t.id);
+      row.querySelector(".friends-check").checked = tripsSelected_.has(t.id);
+      syncTripsEditBar_();
+    });
     list.appendChild(row);
   }));
+  syncTripsEditBar_();
 }
+
+// ---- Trips & events: Edit mode (tick several, delete them at once; owner's request, 2026-11-03) ----
+// The same pencil, checkboxes and fixed bar as the other Edit screens. Deleting a trip never deletes its expenses (they just stop being linked), so
+// there is ONE question for the batch and no hide / keep outcome: everything ticked is deleted.
+function setTripsEditing_(on, redraw = true) {
+  if (on === tripsEditing_ && redraw) return;
+  tripsEditing_ = on;
+  tripsSelected_ = new Set();
+  setEditIcon_(document.getElementById("trips-edit-btn"), on);
+  document.getElementById("trips-add-btn").hidden = on;
+  document.getElementById("trips-editbar").hidden = !on;
+  document.getElementById("screen-trips").classList.toggle("trips-editing", on);
+  placeTripsEditBar_();
+  if (redraw) renderTripsList_(meta.trips || []);
+}
+function placeTripsEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("trips-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (tripsEditing_) placeTripsEditBar_(); });
+function syncTripsEditBar_() {
+  const n = tripsSelected_.size;
+  const del = document.getElementById("trips-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("trips-selectall-btn").textContent = tr(n && n === (meta.trips || []).length ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("trips-edit-btn").addEventListener("click", () => setTripsEditing_(!tripsEditing_));
+document.getElementById("trips-done-btn").addEventListener("click", () => setTripsEditing_(false));
+document.getElementById("trips-back-btn").addEventListener("click", () => setTripsEditing_(false));
+document.getElementById("trips-selectall-btn").addEventListener("click", () => {
+  const all = (meta.trips || []).map((t) => t.id);
+  tripsSelected_ = tripsSelected_.size === all.length ? new Set() : new Set(all);
+  renderTripsList_(meta.trips || []);
+});
+document.getElementById("trips-delete-selected-btn").addEventListener("click", () => {
+  const chosen = (meta.trips || []).filter((t) => tripsSelected_.has(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!chosen.length) return;
+  const label = (t) => tripLabel_(t);
+  const names = chosen.map(label).join(", ");
+  const entries = chosen.reduce((sum, t) => sum + (t.entryCount || 0), 0);
+  if (!confirm(chosen.length === 1 ? tr("trips.confirmDelete", { name: chosen[0].name }) : tr("trips.confirmDeleteMany", { n: chosen.length, names, entries }))) return;
+  const ids = chosen.map((t) => t.id);
+  const nameOf = new Map(chosen.map((t) => [t.id, label(t)]));
+  setTripsEditing_(false);
+  ids.forEach((id) => markDeleting_("trip:" + id));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteTrips", { ids });
+    const gone = new Set(result.deleted.map((d) => d.id));
+    meta.trips = (meta.trips || []).filter((t) => !gone.has(t.id));
+    populateTripOptions_();
+  }, async () => {
+    await refreshTripsList_();
+    if (result && result.missing.length) alert(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => nameOf.get(d.id)).join(", ") }) : "",
+  });
+});
 
 async function showTripDetail_(id) {
   tripDetailId_ = id;

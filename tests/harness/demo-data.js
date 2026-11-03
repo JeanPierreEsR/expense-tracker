@@ -1,6 +1,7 @@
 // Made-up DEMO scenarios for trying the newest features by hand on the test copy (tests/harness/server.js). Everything here is invented and
 // dated relative to today, so the same things are always there to try. Not used by the automated tests (they build their own data).
 //
+//   Trips & events .. delete several (their expenses stay, unlinked; an estimate stays as a Programmed item)
 //   Friends ........ delete (no records) / hide (history, nothing owed) / kept (money owed) / already hidden (Unhide, re-add the same name)
 //   Programmed ..... Stop it / Delete it (items with payments), plain delete (no payments), ended items (Start again), one-time paid / unpaid,
 //                    an income item, a shared item (split), a variable item, and LEGACY PAUSED items to try the heal:
@@ -97,6 +98,19 @@ function seedDemo(rt, data) {
   pause(item({ category_id: cat(14), description: "Demo Paused one-time", amount: 90, frequency: "once", date: ago(0, 2) }));
   // 6. Left for the sheet: starts in the future.
   pause(item({ category_id: cat(15), description: "Demo Paused not started", amount: 25, day: 3, start_date: inMonths(3, 3) }));
+
+  // ---------------- Trips & events (try More → Trips & events → Edit: expenses are only unlinked) ----------------
+  const dayOffset = (n) => { const d = new Date(Date.UTC(Y, M - 1, D + n)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; };
+  const tripRent = (name, kind, from, to, extra) => rt.api("addTrip", Object.assign({ name, kind, start_date: dayOffset(from), end_date: dayOffset(to) }, extra || {}));
+  const beach = tripRent("Demo Beach weekend", "trip", -2, 3, { budget_amount: 900, budget_currency: "PEN" });   // happening now, with a budget
+  pay(cat(0), "Demo Beach hotel", 420, dayOffset(-2), { trip_id: beach.id });
+  pay(cat(1), "Demo Beach dinner", 96, dayOffset(-1), { trip_id: beach.id });
+  item({ category_id: cat(2), description: "Demo Beach friend's share (estimate)", amount: 150, frequency: "once", date: dayOffset(2), trip_id: beach.id });   // an estimate: stays, unlinked, when the trip is deleted
+  const party = tripRent("Demo Birthday party", "event", -40, -40);   // past
+  pay(cat(3), "Demo Party cake", 85, dayOffset(-40), { trip_id: party.id });
+  pay(cat(4), "Demo Party drinks", 140, dayOffset(-40), { trip_id: party.id });
+  tripRent("Demo Cusco (upcoming)", "trip", 25, 31);   // not started, nothing linked yet
+  tripRent("Demo Empty trip", "trip", -90, -85);   // past, no expenses: deleted with no side effects
 
   // The demo has to look the same every time: nothing here should be "unknown" to the figures, so drop the cached reads.
   return { demo: true };

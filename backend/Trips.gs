@@ -162,6 +162,43 @@ function deleteTrip(payload) {
   return { done: true };
 }
 
+// Several trips / events at once (More → Trips & events → Edit, owner's request 2026-11-03): what deleteTrip does, for all of them in ONE pass over the
+// sheets. Expenses and estimates are never deleted, only unlinked; each trip's group friend is released (deleted when it has no loans); the trips' budget
+// alert history goes. Answers { deleted: [{id,name}], missing: [ids already gone] }.
+function deleteTrips(payload) {
+  ensureTripsSheet_();
+  var ids = [], seen = {};
+  ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (id && !seen[id]) { seen[id] = true; ids.push(id); } });
+  var out = { deleted: [], missing: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Trips').forEach(function (t) { byId[String(t.id)] = t; });
+  var want = {};
+  ids.forEach(function (id) {
+    if (byId[id]) { want[id] = true; out.deleted.push({ id: id, name: String(byId[id].name || '') }); }
+    else out.missing.push(id);
+  });
+  if (!out.deleted.length) return out;
+  var unlink = function (sheetName, ensure) {
+    if (ensure) ensure();
+    var sheet = getSheet(sheetName);
+    var headers = getHeaders(sheet);
+    var col = headers.indexOf('trip_id');
+    if (col === -1 || sheet.getLastRow() < 2) return;
+    sheet.getRange(2, col + 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (row, i) {
+      if (want[String(row[0])] === true) setCellByRow_(sheet, headers, i + 2, 'trip_id', '');
+    });
+  };
+  withWriteBatch_(function () {
+    unlink('Entries');
+    unlink('Recurring Expenses', ensureRecurringExpensesSheet_);   // estimates (one-time Programmed items) stay, just unlinked
+    out.deleted.forEach(function (d) { releaseTripGroupFriend_(d.id); });
+    deleteRowsWhere_('Trips', function (row) { return want[String(row.id)] === true; });
+    deleteRowsWhere_('Budget Alert Log', function (r) { return want[String(r.budget_id)] === true && r.period === TRIP_ALERT_PERIOD_; });
+  });
+  return out;
+}
+
 // The confirmed expenses linked to trips (all trips, or one), each with the
 // owner's share in the main currency. Entries with no usable rate are counted
 // in `missingRate` instead of silently dropped.

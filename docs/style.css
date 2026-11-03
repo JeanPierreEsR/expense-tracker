@@ -3381,3 +3381,4 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .loans-head-actions .icon-btn { margin: 0 8px 0 4px; }   /* the 8px cancels the header's own -8px (made for text buttons), so the circle is not cut off */   /* the Loans header holds a text "Bank loan" button beside the round "+" */
 #screen-accounts.accounts-editing .card { padding-bottom: 90px; }
 .friends-check-spacer { flex: 0 0 22px; }   /* keeps the built-in Cash row (no checkbox) in line with the others while Edit is on */
+#screen-trips.trips-editing .card { padding-bottom: 90px; }
