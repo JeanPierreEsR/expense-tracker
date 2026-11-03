@@ -18662,6 +18662,11 @@ async function openLoanDetail(friendId, friendName, projectId) {
   openingOffer.hidden = netParts.length > 0 || !!projectId || !((meta && meta.capabilities) || {}).openingLoan;
   document.getElementById("loan-detail-opening-btn").onclick = () => openLoanModal(null, { id: friendId, name: friendName }, { opening: true, friendId });
   repayBtn.onclick = () => openRepaymentModal(friendId, friendName, netByCurrency, projectId, outstanding, loans);
+  // Only when they owe me something; stands out when one of those debts is overdue (specs/loans.md § Reminders).
+  const remindBtn = document.getElementById("loan-remind-btn");
+  remindBtn.hidden = !LoanReminder.canRemind(loans);
+  remindBtn.classList.toggle("overdue", outstanding.some((l) => l.overdue && l.direction === "they_owe_me"));
+  remindBtn.onclick = () => openLoanRemind_(friendId, friendName, loans);
 
   const list = document.getElementById("loan-detail-list");
   const emptyNote = document.getElementById("loan-detail-empty-note");
@@ -19917,6 +19922,70 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
     await openBankSchedule_(ctx.sched.loan.id, friend);
   }, ctx.sched.loan.description, "recorded");   // the first-use practice follows its own installment
   saveBehindScreen_(tracked.work, tracked.after);
+});
+
+// ---- Remind on WhatsApp (specs/loans.md § Reminders; the message itself is written by docs/loan-reminder.js) ----
+// The person reads and edits the text, then WhatsApp opens with it; nothing is sent by the app. A number typed here is remembered on
+// the friend (setFriendPhone) when the backend can; without one, WhatsApp asks which chat.
+let loanRemind_ = null;
+
+function openLoanRemind_(friendId, friendName, loans) {
+  const friend = (meta.friends || []).find((f) => f.id === friendId) || {};
+  const text = LoanReminder.build({ name: friendName, loans, today: todayLocalISO() });
+  loanRemind_ = { friendId, text, phone: friend.phone || "" };
+  document.getElementById("loan-remind-title").textContent = tr("remind.title", { name: friendName });
+  document.getElementById("loan-remind-text").value = text;
+  document.getElementById("loan-remind-phone").value = friend.phone || "";
+  document.getElementById("loan-remind-error").textContent = "";
+  document.getElementById("loan-remind-stuck").hidden = true;
+  const backdrop = document.getElementById("loan-remind-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeLoanRemind_() {
+  document.getElementById("loan-remind-modal-backdrop").hidden = true;
+  loanRemind_ = null;
+}
+
+// Remembers a new / changed / cleared number in the background; the reminder never waits for it.
+function rememberLoanRemindPhone_(phone) {
+  const r = loanRemind_;
+  if (!r || LoanReminder.phoneDigits(phone) === LoanReminder.phoneDigits(r.phone)) return;
+  if (!((meta && meta.capabilities) || {}).friendPhone) return;
+  r.phone = phone;
+  callApi("setFriendPhone", { id: r.friendId, phone })
+    .then((res) => {
+      const f = (meta.friends || []).find((x) => x.id === r.friendId);
+      if (f) f.phone = res.phone;
+    })
+    .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+}
+
+document.getElementById("loan-remind-close").addEventListener("click", closeLoanRemind_);
+document.getElementById("loan-remind-reset").addEventListener("click", () => {
+  if (loanRemind_) document.getElementById("loan-remind-text").value = loanRemind_.text;
+});
+document.getElementById("loan-remind-send").addEventListener("click", () => {
+  const text = document.getElementById("loan-remind-text").value.trim();
+  const phone = document.getElementById("loan-remind-phone").value.trim();
+  const error = document.getElementById("loan-remind-error");
+  if (!text) { error.textContent = tr("remind.errEmpty"); return; }
+  if (phone && !LoanReminder.phoneOk(phone)) { error.textContent = tr("remind.errPhone"); return; }
+  error.textContent = "";
+  rememberLoanRemindPhone_(phone);
+  const homeScreen = isHomeScreenApp_();
+  const url = LoanReminder.whatsappUrl(phone, text, homeScreen);
+  if (!homeScreen) { window.open(url, "_blank", "noopener"); return; }
+  location.href = url;
+  // Still here after a moment: WhatsApp did not take over (not installed?), so point to copying the message instead.
+  setTimeout(() => { if (!document.hidden && loanRemind_) document.getElementById("loan-remind-stuck").hidden = false; }, 2000);
+});
+document.getElementById("loan-remind-copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById("loan-remind-text").value);
+    showToast_(tr("remind.copied"), false, 4000);
+  } catch (err) { /* not allowed: the text is still there to select by hand */ }
 });
 
 function closeLoanDetail() {
