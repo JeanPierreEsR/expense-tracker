@@ -3360,3 +3360,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    above and below. Pull the box back so the WORDS line up with the edge. */
 #receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
 #projections-method-btn { margin-left: -8px; }
+
+/* Budgets → Edit: a checkbox before the name, and room under the last row for the fixed bar (same bar as Friends) */
+.budget-row-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#screen-budgets.budgets-editing .card { padding-bottom: 90px; }

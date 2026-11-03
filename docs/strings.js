@@ -506,6 +506,12 @@
 
     // ---- budgets ----
     "budgets.add": { en: "+ Add budget", es: "+ Agregar presupuesto" },
+    "budgets.perMonth": { en: "per month", es: "al mes" },
+    "budgets.perYear": { en: "per year", es: "al año" },
+    "budgets.confirmDeleteOne": { en: "Delete the budget {names}?\n\nOnly the budget goes, with its alert history: your entries are not touched. This can't be undone.", es: "¿Eliminar el presupuesto {names}?\n\nSolo se elimina el presupuesto, con su historial de alertas: tus registros no se tocan. No se puede deshacer." },
+    "budgets.confirmDeleteMany": { en: "Delete these {n} budgets?\n\n{names}\n\nOnly the budgets go, with their alert history: your entries are not touched. This can't be undone.", es: "¿Eliminar estos {n} presupuestos?\n\n{names}\n\nSolo se eliminan los presupuestos, con su historial de alertas: tus registros no se tocan. No se puede deshacer." },
+    "budgets.resultDeleted": { en: "✓ Deleted budgets ({n}): {names}. Your entries are untouched.", es: "✓ Presupuestos eliminados ({n}): {names}. Tus registros no se tocaron." },
+    "budgets.resultMissing": { en: "Already gone (deleted from another device): {names}.", es: "Ya no existían (se eliminaron desde otro dispositivo): {names}." },
     "budgets.empty": { en: "No budgets yet — add one to start tracking a category.", es: "Aún no hay presupuestos: agrega uno para empezar a controlar una categoría." },
     "budgets.totalMonth": { en: "Total per month", es: "Total por mes" },
     "budgets.totalYear": { en: "Total per year", es: "Total por año" },

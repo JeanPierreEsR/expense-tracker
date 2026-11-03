@@ -648,6 +648,25 @@ function deleteBudget(id) {
   return { done: true };
 }
 
+// Several budgets at once (More → Budgets → Edit, owner's request 2026-11-02): ONE call, rows that sit together go in one sheet call
+// (deleteRowsWhere_), and the alert history of every deleted budget goes with them. Entries are never touched (a budget only watches them).
+// Answers which ids were deleted and which no longer existed (another device deleted them first), so the app can say so.
+function deleteBudgets(payload) {
+  var ids = (payload && payload.ids) || [];
+  var want = {}, order = [];
+  ids.forEach(function (id) { id = String(id); if (id && !want[id]) { want[id] = true; order.push(id); } });
+  if (!order.length) return { deleted: [], missing: [] };
+  var present = {};
+  getAllRows('Budgets').forEach(function (b) { present[String(b.id)] = true; });
+  var deleted = order.filter(function (id) { return present[id]; });
+  var missing = order.filter(function (id) { return !present[id]; });
+  if (deleted.length) {
+    deleteRowsWhere_('Budgets', function (r) { return want[String(r.id)] === true; });
+    deleteRowsWhere_('Budget Alert Log', function (r) { return want[String(r.budget_id)] === true; });
+  }
+  return { deleted: deleted, missing: missing };
+}
+
 // Same shape as adminDebugProjectionOverrides (Projections.gs) — a raw
 // dump for diagnosing why an alert fired (or didn't), same
 // diagnostic-only spirit.
