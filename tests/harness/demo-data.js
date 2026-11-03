@@ -1,6 +1,7 @@
 // Made-up DEMO scenarios for trying the newest features by hand on the test copy (tests/harness/server.js). Everything here is invented and
 // dated relative to today, so the same things are always there to try. Not used by the automated tests (they build their own data).
 //
+//   Home entries ... delete several (search "dup lunch"): plain ones go, a shared one takes its debt along; loans / repayments / exchanges are kept and named
 //   Needs review ... confirm / discard several: 4 ready, 1 without a category, 2 duplicates, and a repayment's extra (never discarded here)
 //   Business ....... (owner's copy only) delete several companies / projects / people: some go, some are kept because they still have projects, entries or loans
 //   Categories ..... delete several: unused ones go; in use = everything moves into ONE category (alert when several merge), or hide instead
@@ -155,6 +156,11 @@ function seedDemo(rt, data) {
   const repayer = rt.api("addFriend", { name: "Demo Repays more" });
   rt.api("addLoan", { friend_id: repayer.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: ago(2, 3), payment_method_id: pm, description: "Demo loan to repay" });
   rt.api("recordRepayment", { friend_id: repayer.id, direction: "they_owe_me", amount: 130, currency: "PEN", date: dayOffset(-1), payment_method_id: pm });   // the extra 30 waits here: part of a repayment, never discarded on its own
+
+  // ---------------- Home entries (try Home or search → Edit: search "dup lunch", select all, delete; search "demo loan" to see what is protected) ----------------
+  for (let i = 0; i < 4; i++) pay(cat(1), "Demo dup lunch", 28.5, dayOffset(-1 - i));   // the same charge several times: plain entries, deleted in one go
+  const sharedLunch = pay(cat(1), "Demo dup lunch shared", 40, dayOffset(-6));
+  rt.api("saveEntrySplits", { entryId: sharedLunch, splits: [{ friend_id: owes.id, amount: 20 }] });   // shared with a friend: deleted with its split and the debt, with a warning
 
   // The demo has to look the same every time: nothing here should be "unknown" to the figures, so drop the cached reads.
   return { demo: true };

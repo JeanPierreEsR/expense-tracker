@@ -2374,7 +2374,7 @@ body.income-revealed .sens-mask { display: none; }
 .entry-search-row input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; display: none; }
 
 /* While searching, the Entries tab shows ONLY the search box and its results. */
-#screen-entries.searching > :not(.entry-search-card):not(.search-results-card) { display: none !important; }
+#screen-entries.searching > :not(.entry-search-card):not(.search-results-card):not(#entries-editbar) { display: none !important; }
 .search-results-card { padding-top: 6px; }
 .search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
 .search-show-more { width: 100%; margin-top: 8px; }
@@ -3432,3 +3432,19 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .review-item.review-compact .review-item-amount { margin-left: auto; white-space: nowrap; text-align: right; }
 .review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: 10px; padding: 1px 8px; margin-top: 3px; background: #fff4e5; color: #8a5a00; }
 .review-compact-chip.ok { background: #eaf6ee; color: #25744a; }
+/* Home / search → Edit: a checkbox before each entry, room under the list for the fixed bar */
+.search-results-head { display: flex; justify-content: flex-end; }
+.search-results-head .icon-btn { margin: 4px 0; }
+#screen-entries.entries-editing .entry-list, #screen-entries.entries-editing .search-results-card { padding-bottom: 90px; }
+.entry.entry-check { align-items: center; gap: 12px; cursor: pointer; }
+.entry.entry-check .entry-amount { margin-left: auto; }
+.entry.entry-exchange.entry-check { cursor: default; opacity: 0.75; }
+#entries-bulk-body .entries-bulk-list { font-size: 0.85rem; color: var(--muted); margin: 6px 0; }
+#entries-editbar { gap: 4px; padding: 10px 12px; }
+#entries-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
+.deleted-batch { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.deleted-batch-title { font-weight: 600; margin-bottom: 4px; }
+.deleted-batch .recurring-row { padding: 8px 0; }
+.deleted-batch-actions { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+.deleted-batch-actions button.primary { width: auto; margin: 0; padding: 10px 18px; }
+.deleted-forget { color: #d64545; }

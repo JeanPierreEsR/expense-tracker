@@ -3413,6 +3413,17 @@ function buildEntryRow_(entry) {
   amount.className = "entry-amount";
   amount.innerHTML = renderEntryAmountHtml(entry);
 
+  if (entriesEditing_) {   // Edit mode: a tick row (an entry that is still saving or being deleted cannot be ticked)
+    const tickable = !entry._queueStatus && !deletingEntryIds_.has(entry.id);
+    row.classList.add("entry-check");
+    row.insertAdjacentHTML("afterbegin", tickable
+      ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${entriesSelected_.has(entry.id) ? " checked" : ""}>`
+      : `<span class="friends-check-spacer"></span>`);
+    row.appendChild(left);
+    row.appendChild(amount);
+    if (tickable) row.addEventListener("click", () => entriesToggle_(entry.id, row));
+    return row;
+  }
   row.appendChild(left);
   row.appendChild(amount);
   row.addEventListener("click", () => {
@@ -3512,6 +3523,13 @@ function buildExchangePairRow_(p) {
   amount.className = "entry-amount";
   const rate = exchangeRateText_(p);
   amount.innerHTML = `<span class="primary-amt">${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
+  if (entriesEditing_) {   // a currency exchange is two entries: it is handled one by one, so it has no tick
+    row.classList.add("entry-check");
+    row.insertAdjacentHTML("afterbegin", `<span class="friends-check-spacer"></span>`);
+    row.appendChild(left);
+    row.appendChild(amount);
+    return row;
+  }
   row.appendChild(left);
   row.appendChild(amount);
   row.addEventListener("click", () => openExchangePairSheet_(p));
@@ -3654,6 +3672,8 @@ function renderEntryListFromCache_() {
   const list = document.getElementById("entry-list");
   const entries = applyQueuedEditOverlay_(lastRenderedEntries_);
   list.innerHTML = "";
+  document.getElementById("entries-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk && entries.length);
+  if (entriesEditing_ && !entries.length) setEntriesEditing_(false, false);
 
   if (entries.length === 0) {
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("entries.empty"))}</div>`;
@@ -3687,6 +3707,7 @@ function renderEntryListFromCache_() {
   });
   flushDay();
   setLoadMoreButton_(list, lastRenderedHasMore_);
+  syncEntriesEditBar_();
 }
 
 // "Today", "Yesterday", otherwise the date written out in the current language.
@@ -3812,6 +3833,7 @@ function syncSearchIndex_(opts) {
 
 function buildSearchRow_(entry) {
   const row = buildEntryRow_(entry);
+  if (entriesEditing_) return row;   // Edit mode: the row already ticks
   // Replace the inline-edit click with the pop-up, so the results stay put
   // underneath; after a save/delete the pop-up asks the same hook the
   // Overview/Budgets drill-downs use to refresh what's below it.
@@ -3833,6 +3855,331 @@ async function refreshSearchAfterEdit_() {
   renderSearchResults_();
 }
 
+// ---- Home: Edit mode (tick several entries, delete them at once; owner's request, 2026-11-03; stage 1 = delete) ----
+// A pencil on the Home list and on the search results (search "uber", Edit, Select all matches). A "what would happen" preview comes first (previewEntriesDelete), then ONE
+// decision sheet: only the plain entries are deleted; a loan's movement, a repayment and its extra, a forgiveness, an expense whose loans were repaid and a currency
+// exchange are kept and named, to be deleted one by one from where the single flow asks the right question. A shared expense goes with its split and the debt from it.
+const ENTRIES_BULK_MAX_ = 300;
+const entrySelectable_ = (e) => !e._queueStatus && !deletingEntryIds_.has(e.id) && !exchangeSideOf_(e);
+function entriesPool_() {   // what "Select all" means: every loaded entry on Home, every match while searching
+  if (searchActive) {
+    const term = document.getElementById("entry-search").value.trim();
+    if (term.length < SEARCH_MIN_CHARS || !searchIndex) return [];
+    const words = normalizeSearchText_(term).split(/\s+/).filter(Boolean);
+    return searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1)).filter(entrySelectable_);
+  }
+  return applyQueuedEditOverlay_(lastRenderedEntries_).filter(entrySelectable_);
+}
+function entriesToggle_(id, row) {
+  if (entriesSelected_.has(id)) entriesSelected_.delete(id);
+  else if (entriesSelected_.size >= ENTRIES_BULK_MAX_) { showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ })); return; }
+  else entriesSelected_.add(id);
+  const box = row.querySelector(".friends-check");
+  if (box) box.checked = entriesSelected_.has(id);
+  syncEntriesEditBar_();
+}
+function setEntriesEditing_(on, redraw = true) {
+  if (on === entriesEditing_ && redraw) return;
+  if (on && reviewEditing_) setReviewEditing_(false);
+  entriesEditing_ = on;
+  entriesSelected_ = new Set();
+  ["entries-edit-btn", "search-edit-btn"].forEach((id) => setEditIcon_(document.getElementById(id), on));
+  document.getElementById("entries-editbar").hidden = !on;
+  document.getElementById("screen-entries").classList.toggle("entries-editing", on);
+  placeEntriesEditBar_();
+  syncFab_();
+  syncEntriesEditBar_();
+  if (redraw) { renderEntryListFromCache_(); if (searchActive) renderSearchResults_(); }
+}
+function placeEntriesEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("entries-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (entriesEditing_) placeEntriesEditBar_(); });
+function syncEntriesEditBar_() {
+  const n = entriesSelected_.size;
+  const del = document.getElementById("entries-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  const change = document.getElementById("entries-change-selected-btn");
+  const caps = (meta && meta.capabilities) || {};
+  change.hidden = !(caps.entriesBulkCategory || caps.entriesBulkLink);
+  change.disabled = n === 0;
+  change.textContent = n ? tr("entriesBulk.changeN", { n }) : tr("entriesBulk.change");
+  const pool = entriesPool_();
+  const all = n > 0 && pool.length > 0 && pool.slice(0, ENTRIES_BULK_MAX_).every((e) => entriesSelected_.has(e.id));
+  document.getElementById("entries-selectall-btn").textContent = all ? tr("friends.selectNone")
+    : searchActive && pool.length ? tr("entriesBulk.selectAllMatches", { n: pool.length }) : tr("friends.selectAll");
+}
+document.getElementById("entries-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
+document.getElementById("search-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
+document.getElementById("entries-done-btn").addEventListener("click", () => setEntriesEditing_(false));
+document.getElementById("entries-selectall-btn").addEventListener("click", () => {
+  const pool = entriesPool_().slice(0, ENTRIES_BULK_MAX_);
+  const everyOn = pool.length > 0 && pool.every((e) => entriesSelected_.has(e.id));
+  entriesSelected_ = everyOn ? new Set() : new Set(pool.map((e) => e.id));
+  if (!everyOn && entriesPool_().length > ENTRIES_BULK_MAX_) showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ }));
+  renderEntryListFromCache_();
+  if (searchActive) renderSearchResults_();
+  syncEntriesEditBar_();
+});
+function closeEntriesBulkSheet_() { document.getElementById("entries-bulk-backdrop").hidden = true; }
+const entriesKnownMap_ = () => new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+
+// Stage 2: change the category of the ticked entries. One sheet, a picker for each type among them (an expense never takes an income category); transfers and
+// investments have no category of their own and are left out. When entries from several categories go into one, a ⚠️ alert says so; an Undo follows the change.
+function openEntriesCategorySheet_() {
+  const known = entriesKnownMap_();
+  const picked = [...entriesSelected_].map((id) => known.get(id)).filter(Boolean);
+  const byType = { expense: picked.filter((e) => e.type === "expense"), income: picked.filter((e) => e.type === "income") };
+  if (!byType.expense.length && !byType.income.length) { alert(tr("entriesBulk.catNothingEligible")); return; }
+  const leftOut = entriesSelected_.size - byType.expense.length - byType.income.length;
+  const types = ["expense", "income"].filter((t) => byType[t].length);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.catTitle");
+  const pickerHtml = (t) => {
+    const list = byType[t];
+    const options = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === t))).map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(`${c.icon || "•"} ${c.name}`)}</option>`).join("");
+    const distinct = new Set(list.map((e) => e.category_id || "")).size;
+    return `<div class="cat-bulk-block">
+      <label for="entries-bulk-cat-${t}"><b>${escapeHtml(tr(`entriesBulk.catMove.${t}`, { n: list.length }))}</b></label>
+      <select id="entries-bulk-cat-${t}"><option value="">${escapeHtml(tr("entriesBulk.catPick"))}</option>${options}</select>
+      ${distinct > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.catMerge", { n: list.length, k: distinct }))}</div>` : ""}
+    </div>`;
+  };
+  body.innerHTML = `
+    ${types.map(pickerHtml).join("")}
+    ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.catLeftOut", { n: leftOut }))}</p>` : ""}
+    <p class="hint" id="entries-bulk-cat-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-cat-go">${escapeHtml(tr("entriesBulk.catGo"))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.catUndoHint"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  document.getElementById("entries-bulk-cat-go").addEventListener("click", () => {
+    const categories = {};
+    types.forEach((t) => { const v = document.getElementById(`entries-bulk-cat-${t}`).value; if (v) categories[t] = v; });
+    if (!Object.keys(categories).length) { document.getElementById("entries-bulk-cat-error").textContent = tr("entriesBulk.catNothing"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = Object.keys(categories).flatMap((t) => byType[t].map((e) => e.id));
+    const targetNames = Object.values(categories).map((id) => (meta.categories.find((c) => c.id === id) || {}).name || "").join(", ");
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesCategory", { ids: sendIds, categories });
+    }, async () => {
+      try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+      if (searchActive) await refreshSearchAfterEdit_();
+      afterNewEntrySaved_();
+      if (!result) return;
+      const left = result.kept.filter((k) => k.reason !== "same");
+      if (left.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
+      if (!result.changed.length) return;
+      showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
+        await callApi("undoSetEntriesCategory", { changes: result.changed, annualIds: result.annualIds });
+        showToast_(tr("entriesBulk.catUndone"));
+        try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+        if (searchActive) await refreshSearchAfterEdit_();
+        afterNewEntrySaved_();
+      });
+    }, { busy: "entriesBulk.changing" });
+  });
+}
+
+// ---- Stage 4: link to a trip or event, add / remove a tag, behind one "Change" button ----
+const entriesChecked_ = () => { const known = entriesKnownMap_(); return [...entriesSelected_].map((id) => known.get(id)).filter(Boolean); };
+function entriesAfterChange_() {   // the lists behind the sheet follow the change (and every other screen that shows entries)
+  return (async () => {
+    try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+    if (searchActive) await refreshSearchAfterEdit_();
+    afterNewEntrySaved_();
+  })();
+}
+document.getElementById("entries-change-selected-btn").addEventListener("click", () => {
+  if (!entriesSelected_.size) return;
+  const caps = (meta && meta.capabilities) || {};
+  const choices = [
+    caps.entriesBulkCategory && ["🏷️", "entriesBulk.menuCategory", openEntriesCategorySheet_],
+    caps.entriesBulkLink && ["✈️", "entriesBulk.menuTrip", openEntriesTripSheet_],
+    caps.entriesBulkLink && ["🔖", "entriesBulk.menuTag", openEntriesTagSheet_],
+  ].filter(Boolean);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.changeTitle", { n: entriesSelected_.size });
+  body.innerHTML = choices.map(([icon, key], i) => `<button type="button" class="more-list-item md-row entries-change-choice" data-i="${i}"><span class="md-title">${icon} ${escapeHtml(tr(key))}</span><span class="more-list-chevron">›</span></button>`).join("");
+  body.querySelectorAll(".entries-change-choice").forEach((b) => b.addEventListener("click", () => choices[Number(b.dataset.i)][2]()));
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+});
+
+function openEntriesTripSheet_() {
+  const expenses = entriesChecked_().filter((e) => e.type === "expense");   // only expenses belong to a trip or event (as in the entry form)
+  if (!expenses.length) { alert(tr("entriesBulk.tripNothingEligible")); return; }
+  if (!(meta.trips || []).length) { alert(tr("entriesBulk.tripNoTrips")); return; }
+  const leftOut = entriesSelected_.size - expenses.length;
+  const inOther = expenses.filter((e) => e.trip_id && e.trip_id !== "-none-").length;
+  const today = todayLocalISO();
+  const trips = (meta.trips || []).slice();
+  const open = trips.filter((t) => t.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const past = trips.filter((t) => t.end_date < today).sort((a, b) => b.end_date.localeCompare(a.end_date));
+  const options = open.concat(past).map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(tripLabel_(t))}</option>`).join("");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tripTitle");
+  body.innerHTML = `
+    <div class="cat-bulk-block">
+      <label for="entries-bulk-trip"><b>${escapeHtml(tr("entriesBulk.tripLabel", { n: expenses.length }))}</b></label>
+      <select id="entries-bulk-trip"><option value="__pick__">${escapeHtml(tr("entriesBulk.tripPick"))}</option><option value="">${escapeHtml(tr("entriesBulk.tripNone"))}</option>${options}</select>
+      ${inOther ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.tripMoveNote", { n: inOther }))}</div>` : ""}
+    </div>
+    ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.tripLeftOut", { n: leftOut }))}</p>` : ""}
+    <p class="hint" id="entries-bulk-trip-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-trip-go">${escapeHtml(tr("entriesBulk.tripGo"))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
+  document.getElementById("entries-bulk-trip-go").addEventListener("click", () => {
+    const tripId = document.getElementById("entries-bulk-trip").value;
+    if (tripId === "__pick__") { document.getElementById("entries-bulk-trip-error").textContent = tr("entriesBulk.tripChoose"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = expenses.map((e) => e.id);
+    const tripName = tripId ? tripLabel_((meta.trips || []).find((t) => t.id === tripId) || { name: "" }) : "";
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesTrip", { ids: sendIds, trip_id: tripId });
+    }, async () => {
+      await entriesAfterChange_();
+      refreshTripsList_().catch(() => {});   // the trip totals follow
+      if (!result || !result.changed.length) return;
+      showUndoToast_(tripId ? tr("entriesBulk.tripDone", { n: result.changed.length, trip: tripName }) : tr("entriesBulk.tripRemoved", { n: result.changed.length }), async () => {
+        await callApi("undoSetEntriesTrip", { changes: result.changed });
+        showToast_(tr("entriesBulk.catUndone"));
+        await entriesAfterChange_();
+        refreshTripsList_().catch(() => {});
+      });
+    }, { busy: "entriesBulk.linking" });
+  });
+  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+}
+
+function openEntriesTagSheet_() {
+  const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  if (!tags.length) { alert(tr("entriesBulk.tagNone")); return; }
+  const checked = entriesChecked_();
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
+  body.innerHTML = `
+    <div class="cat-bulk-block">
+      <label for="entries-bulk-tag"><b>${escapeHtml(tr("entriesBulk.tagLabel", { n: checked.length }))}</b></label>
+      <select id="entries-bulk-tag"><option value="">${escapeHtml(tr("entriesBulk.tagPick"))}</option>${tags.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("")}</select>
+    </div>
+    <p class="hint" id="entries-bulk-tag-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-tag-add">${escapeHtml(tr("entriesBulk.tagGoAdd", { n: checked.length }))}</button>
+    <button type="button" class="primary danger" id="entries-bulk-tag-remove">${escapeHtml(tr("entriesBulk.tagGoRemove", { n: checked.length }))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
+  const run = (mode) => {
+    const tagId = document.getElementById("entries-bulk-tag").value;
+    if (!tagId) { document.getElementById("entries-bulk-tag-error").textContent = tr("entriesBulk.tagChoose"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = checked.map((e) => e.id);
+    const tagName = (tags.find((t) => t.id === tagId) || {}).name || "";
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesTag", { ids: sendIds, tag_id: tagId, mode });
+    }, async () => {
+      await entriesAfterChange_();
+      if (!result) return;
+      if (!result.changed.length) { alert(tr("entriesBulk.tagNoChange")); return; }
+      showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
+        await callApi("undoSetEntriesTag", { ids: result.changed, tag_id: tagId, mode });
+        showToast_(tr("entriesBulk.catUndone"));
+        await entriesAfterChange_();
+      });
+    }, { busy: "entriesBulk.linking" });
+  };
+  document.getElementById("entries-bulk-tag-add").addEventListener("click", () => run("add"));
+  document.getElementById("entries-bulk-tag-remove").addEventListener("click", () => run("remove"));
+  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+}
+document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
+
+// Sentence for entries that stay: one line per reason, naming them (up to a few).
+function entriesBulkKeptText_(keptItems, infoOf) {
+  const byReason = new Map();
+  keptItems.forEach((k) => byReason.set(k.reason, (byReason.get(k.reason) || []).concat(k)));
+  return [...byReason].map(([reason, list]) => {
+    const labels = list.map((k) => infoOf(k.id));
+    const shown = labels.slice(0, 4).join(", ");
+    return tr("entriesBulk.keptLine", { why: tr(`entriesBulk.why.${reason}`), n: list.length, names: labels.length > 4 ? tr("reviewBulk.andMore", { names: shown, n: labels.length - 4 }) : shown });
+  }).join("\n");
+}
+const entriesBulkLabel_ = (e) => describeForConfirm_(e.description || (meta.categories.find((c) => c.id === e.category_id) || {}).name || tr("review.noDescription"), formatAmount(e.amount, e.currency), e.date);
+
+document.getElementById("entries-delete-selected-btn").addEventListener("click", async () => {
+  const ids = [...entriesSelected_];
+  if (!ids.length) return;
+  const known = new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+  const infoOf = (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; };
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;   // loading standard: the choices appear only when the effect is known
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let preview;
+  try {
+    preview = await callApi("previewEntriesDelete", { ids });
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const items = preview.items || [];
+  const deletable = items.filter((i) => !i.reason);
+  const kept = items.filter((i) => i.reason);
+  const sharedFriends = deletable.filter((i) => i.shared > 0).length;
+  const keptText = kept.length ? entriesBulkKeptText_(kept, infoOf) : "";
+  if (!deletable.length) {
+    body.innerHTML = `<p class="hint">${escapeHtml(tr("entriesBulk.noneDeletable"))}</p><p class="hint" style="white-space:pre-line;">${escapeHtml(keptText)}</p>`;
+    return;
+  }
+  const lines = deletable.slice(0, 8).map((i) => infoOf(i.id));
+  const more = deletable.length > 8 ? `\n${tr("entriesBulk.andMore", { n: deletable.length - 8 })}` : "";
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(tr("entriesBulk.confirm", { n: deletable.length }))}</b></p>
+    <p class="entries-bulk-list" style="white-space:pre-line;">${escapeHtml(lines.join("\n") + more)}</p>
+    ${sharedFriends ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.sharedNote", { n: sharedFriends }))}</div>` : ""}
+    ${kept.length ? `<p class="hint" style="white-space:pre-line;">${escapeHtml(tr("entriesBulk.keptNote", { n: kept.length }) + "\n" + keptText)}</p>` : ""}
+    <button type="button" class="primary danger" id="entries-bulk-go">${escapeHtml(tr("friends.deleteN", { n: deletable.length }))}</button>
+    <p class="hint">${escapeHtml(tr(meta && meta.capabilities && meta.capabilities.entriesRestore ? "entriesBulk.undoHint" : "entriesBulk.cantUndo"))}</p>`;
+  document.getElementById("entries-bulk-go").addEventListener("click", () => {
+    closeEntriesBulkSheet_();
+    const sendIds = deletable.map((i) => i.id);
+    setEntriesEditing_(false, false);
+    sendIds.forEach((id) => deletingEntryIds_.add(id));   // the rows say "Deleting…" until the server is done
+    renderEntryListFromCache_();
+    if (searchActive) renderSearchResults_();
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("deleteEntries", { ids: sendIds });
+    }, async () => {
+      try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+      sendIds.forEach((id) => deletingEntryIds_.delete(id));
+      renderEntryListFromCache_();
+      if (searchActive) await refreshSearchAfterEdit_();
+      refreshExpectedRecurring().catch(() => {});
+      afterNewEntrySaved_();
+      refreshLoans().catch(() => {});
+      if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
+      // A safety copy was kept (stage 3): the toast offers Undo for 10 seconds, and the entries wait in More → Recently deleted for 30 days.
+      if (result && result.batch_id && result.deleted.length) {
+        showUndoToast_(tr("entriesBulk.doneUndo", { n: result.deleted.length }), () => restoreDeletedBatch_({ batch_id: result.batch_id }));
+      }
+    }, {
+      busy: "common.deletingToast",
+      done: () => result && !result.batch_id && result.deleted.length && !result.kept.length ? tr("entriesBulk.done", { n: result.deleted.length }) : "",
+    });
+  });
+});
+
 function renderSearchResults_() {
   if (!searchActive) return;
   const input = document.getElementById("entry-search");
@@ -3841,6 +4188,7 @@ function renderSearchResults_() {
   const term = input.value.trim();
   box.innerHTML = "";
   hint.hidden = false;
+  document.getElementById("search-edit-btn").hidden = true;   // shown again below once there are matches to edit
 
   if (term.length < SEARCH_MIN_CHARS) {
     hint.textContent = tr("search.minChars", { n: SEARCH_MIN_CHARS });
@@ -3863,7 +4211,9 @@ function renderSearchResults_() {
     box.innerHTML = `<div class="status-msg">${escapeHtml(tr("search.noMatch", { term }))}</div>`;
     return;
   }
+  document.getElementById("search-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk);
   pairExchangeLegsByDay_(matches.slice(0, searchShown)).forEach((item) => box.appendChild(item._exchangePair ? buildExchangePairRow_(item) : buildSearchRow_(item)));
+  syncEntriesEditBar_();
   if (matches.length > searchShown) {
     const more = document.createElement("button");
     more.type = "button";
@@ -5393,6 +5743,7 @@ function compactReviewRow_(entry) {
 }
 function setReviewEditing_(on, redraw = true) {
   if (on === reviewEditing_ && redraw) return;
+  if (on && entriesEditing_) setEntriesEditing_(false);
   reviewEditing_ = on;
   reviewSelected_ = new Set();
   setEditIcon_(document.getElementById("review-edit-btn"), on);
@@ -6007,6 +6358,8 @@ function closeNewEntrySheet_() {
 }
 
 let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: syncFab_ below runs at load)
+let entriesEditing_ = false;   // Home list / search → Edit (same reason)
+let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
 let reviewEntries_ = [];
 let appToastTimer_ = null;
@@ -6075,7 +6428,7 @@ function syncFab_() {
   const nav = document.getElementById("bottom-nav");
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
-  fab.hidden = nav.hidden || reviewEditing_ || !(name === "entries" || name === "overview");
+  fab.hidden = nav.hidden || reviewEditing_ || entriesEditing_ || !(name === "entries" || name === "overview");
   // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
   // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
   // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
@@ -6369,6 +6722,7 @@ function showScreen(name) {
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
   if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
   if (name !== "entries" && reviewEditing_) setReviewEditing_(false, false);
+  if (name !== "entries" && entriesEditing_) setEntriesEditing_(false, false);
   if (name !== "business" && businessEditing_) setBusinessEditing_(false, false);
   if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
@@ -6443,7 +6797,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "deleted-entries"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -10911,6 +11265,73 @@ const tidySkipped_ = new Set();   // groups the person skipped on this visit
 let tidyGroups_ = [];
 let tidyData_ = {};
 
+// ---- More → Recently deleted (stage 3 of the Home bulk edit, owner's plan 2026-11-03) ----
+// Entries deleted several at a time keep a 30-day safety copy on the server. Here they can be restored (a whole batch or one entry) or deleted for good.
+// The same restore is the Undo on the delete toast.
+async function restoreDeletedBatch_(payload) {
+  const out = await callApi("restoreDeletedEntries", payload);
+  showToast_(tr("deleted.restored", { n: out.restored.length }), false, 6000);
+  if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
+  try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+  if (searchActive) await refreshSearchAfterEdit_();
+  afterNewEntrySaved_();
+  refreshLoans().catch(() => {});
+  if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});
+  return out;
+}
+async function showDeletedScreen_() {
+  showMoreSub_("deleted-entries");
+  document.getElementById("deleted-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  document.getElementById("deleted-empty").hidden = true;
+  await refreshDeletedScreen_();
+}
+async function refreshDeletedScreen_() {
+  const errorEl = document.getElementById("deleted-error");
+  errorEl.textContent = "";
+  const list = document.getElementById("deleted-list");
+  let res;
+  try { res = await callApi("listDeletedEntries", {}); }
+  catch (err) { list.innerHTML = ""; errorEl.textContent = tr("business.loadFailed", { error: err.message }); return; }
+  list.innerHTML = "";
+  document.getElementById("deleted-empty").hidden = res.batches.length > 0;
+  document.getElementById("deleted-empty").textContent = tr("deleted.empty", { days: res.days });
+  const when = (iso) => new Date(iso).toLocaleString(I18n.getLang() === "es" ? "es" : "en", { dateStyle: "medium", timeStyle: "short" });
+  res.batches.forEach((b) => {
+    const box = document.createElement("div");
+    box.className = "deleted-batch";
+    box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("deleted.batchTitle", { when: when(b.deleted_at), n: b.entries.length }))}</div>`;
+    b.entries.forEach((e) => {
+      const catName = (meta.categories.find((c) => c.id === e.category_id) || {}).name || "";
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(e.description || catName || tr("review.noDescription"))}</div>
+          <div class="recurring-row-sub">${escapeHtml([e.date, catName].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount"><span class="primary-amt">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency)}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
+      row.querySelector(".deleted-one").addEventListener("click", () => {
+        saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id, ids: [e.entry_id] }), null, { busy: "deleted.restoring" });
+      });
+      box.appendChild(row);
+    });
+    const actions = document.createElement("div");
+    actions.className = "deleted-batch-actions";
+    actions.innerHTML = `<button type="button" class="primary deleted-all">${escapeHtml(tr("deleted.restoreAll"))}</button><button type="button" class="add-inline deleted-forget">${escapeHtml(tr("deleted.forget"))}</button>`;
+    actions.querySelector(".deleted-all").addEventListener("click", () => {
+      saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id }), null, { busy: "deleted.restoring" });
+    });
+    actions.querySelector(".deleted-forget").addEventListener("click", () => {
+      if (!confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;
+      saveBehindScreen_(() => callApi("forgetDeletedEntries", { batch_id: b.batch_id }), () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
+    });
+    box.appendChild(actions);
+    list.appendChild(box);
+  });
+}
+document.getElementById("more-deleted-btn").addEventListener("click", showDeletedScreen_);
+document.getElementById("deleted-back-btn").addEventListener("click", () => showMyDataScreen());   // it lives in the My data hub, under "Then tidy"
+
 async function showTidyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -13042,6 +13463,7 @@ function businessOffered() {
 function applyBusinessVisibility_() {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
+  document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;

@@ -69,6 +69,8 @@ var BACKEND_STRINGS_ = {
   "err.catProtected": { en: "This built-in category can't be edited, hidden or deleted.", es: "Esta categoría viene incluida en la app y no se puede editar, ocultar ni eliminar." },
   "err.catInUse": { en: { one: "This category can't be deleted: {n} entry uses it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name.", other: "This category can't be deleted: {n} entries use it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name." }, es: { one: "No se puede eliminar esta categoría: {n} movimiento la usa. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre.", other: "No se puede eliminar esta categoría: {n} movimientos la usan. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre." } },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
+  "bulk.tagNotFound": { en: "That tag no longer exists.", es: "Esa etiqueta ya no existe." },
+  "bulk.tooMany": { en: "Too many at once: choose up to {n} entries at a time.", es: "Son demasiados a la vez: elige hasta {n} movimientos por vez." },
   "err.pmCashBasic": { en: "Cash is built in: everyone has it, so it can't be deleted or hidden. You can rename it.", es: "Efectivo viene incluido: todos lo tienen, así que no se puede eliminar ni ocultar. Puedes cambiarle el nombre." },
   "err.pmCashType": { en: "Cash is built in: its type stays Cash.", es: "Efectivo viene incluido: su tipo sigue siendo Efectivo." },
   "pm.cashName": { en: "Cash", es: "Efectivo" },

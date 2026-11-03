@@ -458,6 +458,17 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeLoans': return removePracticeLoans(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'confirmEntries': return confirmEntries(payload);
+    case 'previewEntriesDelete': return withRowsMemo_(function () { return previewEntriesDelete(payload); });
+    case 'deleteEntries': return withRowsMemo_(function () { return deleteEntries(payload); });
+    case 'listDeletedEntries': return listDeletedEntries();
+    case 'restoreDeletedEntries': return restoreDeletedEntries(payload);
+    case 'forgetDeletedEntries': return forgetDeletedEntries(payload);
+    case 'setEntriesCategory': return setEntriesCategory(payload);
+    case 'setEntriesTrip': return setEntriesTrip(payload);
+    case 'undoSetEntriesTrip': return undoSetEntriesTrip(payload);
+    case 'setEntriesTag': return setEntriesTag(payload);
+    case 'undoSetEntriesTag': return undoSetEntriesTag(payload);
+    case 'undoSetEntriesCategory': return undoSetEntriesCategory(payload);
     case 'discardEntries': return discardEntries(payload);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);

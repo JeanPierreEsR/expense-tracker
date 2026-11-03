@@ -119,6 +119,7 @@
       </div>
 
       <div class="card search-results-card" id="search-results-card" hidden>
+        <div class="search-results-head"><button type="button" class="icon-btn" id="search-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></div>
         <div id="search-results"></div>
       </div>
 
@@ -392,9 +393,18 @@
       </div>
 
       <div class="card entry-list">
-        <h2 data-i18n="entries.recent">Recent entries</h2>
+        <div class="budgets-header">
+          <h2 data-i18n="entries.recent">Recent entries</h2>
+          <button type="button" class="icon-btn" id="entries-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+        </div>
         <p class="hint" id="entries-check-status" hidden></p>
         <div id="entry-list"></div>
+      </div>
+      <div class="friends-editbar" id="entries-editbar" hidden>
+        <button type="button" class="add-inline" id="entries-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+        <button type="button" class="add-inline" id="entries-done-btn" data-i18n="friends.done">Done</button>
+        <button type="button" class="primary danger" id="entries-delete-selected-btn" disabled></button>
+        <button type="button" class="primary" id="entries-change-selected-btn" disabled></button>
       </div>
     </div>
 
@@ -1028,6 +1038,19 @@
       </div>
     </div>
 
+    <div id="screen-deleted-entries" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="deleted-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="deleted.title">Recently deleted</h2>
+        <p class="hint" data-i18n="deleted.hint">Entries you delete several at a time wait here for 30 days. Restore them, or delete them for good.</p>
+        <div id="deleted-list"></div>
+        <p class="hint" id="deleted-empty" hidden data-i18n="deleted.empty">Nothing here. Entries you delete several at a time wait here for 30 days.</p>
+        <p class="hint" id="deleted-error" style="color:#d64545;"></p>
+      </div>
+    </div>
+
     <div id="screen-tidy" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
@@ -1188,6 +1211,10 @@
         <h3 class="md-head" data-i18n="md.tidyHead">Then tidy</h3>
         <button type="button" class="more-list-item md-row" id="data-tidy-btn">
           <span><span class="md-title">🧹 <span data-i18n="md.tidy">Tidy my history</span></span><span class="hint md-sub" data-i18n="md.tidySub">Give the entries that came in without a category their category.</span></span>
+          <span class="more-list-chevron">›</span>
+        </button>
+        <button type="button" class="more-list-item md-row" id="more-deleted-btn" hidden>
+          <span><span class="md-title">🗑️ <span data-i18n="md.deleted">Recently deleted</span></span><span class="hint md-sub" data-i18n="md.deletedSub">Entries you deleted several at a time wait here for 30 days.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
         <h3 class="md-head" data-i18n="md.takeOut">Take out</h3>
@@ -3116,6 +3143,16 @@
         <button type="button" id="recurring-delete-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body" id="recurring-delete-body"></div>
+    </div>
+  </div>
+
+  <div id="entries-bulk-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="entries-bulk-title"></span>
+        <button type="button" id="entries-bulk-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="entries-bulk-body"></div>
     </div>
   </div>
 
