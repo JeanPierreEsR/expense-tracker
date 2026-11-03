@@ -3960,7 +3960,7 @@ function openEntriesCategorySheet_() {
     const distinct = new Set(list.map((e) => e.category_id || "")).size;
     return `<div class="cat-bulk-block">
       <label for="entries-bulk-cat-${t}"><b>${escapeHtml(tr(`entriesBulk.catMove.${t}`, { n: list.length }))}</b></label>
-      <select id="entries-bulk-cat-${t}"><option value="">${escapeHtml(tr("entriesBulk.catPick"))}</option>${options}</select>
+      <select id="entries-bulk-cat-${t}"><option value="">${escapeHtml(tr("entriesBulk.catPick", { n: list.length }))}</option>${options}</select>
       ${distinct > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.catMerge", { n: list.length, k: distinct }))}</div>` : ""}
     </div>`;
   };
@@ -3989,7 +3989,7 @@ function openEntriesCategorySheet_() {
       afterNewEntrySaved_();
       if (!result) return;
       const left = result.kept.filter((k) => k.reason !== "same");
-      if (left.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
+      if (left.length) alert(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
       if (!result.changed.length) return;
       showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
         await callApi("undoSetEntriesCategory", { changes: result.changed, annualIds: result.annualIds });
@@ -4157,11 +4157,20 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     body.innerHTML = `<p class="hint">${escapeHtml(tr("entriesBulk.noneDeletable"))}</p><p class="hint" style="white-space:pre-line;">${escapeHtml(keptText)}</p>`;
     return;
   }
+  // Only 8 lines are listed, so a one-line summary of ALL of them (how many are income, the dates covered) lets the person judge a big batch.
+  const deletableEntries = deletable.map((i) => known.get(i.id)).filter(Boolean);
+  const incomeN = deletableEntries.filter((e) => e.type === "income").length;
+  const dates = deletableEntries.map((e) => String(e.date || "").slice(0, 10)).filter(Boolean).sort();
+  const summaryParts = [];
+  if (incomeN) summaryParts.push(tr("entriesBulk.sumIncome", { n: incomeN }));
+  if (dates.length > 1 && dates[0] !== dates[dates.length - 1]) summaryParts.push(tr("entriesBulk.sumRange", { from: recurringDateLabel_(dates[0]), to: recurringDateLabel_(dates[dates.length - 1]) }));
+  const summary = deletable.length > 8 && summaryParts.length ? `<p class="hint">${escapeHtml(summaryParts.join(" · "))}</p>` : "";
   const lines = deletable.slice(0, 8).map((i) => infoOf(i.id));
   const more = deletable.length > 8 ? `\n${tr("entriesBulk.andMore", { n: deletable.length - 8 })}` : "";
   body.innerHTML = `
     <p class="hint"><b>${escapeHtml(tr("entriesBulk.confirm", { n: deletable.length }))}</b></p>
     <p class="entries-bulk-list" style="white-space:pre-line;">${escapeHtml(lines.join("\n") + more)}</p>
+    ${summary}
     ${sharedFriends ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.sharedNote", { n: sharedFriends }))}</div>` : ""}
     ${kept.length ? `<p class="hint" style="white-space:pre-line;">${escapeHtml(tr("entriesBulk.keptNote", { n: kept.length }) + "\n" + keptText)}</p>` : ""}
     <button type="button" class="primary danger" id="entries-bulk-go">${escapeHtml(tr("friends.deleteN", { n: deletable.length }))}</button>
@@ -5736,6 +5745,12 @@ function reviewIssue_(entry) {   // why this entry cannot be confirmed in bulk (
 const reviewIsRepaymentPart_ = (entry) => !!(entry.link && (entry.link.kind === "repaymentExtra" || entry.link.kind === "repayment"));
 const reviewLabel_ = (entry) => describeForConfirm_(entry.description || tr("review.noDescription"), formatAmount(entry.amount, entry.currency), entry.date);
 const reviewShortName_ = (entry) => entry.description || tr("review.noDescription");
+// The lines of a bulk confirmation: the first few entries and "…and N more". A native dialog with 200 lines hides its own buttons and is approved unread.
+function reviewListText_(entries, max = 6) {
+  const lines = entries.slice(0, max).map(reviewLabel_);
+  if (entries.length > max) lines.push(tr("entriesBulk.andMore", { n: entries.length - max }));
+  return lines.join("\n");
+}
 function reviewNames_(entries, max = 4) {
   const names = entries.map(reviewShortName_);
   return names.length > max ? tr("reviewBulk.andMore", { names: names.slice(0, max).join(", "), n: names.length - max }) : names.join(", ");
@@ -5815,7 +5830,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
   if (!ready.length) { alert(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
-  if (!confirm(tr("reviewBulk.confirmAsk", { n: ready.length, list: ready.map(reviewLabel_).join("\n"), left }))) return;
+  if (!confirm(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }))) return;
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
@@ -5848,7 +5863,8 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   const ready = chosen.filter((e) => !reviewIsRepaymentPart_(e));
   if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
   const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
-  if (!confirm(tr("reviewBulk.discardAsk", { n: ready.length, list: ready.map(reviewLabel_).join("\n"), note }))) return;
+  const safe = !!(meta && meta.capabilities && meta.capabilities.entriesRestore);   // a backend with the safety copy: Discard can be undone
+  if (!confirm(tr(safe ? "reviewBulk.discardAskSafe" : "reviewBulk.discardAsk", { n: ready.length, list: reviewListText_(ready), note }))) return;
   ready.forEach((e) => { if (!isPracticeReviewEntry_(e)) betaRecordEvents_(PerfShare.queueEvents(e, null, betaEntryPlace_(e))); });
   const byId = new Map(ready.map((e) => [e.id, e]));
   const ids = ready.map((e) => e.id);
@@ -5861,11 +5877,14 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
     refreshEntryList().catch(() => {});
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
+    if (result && result.batch_id && result.discarded.length) {
+      showUndoToast_(tr("reviewBulk.doneUndo", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }), () => restoreDeletedBatch_({ batch_id: result.batch_id, ids: result.discarded }), "review");
+    }
     if (!result || !result.kept.length) return;
     alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.discarding",
-    done: () => result && result.discarded.length && !result.kept.length ? tr("reviewBulk.doneDiscarded", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }) : "",
+    done: () => result && result.discarded.length && !result.kept.length && !result.batch_id ? tr("reviewBulk.doneDiscarded", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }) : "",
   });
 });
 
@@ -6418,7 +6437,7 @@ function hideToast_(text) {
 // already on its way must not save the same thing twice.
 document.addEventListener("click", (e) => {
   const b = e.target && e.target.closest ? e.target.closest("button") : null;
-  if (b && /(-save(-btn)?|-record(-btn)?|-apply(-btn)?)$/.test(b.id) && b.closest("[hidden]")) {
+  if (b && (/(-save(-btn)?|-record(-btn)?|-apply(-btn)?)$/.test(b.id) || /^entries-bulk-(cat-go|trip-go|tag-add|tag-remove)$/.test(b.id)) && b.closest("[hidden]")) {
     e.stopImmediatePropagation();
     e.preventDefault();
   }
@@ -8586,16 +8605,18 @@ function shortNames_(names, max = 3) {
   return names.length > max ? tr("reviewBulk.andMore", { names: names.slice(0, max).join(", "), n: names.length - max }) : names.join(", ");
 }
 // What a bulk delete did, with an Undo (10 s): names of the ones deleted for good and of the ones hidden instead. `undo` brings them all back.
-function offerBulkUndo_(deletedNames, hiddenNames, undo) {
+function offerBulkUndo_(deletedNames, hiddenNames, undo, kind) {
   const parts = [];
   if (deletedNames.length) parts.push(tr("bulkUndo.deleted", { n: deletedNames.length, names: shortNames_(deletedNames) }));
   if (hiddenNames.length) parts.push(tr("bulkUndo.hidden", { n: hiddenNames.length, names: shortNames_(hiddenNames) }));
-  showUndoToast_(parts.join(" "), undo);
+  showUndoToast_(parts.join(" "), undo, kind);
 }
 // A server answer to a restore that could not bring some back (their name is in use again).
 function alertNotRestored_(skipped) {
   if (skipped && skipped.length) alert(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
 }
+// "Undone" only when everything came back; a partial restore says so.
+const undoneText_ = (skipped) => tr(skipped && skipped.length ? "bulkUndo.partial" : "tidy.undone");
 
 // ---- Budgets: Edit mode (tick several budgets, delete them at once; owner's request, 2026-11-02) ----
 // The same bar and checkboxes as More → Friends → Edit. One question for the whole batch, then the list returns at once and the server works
@@ -8653,7 +8674,7 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
     if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: result.deleted.map((id) => nameOf.get(id)).join(", ") }) : "",
+    done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }) : "",
   });
 });
 
@@ -11344,23 +11365,39 @@ document.getElementById("export-send-btn").addEventListener("click", sendExport_
 // ---- Categories that catch up later (backend/CategoryFollow.gs) ----
 
 let appUndoTimer_ = null;
-let appUndoAction_ = null;
-// A message with an Undo button, for something the app did for the person beyond what they tapped.
-function showUndoToast_(text, onUndo) {
+// A message with an Undo button, for something the app did for the person beyond what they tapped. Undos STACK (QA round 2, 2026-11-03): a second
+// action used to replace the first one's Undo, which made the first change permanent without a word. Now the button undoes the newest, then offers
+// the one before it (if it is under a minute old); the toast says how many earlier ones wait. When the toast times out (10 s) all of them go.
+// `kind` ("friends", "accounts"...) lets a screen drop the Undo of something the person has just reversed by hand (dropUndoKind_).
+const UNDO_STACK_MAX_ = 5, UNDO_STACK_FRESH_MS_ = 60000;
+let appUndoStack_ = [];   // newest first
+function paintUndoToast_() {
   const box = document.getElementById("app-undo-toast");
-  document.getElementById("app-undo-text").textContent = text;
-  appUndoAction_ = onUndo;
-  box.hidden = false;
   clearTimeout(appUndoTimer_);
-  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoAction_ = null; }, 10000);
+  const top = appUndoStack_[0];
+  if (!top) { box.hidden = true; return; }
+  const earlier = appUndoStack_.length - 1;
+  document.getElementById("app-undo-text").textContent = top.text + (earlier ? " " + tr("tidy.undoEarlier", { n: earlier }) : "");
+  box.hidden = false;
+  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoStack_ = []; }, 10000);
+}
+function showUndoToast_(text, onUndo, kind) {
+  appUndoStack_.unshift({ text, action: onUndo, kind: kind || "", at: Date.now() });
+  if (appUndoStack_.length > UNDO_STACK_MAX_) appUndoStack_.length = UNDO_STACK_MAX_;
+  paintUndoToast_();
+}
+function dropUndoKind_(kind) {
+  appUndoStack_ = appUndoStack_.filter((e) => e.kind !== kind);
+  paintUndoToast_();
 }
 document.getElementById("app-undo-btn").addEventListener("click", async () => {
-  const action = appUndoAction_;
-  appUndoAction_ = null;
+  const entry = appUndoStack_.shift();
   document.getElementById("app-undo-toast").hidden = true;
   clearTimeout(appUndoTimer_);
-  if (!action) return;
-  try { await action(); } catch (err) { alert(err.message || String(err)); }
+  if (!entry) return;
+  try { await entry.action(); } catch (err) { alert(err.message || String(err)); }
+  appUndoStack_ = appUndoStack_.filter((e) => Date.now() - e.at < UNDO_STACK_FRESH_MS_);
+  paintUndoToast_();   // the one before it, if any
 });
 
 // An edit gave one entry a category and the server filled the other blanks of the same merchant (answer of updateEntry).
@@ -11384,12 +11421,13 @@ let tidyData_ = {};
 // The same restore is the Undo on the delete toast.
 async function restoreDeletedBatch_(payload) {
   const out = await callApi("restoreDeletedEntries", payload);
-  showToast_(tr("deleted.restored", { n: out.restored.length }), false, 6000);
+  showToast_(out.restored.length ? tr("deleted.restored", { n: out.restored.length }) : tr("deleted.restoredNone"), false, 6000);   // (everything was already back)
   if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
   try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
   if (searchActive) await refreshSearchAfterEdit_();
   afterNewEntrySaved_();
   refreshLoans().catch(() => {});
+  refreshReviewQueue(undefined, true).catch(() => {});   // a restored waiting entry is back in Needs review
   if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});
   return out;
 }
@@ -11413,7 +11451,8 @@ async function refreshDeletedScreen_() {
   res.batches.forEach((b) => {
     const box = document.createElement("div");
     box.className = "deleted-batch";
-    box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("deleted.batchTitle", { when: when(b.deleted_at), n: b.entries.length }))}</div>`;
+    box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("deleted.batchTitle", { when: when(b.deleted_at), n: b.entries.length }))}</div>
+      <div class="hint deleted-batch-sub">${escapeHtml(shortNames_(b.entries.map((e) => e.description || tr("review.noDescription"))))}</div>`;   // (batches made in the same minute read alike: what is inside tells them apart)
     b.entries.forEach((e) => {
       const catName = (meta.categories.find((c) => c.id === e.category_id) || {}).name || "";
       const row = document.createElement("div");
@@ -11421,9 +11460,9 @@ async function refreshDeletedScreen_() {
       row.innerHTML = `
         <div>
           <div class="recurring-row-name">${escapeHtml(e.description || catName || tr("review.noDescription"))}</div>
-          <div class="recurring-row-sub">${escapeHtml([e.date, catName].filter(Boolean).join(" · "))}</div>
+          <div class="recurring-row-sub">${escapeHtml([e.date, catName, e.shared ? tr("deleted.sharedTag") : "", e.status === "pending" ? tr("deleted.pendingTag") : ""].filter(Boolean).join(" · "))}</div>
         </div>
-        <div class="recurring-row-amount"><span class="primary-amt">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency)}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
+        <div class="recurring-row-amount"><span class="primary-amt${entryFlowDirection_(e) === "in" ? " review-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency, { in: "+", out: "−" }[entryFlowDirection_(e)] || "")}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
       row.querySelector(".deleted-one").addEventListener("click", () => {
         saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id, ids: [e.entry_id] }), null, { busy: "deleted.restoring" });
       });
@@ -12273,6 +12312,7 @@ document.getElementById("accounts-selectall-btn").addEventListener("click", () =
 });
 function showAccountsAgainFlow_(chosen) {
   const ids = chosen.map((pm) => pm.id);
+  dropUndoKind_("accounts");
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("restorePaymentMethods", { show: ids });
@@ -12324,13 +12364,13 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
       await loadMeta();
       refreshAccountPickers_();
       renderAccountsList_();
-      showToast_(tr("tidy.undone"));
+      showToast_(undoneText_(back.skipped));
       alertNotRestored_(back.skipped);
-    });
+    }, "accounts");
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && !result.hidden.length && !result.kept.length && result.deleted.length && !(bulkShowAgain_() && ((result.deletedRows || {}).accounts || []).length)
-      ? tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
+      ? tr("accounts.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => d.name)) }) : "",
   });
 });
 
@@ -12401,7 +12441,7 @@ function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
   const bothTypes = categoryNamesInBothTypes_();
-  const selectable = meta.categories.filter((c) => !isOtherCategory_(c));
+  const selectable = meta.categories.filter((c) => categoryListed_(c) && !isOtherCategory_(c));
   document.getElementById("categories-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.categoriesBulkDelete && selectable.length);
   if (categoriesEditing_ && !selectable.length) setCategoriesEditing_(false, false);
   const stillThere = new Set(selectable.map((c) => c.id));
@@ -12465,7 +12505,9 @@ function placeCategoriesEditBar_() {
 }
 window.addEventListener("resize", () => { if (categoriesEditing_) placeCategoriesEditBar_(); });
 const categoryTickHidden_ = (id) => { const c = ((meta && meta.categories) || []).find((x) => x.id === id); return bulkShowAgain_() && !!c && catHidden_(c); };
-const categoriesSelectable_ = () => ((meta && meta.categories) || []).filter((c) => !isOtherCategory_(c));
+// Only the two kinds the screen lists (expense / income) can be checked: the bar's count used to include the investment and transfer categories, which have no row.
+const categoryListed_ = (c) => c.type === "expense" || c.type === "income";
+const categoriesSelectable_ = () => ((meta && meta.categories) || []).filter((c) => categoryListed_(c) && !isOtherCategory_(c));
 function syncCategoriesEditBar_() {
   const n = categoriesSelected_.size;
   const hiddenKind = n > 0 && [...categoriesSelected_].some(categoryTickHidden_);
@@ -12482,6 +12524,7 @@ document.getElementById("categories-selectall-btn").addEventListener("click", ()
 });
 function showCategoriesAgainFlow_(chosen) {
   const ids = chosen.map((c) => c.id);
+  dropUndoKind_("categories");
   let result = null;
   saveBehindScreen_(async () => { result = await callApi("showCategories", { ids }); }, refreshCategoriesAfterChange_, {
     busy: "bulkShow.busy",
@@ -12531,9 +12574,10 @@ async function startCategoriesBulkDelete_(chosen) {
     const candidates = sortedCategories_(meta.categories.filter((c) => c.type === t && !chosenIds.has(c.id)));
     const entries = group.reduce((sum, c) => sum + ((usedBy.get(c.id) || {}).entries || 0), 0);
     const names = group.map(label).join(", ");
+    const withEntries = group.filter((c) => ((usedBy.get(c.id) || {}).entries || 0) > 0);   // the merge warning is about ENTRIES ending up mixed
     const options = candidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(`${c.icon || "•"} ${categoryShownName_(c, bothTypes)}${catHidden_(c) ? ` (${tr("categories.hiddenTag")})` : ""}`)}</option>`).join("");
     const preferred = candidates.find(isOtherCategory_) || candidates[0];
-    return { t, group, candidates, entries, names, options, preferred };
+    return { t, group, candidates, entries, names, options, preferred, withEntries, entryNames: withEntries.map(label).join(", ") };
   });
   const canMove = blocks.every((b) => b.candidates.length > 0);
   body.innerHTML = `
@@ -12544,8 +12588,8 @@ async function startCategoriesBulkDelete_(chosen) {
         ${b.candidates.length ? `
           <label for="cat-bulk-target-${b.t}">${escapeHtml(tr("catBulk.moveLabel", { names: b.names }))}</label>
           <select id="cat-bulk-target-${b.t}">${b.options}</select>
-          <p class="hint">${escapeHtml(tr("catBulk.moveCount", { entries: b.entries }))}</p>
-          ${b.group.length > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("catBulk.mergeAlert", { k: b.group.length, names: b.names }))}</div>` : ""}
+          <p class="hint">${escapeHtml(tr("catBulk.moveCount", { n: b.entries }))}</p>
+          ${b.withEntries.length > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("catBulk.mergeAlert", { k: b.withEntries.length, names: b.entryNames }))}</div>` : ""}
         ` : `<p class="hint">${escapeHtml(tr("catBulk.noTarget", { names: b.names }))}</p>`}
       </div>`).join("")}
     ${canMove ? `<button type="button" class="primary danger" id="cat-bulk-move-btn">${escapeHtml(tr("catBulk.moveBtn"))}</button>
@@ -12575,7 +12619,7 @@ function runCategoriesDelete_(chosen, opts) {
     await callApi("showCategories", { ids: result.hidden.map((h) => h.id) });
     await refreshCategoriesAfterChange_();
     showToast_(tr("tidy.undone"));
-  });
+  }, "categories");
   saveBehindScreen_(async () => {
     result = await callApi("deleteCategories", { ids, reassign: opts.reassign, hideUsed: !!opts.hideUsed });
   }, async () => {
@@ -12593,7 +12637,7 @@ function runCategoriesDelete_(chosen, opts) {
     if (plainDeleted.length) lines.push(tr("catBulk.resultDeleted", { n: plainDeleted.length, names: namesOf(plainDeleted) }));
     const byTarget = new Map();
     result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
-    byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), entries: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
+    byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), n: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
     if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
     if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")}`).join(", ") }));
     const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
@@ -12606,7 +12650,7 @@ function runCategoriesDelete_(chosen, opts) {
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length && !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to)
-      ? tr("catBulk.doneDeleted", { n: result.deleted.length, names: namesOf(result.deleted) }) : "",
+      ? tr("catBulk.doneDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => d.name)) }) : "",
   });
 }
 
@@ -13059,10 +13103,13 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", (
     populateTripOptions_();
   }, async () => {
     await refreshTripsList_();
-    if (result && result.missing.length) alert(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+    const lines = [];
+    if (result && result.missing.length) lines.push(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+    if (result && (result.groupsKept || []).length) lines.push(tr("trips.resultGroupKept", { n: result.groupsKept.length, names: result.groupsKept.map((g) => g.friend).join(", ") }));
+    if (lines.length) alert(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => nameOf.get(d.id)).join(", ") }) : "",
+    done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => nameOf.get(d.id))) }) : "",
   });
 });
 
@@ -13934,7 +13981,7 @@ document.getElementById("business-selectall-btn").addEventListener("click", () =
   businessSelected_ = businessSelected_.size === all.length ? new Set() : new Set(all);
   renderBusinessList_(businessList_);
 });
-document.getElementById("business-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("business-delete-selected-btn").addEventListener("click", async () => {
   const companies = (businessList_ || []).filter((c) => businessSelected_.has("c:" + c.id));
   const projects = (businessList_ || []).flatMap((c) => c.projects).filter((p) => businessSelected_.has("p:" + p.id));
   if (!companies.length && !projects.length) return;
@@ -13944,7 +13991,17 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
   const notes = [];
   if (projects.length) notes.push(tr("bizBulk.projectsNote"));
   if (companies.length) notes.push(tr("bizBulk.companiesNote"));
-  if (!confirm(tr("bizBulk.confirm", { list: list.join("\n"), notes: notes.join("\n\n") }))) return;
+  // What else goes with them (expected payments of the projects, IGV records of the companies that really go) is asked first, so the question can say it.
+  showToast_(tr("common.loading"), true);
+  try {
+    const side = await callApi("previewBusinessDelete", { company_ids: companies.map((c) => c.id), project_ids: projects.map((p) => p.id) });
+    const parts = [];
+    if (side.expected.count) parts.push(tr("bizBulk.sideExpected", { n: side.expected.count, amounts: side.expected.byCurrency.map((x) => `${x.currency} ${moneyFmt(x.amount)}`).join(", ") || "-" }));
+    if (side.igv.count) parts.push(tr("bizBulk.sideIgv", { n: side.igv.count }));
+    if (parts.length) notes.push(tr("bizBulk.sideNote", { parts: parts.join("; ") }));
+  } catch (err) { /* an older backend has no preview: the question is asked without the extra line */ }
+  hideToast_(tr("common.loading"));
+  if (!confirm(tr("bizBulk.confirm", { n: companies.length + projects.length, list: list.join("\n"), notes: notes.join("\n\n") }))) return;
   const company_ids = companies.map((c) => c.id), project_ids = projects.map((p) => p.id);
   const nameOf = new Map([...companies.map((c) => [c.id, companyLabel_(c)]), ...projects.map((p) => [p.id, projectLabel_(p)])]);
   setBusinessEditing_(false);
@@ -13971,7 +14028,7 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
     done: () => {
       if (!result || result.companies.kept.length || result.projects.missing.length) return "";
       const all = [...result.projects.deleted, ...result.companies.deleted];
-      return all.length ? tr("bizBulk.doneDeleted", { n: all.length, names: names(all) }) : "";
+      return all.length ? tr("bizBulk.doneDeleted", { n: all.length, names: shortNames_(all.map((d) => nameOf.get(d.id) || d.name)) }) : "";
     },
   });
 });
@@ -14815,7 +14872,7 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
     alert(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
+    done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => d.name)) }) : "",
   });
 });
 
@@ -14932,6 +14989,7 @@ function renderFriendsList_() {
     row.innerHTML = `<div class="recurring-row-name">${escapeHtml(p.name)}</div><button type="button" class="add-inline">${escapeHtml(tr("friends.unhide"))}</button>`;
     row.querySelector("button").addEventListener("click", () => {
       saveBehindScreen_(async () => {
+        dropUndoKind_("friends");
         await callApi("unhideFriend", { id: p.id });
         const m = (meta.friends || []).find((f) => f.id === p.id);
         if (m) m.hidden = "";
@@ -14942,7 +15000,12 @@ function renderFriendsList_() {
   });
   syncFriendsEditBar_();
 }
-document.getElementById("friends-hidden-toggle").addEventListener("click", () => { if (friendsEditing_) return; friendsShowHidden_ = !friendsShowHidden_; renderFriendsList_(); });   // (every hidden friend stays reachable while Edit is on)
+document.getElementById("friends-hidden-toggle").addEventListener("click", () => {
+  if (friendsEditing_) return;
+  friendsShowHidden_ = !friendsShowHidden_;
+  renderFriendsList_();
+  if (friendsShowHidden_) document.getElementById("friends-hidden-list").scrollIntoView({ block: "nearest", behavior: "smooth" });   // the rows opened below the fold, under the bottom menu
+});   // (every hidden friend stays reachable while Edit is on)
 document.getElementById("more-friends-btn").addEventListener("click", showFriendsScreen_);
 document.getElementById("friends-back-btn").addEventListener("click", () => { setFriendsEditing_(false); showScreen("more"); });
 document.getElementById("friends-add-btn").addEventListener("click", () => openPersonModal_(null, true));
@@ -14987,21 +15050,22 @@ function deleteFriendsFlow_(chosen) {
       const back = await callApi("restoreFriends", { show: hidden.map((h) => h.id), rows: deletedRows });
       await loadMeta();
       await refreshFriendsList_();
-      showToast_(tr("tidy.undone"));
+      showToast_(undoneText_(back.skipped));
       alertNotRestored_(back.skipped);
-    });
+    }, "friends");
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => {
       if (!result || (result.hidden || []).length || (result.kept || []).length || (bulkShowAgain_() && (result.deletedRows || []).length)) return "";
       const goneIds = new Set(result.deleted);
-      return tr("friends.resultDeleted", { n: goneIds.size, names: chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name).join(", ") });
+      return tr("friends.resultDeleted", { n: goneIds.size, names: shortNames_(chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name)) });
     }
   });
 }
 // Show again (bulk): no question to ask, it changes nothing about the history and can be hidden again by Delete.
 function showFriendsAgainFlow_(chosen) {
   const ids = chosen.map((p) => p.id);
+  dropUndoKind_("friends");   // an old "Hidden…  Undo" must not hide / show them again behind the person's back
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("restoreFriends", { show: ids });
@@ -15066,6 +15130,8 @@ function closePersonModal_() {
 // Keeps the app's own list of people (the entry form's pickers read it) in step with what the server just saved.
 function rememberPerson_(friend) {
   if (friend.unhidden) showToast_(tr("friends.broughtBack", { name: friend.name }));   // the same name was hidden: it is that person again, with their history
+  else if (friend.existed) showToast_(tr(friend.phoneKept ? "friends.alreadyOnePhoneKept" : "friends.alreadyOne", { name: friend.name }), false, 7000);   // a new "Ana" is the Ana already there
+  friend = Object.assign({}, friend); delete friend.existed; delete friend.phoneKept;
   const i = (meta.friends || []).findIndex((f) => f.id === friend.id);
   if (i === -1) meta.friends.push(Object.assign({ last_used: todayLocalISO() }, friend));
   else meta.friends[i] = Object.assign({}, meta.friends[i], friend);
@@ -15667,7 +15733,7 @@ document.getElementById("recurring-selectall-btn").addEventListener("click", () 
 });
 document.getElementById("recurring-delete-selected-btn").addEventListener("click", () => {
   const chosen = recurringItems_.filter((re) => recurringSelected_.has(re.id));
-  if (chosen.length === 1) { setRecurringEditing_(false); startRecurringDelete_(chosen[0]); return; }   // one item: the same Stop it (pick its last day) / Delete it as in its edit window
+  if (chosen.length === 1) { startRecurringDelete_(chosen[0]); return; }   // one item: the same Stop it (pick its last day) / Delete it as in its edit window (Edit mode ends when it is really done, so Cancel keeps the selection like it does for several)
   if (chosen.length) startRecurringBulkDelete_(chosen);
 });
 
@@ -16530,6 +16596,7 @@ function afterRecurringChange_() {
 }
 const recurringName_ = (re) => re.description || re.category_name || "";
 function runRecurringDelete_(re) {
+  if (recurringEditing_) setRecurringEditing_(false);
   markDeleting_("recurring:" + re.id);
   if (practiceR_ && isPracticeProgrammedName_(re.description)) { practiceR_.deleted = true; practiceRSave_(); }   // (the first-use practice's last real step)
   closeRecurringModal();
@@ -16551,6 +16618,7 @@ function pickRecurringEndDate_(item, lastPaid, onPick) {
   }, startEl, endEl);
 }
 function runRecurringStopOn_(re, endDate) {
+  if (recurringEditing_) setRecurringEditing_(false);
   closeRecurringModal();
   saveBehindScreen_(() => callApi("updateRecurringExpense", { id: re.id, end_date: endDate, active: true }), afterRecurringChange_,
     { busy: "common.stoppingToast", done: () => tr("recDel.stoppedOne", { name: recurringName_(re), date: recurringDateLabel_(endDate) }) });
@@ -16626,7 +16694,7 @@ document.getElementById("recurring-delete-btn").addEventListener("click", () => 
 async function startRecurringBulkDelete_(items) {
   const backdrop = document.getElementById("recurring-delete-backdrop");
   const body = document.getElementById("recurring-delete-body");
-  document.getElementById("recurring-delete-title").textContent = tr("recDel.title");
+  document.getElementById("recurring-delete-title").textContent = tr("recBulk.title", { n: items.length });
   body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -16651,7 +16719,7 @@ async function startRecurringBulkDelete_(items) {
     const delKeys = ids.map((id) => "recurring:" + id);
     delKeys.forEach(markDeleting_);
     finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_,
-      { busy: "common.deletingToast", release: delKeys, done: () => tr("recBulk.resultDeleted", { n: items.length, names: items.map(nameOf).join(", ") }) });
+      { busy: "common.deletingToast", release: delKeys, done: () => tr("recBulk.resultDeleted", { n: items.length, names: shortNames_(items.map(nameOf)) }) });
   };
   if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
     closeRecurringDeleteSheet_();
@@ -16783,7 +16851,10 @@ async function renderPausedDecision_() {
         pickRecurringEndDate_(it, lastPaid[it.id], (endDate) => run(() => callApi("updateRecurringExpense", { id: it.id, end_date: endDate, active: true })));
         return;
       }
-      if (act === "delete" && (effects[it.id] || 0) >= 0.5 && !confirm(tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }))) return;
+      if (act === "delete") {   // never a one-tap delete in a sheet that cannot be dismissed: the figure warning, or the plain question
+        const warn = (effects[it.id] || 0) >= 0.5;
+        if (!confirm(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }))) return;
+      }
       run(() => act === "reactivate" ? callApi("updateRecurringExpense", { id: it.id, active: true }) : callApi("deleteRecurringExpenses", { ids: [it.id] }));
     }));
     listEl.appendChild(row);

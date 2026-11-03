@@ -169,7 +169,7 @@ function deleteTrips(payload) {
   ensureTripsSheet_();
   var ids = [], seen = {};
   ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (id && !seen[id]) { seen[id] = true; ids.push(id); } });
-  var out = { deleted: [], missing: [] };
+  var out = { deleted: [], missing: [], groupsKept: [] };
   if (!ids.length) return out;
   var byId = {};
   getAllRows('Trips').forEach(function (t) { byId[String(t.id)] = t; });
@@ -192,7 +192,10 @@ function deleteTrips(payload) {
   withWriteBatch_(function () {
     unlink('Entries');
     unlink('Recurring Expenses', ensureRecurringExpensesSheet_);   // estimates (one-time Programmed items) stay, just unlinked
-    out.deleted.forEach(function (d) { releaseTripGroupFriend_(d.id); });
+    out.deleted.forEach(function (d) {
+      var released = releaseTripGroupFriend_(d.id);
+      if (released && released.kept) out.groupsKept.push({ trip: d.name, friend: released.name });
+    });
     deleteRowsWhere_('Trips', function (row) { return want[String(row.id)] === true; });
     deleteRowsWhere_('Budget Alert Log', function (r) { return want[String(r.budget_id)] === true && r.period === TRIP_ALERT_PERIOD_; });
   });
@@ -685,6 +688,7 @@ function releaseTripGroupFriend_(tripId) {
   var hasLoans = getAllRows('Loans').some(function (l) { return l.friend_id === friend.id; });
   if (hasLoans) updateRowFields_('Friends', friend.id, { trip_id: '' });
   else deleteRowsWhere_('Friends', function (row) { return row.id === friend.id; });
+  return { kept: hasLoans, name: String(friend.name || '') };   // (the bulk delete tells the owner which group friends stayed in Friends)
 }
 
 // The balance check: per currency what the group owes the owner (positive pending) or the owner owes it
