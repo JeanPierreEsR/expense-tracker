@@ -2644,6 +2644,7 @@
     "stmt.dismiss": { en: "Remove from the list", es: "Quitar de la lista" },
     "stmt.fetching": { en: "Fetching…", es: "Obteniendo…" },
     "stmt.removing": { en: "Removing…", es: "Quitando…" },
+    "stmt.viaLink": { en: "download link in the email", es: "enlace de descarga en el correo" },
     "stmt.fetchFailed": { en: "Couldn't fetch that statement: {error}", es: "No se pudo obtener ese estado de cuenta: {error}" },
     "stmt.openingN": { en: "Opening {i} of {n}…", es: "Abriendo {i} de {n}…" },
     "find.title": { en: "Past emails", es: "Correos anteriores" },

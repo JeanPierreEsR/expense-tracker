@@ -210,6 +210,9 @@ var BACKEND_STRINGS_ = {
   // ---- inbox ----
   "inbox.notThere": { en: "That statement is not in the inbox", es: "Ese estado de cuenta no está en la bandeja" },
   "inbox.attachmentGone": { en: "The attachment is no longer in that email", es: "El adjunto ya no está en ese correo" },
+  "inbox.linkGone": { en: "The download link is no longer in that email", es: "El enlace de descarga ya no está en ese correo" },
+  "inbox.linkExpired": { en: "The bank's download link has expired. Ask for the statement again in the bank's app", es: "El enlace de descarga del banco ya venció. Vuelve a pedir el estado de cuenta en la app del banco" },
+  "inbox.linkFailed": { en: "The bank's download link did not give a PDF", es: "El enlace de descarga del banco no dio un PDF" },
 
   // ---- rec ----
   "rec.startDate": { en: "The start date must be a real date (YYYY-MM-DD).", es: "La fecha de inicio debe ser una fecha real (AAAA-MM-DD)." },

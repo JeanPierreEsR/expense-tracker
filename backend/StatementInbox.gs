@@ -27,6 +27,57 @@ var STATEMENT_SENDERS_ = [
   { address: 'no-reply@operaciones.agora.pe', label: 'AhorraMás', bank: 'sip', creditOnly: false }
 ];
 
+// Statements a bank does not attach but sends as a DOWNLOAD LINK (SIP's AhorraMás "movimientos", sent when the person asks for them
+// in the Sip app; the link leads to a PDF on Google's file storage, needs no sign-in and expires after ~6 weeks). The inbox keeps only
+// the e-mail's id (attachment_name = STMT_LINK_MARK_, no size); the link is read again from the e-mail and followed only on Open.
+// `hosts`: the only places the link and its redirects may lead (a forged e-mail cannot make the app fetch anything else).
+var STMT_LINK_MARK_ = '(link)';
+var STATEMENT_LINK_SENDERS_ = [
+  { address: 'no-reply@operaciones.agora.pe', subject: /movimientos con ahorram/i, linkText: /descarga/i,
+    hosts: /(^|\.)(agora\.pe|sip\.pe|storage\.googleapis\.com)$/i, label: 'AhorraMás', bank: 'sip' }
+];
+
+function stmtIsLinkItem_(row) { return String(row.attachment_name) === STMT_LINK_MARK_; }
+
+/** "AhorraMás soles" / "AhorraMás dólares" when the subject says which; else the plain label. */
+function stmtLinkLabel_(spec, subject) {
+  var cur = (/\b(soles|d[oó]lares)\b/i.exec(String(subject || '')) || [])[1];
+  return cur ? spec.label + ' ' + cur.toLowerCase() : spec.label;
+}
+
+/** The href of the first <a> whose visible text matches spec.linkText, or ''. */
+function stmtStatementLink_(html, spec) {
+  var re = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, m;
+  while ((m = re.exec(String(html || '')))) {
+    var text = m[2].replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ');
+    if (spec.linkText.test(text)) return m[1].replace(/&amp;/gi, '&');
+  }
+  return '';
+}
+
+/** Follows the link (redirects one by one, each checked against spec.hosts) and returns { name, bytes } of the PDF. */
+function stmtFetchLinkedPdf_(url, spec) {
+  for (var hop = 0; hop < 6; hop++) {
+    var host = (/^https:\/\/([^\/?#:]+)/i.exec(url) || [])[1];
+    if (!host || !spec.hosts.test(host)) throw new Error(tr_('inbox.linkFailed'));
+    var res = UrlFetchApp.fetch(url, { followRedirects: false, muteHttpExceptions: true });
+    var code = res.getResponseCode();
+    if (code >= 300 && code < 400) {
+      var h = res.getAllHeaders();
+      var next = String(h.Location || h.location || '');
+      url = next.charAt(0) === '/' ? 'https://' + host + next : next;
+      continue;
+    }
+    if (code === 400 || code === 403 || code === 404 || code === 410) throw new Error(tr_('inbox.linkExpired'));
+    var bytes = code === 200 ? res.getContent() : [];
+    if (!(bytes.length > 4 && bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70)) throw new Error(tr_('inbox.linkFailed'));   // "%PDF"
+    var file = String(url.split('?')[0].split('/').pop() || '');
+    try { file = decodeURIComponent(file); } catch (e) { /* keep it as printed */ }
+    return { name: /\.pdf$/i.test(file) ? file : spec.label + '.pdf', bytes: bytes };
+  }
+  throw new Error(tr_('inbox.linkFailed'));
+}
+
 // Banks learned on this copy: when a statement found by "Find statements in Gmail" is read successfully, its sender address is
 // remembered here so the 15-minute scan and later searches know that bank too, with no code change. (The built-in list above is the
 // owner's side of the same flow: when a reader for a new bank ships, its sender address is added there so EVERY copy knows it.)
@@ -105,6 +156,17 @@ function scanStatementInbox_() {
       bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
       status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
   }
+  // Download-link statements first (they carry no attachment, so the search below never sees them).
+  STATEMENT_LINK_SENDERS_.forEach(function (spec) {
+    gmailSearchMessages_('from:' + spec.address + ' subject:movimientos newer_than:' + (first ? '75d' : '6d'), { max: 50 }).forEach(function (m) {
+      var id = m.getId();
+      if (seenMessage[id] || !spec.subject.test(m.getSubject()) || !stmtStatementLink_(m.getBody(), spec)) return;
+      seenMessage[id] = true;
+      added.push({ id: Utilities.getUuid(), message_id: id, attachment_name: STMT_LINK_MARK_, sender_key: spec.address,
+        bank_label: stmtLinkLabel_(spec, m.getSubject()), bank_keyword: spec.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
+        status: 'new', size_kb: '', notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    });
+  });
   var senders = statementSenders_();
   gmailSearchMessages_('from:(' + senders.map(function (s) { return s.address; }).join(' OR ') + ')' + window, { max: 150 }).forEach(function (m) {
     var id = m.getId();
@@ -202,7 +264,8 @@ function listStatementInbox() {
   var pms = getAllRows('Payment Methods'), banksById = rowsById_(getAllRows('Banks')), uploads = getAllRows('Statement Uploads').filter(function (u) { return u.source !== 'import'; });
   var items = rows.map(function (r) {
     var last = stmtLastProcessedFor_(stmtInboxAccounts_(r, pms, banksById), uploads);
-    return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: r.attachment_name, size_kb: Number(r.size_kb),
+    var link = stmtIsLinkItem_(r);
+    return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: link ? '' : r.attachment_name, size_kb: link ? null : Number(r.size_kb), link: link,
       status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && !!last && String(r.received) <= last };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
@@ -215,6 +278,13 @@ function getStatementAttachment(payload) {
   if (!row) throw new Error(tr_('inbox.notThere'));
   requireFeature_('gmail', 'feature.gmailOff');
   var msg = gmailGetMessage_(row.message_id);
+  if (stmtIsLinkItem_(row)) {
+    var spec = STATEMENT_LINK_SENDERS_.filter(function (s) { return s.address === row.sender_key; })[0];
+    var url = spec ? stmtStatementLink_(msg.getBody(), spec) : '';
+    if (!url) throw new Error(tr_('inbox.linkGone'));
+    var pdf = stmtFetchLinkedPdf_(url, spec);
+    return { id: row.id, name: pdf.name, base64: Utilities.base64Encode(pdf.bytes) };
+  }
   var att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) { return a.getName() === row.attachment_name; })[0];
   if (!att) throw new Error(tr_('inbox.attachmentGone'));
   return { id: row.id, name: att.getName(), base64: Utilities.base64Encode(att.getBytes()) };

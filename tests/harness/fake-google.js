@@ -260,7 +260,7 @@ function buildGmail() {
     const msg = {
       _id: "m" + nextId++,
       _html: html, _attachments: attachments,
-      getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => (body === undefined ? "" : body), getFrom: () => from,
+      getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => (body === undefined ? "" : body), getFrom: () => from, getBody: () => (html !== undefined ? html : (body === undefined ? "" : body)),
       getDate: () => new Date(sentAt),   // fixed at creation: a real e-mail's date does not change between two reads
       getId() { return this._id; },
       getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => (a.bytes ? [...a.bytes] : []) }))
@@ -435,6 +435,11 @@ function buildServices(state) {
         const body = state.fetchHandler
           ? state.fetchHandler(url, options)
           : { ok: true, result: { message_id: 1 } };
+        // A handler may answer a plain download instead: { http: code, headers: {...}, bytes: [...] }.
+        if (body && body.http) {
+          return { getResponseCode: () => body.http, getAllHeaders: () => body.headers || {}, getContent: () => (body.bytes || []).slice(),
+            getContentText: () => Buffer.from(body.bytes || []).toString("utf8") };
+        }
         return { getContentText: () => JSON.stringify(body), getResponseCode: () => 200 };
       }
     },
