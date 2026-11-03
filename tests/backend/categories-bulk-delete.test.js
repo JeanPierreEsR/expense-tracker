@@ -93,7 +93,7 @@ test("the built-in Other and unknown ids are never touched; an empty list does n
   const res = post(rt, "deleteCategories", { ids: [other.id, "gone-1"], reassign: {} }).data;
   assert.deepEqual(Object.fromEntries(res.kept.map((k) => [k.id, k.reason])), { [other.id]: "protected", "gone-1": "missing" });
   assert.ok(rt.rows("Categories").some((c) => c.id === other.id));
-  assert.deepEqual(post(rt, "deleteCategories", { ids: [] }).data, { deleted: [], hidden: [], kept: [], movedEntries: 0 });
+  assert.deepEqual(post(rt, "deleteCategories", { ids: [] }).data, { deleted: [], hidden: [], kept: [], movedEntries: 0, droppedBudgets: [] });
 });
 
 test("the screen: pencil beside +, Other has no checkbox, the usage is asked first, one target per type, the merge alert, hide instead, names in the result, both languages", () => {

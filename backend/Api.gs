@@ -984,6 +984,10 @@ function discardEntries(payload) {
     if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
     if (entry.status !== 'pending') { out.kept.push({ id: id, reason: 'notPending' }); return; }
     if (repaymentPartInfo_(id)) { out.kept.push({ id: id, reason: 'repayment' }); return; }
+    // The single Discard asks what to do with repayments recorded against the entry (or its exchange partner); a bulk one cannot ask per entry, and
+    // silently dropping the choice turned a friend's 30 owed into 20 owed to them (QA round 1, 2026-11-03). Such entries are left for their own Discard.
+    var verdict = entryBulkVerdict_(entry);
+    if (verdict) { out.kept.push({ id: id, reason: verdict }); return; }
     try {
       discardEntryWithRepayments_(id, undefined);
       out.discarded.push(id);
