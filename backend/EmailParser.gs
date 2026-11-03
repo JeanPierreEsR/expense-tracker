@@ -706,7 +706,8 @@ function getEmailInfo_() {
   // `health`: is the scan working (EmailHealth.gs); null while e-mail reading is off so the app never warns about it.
   return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || ''),
     health: featureOn_('gmail') ? emailHealthForApp_() : null,
-    rulePack: rulePackStatus_() };
+    rulePack: rulePackStatus_(),
+    coverage: bankCoverage_(settings) };   // per bank: the kinds its rules read + the day each last arrived (BankCoverage.gs)
 }
 
 // Settings `bank_mail_seen` = JSON {bank: 'yyyy-mm-dd'}: the day of the newest e-mail that became an entry, per bank. It is JSON on
@@ -1022,6 +1023,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;
   try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }   // More → Bank emails ticks this bank
+  try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }   // ...and this kind of transaction
 
   var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
   // The entry is already saved as pending, so a failed Telegram send must

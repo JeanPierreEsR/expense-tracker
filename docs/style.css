@@ -3076,6 +3076,33 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 
+/* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */
+.be-tabs { display: flex; gap: 0; margin: 14px 0 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.be-tab { flex: 1; min-height: 44px; border: 0; background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.be-tab + .be-tab { border-left: 1px solid var(--border); }
+.be-tab.active { background: var(--accent); color: #fff; }
+.be-kinds { list-style: none; margin: 8px 0 0; padding: 0; }
+.be-kinds li { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-top: 1px solid var(--border); }
+.be-kinds li:first-child { border-top: 0; }
+.be-kinds li .hint { margin: 0; }
+.be-kinds li.ok .hint { color: var(--income); font-weight: 600; }
+.be-kinds li.can .hint { color: #b26a00; }
+.be-wallet { margin: 12px 0 0; font-size: 0.95rem; }
+.be-group { margin: 14px 0; }
+.be-group h3 { margin: 0 0 2px; }
+.be-group.be-optional h3 { color: var(--muted); }
+.be-kind { border-top: 1px solid var(--border); padding: 8px 0; }
+.be-kind > summary { list-style: none; cursor: pointer; position: relative; padding-right: 22px; }
+.be-kind > summary::-webkit-details-marker { display: none; }
+.be-kind > summary::after { content: "›"; position: absolute; right: 2px; top: 4px; color: var(--muted); font-size: 18px; transition: transform .15s; }
+.be-kind[open] > summary::after { transform: rotate(90deg); }
+.be-items { list-style: none; margin: 6px 0 0; padding: 0; }
+.be-items li { display: grid; grid-template-columns: 92px 1fr auto; gap: 8px; padding: 5px 0; font-size: 0.9rem; border-top: 1px dashed var(--border); }
+.be-item-date { color: var(--muted); }
+.be-item-text { overflow-wrap: anywhere; }
+.be-item-amt { white-space: nowrap; }
+.be-item-amt.in { color: var(--income); }
+
 .exchange-amount-row { display: flex; gap: 8px; margin-top: 8px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }

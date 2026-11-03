@@ -6611,7 +6611,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "notauto", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -8468,14 +8468,17 @@ function renderMailHealth_() {
     card.hidden = !(reading && mailHealthChecked_ && health.problem);
     if (!card.hidden) document.getElementById("mail-health-text").textContent = mailHealthProblemText_(health);
   }
-  const line = document.getElementById("bm-health");
-  if (line) {
-    const problem = reading && !!health.problem;
-    line.classList.toggle("problem", problem);
-    line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
-  }
-  const btn = document.getElementById("bm-check-btn");
-  if (btn) btn.hidden = !reading;
+  // The welcome pop-up and the Bank emails screen each carry a status line and a Check now button.
+  [["bm-health", "bm-check-btn"], ["be-health", "be-check-btn"]].forEach(([lineId, btnId]) => {
+    const line = document.getElementById(lineId);
+    if (line) {
+      const problem = reading && !!health.problem;
+      line.classList.toggle("problem", problem);
+      line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
+    }
+    const btn = document.getElementById(btnId);
+    if (btn) btn.hidden = !reading;
+  });
 }
 // "Check now" (Home warning and More → Bank emails): one forced check, then the screens refresh from its answer.
 async function mailCheckNowClicked_(btn) {
@@ -8486,6 +8489,7 @@ async function mailCheckNowClicked_(btn) {
 }
 document.getElementById("mail-health-check").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
 document.getElementById("bm-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
+document.getElementById("be-check-btn").addEventListener("click", (e) => mailCheckNowClicked_(e.currentTarget));
 
 // ---- Alerts: budget, trip and loan alerts land here (backend/Notices.gs); Telegram is an extra channel, not the only one ----
 // The Home "Alerts" card lists the notices not yet dismissed. Asked for in the background when the app opens, comes back to the front or is
@@ -8980,8 +8984,8 @@ function refreshExtrasRow_() {
   refreshPerfShareRow_();
   document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
-  // Bank emails: friends always (it holds "teach the app my bank" even when reading is off); the owner only when reading is on.
-  document.getElementById("more-bank-mail-btn").hidden = owner && !(meta && meta.capabilities && meta.capabilities.bankEmails);
+  // Bank emails: everyone (since 2026-11-03 it also holds "Not captured automatically", useful even when e-mail reading is off).
+  document.getElementById("more-bank-mail-btn").hidden = false;
   maybeAskPerfShare_();
   checkBackendUpdate_();
   syncRulePack_();
@@ -9008,7 +9012,7 @@ function renderFirstSteps_() {
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
     const late = days >= 3 && !(info.health && info.health.problem);
-    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => openBankMailModal_() });
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
   steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
@@ -10776,7 +10780,7 @@ function closeBankMailModal_() {
   if (done) done();
 }
 
-bmEl_("more-bank-mail-btn").addEventListener("click", () => openBankMailModal_());
+bmEl_("more-bank-mail-btn").addEventListener("click", () => showBankEmailsScreen());
 bmEl_("bm-teach-btn").addEventListener("click", () => openBankSampleModal_());
 bmEl_("bank-mail-close").addEventListener("click", closeBankMailModal_);
 bmEl_("bm-done-btn").addEventListener("click", closeBankMailModal_);
@@ -11190,63 +11194,241 @@ document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => 
 document.getElementById("more-tidy-btn").addEventListener("click", showTidyScreen);
 document.getElementById("tidy-back-btn").addEventListener("click", () => showScreen("more"));
 
-// ---- Not captured automatically (More tab; backend/ManualGaps.gs) ----
+// ---- More → Bank emails: a full screen since 2026-11-03; it also holds what used to be "Not captured automatically" ----
+// (backend/BankCoverage.gs + backend/ManualGaps.gs; specs/review-telegram-email.md § Bank emails screen). One question, two views:
+//  - By bank: for each bank the person uses, which KINDS of transaction its emails cover. "✓ arrived in your mailbox" only after one really
+//    arrived in THIS person's copy; "○ can arrive" when the app can read it but none has yet (the bank's alert may be off); "✗ no email" only
+//    for what the owner confirmed. Yape and Plin are wallets: drawn inside the bank account they are linked to, never as a bank of their own.
+//  - By transaction: what the person added by hand in the last 90 days, in three groups by how necessary that was (must / check / optional),
+//    each kind opening to its newest entries; then the bank emails the app couldn't read.
+const beEl_ = (id) => document.getElementById(id);
+let be_ = { view: "bank", data: null };
 
-async function showNotautoScreen() {
-  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-notauto"; });
+async function showBankEmailsScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-bank-emails"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
-  const list = document.getElementById("notauto-list");
-  list.textContent = "…";
+  // Loading standard: the screen opens at once and shows its content only when everything it needs has arrived.
+  beEl_("be-loading").hidden = false;
+  beEl_("be-loading").textContent = tr("common.loading");
+  beEl_("be-body").hidden = true;
   try {
-    renderNotauto_(await callApi("getManualGaps", {}));
+    const data = await callApi("getManualGaps", {});
+    be_.data = data;
+    // The same answer carries the freshest coverage (which kinds arrived and when), so the bank view is never older than the list beside it.
+    if (meta && data.coverage) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { coverage: data.coverage, seen: data.seen || (meta.emailInfo || {}).seen });
+    renderBankEmails_();
+    beEl_("be-loading").hidden = true;
+    beEl_("be-body").hidden = false;
   } catch (err) {
-    list.textContent = err.message || String(err);
+    beEl_("be-loading").textContent = err.message || String(err);
   }
 }
 
-function renderNotauto_(data) {
+function renderBankEmails_() {
+  const info = (meta && meta.emailInfo) || {};
+  const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
+  beEl_("be-body").querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
+  beEl_("be-address").textContent = info.address || tr("bankMail.noAddress");
+  beEl_("be-copy-btn").hidden = !info.address;
+  beEl_("be-msg").textContent = "";
+  beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
+  beEl_("be-tabs").hidden = !reading;
+  renderMailHealth_();
+  renderBeBanks_();
+  renderBeTx_(be_.data || {});
+  setBeView_(reading ? be_.view : "tx");
+}
+
+function setBeView_(view) {
+  be_.view = view;
+  beEl_("be-view-bank").hidden = view !== "bank";
+  beEl_("be-view-tx").hidden = view !== "tx";
+  [["bank", "be-tab-bank"], ["tx", "be-tab-tx"]].forEach(([v, id]) => {
+    beEl_(id).classList.toggle("active", v === view);
+    beEl_(id).setAttribute("aria-selected", v === view ? "true" : "false");
+  });
+}
+
+// The bank a wallet's linked account belongs to ("BCP" for Yape), or "" when no account is linked.
+function beWalletBank_(slotKeys) {
+  const st = (meta && meta.settings) || {}, pms = (meta && meta.paymentMethods) || [], banks = (meta && meta.banks) || [];
+  for (const key of slotKeys) {
+    if (!st[key]) continue;
+    const pm = pms.find((p) => String(p.id) === String(st[key]));
+    const bank = pm && banks.find((b) => b.id === pm.bank_id);
+    if (bank && bank.name) return String(bank.name).trim();
+  }
+  return "";
+}
+
+// One list of kinds: "✓ arrived" / "○ can arrive" for the kinds the rules read, "✗ no email" for the confirmed ones.
+function beKindList_(kinds, none) {
+  const ul = document.createElement("ul");
+  ul.className = "be-kinds";
+  kinds.forEach((k) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(k.seen || "") ? k.seen : "";
+    const li = document.createElement("li");
+    li.className = day ? "ok" : "can";
+    li.innerHTML = `<strong>${escapeHtml(tr("bankKind." + k.key))}</strong><span class="hint">${escapeHtml(day ? tr("be.state.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("be.state.can"))}</span>`;
+    ul.appendChild(li);
+  });
+  (none || []).forEach((key) => {
+    const li = document.createElement("li");
+    li.className = "none";
+    li.innerHTML = `<strong>${escapeHtml(tr("bankKind." + key))}</strong><span class="hint">${escapeHtml(tr("be.state.none"))}</span>`;
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
+function renderBeBanks_() {
+  const box = beEl_("be-banks");
+  box.innerHTML = "";
+  const info = (meta && meta.emailInfo) || {};
+  const seen = info.seen || {}, cov = info.coverage || null, readable = info.banks || [];
+  const canTeach = !perfIsOwnerCopy_() && !!info.banks;   // an older pinned backend sends no emailInfo: do not call every bank unreadable
+  const st = (meta && meta.settings) || {};
+  const yapeLinked = !!(st.yape_pen || st.yape_usd);
+  const yapeBank = beWalletBank_(["yape_pen", "yape_usd"]).toLowerCase();
+  const plinBank = beWalletBank_(["plin_pen"]).toLowerCase();
+  // Banks the person has an account at. Yape is a wallet of one of them; only a Yape linked to no known account gets a row of its own.
+  const names = bmBanksInUse_().filter((n) => !(n.toLowerCase() === "yape" && yapeBank));
+  const walletOnly = yapeLinked && !yapeBank && !names.some((n) => n.toLowerCase() === "yape");   // "(wallet)" only when there is no account called Yape
+  if (walletOnly) names.push("Yape");
+  names.forEach((used) => {
+    const bank = readable.find((b) => b.toLowerCase() === used.toLowerCase());
+    if (!bank && !canTeach) return;
+    const key = used.toLowerCase();
+    const row = document.createElement("details");
+    row.className = "bm-bank";
+    const sum = document.createElement("summary");
+    const name = document.createElement("b");
+    name.textContent = walletOnly && key === "yape" ? tr("be.wallet.yapeAlone") : (bank || used);
+    sum.appendChild(name);
+    const status = document.createElement("span");
+    if (bank) {
+      const day = seen[bank];
+      status.className = "bm-status " + (day ? "ok" : "wait");
+      status.textContent = day ? tr("bankMail.seen", { date: I18n.fmtDateMedium(new Date(day + "T00:00:00")) }) : tr("bankMail.notSeen");
+    } else {
+      status.className = "bm-status wait";
+      status.textContent = tr("bankMail.notReadable");
+    }
+    sum.appendChild(status);
+    row.appendChild(sum);
+    const mine = bank && cov && cov[bank];
+    if (mine) {
+      const hasYape = yapeLinked && key === yapeBank, hasPlin = key === plinBank;
+      const own = mine.kinds.filter((k) => !(hasYape && k.key === "yape_in") && !(hasPlin && k.key === "plin_out"));
+      if (own.length || mine.none.length) row.appendChild(beKindList_(own, mine.none));
+      const wallet = (titleKey, kinds, tipKey) => {
+        const h = document.createElement("h4");
+        h.className = "be-wallet";
+        h.textContent = tr(titleKey);
+        row.appendChild(h);
+        row.appendChild(beKindList_(kinds, []));
+        if (tipKey) { const t = document.createElement("p"); t.className = "hint"; t.textContent = tr(tipKey); row.appendChild(t); }
+      };
+      if (hasYape) wallet("be.wallet.yape", mine.kinds.filter((k) => k.key === "yape_in").concat((cov.Yape && cov.Yape.kinds) || []), "be.tip.yape");
+      if (hasPlin) wallet("be.wallet.plin", mine.kinds.filter((k) => k.key === "plin_out"));
+    }
+    const tip = document.createElement("p");
+    tip.className = "hint";
+    tip.textContent = bank ? tr(BM_TIP_KEYS_[bank] || "bankMail.tip.generic") : tr("bankNote.text", { banks: used });
+    row.appendChild(tip);
+    if (!bank) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "add-inline";
+      btn.textContent = tr("bankMail.teachBank");
+      btn.addEventListener("click", () => openBankSampleModal_());
+      row.appendChild(btn);
+    }
+    box.appendChild(row);
+  });
+  beEl_("be-foot").hidden = !cov;
+}
+
+// ---- By transaction ----
+const BE_NEEDS_ = ["must", "check", "optional"];
+
+function beKindName_(k) {
+  if (k.need === "must") return k.key === "yape_out" ? tr("be.kind.must.yape_out") : tr("notauto.kind." + k.key);
+  return tr(k.need ? "be.kind." + k.key : "notauto.kind." + k.key);
+}
+
+function beItemsHtml_(k) {
+  if (!k.items || !k.items.length) return "";
+  const rows = k.items.map((it) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(it.date || "") ? I18n.fmtDateMedium(new Date(it.date + "T00:00:00")) : "";
+    const amount = it.currency ? formatAmount(it.amount, it.currency, it.direction === "in" ? "+" : "−") : "";
+    return `<li><span class="be-item-date">${escapeHtml(day)}</span><span class="be-item-text">${escapeHtml(it.description || "")}${it.source === "statement" ? ` <em class="hint">· ${escapeHtml(tr("be.tx.fromStatement"))}</em>` : ""}</span><span class="be-item-amt ${it.direction === "in" ? "in" : ""}">${escapeHtml(amount)}</span></li>`;
+  }).join("");
+  const more = k.count > k.items.length ? `<p class="hint">${escapeHtml(tr("be.tx.newest", { n: k.items.length, total: k.count }))}</p>` : "";
+  return `<ul class="be-items">${rows}</ul>${more}`;
+}
+
+function beKindHtml_(k, owner) {
+  const totals = owner && k.totals
+    ? Object.keys(k.totals).map((cur) => `${escapeHtml(cur)} ${moneyFmt(k.totals[cur])}`).join(" · ")
+    : "";
+  const meta_ = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
+    + (totals ? " · " + totals : "");
+  // "must" kinds say how to add them; "check" / "optional" are explained once by their group's heading.
+  const tip = !k.need || k.need === "must" ? (k.need === "must" && k.key === "yape_out" ? tr("be.tip.must.yape_out") : notAutoTip_(k.key)) : "";
+  const head = `<strong>${escapeHtml(beKindName_(k))}</strong><div class="hint" style="margin:2px 0;">${escapeHtml(meta_)}</div>`;
+  const tipHtml = tip ? `<div class="hint" style="margin:2px 0;">${escapeHtml(tip)}</div>` : "";
+  if (!k.items) return `<div class="more-list-item" style="display:block;">${head}${tipHtml}</div>`;   // an older backend: the plain list
+  return `<details class="be-kind"><summary>${head}</summary>${tipHtml}${beItemsHtml_(k)}</details>`;
+}
+
+function renderBeTx_(data) {
   const kinds = data.kinds || [];
   const unread = data.unread || [];
-  document.getElementById("notauto-empty").hidden = kinds.length > 0 || unread.length > 0;
-  document.getElementById("notauto-unread").hidden = !unread.length;
-  document.getElementById("notauto-unread-list").innerHTML = unread.map((u) => {
+  beEl_("be-empty").hidden = kinds.length > 0 || unread.length > 0;
+  beEl_("be-unread").hidden = !unread.length;
+  beEl_("be-unread-list").innerHTML = unread.map((u) => {
     // An older backend may still hand the date back in a form that is not yyyy-mm-dd: then say nothing rather than "Invalid Date".
-    const meta = tr("notauto.unread.count", { n: u.count }) + (/^\d{4}-\d{2}-\d{2}$/.test(u.last || "") ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) }) : "");
+    const meta_ = tr("notauto.unread.count", { n: u.count }) + (/^\d{4}-\d{2}-\d{2}$/.test(u.last || "") ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(u.last + "T00:00:00")) }) : "");
     return `<div class="more-list-item" style="display:block;">
       <strong>${escapeHtml(u.subject || u.sender)}</strong>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta)}</div>
+      <div class="hint" style="margin:2px 0;">${escapeHtml(u.sender)} · ${escapeHtml(meta_)}</div>
       <div class="hint" style="margin:2px 0;">${escapeHtml(tr("notauto.unread." + u.kind))}</div>
       ${perfIsOwnerCopy_() ? "" : `<button type="button" class="add-inline notauto-send" data-sender="${escapeHtml(u.sender)}" data-shape="${escapeHtml(u.subject)}">${escapeHtml(tr("notauto.unread.send"))}</button>`}
     </div>`;
   }).join("");
-  const share = document.getElementById("notauto-share");
+  const share = beEl_("be-share");
   share.hidden = !(data.owner && data.manualShare && data.manualShare.total);
-  if (!share.hidden) {
-    share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
-  }
-  document.getElementById("notauto-list").innerHTML = kinds.map((k) => {
-    const totals = data.owner && k.totals
-      ? Object.keys(k.totals).map((cur) => `${escapeHtml(cur)} ${moneyFmt(k.totals[cur])}`).join(" · ")
-      : "";
-    const meta = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
-      + (totals ? " · " + totals : "");
-    return `<div class="more-list-item" style="display:block;">
-      <strong>${escapeHtml(tr("notauto.kind." + k.key))}</strong>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(meta)}</div>
-      <div class="hint" style="margin:2px 0;">${escapeHtml(notAutoTip_(k.key))}</div>
-    </div>`;
-  }).join("");
+  if (!share.hidden) share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
+  const owner = !!data.owner;
+  const grouped = kinds.some((k) => k.need);
+  beEl_("be-groups").innerHTML = !grouped
+    ? kinds.map((k) => beKindHtml_(k, owner)).join("")
+    : BE_NEEDS_.map((need) => {
+      const list = kinds.filter((k) => k.need === need);
+      if (!list.length) return "";
+      return `<div class="be-group be-${need}"><h3>${escapeHtml(tr("be.need." + need))}</h3><p class="hint">${escapeHtml(tr("be.need." + need + ".sub"))}</p>${list.map((k) => beKindHtml_(k, owner)).join("")}</div>`;
+    }).join("");
 }
 
 // "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
-document.getElementById("notauto-unread-list").addEventListener("click", (ev) => {
+beEl_("be-unread-list").addEventListener("click", (ev) => {
   const btn = ev.target.closest(".notauto-send");
   if (btn) openBankSampleModal_({ sender: btn.dataset.sender, shape: btn.dataset.shape });
 });
-document.getElementById("more-notauto-btn").addEventListener("click", showNotautoScreen);
-document.getElementById("notauto-back-btn").addEventListener("click", () => showScreen("more"));
+beEl_("be-tabs").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".be-tab");
+  if (btn) setBeView_(btn.dataset.view);
+});
+beEl_("be-teach-btn").addEventListener("click", () => openBankSampleModal_());
+beEl_("be-copy-btn").addEventListener("click", async () => {
+  const info = (meta && meta.emailInfo) || {};
+  try { await navigator.clipboard.writeText(info.address || ""); beEl_("be-msg").textContent = tr("bankMail.copied"); }
+  catch (err) { beEl_("be-msg").textContent = tr("bankMail.copyFail"); }
+});
+beEl_("be-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Performance log screen (More tab) ----
 
