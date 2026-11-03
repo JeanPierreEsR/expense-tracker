@@ -685,6 +685,10 @@
             <span data-i18n="more.import">📥 Import data</span>
             <span class="more-list-chevron">›</span>
           </button>
+          <button type="button" class="more-list-item" id="more-deleted-btn" hidden>
+            <span data-i18n="more.deleted">🗑️ Recently deleted</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-statements-btn">
             <span data-i18n="more.statements">🏦 Statements</span>
             <span class="more-list-chevron">›</span>
@@ -1046,6 +1050,19 @@
           <button type="button" class="add-inline" id="perf-copy-btn" data-i18n="perf.copy">Copy report</button>
           <button type="button" class="add-inline" id="perf-clear-btn" data-i18n="perf.clear">Clear</button>
         </div>
+      </div>
+    </div>
+
+    <div id="screen-deleted-entries" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="deleted-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="deleted.title">Recently deleted</h2>
+        <p class="hint" data-i18n="deleted.hint">Entries you delete several at a time wait here for 30 days. Restore them, or delete them for good.</p>
+        <div id="deleted-list"></div>
+        <p class="hint" id="deleted-empty" hidden data-i18n="deleted.empty">Nothing here. Entries you delete several at a time wait here for 30 days.</p>
+        <p class="hint" id="deleted-error" style="color:#d64545;"></p>
       </div>
     </div>
 

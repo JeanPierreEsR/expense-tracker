@@ -460,6 +460,9 @@ function routeActionSwitch_(action, payload) {
     case 'confirmEntries': return confirmEntries(payload);
     case 'previewEntriesDelete': return withRowsMemo_(function () { return previewEntriesDelete(payload); });
     case 'deleteEntries': return withRowsMemo_(function () { return deleteEntries(payload); });
+    case 'listDeletedEntries': return listDeletedEntries();
+    case 'restoreDeletedEntries': return restoreDeletedEntries(payload);
+    case 'forgetDeletedEntries': return forgetDeletedEntries(payload);
     case 'setEntriesCategory': return setEntriesCategory(payload);
     case 'undoSetEntriesCategory': return undoSetEntriesCategory(payload);
     case 'discardEntries': return discardEntries(payload);

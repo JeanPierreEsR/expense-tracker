@@ -4033,7 +4033,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     ${sharedFriends ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.sharedNote", { n: sharedFriends }))}</div>` : ""}
     ${kept.length ? `<p class="hint" style="white-space:pre-line;">${escapeHtml(tr("entriesBulk.keptNote", { n: kept.length }) + "\n" + keptText)}</p>` : ""}
     <button type="button" class="primary danger" id="entries-bulk-go">${escapeHtml(tr("friends.deleteN", { n: deletable.length }))}</button>
-    <p class="hint">${escapeHtml(tr("entriesBulk.cantUndo"))}</p>`;
+    <p class="hint">${escapeHtml(tr(meta && meta.capabilities && meta.capabilities.entriesRestore ? "entriesBulk.undoHint" : "entriesBulk.cantUndo"))}</p>`;
   document.getElementById("entries-bulk-go").addEventListener("click", () => {
     closeEntriesBulkSheet_();
     const sendIds = deletable.map((i) => i.id);
@@ -4053,9 +4053,13 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
       afterNewEntrySaved_();
       refreshLoans().catch(() => {});
       if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
+      // A safety copy was kept (stage 3): the toast offers Undo for 10 seconds, and the entries wait in More → Recently deleted for 30 days.
+      if (result && result.batch_id && result.deleted.length) {
+        showUndoToast_(tr("entriesBulk.doneUndo", { n: result.deleted.length }), () => restoreDeletedBatch_({ batch_id: result.batch_id }));
+      }
     }, {
       busy: "common.deletingToast",
-      done: () => result && result.deleted.length && !result.kept.length ? tr("entriesBulk.done", { n: result.deleted.length }) : "",
+      done: () => result && !result.batch_id && result.deleted.length && !result.kept.length ? tr("entriesBulk.done", { n: result.deleted.length }) : "",
     });
   });
 });
@@ -6676,7 +6680,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "deleted-entries"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -11139,6 +11143,73 @@ const tidySkipped_ = new Set();   // groups the person skipped on this visit
 let tidyGroups_ = [];
 let tidyData_ = {};
 
+// ---- More → Recently deleted (stage 3 of the Home bulk edit, owner's plan 2026-11-03) ----
+// Entries deleted several at a time keep a 30-day safety copy on the server. Here they can be restored (a whole batch or one entry) or deleted for good.
+// The same restore is the Undo on the delete toast.
+async function restoreDeletedBatch_(payload) {
+  const out = await callApi("restoreDeletedEntries", payload);
+  showToast_(tr("deleted.restored", { n: out.restored.length }), false, 6000);
+  if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
+  try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+  if (searchActive) await refreshSearchAfterEdit_();
+  afterNewEntrySaved_();
+  refreshLoans().catch(() => {});
+  if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});
+  return out;
+}
+async function showDeletedScreen_() {
+  showMoreSub_("deleted-entries");
+  document.getElementById("deleted-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  document.getElementById("deleted-empty").hidden = true;
+  await refreshDeletedScreen_();
+}
+async function refreshDeletedScreen_() {
+  const errorEl = document.getElementById("deleted-error");
+  errorEl.textContent = "";
+  const list = document.getElementById("deleted-list");
+  let res;
+  try { res = await callApi("listDeletedEntries", {}); }
+  catch (err) { list.innerHTML = ""; errorEl.textContent = tr("business.loadFailed", { error: err.message }); return; }
+  list.innerHTML = "";
+  document.getElementById("deleted-empty").hidden = res.batches.length > 0;
+  document.getElementById("deleted-empty").textContent = tr("deleted.empty", { days: res.days });
+  const when = (iso) => new Date(iso).toLocaleString(I18n.getLang() === "es" ? "es" : "en", { dateStyle: "medium", timeStyle: "short" });
+  res.batches.forEach((b) => {
+    const box = document.createElement("div");
+    box.className = "deleted-batch";
+    box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("deleted.batchTitle", { when: when(b.deleted_at), n: b.entries.length }))}</div>`;
+    b.entries.forEach((e) => {
+      const catName = (meta.categories.find((c) => c.id === e.category_id) || {}).name || "";
+      const row = document.createElement("div");
+      row.className = "recurring-row";
+      row.innerHTML = `
+        <div>
+          <div class="recurring-row-name">${escapeHtml(e.description || catName || tr("review.noDescription"))}</div>
+          <div class="recurring-row-sub">${escapeHtml([e.date, catName].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="recurring-row-amount"><span class="primary-amt">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency)}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
+      row.querySelector(".deleted-one").addEventListener("click", () => {
+        saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id, ids: [e.entry_id] }), null, { busy: "deleted.restoring" });
+      });
+      box.appendChild(row);
+    });
+    const actions = document.createElement("div");
+    actions.className = "deleted-batch-actions";
+    actions.innerHTML = `<button type="button" class="primary deleted-all">${escapeHtml(tr("deleted.restoreAll"))}</button><button type="button" class="add-inline deleted-forget">${escapeHtml(tr("deleted.forget"))}</button>`;
+    actions.querySelector(".deleted-all").addEventListener("click", () => {
+      saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id }), null, { busy: "deleted.restoring" });
+    });
+    actions.querySelector(".deleted-forget").addEventListener("click", () => {
+      if (!confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;
+      saveBehindScreen_(() => callApi("forgetDeletedEntries", { batch_id: b.batch_id }), () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
+    });
+    box.appendChild(actions);
+    list.appendChild(box);
+  });
+}
+document.getElementById("more-deleted-btn").addEventListener("click", showDeletedScreen_);
+document.getElementById("deleted-back-btn").addEventListener("click", () => showScreen("more"));
+
 async function showTidyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -13257,6 +13328,7 @@ function businessOffered() {
 function applyBusinessVisibility_() {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
+  document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
