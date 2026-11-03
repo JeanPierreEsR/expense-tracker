@@ -229,6 +229,32 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- Amazon.com shipment (owner's request, 2026-11-02) ----
+  // Diners sends no e-mail for Amazon charges, so Amazon's own "Shipped …" e-mail is read instead. Amazon charges the card when it ships,
+  // so this e-mail's day is the day the money left (the earlier "Ordered …" e-mail is not read). It names no card (the person pays Amazon
+  // with several), so there is no `bank` and the account stays blank for review. When the card's bank ALSO e-mails the charge, the two are
+  // one purchase: see amazonShipmentTwin_ below. An order shipped in several packages sends one e-mail per package, each with its own
+  // Total, so the dedup id is the order number AND that total. English e-mails only (the only kind seen).
+  {
+    sender: 'shipment-tracking@amazon.com', house: 'Amazon', amazonShipment: true,
+    label: 'Envío de Amazon.com',
+    match: function (subject, body) { return /^\s*Shipped\b/i.test(subject) && /(?:^|\n)[ \t]*\*?Total\b/i.test(body); },
+    extract: function (subject, body) {
+      var total = body.match(/(?:^|\n)[ \t]*\*?Total\*?[ \t]*:?\s*([^\r\n]+)/i);
+      var amt = extractAmount_(total ? total[1] : null);
+      if (!amt) return null;
+      var order = body.match(/Order\s*#\s*([\d-]{10,})/i);
+      var what = cleanText_(String(subject).replace(/^\s*Shipped\s*:?\s*/i, '').replace(/^"(.*)"$/, '$1'));
+      return {
+        type: 'expense', needsReview: true,
+        amount: amt.amount, currency: amt.currency,
+        description: 'Amazon' + (what ? ' - ' + what.slice(0, 60) : ''),
+        merchant: 'Amazon',
+        last4: null,
+        externalId: order ? 'amazon-' + order[1] + '-' + amt.amount.toFixed(2) : null
+      };
+    }
+  },
   // ---- Exchange house: one confirmation names BOTH sides of the exchange (CurrencyExchange.gs) ----
   // The sender is the exact address the e-mails really come from (a look-alike of a webmail domain, so it is matched whole, never by domain);
   // the rule also needs the "Enviaste" and "Recibirás" lines, so a spoofed or unrelated mail from that address matches nothing.
@@ -937,6 +963,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     }
   }
 
+  // An Amazon shipment and the card's own e-mail for its charge are ONE purchase: whichever arrives second makes no entry, and a bank
+  // e-mail tells the shipment which card paid.
+  var amazonTwin = fields.type === 'expense' ? amazonShipmentTwin_(rule, fields, dateStr, paymentMethod) : null;
+  if (amazonTwin) {
+    if (!rule.amazonShipment && paymentMethod && !amazonTwin.payment_method_id) updateRowFields_('Entries', amazonTwin.id, { payment_method_id: paymentMethod.id });
+    results.duplicates++;
+    return;
+  }
+
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
 
   var entry = {
@@ -988,6 +1023,29 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   } catch (err) {
     console.error('Telegram notification failed: ' + err);
   }
+}
+
+// Amazon charges the card when it ships, so the bank's e-mail for that charge comes the same day or a day or two from the shipment e-mail.
+// A bank e-mail for an Amazon charge of the SAME currency and EXACT amount, within AMAZON_CHARGE_DAYS_ of the shipment, is that shipment's
+// charge. Returns the entry already in the sheet that this e-mail repeats, or null.
+//  - a shipment e-mail: a bank e-mail entry for Amazon that came first;
+//  - a bank e-mail for Amazon: the shipment's entry, when it has no account yet or already has this one (so a re-read e-mail is still a repeat).
+var AMAZON_CHARGE_DAYS_ = 5;
+
+function amazonShipmentTwin_(rule, fields, dateStr, paymentMethod) {
+  var isShipment = !!rule.amazonShipment;
+  var isAmazon = function (text) { return /amazon|amzn/i.test(String(text || '')); };
+  if (!isShipment && !(rule.bank && isAmazon(fields.merchant || fields.description))) return null;
+  var day = overlapDayNumber_(dateStr);
+  var amount = Math.abs(Number(fields.amount)).toFixed(2);
+  return getAllRows('Entries').find(function (e) {
+    if (e.type !== 'expense' || e.currency !== fields.currency || Math.abs(Number(e.amount)).toFixed(2) !== amount) return false;
+    if (Math.abs(overlapDayNumber_(e.date) - day) > AMAZON_CHARGE_DAYS_) return false;
+    var eIsShipment = /^amazon-/.test(String(e.external_id || ''));
+    if (isShipment) return !eIsShipment && e.source === 'email' && isAmazon(e.merchant);
+    if (!eIsShipment) return false;
+    return !e.payment_method_id || (!!paymentMethod && String(e.payment_method_id) === String(paymentMethod.id));
+  }) || null;
 }
 
 /**
