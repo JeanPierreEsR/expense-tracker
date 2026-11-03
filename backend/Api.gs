@@ -458,6 +458,8 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeLoans': return removePracticeLoans(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
     case 'confirmEntries': return confirmEntries(payload);
+    case 'previewEntriesDelete': return withRowsMemo_(function () { return previewEntriesDelete(payload); });
+    case 'deleteEntries': return withRowsMemo_(function () { return deleteEntries(payload); });
     case 'discardEntries': return discardEntries(payload);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);

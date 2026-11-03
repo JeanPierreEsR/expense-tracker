@@ -3413,6 +3413,17 @@ function buildEntryRow_(entry) {
   amount.className = "entry-amount";
   amount.innerHTML = renderEntryAmountHtml(entry);
 
+  if (entriesEditing_) {   // Edit mode: a tick row (an entry that is still saving or being deleted cannot be ticked)
+    const tickable = !entry._queueStatus && !deletingEntryIds_.has(entry.id);
+    row.classList.add("entry-check");
+    row.insertAdjacentHTML("afterbegin", tickable
+      ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${entriesSelected_.has(entry.id) ? " checked" : ""}>`
+      : `<span class="friends-check-spacer"></span>`);
+    row.appendChild(left);
+    row.appendChild(amount);
+    if (tickable) row.addEventListener("click", () => entriesToggle_(entry.id, row));
+    return row;
+  }
   row.appendChild(left);
   row.appendChild(amount);
   row.addEventListener("click", () => {
@@ -3512,6 +3523,13 @@ function buildExchangePairRow_(p) {
   amount.className = "entry-amount";
   const rate = exchangeRateText_(p);
   amount.innerHTML = `<span class="primary-amt">${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
+  if (entriesEditing_) {   // a currency exchange is two entries: it is handled one by one, so it has no tick
+    row.classList.add("entry-check");
+    row.insertAdjacentHTML("afterbegin", `<span class="friends-check-spacer"></span>`);
+    row.appendChild(left);
+    row.appendChild(amount);
+    return row;
+  }
   row.appendChild(left);
   row.appendChild(amount);
   row.addEventListener("click", () => openExchangePairSheet_(p));
@@ -3654,6 +3672,8 @@ function renderEntryListFromCache_() {
   const list = document.getElementById("entry-list");
   const entries = applyQueuedEditOverlay_(lastRenderedEntries_);
   list.innerHTML = "";
+  document.getElementById("entries-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk && entries.length);
+  if (entriesEditing_ && !entries.length) setEntriesEditing_(false, false);
 
   if (entries.length === 0) {
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("entries.empty"))}</div>`;
@@ -3687,6 +3707,7 @@ function renderEntryListFromCache_() {
   });
   flushDay();
   setLoadMoreButton_(list, lastRenderedHasMore_);
+  syncEntriesEditBar_();
 }
 
 // "Today", "Yesterday", otherwise the date written out in the current language.
@@ -3812,6 +3833,7 @@ function syncSearchIndex_(opts) {
 
 function buildSearchRow_(entry) {
   const row = buildEntryRow_(entry);
+  if (entriesEditing_) return row;   // Edit mode: the row already ticks
   // Replace the inline-edit click with the pop-up, so the results stay put
   // underneath; after a save/delete the pop-up asks the same hook the
   // Overview/Budgets drill-downs use to refresh what's below it.
@@ -3833,6 +3855,146 @@ async function refreshSearchAfterEdit_() {
   renderSearchResults_();
 }
 
+// ---- Home: Edit mode (tick several entries, delete them at once; owner's request, 2026-11-03; stage 1 = delete) ----
+// A pencil on the Home list and on the search results (search "uber", Edit, Select all matches). A "what would happen" preview comes first (previewEntriesDelete), then ONE
+// decision sheet: only the plain entries are deleted; a loan's movement, a repayment and its extra, a forgiveness, an expense whose loans were repaid and a currency
+// exchange are kept and named, to be deleted one by one from where the single flow asks the right question. A shared expense goes with its split and the debt from it.
+const ENTRIES_BULK_MAX_ = 300;
+const entrySelectable_ = (e) => !e._queueStatus && !deletingEntryIds_.has(e.id) && !exchangeSideOf_(e);
+function entriesPool_() {   // what "Select all" means: every loaded entry on Home, every match while searching
+  if (searchActive) {
+    const term = document.getElementById("entry-search").value.trim();
+    if (term.length < SEARCH_MIN_CHARS || !searchIndex) return [];
+    const words = normalizeSearchText_(term).split(/\s+/).filter(Boolean);
+    return searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1)).filter(entrySelectable_);
+  }
+  return applyQueuedEditOverlay_(lastRenderedEntries_).filter(entrySelectable_);
+}
+function entriesToggle_(id, row) {
+  if (entriesSelected_.has(id)) entriesSelected_.delete(id);
+  else if (entriesSelected_.size >= ENTRIES_BULK_MAX_) { showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ })); return; }
+  else entriesSelected_.add(id);
+  const box = row.querySelector(".friends-check");
+  if (box) box.checked = entriesSelected_.has(id);
+  syncEntriesEditBar_();
+}
+function setEntriesEditing_(on, redraw = true) {
+  if (on === entriesEditing_ && redraw) return;
+  if (on && reviewEditing_) setReviewEditing_(false);
+  entriesEditing_ = on;
+  entriesSelected_ = new Set();
+  ["entries-edit-btn", "search-edit-btn"].forEach((id) => setEditIcon_(document.getElementById(id), on));
+  document.getElementById("entries-editbar").hidden = !on;
+  document.getElementById("screen-entries").classList.toggle("entries-editing", on);
+  placeEntriesEditBar_();
+  syncFab_();
+  syncEntriesEditBar_();
+  if (redraw) { renderEntryListFromCache_(); if (searchActive) renderSearchResults_(); }
+}
+function placeEntriesEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("entries-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (entriesEditing_) placeEntriesEditBar_(); });
+function syncEntriesEditBar_() {
+  const n = entriesSelected_.size;
+  const del = document.getElementById("entries-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  const pool = entriesPool_();
+  const all = n > 0 && pool.length > 0 && pool.slice(0, ENTRIES_BULK_MAX_).every((e) => entriesSelected_.has(e.id));
+  document.getElementById("entries-selectall-btn").textContent = all ? tr("friends.selectNone")
+    : searchActive && pool.length ? tr("entriesBulk.selectAllMatches", { n: pool.length }) : tr("friends.selectAll");
+}
+document.getElementById("entries-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
+document.getElementById("search-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
+document.getElementById("entries-done-btn").addEventListener("click", () => setEntriesEditing_(false));
+document.getElementById("entries-selectall-btn").addEventListener("click", () => {
+  const pool = entriesPool_().slice(0, ENTRIES_BULK_MAX_);
+  const everyOn = pool.length > 0 && pool.every((e) => entriesSelected_.has(e.id));
+  entriesSelected_ = everyOn ? new Set() : new Set(pool.map((e) => e.id));
+  if (!everyOn && entriesPool_().length > ENTRIES_BULK_MAX_) showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ }));
+  renderEntryListFromCache_();
+  if (searchActive) renderSearchResults_();
+  syncEntriesEditBar_();
+});
+function closeEntriesBulkSheet_() { document.getElementById("entries-bulk-backdrop").hidden = true; }
+document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
+
+// Sentence for entries that stay: one line per reason, naming them (up to a few).
+function entriesBulkKeptText_(keptItems, infoOf) {
+  const byReason = new Map();
+  keptItems.forEach((k) => byReason.set(k.reason, (byReason.get(k.reason) || []).concat(k)));
+  return [...byReason].map(([reason, list]) => {
+    const labels = list.map((k) => infoOf(k.id));
+    const shown = labels.slice(0, 4).join(", ");
+    return tr("entriesBulk.keptLine", { why: tr(`entriesBulk.why.${reason}`), n: list.length, names: labels.length > 4 ? tr("reviewBulk.andMore", { names: shown, n: labels.length - 4 }) : shown });
+  }).join("\n");
+}
+const entriesBulkLabel_ = (e) => describeForConfirm_(e.description || (meta.categories.find((c) => c.id === e.category_id) || {}).name || tr("review.noDescription"), formatAmount(e.amount, e.currency), e.date);
+
+document.getElementById("entries-delete-selected-btn").addEventListener("click", async () => {
+  const ids = [...entriesSelected_];
+  if (!ids.length) return;
+  const known = new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+  const infoOf = (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; };
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;   // loading standard: the choices appear only when the effect is known
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let preview;
+  try {
+    preview = await callApi("previewEntriesDelete", { ids });
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const items = preview.items || [];
+  const deletable = items.filter((i) => !i.reason);
+  const kept = items.filter((i) => i.reason);
+  const sharedFriends = deletable.filter((i) => i.shared > 0).length;
+  const keptText = kept.length ? entriesBulkKeptText_(kept, infoOf) : "";
+  if (!deletable.length) {
+    body.innerHTML = `<p class="hint">${escapeHtml(tr("entriesBulk.noneDeletable"))}</p><p class="hint" style="white-space:pre-line;">${escapeHtml(keptText)}</p>`;
+    return;
+  }
+  const lines = deletable.slice(0, 8).map((i) => infoOf(i.id));
+  const more = deletable.length > 8 ? `\n${tr("entriesBulk.andMore", { n: deletable.length - 8 })}` : "";
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(tr("entriesBulk.confirm", { n: deletable.length }))}</b></p>
+    <p class="entries-bulk-list" style="white-space:pre-line;">${escapeHtml(lines.join("\n") + more)}</p>
+    ${sharedFriends ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.sharedNote", { n: sharedFriends }))}</div>` : ""}
+    ${kept.length ? `<p class="hint" style="white-space:pre-line;">${escapeHtml(tr("entriesBulk.keptNote", { n: kept.length }) + "\n" + keptText)}</p>` : ""}
+    <button type="button" class="primary danger" id="entries-bulk-go">${escapeHtml(tr("friends.deleteN", { n: deletable.length }))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.cantUndo"))}</p>`;
+  document.getElementById("entries-bulk-go").addEventListener("click", () => {
+    closeEntriesBulkSheet_();
+    const sendIds = deletable.map((i) => i.id);
+    setEntriesEditing_(false, false);
+    sendIds.forEach((id) => deletingEntryIds_.add(id));   // the rows say "Deleting…" until the server is done
+    renderEntryListFromCache_();
+    if (searchActive) renderSearchResults_();
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("deleteEntries", { ids: sendIds });
+    }, async () => {
+      try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+      sendIds.forEach((id) => deletingEntryIds_.delete(id));
+      renderEntryListFromCache_();
+      if (searchActive) await refreshSearchAfterEdit_();
+      refreshExpectedRecurring().catch(() => {});
+      afterNewEntrySaved_();
+      refreshLoans().catch(() => {});
+      if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
+    }, {
+      busy: "common.deletingToast",
+      done: () => result && result.deleted.length && !result.kept.length ? tr("entriesBulk.done", { n: result.deleted.length }) : "",
+    });
+  });
+});
+
 function renderSearchResults_() {
   if (!searchActive) return;
   const input = document.getElementById("entry-search");
@@ -3841,6 +4003,7 @@ function renderSearchResults_() {
   const term = input.value.trim();
   box.innerHTML = "";
   hint.hidden = false;
+  document.getElementById("search-edit-btn").hidden = true;   // shown again below once there are matches to edit
 
   if (term.length < SEARCH_MIN_CHARS) {
     hint.textContent = tr("search.minChars", { n: SEARCH_MIN_CHARS });
@@ -3863,7 +4026,9 @@ function renderSearchResults_() {
     box.innerHTML = `<div class="status-msg">${escapeHtml(tr("search.noMatch", { term }))}</div>`;
     return;
   }
+  document.getElementById("search-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk);
   pairExchangeLegsByDay_(matches.slice(0, searchShown)).forEach((item) => box.appendChild(item._exchangePair ? buildExchangePairRow_(item) : buildSearchRow_(item)));
+  syncEntriesEditBar_();
   if (matches.length > searchShown) {
     const more = document.createElement("button");
     more.type = "button";
@@ -5393,6 +5558,7 @@ function compactReviewRow_(entry) {
 }
 function setReviewEditing_(on, redraw = true) {
   if (on === reviewEditing_ && redraw) return;
+  if (on && entriesEditing_) setEntriesEditing_(false);
   reviewEditing_ = on;
   reviewSelected_ = new Set();
   setEditIcon_(document.getElementById("review-edit-btn"), on);
@@ -6007,6 +6173,8 @@ function closeNewEntrySheet_() {
 }
 
 let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: syncFab_ below runs at load)
+let entriesEditing_ = false;   // Home list / search → Edit (same reason)
+let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
 let reviewEntries_ = [];
 let appToastTimer_ = null;
@@ -6075,7 +6243,7 @@ function syncFab_() {
   const nav = document.getElementById("bottom-nav");
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
-  fab.hidden = nav.hidden || reviewEditing_ || !(name === "entries" || name === "overview");
+  fab.hidden = nav.hidden || reviewEditing_ || entriesEditing_ || !(name === "entries" || name === "overview");
   // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
   // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
   // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
@@ -6369,6 +6537,7 @@ function showScreen(name) {
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
   if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
   if (name !== "entries" && reviewEditing_) setReviewEditing_(false, false);
+  if (name !== "entries" && entriesEditing_) setEntriesEditing_(false, false);
   if (name !== "business" && businessEditing_) setBusinessEditing_(false, false);
   if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
