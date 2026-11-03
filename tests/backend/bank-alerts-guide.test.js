@@ -7,14 +7,15 @@ const path = require("path");
 const STRINGS = require(path.join(__dirname, "..", "..", "docs", "strings.js"));
 const both = (key) => [STRINGS[key].en, STRINGS[key].es];
 
-test("Yape tip: e-mails only for payments you make, from S/ 10, none for money you receive", () => {
+test("Yape tip: e-mails only for payments you make, from S/ 10; for money you receive it MAY send none (owner, 2026-11-03: not sure)", () => {
   const [en, es] = both("bankMail.tip.Yape");
   assert.match(en, /S\/ 10/);
   assert.match(es, /S\/ 10/);
   assert.match(en, /payments you make/i);
-  assert.match(en, /receive sends no email/i);
+  assert.match(en, /receive it may send none/i);
   assert.match(es, /los pagos que haces tú/i);
-  assert.match(es, /Lo que recibes no envía correo/);
+  assert.match(es, /Por lo que recibes puede que no envíe ninguno/);
+  assert.ok(!/sends no email/i.test(en), "no flat claim that money received sends no email");
 });
 
 test("Interbank tip: every operation has its own minimum, set all to S/ 0", () => {
