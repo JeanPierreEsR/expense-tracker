@@ -73,10 +73,10 @@ test("Undo never overwrites a later change: an entry moved again in the meantime
   assert.equal(catOf("bc-a2"), c.b);
 });
 
-test("the screen: a Category button in the bar, one sheet with a picker per type, the merge alert, an Undo, both languages", () => {
+test("the screen: a Change button in the bar (Category is one of its choices), one sheet with a picker per type, the merge alert, an Undo, both languages", () => {
   const docs = (f) => fs.readFileSync(path.join(__dirname, "..", "..", "docs", f), "utf8");
   const html = docs("index.html"), app = docs("app.js"), strings = docs("strings.js");
-  assert.match(html, /id="entries-category-selected-btn"/);
+  assert.match(html, /id="entries-change-selected-btn"/);
   assert.match(app, /callApi\("setEntriesCategory", \{ ids: sendIds, categories \}\)/);
   assert.match(app, /callApi\("undoSetEntriesCategory"/);
   assert.match(app, /entriesBulk\.catMerge/, "the alert about several categories ending up in one");

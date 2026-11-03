@@ -292,3 +292,108 @@ function forgetDeletedEntries(payload) {
   deleteRowsWhere_('Deleted Entries', function (r) { return key[String(r.batch_id) + '|' + String(r.entry_id)] === true; });
   return { forgotten: rows.length };
 }
+
+// ---- Stage 4: link several entries to a trip or event, and add / remove a tag ----
+// Same shape as the category change: judged on the server, one call, a fresh `updated_at` so every phone refreshes, and an Undo that never overwrites a later change.
+//   setEntriesTrip({ ids, trip_id })       trip_id '' = take them out of their trip. Only EXPENSES belong to a trip (as in the entry form); the rest are kept (`type`).
+//                                          -> { changed: [{ id, from, to }], kept: [{ id, reason: missing|type|same }] }
+//   undoSetEntriesTrip({ changes })         each back in its own old trip, only if it is still in the one it was moved to
+//   setEntriesTag({ ids, tag_id, mode })    mode 'add' | 'remove'; any entry type
+//                                          -> { changed: [ids], kept: [{ id, reason: missing|same }] }   ('same' = it already had / did not have the tag)
+//   undoSetEntriesTag({ ids, tag_id, mode }) the opposite action on exactly the entries that changed
+
+// One pass over the Entries tab, like bulkSetEntryCategories_ but for trip_id. changes: [{ id, tripId, expect }]. Returns the ids that were changed.
+function bulkSetEntryTrips_(changes) {
+  if (!changes.length) return [];
+  var want = {};
+  changes.forEach(function (c) { want[c.id] = c; });
+  ensureEntriesTripColumn_();
+  var updatedCol = ensureEntriesUpdatedAtColumn_();
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var idCol = headers.indexOf('id'), tripCol = headers.indexOf('trip_id');
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  var trips = sheet.getRange(2, tripCol + 1, lastRow - 1, 1).getValues();
+  var stamps = sheet.getRange(2, updatedCol, lastRow - 1, 1).getValues();
+  var stamp = nowStamp_();
+  var done = [];
+  for (var i = 0; i < ids.length; i++) {
+    var c = want[String(ids[i][0])];
+    if (!c) continue;
+    var current = String(trips[i][0] || '');
+    if (c.expect !== undefined && current !== String(c.expect)) continue;
+    if (current === String(c.tripId)) continue;
+    trips[i][0] = c.tripId;
+    stamps[i][0] = stamp;
+    done.push(String(ids[i][0]));
+  }
+  if (!done.length) return [];
+  sheet.getRange(2, tripCol + 1, trips.length, 1).setValues(trips);
+  sheet.getRange(2, updatedCol, stamps.length, 1).setValues(stamps);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+  bumpVersion_('ENTRIES_VERSION');
+  return done;
+}
+
+function setEntriesTrip(payload) {
+  var ids = bulkEntryIds_(payload);
+  var tripId = String((payload && payload.trip_id) || '');
+  if (tripId && !tripById_(tripId)) throw new Error(tr_('trip.notFound'));
+  var out = { changed: [], kept: [] };
+  var changes = [], before = {};
+  ids.forEach(function (id) {
+    var entry = getEntryById_(id);
+    if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+    if (entry.type !== 'expense') { out.kept.push({ id: id, reason: 'type' }); return; }
+    var current = String(entry.trip_id || '');
+    if (current === TRIP_DECLINED_) current = '';   // the "no trip" marker of a declined suggestion counts as no trip
+    if (current === tripId) { out.kept.push({ id: id, reason: 'same' }); return; }
+    before[id] = String(entry.trip_id || '');
+    changes.push({ id: id, tripId: tripId, expect: before[id] });
+  });
+  var done = bulkSetEntryTrips_(changes);
+  var doneSet = {};
+  done.forEach(function (id) { doneSet[id] = true; });
+  changes.forEach(function (c) {
+    if (doneSet[c.id]) out.changed.push({ id: c.id, from: before[c.id], to: tripId });
+    else out.kept.push({ id: c.id, reason: 'same' });   // it moved under us (another device)
+  });
+  return out;
+}
+
+function undoSetEntriesTrip(payload) {
+  var changes = ((payload && payload.changes) || []).map(function (c) { return { id: String(c.id), tripId: String(c.from || ''), expect: String(c.to || '') }; });
+  return { reverted: bulkSetEntryTrips_(changes) };
+}
+
+function setEntriesTag(payload) {
+  var ids = bulkEntryIds_(payload);
+  var tagId = String((payload && payload.tag_id) || '');
+  var mode = payload && payload.mode === 'remove' ? 'remove' : 'add';
+  if (!tagId || !getAllRows('Tags').some(function (t) { return String(t.id) === tagId; })) throw new Error(tr_('bulk.tagNotFound'));
+  var has = {};
+  getAllRows('Entry Tags').forEach(function (r) { if (String(r.tag_id) === tagId) has[String(r.entry_id)] = true; });
+  var out = { changed: [], kept: [] };
+  ids.forEach(function (id) {
+    if (!getEntryById_(id)) { out.kept.push({ id: id, reason: 'missing' }); return; }
+    if ((mode === 'add') === !!has[id]) { out.kept.push({ id: id, reason: 'same' }); return; }
+    out.changed.push(id);
+  });
+  if (out.changed.length) {
+    if (mode === 'add') {
+      appendObjectsBatch_('Entry Tags', out.changed.map(function (id) { return { entry_id: id, tag_id: tagId }; }));
+    } else {
+      var gone = {};
+      out.changed.forEach(function (id) { gone[id] = true; });
+      deleteRowsWhere_('Entry Tags', function (r) { return String(r.tag_id) === tagId && gone[String(r.entry_id)] === true; });
+    }
+  }
+  return out;
+}
+
+function undoSetEntriesTag(payload) {
+  var mode = payload && payload.mode === 'remove' ? 'add' : 'remove';   // the opposite
+  return setEntriesTag({ ids: payload && payload.ids, tag_id: payload && payload.tag_id, mode: mode });
+}

@@ -3901,10 +3901,11 @@ function syncEntriesEditBar_() {
   const del = document.getElementById("entries-delete-selected-btn");
   del.disabled = n === 0;
   del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
-  const cat = document.getElementById("entries-category-selected-btn");
-  cat.hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulkCategory);
-  cat.disabled = n === 0;
-  cat.textContent = n ? tr("entriesBulk.categoryN", { n }) : tr("entriesBulk.category");
+  const change = document.getElementById("entries-change-selected-btn");
+  const caps = (meta && meta.capabilities) || {};
+  change.hidden = !(caps.entriesBulkCategory || caps.entriesBulkLink);
+  change.disabled = n === 0;
+  change.textContent = n ? tr("entriesBulk.changeN", { n }) : tr("entriesBulk.change");
   const pool = entriesPool_();
   const all = n > 0 && pool.length > 0 && pool.slice(0, ENTRIES_BULK_MAX_).every((e) => entriesSelected_.has(e.id));
   document.getElementById("entries-selectall-btn").textContent = all ? tr("friends.selectNone")
@@ -3927,7 +3928,7 @@ const entriesKnownMap_ = () => new Map(((searchIndex || []).concat(applyQueuedEd
 
 // Stage 2: change the category of the ticked entries. One sheet, a picker for each type among them (an expense never takes an income category); transfers and
 // investments have no category of their own and are left out. When entries from several categories go into one, a ⚠️ alert says so; an Undo follows the change.
-document.getElementById("entries-category-selected-btn").addEventListener("click", () => {
+function openEntriesCategorySheet_() {
   const known = entriesKnownMap_();
   const picked = [...entriesSelected_].map((id) => known.get(id)).filter(Boolean);
   const byType = { expense: picked.filter((e) => e.type === "expense"), income: picked.filter((e) => e.type === "income") };
@@ -3983,7 +3984,122 @@ document.getElementById("entries-category-selected-btn").addEventListener("click
       });
     }, { busy: "entriesBulk.changing" });
   });
+}
+
+// ---- Stage 4: link to a trip or event, add / remove a tag, behind one "Change" button ----
+const entriesChecked_ = () => { const known = entriesKnownMap_(); return [...entriesSelected_].map((id) => known.get(id)).filter(Boolean); };
+function entriesAfterChange_() {   // the lists behind the sheet follow the change (and every other screen that shows entries)
+  return (async () => {
+    try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+    if (searchActive) await refreshSearchAfterEdit_();
+    afterNewEntrySaved_();
+  })();
+}
+document.getElementById("entries-change-selected-btn").addEventListener("click", () => {
+  if (!entriesSelected_.size) return;
+  const caps = (meta && meta.capabilities) || {};
+  const choices = [
+    caps.entriesBulkCategory && ["🏷️", "entriesBulk.menuCategory", openEntriesCategorySheet_],
+    caps.entriesBulkLink && ["✈️", "entriesBulk.menuTrip", openEntriesTripSheet_],
+    caps.entriesBulkLink && ["🔖", "entriesBulk.menuTag", openEntriesTagSheet_],
+  ].filter(Boolean);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.changeTitle", { n: entriesSelected_.size });
+  body.innerHTML = choices.map(([icon, key], i) => `<button type="button" class="more-list-item md-row entries-change-choice" data-i="${i}"><span class="md-title">${icon} ${escapeHtml(tr(key))}</span><span class="more-list-chevron">›</span></button>`).join("");
+  body.querySelectorAll(".entries-change-choice").forEach((b) => b.addEventListener("click", () => choices[Number(b.dataset.i)][2]()));
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
 });
+
+function openEntriesTripSheet_() {
+  const expenses = entriesChecked_().filter((e) => e.type === "expense");   // only expenses belong to a trip or event (as in the entry form)
+  if (!expenses.length) { alert(tr("entriesBulk.tripNothingEligible")); return; }
+  if (!(meta.trips || []).length) { alert(tr("entriesBulk.tripNoTrips")); return; }
+  const leftOut = entriesSelected_.size - expenses.length;
+  const inOther = expenses.filter((e) => e.trip_id && e.trip_id !== "-none-").length;
+  const today = todayLocalISO();
+  const trips = (meta.trips || []).slice();
+  const open = trips.filter((t) => t.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const past = trips.filter((t) => t.end_date < today).sort((a, b) => b.end_date.localeCompare(a.end_date));
+  const options = open.concat(past).map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(tripLabel_(t))}</option>`).join("");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tripTitle");
+  body.innerHTML = `
+    <div class="cat-bulk-block">
+      <label for="entries-bulk-trip"><b>${escapeHtml(tr("entriesBulk.tripLabel", { n: expenses.length }))}</b></label>
+      <select id="entries-bulk-trip"><option value="__pick__">${escapeHtml(tr("entriesBulk.tripPick"))}</option><option value="">${escapeHtml(tr("entriesBulk.tripNone"))}</option>${options}</select>
+      ${inOther ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.tripMoveNote", { n: inOther }))}</div>` : ""}
+    </div>
+    ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.tripLeftOut", { n: leftOut }))}</p>` : ""}
+    <p class="hint" id="entries-bulk-trip-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-trip-go">${escapeHtml(tr("entriesBulk.tripGo"))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
+  document.getElementById("entries-bulk-trip-go").addEventListener("click", () => {
+    const tripId = document.getElementById("entries-bulk-trip").value;
+    if (tripId === "__pick__") { document.getElementById("entries-bulk-trip-error").textContent = tr("entriesBulk.tripChoose"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = expenses.map((e) => e.id);
+    const tripName = tripId ? tripLabel_((meta.trips || []).find((t) => t.id === tripId) || { name: "" }) : "";
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesTrip", { ids: sendIds, trip_id: tripId });
+    }, async () => {
+      await entriesAfterChange_();
+      refreshTripsList_().catch(() => {});   // the trip totals follow
+      if (!result || !result.changed.length) return;
+      showUndoToast_(tripId ? tr("entriesBulk.tripDone", { n: result.changed.length, trip: tripName }) : tr("entriesBulk.tripRemoved", { n: result.changed.length }), async () => {
+        await callApi("undoSetEntriesTrip", { changes: result.changed });
+        showToast_(tr("entriesBulk.catUndone"));
+        await entriesAfterChange_();
+        refreshTripsList_().catch(() => {});
+      });
+    }, { busy: "entriesBulk.linking" });
+  });
+  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+}
+
+function openEntriesTagSheet_() {
+  const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  if (!tags.length) { alert(tr("entriesBulk.tagNone")); return; }
+  const checked = entriesChecked_();
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
+  body.innerHTML = `
+    <div class="cat-bulk-block">
+      <label for="entries-bulk-tag"><b>${escapeHtml(tr("entriesBulk.tagLabel", { n: checked.length }))}</b></label>
+      <select id="entries-bulk-tag"><option value="">${escapeHtml(tr("entriesBulk.tagPick"))}</option>${tags.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("")}</select>
+    </div>
+    <p class="hint" id="entries-bulk-tag-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-tag-add">${escapeHtml(tr("entriesBulk.tagGoAdd", { n: checked.length }))}</button>
+    <button type="button" class="primary danger" id="entries-bulk-tag-remove">${escapeHtml(tr("entriesBulk.tagGoRemove", { n: checked.length }))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
+  const run = (mode) => {
+    const tagId = document.getElementById("entries-bulk-tag").value;
+    if (!tagId) { document.getElementById("entries-bulk-tag-error").textContent = tr("entriesBulk.tagChoose"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = checked.map((e) => e.id);
+    const tagName = (tags.find((t) => t.id === tagId) || {}).name || "";
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesTag", { ids: sendIds, tag_id: tagId, mode });
+    }, async () => {
+      await entriesAfterChange_();
+      if (!result) return;
+      if (!result.changed.length) { alert(tr("entriesBulk.tagNoChange")); return; }
+      showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
+        await callApi("undoSetEntriesTag", { ids: result.changed, tag_id: tagId, mode });
+        showToast_(tr("entriesBulk.catUndone"));
+        await entriesAfterChange_();
+      });
+    }, { busy: "entriesBulk.linking" });
+  };
+  document.getElementById("entries-bulk-tag-add").addEventListener("click", () => run("add"));
+  document.getElementById("entries-bulk-tag-remove").addEventListener("click", () => run("remove"));
+  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+}
 document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
 
 // Sentence for entries that stay: one line per reason, naming them (up to a few).
