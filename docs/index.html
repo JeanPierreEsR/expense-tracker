@@ -817,12 +817,20 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="categories-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="categories-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
         <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">+ Add suggested categories</button>
         <div id="categories-list"></div>
+        <div class="friends-editbar" id="categories-editbar" hidden>
+          <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="categories-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="categories-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
@@ -3007,6 +3015,16 @@
         <button type="button" id="recurring-delete-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body" id="recurring-delete-body"></div>
+    </div>
+  </div>
+
+  <div id="cat-bulk-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="cat-bulk-title"></span>
+        <button type="button" id="cat-bulk-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="cat-bulk-body"></div>
     </div>
   </div>
 

@@ -3382,3 +3382,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-accounts.accounts-editing .card { padding-bottom: 90px; }
 .friends-check-spacer { flex: 0 0 22px; }   /* keeps the built-in Cash row (no checkbox) in line with the others while Edit is on */
 #screen-trips.trips-editing .card { padding-bottom: 90px; }
+#screen-categories.categories-editing .card { padding-bottom: 90px; }
+.cat-bulk-alert { background: #fff4e5; border: 1px solid #f0c987; border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 0.85rem; }
+.cat-bulk-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.cat-bulk-block select { width: 100%; margin-top: 6px; }

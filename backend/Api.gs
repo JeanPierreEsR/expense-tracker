@@ -391,6 +391,8 @@ function routeActionSwitch_(action, payload) {
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
     case 'deleteCategory': return deleteCategory(payload);
+    case 'previewCategoryDelete': return previewCategoryDelete(payload);
+    case 'deleteCategories': return deleteCategories(payload);
     case 'getCategoryCounts': return getCategoryCounts();
     case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'addCategoryKeyword':

@@ -6197,6 +6197,8 @@ function ensurePeriodSelectorIn(screenName) {
 
 let budgetsSummary_ = null;
 let budgetsEditing_ = false;
+let categoriesEditing_ = false;
+let categoriesSelected_ = new Set();
 let tripsEditing_ = false;
 let tripsSelected_ = new Set();
 let accountsEditing_ = false;
@@ -6207,6 +6209,7 @@ function showScreen(name) {
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
+  if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -11471,6 +11474,11 @@ function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
   const bothTypes = categoryNamesInBothTypes_();
+  const selectable = meta.categories.filter((c) => !isOtherCategory_(c));
+  document.getElementById("categories-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.categoriesBulkDelete && selectable.length);
+  if (categoriesEditing_ && !selectable.length) setCategoriesEditing_(false, false);
+  const stillThere = new Set(selectable.map((c) => c.id));
+  categoriesSelected_ = new Set([...categoriesSelected_].filter((id) => stillThere.has(id)));
   ["expense", "income"].forEach((type) => {
     const head = document.createElement("h3");
     head.className = "accounts-group-title";
@@ -11478,8 +11486,13 @@ function renderCategoriesList_() {
     list.appendChild(head);
     sortedCategories_(meta.categories.filter((c) => c.type === type)).forEach((c) => {
       const row = document.createElement("div");
-      row.className = "recurring-row" + (catHidden_(c) ? " inactive" : "");
+      const isOther = isOtherCategory_(c);   // the built-in "Other" is the fallback everywhere: it has no checkbox in Edit mode
+      row.className = "recurring-row" + (catHidden_(c) ? " inactive" : "") + (categoriesEditing_ ? " friends-check-row" : "");
+      delKey_(row, "cat:" + c.id);
+      const lead = !categoriesEditing_ ? "" : isOther ? `<span class="friends-check-spacer"></span>`
+        : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${categoriesSelected_.has(c.id) ? " checked" : ""}>`;
       row.innerHTML = `
+        ${lead}
         <div class="cat-preview" style="margin:0;">
           <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
@@ -11487,11 +11500,164 @@ function renderCategoriesList_() {
             <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
           </div>
         </div>`;
-      row.addEventListener("click", () => openCatModal_(c));
+      row.addEventListener("click", () => {
+        if (!categoriesEditing_) { openCatModal_(c); return; }   // Edit mode: a tap ticks instead of opening
+        if (isOther) return;
+        if (categoriesSelected_.has(c.id)) categoriesSelected_.delete(c.id); else categoriesSelected_.add(c.id);
+        row.querySelector(".friends-check").checked = categoriesSelected_.has(c.id);
+        syncCategoriesEditBar_();
+      });
       list.appendChild(row);
     });
   });
+  syncCategoriesEditBar_();
   loadCategoryCounts_();
+}
+
+// ---- Categories: Edit mode (tick several, delete them at once; owner's request, 2026-11-03) ----
+// The same pencil, checkboxes and fixed bar as the other Edit screens, but the delicate one: a category in use cannot just disappear. Delete first
+// asks the server what each one is used by (previewCategoryDelete). Nothing in use: one plain question. Otherwise ONE answer for the batch: move
+// everything in use into ONE category per type (with an alert when entries of several categories will end up in one), or hide the ones in use.
+function setCategoriesEditing_(on, redraw = true) {
+  if (on === categoriesEditing_ && redraw) return;
+  categoriesEditing_ = on;
+  categoriesSelected_ = new Set();
+  setEditIcon_(document.getElementById("categories-edit-btn"), on);
+  document.getElementById("categories-add-btn").hidden = on;
+  document.getElementById("categories-suggest-btn").hidden = on || !(meta && meta.capabilities && meta.capabilities.profile);
+  document.getElementById("categories-editbar").hidden = !on;
+  document.getElementById("screen-categories").classList.toggle("categories-editing", on);
+  placeCategoriesEditBar_();
+  if (redraw) renderCategoriesList_();
+}
+function placeCategoriesEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("categories-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (categoriesEditing_) placeCategoriesEditBar_(); });
+function syncCategoriesEditBar_() {
+  const n = categoriesSelected_.size;
+  const del = document.getElementById("categories-delete-selected-btn");
+  const total = ((meta && meta.categories) || []).filter((c) => !isOtherCategory_(c)).length;
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("categories-selectall-btn").textContent = tr(n && n === total ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("categories-edit-btn").addEventListener("click", () => setCategoriesEditing_(!categoriesEditing_));
+document.getElementById("categories-done-btn").addEventListener("click", () => setCategoriesEditing_(false));
+document.getElementById("categories-back-btn").addEventListener("click", () => setCategoriesEditing_(false));
+document.getElementById("categories-selectall-btn").addEventListener("click", () => {
+  const all = meta.categories.filter((c) => !isOtherCategory_(c)).map((c) => c.id);
+  categoriesSelected_ = categoriesSelected_.size === all.length ? new Set() : new Set(all);
+  renderCategoriesList_();
+});
+function closeCatBulkSheet_() { document.getElementById("cat-bulk-backdrop").hidden = true; }
+document.getElementById("cat-bulk-close").addEventListener("click", closeCatBulkSheet_);
+
+document.getElementById("categories-delete-selected-btn").addEventListener("click", () => {
+  const chosen = meta.categories.filter((c) => categoriesSelected_.has(c.id));
+  if (chosen.length) startCategoriesBulkDelete_(chosen);
+});
+
+async function startCategoriesBulkDelete_(chosen) {
+  const backdrop = document.getElementById("cat-bulk-backdrop");
+  const body = document.getElementById("cat-bulk-body");
+  document.getElementById("cat-bulk-title").textContent = tr("catBulk.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;   // loading standard: the choices appear only when the usage is known
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  const ids = chosen.map((c) => c.id);
+  let preview;
+  try {
+    preview = await callApi("previewCategoryDelete", { ids });
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const usedBy = new Map(preview.items.map((i) => [i.id, i]));
+  const bothTypes = categoryNamesInBothTypes_();
+  const label = (c) => categoryShownName_(c, bothTypes);
+  const inUse = chosen.filter((c) => ((usedBy.get(c.id) || {}).used || 0) > 0);
+  const free = chosen.filter((c) => !inUse.includes(c));
+  if (!inUse.length) {   // nothing points at any of them: one plain question
+    closeCatBulkSheet_();
+    await nextPaint_();
+    const names = chosen.map(label).join(", ");
+    if (confirm(chosen.length === 1 ? tr("categories.confirmDelete", { name: names }) : tr("catBulk.confirmMany", { n: chosen.length, names }))) runCategoriesDelete_(chosen, {});
+    return;
+  }
+  const chosenIds = new Set(ids);
+  const types = ["expense", "income"].filter((t) => inUse.some((c) => c.type === t));
+  const blocks = types.map((t) => {
+    const group = inUse.filter((c) => c.type === t);
+    const candidates = sortedCategories_(meta.categories.filter((c) => c.type === t && !chosenIds.has(c.id)));
+    const entries = group.reduce((sum, c) => sum + ((usedBy.get(c.id) || {}).entries || 0), 0);
+    const names = group.map(label).join(", ");
+    const options = candidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(`${c.icon || "•"} ${categoryShownName_(c, bothTypes)}${catHidden_(c) ? ` (${tr("categories.hiddenTag")})` : ""}`)}</option>`).join("");
+    const preferred = candidates.find(isOtherCategory_) || candidates[0];
+    return { t, group, candidates, entries, names, options, preferred };
+  });
+  const canMove = blocks.every((b) => b.candidates.length > 0);
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(inUse.length === chosen.length ? tr("catBulk.introAll", { n: chosen.length }) : tr("catBulk.intro", { k: inUse.length, n: chosen.length }))}</b></p>
+    ${blocks.map((b) => `
+      <div class="cat-bulk-block">
+        <div><b>${escapeHtml(tr(`categories.group.${b.t}`))}</b></div>
+        ${b.candidates.length ? `
+          <label for="cat-bulk-target-${b.t}">${escapeHtml(tr("catBulk.moveLabel", { names: b.names }))}</label>
+          <select id="cat-bulk-target-${b.t}">${b.options}</select>
+          <p class="hint">${escapeHtml(tr("catBulk.moveCount", { entries: b.entries }))}</p>
+          ${b.group.length > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("catBulk.mergeAlert", { k: b.group.length, names: b.names }))}</div>` : ""}
+        ` : `<p class="hint">${escapeHtml(tr("catBulk.noTarget", { names: b.names }))}</p>`}
+      </div>`).join("")}
+    ${canMove ? `<button type="button" class="primary danger" id="cat-bulk-move-btn">${escapeHtml(tr("catBulk.moveBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("catBulk.moveHint") + (free.length ? tr("catBulk.moveRest", { m: free.length }) : ""))}</p>` : ""}
+    <button type="button" class="primary" id="cat-bulk-hide-btn">${escapeHtml(tr("catBulk.hideBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("catBulk.hideHint") + (free.length ? tr("catBulk.hideRest", { m: free.length }) : ""))}</p>`;
+  blocks.forEach((b) => { const sel = document.getElementById(`cat-bulk-target-${b.t}`); if (sel && b.preferred) sel.value = b.preferred.id; });
+  const moveBtn = document.getElementById("cat-bulk-move-btn");
+  if (moveBtn) moveBtn.addEventListener("click", () => {
+    const reassign = {};
+    blocks.forEach((b) => { reassign[b.t] = document.getElementById(`cat-bulk-target-${b.t}`).value; });
+    runCategoriesDelete_(chosen, { reassign });
+  });
+  document.getElementById("cat-bulk-hide-btn").addEventListener("click", () => runCategoriesDelete_(chosen, { hideUsed: true }));
+}
+
+function runCategoriesDelete_(chosen, opts) {
+  closeCatBulkSheet_();
+  setCategoriesEditing_(false);
+  const ids = chosen.map((c) => c.id);
+  ids.forEach((id) => markDeleting_("cat:" + id));
+  const bothTypes = categoryNamesInBothTypes_();
+  let result = null;
+  const namesOf = (list) => list.map((x) => x.name).join(", ");
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteCategories", { ids, reassign: opts.reassign, hideUsed: !!opts.hideUsed });
+  }, async () => {
+    await refreshCategoriesAfterChange_();
+    if (!result) return;
+    if (result.movedEntries) refreshEntriesInBackground_();
+    const plain = !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to);
+    if (plain) return;   // everything was simply deleted: the "done" toast names them
+    const lines = [];
+    const plainDeleted = result.deleted.filter((d) => !d.to);
+    if (plainDeleted.length) lines.push(tr("catBulk.resultDeleted", { n: plainDeleted.length, names: namesOf(plainDeleted) }));
+    const byTarget = new Map();
+    result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
+    byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), entries: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
+    if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
+    const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
+    if (keptBy("noTarget").length) lines.push(tr("catBulk.resultNoTarget", { names: namesOf(keptBy("noTarget")) }));
+    if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
+    const other = result.kept.filter((k) => (k.reason === "protected" || k.reason === "missing") && k.name);
+    if (other.length) lines.push(tr("catBulk.resultKept", { names: namesOf(other) }));
+    alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && result.deleted.length && !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to)
+      ? tr("catBulk.doneDeleted", { n: result.deleted.length, names: namesOf(result.deleted) }) : "",
+  });
 }
 
 function updateCatPreview_() {
