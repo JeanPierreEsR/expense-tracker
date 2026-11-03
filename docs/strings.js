@@ -121,6 +121,7 @@
     "common.total": { en: "Total", es: "Total" },
     "common.loadMore": { en: "Load more", es: "Cargar más" },
     "common.loading": { en: "Loading…", es: "Cargando…" },
+    "common.backAria": { en: "Back", es: "Atrás" },
     "common.back": { en: "‹ Back", es: "‹ Atrás" },
     "common.add": { en: "+ Add", es: "+ Agregar" },
     "trips.addAria": { en: "Add trip or event", es: "Agregar viaje o evento" },
