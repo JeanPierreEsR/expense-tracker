@@ -5624,9 +5624,11 @@ function investmentPlatformOptions_(selectedId) {
   return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
 
-// A waiting expense or income carries an account box (the e-mail may not have named it). Not for something a friend paid: it left no account of the person's.
+// A waiting expense or income carries an account box only when the e-mail did not name an account (owner, 2026-11-03).
+// Not for something a friend paid: it left no account of the person's.
 function reviewHasAccountBox_(entry) {
-  return (entry.type === "income" || entry.type === "expense") && (entry.type === "income" || !entry.paid_by || entry.paid_by === "me");
+  return (entry.type === "income" || entry.type === "expense") && !entry.payment_method_id
+    && (entry.type === "income" || !entry.paid_by || entry.paid_by === "me");
 }
 
 function transferAccountOptions_(selectedId, blankLabel) {
