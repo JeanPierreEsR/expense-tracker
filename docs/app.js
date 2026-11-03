@@ -6188,7 +6188,11 @@ function ensurePeriodSelectorIn(screenName) {
   populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
+let budgetsSummary_ = null;
+let budgetsEditing_ = false;
+let budgetsSelected_ = new Set();   // Budgets → Edit state (declared here so showScreen can end Edit mode when the tab is left)
 function showScreen(name) {
+  if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -7848,8 +7852,21 @@ async function refreshBudgets() {
   // year), but never narrows a yearly budget down to a month. All-time
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
-  const { budgets, summary } = await callApi("listBudgets", projectionPeriodPayload_());
-  budgetsLoaded_ = budgets;   // (the first-use practice checks it for a budget the person already has)
+  const data = await callApi("listBudgets", projectionPeriodPayload_());
+  budgetsLoaded_ = data.budgets;   // (the first-use practice checks it for a budget the person already has)
+  budgetsSummary_ = data.summary;
+  const still = new Set(data.budgets.map((b) => b.id));
+  budgetsSelected_ = new Set([...budgetsSelected_].filter((id) => still.has(id)));
+  drawBudgets_();
+  offerBudgetsTip_();   // only now that everything has arrived (loading standard)
+}
+
+// Draws the budget rows and the totals from what refreshBudgets last fetched (no server call): also used by Edit mode.
+function drawBudgets_() {
+  const budgets = budgetsLoaded_, summary = budgetsSummary_;
+  const canEdit = !!(meta && meta.capabilities && meta.capabilities.budgetsBulkDelete);
+  document.getElementById("budgets-edit-btn").hidden = !(canEdit && budgets.length);
+  if (budgetsEditing_ && !budgets.length) setBudgetsEditing_(false, false);
   const list = document.getElementById("budgets-list");
   const emptyNote = document.getElementById("budgets-empty-note");
   const summaryCard = document.getElementById("budgets-summary-card");
@@ -7858,7 +7875,6 @@ async function refreshBudgets() {
   if (budgets.length === 0) {
     emptyNote.hidden = false;
     summaryCard.hidden = true;
-    offerBudgetsTip_();
     return;
   }
   emptyNote.hidden = true;
@@ -7895,9 +7911,13 @@ async function refreshBudgets() {
     row.className = "budget-row";
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
+    const nameHtml = `<div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>`;
+    const leadHtml = budgetsEditing_
+      ? `<span class="budget-row-lead"><input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${budgetsSelected_.has(b.id) ? " checked" : ""}>${nameHtml}</span>`
+      : nameHtml;
     row.innerHTML = `
       <div class="budget-row-top">
-        <div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>
+        ${leadHtml}
         <span class="budget-row-period">${periodLabel}</span>
       </div>
       <div class="budget-progress-track">
@@ -7910,7 +7930,12 @@ async function refreshBudgets() {
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
-    row.addEventListener("click", () => openBudgetDrilldown(b));
+    row.addEventListener("click", () => {
+      if (!budgetsEditing_) { openBudgetDrilldown(b); return; }   // Edit mode: a tap ticks instead of opening
+      if (budgetsSelected_.has(b.id)) budgetsSelected_.delete(b.id); else budgetsSelected_.add(b.id);
+      row.querySelector(".friends-check").checked = budgetsSelected_.has(b.id);
+      syncBudgetsEditBar_();
+    });
     list.appendChild(row);
   });
 
@@ -7944,8 +7969,63 @@ async function refreshBudgets() {
   } else {
     overlapNote.hidden = true;
   }
-  offerBudgetsTip_();   // only now that everything has arrived (loading standard)
+  syncBudgetsEditBar_();
 }
+
+// ---- Budgets: Edit mode (tick several budgets, delete them at once; owner's request, 2026-11-02) ----
+// The same bar and checkboxes as More → Friends → Edit. One question for the whole batch, then the list returns at once and the server works
+// behind the screen (saving standard). Only the budgets (and their alert history) go: entries are never touched.
+function setBudgetsEditing_(on, redraw = true) {
+  if (on === budgetsEditing_ && redraw) return;
+  budgetsEditing_ = on;
+  budgetsSelected_ = new Set();
+  document.getElementById("budgets-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  document.getElementById("add-budget-btn").hidden = on;
+  document.getElementById("budgets-editbar").hidden = !on;
+  document.getElementById("screen-budgets").classList.toggle("budgets-editing", on);
+  placeBudgetsEditBar_();
+  if (redraw) drawBudgets_();
+}
+function placeBudgetsEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("budgets-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (budgetsEditing_) placeBudgetsEditBar_(); });
+function syncBudgetsEditBar_() {
+  const n = budgetsSelected_.size;
+  const del = document.getElementById("budgets-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("budgets-selectall-btn").textContent = tr(n && n === budgetsLoaded_.length ? "friends.selectNone" : "friends.selectAll");
+}
+// "Groceries (PEN 300 per month)": a category can have a monthly and a yearly budget, so the period is part of the name.
+const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")})`;
+document.getElementById("budgets-edit-btn").addEventListener("click", () => setBudgetsEditing_(!budgetsEditing_));
+document.getElementById("budgets-selectall-btn").addEventListener("click", () => {
+  budgetsSelected_ = budgetsSelected_.size === budgetsLoaded_.length ? new Set() : new Set(budgetsLoaded_.map((b) => b.id));
+  drawBudgets_();
+});
+document.getElementById("budgets-delete-selected-btn").addEventListener("click", () => {
+  const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
+  if (!chosen.length) return;
+  const names = chosen.map(budgetPickLabel_).join(", ");
+  if (!confirm(tr(chosen.length === 1 ? "budgets.confirmDeleteOne" : "budgets.confirmDeleteMany", { n: chosen.length, names }))) return;
+  const ids = chosen.map((b) => b.id);
+  const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
+  setBudgetsEditing_(false);
+  ids.forEach((id) => markDeleting_("budget:" + id));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteBudgets", { ids });
+  }, async () => {
+    try { await refreshBudgets(); }
+    catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
+    if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: result.deleted.map((id) => nameOf.get(id)).join(", ") }) : "",
+  });
+});
 
 // ---- Init ----
 
