@@ -6661,6 +6661,7 @@ function showExchangeRatesScreen() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
+  renderCurrenciesMain_();
   refreshExchangeRates();
 }
 
@@ -6680,7 +6681,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "deleted-entries"];
+const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "deleted-entries"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -9083,7 +9084,7 @@ function renderFirstSteps_() {
     const late = days >= 3 && !(info.health && info.health.problem);
     steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
-  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("more-statements-btn").click(); renderFirstSteps_(); } });
+  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
@@ -10583,7 +10584,12 @@ async function startMainCurrencyChange_(code) {
   mainCurrencyEl_("main-currency-view").hidden = true;
   mainCurrencyEl_("main-currency-confirm").hidden = false;
 }
-document.getElementById("more-main-currency-btn").addEventListener("click", openMainCurrencyModal_);
+// More → Currencies: the main currency is the first card above the rates list. "Change…" goes straight to the picker the pop-up's own
+// button used to open (the pop-up still carries the confirm step and the rate question).
+function renderCurrenciesMain_() {
+  document.getElementById("currencies-main-code").textContent = tr("mainCur.current", { code: homeCur() });
+}
+document.getElementById("currencies-main-change-btn").addEventListener("click", () => openCurrencyModal("main-change"));
 mainCurrencyEl_("main-currency-close").addEventListener("click", () => { mainCurrencyEl_("main-currency-backdrop").hidden = true; });
 mainCurrencyEl_("main-currency-backdrop").addEventListener("click", (e) => { if (e.target.id === "main-currency-backdrop") e.target.hidden = true; });
 mainCurrencyEl_("main-currency-change-btn").addEventListener("click", () => { mainCurrencyEl_("main-currency-backdrop").hidden = true; openCurrencyModal("main-change"); });
@@ -11097,8 +11103,8 @@ async function sendExport_() {
   }
 }
 
-document.getElementById("more-export-btn").addEventListener("click", showExportScreen);
-document.getElementById("export-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("data-export-btn").addEventListener("click", showExportScreen);
+document.getElementById("export-back-btn").addEventListener("click", showMyDataScreen);
 ["export-entries-check", "export-backup-check", "export-range", "export-pending-check"].forEach((id) => {
   exportEl_(id).addEventListener("change", () => { refreshExportScreen_(); saveExportPrefs_(); });
 });
@@ -11208,7 +11214,7 @@ async function refreshDeletedScreen_() {
   });
 }
 document.getElementById("more-deleted-btn").addEventListener("click", showDeletedScreen_);
-document.getElementById("deleted-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("deleted-back-btn").addEventListener("click", () => showMyDataScreen());   // it lives in the My data hub, under "Then tidy"
 
 async function showTidyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });
@@ -11327,8 +11333,21 @@ document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => 
   const items = tidyGroups_.filter((g) => g.suggestion && !tidySkipped_.has(g.key)).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
   if (items.length) applyTidy_(items, [ev.currentTarget]);
 });
-document.getElementById("more-tidy-btn").addEventListener("click", showTidyScreen);
-document.getElementById("tidy-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("data-tidy-btn").addEventListener("click", showTidyScreen);
+document.getElementById("tidy-back-btn").addEventListener("click", showMyDataScreen);
+
+// ---- More → My data: one row for everything about getting data in, tidying it and taking it out (owner's design, 2026-11-03) ----
+// A small hub: Bank statements and Import from another app (the two modes of the Statements screen), Tidy my history (what a statement or an
+// import leaves without a category), Export my data. Each row opens its own screen as before; their Back buttons return here.
+function showMyDataScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-my-data"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.screen === "more");
+  });
+  window.scrollTo(0, 0);
+}
+document.getElementById("more-my-data-btn").addEventListener("click", showMyDataScreen);
+document.getElementById("my-data-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- More → Bank emails: a full screen since 2026-11-03; it also holds what used to be "Not captured automatically" ----
 // (backend/BankCoverage.gs + backend/ManualGaps.gs; specs/review-telegram-email.md § Bank emails screen). One question, two views:

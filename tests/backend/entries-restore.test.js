@@ -100,7 +100,7 @@ test("'delete for good' removes the copy; copies older than 30 days are purged",
   assert.ok(listed.batches.some((b) => b.batch_id === res.batch_id));
 });
 
-test("the screens: a Recently deleted card in More, an Undo on the toast, restore and delete-for-good, both languages", () => {
+test("the screens: a Recently deleted row in the My data hub, an Undo on the toast, restore and delete-for-good, both languages", () => {
   const docs = (f) => fs.readFileSync(path.join(__dirname, "..", "..", "docs", f), "utf8");
   const html = docs("index.html"), app = docs("app.js"), strings = docs("strings.js");
   for (const id of ["more-deleted-btn", "screen-deleted-entries", "deleted-back-btn", "deleted-list"]) assert.match(html, new RegExp(`id="${id}"`), id);
@@ -108,7 +108,7 @@ test("the screens: a Recently deleted card in More, an Undo on the toast, restor
   assert.match(app, /restoreDeletedBatch_\(\{ batch_id: result\.batch_id \}\)/, "the Undo on the toast");
   assert.match(app, /callApi\("restoreDeletedEntries", payload\)/);
   assert.match(app, /callApi\("forgetDeletedEntries"/);
-  for (const key of ["more.deleted", "deleted.title", "deleted.hint", "deleted.empty", "deleted.restoreAll", "deleted.restoreOne", "deleted.forget", "deleted.confirmForget", "deleted.restoring", "deleted.restored",
+  for (const key of ["md.deleted", "md.deletedSub", "deleted.title", "deleted.hint", "deleted.empty", "deleted.restoreAll", "deleted.restoreOne", "deleted.forget", "deleted.confirmForget", "deleted.restoring", "deleted.restored",
     "deleted.lostDebt", "deleted.batchTitle", "entriesBulk.doneUndo", "entriesBulk.undoHint"]) {
     assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: .+, es: .+ \\}`), key);
   }

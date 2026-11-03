@@ -91,7 +91,7 @@ test("B11, B12, B13: the long texts are split into short sentences, and statemen
 test("B14, B15, B16, B17: currency hint, shared amount, discount buttons, 'What's left' instead of 'Net'", () => {
   assert.ok(!/restores everything exactly/.test(get("welcome.curHint").en));
   assert.ok(!/restores everything exactly/.test(get("welcome.mainHint").en));   // the main currency now has its own row (2026-10-28): the hint moved there
-  assert.match(get("welcome.mainHint").es, /Más → Moneda principal/);
+  assert.match(get("welcome.mainHint").es, /Más → Monedas/);   // Main currency and Exchange rates became one row, Currencies (2026-11-03)
   assert.match(get("recurring.suggestShared").en, /large amount is your share; the small grey amount is the total/);
   assert.match(read("docs", "app.js"), /original-amt">\$\{tr\("common.total"\)/);   // the grey "Total" really is what the hint describes
   assert.match(get("bill.discountLine").en, /Discount on this item/);
