@@ -48,7 +48,7 @@ http.createServer((req, res) => {
   // Opening http://<this computer>:<port>/login signs this browser in to the test copy (the real sign-in text only accepts "localhost").
   if (url === "/login") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.removeItem("startupCache"); location.replace("/");</script>`);
+    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.setItem("etChannel", "live"); localStorage.removeItem("startupCache"); location.replace("/");</script>`);
     return;
   }
   if (url === "/__mail") {
