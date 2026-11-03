@@ -403,6 +403,8 @@
     "error.pickAccount": { en: "Pick the account the money leaves (From) or the one it goes into (To).", es: "Elige la cuenta de la que sale el dinero (Desde) o a la que entra (Hacia)." },
     "error.pickPaymentMethod": { en: "Pick an account or card.", es: "Elige una cuenta o tarjeta." },
     "error.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
+    "error.pickAccountLeft": { en: "Pick the account it was paid from.", es: "Elige la cuenta de la que salió el dinero." },
+    "error.pickAccountEntered": { en: "Pick the account it went into.", es: "Elige la cuenta a la que entró el dinero." },
     "error.loadData": { en: "Couldn't load data: {error}", es: "No se pudieron cargar los datos: {error}" },
 
     // ---- form ----
