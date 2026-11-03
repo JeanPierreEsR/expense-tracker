@@ -10422,6 +10422,9 @@ function openBankMailModal_(opts) {
   bmEl_("bm-done-btn").hidden = !opts.welcome;
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  // The body keeps its scroll position between openings: a person who had scrolled down to the banks list found the sheet
+  // reopened with its top (the account, "Check now") hidden under the title.
+  backdrop.querySelector(".budget-modal-body").scrollTop = 0;
   if (reading && typeof TourScenes !== "undefined") TourScenes.play("bankalerts", bmEl_("bm-scene"), Object.assign(tourSceneCtx_(), { bank: (info.banks || [])[0] || "" }));
 }
 
