@@ -260,6 +260,8 @@ function routeActionSwitch_(action, payload) {
     case 'addProject': return addProject(payload);
     case 'updateProject': return updateProject(payload);
     case 'deleteProject': return deleteProject(payload);
+    case 'deleteBusinessItems': return deleteBusinessItems(payload);
+    case 'deleteBusinessPeople': return deleteBusinessPeople(payload);
     case 'getProjectDetail': return getProjectDetail(payload);
     case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
