@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.39.22"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.43.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-01T17:24:28Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-02T22:14:20Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -107,6 +107,8 @@
 
   <main id="app" hidden>
     <div id="screen-entries" class="screen">
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after Needs review has loaded. -->
+      <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
           <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
@@ -275,6 +277,7 @@
           <div id="tags-field">
             <label data-i18n="field.tags">Tags</label>
             <div class="tags-list" id="tags-list"></div>
+            <p class="hint" id="annual-tag-hint" hidden></p>
             <div class="add-inline" id="add-tag-btn" data-i18n="common.addTag">+ Add tag…</div>
           </div>
 
@@ -518,6 +521,8 @@
     </div>
 
     <div id="screen-budgets" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="budgets-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <h2 data-i18n="nav.budgets">Budgets</h2>
@@ -726,6 +731,8 @@
     </div>
 
     <div id="screen-recurring" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="recurring-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="recurring-back-btn" data-i18n="common.back">‹ Back</button>
@@ -773,6 +780,9 @@
     </div>
 
     <div id="screen-accounts" class="screen" hidden>
+      <!-- First-use tip invitations (spotlight.js / offerTip_ in app.js): Accounts first; Investments only after the Accounts one was seen. -->
+      <div class="card tip-invite" id="accounts-tip-invite" hidden></div>
+      <div class="card tip-invite" id="investments-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="accounts-back-btn" data-i18n="common.back">‹ Back</button>
@@ -800,6 +810,8 @@
     </div>
 
     <div id="screen-trips" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="trips-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="trips-back-btn" data-i18n="common.back">‹ Back</button>
@@ -944,6 +956,8 @@
     </div>
 
     <div id="screen-exchange-rates" class="screen" hidden>
+      <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
+      <div class="card tip-invite" id="exchange-rates-tip-invite" hidden></div>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="exchange-rates-back-btn" data-i18n="common.back">‹ Back</button>
@@ -1310,6 +1324,7 @@
         <button type="button" class="add-inline" id="bill-photo-btn" data-i18n="bill.photo">📷 Read the items from a photo</button>
         <input type="file" id="bill-photo-input" accept="image/*" hidden>
         <p class="hint" id="bill-photo-status" hidden></p>
+        <button type="button" class="add-inline" id="bill-photo-again" hidden data-i18n="bill.photoAgain">↻ Read the entry's photo again for the items</button>
         <details id="bill-photo-raw" hidden>
           <summary class="hint" data-i18n="bill.rawSummary">What the phone read — you can correct it here</summary>
           <p class="hint" data-i18n="bill.rawHint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
@@ -1368,6 +1383,10 @@
       <div class="loan-detail-actions">
         <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
+      </div>
+      <div class="loan-opening-offer" id="loan-detail-opening" hidden>
+        <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
+        <button type="button" class="add-inline" id="loan-detail-opening-btn" data-i18n="loanDetail.openingBtn">➕ Add a debt from before</button>
       </div>
       <div class="money-queue-strip" id="loan-detail-queue" hidden></div>
       <div class="currency-option-list" id="loan-detail-list"></div>
@@ -1623,6 +1642,7 @@
           <p class="hint" id="balance-check-result"></p>
         </div>
 
+        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
         <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
@@ -1637,6 +1657,37 @@
           <div id="balance-movements"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="inproc-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal bill-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="inproc.title">🕒 Payments in process</span>
+        <button type="button" id="inproc-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="bill-scroll">
+        <p class="hint" data-i18n="inproc.hint">Your bank app's balance leaves out payments still "in process". Add screenshots of its movements list and the app adds up the ones marked "En proceso". Nothing is saved, and the photos never leave your phone.</p>
+        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
+        <input type="file" id="inproc-input" accept="image/*" multiple hidden>
+        <p class="hint" id="inproc-status" hidden></p>
+        <details id="inproc-raw" hidden>
+          <summary class="hint" data-i18n="inproc.rawSummary">What the phone read</summary>
+          <textarea id="inproc-raw-text" class="bill-photo-text" rows="9" readonly spellcheck="false"></textarea>
+        </details>
+        <div id="inproc-list"></div>
+        <div id="inproc-totals"></div>
+        <div id="inproc-balance-box" hidden>
+          <label for="inproc-balance"><span data-i18n="inproc.balance">Optional: the balance your bank app shows now</span> (<span id="inproc-balance-cur">PEN</span>)</label>
+          <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <label class="checkbox-row"><input type="checkbox" id="inproc-negative"><span data-i18n="balance.negative">Negative — I owe this (e.g. a credit card)</span></label>
+          <p class="hint" data-i18n="inproc.balanceHint">Type the number exactly as your bank app shows it. That number does not include the payments above yet, so the app takes them off for you.</p>
+          <p class="hint" id="inproc-after"></p>
+          <button type="button" class="primary" id="inproc-apply" data-i18n="inproc.apply">Put the new balance in the balance sheet</button>
+          <p class="hint" data-i18n="inproc.applyHint">Leave the box empty to take the payments off the balance this app shows now. The new balance is filled in below the starting balances; nothing is saved until you tap Save there.</p>
+        </div>
+      </div>
+      <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
     </div>
   </div>
 
@@ -1679,6 +1730,22 @@
     </div>
   </div>
 
+  <!-- A currency exchange as ONE thing: both sides, edit either, delete both (openExchangePairSheet_ in app.js). -->
+  <div id="xpair-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="xpair-title"></span>
+        <button type="button" id="xpair-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="xpair-summary"></p>
+        <p class="hint" data-i18n="xch.pairHint">One exchange, saved as two sides (one per currency) so each account's balance moves. Edit a side, or delete the whole exchange.</p>
+        <div id="xpair-sides"></div>
+        <button type="button" class="delete-entry-btn" id="xpair-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
+      </div>
+    </div>
+  </div>
+
   <div id="loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -1700,6 +1767,12 @@
           <div class="type-tab" data-direction="i_owe_them" data-i18n="loanModal.iOweThem">I owe them</div>
         </div>
 
+        <label class="checkbox-row" id="loan-opening-row">
+          <input type="checkbox" id="loan-opening">
+          <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+        </label>
+        <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
+
         <label for="loan-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
 
@@ -1707,16 +1780,18 @@
         <input type="hidden" id="loan-currency" value="PEN">
         <div class="currency-chips" id="loan-currency-chips"></div>
 
-        <label for="loan-date" data-i18n="field.date">Date</label>
+        <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
 
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
         <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
 
+        <div id="loan-pm-field">
         <label for="loan-payment-method" data-i18n="field.paymentMethod">Payment method</label>
         <select id="loan-payment-method"></select>
         <p class="hint" data-i18n="loanModal.pmHint">Optional — which account the cash moved through, if any. If that account has a tracked balance, lending takes it down and borrowing adds to it.</p>
+        </div>
 
         <label for="loan-description" data-i18n="field.description">Description</label>
         <input type="text" id="loan-description" data-i18n-placeholder="common.optional" placeholder="Optional">
@@ -2902,6 +2977,7 @@
 
       <label for="pm-type" data-i18n="accounts.type">Type</label>
       <select id="pm-type"></select>
+      <p class="hint" id="pm-cash-hint" hidden data-i18n="accounts.cashHint">Cash is built in: everyone has it, it holds any currency (soles and dollars together) and it can't be deleted. You can rename it.</p>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
@@ -2922,7 +2998,7 @@
       <button type="button" class="primary" id="pm-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="pm-cancel-btn" data-i18n="common.cancel">Cancel</button>
       <div id="pm-manage" hidden>
-        <p class="hint" data-i18n="accounts.hideHint">Delete only works for an account nothing uses. Hide keeps past records intact but removes the account from every list you pick from.</p>
+        <p class="hint" id="pm-manage-hint" data-i18n="accounts.deleteHint">Delete removes an account nothing uses. One with past entries is hidden instead: its history stays, and it leaves every list you pick from.</p>
         <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
       </div>
@@ -3092,22 +3168,23 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="i18n.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="tour-scenes.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="signin-link.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="country-guess.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="rate-quotes.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="bank-sample.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="perf-share.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="spotlight.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="receipt-parse.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="receipt-fields.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="bill-split.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="app.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="statement-sample.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="statement-table.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="statement-parsers.js?v=2026-11-01T17:24:28Z"></script>
-  <script src="statements.js?v=2026-11-01T17:24:28Z"></script>
+  <script src="strings.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="i18n.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="tour-scenes.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="signin-link.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="country-guess.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="rate-quotes.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="bank-sample.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="perf-share.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="spotlight.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="receipt-parse.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="receipt-fields.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="in-process.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="bill-split.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="app.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="statement-sample.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="statement-table.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="statement-parsers.js?v=2026-11-02T22:14:20Z"></script>
+  <script src="statements.js?v=2026-11-02T22:14:20Z"></script>
 </body>
 </html>

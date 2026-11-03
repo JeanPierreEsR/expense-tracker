@@ -21,7 +21,7 @@
 //                                                          a tap anywhere closes the keyboard, which is how the step ends
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
-//   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list)
+//   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list), never while ctx.busy()
 //   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
 //   button:  () => string                                  shows one button with this label; pressing it ends the step (an info step)
 //   look:    true                                          view-only: taps inside the cut-out are blocked too (an overview of a whole screen)
@@ -32,7 +32,7 @@
 // }
 // A step needs at least one of tap / until / visit / button. A `visit` step also needs ok() (when given) to be true.
 //
-// ctx: { labels: { exit, waiting, cleaning, stuck, note, step(n, total) }, onFinish(how) }  (onFinish may be async: the bubble says
+// ctx: { labels: { exit, waiting, cleaning, stuck, note, step(n, total) }, onFinish(how), busy() }  (onFinish may be async: the bubble says
 // "cleaning" and the screen stays blocked until it is done).
 //
 // Used by docs/app.js; also loaded by Node for tests/backend/spotlight.test.js. Holds no secrets.
@@ -277,7 +277,10 @@
         if (targets.length) break;
         if (closed || token !== stepToken) return "stale";
         if (waited >= limit) return "skip";
-        if (step.poke && waited - lastPoke >= 2000) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
+        // A poke (reload the list the target lives in) only while nothing is on its way to the server (ctx.busy): a reload sent
+        // while the save is still travelling cannot show the new item yet, and stacked reloads slowed the save itself down.
+        // (after 8 s it goes ahead anyway: a slow background call, e.g. the e-mail check, must not hold it back)
+        if (step.poke && waited - lastPoke >= 2000 && (!(ctx.busy && ctx.busy()) || waited - lastPoke >= 8000)) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
         if (waited >= 600) showWaiting();   // a long wait (a save still reaching the server): say so, centred
         await sleep(100); waited += 100;
       }
@@ -357,6 +360,9 @@
         timers.push(setInterval(function () {
           if (finished || closed || !cur || !cur.step) return;
           var t = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
+          // Something above it finished loading and pushed it off the screen (the Overview's cards arrive one by one): bring it back.
+          var viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+          if (r && (r.bottom < 0 || r.top > viewH) && !isTyping(cur.step, doc) && t[0].scrollIntoView) t[0].scrollIntoView({ block: "center", inline: "nearest" });
           var key = (isTyping(cur.step, doc) ? "T" : "") + (r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight) + "|" + (window.visualViewport ? Math.round(window.visualViewport.offsetTop + window.visualViewport.height) : "");
           if (key !== lastBox) { lastBox = key; cur.targets = t; layout(); }
         }, 100));

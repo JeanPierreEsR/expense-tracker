@@ -392,6 +392,7 @@ function transferCategoryId_() {
 // Self-healing, same pattern as the column below: links a forgiven loan to
 // the expense/income entry its forgiveness booked.
 function ensureLoansForgivenessEntryColumn_() {
+  if (memoHasColumns_('Loans', ['forgiveness_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('forgiveness_entry_id') === -1) {
@@ -404,6 +405,7 @@ function ensureLoansForgivenessEntryColumn_() {
 // as JSON in this column of the loan itself; the loan's amount never changes (the money that moved did not), and the parts count
 // toward what is settled, so every balance already derived from the settled totals shrinks by itself.
 function ensureLoansForgivenPartsColumn_() {
+  if (memoHasColumns_('Loans', ['forgiven_parts'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('forgiven_parts') === -1) {
@@ -435,7 +437,20 @@ function forgivenessOfEntry_(entryId) {
   return found;
 }
 
+// Column marking a loan as "existed before the app" (opening debt): it has no money entry. Self-healing like the other Loans columns.
+function ensureLoansOpeningColumn_() {
+  if (memoHasColumns_('Loans', ['opening'])) return;   // already there (read earlier in this request)
+  var sheet = getSheet('Loans');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('opening') === -1) sheet.getRange(1, headers.length + 1).setValue('opening');
+}
+
+function isOpeningLoan_(loan) {
+  return String(loan.opening || '') === '1';
+}
+
 function ensureLoansTransferEntryColumn_() {
+  if (memoHasColumns_('Loans', ['transfer_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
   if (headers.indexOf('transfer_entry_id') === -1) {
@@ -444,6 +459,7 @@ function ensureLoansTransferEntryColumn_() {
 }
 
 function ensureSettlementsTransferEntryColumn_() {
+  if (memoHasColumns_('Settlements', ['transfer_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('transfer_entry_id') === -1) {
@@ -454,6 +470,7 @@ function ensureSettlementsTransferEntryColumn_() {
 // gap_entry_id = the income (or expense) entry holding the part of this repayment that is not on any loan, so the
 // repayment can be shown and edited as ONE total (owner's request, 2026-10-27).
 function ensureSettlementsGapColumn_() {
+  if (memoHasColumns_('Settlements', ['gap_entry_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('gap_entry_id') === -1) sheet.getRange(1, headers.length + 1).setValue('gap_entry_id');
@@ -472,6 +489,7 @@ function gapEntryOfRows_(rows) {
 
 // "limited" = this repayment was set to pay ONLY its selected loans (1), so reopening it shows that choice again.
 function ensureSettlementsLimitedColumn_() {
+  if (memoHasColumns_('Settlements', ['limited'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('limited') === -1) sheet.getRange(1, headers.length + 1).setValue('limited');
@@ -558,7 +576,13 @@ function createLoan_(fields) {
     project_id: fields.project_id || ''   // Business pack: the project this debt belongs to (blank = personal)
   };
   if (loan.project_id) ensureBusinessSheets_();   // the column is created by the pack's first use, never on a copy that does not opt in
-  if (fields.origin === 'cash') {
+  if (fields.opening) {
+    // A debt from BEFORE the person started using the app: only the debt is recorded, no money moved now, so no money entry
+    // and no account (nothing on Home, no balance changes). A later repayment is the only thing that moves money.
+    ensureLoansOpeningColumn_();
+    loan.opening = '1';
+    loan.payment_method_id = '';
+  } else if (fields.origin === 'cash') {
     var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
     var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : tr_('label.unknownFriend'));
     loan.transfer_entry_id = transferEntry.id;
@@ -651,6 +675,7 @@ function addLoan(payload) {
     var already = getAllRows('Loans').find(function (l) { return l.id === clientId; });
     if (already) return already;   // a repeat of a save that already landed
   }
+  var opening = payload.opening === true || payload.opening === 'true' || payload.opening === 1 || payload.opening === '1';
   return createLoan_({
     id: clientId,
     friend_id: payload.friend_id,
@@ -659,10 +684,12 @@ function addLoan(payload) {
     amount: Number(payload.amount),
     currency: payload.currency || homeCurrency_(),
     date: payload.date,
-    due_date: payload.due_date || defaultLoanDueDate_(payload.date),
-    payment_method_id: payload.payment_method_id || '',
+    // An opening debt gets no automatic due date (it would be "overdue" from the first day): only one the person typed.
+    due_date: payload.due_date || (opening ? '' : defaultLoanDueDate_(payload.date)),
+    payment_method_id: opening ? '' : (payload.payment_method_id || ''),
     description: payload.description || '',
-    project_id: projectIdForLoan_(payload.project_id)
+    project_id: projectIdForLoan_(payload.project_id),
+    opening: opening
   });
 }
 
@@ -706,8 +733,11 @@ function updateLoan(payload) {
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error(tr_('err.loanNotFound'));
 
+  var wasOpening = isOpeningLoan_(existing);
   ['friend_id', 'direction', 'amount', 'currency', 'date', 'due_date', 'payment_method_id', 'description'].forEach(function (field) {
-    setCellByRow_(sheet, headers, rowIndex, field, payload[field] !== undefined ? payload[field] : '');
+    var value = payload[field] !== undefined ? payload[field] : '';
+    if (wasOpening && field === 'payment_method_id') value = '';   // an opening debt moved no money, so it has no account
+    setCellByRow_(sheet, headers, rowIndex, field, value);
   });
   // Business pack: the project label may be moved even after repayments (the money history does not change).
   if (businessOn_() && payload.project_id !== undefined) {
@@ -829,6 +859,7 @@ function getLoanDeleteInfo(payload) {
 // original "pick one loan, settle it" design.
 
 function ensureSettlementsOffsetColumn_() {
+  if (memoHasColumns_('Settlements', ['offset_loan_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Settlements');
   var headers = getHeaders(sheet);
   if (headers.indexOf('offset_loan_id') === -1) {
@@ -2141,14 +2172,24 @@ function exchangeLegSide_(entry) {
 
 // The other side of an exchange, as far as the app can tell (the two sides are not linked): an exchange leg on the opposite
 // side, in another currency, within 3 days (the same rule unpairedExchangeLegs_ pairs by); the closest date wins. null if none.
+// Exchanges saved since 2026-11-02 carry the same `exchange_pair` on both sides; an older one is paired with the opposite-side leg
+// in another currency on the SAME day (owner, 2026-11-02), the closest in saving time when there are several.
 function exchangeLegPartner_(entry) {
   var side = exchangeLegSide_(entry);
   if (!side) return null;
-  var best = null, bestDiff = 99;
-  getAllRows('Entries').forEach(function (x) {
-    if (x.id === entry.id || x.currency === entry.currency || exchangeLegSide_(x) === side || !exchangeLegSide_(x)) return;
-    var diff = exchangeDayDiff_(x.date, entry.date);
-    if (diff <= 3 && diff < bestDiff) { best = x; bestDiff = diff; }
+  var all = getAllRows('Entries');
+  var pair = String(entry.exchange_pair || '');
+  if (pair) {
+    var mate = all.find(function (x) { return x.id !== entry.id && String(x.exchange_pair || '') === pair; });
+    if (mate) return mate;
+  }
+  var best = null, bestGap = Infinity;
+  var t0 = Date.parse(String(entry.created_at || '')) || 0;
+  all.forEach(function (x) {
+    if (x.id === entry.id || x.currency === entry.currency || !exchangeLegSide_(x) || exchangeLegSide_(x) === side) return;
+    if (String(x.date) !== String(entry.date) || String(x.exchange_pair || '')) return;   // same day; a leg already paired by id is taken
+    var gap = Math.abs((Date.parse(String(x.created_at || '')) || 0) - t0);
+    if (gap < bestGap) { best = x; bestGap = gap; }
   });
   return best;
 }
@@ -2199,7 +2240,19 @@ function releaseEntryRepaidLoans(payload) {
   });
 }
 
+// What the phone asks before deleting an entry. Also names the OTHER side of a currency exchange (the two sides are separate
+// entries), so the person can delete both together and never leave half an exchange (owner, 2026-11-02).
 function getEntryRepaymentLinks(payload) {
+  var out = getEntryRepaymentLinksBase_(payload);
+  if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
+    var entry = getEntryById_(payload.id);
+    var partner = entry ? exchangeLegPartner_(entry) : null;
+    if (partner) out.exchangePartner = { id: partner.id, amount: Number(partner.amount), currency: partner.currency, date: String(partner.date) };
+  }
+  return out;
+}
+
+function getEntryRepaymentLinksBase_(payload) {
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
   var id = payload.id;
@@ -2301,6 +2354,93 @@ function discardEntryWithRepayments_(entryId, repayments) {
   }
   deleteEntry_(entryId);
   return { done: true, undone_repayment: !!links.repayment, undone_forgiveness: !!links.forgiveness };
+}
+
+// First-use practice cleanup in ONE call (the phone's practice used to make five or six, each a few seconds): deletes the practice
+// expense WITH the repayment made on it (money entry included), removes an "Overpayment" leftover of the practice friend when an
+// extra was typed, and deletes the friends the practice added. Only ever touches an expense named like the practice's own
+// ("Practice expense" / "Gasto de práctica"), so it cannot be used to delete a real entry.
+//   payload: { entry_id, extra, friend_id, started_on, delete_friend_ids: [ids the practice added] }
+// Returns { removed, friends_deleted: [ids], swept }.
+function removePracticeData(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { removed: false, friends_deleted: [], swept: 0 };
+    var entryId = String((payload && payload.entry_id) || '');
+    if (entryId) {
+      var entry = getEntryById_(entryId);
+      if (entry) {
+        if (!/^(Practice expense|Gasto de pr\u00e1ctica)$/.test(String(entry.description || ''))) throw new Error(tr_('err.notPractice'));
+        refuseRepaymentPartDiscard_(entryId);
+        discardEntryWithRepayments_(entryId, 'cancel');
+        out.removed = true;
+      }
+    }
+    var extra = Number((payload && payload.extra) || 0);
+    var friend = payload && payload.friend_id ? getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; }) : null;
+    if (friend && extra > 0.004) {
+      var names = [tr_('desc.overpaymentFrom', { name: friend.name }, 'en'), tr_('desc.overpaymentTo', { name: friend.name }, 'en'),
+        tr_('desc.overpaymentFrom', { name: friend.name }, 'es'), tr_('desc.overpaymentTo', { name: friend.name }, 'es')];
+      getAllRows('Entries').forEach(function (e) {
+        if (e.status !== 'pending' || names.indexOf(String(e.description || '')) === -1) return;
+        if (payload.started_on && String(e.date) < String(payload.started_on)) return;
+        if (Math.abs(Number(e.amount) - extra) > 0.005) return;
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.swept++; } catch (err) { /* it stays in Needs review for the person to discard */ }
+      });
+    }
+    ((payload && payload.delete_friend_ids) || []).forEach(function (id) {
+      try { deleteFriend({ id: String(id) }); out.friends_deleted.push(String(id)); } catch (err) { /* used somewhere else: it stays */ }
+    });
+    return out;
+  });
+}
+
+// The first-use Loans practices (a standalone loan, a bank loan) name what they create like this (both languages): the loan's
+// description is "Practice loan" / "Practice bank loan", the bank loan's lender is "Practice Bank". The cleanup and the overdue
+// check only ever look at these names.
+function isPracticeLoan_(loan) {
+  return /^(Practice loan|Préstamo de práctica|Practice bank loan|Préstamo bancario de práctica)$/.test(String((loan && loan.description) || '').trim());
+}
+
+function isPracticeBankName_(name) {
+  return /^(Practice Bank|Banco de práctica)$/.test(String(name || '').trim());
+}
+
+// A money entry the practice loans made: the loan's own movement ("Practice loan"), an installment's movement and its interest +
+// fees expense ("Installment 1/3: Practice bank loan", "Interest and fees, installment 1/3: ..."), an early payment and its fee.
+function isPracticeLoanEntryText_(text) {
+  return /^(Practice loan|Préstamo de práctica)$/.test(text) ||
+    /^((Installment|Cuota) \d+\/\d+|(Interest and fees, installment|Intereses y comisiones, cuota) \d+\/\d+|Early payment|Early payment fee|Pago anticipado|Comisión por pago anticipado): (Practice bank loan|Préstamo bancario de práctica)$/.test(text);
+}
+
+// The Loans practices' cleanup in ONE call (a standalone loan and a bank loan share it): deletes every loan named like the
+// practice's (with its installments, repayments and the money entries they made), the money entries still carrying the practice's
+// text dated since the practice started (e.g. the interest + fees expense of an installment, which stays when a loan is deleted with
+// "cancel the repayments"), every loan of the "Practice Bank" lender (a "keep the repayments" delete leaves a refund loan), the lender and the friends the practice added, when nothing else uses them. A real
+// entry or loan is never touched: only the practice's exact names. payload: { started_on, delete_friend_ids: [ids] }
+// Returns { loans, entries, friends_deleted: [ids] }.
+function removePracticeLoans(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { loans: 0, entries: 0, friends_deleted: [] };
+    var startedOn = String((payload && payload.started_on) || '');
+    // Loans named like the practice's, and every loan with the practice lender (deleting a bank loan with "keep the repayments" leaves
+    // a refund loan with that lender under another description).
+    var bankIds = {};
+    getAllRows('Friends').forEach(function (f) { if (isPracticeBankName_(f.name)) bankIds[String(f.id)] = true; });
+    getAllRows('Loans').filter(function (l) { return isPracticeLoan_(l) || bankIds[String(l.friend_id)]; }).forEach(function (loan) {
+      try { deleteLoan(loan.id, 'cancel'); out.loans++; } catch (err) { /* it stays: the person can delete it by hand */ }
+    });
+    getAllRows('Entries').forEach(function (e) {
+      if (!isPracticeLoanEntryText_(String(e.description || '').trim())) return;
+      if (startedOn && String(e.date) < startedOn) return;
+      try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays in Needs review / Home for the person to delete */ }
+    });
+    var ids = ((payload && payload.delete_friend_ids) || []).map(String);
+    getAllRows('Friends').forEach(function (f) { if (isPracticeBankName_(f.name) && ids.indexOf(String(f.id)) === -1) ids.push(String(f.id)); });
+    ids.forEach(function (id) {
+      try { deleteFriend({ id: id }); out.friends_deleted.push(id); } catch (err) { /* used somewhere else: it stays */ }
+    });
+    return out;
+  });
 }
 
 function findOrCreatePayorByName_(name) {
@@ -2535,6 +2675,7 @@ function buildSettlementTotalsByLoan_() {
 // loan has nothing left to be "overdue" about).
 function isLoanOverdue_(loan, remaining) {
   if (loan.status === 'forgiven') return false;
+  if (isPracticeLoan_(loan)) return false;   // the first-use practice's own loan never raises a reminder or notice (it is deleted minutes later)
   if (!loan.due_date) return false;
   if (remaining <= 0.004) return false;
   var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');

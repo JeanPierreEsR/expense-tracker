@@ -120,7 +120,7 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k; }) || null;
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
 }
 
 function stmtTitleCase_(text) {
@@ -919,7 +919,7 @@ function getEntriesNear(payload) {
   var catsById = rowsById_(getAllRows('Categories'));
   var pmsById = rowsById_(getAllRows('Payment Methods'));
   var candidates = getAllRows('Entries').filter(function (e) {
-    return e.date >= win.lo && e.date <= win.hi && ((e.type === 'income') === wantIncome);
+    return e.date >= win.lo && e.date <= win.hi && ((e.type === 'income') === wantIncome) && !isPracticeReview_(e);
   }).map(function (e) { return stmtEntrySummary_(e, catsById, pmsById); });
   return orderMatchCandidates_(candidates, {
     amount: payload.amount, currency: payload.currency, date: payload.date, description: payload.description

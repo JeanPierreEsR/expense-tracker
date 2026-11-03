@@ -215,7 +215,7 @@ main {
 }
 
 .nav-btn { min-width: 0; }
-.nav-btn .nav-icon { font-size: 1.2rem; }
+.nav-btn .nav-icon { font-size: 1.2rem; height: 29px; line-height: 29px; }
 /* All six labels share one size and shrink together with the phone's width
    (vw), so the longest word in each language ("Presupuestos"/"Proyecciones"
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
@@ -1390,6 +1390,9 @@ body.sheet-open {
 }
 
 .entry.entry-deleting { opacity: 0.5; pointer-events: none; }
+/* Any other list row while its delete runs behind the screen (markDeleting_ in app.js). */
+.row-deleting { opacity: 0.5; pointer-events: none; position: relative; }
+.row-deleting::after { content: attr(data-del-label); position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: #fff; color: #555; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; box-shadow: 0 0 0 1px #ddd; }
 
 .entry-queue-failed {
   color: var(--expense);
@@ -2393,7 +2396,13 @@ body.income-revealed .sens-mask { display: none; }
 .bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
 .bill-item .tags-list { margin-top: 8px; }
 .bill-adj .budget-period-tabs { margin: 8px 0 0; }
-.bill-add-row { display: flex; gap: 16px; }
+.inproc-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.inproc-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); flex: none; width: 20px; height: 20px; margin: 0; }
+.inproc-row .inproc-what { flex: 1; min-width: 0; }
+.inproc-row .inproc-when { color: var(--muted); font-size: 0.75rem; }
+.inproc-total { display: flex; justify-content: space-between; padding: 10px 0; font-weight: 600; }
+.bill-add-row { display: flex; align-items: center; gap: 16px; }
+.bill-add-row .add-inline, .bill-add-row .add-inline + .add-inline { display: flex; align-items: center; margin: 0; }
 .bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
 .bill-check-ok { color: #2e8b57; }
@@ -3304,6 +3313,10 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .spot-buttons button[hidden] { display: none; }
 .spot-buttons .spot-stuck { color: var(--accent); }
 .spot-buttons .spot-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+/* The repayment sheet is only for the NEW repayment: past ones (to fix, move or delete) are in the person's Repayment history. */
+#settlement-list,
+#settlement-list-empty-note { display: none; }
+
 .tip-invite { display: flex; flex-direction: column; gap: 10px; background: #fff8e1; }
 .tip-invite[hidden] { display: none; }
 .tip-invite p { margin: 0; line-height: 1.35; }
@@ -3343,3 +3356,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #recurring-restart-btn { padding-left: 0; }
 .range-day:disabled { opacity: 0.3; cursor: default; }
 #screen-recurring.recurring-editing .card { padding-bottom: 90px; }
+/* Text links that start a line on their own: their 8px of tap padding made the words sit 8px right of the fields
+   above and below. Pull the box back so the WORDS line up with the edge. */
+#receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
+#projections-method-btn { margin-left: -8px; }

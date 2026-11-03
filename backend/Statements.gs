@@ -185,7 +185,7 @@ function listStatementCoverage() {
   var accounts = {};
   getAllRows('Payment Methods').forEach(function (pm) {
     var key = covKey_(pm.last_4);
-    if (!key || (pm.type !== 'credit' && pm.type !== 'debit')) return;
+    if (!key || (pm.type !== 'credit' && pm.type !== 'debit') || isPracticeAccount_(pm)) return;
     var bank = banksById[pm.bank_id] ? banksById[pm.bank_id].name : '';
     accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
   });
@@ -346,7 +346,7 @@ function analyzeStatements(payload) {
   var savingsReturn = Object.keys(catsById).map(function (k) { return catsById[k]; })
     .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
-  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
+  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k && !isPracticeAccount_(pm)) pmByKey[k] = pm; });
   function pmFor(key) {
     // An import with no account: a stand-in with a made-up id that no entry carries (so only account-less entries can match it,
     // and nothing pairs with it as a transfer); the apply step writes '' (see stmtPmForKey_).
@@ -367,7 +367,7 @@ function analyzeStatements(payload) {
     });
   });
   tick('small_tables');
-  var allEntries = getAllRows('Entries');
+  var allEntries = getAllRows('Entries').filter(function (e) { return !isPracticeReview_(e); });   // the Needs review practice never pairs with a statement line
   var entries = lo === null ? [] : allEntries.filter(function (e) {
     return e.date >= covAddDays_(lo, -12) && e.date <= covAddDays_(hi, 12);
   });

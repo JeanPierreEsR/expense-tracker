@@ -34,9 +34,11 @@ function getBudgetPeriodBounds_(periodType, refDate) {
 // total). Building this context ONCE and computing every budget's progress
 // from the in-memory result instead keeps it to a handful of sheet reads
 // regardless of how many budgets exist.
-function buildBudgetContext_() {
+// opts.skipPractice: leave out the first-use practices' own entries (the alert check; see Practice.gs).
+function buildBudgetContext_(opts) {
+  var skipPractice = !!(opts && opts.skipPractice);
   var entries = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && e.type === 'expense';
+    return e.status === 'confirmed' && e.type === 'expense' && !(skipPractice && isPracticeEntry_(e));
   });
 
   var splitSumByEntry = {};
@@ -688,6 +690,20 @@ function checkBudgets() {
   }
 }
 
+// The first-use Budgets practice names its budget like this (both languages); the alert check leaves it alone.
+function isPracticeBudget_(budget) {
+  return /^(Practice budget|Presupuesto de pr\u00e1ctica)$/.test(String((budget && budget.name) || '').trim());
+}
+
+// First-use Budgets practice cleanup in one call: deletes every budget named like the practice's own (and its alert history).
+function removePracticeBudgets() {
+  var removed = 0;
+  getAllRows('Budgets').forEach(function (b) {
+    if (isPracticeBudget_(b)) { deleteBudget(b.id); removed++; }
+  });
+  return { removed: removed };
+}
+
 function checkBudgetsLocked_() {
   var budgets = getAllRows('Budgets');
   // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
@@ -698,7 +714,7 @@ function checkBudgetsLocked_() {
   }
 
   var categoryById = rowsById_(getAllRows('Categories'));
-  var ctx = buildBudgetContext_();
+  var ctx = buildBudgetContext_({ skipPractice: true });   // a practice's own expense never sets off an alert (Practice.gs)
   var alertedSet = {};
   getAllRows('Budget Alert Log').forEach(function (a) {
     alertedSet[a.budget_id + '|' + a.period + '|' + a.threshold] = true;
@@ -707,6 +723,7 @@ function checkBudgetsLocked_() {
   var alertsSent = 0;
   var staleKeys = {};
   budgets.forEach(function (budget) {
+    if (isPracticeBudget_(budget)) return; // the first-use practice's own budget (any amount typed): never alerts, it is deleted minutes later
     var progress = computeBudgetProgressWithContext_(budget, ctx);
     if (progress.percent == null) return; // no exchange rate on file yet for this budget's currency
 

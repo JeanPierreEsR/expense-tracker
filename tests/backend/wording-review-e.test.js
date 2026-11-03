@@ -57,9 +57,9 @@ test("B7: each loan form says what really happens with the due date", () => {
   assert.match(get("loan.dueDateHint").en, /Without a date there is no overdue reminder/);
   assert.match(get("loanModal.dueHint").en, /Pre-filled with 7 days after the loan date/);
   assert.match(get("loanModal.dueHint").es, /Viene con 7 días después/);
-  // the claims match the code: the Loans-tab form pre-fills date + 7 and the backend defaults the same; the entry form leaves a blank date blank
+  // the claims match the code: the Loans-tab form pre-fills date + 7 and the backend defaults the same (except a debt from before the app, which gets no automatic date); the entry form leaves a blank date blank
   assert.match(app, /defaultDueDate_\(entryDate\)/);
-  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| defaultLoanDueDate_\(payload\.date\)/);
+  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| \(opening \? '' : defaultLoanDueDate_\(payload\.date\)\)/);
   assert.match(read("backend", "Loans.gs"), /due_date: fields\.due_date \|\| ''/);
 });
 

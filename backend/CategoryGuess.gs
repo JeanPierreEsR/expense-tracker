@@ -34,6 +34,7 @@ var AUTO_REASON_FIRST_TIMES_ = 3;
 // Entries pre-date this column, so it's appended in place the first time
 // it's needed — same self-heal as recurring_expense_id.
 function ensureEntriesMerchantColumn_() {
+  if (memoHasColumns_('Entries', ['merchant'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('merchant') === -1) {
@@ -79,7 +80,7 @@ function buildGuessContext_() {
 
   var history = {};
   getAllRows('Entries').forEach(function (e) {
-    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id]) return;
+    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id] || isPracticeReview_(e)) return;
     if (e.status !== 'confirmed' && e.source !== 'import') return;
     var h = history[e.merchant] || (history[e.merchant] = { counts: {}, total: 0 });
     h.counts[e.category_id] = (h.counts[e.category_id] || 0) + 1;

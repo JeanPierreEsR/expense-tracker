@@ -20,11 +20,42 @@ function exchangeHouseWordLists_() {
   var seen = {};
   getAllRows('Entries').forEach(function (e) {
     if (e.type !== 'transfer') return;
+    if (isPracticeExchange_(e)) return;   // the first-use practice's own "house" is never learned
     var m = String(e.description || '').match(/^(?:Currency exchange|Cambio de moneda) \((.+)\)\s*$/i);
     if (m && !seen[m[1].toLowerCase()]) { seen[m[1].toLowerCase()] = true; names.push(m[1]); }
   });
   EXCHANGE_HOUSES_MEMO_ = names.map(ownerNameTokens_).filter(function (t) { return t.length >= 1 && t.join('').length >= 5; });
   return EXCHANGE_HOUSES_MEMO_;
+}
+
+// First-use Currency exchange practice (docs/app.js § First-use practice: Currency exchange). Its exchange carries the "house" name
+// "Practice exchange" / "Cambio de práctica", so each of its two legs reads "Currency exchange (Practice exchange)" /
+// "Cambio de moneda (Cambio de práctica)". Every guard and the cleanup below look for exactly that, nothing looser.
+var PRACTICE_EXCHANGE_RE_ = /^(?:Currency exchange|Cambio de moneda) \((?:Practice exchange|Cambio de práctica)\)$/i;
+function isPracticeExchange_(e) {
+  return !!e && e.type === 'transfer' && PRACTICE_EXCHANGE_RE_.test(String(e.description || '').trim());
+}
+
+/**
+ * The Currency exchange practice's cleanup in ONE call: deletes the exchange legs carrying the practice's name that were made since
+ * the day the practice started (by their date or by the moment they were saved, in case the person changed the date). Nothing else is
+ * touched: not a real exchange, not a rate. (Recording an exchange never writes a rate - the rate line in the form is only shown -
+ * so there is no rate to remove; Exchange Rates is not read or written here.)
+ *   payload: { started_on 'yyyy-MM-dd' }   returns { entries }
+ */
+function removePracticeExchange(payload) {
+  return withScriptLockOnce_(function () {
+    var startedOn = String((payload && payload.started_on) || '');
+    var out = { entries: 0 };
+    getAllRows('Entries').forEach(function (e) {
+      if (!isPracticeExchange_(e)) return;
+      var since = !startedOn || String(e.date) >= startedOn || String(e.created_at || '').slice(0, 10) >= startedOn;
+      if (!since) return;
+      try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+    });
+    EXCHANGE_HOUSES_MEMO_ = null;
+    return out;
+  });
 }
 
 // Does this recipient text name a known exchange house? Every word of the house must
@@ -99,6 +130,9 @@ function recordCurrencyExchange(payload) {
   if (pending && !(pendingLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
   ensureEntriesToPaymentMethodColumn_();
   ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  // Both sides carry the same pair id, so the app can show and delete them as ONE exchange (owner, 2026-11-02).
+  var pairId = clientId || Utilities.getUuid();
 
   var result = { out: null, in: null };
   [['out', out], ['in', inn]].forEach(function (pair) {
@@ -113,6 +147,7 @@ function recordCurrencyExchange(payload) {
       // Turned in place so its e-mail reference stays: a later back-check must not make it again.
       fields.status = 'confirmed';
       fields.exchange = '1';
+      fields.exchange_pair = pairId;
       fields.merchant = '';
       fields.trip_id = '';
       updateRowFields_('Entries', pending.id, fields);
@@ -120,7 +155,7 @@ function recordCurrencyExchange(payload) {
     } else {
       if (legIds) fields.client_id = legIds[side];
       result[side] = createEntry(fields);
-      updateRowFields_('Entries', result[side].id, { exchange: '1' });
+      updateRowFields_('Entries', result[side].id, { exchange: '1', exchange_pair: pairId });
       result[side] = getEntryById_(result[side].id);
     }
   });
@@ -177,7 +212,7 @@ function exchangeDayDiff_(a, b) {
 function lastExchangeAccount_(entries, currency, side) {
   var best = null;
   entries.forEach(function (e) {
-    if (e.type !== 'transfer' || e.status !== 'confirmed' || e.currency !== currency || !EXCHANGE_DESCRIPTION_RE_.test(String(e.description || ''))) return;
+    if (e.type !== 'transfer' || e.status !== 'confirmed' || e.currency !== currency || !EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) || isPracticeExchange_(e)) return;
     var id = side === 'out' ? (!e.to_payment_method_id && e.payment_method_id) : (!e.payment_method_id && e.to_payment_method_id);
     if (id && (!best || String(e.date) >= String(best.date))) best = { date: String(e.date), id: id };
   });
@@ -195,7 +230,7 @@ function lastExchangeAccount_(entries, currency, side) {
 function findExchangeLegTwin_(entries, side, currency, amount, dateStr, codeKey, source) {
   var found = null;
   entries.forEach(function (e) {
-    if (found || e.currency !== currency) return;
+    if (found || e.currency !== currency || isPracticeExchange_(e)) return;   // the practice's legs are never a real exchange's twin
     var isExchange = (e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')))
       || (side === 'out' && e.type === 'expense' && e.status === 'pending' && exchangeHouseIn_(e.description));
     if (!isExchange) return;
@@ -258,7 +293,7 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
 // What is left over and older than 2 days is returned (newest first, at most 30): the exchange is missing a side.
 function unpairedExchangeLegs_() {
   var legs = getAllRows('Entries').filter(function (e) {
-    return e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) && (!!e.payment_method_id !== !!e.to_payment_method_id);
+    return e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) && !isPracticeExchange_(e) && (!!e.payment_method_id !== !!e.to_payment_method_id);
   }).map(function (e) { return { e: e, side: e.payment_method_id ? 'out' : 'in', used: false }; });
   legs.forEach(function (a) {
     if (a.used || a.side !== 'out') return;

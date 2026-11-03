@@ -514,6 +514,7 @@ function validateRecurringWindow_(startDate, endDate) {
 // for everyone. This lets specific historical Entries be pointed at the
 // recurring item they actually represent instead.
 function ensureEntriesRecurringLinkColumn_() {
+  if (memoHasColumns_('Entries', ['recurring_expense_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('recurring_expense_id') === -1) {
@@ -1158,6 +1159,35 @@ function convertPausedProgrammedForOwnerOnce() {
 }
 
 // Several items at once (the Delete choices on More → Programmed items). One pass over the three sheets.
+// First-use Programmed items practice: its item is named like this (both languages). The cleanup (below) only ever touches that name.
+function isPracticeProgrammed_(r) {
+  return /^(Practice item|Elemento de pr\u00e1ctica)$/.test(String((r && r.description) || '').trim());
+}
+
+// The Programmed items practice cleanup in ONE call: every item named like the practice's (with its splits and skipped months), and
+// the payment the practice recorded for it ("Record the payment…" fills the entry's description from the item, so it carries the same
+// name). A REAL entry the person may have linked to the practice item is never deleted, only unlinked.
+//   payload: { started_on }  (the practice's own entries are never older than the day it started)
+function removePracticeProgrammed(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { items: 0, entries: 0, unlinked: 0 };
+    ensureRecurringExpensesSheet_();
+    var ids = getAllRows('Recurring Expenses').filter(isPracticeProgrammed_).map(function (r) { return String(r.id); });
+    var startedOn = String((payload && payload.started_on) || '');
+    getAllRows('Entries').forEach(function (e) {
+      var isMine = /^(Practice item|Elemento de pr\u00e1ctica)$/.test(String(e.description || '').trim()) && (!startedOn || String(e.date) >= startedOn);
+      if (isMine && e.type !== 'transfer') {
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+      } else if (ids.indexOf(String(e.recurring_expense_id)) !== -1) {
+        setEntryField_(e.id, 'recurring_expense_id', '');
+        out.unlinked++;
+      }
+    });
+    if (ids.length) out.items = deleteRecurringExpenses({ ids: ids }).deleted.length;
+    return out;
+  });
+}
+
 function deleteRecurringExpenses(payload) {
   var ids = {};
   ((payload && payload.ids) || []).forEach(function (id) { ids[String(id)] = true; });

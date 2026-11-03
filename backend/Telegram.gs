@@ -1524,11 +1524,11 @@ function fuzzyFindTag_(text) {
 }
 
 function fuzzyFindPaymentMethod_(text) {
-  return pickByName_(getAllRows('Payment Methods'), text, function (p) { return p.nickname; });
+  return pickByName_(withoutPracticeAccounts_(getAllRows('Payment Methods')), text, function (p) { return p.nickname; });
 }
 
 function getEntryById_(entryId) {
-  return getAllRows('Entries').find(function (e) { return e.id === entryId; });
+  return findRowById_('Entries', entryId);   // the id column and one row, not the whole sheet (Api.gs)
 }
 
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {

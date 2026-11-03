@@ -76,7 +76,7 @@ function scanFollow_() {
   var groups = {}, families = {};
   function famOf(tok) { return families[tok] || (families[tok] = { key: tok, counts: {}, total: 0, blanks: [], keys: {} }); }
   getAllRows('Entries').forEach(function (e) {
-    if (e.type !== 'expense') return;
+    if (e.type !== 'expense' || isPracticeReview_(e)) return;   // the Needs review practice teaches nothing
     var key = followKey_(e);
     if (!key) return;
     var g = groups[key] || (groups[key] = { key: key, counts: {}, total: 0, blanks: [] });
@@ -200,7 +200,7 @@ function categoryNameForMessage_(categoryId) {
  */
 function categoryFollowAfterEdit_(entryId) {
   var e = getEntryById_(entryId);
-  if (!e || e.type !== 'expense' || e.status !== 'confirmed' || !e.category_id) return null;
+  if (!e || e.type !== 'expense' || e.status !== 'confirmed' || !e.category_id || isPracticeReview_(e)) return null;
   var key = followKey_(e);
   if (!key) return null;
   var scan = scanFollow_();

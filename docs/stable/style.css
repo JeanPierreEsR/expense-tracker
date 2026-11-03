@@ -215,7 +215,7 @@ main {
 }
 
 .nav-btn { min-width: 0; }
-.nav-btn .nav-icon { font-size: 1.2rem; }
+.nav-btn .nav-icon { font-size: 1.2rem; height: 29px; line-height: 29px; }
 /* All six labels share one size and shrink together with the phone's width
    (vw), so the longest word in each language ("Presupuestos"/"Proyecciones"
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
@@ -356,6 +356,37 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.expense { color: var(--expense); }
 .summary-value.investment { color: var(--investment); }
 .pos-green, .summary-value.pos-green { color: var(--income); }
+
+/* Overview summary: four blocks that add up to What's left (owner's design, 2026-10-29) */
+.ov-sum-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ov-sum-tile {
+  position: relative; display: flex; flex-direction: column; gap: 2px;
+  min-width: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.ov-sum-tile.income { background: color-mix(in srgb, var(--income) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.expense { background: color-mix(in srgb, var(--expense) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.investment { background: color-mix(in srgb, var(--investment) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.loans { background: var(--card); }
+.ov-sum-tile .summary-value { font-size: 0.98rem; white-space: nowrap; }
+.ov-sum-sign { position: absolute; top: 8px; right: 12px; font-size: 0.9rem; font-weight: 700; color: var(--muted); }
+.ov-sum-tile.income .ov-sum-sign { color: var(--income); }
+.ov-sum-tile.expense .ov-sum-sign { color: var(--expense); }
+.ov-sum-tile.investment .ov-sum-sign { color: var(--investment); }
+.ov-sum-eq {
+  position: relative; z-index: 1; width: 26px; height: 26px; margin: -5px auto -13px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--card); border: 1px solid var(--border);
+  font-size: 0.95rem; font-weight: 700; color: var(--text);
+}
+.ov-sum-net {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 18px 14px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card)); border: 2px solid var(--accent);
+}
+.ov-sum-net-label { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+.ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); white-space: nowrap; }
+.ov-sum-net-eq { font-size: 0.7rem; color: var(--muted); text-align: center; }
 
 /* ---- Breakdown pie charts ---- */
 
@@ -1341,6 +1372,23 @@ body.sheet-open {
   margin-top: 2px;
 }
 
+/* Loan, forgiving and repayment changes still being saved (or that failed): the top of the Loans tab and of a person's
+   loan screen — see renderMoneyQueueStrips_ in app.js. */
+.money-queue-strip { margin: 8px 0; }
+.money-queue-row {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.money-queue-row.money-queue-failed {
+  color: var(--expense);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .entry.entry-deleting { opacity: 0.5; pointer-events: none; }
 
 .entry-queue-failed {
@@ -1540,6 +1588,13 @@ body.income-revealed .sens-mask { display: none; }
 #screen-loans h2 {
   font-size: 1rem;
 }
+
+/* The two buttons of the "Owes you" header sit side by side on one line, "+ Add loan" in the top-right corner. The generic
+   "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the second one down. */
+.loans-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -8px; }   /* the button's own padding stays out of the way of the right edge */
+.loans-head-actions button.add-inline { margin: 0; white-space: nowrap; }
+/* When the labels are long (Spanish) the group drops to its own right-aligned line instead of squeezing the title or splitting a label. */
+#loans-owed-card .budgets-header { flex-wrap: wrap; }
 
 .budget-row {
   padding: 12px 0;
@@ -2338,7 +2393,8 @@ body.income-revealed .sens-mask { display: none; }
 .bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
 .bill-item .tags-list { margin-top: 8px; }
 .bill-adj .budget-period-tabs { margin: 8px 0 0; }
-.bill-add-row { display: flex; gap: 16px; }
+.bill-add-row { display: flex; align-items: center; gap: 16px; }
+.bill-add-row .add-inline, .bill-add-row .add-inline + .add-inline { display: flex; align-items: center; margin: 0; }
 .bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
 .bill-check-ok { color: #2e8b57; }
@@ -2573,10 +2629,10 @@ body.income-revealed .sens-mask { display: none; }
 .pmm-option-name { font-weight: 600; }
 .pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
-.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
 .pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
-.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 
 /* ---- One calendar for a start and an end date ---- */
 .range-field { width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text, inherit); font: inherit; cursor: pointer; }
@@ -2978,6 +3034,15 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.own-name-card { border-left: 4px solid var(--accent); }
+.own-name-card h2 { margin: 0 0 4px; font-size: 1rem; }
+.own-name-name { margin: 4px 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
+.own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
+.own-name-actions button { flex: 1; }
+.review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-hint-btn { font-weight: 600; }
+.payee-suggest { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .notices-card { border-left: 4px solid #b26a00; }
 .notices-card h2 { margin: 0; font-size: 1rem; }
 .notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
@@ -3190,3 +3255,100 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .reassign-loading #reassign-fields, .reassign-loading #reassign-list, .reassign-loading #reassign-limit-row, .reassign-loading #reassign-gap,
 .reassign-loading #reassign-summary, .reassign-loading #reassign-hint, .reassign-loading #reassign-record, .reassign-loading #reassign-error,
 .reassign-loading #reassign-save { display: none; }
+
+/* Bank loans: the schedule rows (a date line, then three amounts) and the installment list */
+.bank-row { border-top: 1px solid var(--border); padding: 8px 0; }
+.bank-row-top { display: flex; align-items: center; gap: 8px; }
+.bank-row-top input[type="date"] { flex: 1; min-width: 0; }
+.bank-row-num { font-size: 0.8rem; color: var(--text-muted, #8e8e93); min-width: 22px; }
+.bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+.bank-row-amounts input { min-width: 0; }
+.bank-row-remove { background: none; border: none; font-size: 1rem; color: #d64545; padding: 4px 8px; }
+.bank-inst { border-top: 1px solid var(--border); padding: 10px 0; }
+.bank-inst.tappable { cursor: pointer; }
+.bank-inst-status { font-size: 0.8rem; font-weight: 600; }
+.bank-inst-status.paid { color: #2e9e5b; }
+.bank-inst-status.overdue { color: #d64545; }
+
+/* Overview: Loans card */
+.loans-ov-row { padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.loans-ov-row:last-child { border-bottom: 0; }
+.loans-ov-total { cursor: default; }
+.loans-ov-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 2px; }
+.loans-ov-parts { font-size: 0.8rem; color: var(--muted); }
+.loans-ov-net { font-size: 0.95rem; white-space: nowrap; }
+
+/* ---- First-use tips: the spotlight walkthrough (docs/spotlight.js) and its invitation card ---- */
+.spot-root { position: fixed; inset: 0; pointer-events: none; }
+.spot-blk { position: absolute; touch-action: none; pointer-events: auto; }
+.spot-root.spot-plain .spot-blk:first-child { background: rgba(0, 0, 0, 0.62); }
+.spot-hole { position: absolute; border-radius: 12px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62); outline: 3px solid rgba(255, 255, 255, 0.95); pointer-events: none; transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.spot-hole[hidden] { display: none; }
+.spot-bubble { position: absolute; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; background: var(--card); color: var(--text); border-radius: var(--radius); padding: 14px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); pointer-events: auto; }
+.spot-lookcover { background: transparent; }
+.spot-root.spot-typing .spot-blk:first-child { background: transparent; }
+.spot-root.spot-typing .spot-note, .spot-root.spot-typing .spot-count { display: none; }
+.spot-root.spot-typing .spot-bubble { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+.spot-lookcover[hidden] { display: none; }
+.spot-note { margin: 0 0 6px; color: var(--muted); font-size: 0.8rem; }
+.spot-note[hidden] { display: none; }
+.spot-arrow { position: absolute; width: 14px; height: 14px; background: var(--card); transform: translateX(-50%) rotate(45deg); }
+.spot-arrow[hidden] { display: none; }
+.spot-bubble[data-side="below"] .spot-arrow { top: -7px; }
+.spot-bubble[data-side="above"] .spot-arrow { bottom: -7px; }
+.spot-text { margin: 0 0 6px; font-size: 1rem; line-height: 1.35; }
+.spot-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; }
+.spot-foot[hidden] { display: none; }
+.spot-count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.spot-buttons { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.spot-buttons button { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; }
+.spot-buttons button[hidden] { display: none; }
+.spot-buttons .spot-stuck { color: var(--accent); }
+.spot-buttons .spot-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+/* The repayment sheet is only for the NEW repayment: past ones (to fix, move or delete) are in the person's Repayment history. */
+#settlement-list,
+#settlement-list-empty-note { display: none; }
+
+.tip-invite { display: flex; flex-direction: column; gap: 10px; background: #fff8e1; }
+.tip-invite[hidden] { display: none; }
+.tip-invite p { margin: 0; line-height: 1.35; }
+.tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
+.tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */
+.friends-header-actions { display: inline-flex; gap: 14px; align-items: center; }
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push + Friend below Edit. */
+.friends-header-actions button.add-inline { margin: 0; white-space: nowrap; }
+.friends-check-row { gap: 12px; justify-content: flex-start; }
+.friends-check-row > div:nth-child(2) { flex: 1; min-width: 0; }
+.friends-check-row > .recurring-row-amount { margin-left: auto; }
+.friends-check { -webkit-appearance: checkbox; appearance: auto; width: 22px; height: 22px; min-height: 0; flex: 0 0 22px; margin: 0; padding: 0; accent-color: #d64545; pointer-events: none; }
+/* The bar stays on screen the whole time Edit is on: fixed just above the bottom menu (its `bottom` is set from the menu's real height
+   in app.js), as wide as the page. A sticky bar only stuck inside the card, so it showed only once the list was scrolled to its end. */
+.friends-editbar {
+  position: fixed; left: 50%; transform: translateX(-50%); width: min(100%, 480px); box-sizing: border-box; z-index: 140;
+  bottom: 67px; background: var(--card, #fff); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+  padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.friends-editbar[hidden] { display: none; }
+.friends-editbar button.add-inline { white-space: nowrap; }
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+/* room under the last friend so the fixed bar never covers it */
+#screen-friends.friends-editing .card { padding-bottom: 90px; }
+.friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
+.friends-hidden-box > .add-inline { padding-left: 0; }
+.friends-hidden-row { cursor: default; }
+
+/* ---- Programmed items: the paused-items decision sheet ---- */
+.paused-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.paused-row:last-child { border-bottom: none; }
+.paused-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.paused-actions .add-inline { padding-left: 0; padding-right: 0; margin: 0; white-space: nowrap; }
+#recurring-restart-btn { padding-left: 0; }
+.range-day:disabled { opacity: 0.3; cursor: default; }
+#screen-recurring.recurring-editing .card { padding-bottom: 90px; }
+/* Text links that start a line on their own: their 8px of tap padding made the words sit 8px right of the fields
+   above and below. Pull the box back so the WORDS line up with the edge. */
+#receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
+#projections-method-btn { margin-left: -8px; }
