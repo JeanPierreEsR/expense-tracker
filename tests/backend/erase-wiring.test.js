@@ -9,10 +9,13 @@ const app = read("docs/app.js");
 const html = read("docs/index.html");
 const setup = read("docs/setup/index.html");
 
-test("the More row sits after Sign out, is hidden by default and is hidden on the owner's copy", () => {
-  assert.match(html, /id="more-erase-btn" hidden/);
-  assert.ok(html.indexOf('id="more-signout-btn"') < html.indexOf('id="more-erase-btn"'));
-  assert.match(app, /more-erase-btn"\)\.hidden = owner/);
+test("the button is the last card of Feedback & privacy, whose More row is hidden by default and hidden on the owner's copy", () => {
+  assert.match(html, /id="more-feedback-privacy-btn" hidden/);
+  const screen = html.slice(html.indexOf('id="screen-feedback-privacy"'), html.indexOf('id="screen-statements"'));
+  assert.ok(screen.includes('id="fp-erase-btn"') && screen.indexOf('id="fp-erase-btn"') > screen.indexOf('id="fp-extras-btn"'));
+  assert.ok(!html.includes('id="more-erase-btn"'), "no More row of its own any more");
+  assert.match(app, /more-feedback-privacy-btn"\)\.hidden = perfIsOwnerCopy_\(\)/);
+  assert.match(app, /fp-erase-btn"\)\.addEventListener\("click"/);
 });
 
 test("the app asks the backend with confirm:true only after the typed word matches, then hands over to the setup page", () => {

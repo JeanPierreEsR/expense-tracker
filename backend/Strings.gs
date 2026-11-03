@@ -29,7 +29,7 @@ var BACKEND_STRINGS_ = {
   "erase.notConfirmed": { en: "Deleting everything needs your confirmation first.", es: "Para borrar todo primero hay que confirmarlo." },
   "extras.unknown": { en: "That extra feature does not exist.", es: "Esa función extra no existe." },
   "extras.notConfirmed": { en: "Taking back the permissions needs your confirmation first.", es: "Para retirar los permisos primero hay que confirmarlo." },
-  "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet. Turn it on in More → Extra features.", es: "La lectura de tus correos del banco aún no está activada en esta app. Actívala en Más → Funciones extra." },
+  "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet. Turn it on in More → Feedback & privacy → Extra features.", es: "La lectura de tus correos del banco aún no está activada en esta app. Actívala en Más → Comentarios y privacidad → Funciones extra." },
   "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu celular y vuelve a intentarlo." },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },

@@ -3112,7 +3112,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .md-head { margin: 18px 0 2px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .md-head:first-of-type { margin-top: 8px; }
 /* More → My profile: three cards on one screen, the second and third set off by a line */
-#my-profile-fits-card, #my-profile-dates-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
+#my-profile-fits-card, #my-profile-dates-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
 .md-row { text-align: left; }
 .md-row > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .md-title { font-weight: 600; }
