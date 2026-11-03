@@ -7972,6 +7972,13 @@ function drawBudgets_() {
   syncBudgetsEditBar_();
 }
 
+// The pencil of a screen header (More → Friends, Programmed items, Budgets): filled while Edit mode is on, and named "Done" for a screen reader then.
+function setEditIcon_(btn, on) {
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.setAttribute("aria-label", tr(on ? "friends.done" : "friends.edit"));
+}
+
 // ---- Budgets: Edit mode (tick several budgets, delete them at once; owner's request, 2026-11-02) ----
 // The same bar and checkboxes as More → Friends → Edit. One question for the whole batch, then the list returns at once and the server works
 // behind the screen (saving standard). Only the budgets (and their alert history) go: entries are never touched.
@@ -7979,7 +7986,7 @@ function setBudgetsEditing_(on, redraw = true) {
   if (on === budgetsEditing_ && redraw) return;
   budgetsEditing_ = on;
   budgetsSelected_ = new Set();
-  document.getElementById("budgets-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  setEditIcon_(document.getElementById("budgets-edit-btn"), on);
   document.getElementById("add-budget-btn").hidden = on;
   document.getElementById("budgets-editbar").hidden = !on;
   document.getElementById("screen-budgets").classList.toggle("budgets-editing", on);
@@ -8001,6 +8008,10 @@ function syncBudgetsEditBar_() {
 // "Groceries (PEN 300 per month)": a category can have a monthly and a yearly budget, so the period is part of the name.
 const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")})`;
 document.getElementById("budgets-edit-btn").addEventListener("click", () => setBudgetsEditing_(!budgetsEditing_));
+document.getElementById("budgets-done-btn").addEventListener("click", () => setBudgetsEditing_(false));
+document.getElementById("recurring-done-btn").addEventListener("click", () => setRecurringEditing_(false));
+document.getElementById("friends-done-btn").addEventListener("click", () => setFriendsEditing_(false));
+
 document.getElementById("budgets-selectall-btn").addEventListener("click", () => {
   budgetsSelected_ = budgetsSelected_.size === budgetsLoaded_.length ? new Set() : new Set(budgetsLoaded_.map((b) => b.id));
   drawBudgets_();
@@ -13380,7 +13391,7 @@ const shownFriends_ = () => friends_.filter((p) => !p.hidden);
 function setFriendsEditing_(on, redraw = true) {
   friendsEditing_ = on;
   friendsSelected_ = new Set();
-  document.getElementById("friends-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  setEditIcon_(document.getElementById("friends-edit-btn"), on);
   document.getElementById("friends-add-btn").hidden = on;
   document.getElementById("friends-editbar").hidden = !on;
   document.getElementById("screen-friends").classList.toggle("friends-editing", on);
@@ -14117,7 +14128,7 @@ function setRecurringEditing_(on, redraw = true) {
   recurringSelected_ = new Set();
   if (on) { recurringPastBeforeEdit_ = showPastRecurring; showPastRecurring = true; }   // every item must be reachable: the past ones open
   else showPastRecurring = recurringPastBeforeEdit_;
-  document.getElementById("recurring-edit-btn").textContent = tr(on ? "friends.done" : "friends.edit");
+  setEditIcon_(document.getElementById("recurring-edit-btn"), on);
   document.getElementById("add-recurring-btn").hidden = on;
   document.getElementById("recurring-editbar").hidden = !on;
   document.getElementById("screen-recurring").classList.toggle("recurring-editing", on);

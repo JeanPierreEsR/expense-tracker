@@ -527,14 +527,15 @@
         <div class="budgets-header">
           <h2 data-i18n="nav.budgets">Budgets</h2>
           <span class="friends-header-actions">
-            <button type="button" class="add-inline" id="budgets-edit-btn" hidden data-i18n="friends.edit">Edit</button>
-            <button type="button" class="add-inline" id="add-budget-btn" data-i18n="budgets.add">+ Add budget</button>
+            <button type="button" class="icon-btn" id="budgets-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="add-budget-btn" data-i18n-aria-label="budgets.addAria" aria-label="Add budget"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
         <div id="budgets-list"></div>
         <p class="hint" id="budgets-empty-note" hidden data-i18n="budgets.empty">No budgets yet — add one to start tracking a category.</p>
         <div class="friends-editbar" id="budgets-editbar" hidden>
           <button type="button" class="add-inline" id="budgets-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="budgets-done-btn" data-i18n="friends.done">Done</button>
           <button type="button" class="primary danger" id="budgets-delete-selected-btn" disabled></button>
         </div>
       </div>
@@ -744,8 +745,8 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="recurring-back-btn" data-i18n="common.back">‹ Back</button>
           <span class="friends-header-actions">
-            <button type="button" class="add-inline" id="recurring-edit-btn" hidden data-i18n="friends.edit">Edit</button>
-            <button type="button" class="add-inline" id="add-recurring-btn" data-i18n="common.add">+ Add</button>
+            <button type="button" class="icon-btn" id="recurring-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="add-recurring-btn" data-i18n-aria-label="recurring.addAria" aria-label="Add programmed item"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
@@ -781,6 +782,7 @@
         </div>
         <div class="friends-editbar" id="recurring-editbar" hidden>
           <button type="button" class="add-inline" id="recurring-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="recurring-done-btn" data-i18n="friends.done">Done</button>
           <button type="button" class="primary danger" id="recurring-delete-selected-btn" disabled></button>
         </div>
       </div>
@@ -941,8 +943,8 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="friends-back-btn" data-i18n="common.back">‹ Back</button>
           <span class="friends-header-actions">
-            <button type="button" class="add-inline" id="friends-edit-btn" hidden data-i18n="friends.edit">Edit</button>
-            <button type="button" class="add-inline" id="friends-add-btn" data-i18n="friends.add">+ Friend</button>
+            <button type="button" class="icon-btn" id="friends-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="friends-add-btn" data-i18n-aria-label="friends.addAria" aria-label="Add friend"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="friends.title">Friends</h2>
@@ -957,6 +959,7 @@
         <p class="hint" id="friends-error" style="color:#d64545;"></p>
         <div class="friends-editbar" id="friends-editbar" hidden>
           <button type="button" class="add-inline" id="friends-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="friends-done-btn" data-i18n="friends.done">Done</button>
           <button type="button" class="primary danger" id="friends-delete-selected-btn" disabled></button>
         </div>
       </div>
