@@ -37,3 +37,20 @@ test("the pencil is filled while Edit is on (not relabelled), and every edit bar
   }
   assert.match(css, /\.icon-btn\.on \{/);
 });
+
+test("every other screen or card header Add button (sweep of 2026-11-02) is a + icon too, with a spoken name in both languages", () => {
+  const ids = { "add-balance-btn": "balances.addAria", "add-loan-btn": "loans.addAria", "accounts-add-btn": "accounts.addAria", "categories-add-btn": "categories.addAria",
+    "trips-add-btn": "trips.addAria", "business-add-company-btn": "business.addCompanyAria", "people-add-btn": "people.addPersonAria", "igv-add-payment-btn": "igv.addPaymentAria" };
+  for (const [id, key] of Object.entries(ids)) {
+    const b = button(id);
+    assert.match(b, /class="icon-btn"/, id);
+    assert.match(b, /<svg/, id);
+    assert.ok(b.includes(`data-i18n-aria-label="${key}"`), id + " is named by " + key);
+    assert.ok(!/data-i18n="/.test(b), id + " has no text");
+    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: ".+", es: ".+" \\}`), key);
+  }
+});
+
+test("no text still tells the person to tap a '+ Add' header button that no longer exists", () => {
+  assert.ok(!/[Tt]ap \+ Add(\.|,| loan| budget| balance| to )|[Tt]oca \+ Agregar(\.|,| préstamo| presupuesto| saldo| para )/.test(strings));   // ("+ Add friend…" / "+ Agregar ítem" are buttons inside forms and stay)
+});
