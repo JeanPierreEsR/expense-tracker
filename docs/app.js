@@ -2477,10 +2477,7 @@ function newClientEntryId_() {
 // queued on this phone (queueReviewAction_), and the server is told in the background; a failure leaves it queued, retried
 // at the next refresh or app open, with a short note saying so.
 function sendPendingConfirmInBackground_(id) {
-  const list = document.getElementById("review-list");
-  list.querySelectorAll(".review-item").forEach((el) => { if (el.dataset.entryId === id) el.remove(); });
-  document.getElementById("review-count").textContent = list.children.length;
-  if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+  dropReviewCard_(id);
   showToast_(tr("entry.saving"));
   const action = getQueuedReviewActions_().find((a) => a.id === id);
   if (!action) return;
@@ -2495,6 +2492,15 @@ function sendPendingConfirmInBackground_(id) {
     if (isUnreachable_(err)) { showToast_(tr("review.retryToast")); return; }   // no connection: it stays queued and keeps trying
     reopenRefusedConfirm_(id, action, err.message);                              // the server said no: back to the form, with the reason
   });
+}
+
+// Takes a waiting entry's card out of the review list at once (the save runs behind the screen; a refusal's refresh brings
+// it back). On a phone the server answers seconds later, and a card that stayed looked as if the tap had done nothing.
+function dropReviewCard_(id) {
+  const list = document.getElementById("review-list");
+  list.querySelectorAll(".review-item").forEach((el) => { if (el.dataset.entryId === id) el.remove(); });
+  document.getElementById("review-count").textContent = list.children.length;
+  if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 }
 
 function isUnreachable_(err) {
@@ -5587,7 +5593,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           amount: amt > 0 ? amt : undefined
         };
         makeTransferBtn.disabled = true;
-        // Saves behind the screen (a refusal comes back as an alert and the card stays as it was).
+        // Saves behind the screen; the card leaves at once (a refusal comes back as an alert and the refresh restores it).
+        dropReviewCard_(entry.id);
         saveBehindScreen_(() => callApi("convertPendingToTransfer", body), async () => {
           makeTransferBtn.disabled = false;
           refreshReviewQueue().catch(() => {});
@@ -16577,6 +16584,7 @@ function loansScopePayload_() {
 // in the order the server needs: the repayment first, then the expense (which takes its loan with it).
 let loansOwingIds_ = null;   // who has an open debt (from the Loans tab's last load): the practice's quick check of a chosen friend
 let loansLoad_ = null;   // the Loans tab's latest load, so a walkthrough can wait for the list to be there
+let loansLastBalances_ = null;   // the Loans tab's last unscoped list: Mark as repayment starts on a friend with a debt that fits
 const PRACTICE_KEY_ = "tipPractice";
 let practice_ = null;    // { entryId, friendId, friendName, currency, amount, armed }: what the practice has made so far
 
@@ -18487,6 +18495,7 @@ function practiceBLeftover_() {
 async function refreshLoans() {
   populateLoansScope_();
   const balances = await callApi("listLoanBalances", loansScopePayload_());
+  if (!loansScope_) loansLastBalances_ = balances;
 
   // A friend can be owed in one currency and owe in another (e.g. they owe
   // you PEN but you owe them USD), so each section takes only that
@@ -20975,7 +20984,15 @@ function openReviewTransferModal(entry, mode) {
   populateReviewTransferPaymentMethodOptions();
   // A place the person turned into a loan / repayment before suggests the same friend (backend/PayeeGuess.gs).
   const hintedFriend = entry.loan_hint && meta.friends.find((f) => f.id === entry.loan_hint.friend_id);
-  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : (meta.friends.length ? meta.friends[0].id : "");
+  // Otherwise a repayment starts on the friend with the biggest debt it can pay off (money that left pays what the owner
+  // owes; money that arrived, what a friend owes), in the entry's currency: the first friend in the list, owed nothing,
+  // turned the whole payment into an "extra" waiting in Needs review again.
+  const sign = incoming ? 1 : -1;
+  const owedFriend = mode === "repay" && !hintedFriend && (loansLastBalances_ || [])
+    .map((b) => ({ id: b.friend_id, net: ((b.balances || []).find((l) => l.currency === entry.currency) || {}).net || 0 }))
+    .filter((b) => sign * b.net > 0.004 && plainFriends_().some((f) => f.id === b.id))
+    .sort((x, y) => Math.abs(y.net) - Math.abs(x.net))[0];
+  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : (meta.friends.length ? meta.friends[0].id : "");
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
@@ -21027,6 +21044,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   const incoming = reviewEntryArrived_(reviewTransferEntry);
   const mode = reviewTransferMode;
   closeReviewTransferModal();
+  dropReviewCard_(entryId);   // gone at once; a refusal's refresh below brings it back
 
   // Saves behind the screen. One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked
   // first and the waiting entry is put back if anything fails, so a refusal (an income with no debt on record, say) leaves
