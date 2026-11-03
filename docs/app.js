@@ -6197,6 +6197,12 @@ function ensurePeriodSelectorIn(screenName) {
 
 let budgetsSummary_ = null;
 let budgetsEditing_ = false;
+let businessEditing_ = false;
+let businessSelected_ = new Set();   // "c:<company id>" / "p:<project id>"
+let peopleEditing_ = false;
+let peopleSelected_ = new Set();
+let categoriesEditing_ = false;
+let categoriesSelected_ = new Set();
 let tripsEditing_ = false;
 let tripsSelected_ = new Set();
 let accountsEditing_ = false;
@@ -6207,6 +6213,9 @@ function showScreen(name) {
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
+  if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
+  if (name !== "business" && businessEditing_) setBusinessEditing_(false, false);
+  if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -11471,6 +11480,11 @@ function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
   const bothTypes = categoryNamesInBothTypes_();
+  const selectable = meta.categories.filter((c) => !isOtherCategory_(c));
+  document.getElementById("categories-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.categoriesBulkDelete && selectable.length);
+  if (categoriesEditing_ && !selectable.length) setCategoriesEditing_(false, false);
+  const stillThere = new Set(selectable.map((c) => c.id));
+  categoriesSelected_ = new Set([...categoriesSelected_].filter((id) => stillThere.has(id)));
   ["expense", "income"].forEach((type) => {
     const head = document.createElement("h3");
     head.className = "accounts-group-title";
@@ -11478,8 +11492,13 @@ function renderCategoriesList_() {
     list.appendChild(head);
     sortedCategories_(meta.categories.filter((c) => c.type === type)).forEach((c) => {
       const row = document.createElement("div");
-      row.className = "recurring-row" + (catHidden_(c) ? " inactive" : "");
+      const isOther = isOtherCategory_(c);   // the built-in "Other" is the fallback everywhere: it has no checkbox in Edit mode
+      row.className = "recurring-row" + (catHidden_(c) ? " inactive" : "") + (categoriesEditing_ ? " friends-check-row" : "");
+      delKey_(row, "cat:" + c.id);
+      const lead = !categoriesEditing_ ? "" : isOther ? `<span class="friends-check-spacer"></span>`
+        : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${categoriesSelected_.has(c.id) ? " checked" : ""}>`;
       row.innerHTML = `
+        ${lead}
         <div class="cat-preview" style="margin:0;">
           <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
@@ -11487,11 +11506,164 @@ function renderCategoriesList_() {
             <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
           </div>
         </div>`;
-      row.addEventListener("click", () => openCatModal_(c));
+      row.addEventListener("click", () => {
+        if (!categoriesEditing_) { openCatModal_(c); return; }   // Edit mode: a tap ticks instead of opening
+        if (isOther) return;
+        if (categoriesSelected_.has(c.id)) categoriesSelected_.delete(c.id); else categoriesSelected_.add(c.id);
+        row.querySelector(".friends-check").checked = categoriesSelected_.has(c.id);
+        syncCategoriesEditBar_();
+      });
       list.appendChild(row);
     });
   });
+  syncCategoriesEditBar_();
   loadCategoryCounts_();
+}
+
+// ---- Categories: Edit mode (tick several, delete them at once; owner's request, 2026-11-03) ----
+// The same pencil, checkboxes and fixed bar as the other Edit screens, but the delicate one: a category in use cannot just disappear. Delete first
+// asks the server what each one is used by (previewCategoryDelete). Nothing in use: one plain question. Otherwise ONE answer for the batch: move
+// everything in use into ONE category per type (with an alert when entries of several categories will end up in one), or hide the ones in use.
+function setCategoriesEditing_(on, redraw = true) {
+  if (on === categoriesEditing_ && redraw) return;
+  categoriesEditing_ = on;
+  categoriesSelected_ = new Set();
+  setEditIcon_(document.getElementById("categories-edit-btn"), on);
+  document.getElementById("categories-add-btn").hidden = on;
+  document.getElementById("categories-suggest-btn").hidden = on || !(meta && meta.capabilities && meta.capabilities.profile);
+  document.getElementById("categories-editbar").hidden = !on;
+  document.getElementById("screen-categories").classList.toggle("categories-editing", on);
+  placeCategoriesEditBar_();
+  if (redraw) renderCategoriesList_();
+}
+function placeCategoriesEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("categories-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (categoriesEditing_) placeCategoriesEditBar_(); });
+function syncCategoriesEditBar_() {
+  const n = categoriesSelected_.size;
+  const del = document.getElementById("categories-delete-selected-btn");
+  const total = ((meta && meta.categories) || []).filter((c) => !isOtherCategory_(c)).length;
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("categories-selectall-btn").textContent = tr(n && n === total ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("categories-edit-btn").addEventListener("click", () => setCategoriesEditing_(!categoriesEditing_));
+document.getElementById("categories-done-btn").addEventListener("click", () => setCategoriesEditing_(false));
+document.getElementById("categories-back-btn").addEventListener("click", () => setCategoriesEditing_(false));
+document.getElementById("categories-selectall-btn").addEventListener("click", () => {
+  const all = meta.categories.filter((c) => !isOtherCategory_(c)).map((c) => c.id);
+  categoriesSelected_ = categoriesSelected_.size === all.length ? new Set() : new Set(all);
+  renderCategoriesList_();
+});
+function closeCatBulkSheet_() { document.getElementById("cat-bulk-backdrop").hidden = true; }
+document.getElementById("cat-bulk-close").addEventListener("click", closeCatBulkSheet_);
+
+document.getElementById("categories-delete-selected-btn").addEventListener("click", () => {
+  const chosen = meta.categories.filter((c) => categoriesSelected_.has(c.id));
+  if (chosen.length) startCategoriesBulkDelete_(chosen);
+});
+
+async function startCategoriesBulkDelete_(chosen) {
+  const backdrop = document.getElementById("cat-bulk-backdrop");
+  const body = document.getElementById("cat-bulk-body");
+  document.getElementById("cat-bulk-title").textContent = tr("catBulk.title");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;   // loading standard: the choices appear only when the usage is known
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  const ids = chosen.map((c) => c.id);
+  let preview;
+  try {
+    preview = await callApi("previewCategoryDelete", { ids });
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    return;   // closes with the ✕
+  }
+  const usedBy = new Map(preview.items.map((i) => [i.id, i]));
+  const bothTypes = categoryNamesInBothTypes_();
+  const label = (c) => categoryShownName_(c, bothTypes);
+  const inUse = chosen.filter((c) => ((usedBy.get(c.id) || {}).used || 0) > 0);
+  const free = chosen.filter((c) => !inUse.includes(c));
+  if (!inUse.length) {   // nothing points at any of them: one plain question
+    closeCatBulkSheet_();
+    await nextPaint_();
+    const names = chosen.map(label).join(", ");
+    if (confirm(chosen.length === 1 ? tr("categories.confirmDelete", { name: names }) : tr("catBulk.confirmMany", { n: chosen.length, names }))) runCategoriesDelete_(chosen, {});
+    return;
+  }
+  const chosenIds = new Set(ids);
+  const types = ["expense", "income"].filter((t) => inUse.some((c) => c.type === t));
+  const blocks = types.map((t) => {
+    const group = inUse.filter((c) => c.type === t);
+    const candidates = sortedCategories_(meta.categories.filter((c) => c.type === t && !chosenIds.has(c.id)));
+    const entries = group.reduce((sum, c) => sum + ((usedBy.get(c.id) || {}).entries || 0), 0);
+    const names = group.map(label).join(", ");
+    const options = candidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(`${c.icon || "•"} ${categoryShownName_(c, bothTypes)}${catHidden_(c) ? ` (${tr("categories.hiddenTag")})` : ""}`)}</option>`).join("");
+    const preferred = candidates.find(isOtherCategory_) || candidates[0];
+    return { t, group, candidates, entries, names, options, preferred };
+  });
+  const canMove = blocks.every((b) => b.candidates.length > 0);
+  body.innerHTML = `
+    <p class="hint"><b>${escapeHtml(inUse.length === chosen.length ? tr("catBulk.introAll", { n: chosen.length }) : tr("catBulk.intro", { k: inUse.length, n: chosen.length }))}</b></p>
+    ${blocks.map((b) => `
+      <div class="cat-bulk-block">
+        <div><b>${escapeHtml(tr(`categories.group.${b.t}`))}</b></div>
+        ${b.candidates.length ? `
+          <label for="cat-bulk-target-${b.t}">${escapeHtml(tr("catBulk.moveLabel", { names: b.names }))}</label>
+          <select id="cat-bulk-target-${b.t}">${b.options}</select>
+          <p class="hint">${escapeHtml(tr("catBulk.moveCount", { entries: b.entries }))}</p>
+          ${b.group.length > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("catBulk.mergeAlert", { k: b.group.length, names: b.names }))}</div>` : ""}
+        ` : `<p class="hint">${escapeHtml(tr("catBulk.noTarget", { names: b.names }))}</p>`}
+      </div>`).join("")}
+    ${canMove ? `<button type="button" class="primary danger" id="cat-bulk-move-btn">${escapeHtml(tr("catBulk.moveBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("catBulk.moveHint") + (free.length ? tr("catBulk.moveRest", { m: free.length }) : ""))}</p>` : ""}
+    <button type="button" class="primary" id="cat-bulk-hide-btn">${escapeHtml(tr("catBulk.hideBtn"))}</button>
+    <p class="hint">${escapeHtml(tr("catBulk.hideHint") + (free.length ? tr("catBulk.hideRest", { m: free.length }) : ""))}</p>`;
+  blocks.forEach((b) => { const sel = document.getElementById(`cat-bulk-target-${b.t}`); if (sel && b.preferred) sel.value = b.preferred.id; });
+  const moveBtn = document.getElementById("cat-bulk-move-btn");
+  if (moveBtn) moveBtn.addEventListener("click", () => {
+    const reassign = {};
+    blocks.forEach((b) => { reassign[b.t] = document.getElementById(`cat-bulk-target-${b.t}`).value; });
+    runCategoriesDelete_(chosen, { reassign });
+  });
+  document.getElementById("cat-bulk-hide-btn").addEventListener("click", () => runCategoriesDelete_(chosen, { hideUsed: true }));
+}
+
+function runCategoriesDelete_(chosen, opts) {
+  closeCatBulkSheet_();
+  setCategoriesEditing_(false);
+  const ids = chosen.map((c) => c.id);
+  ids.forEach((id) => markDeleting_("cat:" + id));
+  const bothTypes = categoryNamesInBothTypes_();
+  let result = null;
+  const namesOf = (list) => list.map((x) => x.name).join(", ");
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteCategories", { ids, reassign: opts.reassign, hideUsed: !!opts.hideUsed });
+  }, async () => {
+    await refreshCategoriesAfterChange_();
+    if (!result) return;
+    if (result.movedEntries) refreshEntriesInBackground_();
+    const plain = !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to);
+    if (plain) return;   // everything was simply deleted: the "done" toast names them
+    const lines = [];
+    const plainDeleted = result.deleted.filter((d) => !d.to);
+    if (plainDeleted.length) lines.push(tr("catBulk.resultDeleted", { n: plainDeleted.length, names: namesOf(plainDeleted) }));
+    const byTarget = new Map();
+    result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
+    byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), entries: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
+    if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
+    const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
+    if (keptBy("noTarget").length) lines.push(tr("catBulk.resultNoTarget", { names: namesOf(keptBy("noTarget")) }));
+    if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
+    const other = result.kept.filter((k) => (k.reason === "protected" || k.reason === "missing") && k.name);
+    if (other.length) lines.push(tr("catBulk.resultKept", { names: namesOf(other) }));
+    alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && result.deleted.length && !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to)
+      ? tr("catBulk.doneDeleted", { n: result.deleted.length, names: namesOf(result.deleted) }) : "",
+  });
 }
 
 function updateCatPreview_() {
@@ -12713,13 +12885,26 @@ function renderBusinessList_(companies) {
   document.getElementById("business-empty-note").hidden = companies.length > 0;
   document.getElementById("business-first-btn").hidden = companies.length > 0;
   document.getElementById("business-period").hidden = companies.length === 0;
+  document.getElementById("business-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.businessBulkDelete && companies.length);
+  if (businessEditing_ && !companies.length) setBusinessEditing_(false, false);
+  const knownKeys = new Set(companies.flatMap((c) => ["c:" + c.id, ...c.projects.map((p) => "p:" + p.id)]));
+  businessSelected_ = new Set([...businessSelected_].filter((k) => knownKeys.has(k)));
+  const tickBox = (key) => `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${businessSelected_.has(key) ? " checked" : ""}>`;
+  const toggleKey = (key, el) => {
+    if (businessSelected_.has(key)) businessSelected_.delete(key); else businessSelected_.add(key);
+    el.querySelector(".friends-check").checked = businessSelected_.has(key);
+    syncBusinessEditBar_();
+  };
   companies.forEach((c) => {
     const head = document.createElement("div");
-    head.className = "business-company-head";
+    head.className = "business-company-head" + (businessEditing_ ? " friends-check-row" : "");
+    delKey_(head, "company:" + c.id);
     head.innerHTML = `
+      ${businessEditing_ ? tickBox("c:" + c.id) : ""}
       <h3 class="accounts-group-title" style="margin:0;">${escapeHtml(companyLabel_(c))}</h3>
       <div class="business-mini">${escapeHtml(tr("business.projectCount", { n: c.projects.length }))}</div>`;
-    head.querySelector("h3").addEventListener("click", () => showBusinessDetail_("company", c.id));
+    head.querySelector("h3").addEventListener("click", () => { if (businessEditing_) return; showBusinessDetail_("company", c.id); });
+    if (businessEditing_) head.addEventListener("click", () => toggleKey("c:" + c.id, head));   // Edit mode: a tap ticks instead of opening
     box.appendChild(head);
 
     const summary = document.createElement("div");
@@ -12729,21 +12914,23 @@ function renderBusinessList_(companies) {
         <div class="recurring-row-name">${escapeHtml(tr("business.entryCount", { n: c.entryCount || 0 }))}</div>
       </div>
       <div class="recurring-row-amount">${businessMarginLinesHtml_(c.currencies)}</div>`;
-    summary.addEventListener("click", () => showBusinessDetail_("company", c.id));
+    summary.addEventListener("click", () => { if (businessEditing_) return; showBusinessDetail_("company", c.id); });
     box.appendChild(summary);
 
     const active = c.projects.filter((p) => p.status !== "closed");
     const closed = c.projects.filter((p) => p.status === "closed");
     const projectRow = (p) => {
       const row = document.createElement("div");
-      row.className = "recurring-row";
+      row.className = "recurring-row" + (businessEditing_ ? " friends-check-row" : "");
+      delKey_(row, "project:" + p.id);
       row.innerHTML = `
+        ${businessEditing_ ? tickBox("p:" + p.id) : ""}
         <div>
           <div class="recurring-row-name">${escapeHtml(projectLabel_(p))}</div>
           <div class="recurring-row-sub">${escapeHtml([p.status === "closed" ? tr("business.status.closed") : "", tr("business.entryCount", { n: p.entryCount || 0 })].filter(Boolean).join(" · "))}</div>
         </div>
         <div class="recurring-row-amount">${businessMarginLinesHtml_(p.currencies)}</div>`;
-      row.addEventListener("click", () => showBusinessDetail_("project", p.id));
+      row.addEventListener("click", () => { if (businessEditing_) toggleKey("p:" + p.id, row); else showBusinessDetail_("project", p.id); });
       return row;
     };
     active.forEach((p) => box.appendChild(projectRow(p)));
@@ -12751,11 +12938,12 @@ function renderBusinessList_(companies) {
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "add-inline";
-      toggle.textContent = "▸ " + tr("business.closedProjects", { n: closed.length });
       const wrap = document.createElement("div");
-      wrap.hidden = true;
+      wrap.hidden = !businessEditing_;   // (every project stays reachable while Edit is on)
       closed.forEach((p) => wrap.appendChild(projectRow(p)));
+      toggle.textContent = (wrap.hidden ? "▸ " : "▾ ") + tr("business.closedProjects", { n: closed.length });
       toggle.addEventListener("click", () => {
+        if (businessEditing_) return;
         wrap.hidden = !wrap.hidden;
         toggle.textContent = (wrap.hidden ? "▸ " : "▾ ") + tr("business.closedProjects", { n: closed.length });
       });
@@ -12767,9 +12955,89 @@ function renderBusinessList_(companies) {
     add.className = "add-inline";
     add.textContent = tr("business.addProject");
     add.addEventListener("click", () => openProjectModal_(null, c.id, []));
+    add.hidden = businessEditing_;
     box.appendChild(add);
   });
+  syncBusinessEditBar_();
 }
+
+// ---- Companies & projects: Edit mode (tick several, delete them at once; owner's request, 2026-11-03) ----
+// The same pencil, checkboxes and fixed bar as the other Edit screens. Companies AND their projects can be ticked. One question, then the server applies the
+// single deletes' rules in ONE call: a project's entries keep the company and lose the project; a company that still has projects or entries is kept.
+function setBusinessEditing_(on, redraw = true) {
+  if (on === businessEditing_ && redraw) return;
+  businessEditing_ = on;
+  businessSelected_ = new Set();
+  setEditIcon_(document.getElementById("business-edit-btn"), on);
+  document.getElementById("business-add-company-btn").hidden = on;
+  document.getElementById("business-editbar").hidden = !on;
+  document.getElementById("screen-business").classList.toggle("business-editing", on);
+  placeBusinessEditBar_();
+  if (redraw) renderBusinessList_(businessList_);
+}
+function placeBusinessEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("business-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (businessEditing_) placeBusinessEditBar_(); });
+const businessAllKeys_ = () => (businessList_ || []).flatMap((c) => ["c:" + c.id, ...c.projects.map((p) => "p:" + p.id)]);
+function syncBusinessEditBar_() {
+  const n = businessSelected_.size;
+  const del = document.getElementById("business-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("business-selectall-btn").textContent = tr(n && n === businessAllKeys_().length ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("business-edit-btn").addEventListener("click", () => setBusinessEditing_(!businessEditing_));
+document.getElementById("business-done-btn").addEventListener("click", () => setBusinessEditing_(false));
+document.getElementById("business-back-btn").addEventListener("click", () => setBusinessEditing_(false));
+document.getElementById("business-people-btn").addEventListener("click", () => setBusinessEditing_(false));
+document.getElementById("business-selectall-btn").addEventListener("click", () => {
+  const all = businessAllKeys_();
+  businessSelected_ = businessSelected_.size === all.length ? new Set() : new Set(all);
+  renderBusinessList_(businessList_);
+});
+document.getElementById("business-delete-selected-btn").addEventListener("click", () => {
+  const companies = (businessList_ || []).filter((c) => businessSelected_.has("c:" + c.id));
+  const projects = (businessList_ || []).flatMap((c) => c.projects).filter((p) => businessSelected_.has("p:" + p.id));
+  if (!companies.length && !projects.length) return;
+  const list = [];
+  if (companies.length) list.push(tr("bizBulk.listCompanies", { n: companies.length, names: companies.map(companyLabel_).join(", ") }));
+  if (projects.length) list.push(tr("bizBulk.listProjects", { n: projects.length, names: projects.map(projectLabel_).join(", ") }));
+  const notes = [];
+  if (projects.length) notes.push(tr("bizBulk.projectsNote"));
+  if (companies.length) notes.push(tr("bizBulk.companiesNote"));
+  if (!confirm(tr("bizBulk.confirm", { list: list.join("\n"), notes: notes.join("\n\n") }))) return;
+  const company_ids = companies.map((c) => c.id), project_ids = projects.map((p) => p.id);
+  const nameOf = new Map([...companies.map((c) => [c.id, companyLabel_(c)]), ...projects.map((p) => [p.id, projectLabel_(p)])]);
+  setBusinessEditing_(false);
+  company_ids.forEach((id) => markDeleting_("company:" + id));
+  project_ids.forEach((id) => markDeleting_("project:" + id));
+  let result = null;
+  const names = (list) => list.map((d) => nameOf.get(d.id) || d.name).join(", ");
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteBusinessItems", { company_ids, project_ids });
+  }, async () => {
+    await refreshBusinessList_();
+    if (!result) return;
+    const keptBy = (reason) => result.companies.kept.filter((k) => k.reason === reason);
+    if (!keptBy("projects").length && !keptBy("entries").length && !result.projects.missing.length && !result.companies.kept.length) return;   // all went: the "done" toast names them
+    const lines = [];
+    if (result.projects.deleted.length) lines.push(tr("bizBulk.resultProjects", { n: result.projects.deleted.length, names: names(result.projects.deleted) }));
+    if (result.companies.deleted.length) lines.push(tr("bizBulk.resultCompanies", { n: result.companies.deleted.length, names: names(result.companies.deleted) }));
+    if (keptBy("projects").length) lines.push(tr("bizBulk.resultKeptProjects", { names: names(keptBy("projects")) }));
+    if (keptBy("entries").length) lines.push(tr("bizBulk.resultKeptEntries", { names: names(keptBy("entries")) }));
+    if (result.projects.missing.length || keptBy("missing").length) lines.push(tr("bizBulk.resultMissing", { names: [...result.projects.missing, ...keptBy("missing").map((k) => k.id)].map((id) => nameOf.get(id) || id).join(", ") }));
+    alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => {
+      if (!result || result.companies.kept.length || result.projects.missing.length) return "";
+      const all = [...result.projects.deleted, ...result.companies.deleted];
+      return all.length ? tr("bizBulk.doneDeleted", { n: all.length, names: names(all) }) : "";
+    },
+  });
+});
 
 document.getElementById("more-business-btn").addEventListener("click", showBusinessScreen);
 document.getElementById("business-back-btn").addEventListener("click", () => showScreen("more"));
@@ -13510,6 +13778,10 @@ function renderPeopleList_(people) {
   const box = document.getElementById("people-list");
   box.innerHTML = "";
   document.getElementById("people-empty-note").hidden = people.length > 0;
+  document.getElementById("people-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.businessBulkDelete && people.length);
+  if (peopleEditing_ && !people.length) setPeopleEditing_(false, false);
+  const stillThere = new Set(people.map((p) => p.id));
+  peopleSelected_ = new Set([...peopleSelected_].filter((id) => stillThere.has(id)));
   ["client", "supplier", "partner"].forEach((role) => {
     const group = people.filter((p) => p.role === role);
     if (!group.length) return;
@@ -13523,18 +13795,90 @@ function renderPeopleList_(people) {
         return project ? project.name : tr("people.personal");
       }).join(" · ");
       const row = document.createElement("div");
-      row.className = "recurring-row";
+      row.className = "recurring-row" + (peopleEditing_ ? " friends-check-row" : "");
+      delKey_(row, "person:" + p.id);
       row.innerHTML = `
+        ${peopleEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${peopleSelected_.has(p.id) ? " checked" : ""}>` : ""}
         <div>
           <div class="recurring-row-name">${escapeHtml(p.name)}</div>
           <div class="recurring-row-sub">${escapeHtml(where || tr("people.noDebts"))}</div>
         </div>
         <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
-      row.addEventListener("click", () => openPersonModal_(p));
+      row.addEventListener("click", () => {
+        if (!peopleEditing_) { openPersonModal_(p); return; }   // Edit mode: a tap ticks instead of opening
+        if (peopleSelected_.has(p.id)) peopleSelected_.delete(p.id); else peopleSelected_.add(p.id);
+        row.querySelector(".friends-check").checked = peopleSelected_.has(p.id);
+        syncPeopleEditBar_();
+      });
       box.appendChild(row);
     });
   });
+  syncPeopleEditBar_();
 }
+
+// ---- People: Edit mode (owner's request, 2026-11-03) ----
+// A person with loans, shared expenses or paid entries is kept, never deleted behind the owner's back (the single delete's rule).
+function setPeopleEditing_(on, redraw = true) {
+  if (on === peopleEditing_ && redraw) return;
+  peopleEditing_ = on;
+  peopleSelected_ = new Set();
+  setEditIcon_(document.getElementById("people-edit-btn"), on);
+  document.getElementById("people-add-btn").hidden = on;
+  document.getElementById("people-editbar").hidden = !on;
+  document.getElementById("screen-business-people").classList.toggle("people-editing", on);
+  placePeopleEditBar_();
+  if (redraw) renderPeopleList_(people_);
+}
+function placePeopleEditBar_() {
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("people-editbar").style.bottom = nav.offsetHeight + "px";
+}
+window.addEventListener("resize", () => { if (peopleEditing_) placePeopleEditBar_(); });
+function syncPeopleEditBar_() {
+  const n = peopleSelected_.size;
+  const del = document.getElementById("people-delete-selected-btn");
+  del.disabled = n === 0;
+  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  document.getElementById("people-selectall-btn").textContent = tr(n && n === people_.length ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("people-edit-btn").addEventListener("click", () => setPeopleEditing_(!peopleEditing_));
+document.getElementById("people-done-btn").addEventListener("click", () => setPeopleEditing_(false));
+document.getElementById("people-back-btn").addEventListener("click", () => setPeopleEditing_(false));
+document.getElementById("people-selectall-btn").addEventListener("click", () => {
+  peopleSelected_ = peopleSelected_.size === people_.length ? new Set() : new Set(people_.map((p) => p.id));
+  renderPeopleList_(people_);
+});
+document.getElementById("people-delete-selected-btn").addEventListener("click", () => {
+  const chosen = people_.filter((p) => peopleSelected_.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!chosen.length) return;
+  const names = chosen.map((p) => p.name).join(", ");
+  if (!confirm(tr("bizBulk.peopleConfirm", { n: chosen.length, names }))) return;
+  const ids = chosen.map((p) => p.id);
+  const nameOf = new Map(chosen.map((p) => [p.id, p.name]));
+  setPeopleEditing_(false);
+  ids.forEach((id) => markDeleting_("person:" + id));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("deleteBusinessPeople", { ids });
+    const gone = new Set(result.deleted.map((d) => d.id));
+    meta.friends = (meta.friends || []).filter((f) => !gone.has(f.id));
+    refreshFriendChips_(); populatePaidByOptions();
+  }, async () => {
+    await refreshPeopleList_();
+    if (!result || !result.kept.length) return;   // everyone went: the "done" toast names them
+    const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name).map((k) => k.name);
+    const lines = [];
+    if (result.deleted.length) lines.push(tr("bizBulk.resultPeople", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }));
+    if (keptBy("inUse").length) lines.push(tr("bizBulk.resultPeopleInUse", { names: keptBy("inUse").join(", ") }));
+    if (keptBy("group").length) lines.push(tr("bizBulk.resultPeopleGroup", { names: keptBy("group").join(", ") }));
+    const other = [...keptBy("notPerson"), ...result.kept.filter((k) => k.reason === "missing").map((k) => nameOf.get(k.id) || k.id)];
+    if (other.length) lines.push(tr("bizBulk.resultKept", { names: other.join(", ") }));
+    alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
+  });
+});
 
 // ---- More → Friends: the plain friends, to rename, add or delete (owner's request, 2026-10-30) ----
 // "Edit" puts a checkbox on every friend and a bar at the bottom to delete the ticked ones in one go (owner's request, 2026-10-30).

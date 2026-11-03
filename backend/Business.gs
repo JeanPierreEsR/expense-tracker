@@ -324,6 +324,92 @@ function deleteCompany(payload) {
   return { done: true };
 }
 
+// ---- Several companies / projects at once (More → Companies & projects → Edit, owner's request 2026-11-03) ----
+// What deleteProject and deleteCompany do, for a whole batch in ONE call: projects first (their entries keep the company and lose the project; the
+// project's budgets and expected payments go), then companies: a company that still has projects or entries is kept, never deleted behind the owner's
+// back. Answers { projects: { deleted: [{id,name}], missing: [ids] }, companies: { deleted: [{id,name}], kept: [{id,name,reason: projects|entries|missing}] } }.
+function deleteBusinessItems(payload) {
+  requireBusiness_();
+  ensureBusinessSheets_();
+  payload = payload || {};
+  var out = { projects: { deleted: [], missing: [] }, companies: { deleted: [], kept: [] } };
+  var projectIds = uniqueIds_(payload.project_ids), companyIds = uniqueIds_(payload.company_ids);
+  var projectsById = {};
+  getProjectRows_().forEach(function (p) { projectsById[String(p.id)] = p; });
+  var goneProjects = {};
+  projectIds.forEach(function (id) {
+    if (projectsById[id]) { goneProjects[id] = true; out.projects.deleted.push({ id: id, name: String(projectsById[id].name || '') }); }
+    else out.projects.missing.push(id);
+  });
+  if (out.projects.deleted.length) {
+    var entrySheet = getSheet('Entries');
+    var entryHeaders = getHeaders(entrySheet);
+    var col = entryHeaders.indexOf('project_id');
+    withWriteBatch_(function () {
+      if (col !== -1 && entrySheet.getLastRow() >= 2) {
+        entrySheet.getRange(2, col + 1, entrySheet.getLastRow() - 1, 1).getValues().forEach(function (row, i) {
+          if (goneProjects[String(row[0])] === true) setCellByRow_(entrySheet, entryHeaders, i + 2, 'project_id', '');
+        });
+      }
+      deleteRowsWhere_('Project Budgets', function (row) { return goneProjects[String(row.project_id)] === true; });
+      out.projects.deleted.forEach(function (d) { deleteExpectedForProject_(d.id); });
+      deleteRowsWhere_('Projects', function (row) { return goneProjects[String(row.id)] === true; });
+    });
+  }
+  if (companyIds.length) {
+    var companiesById = {};
+    getCompanyRows_().forEach(function (c) { companiesById[String(c.id)] = c; });
+    var withProjects = {};
+    getProjectRows_().forEach(function (p) { withProjects[String(p.company_id)] = true; });
+    var withEntries = {};
+    getAllRows('Entries').forEach(function (e) { if (e.company_id) withEntries[String(e.company_id)] = true; });
+    var goneCompanies = {};
+    companyIds.forEach(function (id) {
+      var c = companiesById[id];
+      if (!c) { out.companies.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+      var name = String(c.name || '');
+      if (withProjects[id]) { out.companies.kept.push({ id: id, name: name, reason: 'projects' }); return; }
+      if (withEntries[id]) { out.companies.kept.push({ id: id, name: name, reason: 'entries' }); return; }
+      goneCompanies[id] = true;
+      out.companies.deleted.push({ id: id, name: name });
+    });
+    if (out.companies.deleted.length) {
+      deleteRowsWhere_('IGV Payments', function (row) { return goneCompanies[String(row.company_id)] === true; });   // information-only records go with it
+      deleteRowsWhere_('Companies', function (row) { return goneCompanies[String(row.id)] === true; });
+    }
+  }
+  return out;
+}
+
+// Several clients / suppliers / partners at once (More → Companies & projects → People → Edit). The single delete's rule for each: a person who has loans,
+// shares or paid entries is kept (nothing is deleted behind the owner's back), and so is a trip's group. Answers
+// { deleted: [{id,name}], kept: [{id,name,reason: inUse|group|notPerson|missing}] }.
+function deleteBusinessPeople(payload) {
+  requireBusiness_();
+  var ids = uniqueIds_(payload && payload.ids);
+  var out = { deleted: [], kept: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Friends').forEach(function (f) { byId[String(f.id)] = f; });
+  var used = {};
+  getAllRows('Loans').forEach(function (l) { used[String(l.friend_id)] = true; });
+  getAllRows('Entry Splits').forEach(function (sp) { used[String(sp.friend_id)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) used[String(e.paid_by)] = true; });
+  var gone = {};
+  ids.forEach(function (id) {
+    var f = byId[id];
+    if (!f) { out.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(f.name || '');
+    if (f.trip_id) { out.kept.push({ id: id, name: name, reason: 'group' }); return; }
+    if (friendRoleOf_(f) === 'friend') { out.kept.push({ id: id, name: name, reason: 'notPerson' }); return; }   // a plain friend is deleted from More → Friends
+    if (used[id]) { out.kept.push({ id: id, name: name, reason: 'inUse' }); return; }
+    gone[id] = true;
+    out.deleted.push({ id: id, name: name });
+  });
+  if (out.deleted.length) deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
+  return out;
+}
+
 function cleanProjectInput_(p, ownId, ownCompanyId) {
   var name = String(p.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));

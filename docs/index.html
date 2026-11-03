@@ -817,12 +817,20 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="categories-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="categories-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
         <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">+ Add suggested categories</button>
         <div id="categories-list"></div>
+        <div class="friends-editbar" id="categories-editbar" hidden>
+          <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="categories-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="categories-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
@@ -895,7 +903,10 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="business-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="business-add-company-btn" data-i18n-aria-label="business.addCompanyAria" aria-label="Add company"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="business-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="business-add-company-btn" data-i18n-aria-label="business.addCompanyAria" aria-label="Add company"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">👥 People</button>
         <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
@@ -905,6 +916,11 @@
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
         <p class="hint" id="business-error" style="color:#d64545;"></p>
+        <div class="friends-editbar" id="business-editbar" hidden>
+          <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="business-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="business-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
@@ -912,13 +928,21 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="people-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="people-add-btn" data-i18n-aria-label="people.addPersonAria" aria-label="Add person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="people-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="people-add-btn" data-i18n-aria-label="people.addPersonAria" aria-label="Add person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="people.title">People</h2>
         <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
         <p class="hint" id="people-error" style="color:#d64545;"></p>
+        <div class="friends-editbar" id="people-editbar" hidden>
+          <button type="button" class="add-inline" id="people-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="people-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="people-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 
@@ -3007,6 +3031,16 @@
         <button type="button" id="recurring-delete-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body" id="recurring-delete-body"></div>
+    </div>
+  </div>
+
+  <div id="cat-bulk-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="cat-bulk-title"></span>
+        <button type="button" id="cat-bulk-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="cat-bulk-body"></div>
     </div>
   </div>
 

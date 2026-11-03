@@ -1,6 +1,8 @@
 // Made-up DEMO scenarios for trying the newest features by hand on the test copy (tests/harness/server.js). Everything here is invented and
 // dated relative to today, so the same things are always there to try. Not used by the automated tests (they build their own data).
 //
+//   Business ....... (owner's copy only) delete several companies / projects / people: some go, some are kept because they still have projects, entries or loans
+//   Categories ..... delete several: unused ones go; in use = everything moves into ONE category (alert when several merge), or hide instead
 //   Trips & events .. delete several (their expenses stay, unlinked; an estimate stays as a Programmed item)
 //   Friends ........ delete (no records) / hide (history, nothing owed) / kept (money owed) / already hidden (Unhide, re-add the same name)
 //   Programmed ..... Stop it / Delete it (items with payments), plain delete (no payments), ended items (Start again), one-time paid / unpaid,
@@ -111,6 +113,35 @@ function seedDemo(rt, data) {
   pay(cat(4), "Demo Party drinks", 140, dayOffset(-40), { trip_id: party.id });
   tripRent("Demo Cusco (upcoming)", "trip", 25, 31);   // not started, nothing linked yet
   tripRent("Demo Empty trip", "trip", -90, -85);   // past, no expenses: deleted with no side effects
+
+  // ---------------- Categories (try More → Categories → Edit: unused = deleted; in use = move into ONE category, or hide) ----------------
+  const newCat = (name, icon, type) => rt.api("saveCategory", { type: type || "expense", name, icon });
+  const pets = newCat("Demo Pets", "🐶"), hobbies = newCat("Demo Hobbies", "🎨"), sideGigs = newCat("Demo Side gigs", "💰", "income");
+  newCat("Demo Unused 1", "🧪"); newCat("Demo Unused 2", "🧫");   // nothing points at these: simply deleted
+  [["Demo Vet visit", 120, 3], ["Demo Pet food", 65, 2], ["Demo Pet food", 70, 1]].forEach(([d, a, k]) => pay(pets.id, d, a, ago(k, 9)));
+  [["Demo Paint set", 85, 2], ["Demo Canvas", 40, 1]].forEach(([d, a, k]) => pay(hobbies.id, d, a, ago(k, 16)));
+  item({ category_id: hobbies.id, description: "Demo Art class", amount: 150, day: 22, start_date: ago(2, 22) });   // a programmed item and a budget move with the category too
+  rt.api("addBudget", { category_id: hobbies.id, amount: 300, currency: "PEN", period_type: "monthly" });
+  [3, 2].forEach((k) => pay(sideGigs.id, "Demo Freelance job", 450, ago(k, 12), { type: "income" }));
+
+  // ---------------- Companies, projects & people (Business pack: the owner's copy only; try Edit on both screens) ----------------
+  try {
+    rt.api("setBusinessFeatures", { on: true });
+    const bizCat = cats[5].id, today0 = todayISO();
+    const studio = rt.api("addCompany", { name: "Demo Studio" });
+    rt.api("addCompany", { name: "Demo Empty Co" });   // nothing under it: can be deleted
+    const entriesCo = rt.api("addCompany", { name: "Demo Entries Co" });   // entries but no project: kept
+    const house1 = rt.api("addProject", { company_id: studio.id, name: "Demo House 1" });   // has entries and an expected payment: deletable, entries lose the project
+    rt.api("addProject", { company_id: studio.id, name: "Demo House 2" });
+    const base = { type: "expense", date: today0, currency: "PEN", category_id: bizCat, paid_by: "me" };
+    rt.api("createEntry", Object.assign({ amount: 120, description: "Demo Plotter" }, base, { project_id: house1.id }));
+    rt.api("createEntry", Object.assign({ amount: 35, description: "Demo Paper" }, base, { company_id: entriesCo.id }));
+    rt.api("addExpectedPayment", { project_id: house1.id, client: "Demo Client", amount: 500, currency: "PEN", due_date: dayOffset(20) });
+    rt.api("addFriend", { name: "Demo Free Client", role: "client" });
+    rt.api("addFriend", { name: "Demo Free Supplier", role: "supplier" });
+    const owingPartner = rt.api("addFriend", { name: "Demo Owing Partner", role: "partner" });   // owes money: kept
+    rt.api("addLoan", { friend_id: owingPartner.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: today0, payment_method_id: pm, description: "Demo advance" });
+  } catch (e) { /* a friend's copy does not offer the Business pack: nothing to seed there */ }
 
   // The demo has to look the same every time: nothing here should be "unknown" to the figures, so drop the cached reads.
   return { demo: true };

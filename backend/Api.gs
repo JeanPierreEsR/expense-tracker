@@ -260,6 +260,8 @@ function routeActionSwitch_(action, payload) {
     case 'addProject': return addProject(payload);
     case 'updateProject': return updateProject(payload);
     case 'deleteProject': return deleteProject(payload);
+    case 'deleteBusinessItems': return deleteBusinessItems(payload);
+    case 'deleteBusinessPeople': return deleteBusinessPeople(payload);
     case 'getProjectDetail': return getProjectDetail(payload);
     case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
@@ -391,6 +393,8 @@ function routeActionSwitch_(action, payload) {
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
     case 'deleteCategory': return deleteCategory(payload);
+    case 'previewCategoryDelete': return previewCategoryDelete(payload);
+    case 'deleteCategories': return deleteCategories(payload);
     case 'getCategoryCounts': return getCategoryCounts();
     case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'addCategoryKeyword':
