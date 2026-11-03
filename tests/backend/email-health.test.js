@@ -118,7 +118,7 @@ test("the window follows the last good scan: 3 days at least, 30 at most", () =>
   const days = () => rt.run("emailLookbackDays_()");
   setHealth(rt, { lastOk: Date.now() - 2 * HOUR });
   assert.equal(days(), 3);
-  setHealth(rt, { lastOk: Date.now() - 10 * DAY });
+  setHealth(rt, { lastOk: Date.now() - 10 * DAY + HOUR }); // an hour short of 10 days: a millisecond passing during the test must not tip it into day 11
   assert.equal(days(), 11);
   setHealth(rt, { lastOk: Date.now() - 90 * DAY });
   assert.equal(days(), 30);
