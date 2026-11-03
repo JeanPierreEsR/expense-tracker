@@ -1,6 +1,7 @@
 // Made-up DEMO scenarios for trying the newest features by hand on the test copy (tests/harness/server.js). Everything here is invented and
 // dated relative to today, so the same things are always there to try. Not used by the automated tests (they build their own data).
 //
+//   Needs review ... confirm / discard several: 4 ready, 1 without a category, 2 duplicates, and a repayment's extra (never discarded here)
 //   Business ....... (owner's copy only) delete several companies / projects / people: some go, some are kept because they still have projects, entries or loans
 //   Categories ..... delete several: unused ones go; in use = everything moves into ONE category (alert when several merge), or hide instead
 //   Trips & events .. delete several (their expenses stay, unlinked; an estimate stays as a Programmed item)
@@ -142,6 +143,18 @@ function seedDemo(rt, data) {
     const owingPartner = rt.api("addFriend", { name: "Demo Owing Partner", role: "partner" });   // owes money: kept
     rt.api("addLoan", { friend_id: owingPartner.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: today0, payment_method_id: pm, description: "Demo advance" });
   } catch (e) { /* a friend's copy does not offer the Business pack: nothing to seed there */ }
+
+  // ---------------- Needs review (try Home → Needs review → Edit: Confirm / Discard several) ----------------
+  const waiting = (description, amount, category, date, extra) => pay(category, description, amount, date, Object.assign({ status: "pending", source: "email" }, extra || {}));
+  waiting("Demo Coffee", 12.5, cat(1), dayOffset(-1));
+  waiting("Demo Taxi", 18, cat(3), dayOffset(-1));
+  waiting("Demo Bookstore", 54, cat(4), dayOffset(-2));
+  waiting("Demo Unknown shop", 33, "", dayOffset(-2));   // no category yet: cannot be confirmed in bulk
+  waiting("Demo Pharmacy", 42, cat(5), dayOffset(-3));
+  waiting("Demo Pharmacy", 42, cat(5), dayOffset(-3));   // the same charge twice: a duplicate warning, cannot be confirmed in bulk
+  const repayer = rt.api("addFriend", { name: "Demo Repays more" });
+  rt.api("addLoan", { friend_id: repayer.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: ago(2, 3), payment_method_id: pm, description: "Demo loan to repay" });
+  rt.api("recordRepayment", { friend_id: repayer.id, direction: "they_owe_me", amount: 130, currency: "PEN", date: dayOffset(-1), payment_method_id: pm });   // the extra 30 waits here: part of a repayment, never discarded on its own
 
   // The demo has to look the same every time: nothing here should be "unknown" to the figures, so drop the cached reads.
   return { demo: true };
