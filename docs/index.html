@@ -832,13 +832,21 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="trips-back-btn" data-i18n="common.back">‹ Back</button>
-          <button type="button" class="icon-btn" id="trips-add-btn" data-i18n-aria-label="trips.addAria" aria-label="Add trip or event"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="friends-header-actions">
+            <button type="button" class="icon-btn" id="trips-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+            <button type="button" class="icon-btn" id="trips-add-btn" data-i18n-aria-label="trips.addAria" aria-label="Add trip or event"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </span>
         </div>
         <h2 style="margin-top:0;" data-i18n="trips.title">Trips &amp; events</h2>
         <p class="hint" data-i18n="trips.hint">Group the expenses of a trip or an event.</p>
         <div id="trips-list"></div>
         <p class="hint" id="trips-empty-note" hidden data-i18n="trips.empty">No trips or events yet.</p>
         <p class="hint" id="trips-error" style="color:#d64545;"></p>
+        <div class="friends-editbar" id="trips-editbar" hidden>
+          <button type="button" class="add-inline" id="trips-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="trips-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="trips-delete-selected-btn" disabled></button>
+        </div>
       </div>
     </div>
 

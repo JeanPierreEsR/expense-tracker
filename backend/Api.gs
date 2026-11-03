@@ -230,6 +230,7 @@ function routeActionSwitch_(action, payload) {
     case 'addTrip': return addTrip(payload);
     case 'updateTrip': return updateTrip(payload);
     case 'deleteTrip': return deleteTrip(payload);
+    case 'deleteTrips': return deleteTrips(payload);
     case 'findTripCandidates': return findTripCandidates(payload);
     case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
     case 'recordTripSettlement': return recordTripSettlement(payload);
