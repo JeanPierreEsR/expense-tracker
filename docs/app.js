@@ -5624,6 +5624,13 @@ function investmentPlatformOptions_(selectedId) {
   return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
 
+// A waiting expense or income carries an account box only when the e-mail did not name an account (owner, 2026-11-03).
+// Not for something a friend paid: it left no account of the person's.
+function reviewHasAccountBox_(entry) {
+  return (entry.type === "income" || entry.type === "expense") && !entry.payment_method_id
+    && (entry.type === "income" || !entry.paid_by || entry.paid_by === "me");
+}
+
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
@@ -5898,6 +5905,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-field">
           <label class="review-field-label">${escapeHtml(tr("field.amount"))} (${escapeHtml(entry.currency)})</label>
           <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}"></div>
+        ${reviewHasAccountBox_(entry) ? `
+        <label class="review-transfer-label">${tr(entry.type === "income" ? "review.receivedAtLabel" : "field.paidFromAccount")}</label>
+        <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr(entry.type === "income" ? "review.pickAccountEntered" : "review.pickAccountLeft"))}</select>` : ""}
         ${entry.type === "expense" && (meta.trips || []).length ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
@@ -5983,6 +5993,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
       const tripEl = item.querySelector(".review-trip");
       if (tripEl) fields.trip_id = tripEl.value;
+      // The account the money left (expense) or arrived in (income): changed here when the e-mail did not name it, or named the wrong one.
+      const accountEl = item.querySelector(".review-account");
+      if (accountEl && accountEl.value !== (entry.payment_method_id || "")) fields.payment_method_id = accountEl.value;
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       queueReviewAction_(entry.id, "confirm", fields);
       item.remove();
