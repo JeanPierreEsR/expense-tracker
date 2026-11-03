@@ -10518,6 +10518,7 @@ function buildTourSlide_(key, n, total) {
   add("p", "hint", tourStepLabel_(n, total));
   add("h2", "", tr(`tour.${key}.title`));
   let body = tr(`tour.${key}.body`);
+  if (key === "more" && !perfIsOwnerCopy_()) body += tr("tour.more.feedback");   // friends' copies only: the owner's has no Feedback & privacy row
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
   // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
