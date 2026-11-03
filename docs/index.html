@@ -685,20 +685,8 @@
             <span data-i18n="more.perf">⏱ Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-privacy-btn" hidden>
-            <span data-i18n="more.privacy">🔒 Privacy</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-perf-share-btn" hidden>
-            <span data-i18n="more.perfShare">📊 Help me improve the app</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-feedback-btn" hidden>
-            <span data-i18n="more.feedback">💬 Send feedback to JP</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-extras-btn" hidden>
-            <span data-i18n="more.extras">⚡ Extra features</span>
+          <button type="button" class="more-list-item" id="more-feedback-privacy-btn" hidden>
+            <span data-i18n="more.feedbackPrivacy">💬 Feedback &amp; privacy</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-business-features-btn" hidden>
@@ -713,16 +701,8 @@
             <span data-i18n="more.tour">📖 How to use the app</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-devices-btn">
-            <span data-i18n="more.devices">📱 Signed-in devices</span>
-            <span class="more-list-chevron">›</span>
-          </button>
           <button type="button" class="more-list-item" id="more-signout-btn">
             <span data-i18n="more.signout">🚪 Sign out of this device</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-erase-btn" hidden>
-            <span data-i18n="more.erase">🗑️ Delete everything</span>
             <span class="more-list-chevron">›</span>
           </button>
         <!-- Fixed bilingual label on purpose: it must stay readable in either language. -->
@@ -1262,6 +1242,69 @@
             <p class="hint" id="my-profile-dates-example" role="status"></p>
             <p class="hint" data-i18n="prof.datesPickers">The calendar wheels that open when you tap a date follow your iPhone's own setting (Settings → General → Language &amp; Region).</p>
           </div>
+
+          <div id="my-profile-devices-card">
+            <h3 class="md-head" data-i18n="prof.devicesHead">📱 Where I'm signed in</h3>
+            <p class="hint" data-i18n="prof.devicesHint">See every phone or browser that can open your app, and end any of them.</p>
+            <button type="button" class="primary" id="my-profile-devices-btn" data-i18n="prof.devicesBtn">See my devices</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="screen-feedback-privacy" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="fp-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="fp.title">Feedback &amp; privacy</h2>
+
+        <h3 class="md-head" data-i18n="fp.feedbackHead">💬 Send feedback to JP</h3>
+        <p class="hint" data-i18n="fp.feedbackHint">Tell me what broke, what confuses you or what you would like. You see exactly what is sent before it goes.</p>
+        <button type="button" class="primary" id="fp-feedback-btn" data-i18n="fp.feedbackBtn">Write a note</button>
+
+        <div class="fp-card">
+          <h3 class="md-head" data-i18n="fp.shareHead">📊 What I share with JP</h3>
+          <p class="hint" id="privacy-share-status"></p>
+          <button type="button" class="primary" id="privacy-change-btn" data-i18n="privacy.change">Change what I share</button>
+        </div>
+
+        <div class="fp-card">
+          <h3 class="md-head" data-i18n="fp.extrasHead">⚡ Extra features</h3>
+          <p class="hint" data-i18n="fp.extrasHint">Switch optional extras, like reading your bank emails, on or off, and see or take back the permissions your Google account gave the app.</p>
+          <button type="button" class="primary" id="fp-extras-btn" data-i18n="fp.extrasBtn">Manage extra features</button>
+        </div>
+
+        <div class="fp-card">
+          <h3 class="md-head" data-i18n="fp.dataHead">🔒 How my data is treated</h3>
+        <p class="hint" data-i18n="privacy.intro">Your money is private. Here, in plain words, is where your information lives and what little can reach JP, who made this app.</p>
+
+        <p class="hint"><strong data-i18n="privacy.liveTitle">Where your data lives</strong></p>
+        <p class="hint" data-i18n="privacy.live">Everything you enter is saved in a Google Sheet that belongs to your own Google account, and your app runs in that same account. JP cannot open it, and neither can anyone else unless you share the sheet yourself. The app's files are public (on GitHub) and hold none of your data.</p>
+
+        <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
+        <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
+
+        <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
+        <p class="hint" data-i18n="privacy.agree">If you check “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box checked.</p>
+
+        <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
+        <p class="hint" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
+
+        <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
+        <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
+
+        <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
+        <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>
+        <p class="hint" data-i18n="privacy.signin">Your sign-in is kept only on your phone. In More → Signed-in devices you can see every device and end any of them.</p>
+
+        </div>
+
+        <div class="fp-card">
+          <h3 class="md-head" data-i18n="fp.eraseHead">🗑️ Removing everything</h3>
+          <p class="hint" data-i18n="privacy.remove">Tap Delete everything below.</p>
+          <button type="button" class="primary danger" id="fp-erase-btn" data-i18n="more.erase">🗑️ Delete everything</button>
         </div>
       </div>
     </div>
@@ -2302,9 +2345,6 @@
           <button type="button" class="primary danger" id="extras-takeback-go" data-i18n="extras.takeBackGo">Yes, take them back</button>
           <button type="button" class="add-inline" id="extras-takeback-cancel" data-i18n="common.cancel">Cancel</button>
         </div>
-        <h4 data-i18n="extras.shareTitle">What the app sends me</h4>
-        <p class="hint" data-i18n="extras.shareBody">Sharing small app-usage counts with JP is a separate choice, and you can change it at any time.</p>
-        <button type="button" class="add-inline" id="extras-share-btn" data-i18n="extras.shareBtn">Change what I share</button>
       </div>
     </div>
   </div>
@@ -2325,46 +2365,6 @@
         <label for="perf-share-name" data-i18n="perfShare.nameLabel">Your first name, so JP knows whose phone it is</label>
         <input type="text" id="perf-share-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
         <button type="button" class="primary" id="perf-share-save" data-i18n="common.save">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="privacy-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
-      <div class="currency-modal-header">
-        <span data-i18n="privacy.title">Your privacy</span>
-        <button type="button" id="privacy-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
-      </div>
-      <div class="budget-modal-body">
-        <p class="hint" data-i18n="privacy.intro">Your money is private. Here, in plain words, is where your information lives and what little can reach JP, who made this app.</p>
-
-        <p class="hint"><strong data-i18n="privacy.liveTitle">Where your data lives</strong></p>
-        <p class="hint" data-i18n="privacy.live">Everything you enter is saved in a Google Sheet that belongs to your own Google account, and your app runs in that same account. JP cannot open it, and neither can anyone else unless you share the sheet yourself. The app's files are public (on GitHub) and hold none of your data.</p>
-
-        <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
-        <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
-        <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
-
-        <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
-        <p class="hint" data-i18n="privacy.agree">If you check “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box checked.</p>
-
-        <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
-        <p class="hint" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
-
-        <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
-        <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
-
-        <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
-        <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>
-        <p class="hint" data-i18n="privacy.signin">Your sign-in is kept only on your phone. In More → Signed-in devices you can see every device and end any of them.</p>
-
-        <p class="hint"><strong data-i18n="privacy.removeTitle">Removing everything</strong></p>
-        <p class="hint" data-i18n="privacy.remove">Delete the Google Sheet called “Expense Tracker” in your Google Drive: your data and your app go with it. You can also remove this app's access in your Google Account, in its list of third-party apps.</p>
-
-        <p class="hint"><strong data-i18n="privacy.choiceTitle">Your choice about sharing counts</strong></p>
-        <p class="hint" id="privacy-share-status"></p>
-        <button type="button" class="primary" id="privacy-change-btn" data-i18n="privacy.change">Change what I share</button>
-        <button type="button" class="cancel-edit-btn" id="privacy-done-btn" data-i18n="common.close">Close</button>
       </div>
     </div>
   </div>

@@ -6812,7 +6812,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
+const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -9179,7 +9179,7 @@ async function openDevicesModal_() {
   });
 }
 
-document.getElementById("more-devices-btn").addEventListener("click", openDevicesModal_);
+document.getElementById("my-profile-devices-btn").addEventListener("click", openDevicesModal_);   // a card in More → My profile (2026-11-03)
 
 // "Extra features": only on a copy that was given fewer abilities at setup (friends' copies; the owner's has all of them).
 // The setup page cannot run inside the Home Screen icon (Google's sign-in window), so the person copies its address into Safari.
@@ -9214,14 +9214,11 @@ function maybeEnableBusinessForOwner_() {
 function refreshExtrasRow_() {
   maybeEnableBusinessForOwner_();
   applyBusinessVisibility_();
-  // Every friend's copy has the screen (to switch an extra off or on); the owner's copy has all of them and no opt-out.
-  document.getElementById("more-extras-btn").hidden = perfIsOwnerCopy_();
   // The Performance log screen is for the owner's own copy only; a friend gets the "Share app speed" row instead.
   perfShareOwnerInit_();
   const owner = perfIsOwnerCopy_();
   document.getElementById("more-perf-btn").hidden = !owner;
   refreshPerfShareRow_();
-  document.getElementById("more-feedback-btn").hidden = owner;      // the owner is the one who reads the notes
   document.getElementById("more-preview-welcome-btn").hidden = !owner;   // friends see the real welcome flow; only the owner previews it
   // Bank emails: everyone (since 2026-11-03 it also holds "Not captured automatically", useful even when e-mail reading is off).
   document.getElementById("more-bank-mail-btn").hidden = false;
@@ -9494,34 +9491,31 @@ document.getElementById("update-copy-btn").addEventListener("click", async () =>
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
 });
 
-// ---- More → Privacy: how the person's data is treated, in plain words, and the one place to change the sharing choice ----
-// The "Help me improve the app" row is only shown to a friend who has NOT agreed to what is shared today (PerfShare.showImproveRow);
-// once they agreed, the choice is changed from here, so the same thing is not offered twice next to "Send feedback to JP".
+// ---- More → Feedback & privacy: how the person's data is treated, in plain words, and the one place to change the sharing choice ----
+// The one "Feedback & privacy" row (owner's design, 2026-11-03; it replaces Privacy, Help me improve the app, Send feedback to JP, Extra features and
+// Delete everything) is for friends' copies only: the owner is the one who reads the notes, his own copy is his own data, every extra is on for him, and
+// on his copy a mis-tap on Delete everything would wipe his real data. A friend who has not agreed to what is shared today is asked by itself
+// (maybeAskPerfShare_) and sees it in the status line of the "What I share with JP" card.
 function refreshPerfShareRow_() {
-  const owner = perfIsOwnerCopy_();
-  document.getElementById("more-perf-share-btn").hidden = !PerfShare.showImproveRow(perfShareState_(), owner);
-  document.getElementById("more-privacy-btn").hidden = owner;   // the owner's own copy is his own data
-  document.getElementById("more-erase-btn").hidden = owner;     // friends' copies only: on the owner's copy a mis-tap would wipe his real data
+  document.getElementById("more-feedback-privacy-btn").hidden = perfIsOwnerCopy_();
 }
 function refreshPrivacyStatus_() {
   const s = perfShareState_();
   const key = !s.on ? "privacy.statusOff" : (s.scope || 1) < PerfShare.SCOPE ? "privacy.statusOld" : "privacy.statusOn";
   document.getElementById("privacy-share-status").textContent = tr(key);
 }
-document.getElementById("more-privacy-btn").addEventListener("click", () => {
-  const backdrop = document.getElementById("privacy-modal-backdrop");
-  I18n.applyStatic(backdrop);
+// The screen has five cards; Send feedback, What I share, Extra features and Delete everything open the pop-ups they always opened, as buttons.
+function showFeedbackPrivacyScreen() {
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-feedback-privacy"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => { btn.classList.toggle("active", btn.dataset.screen === "more"); });
   refreshPrivacyStatus_();
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
-});
-["privacy-close", "privacy-done-btn"].forEach((id) => document.getElementById(id).addEventListener("click", () => { document.getElementById("privacy-modal-backdrop").hidden = true; }));
-document.getElementById("privacy-change-btn").addEventListener("click", () => {
-  document.getElementById("privacy-modal-backdrop").hidden = true;
-  openPerfShareModal_(null);
-});
+  window.scrollTo(0, 0);
+}
+document.getElementById("more-feedback-privacy-btn").addEventListener("click", showFeedbackPrivacyScreen);
+document.getElementById("fp-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("privacy-change-btn").addEventListener("click", () => openPerfShareModal_(null));
 
-// ---- More → Delete everything (friends' copies only) ----
+// ---- More → Feedback & privacy → Delete everything (friends' copies only) ----
 // Step 1 happens here: the backend empties the Sheet, stops its timers, forgets its settings, signs every device out and takes
 // back its own Google permission (backend/EraseAll.gs). It cannot delete the Sheet or itself (no Drive permission), so step 2
 // hands over to the setup page ("#remove"), which has Drive access to the files it made and deletes them.
@@ -9529,7 +9523,7 @@ let appErased_ = false;
 function removePageUrl_() { return siteUrl_("setup/#remove"); }
 function eraseEl_(id) { return document.getElementById(id); }
 function eraseWordOk_() { return eraseEl_("erase-confirm-input").value.trim().toLowerCase() === tr("erase.word").toLowerCase(); }
-document.getElementById("more-erase-btn").addEventListener("click", () => {
+document.getElementById("fp-erase-btn").addEventListener("click", () => {
   const backdrop = eraseEl_("erase-modal-backdrop");
   I18n.applyStatic(backdrop);
   eraseEl_("erase-step1").hidden = false;
@@ -9607,7 +9601,6 @@ document.getElementById("perf-share-close").addEventListener("click", () => {
   }
   closePerfShareModal_();
 });
-document.getElementById("more-perf-share-btn").addEventListener("click", () => openPerfShareModal_(null));
 
 // ---- "Send feedback to JP": a short note the person writes on purpose (backend/Feedback.gs, tab "Feedback") ----
 // Steps: 1 kind + text + first name → 2 the exact note as it will be sent (e-mail addresses and long numbers hidden, docs/perf-share.js)
@@ -9630,7 +9623,7 @@ function openFeedbackModal_() {
 function fbScreen_() { return betaScreenNow_ === "more" ? betaScreenBefore_ : betaScreenNow_; }
 function fbReady_() { return PerfShare.cleanFeedback(fbEl_("fb-text").value).length >= 5; }
 fbEl_("fb-text").addEventListener("input", () => { fbEl_("fb-review").disabled = !fbReady_(); });
-document.getElementById("more-feedback-btn").addEventListener("click", openFeedbackModal_);
+document.getElementById("fp-feedback-btn").addEventListener("click", openFeedbackModal_);
 fbEl_("fb-close").addEventListener("click", () => { fbEl_("fb-modal-backdrop").hidden = true; });
 fbEl_("fb-done").addEventListener("click", () => { fbEl_("fb-modal-backdrop").hidden = true; });
 fbEl_("fb-back").addEventListener("click", () => fbStep_(1));
@@ -9931,7 +9924,7 @@ function renderExtrasList_() {
   });
   document.getElementById("extras-turn-on").hidden = !extrasOff_().length;
 }
-document.getElementById("more-extras-btn").addEventListener("click", () => {
+document.getElementById("fp-extras-btn").addEventListener("click", () => {
   I18n.applyStatic(document.getElementById("extras-modal-backdrop"));
   renderExtrasList_();
   extrasMsg_("");
@@ -9959,10 +9952,6 @@ document.getElementById("extras-takeback-go").addEventListener("click", () => {
     refreshExtrasRow_();
     renderExtrasList_();
   });
-});
-document.getElementById("extras-share-btn").addEventListener("click", () => {
-  document.getElementById("extras-modal-backdrop").hidden = true;
-  openPerfShareModal_(null);
 });
 document.getElementById("extras-modal-close").addEventListener("click", () => { document.getElementById("extras-modal-backdrop").hidden = true; });
 document.getElementById("extras-modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "extras-modal-backdrop") e.target.hidden = true; });

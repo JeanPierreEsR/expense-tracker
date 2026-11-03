@@ -20,23 +20,30 @@ test("the 'Help me improve the app' row is shown only to a friend who has not ag
   assert.equal(PerfShare.showImproveRow(null, false), true);
 });
 
-test("the Privacy row and pop-up exist, the row is hidden on the owner's copy, and the row for 'Help me improve' follows the rule", () => {
-  for (const id of ["more-privacy-btn", "privacy-modal-backdrop", "privacy-close", "privacy-done-btn", "privacy-change-btn", "privacy-share-status"]) assert.ok(html.includes(`id="${id}"`), id);
-  assert.match(app, /more-perf-share-btn"\)\.hidden = !PerfShare\.showImproveRow\(perfShareState_\(\), owner\)/);
-  assert.match(app, /more-privacy-btn"\)\.hidden = owner/);
-  // the row is refreshed right after the person saves their choice, so it disappears at once
-  assert.match(app, /perf-share-save"\)\.addEventListener\("click"[\s\S]*?refreshPerfShareRow_\(\);/);
+test("Feedback & privacy: one row (friends' copies only) opens one screen whose cards open the old pop-ups; the removed rows are gone", () => {
+  for (const id of ["more-feedback-privacy-btn", "screen-feedback-privacy", "fp-back-btn", "fp-feedback-btn", "privacy-change-btn", "privacy-share-status", "fp-extras-btn", "fp-erase-btn"]) assert.ok(html.includes(`id="${id}"`), id);
+  for (const id of ["more-privacy-btn", "more-perf-share-btn", "more-feedback-btn", "more-extras-btn", "more-devices-btn", "more-erase-btn", "privacy-modal-backdrop"]) assert.ok(!html.includes(`id="${id}"`), id + " is gone");
+  assert.match(app, /more-feedback-privacy-btn"\)\.hidden = perfIsOwnerCopy_\(\)/);
+  assert.match(app, /fp-feedback-btn"\)\.addEventListener\("click", openFeedbackModal_\)/);
+  assert.match(app, /privacy-change-btn"\)\.addEventListener\("click", \(\) => openPerfShareModal_\(null\)\)/);
+  assert.match(app, /fp-extras-btn"\)\.addEventListener\("click"/);
+  assert.match(app, /document\.getElementById\("fp-back-btn"\)\.addEventListener\("click", \(\) => showScreen\("more"\)\)/);
+  // the status line is refreshed right after the person saves their choice, and each time the screen opens
+  assert.match(app, /perf-share-save"\)\.addEventListener\("click"[\s\S]*?refreshPrivacyStatus_\(\);/);
+  assert.match(app, /function showFeedbackPrivacyScreen\(\) \{[\s\S]*?refreshPrivacyStatus_\(\);/);
+  assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"feedback-privacy"'));
 });
 
-test("the Privacy row sits before 'Help me improve the app' in More, with the other friends-only rows", () => {
-  assert.ok(html.indexOf('id="more-privacy-btn"') < html.indexOf('id="more-perf-share-btn"'));
-  assert.ok(html.indexOf('id="more-perf-share-btn"') < html.indexOf('id="more-feedback-btn"'));
+test("the one row replaces the old ones inside the friends-only part of More, before Business features", () => {
+  assert.ok(html.indexOf('id="more-perf-btn"') < html.indexOf('id="more-feedback-privacy-btn"'));
+  assert.ok(html.indexOf('id="more-feedback-privacy-btn"') < html.indexOf('id="more-business-features-btn"'));
+  assert.ok(html.indexOf('id="more-feedback-privacy-btn"') < html.indexOf('id="more-signout-btn"'));
 });
 
 test("every text of the Privacy pop-up exists in both languages, and the page uses only keys that exist", () => {
-  const keys = [...html.slice(html.indexOf('id="privacy-modal-backdrop"'), html.indexOf('id="bank-ready-backdrop"')).matchAll(/data-i18n="(privacy\.[A-Za-z]+)"/g)].map((m) => m[1]);
-  assert.ok(keys.length >= 18, "the page has all its sections");
-  for (const k of [...keys, "more.privacy", "privacy.statusOn", "privacy.statusOff", "privacy.statusOld"]) {
+  const keys = [...html.slice(html.indexOf('id="screen-feedback-privacy"'), html.indexOf('id="screen-statements"')).matchAll(/data-i18n="(privacy\.[A-Za-z]+)"/g)].map((m) => m[1]);
+  assert.ok(keys.length >= 17, "the page has all its sections");
+  for (const k of [...keys, "more.feedbackPrivacy", "fp.title", "fp.feedbackHead", "fp.feedbackHint", "fp.feedbackBtn", "fp.shareHead", "fp.extrasHead", "fp.extrasHint", "fp.extrasBtn", "fp.dataHead", "fp.eraseHead", "privacy.statusOn", "privacy.statusOff", "privacy.statusOld"]) {
     assert.ok(new RegExp(`"${k.replace(/\./g, "\\.")}": \\{ en: ".+", es: ".+" \\}`).test(strings), k);
   }
 });
