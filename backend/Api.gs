@@ -191,6 +191,7 @@ function routeActionSwitch_(action, payload) {
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
+    case 'saveDateOrder': return saveDateOrder(payload);
     case 'eraseEverything': return eraseEverything(payload);
     case 'setExtraOff': return setExtraOff(payload);
     case 'takeBackPermissions': return takeBackPermissions(payload);

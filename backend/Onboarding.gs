@@ -45,3 +45,12 @@ function saveOnboarding(payload) {
   setSetting_('onboarded', 'yes');
   return result;
 }
+
+// More → My profile → How I type dates: changes the order after the welcome. The same Settings row the welcome wrote
+// (`date_format`), so ONE choice covers the dates the app shows and the dates typed to the Telegram bot.
+function saveDateOrder(payload) {
+  var order = String((payload || {}).dateOrder || '').toLowerCase();
+  if (order !== 'dmy' && order !== 'mdy' && order !== 'ymd') throw new Error(tr_('profile.badDateOrder'));
+  setSetting_('date_format', order);
+  return { dateOrder: order };
+}
