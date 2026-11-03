@@ -20996,7 +20996,18 @@ function openReviewTransferModal(entry, mode) {
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
-  document.getElementById("review-transfer-payment-method").value = entry.payment_method_id || "";
+  // Even a hidden one. With no account (the e-mail named no card the app knows), the box says to pick one instead of
+  // showing a blank, and Save asks for it: a repayment saved with no account moved no account's money.
+  const pmSelect = document.getElementById("review-transfer-payment-method");
+  keepHiddenAccountOption_("review-transfer-payment-method", entry.payment_method_id);
+  pmSelect.value = entry.payment_method_id || "";
+  if (pmSelect.selectedIndex < 0 && pmSelect.options.length) {
+    const pick = document.createElement("option");
+    pick.value = "";
+    pick.textContent = tr(incoming ? "review.pickAccountEntered" : "review.pickAccountLeft");
+    pmSelect.insertBefore(pick, pmSelect.firstChild);
+    pmSelect.value = "";
+  }
   // Both modes now generate a `transfer` Entry for the real money moved
   // (see CLAUDE.md's Loans/Settlements sections) — this description feeds
   // that entry either way, pre-filled from the original pending
@@ -21036,6 +21047,11 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   if (!friendId || friendId === "__add__") { errorEl.textContent = tr("error.pickFriend"); return; }
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  const hasAccounts = meta.paymentMethods.some((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  if (!paymentMethodId && hasAccounts) {
+    errorEl.textContent = tr(reviewEntryArrived_(reviewTransferEntry) ? "error.pickAccountEntered" : "error.pickAccountLeft");
+    return;
+  }
 
   const entryId = reviewTransferEntry.id;
   const currency = reviewTransferEntry.currency;
