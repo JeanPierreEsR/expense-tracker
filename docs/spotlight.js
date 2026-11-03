@@ -382,12 +382,28 @@
         // The keyboard takes a moment to slide in or out; look again as it settles.
         on(doc, "focusin", function () { setTimeout(layoutSoon, 150); setTimeout(layoutSoon, 450); setTimeout(layoutSoon, 900); }, true);
         on(doc, "focusout", function () { setTimeout(layoutSoon, 150); setTimeout(layoutSoon, 450); setTimeout(layoutSoon, 900); }, true);
+        // "Skip this step" only where skipping is harmless (owner, 2026-11-03). Never on a step whose answer is needed later
+        // (ok + holdsUntil: skipping it only brought the person back), nor when the NEXT step's target is not there yet: that is
+        // a "Tap +" or a Save the rest depends on, and skipping it left the practice with nothing to show. Exit stays the way out.
+        function canSkip() {
+          if (step.ok && step.holdsUntil) return false;
+          for (var n = i + 1; n < steps.length; n++) {
+            if (!shown(steps[n])) continue;
+            return !steps[n].target || targetsOf(steps[n]).length > 0;
+          }
+          return true;
+        }
         timers.push(setTimeout(function () {
           if (finished || closed) return;
           var b = $(".spot-stuck");
-          b.hidden = false;
           b.onclick = function () { end("skipByPerson"); };
-          layoutSoon();
+          var showIt = function () {
+            if (finished || closed) return;
+            var want = !goneWaiting && canSkip();
+            if (b.hidden === want) { b.hidden = !want; layoutSoon(); }
+          };
+          showIt();
+          timers.push(setInterval(showIt, 1000));   // what the screen shows changes (a sheet opening): look again
         }, STUCK_MS));
         setTimeout(check, 0);
       });
