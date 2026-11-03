@@ -3901,6 +3901,10 @@ function syncEntriesEditBar_() {
   const del = document.getElementById("entries-delete-selected-btn");
   del.disabled = n === 0;
   del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  const cat = document.getElementById("entries-category-selected-btn");
+  cat.hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulkCategory);
+  cat.disabled = n === 0;
+  cat.textContent = n ? tr("entriesBulk.categoryN", { n }) : tr("entriesBulk.category");
   const pool = entriesPool_();
   const all = n > 0 && pool.length > 0 && pool.slice(0, ENTRIES_BULK_MAX_).every((e) => entriesSelected_.has(e.id));
   document.getElementById("entries-selectall-btn").textContent = all ? tr("friends.selectNone")
@@ -3919,6 +3923,67 @@ document.getElementById("entries-selectall-btn").addEventListener("click", () =>
   syncEntriesEditBar_();
 });
 function closeEntriesBulkSheet_() { document.getElementById("entries-bulk-backdrop").hidden = true; }
+const entriesKnownMap_ = () => new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+
+// Stage 2: change the category of the ticked entries. One sheet, a picker for each type among them (an expense never takes an income category); transfers and
+// investments have no category of their own and are left out. When entries from several categories go into one, a ⚠️ alert says so; an Undo follows the change.
+document.getElementById("entries-category-selected-btn").addEventListener("click", () => {
+  const known = entriesKnownMap_();
+  const picked = [...entriesSelected_].map((id) => known.get(id)).filter(Boolean);
+  const byType = { expense: picked.filter((e) => e.type === "expense"), income: picked.filter((e) => e.type === "income") };
+  if (!byType.expense.length && !byType.income.length) { alert(tr("entriesBulk.catNothingEligible")); return; }
+  const leftOut = entriesSelected_.size - byType.expense.length - byType.income.length;
+  const types = ["expense", "income"].filter((t) => byType[t].length);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.catTitle");
+  const pickerHtml = (t) => {
+    const list = byType[t];
+    const options = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === t))).map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(`${c.icon || "•"} ${c.name}`)}</option>`).join("");
+    const distinct = new Set(list.map((e) => e.category_id || "")).size;
+    return `<div class="cat-bulk-block">
+      <label for="entries-bulk-cat-${t}"><b>${escapeHtml(tr(`entriesBulk.catMove.${t}`, { n: list.length }))}</b></label>
+      <select id="entries-bulk-cat-${t}"><option value="">${escapeHtml(tr("entriesBulk.catPick"))}</option>${options}</select>
+      ${distinct > 1 ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.catMerge", { n: list.length, k: distinct }))}</div>` : ""}
+    </div>`;
+  };
+  body.innerHTML = `
+    ${types.map(pickerHtml).join("")}
+    ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.catLeftOut", { n: leftOut }))}</p>` : ""}
+    <p class="hint" id="entries-bulk-cat-error" style="color:#d64545;"></p>
+    <button type="button" class="primary" id="entries-bulk-cat-go">${escapeHtml(tr("entriesBulk.catGo"))}</button>
+    <p class="hint">${escapeHtml(tr("entriesBulk.catUndoHint"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  document.getElementById("entries-bulk-cat-go").addEventListener("click", () => {
+    const categories = {};
+    types.forEach((t) => { const v = document.getElementById(`entries-bulk-cat-${t}`).value; if (v) categories[t] = v; });
+    if (!Object.keys(categories).length) { document.getElementById("entries-bulk-cat-error").textContent = tr("entriesBulk.catNothing"); return; }
+    closeEntriesBulkSheet_();
+    const sendIds = Object.keys(categories).flatMap((t) => byType[t].map((e) => e.id));
+    const targetNames = Object.values(categories).map((id) => (meta.categories.find((c) => c.id === id) || {}).name || "").join(", ");
+    setEntriesEditing_(false);
+    let result = null;
+    saveBehindScreen_(async () => {
+      result = await callApi("setEntriesCategory", { ids: sendIds, categories });
+    }, async () => {
+      try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+      if (searchActive) await refreshSearchAfterEdit_();
+      afterNewEntrySaved_();
+      if (!result) return;
+      const left = result.kept.filter((k) => k.reason !== "same");
+      if (left.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
+      if (!result.changed.length) return;
+      showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
+        await callApi("undoSetEntriesCategory", { changes: result.changed, annualIds: result.annualIds });
+        showToast_(tr("entriesBulk.catUndone"));
+        try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
+        if (searchActive) await refreshSearchAfterEdit_();
+        afterNewEntrySaved_();
+      });
+    }, { busy: "entriesBulk.changing" });
+  });
+});
 document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
 
 // Sentence for entries that stay: one line per reason, naming them (up to a few).

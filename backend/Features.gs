@@ -111,6 +111,7 @@ function getCapabilities_() {
     businessBulkDelete: true,   // deleteBusinessItems + deleteBusinessPeople (several companies / projects / people at once, Edit on the Business screens); an older backend lacks them, so the app hides the Edit buttons
     reviewBulk: true,   // confirmEntries + discardEntries (several waiting entries at once, Home → Needs review → Edit); an older backend lacks them, so the app hides the Edit button
     entriesBulk: true,   // previewEntriesDelete + deleteEntries (several Home entries at once, Home / search → Edit); an older backend lacks them, so the app hides the Edit buttons
+    entriesBulkCategory: true,   // setEntriesCategory + undoSetEntriesCategory (change the category of several Home entries at once); an older backend lacks them, so the app hides the Category button
     ownName: true,   // answerOwnName + `ownNameAsk` in getMeta: the Home "Is this you?" card and the welcome name line; an older backend lacks them
     profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.

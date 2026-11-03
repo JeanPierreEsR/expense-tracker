@@ -3432,3 +3432,5 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .entry.entry-check .entry-amount { margin-left: auto; }
 .entry.entry-exchange.entry-check { cursor: default; opacity: 0.75; }
 #entries-bulk-body .entries-bulk-list { font-size: 0.85rem; color: var(--muted); margin: 6px 0; }
+#entries-editbar { gap: 4px; padding: 10px 12px; }
+#entries-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
