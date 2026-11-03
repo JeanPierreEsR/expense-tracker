@@ -687,7 +687,7 @@ function friendOpenBalances_() {
 function listMyFriends() {
   var byFriend = friendOpenBalances_();
   return getAllRowsCached_('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) === 'friend'; }).map(function (f) {
-    return { id: f.id, name: f.name, notes: f.notes || '', hidden: String(f.hidden) === 'yes', totals: netMapToList_(byFriend[f.id] || {}) };
+    return { id: f.id, name: f.name, notes: f.notes || '', phone: friendPhoneText_(f.phone), hidden: String(f.hidden) === 'yes', totals: netMapToList_(byFriend[f.id] || {}) };
   });
 }
 
@@ -701,7 +701,7 @@ function getProjectDebts(payload) {
 
 function personKey_(name) { return searchNormalize_(String(name || '').trim()); }
 
-// Renames a person and/or changes their notes. A plain friend can be edited in ANY copy (More → Friends); a business role (client,
+// Renames a person and/or changes their notes (and, when `phone` is sent, their WhatsApp number; More → Friends). A plain friend can be edited in ANY copy (More → Friends); a business role (client,
 // supplier, partner) needs the Business pack, so asking for one while it is off is refused like every other business action.
 function updateFriend(payload) {
   var biz = businessOn_();
@@ -719,12 +719,17 @@ function updateFriend(payload) {
   });
   var existing = getAllRows('Friends').find(function (f) { return String(f.id) === String(payload.id); });
   if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
+  var phone = payload.phone !== undefined ? normalizeFriendPhone_(payload.phone) : null;   // checked before anything is written
   withWriteBatch_(function () {
     setCellByRow_(sheet, headers, rowIndex, 'name', name);
     if (biz) setCellByRow_(sheet, headers, rowIndex, 'role', role);   // a personal copy has no role column
     if (payload.notes !== undefined) setCellByRow_(sheet, headers, rowIndex, 'notes', String(payload.notes));
   });
-  return { id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : '') };
+  if (phone !== null) writeFriendPhone_(payload.id, phone);
+  return {
+    id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : ''),
+    phone: phone !== null ? phone : friendPhoneText_(existing && existing.phone)
+  };
 }
 
 // A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).
@@ -742,20 +747,36 @@ function deleteFriend(payload) {
 }
 
 // A friend's WhatsApp number, for the "Remind on WhatsApp" sheet on their loan screen (specs/loans.md § Reminders). Optional: an empty
-// number clears it. Stored as text, "+" and digits only, so Sheets never turns it into a number.
+// number clears it. Stored as text, "+" and digits only, so Sheets never turns it into a number. Also editable in More → Friends
+// (updateFriend / addFriend with `phone`).
 function setFriendPhone(payload) {
-  var raw = String((payload && payload.phone) || '').trim();
+  var phone = normalizeFriendPhone_(payload && payload.phone);
+  writeFriendPhone_(payload && payload.id, phone);
+  return { id: payload.id, phone: phone };
+}
+
+// "+51 987-654-321" → "+51987654321"; "" stays "" (clears it); anything that is not 7-15 digits is refused.
+function normalizeFriendPhone_(raw) {
+  raw = String(raw === undefined || raw === null ? '' : raw).trim();
   var digits = raw.replace(/\D/g, '');
   if (raw && (digits.length < 7 || digits.length > 15)) throw new Error(tr_('err.badPhone'));
-  var phone = digits ? '+' + digits : '';
+  return digits ? '+' + digits : '';
+}
+
+// What the app shows for a stored number. A number typed by hand in the Sheet may have lost its "+" (Sheets read it as a number).
+function friendPhoneText_(stored) {
+  var digits = String(stored === undefined || stored === null ? '' : stored).replace(/\D/g, '');
+  return digits ? '+' + digits : '';
+}
+
+function writeFriendPhone_(id, phone) {
   var headers = ensureFriendsPhoneColumn_();
   var sheet = getSheet('Friends');
-  var rowIndex = findRowIndexById(sheet, headers, payload && payload.id);
+  var rowIndex = findRowIndexById(sheet, headers, id);
   if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
   sheet.getRange(rowIndex, headers.indexOf('phone') + 1).setNumberFormat('@');
   setCellByRow_(sheet, headers, rowIndex, 'phone', phone);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
-  return { id: payload.id, phone: phone };
 }
 
 // Header of the Friends sheet's `phone` column. Created on first use (a copy that never saves a number never gets it).

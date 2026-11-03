@@ -95,3 +95,28 @@ test("setFriendPhone remembers the number as text, clears it, and refuses a wron
   assert.equal(rt.api("setFriendPhone", { id: ana.id, phone: "" }).phone, "");
   assert.equal(rt.rows("Friends").find((f) => f.id === ana.id).phone, "");
 });
+
+test("More → Friends: the number is listed, set when adding, changed or removed when editing; a wrong one changes nothing", () => {
+  const rt = freshApp({ entries: 30 }).rt;
+  assert.equal(rt.api("getMeta", {}).capabilities.friendPhoneEdit, true);
+  const bo = rt.api("addFriend", { name: "Bo Test", phone: "+51 900 000 002" });
+  assert.equal(bo.phone, "+51900000002");
+  const listed = () => rt.api("listMyFriends", {}).find((f) => f.id === bo.id);
+  assert.equal(listed().phone, "+51900000002");
+  assert.equal(rt.api("updateFriend", { id: bo.id, name: "Bo Test", phone: "+51 900 000 003" }).phone, "+51900000003");
+  assert.equal(listed().phone, "+51900000003");
+  assert.equal(rt.api("updateFriend", { id: bo.id, name: "Bo Renamed" }).phone, "+51900000003", "a rename without `phone` keeps the number");
+  assert.throws(() => rt.api("updateFriend", { id: bo.id, name: "Bo Other", phone: "12" }), /doesn't look right/);
+  assert.equal(listed().name, "Bo Renamed", "the refused edit did not rename either");
+  assert.equal(rt.api("updateFriend", { id: bo.id, name: "Bo Renamed", phone: "" }).phone, "");
+  assert.equal(listed().phone, "");
+  assert.throws(() => rt.api("addFriend", { name: "Cy Test", phone: "abc" }), /doesn't look right/);
+  assert.ok(!rt.rows("Friends").some((f) => f.name === "Cy Test"), "a wrong number adds nobody");
+});
+
+test("a number typed by hand in the Sheet (Sheets dropped the '+') still reads as a number", () => {
+  const rt = freshApp({ entries: 30 }).rt;
+  const ana = rt.api("addFriend", { name: "Ana Test", phone: "+51900000004" });
+  rt.run(`(function () { var s = getSheet('Friends'), h = getHeaders(s); setCellByRow_(s, h, findRowIndexById(s, h, '${ana.id}'), 'phone', 51900000005); })()`);
+  assert.equal(rt.api("listMyFriends", {}).find((f) => f.id === ana.id).phone, "+51900000005");
+});

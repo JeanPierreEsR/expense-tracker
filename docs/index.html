@@ -2726,6 +2726,12 @@
         <label for="person-name" data-i18n="people.name">Name</label>
         <input type="text" id="person-name" maxlength="60">
 
+        <div id="person-phone-box" hidden>
+          <label for="person-phone" data-i18n="remind.phone">WhatsApp number (optional)</label>
+          <input type="tel" id="person-phone" maxlength="24" autocomplete="off" inputmode="tel">
+          <p class="hint" data-i18n="friends.phoneHint">With the country code, e.g. +51 987 654 321. Used by "Remind on WhatsApp" on their loans. Leave it empty to remove it.</p>
+        </div>
+
         <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
 

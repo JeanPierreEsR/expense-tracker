@@ -1533,12 +1533,15 @@ function addFriend(payload) {
   // that person's loans across two friends and break their FIFO balance.
   var name = String(payload.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));
+  // More → Friends → Add can carry a WhatsApp number (Business.gs § setFriendPhone); checked before anything is written.
+  var phone = payload.phone ? normalizeFriendPhone_(payload.phone) : '';
   var existing = getAllRows('Friends').find(function (f) {
     return String(f.name).trim().toLowerCase() === name.toLowerCase();
   });
   if (existing) {
     // A HIDDEN friend with this name comes back (with their history) instead of a second person being created.
     if (String(existing.hidden) === 'yes') { setFriendHidden_(existing.id, false); existing.hidden = ''; existing.unhidden = true; }
+    if (phone) { writeFriendPhone_(existing.id, phone); existing.phone = phone; }
     return existing;
   }
   var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };
@@ -1546,6 +1549,7 @@ function addFriend(payload) {
   var role = businessRoleFromPayload_(payload.role);
   if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
   appendRowObject('Friends', friend);
+  if (phone) { writeFriendPhone_(friend.id, phone); friend.phone = phone; }
   return friend;
 }
 

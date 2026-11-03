@@ -1381,6 +1381,7 @@
     "friends.empty": { en: "No friends yet. Add one here, or when you split an expense.", es: "Aún no hay amigos. Agrega uno aquí, o cuando repartas un gasto." },
     "friends.addTitle": { en: "Add friend", es: "Agregar amigo" },
     "friends.editTitle": { en: "Edit friend", es: "Editar amigo" },
+    "friends.phoneHint": { en: "With the country code, e.g. +51 987 654 321. Used by \"Remind on WhatsApp\" on their loans. Leave it empty to remove it.", es: "Con el código del país, por ejemplo +51 987 654 321. Lo usa \"Recordar por WhatsApp\" en sus préstamos. Déjalo vacío para quitarlo." },
     "friends.edit": { en: "Edit", es: "Editar" },
     "friends.done": { en: "Done", es: "Listo" },
     "friends.selectAll": { en: "Select all", es: "Seleccionar todo" },
