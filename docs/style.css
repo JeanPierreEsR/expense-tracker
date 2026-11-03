@@ -3374,3 +3374,4 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .icon-btn:active { transform: scale(0.94); }
 .icon-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .icon-btn[hidden] { display: none; }
+.loans-head-actions .icon-btn { margin: 0 8px 0 4px; }   /* the 8px cancels the header's own -8px (made for text buttons), so the circle is not cut off */   /* the Loans header holds a text "Bank loan" button beside the round "+" */
