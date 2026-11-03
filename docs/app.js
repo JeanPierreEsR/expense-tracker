@@ -13435,7 +13435,7 @@ function renderFriendsList_() {
       ${friendsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}>` : ""}
       <div>
         <div class="recurring-row-name">${escapeHtml(p.name)}</div>
-        <div class="recurring-row-sub">${p.totals.length ? "" : escapeHtml(tr("people.noDebts"))}</div>
+        <div class="recurring-row-sub">${escapeHtml([p.phone ? "📱 " + p.phone : "", p.totals.length ? "" : tr("people.noDebts")].filter(Boolean).join(" · "))}</div>
       </div>
       <div class="recurring-row-amount">${peopleBalancesHtml_(p.totals)}</div>`;
     row.addEventListener("click", () => {
@@ -13538,6 +13538,9 @@ function openPersonModal_(person, friendsMode) {
   document.getElementById("person-modal-title").textContent = tr(personModalFriends_ ? (person ? "friends.editTitle" : "friends.addTitle") : (person ? "people.editTitle" : "people.addTitle"));
   document.getElementById("person-form-error").textContent = "";
   document.getElementById("person-name").value = person ? person.name : "";
+  // More → Friends: the WhatsApp number "Remind on WhatsApp" uses (specs/loans.md § Reminders); only where the backend saves it here.
+  document.getElementById("person-phone-box").hidden = !(personModalFriends_ && friendPhoneEditable_());
+  document.getElementById("person-phone").value = (person && person.phone) || "";
   const sel = document.getElementById("person-role");
   sel.innerHTML = "";
   ["client", "supplier", "partner", "friend"].forEach((role) => {
@@ -13553,6 +13556,8 @@ function openPersonModal_(person, friendsMode) {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+function friendPhoneEditable_() { return !!((meta && meta.capabilities) || {}).friendPhoneEdit; }
 
 function closePersonModal_() {
   document.getElementById("person-modal-backdrop").hidden = true;
@@ -13580,14 +13585,17 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   const name = document.getElementById("person-name").value.trim();
   const role = document.getElementById("person-role").value;
   if (!name) { errorEl.textContent = tr("accounts.errName"); return; }
+  const withPhone = personModalFriends_ && friendPhoneEditable_();
+  const phone = withPhone ? document.getElementById("person-phone").value.trim() : undefined;
+  if (phone && !LoanReminder.phoneOk(phone)) { errorEl.textContent = tr("remind.errPhone"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
   const editing = editingPerson_;
   const fromFriends = personModalFriends_;
   closePersonModal_();
   saveBehindScreen_(async () => {
     const friend = editing
-      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined } : { id: editing.id, name, role })
-      : await callApi("addFriend", fromFriends ? { name } : { name, role });
+      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role })
+      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role });
     rememberPerson_(friend);
     if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); }   // the pickers show the new name
   }, () => (fromFriends ? refreshFriendsList_() : refreshPeopleList_()));
