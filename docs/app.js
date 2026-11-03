@@ -5849,12 +5849,17 @@ function closeNewEntrySheet_() {
 }
 
 let appToastTimer_ = null;
-function showToast_(text) {
+// `sticky` keeps the toast on screen until hideToast_ (a "Deleting…" that must last as long as the work does); `ms` lengthens a toast that names people or items.
+function showToast_(text, sticky, ms) {
   const el = document.getElementById("app-toast");
   el.textContent = text;
   el.hidden = false;
   clearTimeout(appToastTimer_);
-  appToastTimer_ = setTimeout(() => { el.hidden = true; }, 3500);
+  if (!sticky) appToastTimer_ = setTimeout(() => { el.hidden = true; }, ms || 3500);
+}
+function hideToast_(text) {
+  const el = document.getElementById("app-toast");
+  if (!text || el.textContent === text) { clearTimeout(appToastTimer_); el.hidden = true; }
 }
 
 // The standard for a plain "save, then refresh" form (owner's rule,
@@ -5872,15 +5877,25 @@ document.addEventListener("click", (e) => {
   }
 }, true);
 
-function saveBehindScreen_(work, after) {
-  showToast_(tr("common.savingToast"));
+// `opts.busy` (a string key, e.g. "common.deletingToast") replaces "Saving…" with a message that stays until the work AND the refresh are done;
+// `opts.done` (a function returning the text, or a string key) is shown briefly when the work succeeded. Stopping and deleting use these.
+function saveBehindScreen_(work, after, opts) {
+  const busyText = opts && opts.busy ? tr(opts.busy) : "";
+  showToast_(busyText || tr("common.savingToast"), !!busyText);
   (async () => {
+    let ok = true;
     try {
       await work();
     } catch (err) {
+      ok = false;
       alert(tr("common.notSaved", { error: err.message }));
     }
     try { if (after) await after(); } catch (e) { /* the list shows its own load error */ }
+    if (busyText) hideToast_(busyText);
+    if (ok && opts && opts.done) {
+      const text = typeof opts.done === "function" ? opts.done() : tr(opts.done);
+      if (text) showToast_(text, false, 6000);
+    }
   })();
 }
 
@@ -13385,12 +13400,21 @@ function deleteFriendsFlow_(chosen) {
     if (!result) return;
     const hidden = result.hidden || [];
     const kept = result.kept.map((k) => k.name).filter(Boolean);
-    if (!hidden.length && !kept.length) return;
+    const goneIds = new Set(result.deleted);
+    const deletedNames = chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name);
+    if (!hidden.length && !kept.length) return;   // everyone was simply deleted: the "done" toast names them
     const lines = [];
-    if (result.deleted.length) lines.push(tr("friends.resultDeleted", { n: result.deleted.length }));
+    if (deletedNames.length) lines.push(tr("friends.resultDeleted", { n: deletedNames.length, names: deletedNames.join(", ") }));
     if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
     if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
     alert(lines.join("\n\n"));
+  }, {
+    busy: "common.deletingToast",
+    done: () => {
+      if (!result || (result.hidden || []).length || (result.kept || []).length) return "";
+      const goneIds = new Set(result.deleted);
+      return tr("friends.resultDeleted", { n: goneIds.size, names: chosen.filter((p) => goneIds.has(p.id)).map((p) => p.name).join(", ") });
+    }
   });
 }
 document.getElementById("friends-delete-selected-btn").addEventListener("click", () => {
@@ -13926,7 +13950,17 @@ function localTodayISO_() {
 function recurringIsPast_(re, todayISO) {
   // A one-time item is past only once its date has gone by AND a real entry matches it (paid); one that may still be unpaid stays visible.
   if (re.frequency === "once") return !!re.paid && !!re.date && re.date < todayISO;
-  return !re.active || (!!re.end_date && re.end_date < todayISO);
+  return !re.active || recurringHasEnded_(re, todayISO);
+}
+// An end date that has passed, OR one that is today/later but with no payment left before it: "Stop it" on a monthly rent whose last day is
+// today (the 1st came and went) means nothing more will ever be due, so it belongs with the past items at once, not tomorrow.
+function recurringHasEnded_(re, todayISO) {
+  if (!re.end_date) return false;
+  if (re.end_date < todayISO) return true;
+  if ((re.frequency === "monthly" && re.day) || (re.frequency === "yearly" && re.day && re.month)) {
+    return nextOccurrenceDate_(re.frequency, re.day, re.month, todayISO) > re.end_date;
+  }
+  return false;   // other schedules: it ends the day after its end date
 }
 
 function recurringDateLabel_(iso) {
@@ -13938,7 +13972,7 @@ function recurringStatusLabel_(re, todayISO) {
   if (re.frequency === "once") return recurringIsPast_(re, todayISO) ? tr("recurring.paidDone") : "";
   if (!re.active) return tr("recurring.paused");
   if (!re.end_date) return "";
-  return re.end_date < todayISO ? tr("recurring.ended", { date: recurringDateLabel_(re.end_date) }) : tr("recurring.ends", { date: recurringDateLabel_(re.end_date) });
+  return recurringHasEnded_(re, todayISO) ? tr("recurring.ended", { date: recurringDateLabel_(re.end_date) }) : tr("recurring.ends", { date: recurringDateLabel_(re.end_date) });
 }
 
 function recurringTripTag_(re) {
@@ -14847,18 +14881,18 @@ function standInStartBefore_(re) {
 }
 
 // The next date (today included) on which a repeating item's own day (and month, for a yearly one) comes round; today for any other kind.
-function nextOccurrenceDate_(frequency, day, month) {
-  const now = new Date();
-  const clamp = (y, m, d) => Math.min(d, new Date(y, m, 0).getDate());   // m is 1-12
+function nextOccurrenceDate_(frequency, day, month, todayISO) {
+  const today = todayISO || todayLocalISO();
+  const [ty, tm] = today.split("-").map(Number);   // tm is 1-12
+  const clamp = (y, m, d) => Math.min(d, new Date(y, m, 0).getDate());
   const iso = (y, m, d) => `${y}-${pad2(m)}-${pad2(clamp(y, m, d))}`;
-  const today = todayLocalISO();
   if (frequency === "monthly" && day) {
-    const thisMonth = iso(now.getFullYear(), now.getMonth() + 1, day);
-    return thisMonth >= today ? thisMonth : iso(now.getFullYear() + (now.getMonth() === 11 ? 1 : 0), (now.getMonth() + 1) % 12 + 1, day);
+    const thisMonth = iso(ty, tm, day);
+    return thisMonth >= today ? thisMonth : iso(tm === 12 ? ty + 1 : ty, tm === 12 ? 1 : tm + 1, day);
   }
   if (frequency === "yearly" && day && month) {
-    const thisYear = iso(now.getFullYear(), month, day);
-    return thisYear >= today ? thisYear : iso(now.getFullYear() + 1, month, day);
+    const thisYear = iso(ty, month, day);
+    return thisYear >= today ? thisYear : iso(ty + 1, month, day);
   }
   return today;
 }
@@ -14890,11 +14924,13 @@ function afterRecurringChange_() {
   refreshRecurringExpenses();
   if (!document.getElementById("screen-trip-detail").hidden) refreshTripDetail_();
 }
+const recurringName_ = (re) => re.description || re.category_name || "";
 function runRecurringDelete_(re) {
   markDeleting_("recurring:" + re.id);
   if (practiceR_ && isPracticeProgrammedName_(re.description)) { practiceR_.deleted = true; practiceRSave_(); }   // (the first-use practice's last real step)
   closeRecurringModal();
-  saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_);
+  saveBehindScreen_(() => callApi("deleteRecurringExpenses", { ids: [re.id] }), afterRecurringChange_,
+    { busy: "common.deletingToast", done: () => tr("recDel.deletedOne", { name: recurringName_(re) }) });
 }
 // "Stop it": the person picks the item's LAST DAY on a calendar (no default: today is rarely right). The calendar opens on the month of its last
 // matched payment and says so. onPick(endDate) runs only if they confirm.
@@ -14912,15 +14948,23 @@ function pickRecurringEndDate_(item, lastPaid, onPick) {
 }
 function runRecurringStopOn_(re, endDate) {
   closeRecurringModal();
-  saveBehindScreen_(() => callApi("updateRecurringExpense", { id: re.id, end_date: endDate, active: true }), afterRecurringChange_);
+  saveBehindScreen_(() => callApi("updateRecurringExpense", { id: re.id, end_date: endDate, active: true }), afterRecurringChange_,
+    { busy: "common.stoppingToast", done: () => tr("recDel.stoppedOne", { name: recurringName_(re), date: recurringDateLabel_(endDate) }) });
 }
+// The plain question needs the "Loading…" sheet gone first: a native confirm() freezes the page before it repaints, so it used to float over it.
+const nextPaint_ = () => new Promise((resolve) => setTimeout(resolve, 60));
+// The sentence about skipped months only when the item really has some.
+const skippedGoneText_ = (items) => {
+  const n = items.reduce((sum, re) => sum + ((re.skipped_months || []).length), 0);
+  return n ? tr(items.length === 1 ? "recModal.skippedGone" : "recBulk.skippedGone", { n }) : "";
+};
 function closeRecurringDeleteSheet_() { document.getElementById("recurring-delete-backdrop").hidden = true; }
 document.getElementById("recurring-delete-close").addEventListener("click", closeRecurringDeleteSheet_);
 
 async function startRecurringDelete_(re) {
   if (practiceNoConfirm_(isPracticeProgrammedName_(re.description))) { runRecurringDelete_(re); return; }   // the practice item: no question
   if (!recurringStopCapable_()) {   // an older backend: the plain question, as before
-    if (!confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re) }))) return;
+    if (!confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }))) return;
     closeRecurringModal();
     await callApi("deleteRecurringExpense", { id: re.id });
     afterRecurringChange_();
@@ -14945,16 +14989,19 @@ async function startRecurringDelete_(re) {
   const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
   if (effect < 0.5) {   // nothing in the last 12 months depends on it: the plain question
     closeRecurringDeleteSheet_();
-    if (confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re) }))) runRecurringDelete_(re);
+    await nextPaint_();
+    if (confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }))) runRecurringDelete_(re);
     return;
   }
   if (!recurringStoppable_(re)) {   // a paid one-time item has no end date to set: say what deleting does
     closeRecurringDeleteSheet_();
+    await nextPaint_();
     if (confirm(tr("recDel.onceWarn", { amount }))) runRecurringDelete_(re);
     return;
   }
   body.innerHTML = `
     <p class="hint"><b>${escapeHtml(recurringDeleteWhat_(re))}</b></p>
+    <p class="hint">${escapeHtml(tr("recDel.entriesStay"))}</p>
     <button type="button" class="primary" id="recurring-stop-btn">${escapeHtml(tr("recDel.stopBtn"))}</button>
     <p class="hint">${escapeHtml(tr("recDel.stopHint"))}</p>
     <button type="button" class="primary danger" id="recurring-delete-confirm-btn">${escapeHtml(tr("recDel.deleteBtn"))}</button>
@@ -14993,23 +15040,30 @@ async function startRecurringBulkDelete_(items) {
   const effectful = items.filter((re) => effectOf[re.id] >= 0.5);
   const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
   // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
-  const finish = (work, after) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after); };
-  const deleteAll = () => { ids.forEach((id) => markDeleting_("recurring:" + id)); finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_); };
+  const finish = (work, after, opts) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after, opts); };
+  const deleteAll = () => {
+    ids.forEach((id) => markDeleting_("recurring:" + id));
+    finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_,
+      { busy: "common.deletingToast", done: () => tr("recBulk.resultDeleted", { n: items.length, names: items.map(nameOf).join(", ") }) });
+  };
   if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
     closeRecurringDeleteSheet_();
-    if (confirm(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", ") }))) deleteAll();
+    await nextPaint_();
+    if (confirm(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", "), skipped: skippedGoneText_(items) }))) deleteAll();
     return;
   }
   const stoppable = effectful.filter(recurringStoppable_);
   const fixed = effectful.filter((re) => !recurringStoppable_(re));   // paid one-time items: no end date to set
   if (!stoppable.length) {
     closeRecurringDeleteSheet_();
+    await nextPaint_();
     if (confirm(tr("recBulk.onlyFixed", { amount, n: items.length }))) deleteAll();
     return;
   }
   const rest = items.filter((re) => !effectful.includes(re));   // no payments to protect: deleted either way
   body.innerHTML = `
     <p class="hint"><b>${escapeHtml(tr("recBulk.intro", { pay: effectful.length, n: items.length }))}</b></p>
+    <p class="hint">${escapeHtml(tr("recDel.entriesStay"))}</p>
     <button type="button" class="primary" id="recurring-bulk-stop">${escapeHtml(tr("recBulk.stopBtn"))}</button>
     <p class="hint">${escapeHtml(tr("recBulk.stopHint", { k: stoppable.length })
       + (rest.length ? tr("recBulk.stopRest", { m: rest.length }) : "") + (fixed.length ? tr("recBulk.stopFixed", { f: fixed.length }) : "") + tr("recBulk.stopEditLater"))}</p>
@@ -15023,9 +15077,20 @@ async function startRecurringBulkDelete_(items) {
       if (rest.length) await callApi("deleteRecurringExpenses", { ids: rest.map((re) => re.id) });
     }, async () => {
       afterRecurringChange_();
-      const left = fixed.concat(items.filter((re) => result && result.skipped.some((x) => x.id === re.id)));
-      if (left.length) alert(tr("recBulk.leftAsIs", { names: left.map(nameOf).join(", ") }));
-    });
+      if (!result) return;
+      // Say exactly what happened to whom: stopped (with each end date), deleted, and left as they are.
+      const skippedIds = new Set((result.skipped || []).map((x) => x.id));
+      const stopped = (result.stopped || []).map((x) => {
+        const re = items.find((it) => it.id === x.id);
+        return re ? `${nameOf(re)} (${recurringDateLabel_(x.end_date)})` : "";
+      }).filter(Boolean);
+      const left = fixed.concat(items.filter((re) => skippedIds.has(re.id)));
+      const lines = [];
+      if (stopped.length) lines.push(tr("recBulk.resultStopped", { n: stopped.length, names: stopped.join(", ") }));
+      if (rest.length) lines.push(tr("recBulk.resultDeleted", { n: rest.length, names: rest.map(nameOf).join(", ") }));
+      if (left.length) lines.push(tr("recBulk.leftAsIs", { names: left.map(nameOf).join(", ") }));
+      if (lines.length) alert(lines.join("\n\n"));
+    }, { busy: "common.stoppingToast" });
   });
 }
 

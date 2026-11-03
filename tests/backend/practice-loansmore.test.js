@@ -94,6 +94,7 @@ test("real entries are never deleted: older ones with the same text, other text,
 
 test("a practice loan left overdue never raises a notice or a reminder; a real overdue loan still does", () => {
   const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");   // the seed's own budgets can be over their limit on some days (its dates follow the clock): these tests are about the practice loans only
   rt.svc.props.set("FEATURES", "base");
   linkTelegram(rt);
   const friend = rt.rows("Friends")[0];
@@ -113,6 +114,7 @@ test("a practice loan left overdue never raises a notice or a reminder; a real o
 
 test("recording an installment on a practice bank loan sends nothing to Telegram and leaves the interest + fees entry waiting (no category, no budget)", () => {
   const { rt, data } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");   // the seed's own budgets can be over their limit on some days (its dates follow the clock): these tests are about the practice loans only
   linkTelegram(rt);
   const sentBefore = rt.svc.fetchLog.length;
   const { installments } = mkBank(rt, data);
