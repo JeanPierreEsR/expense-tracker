@@ -3108,7 +3108,15 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
 .tour-more-text { margin-top: 14px; }
 
-/* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
+/* More → My data: a small hub, rows in three short headed groups (Bring in / Then tidy / Take out) */
+.md-head { margin: 18px 0 2px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.md-head:first-of-type { margin-top: 8px; }
+.md-row { text-align: left; }
+.md-row > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.md-title { font-weight: 600; }
+.md-sub { margin: 0; }
+
+/* The Statements screen is one screen in two modes (data-mode on #screen-statements), switched by the tabs at its top */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
 

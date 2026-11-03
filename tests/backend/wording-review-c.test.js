@@ -87,8 +87,8 @@ test("C12: 'gap' no longer means two things; C13: no 'offset'; C14: 'payer', not
 });
 
 test("C19: error texts say what to do next", () => {
-  assert.match(get("error.rateRequired").en, /Add it in More → Exchange rates/);
-  assert.match(get("error.rateRequired").es, /Agrégalo en Más → Tipos de cambio/);
+  assert.match(get("error.rateRequired").en, /Add it in More → Currencies/);
+  assert.match(get("error.rateRequired").es, /Agrégalo en Más → Monedas/);
   assert.match(get("feature.gmailOff").en, /Turn it on in More → Extra features/);
   assert.match(get("feature.gmailOff").es, /Actívala en Más → Funciones extra/);
   assert.match(get("err.catProtected").en, /built-in category/);

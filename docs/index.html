@@ -650,37 +650,19 @@
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
-            <span data-i18n="more.exchangeRates">💱 Exchange rates</span>
+            <span data-i18n="more.currencies">💱 Currencies</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-friends-btn" hidden>
             <span data-i18n="more.friends">👥 Friends</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-main-currency-btn">
-            <span data-i18n="more.mainCurrency">💱 Main currency</span>
+          <button type="button" class="more-list-item" id="more-my-data-btn">
+            <span data-i18n="more.myData">🗂️ My data</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-owner-names-btn">
             <span data-i18n="more.ownerNames">👤 My names</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-      </div>
-      <div class="card more-group more-group-az">
-          <button type="button" class="more-list-item" id="more-export-btn">
-            <span data-i18n="more.export">📤 Export data</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-import-btn">
-            <span data-i18n="more.import">📥 Import data</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-statements-btn">
-            <span data-i18n="more.statements">🏦 Statements</span>
-            <span class="more-list-chevron">›</span>
-          </button>
-          <button type="button" class="more-list-item" id="more-tidy-btn">
-            <span data-i18n="more.tidy">🧹 Tidy my history</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -1017,7 +999,14 @@
         <div class="budgets-header">
           <button type="button" class="add-inline" id="exchange-rates-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h2>
+        <h2 style="margin-top:0;" data-i18n="cur.title">Currencies</h2>
+        <h3 data-i18n="mainCur.title">Main currency</h3>
+        <p id="currencies-main-code" style="font-weight:700;font-size:1.1em;margin:4px 0;"></p>
+        <p class="hint" data-i18n="mainCur.reversible">You can change this at any time, and switching back restores exactly what you had. Nothing in your data is rewritten: your entries keep their own currencies, and only the totals are shown in the main currency.</p>
+        <button type="button" class="add-inline" id="currencies-main-change-btn" data-i18n="mainCur.change">Change main currency…</button>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h3>
         <p class="hint" data-i18n="rates.hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
         <div id="exchange-rates-list"></div>
         <p class="hint" id="exchange-rates-empty-note" hidden data-i18n="rates.empty">No exchange rates on file yet.</p>
@@ -1181,16 +1170,46 @@
       </div>
     </div>
 
+    <div id="screen-my-data" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="add-inline" id="my-data-back-btn" data-i18n="common.back">‹ Back</button>
+        </div>
+        <h2 style="margin-top:0;" data-i18n="md.title">My data</h2>
+        <h3 class="md-head" data-i18n="md.bringIn">Bring in</h3>
+        <button type="button" class="more-list-item md-row" id="data-statements-btn">
+          <span><span class="md-title">🏦 <span data-i18n="md.bank">Bank statements</span></span><span class="hint md-sub" data-i18n="md.bankSub">Read your bank's PDFs or files and find what is missing.</span></span>
+          <span class="more-list-chevron">›</span>
+        </button>
+        <button type="button" class="more-list-item md-row" id="data-import-btn">
+          <span><span class="md-title">📥 <span data-i18n="md.import">Import from another app</span></span><span class="hint md-sub" data-i18n="md.importSub">Bring in a CSV or Excel export from another app.</span></span>
+          <span class="more-list-chevron">›</span>
+        </button>
+        <h3 class="md-head" data-i18n="md.tidyHead">Then tidy</h3>
+        <button type="button" class="more-list-item md-row" id="data-tidy-btn">
+          <span><span class="md-title">🧹 <span data-i18n="md.tidy">Tidy my history</span></span><span class="hint md-sub" data-i18n="md.tidySub">Give the entries that came in without a category their category.</span></span>
+          <span class="more-list-chevron">›</span>
+        </button>
+        <h3 class="md-head" data-i18n="md.takeOut">Take out</h3>
+        <button type="button" class="more-list-item md-row" id="data-export-btn">
+          <span><span class="md-title">📤 <span data-i18n="md.export">Export my data</span></span><span class="hint md-sub" data-i18n="md.exportSub">Get your entries as files, or a backup copy.</span></span>
+          <span class="more-list-chevron">›</span>
+        </button>
+      </div>
+    </div>
+
     <div id="screen-statements" class="screen" data-mode="bank" hidden>
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="add-inline" id="statements-back-btn" data-i18n="common.back">‹ Back</button>
         </div>
         <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.title">Statements</h2>
-        <p class="hint stmt-bank-only"><button type="button" class="add-inline" id="statement-to-import-btn" data-i18n="stmt.toImport">Have an export from another app? Use Import data ›</button></p>
         <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
+        <div class="be-tabs" id="stmt-mode-tabs" role="tablist">
+          <button type="button" class="be-tab active" id="stmt-mode-bank" role="tab" aria-selected="true" data-mode="bank" data-i18n="md.bank">Bank statements</button>
+          <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.import">Import from another app</button>
+        </div>
         <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in another app: export it as a CSV or Excel file with a category on every line, then pick the file here. You check the columns once and the app remembers them for the next file from the same app. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
-        <p class="hint stmt-import-only"><button type="button" class="add-inline" id="statement-to-bank-btn" data-i18n="imp.toBank">Reading your bank's statements instead? Open Statements ›</button></p>
         <div class="stmt-stepper" id="stmt-stepper" role="list"></div>
       </div>
 

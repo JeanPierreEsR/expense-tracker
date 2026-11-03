@@ -65,13 +65,18 @@
 
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
-  // The Statements card and the Import data card open this one screen; `mode` ("bank" | "import") only changes what is shown
+  // The "Bank statements" and "Import from another app" rows of My data open this one screen; `mode` ("bank" | "import") only changes what is shown
   // (the wording and the cards that are about bank e-mail) — the reading, the review and the saving are the same engine.
   let screenMode = "bank";
 
   function setScreenMode(mode) {
     screenMode = mode;
     $("screen-statements").dataset.mode = mode;
+    ["bank", "import"].forEach((m) => {   // the two-way switch at the top shows which side this is
+      const tab = $("stmt-mode-" + m);
+      tab.classList.toggle("active", m === mode);
+      tab.setAttribute("aria-selected", m === mode ? "true" : "false");
+    });
     $("statement-file-input").accept = mode === "import"
       ? ".csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       : "application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -2073,11 +2078,13 @@
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();
   });
-  $("more-statements-btn").addEventListener("click", () => showStatementsScreen("bank"));
-  $("more-import-btn").addEventListener("click", () => showStatementsScreen("import"));
-  $("statement-to-import-btn").addEventListener("click", () => { showStatementsScreen("import"); window.scrollTo(0, 0); });
-  $("statement-to-bank-btn").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
-  $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showScreen("more"); });
+  $("data-statements-btn").addEventListener("click", () => showStatementsScreen("bank"));
+  $("data-import-btn").addEventListener("click", () => showStatementsScreen("import"));
+  $("stmt-mode-tabs").addEventListener("click", (e) => {
+    const tab = e.target.closest(".be-tab");
+    if (tab && tab.dataset.mode !== screenMode) { showStatementsScreen(tab.dataset.mode); window.scrollTo(0, 0); }
+  });
+  $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showMyDataScreen(); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
