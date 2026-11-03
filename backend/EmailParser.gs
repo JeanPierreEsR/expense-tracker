@@ -89,6 +89,11 @@ function afterLabel_(body, label) {
   return m ? cleanText_(m[1]) : null;
 }
 
+// Invisible text-direction and zero-width characters some senders put inside numbers and subjects (Amazon).
+function stripDirectionMarks_(text) {
+  return String(text || '').replace(/[​-‏‪-‮⁦-⁩﻿]/g, '');
+}
+
 function cleanText_(text) {
   if (!text) return text;
   return text
@@ -235,16 +240,20 @@ var EMAIL_RULES = [
   // with several), so there is no `bank` and the account stays blank for review. When the card's bank ALSO e-mails the charge, the two are
   // one purchase: see amazonShipmentTwin_ below. An order shipped in several packages sends one e-mail per package, each with its own
   // Total, so the dedup id is the order number AND that total. English e-mails only (the only kind seen).
+  // Amazon hides text-direction marks in its e-mails ("Order # <U+202B>112-…", "and <U+2066>5<U+2069> more items" in the subject, seen
+  // in the owner's real mailbox 2026-11-03): without removing them the order number is not found and the bank-e-mail match never happens.
   {
     sender: 'shipment-tracking@amazon.com', house: 'Amazon', amazonShipment: true,
     label: 'Envío de Amazon.com',
-    match: function (subject, body) { return /^\s*Shipped\b/i.test(subject) && /(?:^|\n)[ \t]*\*?Total\b/i.test(body); },
+    match: function (subject, body) { return /^\s*Shipped\b/i.test(stripDirectionMarks_(subject)) && /(?:^|\n)[ \t]*\*?Total\b/i.test(body); },
     extract: function (subject, body) {
+      subject = stripDirectionMarks_(subject);
+      body = stripDirectionMarks_(body);
       var total = body.match(/(?:^|\n)[ \t]*\*?Total\*?[ \t]*:?\s*([^\r\n]+)/i);
       var amt = extractAmount_(total ? total[1] : null);
       if (!amt) return null;
       var order = body.match(/Order\s*#\s*([\d-]{10,})/i);
-      var what = cleanText_(String(subject).replace(/^\s*Shipped\s*:?\s*/i, '').replace(/^"(.*)"$/, '$1'));
+      var what = cleanText_(String(subject).replace(/^\s*Shipped\s*:?\s*/i, '').replace(/"/g, ''));
       return {
         type: 'expense', needsReview: true,
         amount: amt.amount, currency: amt.currency,

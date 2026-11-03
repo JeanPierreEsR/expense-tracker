@@ -108,6 +108,26 @@ test("a charge of a different amount is a different purchase", () => {
   assert.equal(amazonRows(rt).length, 2);
 });
 
+test("Amazon's hidden text-direction marks do not hide the order number, and the bank e-mail still matches", () => {
+  // Real layout (owner's mailbox, 2026-11-03): "Order # <U+202B>112-…", "and <U+2066>5<U+2069> more items", "\tTotal\t$…".
+  const expected = chargeAccount();
+  const { rt } = freshApp({ small: true });
+  rt.svc.gmail.addEmail({
+    from: "Amazon.com <shipment-tracking@amazon.com>", daysAgo: 1,
+    subject: 'Shipped: "Made-up Ear Plugs -..." and ⁦5⁩ more items',
+    body: ["Your package was shipped!", "", "Ordered", "", "Shipped", "", "Order # ‫111-0000000-0000002", "", "\tTotal\t$42.10", ""].join("\n")
+  });
+  run(rt);
+  const [e] = amazonRows(rt);
+  assert.equal(e.external_id, "amazon-111-0000000-0000002-42.10");
+  assert.equal(e.description, "Amazon - Made-up Ear Plugs -... and 5 more items");
+  charge(rt);
+  run(rt);
+  const rows = amazonRows(rt);
+  assert.equal(rows.length, 1);
+  assert.equal(nickname(rt, rows[0].payment_method_id), expected);
+});
+
 test("an Amazon shipment e-mail with no Total makes no entry", () => {
   const { rt } = freshApp({ small: true });
   rt.svc.gmail.addEmail({ from: "Amazon.com <shipment-tracking@amazon.com>", subject: "Shipped: \"Made-up Book\"", body: "Order # 111-0000000-0000009\nTrack package" });
