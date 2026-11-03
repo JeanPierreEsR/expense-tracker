@@ -52,5 +52,5 @@ test("every other screen or card header Add button (sweep of 2026-11-02) is a + 
 });
 
 test("no text still tells the person to tap a '+ Add' header button that no longer exists", () => {
-  assert.ok(!/Tap \+ Add\.|Tap \+ Add loan|Tap \+ Add budget|Toca \+ Agregar\.|toca \+ Agregar/.test(strings));
+  assert.ok(!/[Tt]ap \+ Add(\.|,| loan| budget| balance| to )|[Tt]oca \+ Agregar(\.|,| préstamo| presupuesto| saldo| para )/.test(strings));   // ("+ Add friend…" / "+ Agregar ítem" are buttons inside forms and stay)
 });
