@@ -1041,7 +1041,8 @@
   };
 
   // ---- The More tab: only the More screen itself — the list is dragged down to the language picker and back up (it does not open any section) ----
-  //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ); real order, groups and words.
+  //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ: Friends, Feedback & privacy, Performance log…); real order, groups and words.
+  //      Every row name is a text key "more.<name>"; tests/backend/tour-more-scene.test.js checks each one exists and is a real More row (this scene once drew removed rows as raw keys).
   SCENES.more = {
     hold: 2200,
     build(stage, ctx) {
@@ -1057,9 +1058,12 @@
         keys.forEach((k) => { const r = h("div", "ts-more-row", null, c); h("span", null, tr("more." + k), r); h("span", "ts-muted", "›", r); p.rows[k] = r; });
         return c;
       };
+      // The real More tab since 2026-11-03: group 2 is sorted A→Z by the label in the current language (emoji ignored), as the app does at load.
+      const label = (k) => tr("more." + k).replace(/^\S+\s*/, "");
+      const lang0 = root.I18n ? root.I18n.getLang() : "en";
       card(["programmed", "trips"]);
-      card(["accounts", "categories", "exchangeRates", "mainCurrency", "statements", "export"]);
-      card(["tour", "devices", "signout"]);
+      card(["accounts", "bankEmails", "categories", "currencies", "myData", "myProfile"].sort((a, b) => label(a).localeCompare(label(b), lang0)));
+      card(["tour", "signout"]);
       const lang = h("div", "ts-more-lang", null, p.scroll);
       h("div", "ts-hint", "🌐 Language / Idioma", lang);
       p.lang = h("div", "ts-box", null, lang); h("span", "ts-box-value", root.I18n && root.I18n.getLang() === "es" ? "Español" : "English", p.lang);
@@ -1069,11 +1073,11 @@
       const fg = p.finger;
       const room = () => Math.max(0, p.scroll.scrollHeight - p.scroll.parentNode.clientHeight);
       return [
-        [500, (i) => fg.to(p.rows.exchangeRates, i)],
+        [500, (i) => fg.to(p.rows.currencies, i)],
         [1000, () => { p.scroll.style.transform = "translateY(" + (-room()) + "px)"; }],   // the finger drags the list up: the rest of More, down to the language
         [1100, (i) => fg.to(p.lang, i)],
         [3600, () => { p.scroll.style.transform = "translateY(0)"; }],                    // and back to the top
-        [3700, (i) => fg.to(p.rows.exchangeRates, i)],
+        [3700, (i) => fg.to(p.rows.currencies, i)],
         [5200, () => fg.hide()]
       ];
     }
