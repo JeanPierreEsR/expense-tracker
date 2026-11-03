@@ -1021,6 +1021,9 @@ function resetBar(pct) {
   bar.style.transition = 'width .5s ease';
 }
 function setTop(kind, step, text, pct) {
+  // Finished (or failed): the bar fills at once. It may still carry a step's slow 14 s "creep", which made the last
+  // stretch to 100% crawl after the page already said it was done (owner, 2026-11-03).
+  if (kind !== 'running') $('tsBar').style.transition = 'width .3s ease';
   $('topStatus').className = 'topstatus ' + kind;
   $('tsStep').textContent = step || '';
   $('tsText').textContent = text || '';
@@ -1041,7 +1044,7 @@ function progress(text, pct, step, creepTo) {
   setTop('running', currentStep, text, pct);
   if (activeBtn) activeBtn.textContent = text;
   // Slow Google steps (10+ s with nothing to report): let the bar keep moving slowly so it never looks frozen.
-  if (creepTo) requestAnimationFrame(() => { $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
+  if (creepTo) requestAnimationFrame(() => { if (!$('topStatus').classList.contains('running')) return; $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
 }
 function startClock() {
   clockStart = Date.now(); lastProgressAt = Date.now(); $('tsTime').textContent = '0 s';
