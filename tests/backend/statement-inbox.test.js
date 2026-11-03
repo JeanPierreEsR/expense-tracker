@@ -96,3 +96,69 @@ test("the owner's real-looking case: forwarded 'IBK dolares' mail with a misspel
   assert.equal(scan(rt).found, 2);
   assert.deepEqual(inbox(rt).map((r) => r.bank_label), ["Interbank", "Interbank"]);
 });
+
+// SIP's AhorraMás "movimientos" come with a download link instead of a PDF (2026-11-03).
+const SIP_OPS = "Débito Sip <no-reply@operaciones.agora.pe>";
+const TRACK = "https://tracking.operaciones.agora.pe/tracking/1/click/abc123";
+const STORE = "https://storage.googleapis.com/agora_savings/prod/Movements_Savings_1_2026_NOVEMBER_3.pdf?Expires=1&Signature=x";
+const linkMail = (cur) => `<p>Te enviamos los movimientos de tu cuenta AhorraMás ${cur}.</p><a href="https://sip.pe/ayuda">Ayuda</a>
+  <a style="x" href="${TRACK}&amp;u=1"><span>DESCARGA AQUÍ</span></a>`;
+const PDF = [37, 80, 68, 70, 45, 49, 46, 55];   // "%PDF-1.7"
+
+function addLinkMail(rt, cur) {
+  rt.svc.gmail.addEmail({ from: SIP_OPS, subject: `Ana, aquí están tus movimientos con AhorraMás ${cur}`, body: "", html: linkMail(cur) });
+}
+
+test("an AhorraMás download-link e-mail is noted per currency, keeps no link, and nudges", () => {
+  const { rt } = freshApp({ entries: 50 });
+  linkTelegram(rt);
+  warmUp(rt);
+  addLinkMail(rt, "soles");
+  addLinkMail(rt, "dólares");
+  rt.svc.gmail.addEmail({ from: SIP_OPS, subject: "Operación realizada", body: "", html: "<a href='https://sip.pe'>Ver</a>" });
+  assert.equal(scan(rt).found, 2);
+  assert.deepEqual(inbox(rt).map((r) => r.bank_label).sort(), ["AhorraMás dólares", "AhorraMás soles"]);
+  assert.ok(inbox(rt).every((r) => r.attachment_name === "(link)" && r.bank_keyword === "sip" && !JSON.stringify(r).includes("tracking")));
+  assert.match(sentText(rt), /AhorraMás soles/);
+  assert.equal(scan(rt).found, 0);   // a rescan adds nothing
+  const listed = rt.api("listStatementInbox").items.filter((i) => i.link);
+  assert.equal(listed.length, 2);
+  assert.ok(listed.every((i) => i.size_kb === null && i.file_name === ""));
+});
+
+test("Open follows the link's redirects to the PDF; every hop must stay on the bank's or Google's storage hosts", () => {
+  const { rt } = freshApp({ entries: 50 });
+  warmUp(rt);
+  addLinkMail(rt, "soles");
+  scan(rt);
+  const id = inbox(rt)[0].id;
+  const seen = [];
+  rt.state.fetchHandler = (url, opts) => {
+    seen.push(url);
+    assert.equal(opts.followRedirects, false);
+    if (url.startsWith(TRACK)) return { http: 302, headers: { Location: STORE } };
+    if (url === STORE) return { http: 200, bytes: PDF };
+    return { http: 500 };
+  };
+  const got = rt.api("getStatementAttachment", { id });
+  assert.equal(got.name, "Movements_Savings_1_2026_NOVEMBER_3.pdf");
+  assert.deepEqual([...Buffer.from(got.base64, "base64")], PDF);
+  assert.equal(seen[0], TRACK + "&u=1");   // &amp; decoded
+
+  rt.state.fetchHandler = () => ({ http: 302, headers: { Location: "https://evil.test/x.pdf" } });
+  assert.throws(() => rt.api("getStatementAttachment", { id }), /did not give a PDF/);
+  rt.state.fetchHandler = (url) => (url.startsWith(TRACK) ? { http: 302, headers: { Location: STORE } } : { http: 400 });
+  assert.throws(() => rt.api("getStatementAttachment", { id }), /expired/);
+  rt.state.fetchHandler = (url) => (url.startsWith(TRACK) ? { http: 302, headers: { Location: STORE } } : { http: 200, bytes: [60, 104, 116, 109, 108] });
+  assert.throws(() => rt.api("getStatementAttachment", { id }), /did not give a PDF/);
+});
+
+test("friends' copies (read-only Gmail service) find the download link in the e-mail's HTML too", () => {
+  const { rt } = freshApp({ entries: 50 });
+  rt.run("PropertiesService.getScriptProperties().setProperty('GMAIL_READER', 'readonly')");
+  warmUp(rt);
+  addLinkMail(rt, "dólares");
+  assert.equal(scan(rt).found, 1);
+  rt.state.fetchHandler = (url) => (url.startsWith(TRACK) ? { http: 302, headers: { location: STORE } } : { http: 200, bytes: PDF });
+  assert.equal(rt.api("getStatementAttachment", { id: inbox(rt)[0].id }).name, "Movements_Savings_1_2026_NOVEMBER_3.pdf");
+});

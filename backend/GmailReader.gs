@@ -6,7 +6,7 @@
  * delete"); the newer Gmail service asks only for read-only. Everything else in
  * the backend goes through the three functions below and sees "messages" with
  * the same methods GmailApp's messages have (getId, getSubject, getFrom, getTo,
- * getDate, getPlainBody, getAttachments), so the bank rules did not change.
+ * getDate, getPlainBody, getBody, getAttachments), so the bank rules did not change.
  *
  *   gmailUsesReadonly_()          which way is in use
  *   gmailSearchMessages_(q, opts) messages matching a Gmail search, newest first
@@ -75,6 +75,7 @@ function gmailLazyMessage_(id) {
     getTo: function () { return gmailHeader_(load().payload, 'To'); },
     getDate: function () { return new Date(Number(load().internalDate)); },
     getPlainBody: function () { return gmailPlainBody_(id, load().payload); },
+    getBody: function () { return gmailHtmlBody_(id, load().payload); },
     getAttachments: function (opts) { return gmailAttachments_(id, load().payload, opts); }
   };
 }
@@ -130,6 +131,15 @@ function gmailPlainBody_(messageId, payload) {
   if (plain.length) return plain.map(function (p) { return gmailPartText_(messageId, p); }).join('\n');
   if (html.length) return gmailHtmlToText_(html.map(function (p) { return gmailPartText_(messageId, p); }).join('\n'));
   return '';
+}
+
+// The HTML a mail program would show (links included); if the e-mail has no HTML part, its plain text.
+function gmailHtmlBody_(messageId, payload) {
+  var html = [];
+  gmailWalkParts_(payload, function (part) {
+    if (!part.filename && String(part.mimeType || '').toLowerCase() === 'text/html') html.push(part);
+  });
+  return html.length ? html.map(function (p) { return gmailPartText_(messageId, p); }).join('\n') : gmailPlainBody_(messageId, payload);
 }
 
 function gmailPartText_(messageId, part) {

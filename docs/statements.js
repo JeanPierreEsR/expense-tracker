@@ -208,7 +208,7 @@
     const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
     return `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.bank, date: fmtDate(i.received, true) }))}</div>
-        <div class="stmt-row-sub">${escapeHtml(note)} · ${i.size_kb} KB</div>
+        <div class="stmt-row-sub">${escapeHtml(note)} · ${i.link ? escapeHtml(tr("stmt.viaLink")) : `${i.size_kb} KB`}</div>
         <div class="stmt-choices" style="padding-left:0">
           <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
           ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.dismiss"))}</button>`}
