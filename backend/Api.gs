@@ -457,6 +457,8 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeData': return removePracticeData(payload);
     case 'removePracticeLoans': return removePracticeLoans(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
+    case 'confirmEntries': return confirmEntries(payload);
+    case 'discardEntries': return discardEntries(payload);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);
     case 'releaseEntryRepaidLoans': return releaseEntryRepaidLoans(payload);
@@ -923,6 +925,58 @@ function confirmEntryFromApp_(payload) {
   var followed = null;
   try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
   return followed ? { done: true, follow: followed } : { done: true };
+}
+
+// ---- Needs review: several entries at once (Home → Needs review → Edit, owner's request 2026-11-03) ----
+// Each is judged by the SAME rules as the row's own Confirm / Discard, in ONE call, never throwing for a single entry.
+// confirmEntries({ items: [{ id, trip_id? }] }): an entry is confirmed only if it is still pending and READY — it has a category (an investment: a platform) and
+// an amount; `trip_id` is the trip the card suggested (a trip is linked only by the owner's Confirm, as in the single path). Answers
+// { confirmed: [ids], kept: [{ id, reason: missing|notPending|needsCategory|needsPlatform|badAmount|refused, message? }] }. The "blank look-alikes follow" learning
+// (categoryFollowAfterEdit_) is NOT run here — it belongs to the single Confirm; Telegram's Confirm does not run it either.
+function confirmEntries(payload) {
+  var items = [], seen = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var id = String((it && it.id) || '');
+    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id }); }
+  });
+  var out = { confirmed: [], kept: [] };
+  items.forEach(function (it) {
+    var entry = getEntryById_(it.id);
+    if (!entry) { out.kept.push({ id: it.id, reason: 'missing' }); return; }
+    if (entry.status !== 'pending') { out.kept.push({ id: it.id, reason: 'notPending' }); return; }
+    if (entry.type !== 'investment' && !entry.category_id) { out.kept.push({ id: it.id, reason: 'needsCategory' }); return; }
+    if (entry.type === 'investment' && !entry.to_payment_method_id) { out.kept.push({ id: it.id, reason: 'needsPlatform' }); return; }
+    if (!(Math.abs(Number(entry.amount)) > 0)) { out.kept.push({ id: it.id, reason: 'badAmount' }); return; }
+    try {
+      if (it.trip_id !== undefined && entry.type === 'expense') updateEntryFromApp_({ id: it.id, fields: { trip_id: it.trip_id } });
+      confirmEntryWithLearning_(it.id);
+      out.confirmed.push(it.id);
+    } catch (err) {
+      out.kept.push({ id: it.id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  return out;
+}
+
+// discardEntries({ ids }): the row's Discard for each waiting entry. Only entries still pending are discarded; a repayment's entries are never discarded on their
+// own (`repayment`, the person deletes the whole repayment from Loans); anything the single discard would refuse is kept with its message.
+// Answers { discarded: [ids], kept: [{ id, reason: missing|notPending|repayment|refused, message? }] }.
+function discardEntries(payload) {
+  var ids = uniqueIds_(payload && payload.ids);
+  var out = { discarded: [], kept: [] };
+  ids.forEach(function (id) {
+    var entry = getEntryById_(id);
+    if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+    if (entry.status !== 'pending') { out.kept.push({ id: id, reason: 'notPending' }); return; }
+    if (repaymentPartInfo_(id)) { out.kept.push({ id: id, reason: 'repayment' }); return; }
+    try {
+      discardEntryWithRepayments_(id, undefined);
+      out.discarded.push(id);
+    } catch (err) {
+      out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  return out;
 }
 
 // Speed (2026-11-02): one trip to Google for what used to be 2-4 in a row (each costs ~2.5 s on a phone before any work).

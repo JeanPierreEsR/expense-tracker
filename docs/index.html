@@ -361,10 +361,19 @@
       <p class="hint review-check-status" id="review-check-status" hidden></p>
 
       <div class="card review-queue" id="review-queue-card" hidden>
-        <h2><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</h2>
+        <div class="budgets-header">
+          <h2><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</h2>
+          <button type="button" class="icon-btn" id="review-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+        </div>
         <p class="hint" data-i18n="review.intro">Caught automatically from your email — check the details and confirm, or discard if it's not a real transaction.</p>
         <p class="hint" data-i18n="review.learns">Confirm a category once and the app suggests it next time for the same store.</p>
         <div id="review-list"></div>
+        <div class="friends-editbar" id="review-editbar" hidden>
+          <button type="button" class="add-inline" id="review-selectall-btn" data-i18n="friends.selectAll">Select all</button>
+          <button type="button" class="add-inline" id="review-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="primary danger" id="review-discard-selected-btn" disabled></button>
+          <button type="button" class="primary" id="review-confirm-selected-btn" disabled></button>
+        </div>
       </div>
 
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>

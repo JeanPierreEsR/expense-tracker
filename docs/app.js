@@ -5347,6 +5347,151 @@ function reviewLoanHintText_(entry) {
 // real network calls (one per queued offline action), which would delay
 // the very "show something instantly" this exists for. The live
 // background refresh that follows right after still flushes normally.
+// ---- Needs review: Edit mode (confirm or discard several waiting entries at once; owner's request, 2026-11-03) ----
+// The pencil on the card turns every waiting entry into a compact tick row and shows a fixed bar: Select all / Done / Discard (n) / Confirm (n). Confirm asks ONE
+// question and confirms only what is READY (a category, no duplicate warning) exactly as the card's own Confirm would — the rest stay for a one-by-one check. Discard
+// asks ONE question; a repayment's entries are never discarded here. The first-use practice's own entries have no checkbox.
+function reviewIssue_(entry) {   // why this entry cannot be confirmed in bulk ('' = it can)
+  if (entry.type !== "investment" && !entry.category_id) return "needsCategory";
+  if (entry.type === "investment" && !entry.to_payment_method_id) return "needsPlatform";
+  if (!(Math.abs(Number(entry.amount)) > 0)) return "badAmount";
+  if ((entry.twins || []).length) return "duplicate";
+  return "";
+}
+const reviewIsRepaymentPart_ = (entry) => !!(entry.link && (entry.link.kind === "repaymentExtra" || entry.link.kind === "repayment"));
+const reviewLabel_ = (entry) => describeForConfirm_(entry.description || tr("review.noDescription"), formatAmount(entry.amount, entry.currency), entry.date);
+const reviewShortName_ = (entry) => entry.description || tr("review.noDescription");
+function reviewNames_(entries, max = 4) {
+  const names = entries.map(reviewShortName_);
+  return names.length > max ? tr("reviewBulk.andMore", { names: names.slice(0, max).join(", "), n: names.length - max }) : names.join(", ");
+}
+function compactReviewRow_(entry) {
+  const practice = isPracticeReviewEntry_(entry);   // the first-use practice's own entries are left to the practice
+  const row = document.createElement("div");
+  row.className = "review-item review-compact friends-check-row";
+  row.dataset.entryId = entry.id;
+  const category = meta.categories.find((c) => c.id === entry.category_id);
+  const issue = reviewIssue_(entry);
+  const chip = issue === "duplicate" ? `<span class="review-compact-chip">${escapeHtml(tr("reviewBulk.why.duplicate"))}</span>`
+    : issue ? `<span class="review-compact-chip">${escapeHtml(tr(`reviewBulk.why.${issue}`))}</span>`
+    : category ? `<span class="review-compact-chip ok">${escapeHtml(category.icon ? `${category.icon} ${category.name}` : category.name)}</span>` : "";
+  const part = reviewIsRepaymentPart_(entry) ? `<span class="review-compact-chip">${escapeHtml(tr("reviewBulk.why.repayment"))}</span>` : "";
+  row.innerHTML = `
+    ${practice ? `<span class="friends-check-spacer"></span>` : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${reviewSelected_.has(entry.id) ? " checked" : ""}>`}
+    <div style="flex:1;min-width:0;">
+      <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
+      <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+      <div>${chip}${part}</div>
+    </div>
+    <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−" }[entryFlowDirection_(entry)] || "")}</div>`;
+  if (!practice) row.addEventListener("click", () => {
+    if (reviewSelected_.has(entry.id)) reviewSelected_.delete(entry.id); else reviewSelected_.add(entry.id);
+    row.querySelector(".friends-check").checked = reviewSelected_.has(entry.id);
+    syncReviewEditBar_();
+  });
+  return row;
+}
+function setReviewEditing_(on, redraw = true) {
+  if (on === reviewEditing_ && redraw) return;
+  reviewEditing_ = on;
+  reviewSelected_ = new Set();
+  setEditIcon_(document.getElementById("review-edit-btn"), on);
+  document.getElementById("review-editbar").hidden = !on;
+  document.getElementById("screen-entries").classList.toggle("review-editing", on);
+  const nav = document.getElementById("bottom-nav");
+  if (nav && nav.offsetHeight) document.getElementById("review-editbar").style.bottom = nav.offsetHeight + "px";
+  syncFab_();
+  if (redraw) refreshReviewQueue(reviewEntries_, true).catch(() => {});
+}
+window.addEventListener("resize", () => {
+  const nav = document.getElementById("bottom-nav");
+  if (reviewEditing_ && nav && nav.offsetHeight) document.getElementById("review-editbar").style.bottom = nav.offsetHeight + "px";
+});
+function syncReviewEditBar_() {
+  const n = reviewSelected_.size;
+  const conf = document.getElementById("review-confirm-selected-btn"), disc = document.getElementById("review-discard-selected-btn");
+  conf.disabled = disc.disabled = n === 0;
+  conf.textContent = n ? tr("reviewBulk.confirmN", { n }) : tr("review.confirm");
+  disc.textContent = n ? tr("reviewBulk.discardN", { n }) : tr("review.discard");
+  const selectable = reviewEntries_.filter((e) => !isPracticeReviewEntry_(e)).length;
+  document.getElementById("review-selectall-btn").textContent = tr(n && n === selectable ? "friends.selectNone" : "friends.selectAll");
+}
+document.getElementById("review-edit-btn").addEventListener("click", () => { setReviewEditing_(!reviewEditing_); syncReviewEditBar_(); });
+document.getElementById("review-done-btn").addEventListener("click", () => setReviewEditing_(false));
+document.getElementById("review-selectall-btn").addEventListener("click", () => {
+  const all = reviewEntries_.filter((e) => !isPracticeReviewEntry_(e)).map((e) => e.id);
+  reviewSelected_ = reviewSelected_.size === all.length ? new Set() : new Set(all);
+  refreshReviewQueue(reviewEntries_, true).catch(() => {});
+});
+// After a bulk action the waiting list is shown at once without the handled entries (as the card's own buttons do), then everything refreshes.
+function reviewAfterBulk_(handledIds) {
+  const left = reviewEntries_.filter((e) => !handledIds.has(e.id));
+  refreshReviewQueue(left, true).catch(() => {});
+}
+const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`reviewBulk.why.${reason}`)})`;
+
+document.getElementById("review-confirm-selected-btn").addEventListener("click", () => {
+  const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
+  if (!chosen.length) return;
+  const ready = chosen.filter((e) => !reviewIssue_(e));
+  const notReady = chosen.filter((e) => reviewIssue_(e));
+  const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
+  if (!ready.length) { alert(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
+  const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
+  if (!confirm(tr("reviewBulk.confirmAsk", { n: ready.length, list: ready.map(reviewLabel_).join("\n"), left }))) return;
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
+  ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
+    if (isPracticeReviewEntry_(e)) return;
+    const amount = Math.abs(Number(e.amount));
+    betaRecordEvents_(PerfShare.queueEvents(e, { description: e.description || "", amount: e.type === "investment" && Number(e.amount) < 0 ? -amount : amount, category_id: e.category_id }, betaEntryPlace_(e)));
+  });
+  const byId = new Map(ready.map((e) => [e.id, e]));
+  setReviewEditing_(false, false);
+  reviewAfterBulk_(new Set(ready.map((e) => e.id)));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("confirmEntries", { items });
+  }, async () => {
+    refreshEntryList().catch(() => {});
+    refreshExpectedRecurring().catch(() => {});
+    refreshHomeGlance_(true);
+    await refreshReviewQueue(undefined, true).catch(() => {});
+    if (!result || !result.kept.length) return;
+    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+  }, {
+    busy: "reviewBulk.confirming",
+    done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
+  });
+});
+
+document.getElementById("review-discard-selected-btn").addEventListener("click", () => {
+  const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
+  if (!chosen.length) return;
+  const parts = chosen.filter(reviewIsRepaymentPart_);
+  const ready = chosen.filter((e) => !reviewIsRepaymentPart_(e));
+  if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") })); return; }
+  const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
+  if (!confirm(tr("reviewBulk.discardAsk", { n: ready.length, list: ready.map(reviewLabel_).join("\n"), note }))) return;
+  ready.forEach((e) => { if (!isPracticeReviewEntry_(e)) betaRecordEvents_(PerfShare.queueEvents(e, null, betaEntryPlace_(e))); });
+  const byId = new Map(ready.map((e) => [e.id, e]));
+  const ids = ready.map((e) => e.id);
+  setReviewEditing_(false, false);
+  reviewAfterBulk_(new Set(ids));
+  let result = null;
+  saveBehindScreen_(async () => {
+    result = await callApi("discardEntries", { ids });
+  }, async () => {
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    await refreshReviewQueue(undefined, true).catch(() => {});
+    if (!result || !result.kept.length) return;
+    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+  }, {
+    busy: "reviewBulk.discarding",
+    done: () => result && result.discarded.length && !result.kept.length ? tr("reviewBulk.doneDiscarded", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }) : "",
+  });
+});
+
 async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (!skipFlush) await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
@@ -5355,15 +5500,21 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   const card = document.getElementById("review-queue-card");
   const list = document.getElementById("review-list");
   document.getElementById("review-count").textContent = entries.length;
+  reviewEntries_ = entries;
+  const stillWaiting = new Set(entries.map((e) => e.id));
+  reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
+  document.getElementById("review-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.reviewBulk && entries.length);
 
   if (entries.length === 0) {
     card.hidden = true;
+    if (reviewEditing_) setReviewEditing_(false, false);
     return;
   }
   card.hidden = false;
   list.innerHTML = "";
 
   entries.forEach((entry) => {
+    if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
     const item = document.createElement("div");
     item.className = "review-item";
     item.dataset.entryId = entry.id;
@@ -5855,6 +6006,9 @@ function closeNewEntrySheet_() {
   newEntrySheetOpen_ = false;
 }
 
+let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: syncFab_ below runs at load)
+let reviewSelected_ = new Set();
+let reviewEntries_ = [];
 let appToastTimer_ = null;
 // `sticky` keeps the toast on screen until hideToast_ (a "Deleting…" that must last as long as the work does); `ms` lengthens a toast that names people or items.
 function showToast_(text, sticky, ms) {
@@ -5921,7 +6075,7 @@ function syncFab_() {
   const nav = document.getElementById("bottom-nav");
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
-  fab.hidden = nav.hidden || !(name === "entries" || name === "overview");
+  fab.hidden = nav.hidden || reviewEditing_ || !(name === "entries" || name === "overview");
   // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
   // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
   // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
@@ -6214,6 +6368,7 @@ function showScreen(name) {
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
   if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
+  if (name !== "entries" && reviewEditing_) setReviewEditing_(false, false);
   if (name !== "business" && businessEditing_) setBusinessEditing_(false, false);
   if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => {

@@ -3389,3 +3389,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-business.business-editing .card, #screen-business-people.people-editing .card { padding-bottom: 90px; }
 .business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
 .business-company-head.friends-check-row .business-mini { margin-left: auto; }
+/* Needs review → Edit: compact tick rows, and a bar with four buttons (Select all / Done / Discard / Confirm) that has to fit a narrow phone */
+#screen-entries.review-editing #review-queue-card { padding-bottom: 90px; }
+#review-editbar { gap: 4px; padding: 10px 12px; }
+#review-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
+.review-item.review-compact { display: flex; flex-direction: row; align-items: center; gap: 12px; cursor: pointer; }
+.review-item.review-compact .review-item-amount { margin-left: auto; white-space: nowrap; text-align: right; }
+.review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: 10px; padding: 1px 8px; margin-top: 3px; background: #fff4e5; color: #8a5a00; }
+.review-compact-chip.ok { background: #eaf6ee; color: #25744a; }
