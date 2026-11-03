@@ -741,6 +741,35 @@ function deleteFriend(payload) {
   return { done: true };
 }
 
+// A friend's WhatsApp number, for the "Remind on WhatsApp" sheet on their loan screen (specs/loans.md § Reminders). Optional: an empty
+// number clears it. Stored as text, "+" and digits only, so Sheets never turns it into a number.
+function setFriendPhone(payload) {
+  var raw = String((payload && payload.phone) || '').trim();
+  var digits = raw.replace(/\D/g, '');
+  if (raw && (digits.length < 7 || digits.length > 15)) throw new Error(tr_('err.badPhone'));
+  var phone = digits ? '+' + digits : '';
+  var headers = ensureFriendsPhoneColumn_();
+  var sheet = getSheet('Friends');
+  var rowIndex = findRowIndexById(sheet, headers, payload && payload.id);
+  if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
+  sheet.getRange(rowIndex, headers.indexOf('phone') + 1).setNumberFormat('@');
+  setCellByRow_(sheet, headers, rowIndex, 'phone', phone);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  return { id: payload.id, phone: phone };
+}
+
+// Header of the Friends sheet's `phone` column. Created on first use (a copy that never saves a number never gets it).
+function ensureFriendsPhoneColumn_() {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('phone') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('phone');
+    headers.push('phone');
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
 // Header of the Friends sheet's `hidden` column ('yes' = hidden from lists and pickers; the history stays). Created on first use, like Categories' one.
 function ensureFriendsHiddenColumn_() {
   var sheet = getSheet('Friends');

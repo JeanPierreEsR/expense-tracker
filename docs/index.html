@@ -1390,6 +1390,7 @@
       <div class="loan-detail-actions">
         <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
+        <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">💬 Remind on WhatsApp</button>
       </div>
       <div class="loan-opening-offer" id="loan-detail-opening" hidden>
         <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
@@ -1401,6 +1402,30 @@
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+    </div>
+  </div>
+
+  <div id="loan-remind-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="loan-remind-title"></span>
+        <button type="button" id="loan-remind-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="loan-remind-text" data-i18n="remind.text">Message (you can change it)</label>
+        <textarea id="loan-remind-text" class="loan-remind-text" rows="10"></textarea>
+        <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">↺ Start the message again</button>
+
+        <label for="loan-remind-phone" id="loan-remind-phone-label" data-i18n="remind.phone">WhatsApp number (optional)</label>
+        <input type="tel" id="loan-remind-phone" maxlength="24" autocomplete="off" inputmode="tel">
+        <p class="hint" id="loan-remind-phone-hint" data-i18n="remind.phoneHint">With the country code, e.g. +51 987 654 321. Saved for next time. Leave it empty to pick the chat in WhatsApp.</p>
+
+        <p class="hint" id="loan-remind-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="loan-remind-send" data-i18n="remind.send">Open WhatsApp</button>
+        <p class="hint" data-i18n="remind.sendHint">WhatsApp opens with this message. Nothing is sent until you tap Send there.</p>
+        <p class="hint" id="loan-remind-stuck" hidden data-i18n="remind.stuck">WhatsApp didn't open? Copy the message and paste it in the chat.</p>
+        <button type="button" class="add-inline" id="loan-remind-copy" data-i18n="remind.copy">📋 Copy the message</button>
+      </div>
     </div>
   </div>
 
@@ -3188,6 +3213,7 @@
   <script src="receipt-fields.js?v=2026-11-03T04:12:10Z"></script>
   <script src="in-process.js?v=2026-11-03T04:12:10Z"></script>
   <script src="bill-split.js?v=2026-11-03T04:12:10Z"></script>
+  <script src="loan-reminder.js?v=2026-11-03T04:12:10Z"></script>
   <script src="app.js?v=2026-11-03T04:12:10Z"></script>
   <script src="statement-sample.js?v=2026-11-03T04:12:10Z"></script>
   <script src="statement-table.js?v=2026-11-03T04:12:10Z"></script>

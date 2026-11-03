@@ -247,6 +247,7 @@ function routeActionSwitch_(action, payload) {
     case 'coverExpectedPayment': return coverExpectedPayment(payload);
     case 'deleteExpectedPayment': return deleteExpectedPayment(payload);
     case 'updateFriend': return updateFriend(payload);
+    case 'setFriendPhone': return setFriendPhone(payload);
     case 'deleteFriend': return deleteFriend(payload);
     case 'deleteFriends': return deleteFriends(payload);
     case 'unhideFriend': return unhideFriend(payload);

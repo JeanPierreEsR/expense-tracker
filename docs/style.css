@@ -699,6 +699,10 @@ input[type="date"] {
   margin: 8px 0 4px;
 }
 
+/* "Remind on WhatsApp" (specs/loans.md § Reminders): stands out when one of the friend's debts is overdue. */
+#loan-remind-btn.overdue { font-weight: 600; color: #b26a00; }
+.loan-remind-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.4; min-height: 180px; }
+
 .loan-detail-forgive-btn {
   display: block;
   margin-top: 8px;

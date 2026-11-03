@@ -100,6 +100,7 @@ function getCapabilities_() {
     practiceReview: true,   // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
+    friendPhone: true,   // setFriendPhone (the loan screen's "Remind on WhatsApp" remembers the number); an older backend lacks it, so the app does not offer to remember it
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
     programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
