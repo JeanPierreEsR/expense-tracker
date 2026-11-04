@@ -1236,6 +1236,42 @@
     p.sel[key] = true;
   }
 
+  // ---- More → My data: the hub itself (real order, headings, rows and words; each row is a text "md.<name>"). The finger visits every row.
+  //      Recently deleted is drawn only where the app shows it (ctx.restore). tests/backend/my-data-tour.test.js checks the texts exist and are real hub rows.
+  SCENES.mydata = {
+    hold: 2200,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const p = { ctx, phone, finger: makeFinger(stage), rows: {} };
+      h("div", "ts-bar", tr("md.title"), phone);
+      const body = h("div", "ts-more-clip", null, phone);
+      const section = (headKey, rows) => {
+        h("div", "ts-hint", tr(headKey).toUpperCase(), body);
+        const c = h("div", "ts-card ts-more-group", null, body);
+        rows.forEach(([name, emoji]) => {
+          const r = h("div", "ts-more-row", null, c);
+          h("span", null, emoji + " " + tr("md." + name), r);
+          h("span", "ts-muted", "›", r);
+          p.rows[name] = r;
+        });
+      };
+      section("md.bringIn", [["bank", "🏦"], ["import", "📥"]]);
+      section("md.tidyHead", ctx.restore ? [["tidy", "🧹"], ["deleted", "🗑️"]] : [["tidy", "🧹"]]);
+      section("md.takeOut", [["export", "📤"]]);
+      return p;
+    },
+    timeline(p, ctx) {
+      const names = Object.keys(p.rows);
+      const steps = [];
+      names.forEach((n, k) => {
+        steps.push([500 + k * 1000, (i) => { names.forEach((m) => p.rows[m].classList.toggle("on", m === n)); p.finger.to(p.rows[n], i); p.finger.tap(i); }]);
+      });
+      steps.push([500 + names.length * 1000, () => { names.forEach((m) => p.rows[m].classList.remove("on")); p.finger.hide(); }]);
+      return steps;
+    }
+  };
+
   // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
   //      1 Income lands in a savings account (it was at zero) → Net appears.   2 A credit card pays an expense → the card goes negative, Net down.
   //      3 Savings pays the card (a transfer) → only moves money between accounts, Net does not change.   4 Savings puts money into a platform
