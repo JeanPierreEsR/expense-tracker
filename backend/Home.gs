@@ -1,7 +1,7 @@
 /**
  * The Home tab's quick glance (2026-10-24). One request, one pass over the confirmed entries, so the
  * top of Home costs a single slow Apps Script round trip no matter how many cards it shows:
- *  - months: the last six months' income / expenses / investments (the bars and the four boxes),
+ *  - months: the last six months' income / expenses / investments / loans (the bars and the four boxes; What's left = Overview's),
  *  - pace:   this month's running expenses day by day, next to last month's (the pace card),
  *  - budget: the monthly budgets added up against what was spent inside their categories,
  *  - trips:  every trip or event running today with what it has cost so far.
@@ -83,9 +83,12 @@ function getHomeGlance() {
     }
   });
 
+  // What's left works exactly like Overview's (owner, 2026-11-04): money borrowed and repaid in the month counts in it too
+  // (loanFlowsForPeriod_, Reports.gs), so Home and Overview never show two different numbers for the same month.
   var months = keys.map(function (k) {
     var b = perMonth[k];
-    return { month: k, income: b.income, expense: b.expense, investment: b.investment, net: b.income - b.expense - b.investment };
+    var loans = loanFlowsForPeriod_(k + '-01', k + '-' + pad2_(homeDaysInMonth_(k)), 'all').netPen;
+    return { month: k, income: b.income, expense: b.expense, investment: b.investment, loans: loans, net: b.income - b.expense - b.investment + loans };
   });
 
   var curDay = Number(today.substring(8, 10));

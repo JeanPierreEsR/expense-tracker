@@ -602,7 +602,6 @@
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
           <div class="loans-head-actions">
-            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
             <button type="button" class="icon-btn" id="add-loan-btn" data-i18n-aria-label="loans.addAria" aria-label="Add loan"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </div>
         </div>
@@ -614,8 +613,14 @@
         <p class="hint" id="loans-owed-to-me-empty-note" hidden data-i18n="loans.noneOwed">No one owes you anything right now.</p>
       </div>
 
-      <div class="card">
-        <h2 data-i18n="loans.youOwe">📉 You owe</h2>
+      <!-- A bank loan is money the person OWES, so its button sits on this card (owner, 2026-11-04). -->
+      <div class="card" id="loans-i-owe-card">
+        <div class="budgets-header">
+          <h2 data-i18n="loans.youOwe">📉 You owe</h2>
+          <div class="loans-head-actions">
+            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
+          </div>
+        </div>
         <div class="budgets-summary-row" id="loans-i-owe-total-row" hidden>
           <span class="budgets-summary-label" data-i18n="loans.totalYouOwe">Total you owe</span>
           <span class="loan-total-values" id="loans-i-owe-total"></span>
@@ -3249,6 +3254,10 @@
       <label for="pm-type" data-i18n="accounts.type">Type</label>
       <select id="pm-type"></select>
       <p class="hint" id="pm-cash-hint" hidden data-i18n="accounts.cashHint">Cash is built in: everyone has it, it holds any currency (soles and dollars together) and it can't be deleted. You can rename it.</p>
+      <div id="pm-cur-box" hidden>
+        <label for="pm-currency" data-i18n="accounts.currency">Currency</label>
+        <select id="pm-currency"></select>
+      </div>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>

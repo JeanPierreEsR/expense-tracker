@@ -748,5 +748,6 @@ function setLanguage(payload) {
   setSetting_('language', lang);
   // Account names that were all made automatically follow the language (Accounts.gs).
   relocalizeAutoAliases_(lang);
+  relocalizeCashName_(lang);
   return { language: lang };
 }

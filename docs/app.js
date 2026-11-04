@@ -165,19 +165,25 @@ function findCurrency(code) {
   return CURRENCIES.find((c) => c.code === code) || { code, flag: "💱", name: code };
 }
 
+// The quick currency buttons, in a FIXED order: the main currency first, then the others (owner, 2026-11-04: buttons that moved
+// under the thumb when tapped caused wrong picks).
 function getRecentCurrencies() {
+  let stored = null;
   try {
-    const stored = JSON.parse(localStorage.getItem("recentCurrencies"));
-    if (Array.isArray(stored) && stored.length) return stored;
+    stored = JSON.parse(localStorage.getItem("recentCurrencies"));
   } catch (err) {
     // fall through to defaults
   }
-  return [homeCur(), ...DEFAULT_RECENT_CURRENCIES.filter((c) => c !== homeCur())].slice(0, 5);
+  const list = Array.isArray(stored) && stored.length ? stored : DEFAULT_RECENT_CURRENCIES;
+  return [homeCur(), ...list.filter((c) => c !== homeCur())].slice(0, 5);
 }
 
+// A currency picked from "More…" joins the buttons right after the main currency (the last one drops off);
+// tapping a button that is already there changes nothing.
 function bumpRecentCurrency(code) {
-  let recent = getRecentCurrencies().filter((c) => c !== code);
-  recent.unshift(code);
+  let recent = getRecentCurrencies();
+  if (recent.includes(code)) return recent;
+  recent.splice(1, 0, code);
   recent = recent.slice(0, 5);
   localStorage.setItem("recentCurrencies", JSON.stringify(recent));
   return recent;
@@ -199,8 +205,11 @@ function currencyFieldIds(target) {
   return { input: "currency", chips: "currency-chips" };
 }
 
-function selectCurrency(code, target) {
+// True once the person tapped a currency for the entry being typed (then picking an account never changes it).
+let entryCurrencyTouched_ = false;
+function selectCurrency(code, target, byPerson) {
   const resolvedTarget = target || currencyPickerTarget;
+  if (resolvedTarget === "entry") entryCurrencyTouched_ = !!byPerson;
   if (resolvedTarget === "main-change") { closeCurrencyModal(); startMainCurrencyChange_(code); return; }
   const ids = currencyFieldIds(resolvedTarget);
   document.getElementById(ids.input).value = code;
@@ -236,7 +245,7 @@ function renderCurrencyChips(target) {
     chip.type = "button";
     chip.className = "currency-chip" + (code === current ? " active" : "");
     chip.innerHTML = `<span>${cur.flag}</span><span>${cur.code}</span>`;
-    chip.addEventListener("click", () => selectCurrency(code, target));
+    chip.addEventListener("click", () => selectCurrency(code, target, true));
     container.appendChild(chip);
   });
 
@@ -277,7 +286,7 @@ function renderCurrencyOptionList(filterText) {
       <span class="currency-option-code">${c.code}</span>
       <span class="currency-option-name">${escapeHtml(c.name)}</span>
     `;
-    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget));
+    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget, true));
     list.appendChild(row);
   });
 }
@@ -1210,6 +1219,13 @@ function populatePaidByOptions() {
 
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
+    // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
+    if (!meta.payors.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "—";
+      select.appendChild(none);
+    }
     meta.payors.forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
@@ -2577,7 +2593,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const isRepayment = repaymentActive_();
     const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
-    const paidBy = document.getElementById("paid_by").value;
+    const paidByRaw = document.getElementById("paid_by").value;
+    const paidBy = paidByRaw === "__add_payor__" || paidByRaw === "__add__" ? "" : paidByRaw;
     const paymentMethodId = document.getElementById("payment_method").value;
     // Same condition togglePaymentMethodVisibility() uses to show the
     // field — income always carries a payment method (which account
@@ -3091,6 +3108,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    // The next entry starts in the main currency again (owner, 2026-11-04: a USD expense made the next grocery entry USD too, unnoticed).
+    if (document.getElementById("currency").value !== homeCur()) selectCurrency(homeCur(), "entry");
     lastAutoDescription = "";
     updateAutoTransferDescription_();
     setInvestmentDirection("deposit");
@@ -3312,14 +3331,20 @@ function categoryName(id) {
   return c ? c.name : tr(id ? "entry.unknownCategory" : "entry.uncategorized");
 }
 
+// A date in a list ("4 nov 2026" / "Nov 4, 2026"), as the welcome promises; anything that is not a plain YYYY-MM-DD is shown as it is.
+function listDate_(iso) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(iso || "")) ? I18n.fmtDateMedium(new Date(iso + "T00:00:00")) : (iso || "");
+}
+
 function paidByLabel(entryOrPaidBy) {
   // Accepts either a full entry (so income can look up Payors instead of
   // Friends) or a bare paid_by string for older call sites.
   const isEntry = entryOrPaidBy && typeof entryOrPaidBy === "object";
   const paidBy = isEntry ? entryOrPaidBy.paid_by : entryOrPaidBy;
   if (isEntry && entryOrPaidBy.type === "income") {
+    // No payer chosen (or the old "+ Add payer…" placeholder saved by mistake): nothing to show.
     const p = meta.payors.find((payor) => payor.id === paidBy);
-    return p ? p.name : paidBy;
+    return p ? p.name : "";
   }
   if (paidBy === "me") return tr("common.me");
   const f = meta.friends.find((fr) => fr.id === paidBy);
@@ -3336,7 +3361,7 @@ function entryMetaHtml_(entry, headline) {
     .filter(Boolean)
     .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`)
     .join("");
-  return `${entry.date} · ${headline.meta}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
+  return `${listDate_(entry.date)}${headline.meta ? " · " + headline.meta : ""}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
 }
 
 // How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
@@ -4450,7 +4475,7 @@ function applyEntryDraft_(d) {
   }
   document.getElementById("amount").value = d.amount;
   document.getElementById("description").value = d.description;
-  selectCurrency(d.currency || homeCur(), "entry");
+  selectCurrency(d.currency || homeCur(), "entry", !!d.currency && d.currency !== homeCur());
   // A draft's own date counts only if it was typed a moment ago; otherwise today.
   if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS && d.savedAt >= appResumedAt_) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
@@ -4708,7 +4733,7 @@ function exitEditMode() {
 // form that otherwise looked exactly like it was still being edited —
 // caught live by the owner after deleting a transfer. NOT used after a
 // successful save of a brand-NEW entry, which deliberately leaves date/
-// currency/account as they were, to make logging several in a row from
+// account as they were (the currency goes back to the main one, 2026-11-04), to make logging several in a row from
 // the same account the same day faster — see resetToFreshEntryScreen_
 // below for the "finishing an edit" case, which also resets these.
 function resetEntryFormFields_() {
@@ -5791,7 +5816,7 @@ function compactReviewRow_(entry) {
     ${practice ? `<span class="friends-check-spacer"></span>` : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${reviewSelected_.has(entry.id) ? " checked" : ""}>`}
     <div style="flex:1;min-width:0;">
       <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
-      <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+      <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
       <div>${chip}${part}</div>
     </div>
     <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−" }[entryFlowDirection_(entry)] || "")}</div>`;
@@ -5945,7 +5970,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       <div class="review-item-top">
         <div>
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
-          <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+          <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
           ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
@@ -6637,7 +6662,7 @@ function homeMainCard_(g) {
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>`;
+    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: formatPenSigned_(m.loans) }))}</p>` : ""}`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
@@ -9321,7 +9346,9 @@ function renderFirstSteps_() {
   const info = meta.emailInfo || {};
   const since = Number(info.since) || 0;
   const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
-  const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
+  // Only accounts the person added count: the built-in Cash (and the practice's account) is in every copy from the start.
+  const ownAccounts = (meta.paymentMethods || []).filter((p) => String(p.id) !== String((meta.settings || {}).cash_account_id || "") && p.type !== "cash" && !isPracticeAccountName_(p.nickname));
+  const steps = [{ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
   if (caps.bankEmails) {
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
@@ -10176,15 +10203,16 @@ document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListe
 // the rest, 'credit' for a card. An older backend (no accountCurrencies) is offered soles and dollars only.
 const WA_TYPES = ["debit", "sueldo", "credit"];
 function waKindOf_(type, cur) {
-  if (type === "credit") return "credit";
+  // A card is soles and dollars ("credit") unless it is in ONE currency only ("credit_usd", a foreign card; 2026-11-04).
+  if (type === "credit") return cur ? `credit_${String(cur).toLowerCase()}` : "credit";
   if (type === "sueldo") return cur === "PEN" ? "sueldo" : `sueldo_${String(cur).toLowerCase()}`;
   return `debit_${String(cur || "PEN").toLowerCase()}`;
 }
-const waTypeOf_ = (kind) => kind === "credit" ? "credit" : /^sueldo/.test(kind || "") ? "sueldo" : "debit";
+const waTypeOf_ = (kind) => /^credit/.test(kind || "") ? "credit" : /^sueldo/.test(kind || "") ? "sueldo" : "debit";
 // The currency a kind names ("" for a card, or an account made before kinds existed).
 function kindCurrency_(kind) {
   if (kind === "sueldo") return "PEN";
-  const m = /^(?:debit|sueldo)_([a-z]{3})$/.exec(kind || "");
+  const m = /^(?:debit|sueldo|credit)_([a-z]{3})$/.exec(kind || "");
   return m ? m[1].toUpperCase() : "";
 }
 const waAnyCurrency_ = () => !!((meta && meta.capabilities) || {}).accountCurrencies;
@@ -10334,7 +10362,10 @@ const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bc
 // Plin only in soles, on another bank's debit account or on an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
 // credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
 function walletSlots_(bankName, type, kind) {
-  if (type === "credit") return String(bankName || "").trim().toLowerCase() === "interbank" ? ["plin_pen"] : [];
+  if (type === "credit") {
+    const cardCur = kindCurrency_(kind);
+    return String(bankName || "").trim().toLowerCase() === "interbank" && (!cardCur || cardCur === "PEN") ? ["plin_pen"] : [];
+  }
   if (type !== "debit") return [];
   const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
   if (cur && !usd && !pen) return [];   // Yape and Plin move only soles and dollars
@@ -10391,9 +10422,13 @@ function renderWaBank_() {
   typeSel.value = waTypeOf_(f.kind);
   const curSel = waEl_("wa-cur");
   curSel.innerHTML = "";
+  const isCard = waTypeOf_(f.kind) === "credit";
+  // A card is in soles and dollars unless it is in one currency only (a foreign card); that needs a backend that knows 'credit_usd'.
+  const cardCurrencies = isCard && !!((meta && meta.capabilities) || {}).accountCurrencyEdit;
+  if (cardCurrencies) { const o = document.createElement("option"); o.value = ""; o.textContent = tr("accounts.curTwo"); curSel.appendChild(o); }
   waCurrencyChoices_().forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; curSel.appendChild(o); });
-  curSel.value = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
-  waEl_("wa-cur-box").hidden = f.kind === "credit";
+  curSel.value = isCard ? kindCurrency_(f.kind) : (kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0]);
+  waEl_("wa-cur-box").hidden = isCard && !cardCurrencies;
   renderWaWallets_();
   waEl_("wa-alias").value = f.alias;
   waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
@@ -10432,14 +10467,15 @@ waEl_("wa-add-account-btn").addEventListener("click", () => {
 // Type and currency: a card has no currency box; switching back from a card keeps the currency picked before.
 waEl_("wa-type").addEventListener("change", (e) => {
   const f = welcome_.form; if (!f) return;
-  f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
-  f.kind = waKindOf_(e.target.value, f.cur);
+  if (waTypeOf_(f.kind) !== "credit") f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
+  // A new card starts as soles and dollars; back from a card, the account keeps the currency picked before.
+  f.kind = e.target.value === "credit" ? "credit" : waKindOf_(e.target.value, f.cur || waCurrencyChoices_()[0]);
   renderWaBank_();
 });
 waEl_("wa-cur").addEventListener("change", (e) => {
   const f = welcome_.form; if (!f) return;
-  f.cur = e.target.value;
-  f.kind = waKindOf_(waTypeOf_(f.kind), f.cur);
+  if (waTypeOf_(f.kind) !== "credit") f.cur = e.target.value;
+  f.kind = waKindOf_(waTypeOf_(f.kind), e.target.value);
   renderWaBank_();
 });
 waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form = null; renderWaBank_(); });
@@ -12542,13 +12578,15 @@ function openPmModal_(pm) {
     typeSel.appendChild(o);
   });
   typeSel.value = pm ? pm.type : "credit";
+  pmModalState.cur = kindCurrency_(pmModalState.kind);
   const basicCash = isBasicCashPm_(pm);
   typeSel.disabled = basicCash;
   document.getElementById("pm-cash-hint").hidden = !basicCash;
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
-  typeSel.onchange = () => { walletWarn(); renderPmWallets_(); };
+  typeSel.onchange = () => { walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
   walletWarn();
+  renderPmCurrency_();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
   fillPmBankOptions_(pmModalState.lastBank);
@@ -12570,13 +12608,43 @@ function openPmModal_(pm) {
   if (!pm) document.getElementById("pm-nickname").focus();
 }
 
+// The account's currency (2026-11-04): a savings / debit / salary account names one (the main one by default); a card is soles and
+// dollars unless it is in one currency only. Only on a backend that stores it (capability accountCurrencyEdit).
+function renderPmCurrency_() {
+  if (!pmModalState) return;
+  const type = document.getElementById("pm-type").value;
+  const box = document.getElementById("pm-cur-box");
+  box.hidden = !((meta && meta.capabilities) || {}).accountCurrencyEdit || (type !== "debit" && type !== "credit");
+  if (box.hidden) return;
+  const sel = document.getElementById("pm-currency");
+  sel.innerHTML = "";
+  if (type === "credit") { const o = document.createElement("option"); o.value = ""; o.textContent = tr("accounts.curTwo"); sel.appendChild(o); }
+  const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
+  codes.forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; sel.appendChild(o); });
+  const was = pmModalState.cur || "";
+  sel.value = type === "credit" ? (/^credit_/.test(pmModalState.kind || "") ? was : "") : (was || homeCur());
+}
+function pmKindNow_() {
+  const type = document.getElementById("pm-type").value;
+  const cur = document.getElementById("pm-cur-box").hidden ? "" : document.getElementById("pm-currency").value;
+  if (type === "credit") return cur ? `credit_${cur.toLowerCase()}` : "credit";
+  if (type === "debit") return /^sueldo/.test(pmModalState.kind || "") ? (cur === "PEN" ? "sueldo" : `sueldo_${cur.toLowerCase()}`) : `debit_${(cur || homeCur()).toLowerCase()}`;
+  return pmModalState.kind || "";
+}
+document.getElementById("pm-currency").addEventListener("change", (e) => {
+  if (!pmModalState) return;
+  pmModalState.cur = e.target.value;
+  pmModalState.kind = pmKindNow_();
+  renderPmWallets_();
+});
+
 // Wallet boxes of the account window: which of Yape / Plin ride on this account (Settings yape_pen, yape_usd, plin_pen).
 // Saved together with the account, so a new account can be ticked before it has an id.
 function pmBankName_() {
   const b = (meta.banks || []).find((x) => x.id === document.getElementById("pm-bank").value);
   return b ? b.name : "";
 }
-function pmWalletSlots_() { return walletSlots_(pmBankName_(), document.getElementById("pm-type").value, pmModalState.kind); }
+function pmWalletSlots_() { return walletSlots_(pmBankName_(), document.getElementById("pm-type").value, document.getElementById("pm-cur-box").hidden ? pmModalState.kind : pmKindNow_()); }
 function renderPmWallets_() {
   if (!pmModalState) return;
   const slots = pmWalletSlots_();
@@ -12637,6 +12705,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const type = document.getElementById("pm-type").value;
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
+  const curField = document.getElementById("pm-cur-box").hidden ? {} : { currency: document.getElementById("pm-currency").value };
   closePmModal_();
   saveBehindScreen_(practiceATrack_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
@@ -12644,7 +12713,8 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       nickname,
       type,
       bank_id: bankId,
-      last_4: last4
+      last_4: last4,
+      ...curField
     });
     const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
     if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
@@ -13648,7 +13718,7 @@ function renderTripDetail_(d) {
     </div>`).join("");
   const days = d.byDay.map((x) => `
     <div class="recurring-row trip-static-row">
-      <div class="recurring-row-name">${escapeHtml(x.date)}</div>
+      <div class="recurring-row-name">${escapeHtml(listDate_(x.date))}</div>
       <div class="recurring-row-amount">${cur} ${moneyFmt(x.amount_main)}</div>
     </div>`).join("");
 
@@ -13831,7 +13901,7 @@ function renderTripUnlinked_(d) {
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(u.entry.description || u.item_description || "")}</div>
-        <div class="recurring-row-sub">${escapeHtml(u.entry.date)} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
+        <div class="recurring-row-sub">${escapeHtml(listDate_(u.entry.date))} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
       </div>
       <button type="button" class="add-inline">${escapeHtml(tr("trips.addToTrip"))}</button>`;
     row.querySelector("button").addEventListener("click", async (ev) => {
@@ -13859,7 +13929,7 @@ function renderTripEstimates_(d) {
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
-        <div class="recurring-row-sub">${escapeHtml(e.date)}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
+        <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
       </div>
       <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}<button type="button" class="add-inline trip-covered-btn">${escapeHtml(tr("trips.covered"))}</button></div>`;
     // "Covered": a real expense has replaced this estimate, so the estimate is deleted.
@@ -13994,7 +14064,7 @@ async function loadTripFinder_(lookBack) {
         <input type="checkbox"${e.date < tripStart ? "" : " checked"}>
         <div class="trip-find-text">
           <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
-          <div class="recurring-row-sub">${escapeHtml(e.date)}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
+          <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
         </div>
         <div class="recurring-row-amount">${escapeHtml(formatAmount(e.own_share, e.currency))}</div>`;
       rows.push({ e, input: row.querySelector("input") });
@@ -16776,7 +16846,7 @@ document.getElementById("recurring-find-matches-btn").addEventListener("click", 
       row.innerHTML = `
         <input type="checkbox" value="${c.id}" ${confident ? "checked" : ""}>
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${c.date} · ${c.currency} ${moneyFmt(c.amount)}${confident ? "" : ` <span class="hint">${tr("recModal.lessCertain")}</span>`}</div>
+          <div class="link-candidate-date">${listDate_(c.date)} · ${c.currency} ${moneyFmt(c.amount)}${confident ? "" : ` <span class="hint">${tr("recModal.lessCertain")}</span>`}</div>
           <div class="link-candidate-desc">${escapeHtml(c.description || tr("review.noDescription"))}</div>
         </div>
       `;
@@ -17566,7 +17636,7 @@ async function openPaidPicker_(item, currency, isIncome) {
       row.style.cursor = "pointer";
       row.innerHTML = `
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${e.date} · ${e.currency} ${moneyFmt(e.amount)}</div>
+          <div class="link-candidate-date">${listDate_(e.date)} · ${e.currency} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
       row.addEventListener("click", () => {
@@ -20850,7 +20920,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
@@ -21056,7 +21126,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const where = r.is_offset
       ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
       : r.parts.length > 1
-        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
+        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${listDate_(pt.loan_date)}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     // One total, split in what sits on loans and what is its own income/expense entry.
     const split = r.gap ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) })] : [];
@@ -21067,7 +21137,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const unappliedHtml = r.unapplied > 0.004 ? `<div class="loan-detail-row-meta"><em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em></div>` : "";
     row.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-desc">${listDate_(r.date)} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
       ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}${whereHtml}${gapHtml}${unappliedHtml}`;
@@ -21089,7 +21159,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description)}</span>
         <span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${tr("history.status." + l.status)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
+      <div class="loan-detail-row-meta">${listDate_(l.date)} · ${parts}</div>`;
     loanEl.appendChild(row);
   });
   loadingEl.hidden = true;
@@ -22197,6 +22267,14 @@ function watchCreditCardPick_(selectId, moneyComesIn) {
 watchCreditCardPick_("loan-payment-method", () => loanDirection === "i_owe_them");          // I borrowed: the money comes in
 watchCreditCardPick_("settlement-payment-method", () => repaymentDirection === "they_owe_me");   // they pay me: it comes in
 document.getElementById("payment_method").addEventListener("focus", (e) => { e.target.dataset.prev = e.target.value; });
+// An account in one currency (a dollar account, a card in dollars only) sets the entry's currency when it is picked, unless the person
+// already tapped a currency for this entry (2026-11-04). A card in soles and dollars, cash or a wallet changes nothing.
+document.getElementById("payment_method").addEventListener("change", (e) => {
+  if (entryCurrencyTouched_ || editingEntryId) return;
+  const pm = (meta.paymentMethods || []).find((p) => String(p.id) === e.target.value);
+  const cur = pm && (pm.type === "debit" || pm.type === "credit") ? kindCurrency_(pm.alias_kind) : "";
+  if (cur && cur !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === cur)) selectCurrency(cur, "entry");
+});
 document.getElementById("payment_method").addEventListener("change", (e) => {
   if (e.target.value === "__add__" || typeof repaymentActive_ !== "function" || !repaymentActive_()) return;
   warnCreditCardPick_(e.target, repaymentDirectionChoice !== "i_owe_them");   // "I paid them" = money goes out
@@ -22665,7 +22743,7 @@ function renderSettlementList_(settlements) {
 
     const desc = isOffset
       ? tr("settle.offsetAgainst", { desc: escapeHtml(s.offset_loan_description) })
-      : `${s.date}${pm ? " · " + escapeHtml(pm.nickname) : ""}`;
+      : `${listDate_(s.date)}${pm ? " · " + escapeHtml(pm.nickname) : ""}`;
 
     row.innerHTML = `
       <div class="loan-detail-row-top">
@@ -23428,7 +23506,7 @@ async function loadBalanceMovements_(pmId) {
         <span class="loan-detail-row-desc">${escapeHtml(label)}</span>
         <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${m.currency} ${moneyFmt(Math.abs(m.signed))}</span>
       </div>
-      <div class="loan-detail-row-meta">${m.date} · ${m.type}${extra}</div>
+      <div class="loan-detail-row-meta">${listDate_(m.date)} · ${m.type}${extra}</div>
     `;
     list.appendChild(row);
   });

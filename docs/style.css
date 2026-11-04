@@ -1604,7 +1604,7 @@ body.income-revealed .sens-mask { display: none; }
 .loans-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -8px; }   /* the button's own padding stays out of the way of the right edge */
 .loans-head-actions button.add-inline { margin: 0; white-space: nowrap; }
 /* When the labels are long (Spanish) the group drops to its own right-aligned line instead of squeezing the title or splitting a label. */
-#loans-owed-card .budgets-header { flex-wrap: wrap; }
+#loans-owed-card .budgets-header, #loans-i-owe-card .budgets-header { flex-wrap: wrap; }
 
 .budget-row {
   padding: 12px 0;
@@ -2993,6 +2993,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 10px; }
 .home-four-box { background: var(--bg); border-radius: 12px; padding: 7px 6px; min-width: 0; display: flex; flex-direction: column; }
 .home-four-box span { display: block; font-size: 0.62rem; line-height: 1.15; color: var(--muted); }   /* "Lo que queda" wraps to two lines */
+.home-loans-note { margin: -4px 0 8px; font-size: 0.72rem; }
 .home-four-box b { display: block; font-size: 0.78rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-four-box b.income { color: var(--income); }
 .home-four-box b.expense { color: var(--expense); }

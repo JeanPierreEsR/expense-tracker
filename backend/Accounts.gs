@@ -17,7 +17,8 @@
  * falls back to the owner's original names (BCP_ACCOUNTS / PLIN_ACCOUNTS), which `ensureRailDefaults_` also writes into
  * the settings once, for the owner's own copy.
  *
- * Credit cards are treated as two-currency (soles and dollars) by default; nothing about that is stored.
+ * Credit cards are treated as two-currency (soles and dollars) by default ('credit'); a card in one currency only (a foreign card) is
+ * 'credit_usd' etc. (2026-11-04). More → Accounts can change an account's currency (savePaymentMethod `currency`).
  */
 
 var BANKS_MAIN_ = [
@@ -48,8 +49,17 @@ var ACCOUNT_KINDS_ = ['debit_pen', 'debit_usd', 'credit', 'sueldo'];
 // Since 2026-11-04 the welcome offers any currency for a debit or salary account: 'debit_eur', 'sueldo_usd'… (three letters,
 // lower case). 'debit_pen', 'debit_usd' and 'sueldo' (soles) keep their old spelling. The currency only names the account and
 // decides which Yape / Plin boxes it offers; an account itself holds payments in any currency.
+// 'credit_usd' (2026-11-04, owner): a card that is in ONE currency only (a foreign card); plain 'credit' stays soles and dollars.
 function isAccountKind_(kind) {
-  return ACCOUNT_KINDS_.indexOf(String(kind)) !== -1 || /^(debit|sueldo)_[a-z]{3}$/.test(String(kind));
+  return ACCOUNT_KINDS_.indexOf(String(kind)) !== -1 || /^(debit|sueldo|credit)_[a-z]{3}$/.test(String(kind));
+}
+// The kind an account gets for a type ('debit' / 'sueldo' / 'credit') and a currency code ('' = a card in soles and dollars).
+function accountKindFor_(type, currency) {
+  var cur = String(currency || '').toLowerCase();
+  if (!/^[a-z]{3}$/.test(cur)) cur = '';
+  if (type === 'credit') return cur ? 'credit_' + cur : 'credit';
+  if (type === 'sueldo') return !cur || cur === 'pen' ? 'sueldo' : 'sueldo_' + cur;
+  return 'debit_' + (cur || 'pen');
 }
 var ACCOUNT_ALIAS_WORDS_ = {
   en: { debit_pen: 'soles', debit_usd: 'dollars', debit_eur: 'euros', credit: 'credit', sueldo: 'salary' },
@@ -78,7 +88,7 @@ function bankShortName_(bankName) {
   return String(bankName || '').trim();
 }
 
-function accountKindType_(kind) { return kind === 'credit' ? 'credit' : 'debit'; }
+function accountKindType_(kind) { return /^credit/.test(String(kind)) ? 'credit' : 'debit'; }
 
 // The word after the bank: soles / dólares / euros / crédito / sueldo. These words are for PERUVIAN banks, which open accounts in
 // soles, dollars and euros (owner, 2026-11-04); any other currency's debit account gets its code ("Bank GBP"), and a salary account
@@ -86,6 +96,7 @@ function accountKindType_(kind) { return kind === 'credit' ? 'credit' : 'debit';
 function accountKindWord_(kind, lang) {
   var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
   if (words[kind]) return words[kind];
+  if (/^credit_/.test(String(kind))) return words.credit;
   var m = /^(debit|sueldo)_([a-z]{3})$/.exec(String(kind));
   return m ? (m[1] === 'sueldo' ? words.sueldo : m[2].toUpperCase()) : '';
 }
@@ -271,6 +282,32 @@ function ensureRailDefaults_() {
     if (pm) setSetting_(key, pm.id);
   });
   setSetting_('rail_defaults', 'yes');
+}
+
+/**
+ * Language changed: the built-in cash account follows it while it still has the built-in name ("Cash" / "Efectivo"), so a Spanish copy
+ * never shows "Cash" (found in the 2026-11-04 new-user test: the account is made before the welcome sets the language). A name the
+ * person typed is never touched, and nothing is renamed onto a name another account already uses.
+ */
+function relocalizeCashName_(lang) {
+  lang = normalizeLang_(lang);
+  var cid = cashAccountId_();
+  if (!lang || !cid) return 0;
+  var rows = getAllRows('Payment Methods');
+  var pm = rows.find(function (p) { return String(p.id) === cid; });
+  if (!pm) return 0;
+  var name = String(pm.nickname || '').trim();
+  var builtIn = [tr_('pm.cashName', null, 'en'), tr_('pm.cashName', null, 'es')].map(function (n) { return n.toLowerCase(); });
+  if (builtIn.indexOf(name.toLowerCase()) === -1) return 0;
+  var want = tr_('pm.cashName', null, lang);
+  if (want === name) return 0;
+  if (rows.some(function (p) { return String(p.id) !== cid && String(p.nickname || '').trim().toLowerCase() === want.toLowerCase(); })) return 0;
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, cid), 'nickname', want);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+  return 1;
 }
 
 /**
