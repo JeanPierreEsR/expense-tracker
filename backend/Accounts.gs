@@ -45,9 +45,15 @@ var BANKS_OTHER_ = [
 
 // Sueldo = the account a salary is paid into (very common in Peru; freelancers may have none).
 var ACCOUNT_KINDS_ = ['debit_pen', 'debit_usd', 'credit', 'sueldo'];
+// Since 2026-11-04 the welcome offers any currency for a debit or salary account: 'debit_eur', 'sueldo_usd'… (three letters,
+// lower case). 'debit_pen', 'debit_usd' and 'sueldo' (soles) keep their old spelling. The currency only names the account and
+// decides which Yape / Plin boxes it offers; an account itself holds payments in any currency.
+function isAccountKind_(kind) {
+  return ACCOUNT_KINDS_.indexOf(String(kind)) !== -1 || /^(debit|sueldo)_[a-z]{3}$/.test(String(kind));
+}
 var ACCOUNT_ALIAS_WORDS_ = {
-  en: { debit_pen: 'soles', debit_usd: 'dollars', credit: 'credit', sueldo: 'salary' },
-  es: { debit_pen: 'soles', debit_usd: 'dólares', credit: 'crédito', sueldo: 'sueldo' }
+  en: { debit_pen: 'soles', debit_usd: 'dollars', debit_eur: 'euros', credit: 'credit', sueldo: 'salary' },
+  es: { debit_pen: 'soles', debit_usd: 'dólares', debit_eur: 'euros', credit: 'crédito', sueldo: 'sueldo' }
 };
 // Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
 var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
@@ -74,10 +80,19 @@ function bankShortName_(bankName) {
 
 function accountKindType_(kind) { return kind === 'credit' ? 'credit' : 'debit'; }
 
+// The word after the bank: soles / dólares / euros / crédito / sueldo. These words are for PERUVIAN banks, which open accounts in
+// soles, dollars and euros (owner, 2026-11-04); any other currency's debit account gets its code ("Bank GBP"), and a salary account
+// in another currency stays "sueldo".
+function accountKindWord_(kind, lang) {
+  var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
+  if (words[kind]) return words[kind];
+  var m = /^(debit|sueldo)_([a-z]{3})$/.exec(String(kind));
+  return m ? (m[1] === 'sueldo' ? words.sueldo : m[2].toUpperCase()) : '';
+}
+
 // {bank} {word} (1234) — the digits only when asked for.
 function autoAccountAlias_(bankShort, kind, last4, showLast4, lang) {
-  var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
-  var name = String(bankShort) + ' ' + words[kind];
+  var name = String(bankShort) + ' ' + accountKindWord_(kind, lang);
   if (showLast4 && /^\d{4}$/.test(String(last4 || ''))) name += ' (' + last4 + ')';
   return name;
 }
@@ -142,7 +157,7 @@ function saveOnboardingAccounts(payload) {
   var created = [], idByCid = {};
   list.forEach(function (a) {
     var kind = String(a.kind || '');
-    if (ACCOUNT_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.pmType'));
+    if (!isAccountKind_(kind)) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
     if (!bankName) throw new Error(tr_('err.pmBank'));
     var bank = addBank({ name: bankName });
@@ -270,7 +285,7 @@ function relocalizeAutoAliases_(lang) {
   // The first-use practice's account ("Practice account") is nobody's real account: it must not stop the rename.
   var bankAccounts = rows.filter(function (pm) { return (pm.type === 'debit' || pm.type === 'credit') && !isPracticeAccount_(pm); });
   if (!bankAccounts.length) return 0;
-  var allAuto = bankAccounts.every(function (pm) { return String(pm.alias_auto) === 'yes' && ACCOUNT_KINDS_.indexOf(String(pm.alias_kind)) !== -1; });
+  var allAuto = bankAccounts.every(function (pm) { return String(pm.alias_auto) === 'yes' && isAccountKind_(pm.alias_kind); });
   if (!allAuto) return 0;
 
   var banks = getAllRows('Banks');

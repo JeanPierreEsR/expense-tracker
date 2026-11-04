@@ -105,9 +105,12 @@ test("the welcome has an explicit Main currency row, no hidden double-tap, and t
   assert.match(html, /country-guess\.js/);
   assert.match(html, /rate-quotes\.js/);
   assert.ok(!/lastTap/.test(app), "the double-tap is gone");
+  // owner, 2026-11-04: the welcome always starts on soles and day-first (an iPhone in Spanish says "es-ES" even in Peru)
+  assert.match(app, /order: "dmy", home: "PEN",/);
+  assert.ok(!/CountryGuess\.guess\(/.test(app), "the welcome no longer guesses from the phone");
   assert.match(app, /perfIsOwnerCopy_\(\) \? \[\] : RateQuotes\.usdQuotes/);
   const strings = doc("strings.js");
-  for (const k of ["welcome.mainTitle", "welcome.mainHint", "welcome.guessNote", "welcome.orderShort.dmy", "welcome.orderShort.mdy", "welcome.orderShort.ymd"]) {
+  for (const k of ["welcome.mainTitle", "welcome.mainHint"]) {
     assert.match(strings, new RegExp(`"${k.replace(/\./g, "\\.")}": \\{ en: .*, es: `), k);
   }
   assert.ok(!/double-tap|dos veces/i.test(strings.slice(strings.indexOf('"welcome.curLabel"'), strings.indexOf('"welcome.curLabel"') + 700)), "no instruction left about double-tapping");

@@ -266,3 +266,25 @@ test("Plin cannot be added as an account (new or renamed); an existing row keeps
   // Yape as a separate account is allowed here (the app only asks the person first)
   assert.ok(rt.api("savePaymentMethod", { nickname: "Yape", type: "wallet" }).id);
 });
+
+test("any currency for a debit or salary account (2026-11-04): euros by name, any other currency by its code", () => {
+  const rt = friendCopy();
+  assert.equal(rt.api("getMeta").capabilities.accountCurrencies, true);
+  const r = save(rt, [
+    acct("a", "BBVA", "debit_eur"), acct("b", "BBVA", "sueldo_eur", { last4: "1234", showLast4: true }), acct("c", "BCP", "debit_pen"), acct("d", "BCP", "debit_gbp")
+  ], {}, "es");
+  assert.deepEqual(r.accounts.map((a) => a.nickname), ["BBVA euros", "BBVA sueldo (1234)", "BCP soles", "BCP GBP"]);
+  const rows = rt.rows("Payment Methods");
+  assert.equal(rows.find((p) => p.nickname === "BBVA euros").alias_kind, "debit_eur");
+  assert.equal(rows.find((p) => p.nickname === "BBVA euros").type, "debit");
+  // a made-up kind is still refused
+  assert.equal(post(rt, "saveOnboardingAccounts", { accounts: [acct("x", "BBVA", "debit_euro")], lang: "es", batch: "b2" }, "es").ok, false);
+  assert.equal(post(rt, "saveOnboardingAccounts", { accounts: [acct("x", "BBVA", "savings")], lang: "es", batch: "b3" }, "es").ok, false);
+});
+
+test("the names follow a language switch for the new kinds too", () => {
+  const rt = friendCopy();
+  save(rt, [acct("a", "BBVA", "debit_eur"), acct("b", "Interbank", "sueldo_usd")], {}, "es");
+  rt.run("relocalizeAutoAliases_('en')");
+  assert.deepEqual(rt.rows("Payment Methods").map((p) => p.nickname).sort(), ["BBVA euros", "Interbank salary"]);
+});

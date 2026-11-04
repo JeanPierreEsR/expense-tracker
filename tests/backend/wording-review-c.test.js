@@ -61,7 +61,7 @@ test("C7, C8: the loan form asks '¿Quién le debe a quién?'; Telegram texts sa
 
 test("C11: the small Spanish items", () => {
   assert.match(get("trips.emoji").es, /^"Emoji/);
-  assert.match(get("wa.kind.debit_pen").es, /ahorros o débito/);
+  assert.match(get("wa.type.debit").es, /ahorros o débito/);
   assert.match(get("accounts.type.transfer").es, /Transferencia bancaria/);
   assert.match(get("accounts.confirmDelete").es, /no se podrá eliminar/);
   assert.match(get("stmt.choice.complete").es, /Completar transferencia/);
@@ -80,7 +80,7 @@ test("C12: 'gap' no longer means two things; C13: no 'offset'; C14: 'payer', not
   assert.equal(get("gaps.title").en, JSON.stringify("Unexplained differences"));
   assert.match(get("stmt.noteGap").en, /^"Missing period:/);
   assert.match(get("stmt.noteGap").es, /^"Periodo sin cubrir:/);
-  for (const k of ["wa.kind.debit_pen", "wa.kind.debit_usd", "wa.kind.credit", "wa.kind.sueldo", "wa.rail.yape_pen", "wa.rail.yape_usd", "wa.rail.plin_pen"]) {
+  for (const k of ["wa.type.debit", "wa.type.sueldo", "wa.type.credit", "wa.rail.yape_pen", "wa.rail.yape_usd", "wa.rail.plin_pen"]) {
     assert.ok(!/\bsoles\b|\bdollars\b|Sueldo/.test(get(k).en), k);
   }
   assert.match(get("rec.variableNeedsWords").en, /luz\\" \(electricity\)/);

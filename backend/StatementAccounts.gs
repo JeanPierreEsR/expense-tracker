@@ -73,7 +73,7 @@ function createStatementAccounts(payload) {
     var last4 = cleanLast4_(a.last4);
     if (!last4) throw new Error(tr_('err.pmLast4'));
     var kind = String(a.kind || '');
-    if (ACCOUNT_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.pmType'));
+    if (!isAccountKind_(kind)) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
     if (!bankName) throw new Error(tr_('err.pmBank'));
     var already = pms.find(function (pm) { return covKey_(pm.last_4) === covKey_(last4) && !isPracticeAccount_(pm); }) || created.filter(function (c) { return c.last_4 === last4; })[0];

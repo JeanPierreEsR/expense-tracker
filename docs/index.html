@@ -2240,7 +2240,6 @@
         <h3 id="welcome-main-title" data-i18n="welcome.mainTitle">Main currency</h3>
         <p class="hint" data-i18n="welcome.mainHint">Totals, budgets and reports are shown in it. You can change it any time in More → Main currency.</p>
         <select id="welcome-main-select" aria-labelledby="welcome-main-title"></select>
-        <p class="hint" id="welcome-guess-note" hidden></p>
 
         <h3 data-i18n="welcome.curLabel">Other currencies you use</h3>
         <p class="hint" id="welcome-main-label" data-i18n="welcome.curHint">Tap the ones you use. They become quick buttons when you add an entry.</p>
@@ -2302,8 +2301,12 @@
           <div id="wa-bank-accounts"></div>
           <button type="button" class="add-inline" id="wa-add-account-btn" data-i18n="wa.addAccount">+ Add account</button>
           <div id="wa-form" hidden>
-            <h3 data-i18n="wa.kind">Type of account</h3>
-            <div class="welcome-choices" id="wa-kinds"></div>
+            <h3 id="wa-type-title" data-i18n="wa.kind">Type of account</h3>
+            <select id="wa-type" aria-labelledby="wa-type-title"></select>
+            <div id="wa-cur-box">
+              <h3 id="wa-cur-title" data-i18n="wa.currency">Currency</h3>
+              <select id="wa-cur" aria-labelledby="wa-cur-title"></select>
+            </div>
             <h3 data-i18n="wa.alias">Alias (optional)</h3>
             <input type="text" id="wa-alias" maxlength="40" autocomplete="off">
             <p class="hint" data-i18n="wa.aliasHint">If you leave it empty, the app names the account for you.</p>
