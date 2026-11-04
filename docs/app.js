@@ -15612,21 +15612,22 @@ function renderRecurringRow_(re) {
 // asked for. Stays open while the owner edits one, closes on leaving the app.
 let showPastRecurring = false;
 
-function renderRecurringPastToggle_(count) {
-  const btn = document.getElementById("recurring-past-toggle");
-  const section = document.getElementById("recurring-past-section");
+function renderRecurringPastToggle_(count, prefix = "recurring") {
+  const btn = document.getElementById(prefix + "-past-toggle");
+  const section = document.getElementById(prefix + "-past-section");
   btn.hidden = count === 0 || recurringEditing_;   // in Edit mode the past items stay open so every item can be ticked
-  if (count === 0 && !recurringEditing_) showPastRecurring = false;
-  section.hidden = !showPastRecurring;
+  section.hidden = !(showPastRecurring && count > 0);
   btn.textContent = showPastRecurring
     ? tr("recurring.hidePast", { n: count })
     : tr("recurring.showPast", { n: count });
 }
 
-document.getElementById("recurring-past-toggle").addEventListener("click", () => {
-  showPastRecurring = !showPastRecurring;
-  const count = document.getElementById("recurring-past-list").children.length;
-  renderRecurringPastToggle_(count);
+// Expenses and income have their own past buttons; both open and close together.
+["recurring", "recurring-inc"].forEach((prefix) => {
+  document.getElementById(prefix + "-past-toggle").addEventListener("click", () => {
+    showPastRecurring = !showPastRecurring;
+    renderRecurringLists_();
+  });
 });
 
 // ---- Programmed items: Edit mode (tick several items, delete them at once; owner's request, 2026-10-30) ----
@@ -15690,39 +15691,48 @@ async function refreshRecurringExpenses() {
   offerRecurringTip_();   // only now that everything has arrived (loading standard)
 }
 
-// Draws the three lists from recurringItems_ (no server call): also used by Edit mode.
+// Draws the lists from recurringItems_ (no server call): also used by Edit mode.
+// Expenses first, then Income (owner's request, 2026-11-03); each has Recurring / Past / One-time.
 function renderRecurringLists_() {
   const items = recurringItems_;
-  const list = document.getElementById("recurring-list");
-  const emptyNote = document.getElementById("recurring-empty-note");
-  const onetimeList = document.getElementById("recurring-onetime-list");
-  const onetimeEmptyNote = document.getElementById("recurring-onetime-empty-note");
   const todayISO = localTodayISO_();
-  const allRecurring = items.filter((re) => re.frequency !== "once");
-  const recurring = allRecurring.filter((re) => !recurringIsPast_(re, todayISO));
-  // Most recently ended first (a paid one-time item by its date); old paused ones (no end date) after them.
-  const past = items.filter((re) => recurringIsPast_(re, todayISO))
-    .sort((a, b) => (b.end_date || b.date || "").localeCompare(a.end_date || a.date || ""));
-  const onetime = items.filter((re) => re.frequency === "once" && !recurringIsPast_(re, todayISO));
-
   const canEdit = !!(meta && meta.capabilities && meta.capabilities.programmedStop);
   document.getElementById("recurring-edit-btn").hidden = !(canEdit && items.length);
   if (recurringEditing_ && !items.length) { setRecurringEditing_(false, false); }
-  document.getElementById("recurring-income-toggle").hidden = !items.some((re) => re.category_type === "income");
+  const hasIncome = items.some((re) => re.category_type === "income");
+  document.getElementById("recurring-income-section").hidden = !hasIncome;
+  document.getElementById("recurring-expenses-title").hidden = !hasIncome;   // a single group needs no heading
   syncIncomeToggles_();
-  list.innerHTML = "";
-  emptyNote.textContent = allRecurring.length ? tr("recurring.noCurrent") : tr("recurring.empty");
-  emptyNote.hidden = recurring.length > 0;
-  recurring.forEach((re) => list.appendChild(renderRecurringRow_(re)));
+  if (!items.some((re) => recurringIsPast_(re, todayISO))) showPastRecurring = false;
 
-  const pastList = document.getElementById("recurring-past-list");
-  pastList.innerHTML = "";
-  past.forEach((re) => pastList.appendChild(renderRecurringRow_(re)));
-  renderRecurringPastToggle_(past.length);
+  const draw = (kind, prefix) => {
+    const mine = items.filter((re) => (re.category_type === "income") === (kind === "income"));
+    const allRecurring = mine.filter((re) => re.frequency !== "once");
+    const recurring = allRecurring.filter((re) => !recurringIsPast_(re, todayISO));
+    // Most recently ended first (a paid one-time item by its date); old paused ones (no end date) after them.
+    const past = mine.filter((re) => recurringIsPast_(re, todayISO))
+      .sort((a, b) => (b.end_date || b.date || "").localeCompare(a.end_date || a.date || ""));
+    const onetime = mine.filter((re) => re.frequency === "once" && !recurringIsPast_(re, todayISO));
 
-  onetimeList.innerHTML = "";
-  onetimeEmptyNote.hidden = onetime.length > 0;
-  onetime.forEach((re) => onetimeList.appendChild(renderRecurringRow_(re)));
+    const list = document.getElementById(prefix + "-list");
+    const emptyNote = document.getElementById(prefix + "-empty-note");
+    list.innerHTML = "";
+    emptyNote.textContent = tr(kind === "income" ? "recurring.noCurrentIncome" : (items.length ? "recurring.noCurrent" : "recurring.empty"));
+    emptyNote.hidden = recurring.length > 0;
+    recurring.forEach((re) => list.appendChild(renderRecurringRow_(re)));
+
+    const pastList = document.getElementById(prefix + "-past-list");
+    pastList.innerHTML = "";
+    past.forEach((re) => pastList.appendChild(renderRecurringRow_(re)));
+    renderRecurringPastToggle_(past.length, prefix);
+
+    const onetimeList = document.getElementById(prefix + "-onetime-list");
+    onetimeList.innerHTML = "";
+    document.getElementById(prefix + "-onetime-empty-note").hidden = onetime.length > 0;
+    onetime.forEach((re) => onetimeList.appendChild(renderRecurringRow_(re)));
+  };
+  draw("expense", "recurring");
+  draw("income", "recurring-inc");
   syncRecurringEditBar_();
 }
 
@@ -15731,8 +15741,16 @@ const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i
 function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
   container.innerHTML = "";
-  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId))
-    .forEach((c) => {
+  const all = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId));
+  // Expenses first, then income, each under its own small heading (owner's request, 2026-11-03).
+  [["expense", "recurring.expensesTitle"], ["income", "recurring.incomeTitle"]].forEach(([type, titleKey]) => {
+    const group = all.filter((c) => c.type === type);
+    if (!group.length) return;
+    const head = document.createElement("div");
+    head.className = "category-kind-title";
+    head.textContent = tr(titleKey);
+    container.appendChild(head);
+    group.forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
       chip.textContent = (c.icon ? c.icon + " " : "") + c.name;
@@ -15743,6 +15761,7 @@ function populateRecurringCategoryChips() {
       });
       container.appendChild(chip);
     });
+  });
 }
 
 // A split only makes sense for an expense-type category (Entry Splits
