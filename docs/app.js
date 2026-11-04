@@ -282,6 +282,24 @@ function renderCurrencyOptionList(filterText) {
   });
 }
 
+// One rule for every pop-up sheet (owner, 2026-11-04): it closes with its ✕, and a tap on the dimmed area outside it does the same
+// (it presses that ✕, so each sheet's own closing logic runs). A ✕ with data-click presses that other button instead (a hidden
+// Close/Cancel kept for the code that listens to it). A sheet marked data-no-dismiss (a forced choice) ignores outside taps.
+document.addEventListener("click", (e) => {
+  const x = e.target.closest && e.target.closest(".currency-modal-close[data-click]");
+  if (x) document.getElementById(x.dataset.click).click();
+});
+let sheetPressStart_ = null;
+document.addEventListener("pointerdown", (e) => { sheetPressStart_ = e.target; }, true);
+document.addEventListener("click", (e) => {
+  const b = e.target;
+  if (!b.classList || !b.classList.contains("currency-modal-backdrop") || b.hasAttribute("data-no-dismiss")) return;
+  if (sheetPressStart_ !== b) return; // a drag that began inside the sheet and ended outside is not a tap outside
+  const close = b.querySelector(".currency-modal-close");
+  if (!close) return;
+  e.stopImmediatePropagation();
+  close.click();
+}, true);
 document.getElementById("currency-modal-close").addEventListener("click", closeCurrencyModal);
 document.getElementById("currency-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "currency-modal-backdrop") closeCurrencyModal();

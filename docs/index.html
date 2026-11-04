@@ -1999,7 +1999,7 @@
           <p class="hint" data-i18n="inproc.applyHint">Leave the box empty to take the payments off the balance this app shows now. The new balance is filled in below the starting balances; nothing is saved until you tap Save there.</p>
         </div>
       </div>
-      <button type="button" class="primary" id="inproc-close" data-i18n="common.close">Close</button>
+      <button type="button" class="primary" id="inproc-close" hidden data-i18n="common.close">Close</button>
     </div>
   </div>
 
@@ -2453,6 +2453,7 @@
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span data-i18n="bankReady.title">Good news: your bank is ready</span>
+        <button type="button" class="currency-modal-close" data-click="bank-ready-ok" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="bank-ready-body"></p>
@@ -2588,7 +2589,7 @@
         <div id="ss-step-2" hidden>
           <p><strong data-i18n="bankSample.doneTitle">Thank you!</strong></p>
           <p class="hint" data-i18n="stmtSample.doneBody">I received it. I will let you know when your bank is added. Each kind of statement helps (savings, credit card…), so send another if you can.</p>
-          <button type="button" class="primary" id="ss-done" data-i18n="common.close">Close</button>
+          <button type="button" class="primary" id="ss-done" hidden data-i18n="common.close">Close</button>
         </div>
         <p class="hint" id="ss-msg" role="status"></p>
       </div>
@@ -3222,7 +3223,7 @@
     </div>
   </div>
 
-  <div id="paused-decision-backdrop" class="currency-modal-backdrop" hidden>
+  <div id="paused-decision-backdrop" class="currency-modal-backdrop" data-no-dismiss hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span data-i18n="paused.title">Pause has been replaced</span>
@@ -3371,19 +3372,19 @@
 
   <div id="tour-choice-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
-      <div class="currency-modal-header"><span data-i18n="tourChoice.title">How to use the app</span></div>
+      <div class="currency-modal-header"><span data-i18n="tourChoice.title">How to use the app</span><button type="button" class="currency-modal-close" data-click="tour-choice-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
       <div class="welcome-choices">
         <button type="button" class="welcome-choice" id="tour-choice-basic"><b data-i18n="tourChoice.basic">📖 The basics</b><br><span class="hint" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></button>
         <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Advanced features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
         <button type="button" class="welcome-choice" id="tour-choice-tips"><b data-i18n="tourChoice.tips">💡 Practice tips</b><br><span class="hint" data-i18n="tourChoice.tipsHint">Show the hands-on practice tips again, like the one in Loans.</span></button>
       </div>
-      <button type="button" class="cancel-edit-btn" id="tour-choice-close" data-i18n="common.close">Close</button>
+      <button type="button" class="cancel-edit-btn" id="tour-choice-close" hidden data-i18n="common.close">Close</button>
     </div>
   </div>
 
   <div id="update-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
-      <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span></div>
+      <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span><button type="button" class="currency-modal-close" data-click="update-close-btn" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
       <p data-i18n="update.body">A newer version of your app is ready.</p>
       <p class="hint" id="update-modal-hint"></p>
       <button type="button" class="primary" id="update-open-btn" data-i18n="update.open">Open the update page</button>
@@ -3391,7 +3392,7 @@
       <p class="hint" data-i18n="update.laterHint">Not now? Tap Close. You can update any time from More → Update my app, and your app keeps working the way it is until then.</p>
       <p class="hint" id="update-stuck" hidden data-i18n="app.safariStuck">Safari did not open? Tap the copy button, open Safari yourself and paste the link in the address bar.</p>
       <p class="hint" id="update-copied" hidden data-i18n="update.copied">Link copied. Open Safari, paste it in the address bar and follow the steps.</p>
-      <button type="button" class="cancel-edit-btn" id="update-close-btn" data-i18n="common.close">Close</button>
+      <button type="button" class="cancel-edit-btn" id="update-close-btn" hidden data-i18n="common.close">Close</button>
     </div>
   </div>
 
@@ -3407,19 +3408,19 @@
 
   <div id="statement-exchange-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
-      <div class="currency-modal-header"><span id="statement-exchange-title"></span></div>
+      <div class="currency-modal-header"><span id="statement-exchange-title"></span><button type="button" class="currency-modal-close" data-click="statement-exchange-cancel" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
       <input type="text" id="statement-exchange-filter" data-i18n-placeholder="hist.xch.filter" placeholder="Search the description or account" autocomplete="off" style="margin:6px 0;">
       <div class="currency-option-list" id="statement-exchange-list"></div>
-      <button type="button" class="cancel-edit-btn" id="statement-exchange-cancel" data-i18n="common.cancel">Cancel</button>
+      <button type="button" class="cancel-edit-btn" id="statement-exchange-cancel" hidden data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 
   <div id="statement-match-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
-      <div class="currency-modal-header"><span data-i18n="stmt.whichEntry">Which entry is this?</span></div>
+      <div class="currency-modal-header"><span data-i18n="stmt.whichEntry">Which entry is this?</span><button type="button" class="currency-modal-close" data-click="statement-match-cancel" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
       <p class="hint" id="statement-match-title" style="margin:6px 0;"></p>
       <div class="currency-option-list" id="statement-match-list"></div>
-      <button type="button" class="cancel-edit-btn" id="statement-match-cancel" data-i18n="common.cancel">Cancel</button>
+      <button type="button" class="cancel-edit-btn" id="statement-match-cancel" hidden data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 
@@ -3427,6 +3428,7 @@
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span data-i18n="stmt.pdfPassword">PDF password</span>
+        <button type="button" class="currency-modal-close" data-click="statement-password-cancel" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <p class="hint" id="statement-password-file" style="margin:8px 0 0;"></p>
       <p class="hint" id="statement-password-msg" style="margin:4px 0 8px;"></p>
