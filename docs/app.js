@@ -3356,7 +3356,8 @@ function unmarkDeleting_(key) { deletingKeys_.delete(key); paintDeleting_(); }
 // When a practice finishes or is left, its cleanup runs behind the screen: everything it made shows "Deleting…" until it is gone.
 const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Practice item", "Elemento de práctica", "Practice purchase", "Compra de práctica",
   "Practice charge", "Cargo de práctica", "Practice trip expense", "Gasto de viaje de práctica", "Practice deposit", "Depósito de práctica",
-  "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica"];
+  "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica",
+  "Practice coffee shop", "Cafetería de práctica"];
 const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
 function markPracticeDeleting_() {
   (lastRenderedEntries_ || []).forEach((e) => {
@@ -6548,6 +6549,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceILeftover_, 14000);
   setTimeout(practiceTLeftover_, 16000);
   setTimeout(practiceXLeftover_, 18000);
+  setTimeout(practiceYLeftover_, 20000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -10579,7 +10581,7 @@ function buildTourSlide_(key, n, total) {
   if (key === "mydata") {
     if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
     body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    body += tr("tour.mydata.pExport");   // + one line for each My data screen that has a practice
+    body += tr("tour.mydata.pTidy") + tr("tour.mydata.pExport");   // + one line for each My data screen that has a practice
   }
   // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
   let lead = "";
@@ -11554,13 +11556,14 @@ async function showTidyScreen() {
   list.textContent = "…";
   try {
     await loadTidy_();
+    offerTidyTip_();   // only now that the list has arrived (loading standard)
   } catch (err) {
     list.textContent = err.message || String(err);
   }
 }
 
 async function loadTidy_() {
-  const data = await callApi("listTidyGroups", {});
+  const data = await callApi("listTidyGroups", practiceY_ && practiceY_.made ? { pinPractice: true } : {});   // (the practice's own group is listed first)
   tidyGroups_ = data.groups || [];
   tidyData_ = data;
   renderTidy_();
@@ -11624,12 +11627,15 @@ async function applyTidy_(items, buttons) {
     if (!res.count) {
       showToast_(tr("tidy.nothingApplied"));
     } else {
+      const mine = practiceYGroup_();
+      const practiceApplied = !!(mine && items.some((it) => it.key === mine.key));
+      if (practiceApplied && practiceY_) { practiceY_.applied = true; practiceYSave_(); }
       showUndoToast_(tr("tidy.applied", { n: res.count }), async () => {
         await callApi("undoCategoryFollow", { changes: res.changes, annualIds: res.annualIds });
         showToast_(tr("tidy.undone"));
         await loadTidy_();
         refreshEntryList().catch(() => {});
-      });
+      }, practiceApplied ? "practice-tidy" : "");
       refreshEntryList().catch(() => {});
       refreshHomeGlance_(true);
     }
@@ -11663,6 +11669,109 @@ document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => 
 });
 document.getElementById("data-tidy-btn").addEventListener("click", showTidyScreen);
 document.getElementById("tidy-back-btn").addEventListener("click", showMyDataScreen);
+
+// ---- First-use practice: Tidy my history (owner's design, 2026-11-03) ----
+// Offered on More → My data → Tidy my history. Tidy lists only entries WITHOUT a category, so the practice first adds three made-up
+// ones ("Practice coffee shop", one server call: createPracticeTidy; the list is asked to show that group first, `pinPractice`), then the
+// person looks at the group, shows its lines, picks a category once and taps the real Apply (applyTidyGroups, undoable as always).
+// Only the practice's own group is ever lit up and tappable, so a real group is never touched. Cleanup = one call (removePracticeTidy),
+// in the background like the other practices, also on Exit and, if the app was closed midway, the next time it opens (it asks first).
+const PRACTICE_Y_KEY_ = "tipPracticeTidy";
+let practiceY_ = null;          // { made, applied, startedOn }
+let practiceYRemoving_ = false;
+let practiceYLeftoverAsked_ = false;
+
+function practiceYLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_Y_KEY_) || "null"); } catch (e) { return null; } }
+function practiceYSave_() {
+  try { if (practiceY_) localStorage.setItem(PRACTICE_Y_KEY_, JSON.stringify(practiceY_)); else localStorage.removeItem(PRACTICE_Y_KEY_); } catch (e) { /* ignore */ }
+}
+
+function offerTidyTip_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!caps.practiceTidy) return;   // an older backend could not make the practice entries or clean them up
+  if (!(meta.categories || []).some((c) => c.type === "expense")) return;   // nothing to pick from
+  offerTip_("tidy", "tidy-tip-invite", tr("spot.y.invite"), startTidyPractice_);
+}
+
+// The practice's own group in the list the phone holds (the server marks it), and its box on screen.
+function practiceYGroup_() { return tidyGroups_.find((g) => g.practice) || null; }
+function practiceYBox_() {
+  const g = practiceYGroup_();
+  return g ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === g.key) || null : null;
+}
+
+function practiceYSteps_() {
+  const part = (sel) => () => { const b = practiceYBox_(); return b ? b.querySelector(sel) : null; };
+  const picked = () => { const s = practiceYBox_() && practiceYBox_().querySelector(".tidy-select"); return !!s && !!s.value; };
+  return [
+    { key: "intro", text: () => tr("spot.y.intro"), button: () => tr("spot.y.start") },
+    { look: true, target: () => practiceYBox_(), text: () => tr("spot.y.s1"), button: () => tr("spot.y.gotIt"), wait: 30000,
+      before: async () => {
+        if (!(await practiceYMake_())) return false;
+      } },
+    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"),
+      until: () => { const b = practiceYBox_(); return !!b && !b.querySelector(".tidy-samples").hidden; } },
+    { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "spot.y.s3fix" : "spot.y.s3"), until: picked, ok: picked, holdsUntil: "apply" },
+    { key: "apply", target: part(".tidy-apply"), text: () => tr("spot.y.s4"), until: () => !!(practiceY_ && practiceY_.applied) },
+    { text: () => tr("spot.y.s5"), button: () => tr("spot.y.finish") }
+  ];
+}
+
+// Adds the three practice entries and shows the list with their group first. False = it could not (the practice stops, the usual cleanup runs).
+async function practiceYMake_() {
+  practiceY_.made = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup is simply a harmless no-op)
+  practiceYSave_();
+  try {
+    await callApi("createPracticeTidy", { lang: I18n.getLang() });
+    await loadTidy_();
+    refreshEntryList().catch(() => {});
+    return true;
+  } catch (err) {
+    alert(tr("spot.y.createFailed", { error: err.message || String(err) }));
+    Spotlight.stop("skipped");
+    return false;
+  }
+}
+
+function startTidyPractice_() {
+  if (practiceYRemoving_) { showToast_(tr("spot.y.stillRemoving")); return false; }
+  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+  practiceY_ = { made: false, applied: false, startedOn: todayLocalISO() };
+  practiceYSave_();
+  runTip_(practiceYSteps_(), async () => {
+    dropUndoKind_("practice-tidy");
+    showToast_(tr("spot.y.removing"));
+    practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
+  }, tr("spot.y.note"));
+  return true;
+}
+
+async function practiceYRemove_() {
+  if (practiceYRemoving_) return false;
+  const p = practiceY_ || practiceYLoad_();
+  if (!p) return true;
+  practiceYRemoving_ = true;
+  try {
+    let ok = true;
+    if (p.made) {
+      try { await callApi("removePracticeTidy", {}); }
+      catch (err) { ok = false; alert(tr("spot.y.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceY_ = null; practiceYSave_(); }
+    if (!document.getElementById("screen-tidy").hidden) loadTidy_().catch(() => {});   // the practice group leaves the list
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    return ok;
+  } finally { practiceYRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceYLeftover_() {
+  if (practiceYLeftoverAsked_ || practiceYRemoving_ || Spotlight.isRunning() || !(practiceYLoad_() || {}).made) return;   // (a practice closed before it made anything has nothing to remove)
+  practiceYLeftoverAsked_ = true;
+  if (confirm(tr("spot.y.leftover"))) practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
+}
 
 // ---- More → My data: one row for everything about getting data in, tidying it and taking it out (owner's design, 2026-11-03) ----
 // A small hub: Bank statements and Import from another app (the two modes of the Statements screen), Tidy my history (what a statement or an

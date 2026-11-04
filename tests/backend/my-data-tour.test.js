@@ -40,7 +40,7 @@ test("Recently deleted is drawn only where the app shows it, and the finger only
 
 test("the My data card follows the Bank statements card in the Advanced list and its texts exist in both languages", () => {
   assert.match(app, /cards\.push\("statements"\);\s*cards\.push\("mydata"\)/);
-  for (const k of ["title", "body", "deleted", "export", "pIntro", "pExport"]) {
+  for (const k of ["title", "body", "deleted", "export", "pIntro", "pTidy", "pExport"]) {
     const t = STRINGS["tour.mydata." + k];
     assert.ok(t && t.en && t.es, "tour.mydata." + k);
   }
@@ -81,4 +81,30 @@ test("the Export practice records nothing and calls no extra server action: it o
     assert.ok(practice.includes(id), id);
     assert.ok(html.includes(`id="${id}"`), id + " is not in the page");
   }
+});
+
+test("the Tidy practice: invitation box, offered after the list loads, flag-gated, texts in both languages, one cleanup call", () => {
+  const tidyScreen = html.slice(html.indexOf('id="screen-tidy"'), html.indexOf('id="screen-bank-emails"'));
+  assert.ok(tidyScreen.includes('id="tidy-tip-invite"'));
+  const show = app.slice(app.indexOf("async function showTidyScreen()"), app.indexOf("async function loadTidy_()"));
+  assert.match(show, /await loadTidy_\(\);\s*offerTidyTip_\(\)/, "offered only once the list has arrived");
+  assert.match(app, /offerTip_\("tidy", "tidy-tip-invite", tr\("spot\.y\.invite"\), startTidyPractice_\)/);
+  assert.match(app, /if \(!caps\.practiceTidy\) return;/);
+  const practice = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// ---- More → My data: one row for everything"));
+  for (const k of new Set([...practice.matchAll(/tr\("(spot\.y\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
+  for (const k of ["spot.y.invite", "spot.y.note", "spot.y.intro", "spot.y.start", "spot.y.s1", "spot.y.s2", "spot.y.s3", "spot.y.s3fix", "spot.y.s4", "spot.y.s5", "spot.y.removing", "spot.y.removed", "spot.y.leftover", "spot.y.removeFailed", "spot.y.createFailed", "spot.y.stillRemoving"]) {
+    assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
+  }
+  assert.equal((app.match(/callApi\("removePracticeTidy"/g) || []).length, 1, "one cleanup call");
+  assert.match(app, /setTimeout\(practiceYLeftover_, 20000\)/, "a practice left by a closed app is offered for removal");
+  assert.match(app, /"Practice coffee shop", "Cafetería de práctica"\]/, "Home marks the practice entries as being deleted");
+  // the steps light up the practice's own group only, never a real group or "Apply all suggestions"
+  assert.ok(!practice.includes("tidy-apply-all-btn"));
+  assert.match(practice, /practiceYBox_\(\)/);
+});
+
+test("the Tidy tour line names the screen and sits with the others", () => {
+  assert.match(app, /tr\("tour\.mydata\.pTidy"\) \+ tr\("tour\.mydata\.pExport"\)/);
+  assert.match(STRINGS["tour.mydata.pTidy"].en, /Tidy my history/);
+  assert.match(STRINGS["tour.mydata.pTidy"].es, /Ordenar mi historial/);
 });
