@@ -322,6 +322,7 @@ function listTidyGroups(payload) {
     var s = categorySuggestion_(scan, key);
     out.push({
       key: key, label: label, count: sorted.length, totalMain: Math.round(total * 100) / 100,
+      practice: sorted.some(isPracticeTidy_),
       firstDate: sorted[sorted.length - 1].date, lastDate: sorted[0].date,
       suggestion: s ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId), n: s.n, total: s.total, similar: !!s.similar } : null,
       samples: sorted.slice(0, FOLLOW_SAMPLES).map(function (e) {
@@ -330,6 +331,8 @@ function listTidyGroups(payload) {
     });
   });
   out.sort(function (a, b) { return b.totalMain - a.totalMain || b.count - a.count; });
+  // The Tidy practice (payload.pinPractice): its own small group goes first, so it is always on screen however many real groups there are.
+  if (payload && payload.pinPractice) out = out.filter(function (g) { return g.practice; }).concat(out.filter(function (g) { return !g.practice; }));
   return { groups: out.slice(0, limit), totalEntries: totalEntries, groupCount: out.length, shown: Math.min(limit, out.length), main: main };
 }
 

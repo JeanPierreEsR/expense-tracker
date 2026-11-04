@@ -453,6 +453,8 @@ function routeActionSwitch_(action, payload) {
     case 'confirmEntry': return confirmEntryFromApp_(payload);
     case 'createPracticePending': return createPracticePending(payload);
     case 'removePracticeReview': return removePracticeReview(payload);
+    case 'createPracticeTidy': return createPracticeTidy(payload);
+    case 'removePracticeTidy': return removePracticeTidy();
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
     case 'removePracticeBudgets': return removePracticeBudgets();
     case 'removePracticeInvestments': return removePracticeInvestments(payload);
