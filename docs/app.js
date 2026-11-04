@@ -11090,6 +11090,7 @@ function openBankMailModal_(opts) {
   const backdrop = bmEl_("bank-mail-modal-backdrop");
   I18n.applyStatic(backdrop);
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
+  bmEl_("bm-address2").textContent = info.address || tr("bankMail.noAddress");   // again inside "another address?", next to its Copy button
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -11240,6 +11241,13 @@ function refreshExportScreen_() {
   exportEl_("export-custom-fields").hidden = exportEl_("export-range").value !== "custom";
   const any = entries || exportEl_("export-backup-check").checked;
   exportEl_("export-get-btn").disabled = !any;
+  // Once the files are ready, their Save buttons are the next thing to tap: "Get my files" steps back (grey, "… again"); the owner
+  // found two blue buttons confusing (2026-11-03).
+  const got = !exportEl_("export-ready").hidden;
+  const getBtn = exportEl_("export-get-btn");
+  getBtn.className = got ? "cancel-edit-btn" : "primary";
+  getBtn.dataset.i18n = got ? "export.getAgain" : "export.get";
+  getBtn.textContent = tr(getBtn.dataset.i18n);
   exportEl_("export-send-btn").hidden = !(meta && meta.capabilities && meta.capabilities.emailExport);
   exportEl_("export-send-btn").disabled = !any;
 }
@@ -11365,9 +11373,17 @@ async function sendExport_() {
 
 document.getElementById("data-export-btn").addEventListener("click", showExportScreen);
 document.getElementById("export-back-btn").addEventListener("click", showMyDataScreen);
+// A changed choice makes the files already prepared out of date: their Save buttons go, and "Get my files" is the main button again.
+function clearExportReady_() {
+  if (exportEl_("export-ready").hidden) return;
+  exportEl_("export-ready").hidden = true;
+  exportEl_("export-ready").textContent = "";
+  exportEl_("export-status").textContent = "";
+}
 ["export-entries-check", "export-backup-check", "export-range", "export-pending-check"].forEach((id) => {
-  exportEl_(id).addEventListener("change", () => { refreshExportScreen_(); saveExportPrefs_(); });
+  exportEl_(id).addEventListener("change", () => { clearExportReady_(); refreshExportScreen_(); saveExportPrefs_(); });
 });
+["export-start", "export-end"].forEach((id) => exportEl_(id).addEventListener("change", () => { clearExportReady_(); refreshExportScreen_(); }));
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
 
@@ -11390,7 +11406,6 @@ function practiceESteps_() {
     { key: "entries", target: () => el("export-entries-check").closest(".checkbox-row"), text: () => tr("spot.e.s1"),
       until: () => el("export-entries-check").checked, ok: () => el("export-entries-check").checked, holdsUntil: "get" },
     { target: () => [el("export-range"), el("export-pending-check").closest(".checkbox-row")], text: () => tr("spot.e.s2"), visit: "#export-range" },
-    { look: true, target: () => el("export-backup-check").closest(".export-option"), text: () => tr("spot.e.s3"), button: () => tr("spot.e.gotIt") },
     { key: "get", target: "#export-get-btn", text: () => { const e = statusError(); return e ? tr("spot.e.s4err", { error: e }) : tr("spot.e.s4"); },
       until: () => !!ready() },
     { target: "#export-ready button", text: () => tr("spot.e.s5"), tap: "#export-ready button", wait: 15000 },
@@ -11823,6 +11838,7 @@ function renderBankEmails_() {
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
   beEl_("be-body").querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
   beEl_("be-address").textContent = info.address || tr("bankMail.noAddress");
+  beEl_("be-address2").textContent = info.address || tr("bankMail.noAddress");
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself

@@ -2432,6 +2432,11 @@ body.income-revealed .sens-mask { display: none; }
 
 /* Welcome questions + tour (first open of an app made by the installer; More → How to use the app) */
 .welcome-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg, #fafaf8); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* Typing on an iPhone: the keyboard shifts the screen and the app behind used to show below the welcome screens (owner, 2026-11-03).
+   The page behind cannot scroll while they are open, and their background is painted beyond their own edges (shadow), so any gap
+   the keyboard opens shows plain background. */
+html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden])) body { overflow: hidden; }
+.welcome-overlay { box-shadow: 0 0 0 100vmax var(--bg, #fafaf8); }
 .welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
@@ -3462,3 +3467,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .deleted-forget { color: #d64545; }
 .category-kind-title { flex-basis: 100%; margin-top: 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
 .category-kind-title:not(:first-child) { margin-top: 10px; }
+
+/* Bank emails: "is it working?" in one card at the top (the account read, last check, Check now). The Copy button lives in
+   "Do your bank emails arrive at another address?", next to the steps that use the address (owner, 2026-11-03). */
+.bm-status { border: 1px solid var(--border, #d9d9d4); border-radius: 12px; padding: 10px 12px; margin: 4px 0 14px; }
+.bm-status .hint:first-child { margin-top: 0; }
+.bm-status-addr { font-weight: 700; word-break: break-all; margin: 4px 0; }
