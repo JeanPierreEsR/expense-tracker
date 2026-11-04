@@ -1256,11 +1256,16 @@
           <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
 
           <div id="my-profile-fits-card">
-            <h3 class="md-head" data-i18n="prof.fitsHead">What fits me</h3>
-            <p class="hint" data-i18n="fits.intro">Tap what is part of your life.</p>
-            <div id="fits-chips"></div>
-            <p class="hint" id="fits-msg" role="status"></p>
-            <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
+            <button type="button" class="more-list-item md-row fits-toggle" id="fits-toggle" aria-expanded="false" aria-controls="fits-body">
+              <span><span class="md-title" data-i18n="prof.fitsHead">What fits me</span><span class="hint md-sub" id="fits-count"></span></span>
+              <span class="more-list-chevron" id="fits-chevron">›</span>
+            </button>
+            <div id="fits-body" hidden>
+              <p class="hint" data-i18n="fits.intro">Tap what is part of your life.</p>
+              <div id="fits-chips"></div>
+              <p class="hint" id="fits-msg" role="status"></p>
+              <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
+            </div>
           </div>
 
           <div id="my-profile-dates-card">

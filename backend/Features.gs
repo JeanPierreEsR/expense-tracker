@@ -117,6 +117,7 @@ function getCapabilities_() {
     entriesBulkLink: true,   // setEntriesTrip / setEntriesTag + their undo (link several Home entries to a trip or event, add / remove a tag); an older backend lacks them, so the app hides those two choices
     entriesBulkCategory: true,   // setEntriesCategory + undoSetEntriesCategory (change the category of several Home entries at once); an older backend lacks them, so the app hides the Category button
     ownName: true,   // answerOwnName + `ownNameAsk` in getMeta: the Home "Is this you?" card and the welcome name line; an older backend lacks them
+    profileState: true,   // getProfileState (which saved picks still have their category) + applyProfile brings a hidden / deleted pick's category back: More → My profile → What fits me; an older backend shows the saved picks as they are
     dateOrder: true,   // saveDateOrder: More → My profile → How I type dates (Settings `date_format`); an older backend lacks it, so the app hides that card
     profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.

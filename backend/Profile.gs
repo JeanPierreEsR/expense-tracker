@@ -85,10 +85,41 @@ function starterCovered_(cats, index, type, name) {
   return cats.some(function (c) { return c.type === type && covers.indexOf(c.key) !== -1; });
 }
 
+// Is this starter category there AND visible? Same rules as starterCovered_, but a hidden category does not count.
+function starterVisible_(cats, type, name) {
+  var visible = cats.filter(function (c) { return String(c.hidden || '') !== 'yes'; });
+  return starterCovered_(visible, categoryNameIndex_(visible, true), type, name);
+}
+
+// The HIDDEN category that stands for this starter one (same name in either language, or an equivalent key), or null.
+function starterHiddenRow_(cats, type, name) {
+  var hidden = cats.filter(function (c) { return String(c.hidden || '') === 'yes'; });
+  var id = categoryNameIndex_(hidden, true)[type + ':' + catNameNorm_(name)];
+  if (id !== undefined) return hidden.filter(function (c) { return c.id === id; })[0] || null;
+  var covers = STARTER_COVERED_BY_[type + ':' + categoryKeyFromName_(name)] || [];
+  return hidden.filter(function (c) { return c.type === type && covers.indexOf(c.key) !== -1; })[0] || null;
+}
+
+/**
+ * My profile → What fits me: which of the person's saved answers still have their category (a hidden or deleted one does not).
+ * Returns { active: [answers] } in the app's order. A pick is active only when EVERY category of its pack is there and visible.
+ */
+function getProfileState() {
+  ensureCategoriesHiddenColumn_();
+  var cats = getAllRows('Categories');
+  var active = profileAnswers_().filter(function (a) {
+    return ['expense', 'income'].every(function (type) {
+      return (PROFILE_PACKS_[a][type] || []).every(function (c) { return starterVisible_(cats, type, c[0]); });
+    });
+  });
+  return { active: active };
+}
+
 /**
  * payload: { answers: ['car', 'kids', …], basics?: true }.
  * Adds the categories of the chosen packs (and, with `basics`, the starter list's missing ones) and remembers the answers.
- * Returns { added: [{ name, type }], profile: [answers] } — `name` as shown in the person's language.
+ * A chosen pack whose category the person hid is shown again, one they deleted is made again (`restored` lists the first kind).
+ * Returns { added: [{ name, type }], restored: [{ name, type }], profile: [answers] } — `name` as shown in the person's language.
  */
 function applyProfile(payload) {
   payload = payload || {};
@@ -100,27 +131,41 @@ function applyProfile(payload) {
   }
   answers.forEach(function (a) {
     ['expense', 'income'].forEach(function (type) {
-      (PROFILE_PACKS_[a][type] || []).forEach(function (c) { wanted.push({ name: c[0], icon: c[1], type: type }); });
+      (PROFILE_PACKS_[a][type] || []).forEach(function (c) { wanted.push({ name: c[0], icon: c[1], type: type, pick: true }); });
     });
   });
 
-  ensureCategoriesHiddenColumn_();
+  var headers = ensureCategoriesHiddenColumn_();
   var cats = getAllRows('Categories');
   var index = categoryNameIndex_(cats, true);
-  var rows = [], added = [];
+  var rows = [], added = [], restored = [], made = {};
   wanted.forEach(function (w) {
-    if (starterCovered_(cats, index, w.type, w.name)) return;
+    var key = w.type + ':' + catNameNorm_(w.name);
+    if (w.pick) {
+      // A PICK whose category the person hid or deleted comes back (owner, 2026-11-04): a hidden one is shown again, a deleted one is made
+      // again below. (The starter basics keep the old rule: a category the person hid is never re-added.)
+      if (made[key] || starterVisible_(cats, w.type, w.name)) return;
+      var hiddenRow = starterHiddenRow_(cats, w.type, w.name);
+      if (hiddenRow) {
+        var sheet = getSheet('Categories');
+        setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, hiddenRow.id), 'hidden', '');
+        hiddenRow.hidden = '';
+        restored.push({ name: categoryLabel_(hiddenRow), type: w.type });
+        return;
+      }
+    } else if (starterCovered_(cats, index, w.type, w.name)) return;
     var n = cats.length + rows.length;
     rows.push({ id: Utilities.getUuid(), name: w.name, type: w.type, icon: w.icon, color: CATEGORY_COLOR_PALETTE[n % CATEGORY_COLOR_PALETTE.length],
       parent_id: '', key: categoryKeyFromName_(w.name), hidden: '' });
-    index[w.type + ':' + catNameNorm_(w.name)] = rows[rows.length - 1].id;   // two packs asking for the same name add it once
+    index[key] = rows[rows.length - 1].id;   // two packs asking for the same name add it once
+    made[key] = true;
     added.push({ name: categoryLabel_({ key: categoryKeyFromName_(w.name), name: w.name }), type: w.type });
   });
-  if (rows.length) {
-    appendRowsBulk_('Categories', rows);
+  if (rows.length) appendRowsBulk_('Categories', rows);
+  if (rows.length || restored.length) {
     if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
     bumpStructureVersion_();
   }
   setSetting_(PROFILE_SETTING_, answers.join(','));
-  return { added: added, profile: answers };
+  return { added: added, restored: restored, profile: answers };
 }
