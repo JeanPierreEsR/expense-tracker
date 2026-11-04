@@ -19,7 +19,7 @@ function isPracticeDeleted_(e) {
 }
 
 function practiceDeletedName_(lang) {
-  return String(lang || '').toLowerCase().indexOf('es') === 0 ? 'Merienda de práctica' : 'Practice snack';
+  return String(lang || '').toLowerCase().indexOf('es') === 0 ? 'Lonche de pr\u00e1ctica' : 'Practice snack';
 }
 
 /** payload: { lang: 'en' | 'es' }. Returns { ids: [two entry ids], name }. Always makes a fresh pair (the phone cleans up before it asks again). */

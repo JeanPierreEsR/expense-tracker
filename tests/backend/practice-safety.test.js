@@ -54,3 +54,36 @@ test("the Bank practice only keeps its 'I made the account' mark when an account
   const body = stm.slice(stm.indexOf("async function practiceBMake_"), stm.indexOf("function offerBankTip_"));
   assert.match(body, /if \(!there\) \{ practiceI_\.accountMade = false; practiceISave_\(\); \}/);
 });
+
+test("'Nothing was kept' is only said when every friend the practice added is really gone", () => {
+  const names = fn(app, "practiceNewFriendNames_"), toast = fn(app, "practiceRemovedToast_");
+  const make = (friends) => {
+    const shown = { toast: [], alert: [] };
+    const run = new Function("meta", "tr", "showToast_", "alert", "let practiceFriendsKept_ = [];" + names + toast + "return { names: practiceNewFriendNames_, toast: practiceRemovedToast_, keep(v) { practiceFriendsKept_ = v; } };")(
+      { friends }, (k, v) => k + (v ? JSON.stringify(v) : ""), (m) => shown.toast.push(m), (m) => shown.alert.push(m));
+    return { run, shown };
+  };
+  const before = ["f1", "f2"];
+  let t = make([{ id: "f1", name: "Ana" }, { id: "f2", name: "Ben" }]);                           // the practice's friend is gone
+  assert.deepEqual(t.run.names({ friendsBefore: before }), []);
+  t.run.toast("spot.p.removed");
+  assert.deepEqual(t.shown, { toast: ["spot.p.removed"], alert: [] });
+  t = make([{ id: "f1", name: "Ana" }, { id: "f9", name: "Pat" }, { id: "f2", name: "Ben" }]);   // the server would not delete it
+  const left = t.run.names({ friendsBefore: before });
+  assert.deepEqual(left, ["Pat"]);
+  t.run.keep(left); t.run.toast("spot.p.removed");
+  assert.deepEqual(t.shown.toast, []);
+  assert.match(t.shown.alert[0], /spot\.p\.removedFriend.*Pat/);
+  assert.deepEqual(make([{ id: "f9", name: "Pat" }]).run.names({}), [], "no list of friends from before: nothing is claimed");
+  for (const k of ["spot.p.removedFriend"]) assert.ok(STRINGS[k].en.includes("{name}") && STRINGS[k].es.includes("{name}"));
+});
+
+test("both Loans cleanups record what is left and all four 'removed' messages go through the honest check", () => {
+  assert.equal((app.match(/practiceFriendsKept_ = practiceNewFriendNames_\(p\)/g) || []).length, 2);
+  assert.equal((app.match(/practiceRemovedToast_\("spot\.[pl]\.removed"\)/g) || []).length, 4);
+  assert.ok(!/showToast_\(tr\("spot\.[pl]\.removed"\)\)/.test(app), "no plain 'removed' toast is left for Loans");
+});
+
+test("the Spanish Recently deleted practice uses a Peruvian word, and the old name is still cleaned up", () => {
+  assert.ok(!/merienda/i.test(Object.values(STRINGS).map((v) => (v && v.es) || "").join(" ")), "no 'merienda' in any Spanish text");
+});

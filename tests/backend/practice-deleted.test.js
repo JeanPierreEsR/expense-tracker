@@ -25,7 +25,7 @@ test("createPracticeDeleted makes two confirmed expenses with a category and no 
   assert.equal(en.ids.length, 2);
   assert.equal(en.name, "Practice snack");
   const es = rt.api("createPracticeDeleted", { lang: "es" });
-  assert.equal(es.name, "Merienda de práctica");
+  assert.equal(es.name, "Lonche de práctica");
   const rows = mine(rt);
   assert.equal(rows.length, 4);
   for (const e of rows) {
@@ -102,5 +102,6 @@ test("the practice entries never set off a budget alert", () => {
   const { rt } = setup();
   rt.api("createPracticeDeleted", { lang: "en" });
   assert.equal(rt.run("isPracticeEntry_({description: 'Practice snack'})"), true);
-  assert.equal(rt.run("isPracticeEntry_({description: 'Merienda de práctica'})"), true);
+  assert.equal(rt.run("isPracticeEntry_({description: 'Merienda de práctica'})"), true, "the old Spanish name is still recognised");
+  assert.equal(rt.run("isPracticeEntry_({description: 'Lonche de práctica'})"), true);
 });

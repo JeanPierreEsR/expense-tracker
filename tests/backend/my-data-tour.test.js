@@ -125,7 +125,7 @@ test("the Recently deleted practice: invitation box, offered after the list load
   assert.equal((app.match(/callApi\("removePracticeDeleted"/g) || []).length, 1, "one cleanup call");
   assert.equal((app.match(/callApi\("createPracticeDeleted"/g) || []).length, 1, "one call makes the entries");
   assert.match(app, /setTimeout\(practiceDLeftover_, 22000\)/, "a practice left by a closed app is offered for removal");
-  assert.match(app, /"Practice snack", "Merienda de práctica"/, "Home marks the practice entries as being deleted");
+  assert.match(app, /"Practice snack", "Lonche de práctica"/, "Home marks the practice entries as being deleted");
   // the steps use the REAL controls: the Home edit mode, the delete sheet, the nav, the More rows and the batch buttons
   for (const id of ["entries-edit-btn", "entries-delete-selected-btn", "entries-bulk-go", "more-my-data-btn", "more-deleted-btn"]) {
     assert.ok(practice.includes(id), id);

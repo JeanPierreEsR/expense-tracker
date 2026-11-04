@@ -3375,7 +3375,7 @@ function unmarkDeleting_(key) { deletingKeys_.delete(key); paintDeleting_(); }
 const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Practice item", "Elemento de práctica", "Practice purchase", "Compra de práctica",
   "Practice charge", "Cargo de práctica", "Practice trip expense", "Gasto de viaje de práctica", "Practice deposit", "Depósito de práctica",
   "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica",
-  "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Merienda de práctica", "Practice Lunch", "Almuerzo De Práctica", "Practice Dinner", "Cena De Práctica", "Practice Ride", "Paseo De Práctica",
+  "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Lonche de práctica", "Merienda de práctica", "Practice Lunch", "Almuerzo De Práctica", "Practice Dinner", "Cena De Práctica", "Practice Ride", "Paseo De Práctica",
   "Practice Bakery", "Panadería De Práctica", "Practice Bookstore", "Librería De Práctica", "Practice Pharmacy", "Farmacia De Práctica"];
 const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
 function markPracticeDeleting_() {
@@ -18840,7 +18840,7 @@ async function practiceRemoveNow_(p) {
     }
     if (ok) await Promise.all([practiceSweepExtras_(p), practiceDeleteNewFriends_(p)]);   // independent of each other: done together
   }
-  if (ok) { practice_ = null; practiceSave_(); }
+  if (ok) { practiceFriendsKept_ = practiceNewFriendNames_(p); practice_ = null; practiceSave_(); }
   clearEntryDraft_();
   refreshEntryList().catch(() => {});
   refreshLoans().catch(() => {});
@@ -18869,6 +18869,18 @@ async function practiceSweepExtras_(p) {
 
 // A friend added during the practice is removed too, so nothing at all is kept. Only friends that did not exist when it started (an
 // existing friend typed again is the same person, not a new one), and only where the backend can delete friends.
+// "Nothing was kept" must be TRUE: after a cleanup the friends the practice added are compared with what is really left. A friend the server
+// would not delete (it is used somewhere else) is named instead of being hidden behind "Nothing was kept".
+let practiceFriendsKept_ = [];
+function practiceNewFriendNames_(p) {
+  if (!p || !Array.isArray(p.friendsBefore)) return [];
+  return (meta.friends || []).filter((f) => !p.friendsBefore.includes(f.id)).map((f) => f.name || "").filter(Boolean);
+}
+function practiceRemovedToast_(key) {
+  const kept = practiceFriendsKept_; practiceFriendsKept_ = [];
+  if (kept.length) alert(tr("spot.p.removedFriend", { name: kept.join(", ") }));
+  else showToast_(tr(key));
+}
 async function practiceDeleteNewFriends_(p) {
   if (!Array.isArray(p.friendsBefore) || !((meta && meta.capabilities) || {}).friendsEdit) return;
   const created = (meta.friends || []).filter((f) => !p.friendsBefore.includes(f.id));
@@ -18886,7 +18898,7 @@ let practiceLeftoverAsked_ = false;
 function practiceLeftover_() {
   if (practiceLeftoverAsked_ || practiceRemoving_ || Spotlight.isRunning() || !practiceLoad_()) return;
   practiceLeftoverAsked_ = true;
-  if (confirm(tr("spot.p.leftover"))) practiceRemove_().then((ok) => { if (ok) showToast_(tr("spot.p.removed")); });
+  if (confirm(tr("spot.p.leftover"))) practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); });
 }
 
 function practiceFriendRow_() {
@@ -19033,7 +19045,7 @@ function startPractice_() {
     // The cleanup carries on behind the screen: the person is not kept waiting for the server (a toast says when it is done).
     if (document.getElementById("screen-loans").hidden) showScreen("loans");
     showToast_(tr("spot.p.removing"));
-    practiceRemove_().then((ok) => { if (ok) showToast_(tr("spot.p.removed")); });
+    practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); });
   }, tr("spot.p.note"));
   return true;
 }
@@ -19427,7 +19439,7 @@ function startLoansMorePractice_(kind) {
   runTip_(kind === "bank" ? practiceKSteps_() : practiceLSteps_(), async () => {
     if (document.getElementById("screen-loans").hidden) showScreen("loans");
     showToast_(tr("spot.l.removing"));
-    practiceMRemove_().then((ok) => { if (ok) showToast_(tr("spot.l.removed")); });
+    practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); });
   }, tr("spot.p.note"));
   return true;
 }
@@ -19467,7 +19479,7 @@ async function practiceMRemove_() {
         alert(tr("spot.l.removeFailed", { error: err.message }));
       }
     }
-    if (ok) { practiceM_ = null; practiceMSave_(); }
+    if (ok) { practiceFriendsKept_ = practiceNewFriendNames_(p); practiceM_ = null; practiceMSave_(); }
     practiceMFailed_ = "";
     refreshLoans().catch(() => {});
     refreshEntryList().catch(() => {});
@@ -19481,7 +19493,7 @@ async function practiceMRemove_() {
 function practiceMLeftover_() {
   if (practiceMLeftoverAsked_ || practiceMRemoving_ || Spotlight.isRunning() || !practiceMLoad_()) return;
   practiceMLeftoverAsked_ = true;
-  if (confirm(tr("spot.l.leftover"))) practiceMRemove_().then((ok) => { if (ok) showToast_(tr("spot.l.removed")); });
+  if (confirm(tr("spot.l.leftover"))) practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); });
 }
 
 // ---- First-use practice: Investments ----
