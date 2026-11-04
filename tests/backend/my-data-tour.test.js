@@ -97,14 +97,49 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
   }
   assert.equal((app.match(/callApi\("removePracticeTidy"/g) || []).length, 1, "one cleanup call");
   assert.match(app, /setTimeout\(practiceYLeftover_, 20000\)/, "a practice left by a closed app is offered for removal");
-  assert.match(app, /"Practice coffee shop", "Cafetería de práctica"\]/, "Home marks the practice entries as being deleted");
+  assert.match(app, /"Practice coffee shop", "Cafetería de práctica"/, "Home marks the practice entries as being deleted");
   // the steps light up the practice's own group only, never a real group or "Apply all suggestions"
   assert.ok(!practice.includes("tidy-apply-all-btn"));
   assert.match(practice, /practiceYBox_\(\)/);
 });
 
 test("the Tidy tour line names the screen and sits with the others", () => {
-  assert.match(app, /tr\("tour\.mydata\.pTidy"\) \+ tr\("tour\.mydata\.pExport"\)/);
+  assert.match(app, /tr\("tour\.mydata\.pTidy"\);[^\n]*\n[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
   assert.match(STRINGS["tour.mydata.pTidy"].en, /Tidy my history/);
   assert.match(STRINGS["tour.mydata.pTidy"].es, /Ordenar mi historial/);
+});
+
+test("the Recently deleted practice: invitation box, offered after the list loads, flag-gated, texts in both languages, one cleanup call", () => {
+  const screen = html.slice(html.indexOf('id="screen-deleted-entries"'), html.indexOf('id="screen-tidy"'));
+  assert.ok(screen.includes('id="deleted-tip-invite"'));
+  const show = app.slice(app.indexOf("async function showDeletedScreen_()"), app.indexOf("async function refreshDeletedScreen_()"));
+  assert.match(show, /await refreshDeletedScreen_\(\);[\s\S]*offerDeletedTip_\(\)/, "offered only once the list has arrived");
+  assert.match(app, /offerTip_\("deleted", "deleted-tip-invite", tr\("spot\.d\.invite"\), startDeletedPractice_\)/);
+  assert.match(app, /!caps\.practiceDeleted \|\| !caps\.entriesRestore \|\| !caps\.entriesBulk/);
+  const practice = app.slice(app.indexOf("function practiceDSteps_()"), app.indexOf("// A practice left behind (the app was closed midway)", app.indexOf("function practiceDSteps_()")));
+  for (const k of new Set([...app.matchAll(/tr\("(spot\.d\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k + " is asked for but missing");
+  for (const k of ["spot.d.invite", "spot.d.note", "spot.d.intro", "spot.d.start", "spot.d.finish", "spot.d.removing", "spot.d.removed", "spot.d.leftover", "spot.d.removeFailed", "spot.d.createFailed", "spot.d.stillRemoving", "spot.d.deleteFailed"]) {
+    assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
+  }
+  for (let i = 1; i <= 14; i++) assert.ok(STRINGS["spot.d.s" + i] && STRINGS["spot.d.s" + i].es, "step " + i);
+  assert.equal((app.match(/callApi\("removePracticeDeleted"/g) || []).length, 1, "one cleanup call");
+  assert.equal((app.match(/callApi\("createPracticeDeleted"/g) || []).length, 1, "one call makes the entries");
+  assert.match(app, /setTimeout\(practiceDLeftover_, 22000\)/, "a practice left by a closed app is offered for removal");
+  assert.match(app, /"Practice snack", "Merienda de práctica"\]/, "Home marks the practice entries as being deleted");
+  // the steps use the REAL controls: the Home edit mode, the delete sheet, the nav, the More rows and the batch buttons
+  for (const id of ["entries-edit-btn", "entries-delete-selected-btn", "entries-bulk-go", "more-my-data-btn", "more-deleted-btn"]) {
+    assert.ok(practice.includes(id), id);
+    if (id !== "entries-bulk-go") assert.ok(html.includes(`id="${id}"`), id + " is not in the page");   // (the confirm button is drawn by the delete sheet)
+    else assert.ok(app.includes(`id="${id}"`), id + " is not drawn by the delete sheet");
+  }
+  // never lights up "Select all", "Restore all" or a real batch: only the practice's own rows and its one batch
+  assert.ok(!practice.includes("entries-selectall-btn"));
+  assert.ok(!practice.includes("deleted-all"));
+  assert.match(practice, /practiceDIds_\(\)/);
+});
+
+test("the Recently deleted tour line names the screen, only where the screen exists", () => {
+  assert.match(STRINGS["tour.mydata.pDeleted"].en, /Recently deleted/);
+  assert.match(STRINGS["tour.mydata.pDeleted"].es, /Eliminados recientemente/);
+  assert.match(app, /cp\.entriesRestore && cp\.practiceDeleted && cp\.entriesBulk\) body \+= tr\("tour\.mydata\.pDeleted"\)/);
 });

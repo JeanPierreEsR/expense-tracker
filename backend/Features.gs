@@ -98,7 +98,8 @@ function getCapabilities_() {
     entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
     practiceTidy: true,   // createPracticeTidy + removePracticeTidy + listTidyGroups({pinPractice}): the Tidy my history practice is only offered where this exists
-    practiceReview: true,   // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
+    practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
+    practiceReview: true,  // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
     friendPhone: true,   // setFriendPhone (the loan screen's "Remind on WhatsApp" remembers the number); an older backend lacks it, so the app does not offer to remember it
