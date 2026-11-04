@@ -104,7 +104,7 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
 });
 
 test("the Tidy tour line names the screen and sits with the others", () => {
-  assert.match(app, /tr\("tour\.mydata\.pTidy"\);[^\n]*\n[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);[\s\S]{0,120}tr\("tour\.mydata\.pImport"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
+  assert.match(app, /tr\("tour\.mydata\.pTidy"\);[^\n]*\n[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);[\s\S]{0,120}tr\("tour\.mydata\.pImport"\);[\s\S]{0,120}tr\("tour\.mydata\.pBank"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
   assert.match(STRINGS["tour.mydata.pTidy"].en, /Tidy my history/);
   assert.match(STRINGS["tour.mydata.pTidy"].es, /Ordenar mi historial/);
 });
@@ -173,4 +173,33 @@ test("the Import tour line names the screen and only shows where the cleanup exi
   assert.match(STRINGS["tour.mydata.pImport"].en, /Import from another app/);
   assert.match(STRINGS["tour.mydata.pImport"].es, /Importar de otra app/);
   assert.match(app, /if \(cp\.practiceImport\) body \+= tr\("tour\.mydata\.pImport"\)/);
+});
+
+test("the Bank statements practice: invitation box in Bank mode, offered after the screen has loaded, flag-gated, texts in both languages, one cleanup call, account made by one call", () => {
+  const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
+  assert.match(html, /class="card tip-invite stmt-bank-only" id="bank-tip-invite"/, "shown in Bank mode only");
+  assert.match(stm, /Promise\.allSettled\(loaded\)\.then\(\(\) => \{ if \(screenMode === "bank"[^}]*offerBankTip_\(\)/, "offered only once the status line and the Inbox have arrived");
+  assert.match(stm, /offerTip_\("bank", "bank-tip-invite", tr\("spot\.s\.invite"\), startBankPractice_\)/);
+  assert.match(stm, /!caps\.practiceBank \|\| screenMode !== "bank"/);
+  for (const k of new Set([...stm.matchAll(/tr\(`?"?(spot\.s\.[A-Za-z0-9]+)/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k + " is asked for but missing");
+  for (let i = 1; i <= 11; i++) assert.ok(STRINGS["spot.s.s" + i] && STRINGS["spot.s.s" + i].es, "step " + i);
+  for (const k of ["stillRemoving", "busyRun", "removing", "removed", "leftover", "note"]) assert.ok(STRINGS["spot.s." + k] && STRINGS["spot.s." + k].es, k);
+  assert.equal((stm.match(/callApi\("removePracticeBank"/g) || []).length, 1, "one cleanup call");
+  assert.equal((stm.match(/callApi\("createPracticeBankAccount"/g) || []).length, 1, "one call makes the account");
+  assert.match(app, /"Practice Bakery", "Panadería De Práctica"/, "Home marks the practice entries as being deleted");
+  assert.match(app, /removePracticeBank: 150000/);
+  // the steps use the REAL buttons of the statement screens; the account is chosen by the practice, never offered for a real one
+  const steps = stm.slice(stm.indexOf("function practiceBSteps_()"), stm.indexOf("// Adds the empty Practice account"));
+  for (const sel of ["tm-use", "#stmt-next-2", "#statement-history-save", "#stmt-undo-btn", ".stmt-upload-btn", "#stmt-upload-card"]) assert.ok(steps.includes(sel), sel);
+  assert.match(steps, /sel\.value = practiceI_\.accountId/);
+  // it never deletes an account it did not make, and refuses to start when one with that name exists
+  assert.match(stm, /account: !!p\.accountMade/);
+  assert.match(stm, /isPracticeAccountName_\(pm\.nickname\)\)\) \{ showToast_\(tr\("spot\.s\.accountExists"\)\)/);
+  assert.match(stm, /if \(res\.existed\) \{ practiceI_\.accountMade = false;/);
+});
+
+test("the Bank statements tour line names the screen and only shows where the cleanup exists", () => {
+  assert.match(STRINGS["tour.mydata.pBank"].en, /Bank statements/);
+  assert.match(STRINGS["tour.mydata.pBank"].es, /Estados de cuenta/);
+  assert.match(app, /if \(cp\.practiceBank\) body \+= tr\("tour\.mydata\.pBank"\)/);
 });
