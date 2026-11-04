@@ -18719,14 +18719,14 @@ function offerTip_(key, boxId, inviteText, start) {
 // own unfinished entry). The form can also hold things nobody sees: an unfinished entry saved as a draft, or text left in the hidden
 // form. The practice's own leftovers (an earlier practice closed midway leaves a "Practice expense" draft) are cleared silently;
 // anything else is the person's, and is only discarded if they say so.
-function tipPrepareForm_() {
+function tipPrepareForm_(ownName) {
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) { showToast_(tr("spot.p.busy")); return false; }
   const amountEl = document.getElementById("amount"), descEl = document.getElementById("description");
   let draft = null;
   try { draft = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (e) { draft = null; }
   const typed = amountEl.value.trim() || descEl.value.trim();
   if (draft || typed) {
-    const name = tr("spot.p.name");
+    const name = ownName || tr("spot.p.name");
     const description = ((draft && draft.description) || descEl.value || "").trim();
     const amount = ((draft && draft.amount) || amountEl.value || "").toString().trim();
     const what = [amount ? tr("spot.p.draftAmount", { amount }) : "", description ? tr("spot.p.draftDesc", { text: description }) : ""].filter(Boolean).join(", ");
@@ -18741,11 +18741,13 @@ function tipPrepareForm_() {
 
 // Waits until this phone has nothing left to send (the practice expense and repayment save behind the screen).
 async function tipWaitIdle_(maxMs) {
+  // Waits until every save still ON ITS WAY has landed (a late one would make a stray practice entry after the cleanup). A FAILED save does not
+  // try again by itself (it waits for the person), so it never holds this up — it used to end the wait at once, which let the cleanup run
+  // while the practice's own save was still travelling.
   const t0 = Date.now();
   while (Date.now() - t0 < (maxMs || 30000)) {
-    const failed = getQueuedEdits_().some((e) => e.status === "failed") || getMoneyQueue_().some((i) => i.status === "failed");
-    if (failed) return false;
-    if (!getQueuedEdits_().length && !getMoneyQueue_().length) return true;
+    const onItsWay = getQueuedEdits_().some((e) => e.status !== "failed") || getMoneyQueue_().some((i) => i.status !== "failed");
+    if (!onItsWay) return true;
     await new Promise((r) => setTimeout(r, 300));
   }
   return false;
@@ -19662,7 +19664,8 @@ function startInvestmentsPractice_() {
   if (practiceIRemoving_) { showToast_(tr("spot.i.stillRemoving")); return false; }
   const open = ["pm-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.i.busy")); return false; }
-  if (practicePlatform_()) {   // a platform of an earlier practice is still there (its cleanup never ran): remove it first, then try again
+  if (practicePlatform_()) {   // only a platform THIS phone's earlier try made (it kept a note) is removed; a real one with that name is never touched
+    if (!practiceILoad_()) { alert(tr("spot.i.exists")); return false; }
     showToast_(tr("spot.i.stillRemoving"));
     practiceIRemove_(true).then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
     return false;
@@ -19864,7 +19867,10 @@ function startAccountsPractice_() {
   if (practiceARemoving_) { showToast_(tr("spot.a.stillRemoving")); return false; }
   const open = ["pm-modal-backdrop", "balance-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.a.busy")); return false; }
-  if (practiceAPm_()) {   // a practice account from an earlier try is still there (the server would refuse the same name): remove it first
+  if (practiceAPm_()) {
+    // Only an account that THIS phone's earlier try made (it kept a note) is removed as a leftover. One with the same name that the person made
+    // himself is never touched: the practice just does not start (the cleanup deletes by name, so it must never meet a real account).
+    if (!practiceALoad_()) { alert(tr("spot.a.exists")); return false; }
     showToast_(tr("spot.a.alreadyThere"));
     practiceARemove_(true).then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
     return false;
@@ -20386,6 +20392,7 @@ function startProgrammedPractice_() {
   if (practiceRRemoving_) { showToast_(tr("spot.r.stillRemoving")); return false; }
   const open = ["recurring-modal-backdrop", "paid-picker-modal-backdrop", "recurring-delete-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.r.busy")); return false; }
+  if (!tipPrepareForm_(tr("spot.r.name"))) return false;   // "Record the payment" overwrites the entry form: an unfinished draft is asked about first
   practiceR_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
   practiceRSave_();
   practiceRFailed_ = "";

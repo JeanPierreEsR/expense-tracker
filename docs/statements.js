@@ -2347,6 +2347,11 @@
       if (typeof loadMeta === "function") await loadMeta();
       return true;
     } catch (err) {
+      // The answer never came back: the account may or may not exist. It is marked as ours only if one is really there now (a same-named one
+      // was ruled out before the start), so the cleanup never goes looking for an account that was not made.
+      try { if (typeof loadMeta === "function") await loadMeta(); } catch (e) { /* keep what we know */ }
+      const there = ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).some((pm) => /^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
+      if (!there) { practiceI_.accountMade = false; practiceISave_(); }
       alert(tr("spot.s.createFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
       return false;
