@@ -394,7 +394,7 @@ const T = {
     c_api4: '4. Come back to this page. It continues by itself.',
     g_settings: 'Settings',
     c_acct: '1. Google asks you to sign in. Tap your account.',
-    c_unver: '2. Google says it hasn’t verified the app. That’s normal: tap the small “Continue” on the left. Never the big blue button.',
+    c_unver: '2. Google says it hasn’t verified the app. That’s normal: JP made this app, not Google. Tap the small “Continue” on the left. Never the big blue button.',
     c_all: '3. Check “Select all”.',
     c_scroll: '4. Scroll down to the end.',
     c_cont: '5. Tap “Continue”.',
@@ -596,7 +596,7 @@ const T = {
     c_api4: '4. Vuelve a esta página. Continúa sola.',
     g_settings: 'Configuración',
     c_acct: '1. Google te pide iniciar sesión. Toca tu cuenta.',
-    c_unver: '2. Google dice que no verificó la app. Es normal: toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
+    c_unver: '2. Google dice que no verificó la app. Es normal: esta app la hizo JP, no Google. Toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
     c_all: '3. Marca “Seleccionar todo”.',
     c_scroll: '4. Baja hasta el final.',
     c_cont: '5. Toca “Continuar”.',
@@ -1551,7 +1551,7 @@ function handoff() {
 }
 // The sign-in text for the app, with the person's "Help me improve the app" choice from the card above inside it (the app then does not ask again).
 function signinText() {
-  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE });
+  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE }, LANG);
 }
 async function continueAfterApproval() {
   await restoreIfNeeded();

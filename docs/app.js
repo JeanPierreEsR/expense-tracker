@@ -912,6 +912,10 @@ async function useSigninText_(text) {
     if (carried) perfShareSave_(carried);
     // Best effort: the sign-in text should not stay on the clipboard once it has done its job.
     if (isStandaloneApp_()) { try { await navigator.clipboard.writeText(""); } catch (err) { /* not allowed: harmless */ } }
+    // The language the person read the setup page in comes along too (2026-11-04): the app, the welcome included, starts in it,
+    // unless a language was already chosen on this phone. A reload draws every screen in it from the first moment.
+    if (link.lang && !I18n.hasChosenLang() && link.lang !== I18n.getLang()) { I18n.saveLang(link.lang); location.reload(); return; }
+    if (link.lang && !I18n.hasChosenLang()) I18n.saveLang(link.lang);
     await init();
   } catch (err) {
     if (previous) setApiUrl(previous); else localStorage.removeItem("apiUrl");
@@ -9350,6 +9354,10 @@ function renderFirstSteps_() {
   const ownAccounts = (meta.paymentMethods || []).filter((p) => String(p.id) !== String((meta.settings || {}).cash_account_id || "") && p.type !== "cash" && !isPracticeAccountName_(p.nickname));
   const steps = [{ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
   if (caps.bankEmails) {
+    // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
+    // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
+    steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
+      go: () => { fsSetFlag_("etBankMailIntro"); openBankMailModal_({ onClose: renderFirstSteps_ }); } });
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
     const late = days >= 3 && !(info.health && info.health.problem);
@@ -9391,9 +9399,11 @@ function openPerfShareModal_(onDone) {
   const backdrop = document.getElementById("perf-share-modal-backdrop");
   perfShareDone_ = onDone || null;
   I18n.applyStatic(backdrop);
-  document.getElementById("perf-share-on").checked = s.asked ? !!s.on : true;
+  // The current answer is the highlighted button once there is one (More → Feedback & privacy → Change what I share).
+  document.getElementById("perf-share-yes").className = !s.asked || s.on ? "primary" : "cancel-edit-btn";
+  document.getElementById("perf-share-no").className = s.asked && !s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-name").value = s.label || "";
-  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is the Save button
+  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is one of the two buttons
   // Someone who agreed to an older version sees what is new, and ✕ means "not now" (asked again later, three times at most).
   perfShareReask_ = !!(s.asked && s.on && (s.scope || 1) < PerfShare.SCOPE);
   document.getElementById("perf-share-new").hidden = !perfShareReask_;
@@ -9687,9 +9697,11 @@ function maybeAskPerfShare_() {
   if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
   openPerfShareModal_(null);
 }
-document.getElementById("perf-share-save").addEventListener("click", () => {
+// Two answers instead of a box to tick (owner, 2026-11-04): "Yes, share" and "No, thanks" are both a complete answer.
+document.getElementById("perf-share-yes").addEventListener("click", () => perfShareAnswer_(true));
+document.getElementById("perf-share-no").addEventListener("click", () => perfShareAnswer_(false));
+function perfShareAnswer_(on) {
   if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
-  const on = document.getElementById("perf-share-on").checked;
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
   if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
   refreshPerfShareRow_();
@@ -9697,7 +9709,7 @@ document.getElementById("perf-share-save").addEventListener("click", () => {
   try { localStorage.removeItem(PERF_LOG_KEY); } catch (e) { /* nothing to remove */ }   // a friend keeps no on-phone log
   closePerfShareModal_();
   perfSchedule_(5000);
-});
+}
 document.getElementById("perf-share-close").addEventListener("click", () => {
   if (perfShareReask_) {   // "not now" on the new question: keep what they agreed to before, ask again at a later open (3 times at most)
     const s = perfShareState_();
@@ -10590,8 +10602,7 @@ async function finishWelcome_() {
       if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
       else openPerfShareModal_(() => openTour_(true));
     };
-    if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTourPreview });
-    else toTourPreview();
+    toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
   }
   try {
@@ -10631,9 +10642,8 @@ async function finishWelcome_() {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
   };
-  // Only when bank e-mail reading is on: tell the person which Google account's inbox is read, and how to get other banks' e-mails there.
-  if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTour });
-  else toTour();
+  // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
+  toTour();
 }
 waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-error").textContent = ""; });   // survives a redraw of the screen
 waEl_("wa-next-btn").addEventListener("click", waNext_);
