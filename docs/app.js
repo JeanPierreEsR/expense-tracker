@@ -3357,7 +3357,7 @@ function unmarkDeleting_(key) { deletingKeys_.delete(key); paintDeleting_(); }
 const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Practice item", "Elemento de práctica", "Practice purchase", "Compra de práctica",
   "Practice charge", "Cargo de práctica", "Practice trip expense", "Gasto de viaje de práctica", "Practice deposit", "Depósito de práctica",
   "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica",
-  "Practice coffee shop", "Cafetería de práctica"];
+  "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Merienda de práctica"];
 const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
 function markPracticeDeleting_() {
   (lastRenderedEntries_ || []).forEach((e) => {
@@ -4197,6 +4197,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
       if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
       // A safety copy was kept (stage 3): the toast offers Undo for 10 seconds, and the entries wait in More → Recently deleted for 30 days.
       if (result && result.batch_id && result.deleted.length) {
+        practiceDNote_("deleted", result.deleted);
         showUndoToast_(tr("entriesBulk.doneUndo", { n: result.deleted.length }), () => restoreDeletedBatch_({ batch_id: result.batch_id }));
       }
     }, {
@@ -6550,6 +6551,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceTLeftover_, 16000);
   setTimeout(practiceXLeftover_, 18000);
   setTimeout(practiceYLeftover_, 20000);
+  setTimeout(practiceDLeftover_, 22000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -10622,7 +10624,10 @@ function buildTourSlide_(key, n, total) {
   if (key === "mydata") {
     if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
     body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    body += tr("tour.mydata.pTidy") + tr("tour.mydata.pExport");   // + one line for each My data screen that has a practice
+    body += tr("tour.mydata.pTidy");   // + one line for each My data screen that has a practice
+    const cp = (meta && meta.capabilities) || {};
+    if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
+    body += tr("tour.mydata.pExport");
   }
   // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
   let lead = "";
@@ -11577,6 +11582,7 @@ let tidyData_ = {};
 // The same restore is the Undo on the delete toast.
 async function restoreDeletedBatch_(payload) {
   const out = await callApi("restoreDeletedEntries", payload);
+  practiceDNote_("restored", out.restored);
   showToast_(out.restored.length ? tr("deleted.restored", { n: out.restored.length }) : tr("deleted.restoredNone"), false, 6000);   // (everything was already back)
   if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
   try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
@@ -11592,6 +11598,7 @@ async function showDeletedScreen_() {
   document.getElementById("deleted-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
   document.getElementById("deleted-empty").hidden = true;
   await refreshDeletedScreen_();
+  if (!document.getElementById("deleted-error").textContent) offerDeletedTip_();   // loading standard: offered once everything has arrived
 }
 async function refreshDeletedScreen_() {
   const errorEl = document.getElementById("deleted-error");
@@ -11607,12 +11614,14 @@ async function refreshDeletedScreen_() {
   res.batches.forEach((b) => {
     const box = document.createElement("div");
     box.className = "deleted-batch";
+    box.dataset.entries = b.entries.map((e) => e.entry_id).join(",");   // (the Recently deleted practice finds its own batch by these)
     box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("deleted.batchTitle", { when: when(b.deleted_at), n: b.entries.length }))}</div>
       <div class="hint deleted-batch-sub">${escapeHtml(shortNames_(b.entries.map((e) => e.description || tr("review.noDescription"))))}</div>`;   // (batches made in the same minute read alike: what is inside tells them apart)
     b.entries.forEach((e) => {
       const catName = (meta.categories.find((c) => c.id === e.category_id) || {}).name || "";
       const row = document.createElement("div");
       row.className = "recurring-row";
+      row.dataset.entryId = e.entry_id;
       row.innerHTML = `
         <div>
           <div class="recurring-row-name">${escapeHtml(e.description || catName || tr("review.noDescription"))}</div>
@@ -11631,8 +11640,12 @@ async function refreshDeletedScreen_() {
       saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id }), null, { busy: "deleted.restoring" });
     });
     actions.querySelector(".deleted-forget").addEventListener("click", () => {
-      if (!confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;
-      saveBehindScreen_(() => callApi("forgetDeletedEntries", { batch_id: b.batch_id }), () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
+      const ownPractice = practiceDOwns_(b.entries.map((e) => e.entry_id));
+      if (!practiceNoConfirm_(ownPractice) && !confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;   // (the practice's own batch asks nothing while the walkthrough runs)
+      saveBehindScreen_(async () => {
+        await callApi("forgetDeletedEntries", { batch_id: b.batch_id });
+        if (ownPractice) practiceDNote_("forgot");
+      }, () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
     });
     box.appendChild(actions);
     list.appendChild(box);
@@ -11640,6 +11653,145 @@ async function refreshDeletedScreen_() {
 }
 document.getElementById("more-deleted-btn").addEventListener("click", showDeletedScreen_);
 document.getElementById("deleted-back-btn").addEventListener("click", () => showMyDataScreen());   // it lives in the My data hub, under "Then tidy"
+
+// ---- First-use practice: Recently deleted (owner's design, 2026-11-03) ----
+// Offered on More → My data → Recently deleted. The person really deletes TWO made-up expenses together from Home (edit mode: pencil, tick both,
+// Delete), then finds them in Recently deleted, restores one and deletes the other for good. One server call makes the two entries
+// (createPracticeDeleted); one cleanup call (removePracticeDeleted) deletes whichever is still on the books and drops the safety copies, in the
+// background like the other practices, also on Exit and, if the app was closed midway, the next time it opens (it asks first).
+// Only the practice's own rows are ever lit up and tappable (the ticks, the one Restore, the batch's Delete for good), so a real entry or a
+// real batch is never touched.
+const PRACTICE_D_KEY_ = "tipPracticeDeleted";
+let practiceD_ = null;          // { made, ids, deleted, restored, forgot, startedOn }
+let practiceDRemoving_ = false;
+let practiceDLeftoverAsked_ = false;
+
+function practiceDLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_D_KEY_) || "null"); } catch (e) { return null; } }
+function practiceDSave_() {
+  try { if (practiceD_) localStorage.setItem(PRACTICE_D_KEY_, JSON.stringify(practiceD_)); else localStorage.removeItem(PRACTICE_D_KEY_); } catch (e) { /* ignore */ }
+}
+const practiceDIds_ = () => (practiceD_ && practiceD_.ids) || [];
+// Is this list of entry ids the practice's own (all of them are)? Only while a practice is running.
+function practiceDOwns_(ids) {
+  const mine = practiceDIds_();
+  return Spotlight.isRunning() && mine.length > 0 && ids.length > 0 && ids.every((id) => mine.includes(String(id)));
+}
+// What the real screens report back to the practice (the delete sheet, Restore, Delete for good).
+function practiceDNote_(what, ids) {
+  if (!practiceD_ || !practiceD_.ids.length) return;
+  const mine = practiceD_.ids;
+  if (what === "deleted" && mine.every((id) => (ids || []).map(String).includes(id))) practiceD_.deleted = true;
+  else if (what === "restored" && (ids || []).some((id) => mine.includes(String(id)))) practiceD_.restored = true;
+  else if (what === "forgot") practiceD_.forgot = true;
+  else return;
+  practiceDSave_();
+}
+
+function offerDeletedTip_() {
+  const caps = (meta && meta.capabilities) || {};
+  if (!caps.practiceDeleted || !caps.entriesRestore || !caps.entriesBulk) return;   // an older backend could not make the practice entries, keep a safety copy or clean up
+  offerTip_("deleted", "deleted-tip-invite", tr("spot.d.invite"), startDeletedPractice_);
+}
+
+function practiceDSteps_() {
+  const el = (id) => document.getElementById(id);
+  const deletedShown = () => !el("screen-deleted-entries").hidden;
+  const homeRow = (i) => () => { const id = practiceDIds_()[i]; return id ? document.querySelector(`#entry-list .entry[data-entry-id="${id}"]`) : null; };
+  const picked = (i) => () => entriesSelected_.has(practiceDIds_()[i]);
+  const pokeHome = () => { refreshEntryList().catch(() => {}); };
+  const pokeDeleted = () => { if (deletedShown()) refreshDeletedScreen_().catch(() => {}); };
+  const batch = () => Array.from(document.querySelectorAll("#deleted-list .deleted-batch")).find((b) => (b.dataset.entries || "").split(",").some((id) => practiceDIds_().includes(id))) || null;
+  const restoreBtn = () => { const b = batch(); return b ? b.querySelector(`.recurring-row[data-entry-id="${practiceDIds_()[0]}"] .deleted-one`) : null; };
+  const forgetBtn = () => { const b = batch(); return b && b.querySelectorAll(".recurring-row").length === 1 ? b.querySelector(".deleted-forget") : null; };   // (once one is restored, the batch holds the other alone)
+  return [
+    { key: "intro", text: () => tr("spot.d.intro"), button: () => tr("spot.d.start") },
+    { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.d.s1"), tap: '.nav-btn[data-screen="entries"]' },
+    { key: "edit", target: "#entries-edit-btn", text: () => tr("spot.d.s2"), until: () => entriesEditing_, wait: 20000, poke: pokeHome,
+      before: async () => { if (!(await practiceDMake_())) return false; } },
+    { key: "tick1", target: homeRow(0), text: () => tr("spot.d.s3"), until: picked(0), ok: picked(0), holdsUntil: "del", wait: 20000, poke: pokeHome },
+    { key: "tick2", target: homeRow(1), text: () => tr("spot.d.s4"), until: picked(1), ok: picked(1), holdsUntil: "del", wait: 20000, poke: pokeHome },
+    { key: "del", target: "#entries-delete-selected-btn", text: (fix) => tr(fix ? "spot.d.s5fix" : "spot.d.s5"), tap: "#entries-delete-selected-btn" },
+    { target: "#entries-bulk-go", text: () => tr("spot.d.s6"), tap: "#entries-bulk-go", wait: 20000 },
+    { text: () => tr("spot.d.s7"), button: () => tr("spot.d.gotIt"),
+      before: async () => {
+        for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server
+        if (practiceD_ && practiceD_.deleted) return true;
+        alert(tr("spot.d.deleteFailed"));
+        Spotlight.stop("skipped");
+        return false;
+      } },
+    { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.d.s8"), tap: '.nav-btn[data-screen="more"]' },
+    // More remembers the sub-screen it was left on, so usually this already shows Recently deleted and the next two steps drop out.
+    { target: "#more-my-data-btn", text: () => tr("spot.d.s9"), tap: "#more-my-data-btn",
+      before: async () => { await sleep(500); return !deletedShown() && el("screen-my-data").hidden; } },
+    { target: "#more-deleted-btn", text: () => tr("spot.d.s10"), tap: "#more-deleted-btn",
+      before: async () => { await sleep(150); return !deletedShown(); } },
+    { look: true, target: batch, text: () => tr("spot.d.s11"), button: () => tr("spot.d.gotIt"), wait: 20000, poke: pokeDeleted },
+    { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && practiceD_.restored), wait: 15000, poke: pokeDeleted },
+    { target: forgetBtn, text: () => tr("spot.d.s13"), until: () => !!(practiceD_ && practiceD_.forgot), wait: 15000, poke: pokeDeleted },
+    { text: () => tr("spot.d.s14"), button: () => tr("spot.d.finish") }
+  ];
+}
+
+// Adds the two practice entries and refreshes Home so they show. False = it could not (the practice stops, the usual cleanup runs).
+async function practiceDMake_() {
+  setEntriesEditing_(false);
+  practiceD_.made = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup is simply a harmless no-op)
+  practiceDSave_();
+  try {
+    const res = await callApi("createPracticeDeleted", { lang: I18n.getLang() });
+    practiceD_.ids = (res.ids || []).map(String);
+    practiceDSave_();
+    await refreshEntryList();
+    return true;
+  } catch (err) {
+    alert(tr("spot.d.createFailed", { error: err.message || String(err) }));
+    Spotlight.stop("skipped");
+    return false;
+  }
+}
+
+function startDeletedPractice_() {
+  if (practiceDRemoving_) { showToast_(tr("spot.d.stillRemoving")); return false; }
+  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop", "entries-bulk-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+  if (open || newEntrySheetOpen_ || entriesEditing_) { showToast_(tr("spot.x.busy")); return false; }
+  practiceD_ = { made: false, ids: [], deleted: false, restored: false, forgot: false, startedOn: todayLocalISO() };
+  practiceDSave_();
+  runTip_(practiceDSteps_(), async () => {
+    closeEntriesBulkSheet_();
+    setEntriesEditing_(false);
+    showToast_(tr("spot.d.removing"));
+    practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); });
+  }, tr("spot.d.note"));
+  return true;
+}
+
+async function practiceDRemove_() {
+  if (practiceDRemoving_) return false;
+  const p = practiceD_ || practiceDLoad_();
+  if (!p) return true;
+  practiceDRemoving_ = true;
+  try {
+    let ok = true;
+    if (p.made) {
+      for (let i = 0; i < 40 && perfInflight_ > 0; i++) await sleep(400);   // a delete / restore still on its way lands first
+      try { await callApi("removePracticeDeleted", {}); }
+      catch (err) { ok = false; alert(tr("spot.d.removeFailed", { error: err.message })); }
+    }
+    if (ok) { practiceD_ = null; practiceDSave_(); }
+    if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});   // the practice batch leaves the list
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    return ok;
+  } finally { practiceDRemoving_ = false; }
+}
+
+// A practice left behind (the app was closed midway): offered once when the app opens.
+function practiceDLeftover_() {
+  if (practiceDLeftoverAsked_ || practiceDRemoving_ || Spotlight.isRunning() || !(practiceDLoad_() || {}).made) return;
+  practiceDLeftoverAsked_ = true;
+  if (confirm(tr("spot.d.leftover"))) practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); });
+}
 
 async function showTidyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-tidy"; });

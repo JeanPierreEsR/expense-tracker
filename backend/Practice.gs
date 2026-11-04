@@ -13,7 +13,8 @@ var PRACTICE_ENTRY_NAMES_ = [
   'Practice charge', 'Cargo de práctica',             // Needs review: the capture the person discards
   'Practice trip expense', 'Gasto de viaje de práctica',  // Trips & events: the expense linked to the practice trip
   'Practice coffee shop', 'Cafetería de práctica',    // Tidy my history: the three uncategorised expenses (also marked by external_id 'practice-tidy-')
-  'Interest and fees, installment 1/3: Practice bank loan',          // Bank loan practice: the installment's interest + fees
+  'Practice snack', 'Merienda de práctica',           // Recently deleted: the two expenses deleted together (also marked by external_id 'practice-deleted-')
+  'Interest and fees, installment 1/3: Practice bank loan',         // Bank loan practice: the installment's interest + fees
   'Intereses y comisiones, cuota 1/3: Préstamo bancario de práctica'
 ];
 

@@ -456,6 +456,8 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeReview': return removePracticeReview(payload);
     case 'createPracticeTidy': return createPracticeTidy(payload);
     case 'removePracticeTidy': return removePracticeTidy();
+    case 'createPracticeDeleted': return createPracticeDeleted(payload);
+    case 'removePracticeDeleted': return removePracticeDeleted();
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
     case 'removePracticeBudgets': return removePracticeBudgets();
     case 'removePracticeInvestments': return removePracticeInvestments(payload);
