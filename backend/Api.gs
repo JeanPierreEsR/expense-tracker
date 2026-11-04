@@ -194,6 +194,7 @@ function routeActionSwitch_(action, payload) {
     case 'saveDateOrder': return saveDateOrder(payload);
     case 'eraseEverything': return eraseEverything(payload);
     case 'setExtraOff': return setExtraOff(payload);
+    case 'setExtraOn': return setExtraOn(payload);
     case 'takeBackPermissions': return takeBackPermissions(payload);
     case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
     case 'saveOnboardingPlatforms': return saveOnboardingPlatforms(payload);

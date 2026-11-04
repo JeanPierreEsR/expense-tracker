@@ -9932,16 +9932,34 @@ bsEl_("bs-send").addEventListener("click", async () => {
     bsEl_("bs-send").disabled = false;
   }
 });
-// Each extra: [backend feature name, capabilities key, title string, what-it-does string]. Turning one off is one tap (nothing is
-// deleted); turning one on needs Google's approval, which only the setup page can ask for.
+// Each extra: [backend feature name, capabilities key, title string, what-it-does string]. Each has an on/off switch (2026-11-04):
+// off is one tap (nothing is deleted); on is one tap too while Google's permission is still there (setExtraOn checks it), and
+// otherwise needs Google's approval, which only the setup page can ask for: the switch then stays off and the setup block shows.
 const EXTRAS_SWITCHES_ = [
   ["keepawake", "keepAwake", "extras.awake", "extras.awakeBody"],
   ["gmail", "bankEmails", "extras.bank", "extras.bankBody"]
 ];
+let extrasNeedApproval_ = "";   // the title key of the extra Google must approve on the setup page, after a refused switch-on
 function extrasMsg_(text) {
   const el = document.getElementById("extras-msg");
   el.textContent = text || "";
   el.hidden = !text;
+}
+async function setExtra_(feature, titleKey, on, input) {
+  input.disabled = true;
+  extrasMsg_(tr(on ? "extras.turningOn" : "extras.turningOff"));
+  try {
+    const r = await callApi(on ? "setExtraOn" : "setExtraOff", { name: feature });
+    meta.capabilities = r.capabilities;
+    extrasNeedApproval_ = on && r.needsApproval ? titleKey : "";
+    refreshExtrasRow_();
+    renderExtrasList_();
+    extrasMsg_(on ? (r.needsApproval ? "" : tr("extras.turnedOn", { name: tr(titleKey) })) : tr("extras.turnedOff", { name: tr(titleKey) }));
+  } catch (err) {
+    input.checked = !on;
+    input.disabled = false;
+    extrasMsg_(tr("extras.failed"));
+  }
 }
 function renderExtrasList_() {
   const caps = (meta && meta.capabilities) || {};
@@ -9951,40 +9969,33 @@ function renderExtrasList_() {
     const on = caps[capKey] !== false;
     const row = document.createElement("div");
     row.className = "extras-row";
-    const head = document.createElement("div");
-    head.style.fontWeight = "600";
-    head.textContent = tr(titleKey) + " — " + tr(on ? "extras.on" : "extras.off");
+    const head = document.createElement("label");
+    head.className = "extras-switch-row";
+    const name = document.createElement("span");
+    name.textContent = tr(titleKey);
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "ios-switch";
+    input.setAttribute("role", "switch");
+    input.checked = on;
+    // An older backend cannot turn one on from here: its switch stays usable only for turning off.
+    input.disabled = !on && !caps.extrasOn;
+    input.addEventListener("change", () => setExtra_(feature, titleKey, input.checked, input));
+    head.append(name, input);
     const body = document.createElement("p");
     body.className = "hint";
     body.textContent = tr(bodyKey);
     row.append(head, body);
-    if (on) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "add-inline";
-      btn.textContent = tr("extras.turnOff");
-      btn.addEventListener("click", async () => {
-        btn.disabled = true;
-        extrasMsg_("");
-        try {
-          const r = await callApi("setExtraOff", { name: feature });
-          meta.capabilities = r.capabilities;
-          refreshExtrasRow_();
-          renderExtrasList_();
-          extrasMsg_(tr("extras.turnedOff", { name: tr(titleKey) }));
-        } catch (err) {
-          btn.disabled = false;
-          extrasMsg_(tr("extras.failed"));
-        }
-      });
-      row.appendChild(btn);
-    }
     list.appendChild(row);
   });
-  document.getElementById("extras-turn-on").hidden = !extrasOff_().length;
+  // The setup page is only needed when Google must approve: after a refused switch-on, or on an older backend with one off.
+  const needSetup = !!extrasNeedApproval_ || (!caps.extrasOn && extrasOff_().length > 0);
+  document.getElementById("extras-turn-on").hidden = !needSetup;
+  document.getElementById("extras-approval-hint").textContent = extrasNeedApproval_ ? tr("extras.needsApproval", { name: tr(extrasNeedApproval_) }) : tr("extras.hint");
 }
 document.getElementById("fp-extras-btn").addEventListener("click", () => {
   I18n.applyStatic(document.getElementById("extras-modal-backdrop"));
+  extrasNeedApproval_ = "";
   renderExtrasList_();
   extrasMsg_("");
   document.getElementById("extras-takeback-confirm").hidden = true;
