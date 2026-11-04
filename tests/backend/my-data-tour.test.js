@@ -155,7 +155,7 @@ test("the Import practice: invitation box in Import mode, offered when the scree
   for (const k of new Set([...stm.matchAll(/tr\("(spot\.f\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k + " is asked for but missing");
   for (let i = 1; i <= 11; i++) assert.ok(STRINGS["spot.f.s" + i] && STRINGS["spot.f.s" + i].es, "step " + i);
   assert.equal((stm.match(/callApi\("removePracticeImport"/g) || []).length, 1, "one cleanup call");
-  assert.match(app, /window\.practiceILeftover_/, "a practice left by a closed app is offered for removal");
+  assert.match(app, /window\.statementsPracticeLeftover_/, "a practice left by a closed app is offered for removal");
   assert.match(app, /"Practice Lunch", "Almuerzo De Práctica"/, "Home marks the practice entries as being deleted");
   assert.match(app, /removePracticeImport: 150000/);
   // the steps use the REAL buttons of the import screens
@@ -202,4 +202,10 @@ test("the Bank statements tour line names the screen and only shows where the cl
   assert.match(STRINGS["tour.mydata.pBank"].en, /Bank statements/);
   assert.match(STRINGS["tour.mydata.pBank"].es, /Estados de cuenta/);
   assert.match(app, /if \(cp\.practiceBank\) body \+= tr\("tour\.mydata\.pBank"\)/);
+});
+
+test("statements.js never replaces a global that app.js already defines (the Import hook once overwrote the Investments leftover prompt)", () => {
+  const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
+  const clashes = [...stm.matchAll(/window\.(\w+)\s*=/g)].map((m) => m[1]).filter((name) => new RegExp("(^|\\n)(async\\s+)?function\\s+" + name + "\\s*\\(").test(app));
+  assert.deepEqual(clashes, []);
 });

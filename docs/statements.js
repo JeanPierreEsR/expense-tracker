@@ -2423,7 +2423,7 @@
   }
 
   // A practice left behind (the app was closed midway): offered once when the app opens.
-  window.practiceILeftover_ = function () {
+  window.statementsPracticeLeftover_ = function () {
     const left = practiceILoad_() || {};
     if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(left.touched || (left.kind === "bank" && left.accountMade))) return;
     practiceILeftoverAsked_ = true;
