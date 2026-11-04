@@ -2445,6 +2445,9 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
 .welcome-choices { display: flex; flex-direction: column; gap: 8px; }
+.wa-wallet-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.wa-wallet-row .welcome-choice { flex: 1; text-align: center; }
+#wa-wallet-q select { margin-bottom: 8px; }
 .welcome-choice { text-align: left; min-height: 44px; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
 .welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
 .welcome-choices.fits-compact { flex-direction: row; flex-wrap: wrap; gap: 8px; }   /* My profile → What fits me: small side-by-side chips */

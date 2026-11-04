@@ -50,6 +50,17 @@ function bringModalToFront_(backdropEl) {
   backdropEl.style.zIndex = topModalZIndex;
 }
 
+// An account as it reads in a list to pick from: its name, the last 4 digits, and the wallets that ride on it ("BCP soles · Yape"),
+// so a person who pays with Yape or Plin finds it without knowing that the app records the bank account behind it (2026-11-04).
+function pmPickLabel_(pm) {
+  const settings = (meta && meta.settings) || {};
+  const wallets = [];
+  if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
+  if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id)) wallets.push("Plin");
+  const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+  return pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
+}
+
 // Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
 // with the trimmed text, or null when the person cancels, taps ✕ or taps outside. Sits above the practices' dimmed screen (100000).
 let nameAskDone_ = null;
@@ -1303,7 +1314,7 @@ function keepHiddenAccountOption_(selectId, pmId) {
   if (!pm || !pmHidden_(pm) || Array.from(select.options).some((o) => o.value === pmId)) return;
   const opt = document.createElement("option");
   opt.value = pm.id;
-  opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+  opt.textContent = pmPickLabel_(pm);
   select.appendChild(opt);
 }
 
@@ -1323,7 +1334,7 @@ function populatePaymentMethodOptions() {
   meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 
@@ -1351,7 +1362,7 @@ function populateToPaymentMethodOptions() {
   meta.paymentMethods.filter((pm) => (pm.type === "investment") === wantPlatforms && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
   select.value = previous;
@@ -10364,8 +10375,68 @@ function renderWelcomeAccounts_() {
   fill("wa-main-banks", waBanksOfList_(cat.main));
   fill("wa-other-banks", waBanksOfList_(cat.other.concat(custom)));
   fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank), true);
+  renderWaWalletQuestion_();
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
   waEl_("wa-error").textContent = "";
+}
+
+// "Do you use Yape or Plin?" at the top of the accounts step (owner, 2026-11-04: Yape / Plin users could not find themselves in a
+// bank-by-bank list). Yape rides on a BCP account; Plin on another bank's. Ticking one makes (or reuses) that bank's soles account and
+// links the wallet to it, exactly as ticking the wallet box inside the account would; unticking only removes the link (and the
+// account, when it was made by this question and nothing was typed into it).
+function waWalletAccount_(bank) {
+  return welcome_.accounts.find((a) => a.bank.toLowerCase() === bank.toLowerCase() && (a.kind === "debit_pen" || a.kind === "sueldo"));
+}
+function waSetWallet_(rail, bank) {
+  const linked = welcome_.links[rail] && welcome_.accounts.find((a) => a.cid === welcome_.links[rail]);
+  if (linked && linked.fromWalletQ && !linked.alias && !linked.last4 && !WA_RAILS.some((k) => k !== rail && welcome_.links[k] === linked.cid)) {
+    welcome_.accounts = welcome_.accounts.filter((a) => a.cid !== linked.cid);
+  }
+  welcome_.links[rail] = "";
+  if (!bank) return;
+  let acct = waWalletAccount_(bank);
+  if (!acct) {
+    acct = { cid: "w" + Date.now() + Math.floor(Math.random() * 1000), bank, kind: "debit_pen", alias: "", last4: "", showLast4: false, fromWalletQ: true };
+    welcome_.accounts.push(acct);
+  }
+  welcome_.links[rail] = acct.cid;
+}
+function renderWaWalletQuestion_() {
+  const box = waEl_("wa-wallet-q");
+  if (!box) return;
+  box.innerHTML = "";
+  const yapeOn = !!welcome_.links.yape_pen, plinOn = !!welcome_.links.plin_pen;
+  const row = document.createElement("div");
+  row.className = "wa-wallet-row";
+  [["yape_pen", "Yape", yapeOn], ["plin_pen", "Plin", plinOn]].forEach(([rail, label, on]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (on ? " active" : "");
+    b.textContent = (on ? "✓ " : "") + label;
+    b.addEventListener("click", () => {
+      if (rail === "yape_pen") waSetWallet_(rail, on ? "" : "BCP");
+      else if (on) waSetWallet_(rail, "");
+      else { welcome_.plinAsk = true; }
+      renderWelcomeAccounts_();
+    });
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  // Plin: which bank it is on (any bank but BCP).
+  if (welcome_.plinAsk && !plinOn) {
+    const lab = document.createElement("label");
+    lab.textContent = tr("wa.plinWhich");
+    const sel = document.createElement("select");
+    const cat = waCatalog_();
+    const first = document.createElement("option"); first.value = ""; first.textContent = tr("wa.plinPick"); sel.appendChild(first);
+    cat.main.concat(cat.other).filter((bk) => !isBcp_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
+    sel.addEventListener("change", () => { if (!sel.value) return; welcome_.plinAsk = false; waSetWallet_("plin_pen", sel.value); renderWelcomeAccounts_(); });
+    box.appendChild(lab);
+    box.appendChild(sel);
+  }
+  const names = waDisplayNames_();
+  const lines = [["yape_pen", "Yape"], ["plin_pen", "Plin"]].filter(([k]) => welcome_.links[k]).map(([k, w]) => tr("wa.walletOn", { wallet: w, account: names[welcome_.links[k]] || "" }));
+  if (lines.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = lines.join(" "); box.appendChild(p); }
 }
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
@@ -10398,7 +10469,7 @@ function renderWalletBoxes_(box, slots, ticked, onToggle) {
     box.appendChild(row);
   });
 }
-const isWelcomeCredit_ = (kind) => kind === "credit";
+const isWelcomeCredit_ = (kind) => /^credit/.test(kind || "");   // "credit" or a card in one currency only ("credit_usd")
 function waSlots_(bank, kind) { return walletSlots_(bank, isWelcomeCredit_(kind) ? "credit" : "debit", kind); }
 
 function renderWaBank_() {
@@ -21720,7 +21791,7 @@ function bankPopulateAccounts_(selectId, keep) {
   meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
     const o = document.createElement("option");
     o.value = pm.id;
-    o.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    o.textContent = pmPickLabel_(pm);
     sel.appendChild(o);
   });
   sel.value = keep || "";
@@ -22241,7 +22312,7 @@ function populateLoanPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -22541,7 +22612,7 @@ function populateSettlementPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -23220,7 +23291,7 @@ function populateReviewTransferPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -23458,7 +23529,7 @@ async function openBalanceModal(pmId) {
       const opt = document.createElement("option");
       opt.value = pm.id;
       const tracked = balancesCache.some((b) => b.id === pm.id);
-      opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (tracked ? " ✓" : "");
+      opt.textContent = pmPickLabel_(pm) + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
     if (!meta.paymentMethods.length) {
