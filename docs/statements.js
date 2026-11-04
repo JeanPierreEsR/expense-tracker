@@ -110,6 +110,7 @@
     refreshStatementBatches();
     refreshStatementInbox();
     renderSteps();
+    if (next === "import") offerImportTip_();
   }
 
   // ---- the four steps: Upload > Check > Preview > Done ----
@@ -1315,6 +1316,7 @@
       callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...withoutSkips(state.catChoice), ...renameFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
+      if (StatementTable.PRACTICE_FILE_NAMES.includes(file.name)) practiceINote_("used");   // the practice file's layout was just remembered: its cleanup forgets it
       // A re-read of the same file replaces its earlier reading.
       usable = usable.filter((u) => (u.group || u.file) !== file.name);
       results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
@@ -1841,7 +1843,7 @@
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
     const adding = historyCounts().entries;
-    if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
+    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
     status.innerHTML = "";
@@ -1862,6 +1864,7 @@
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));
       lastBatchId = res.batchId;
+      practiceINote_("saved", res.batchId);
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0);
       // Say what did NOT happen too: entries waiting for the person in Needs review, and lines that were not added.
       const used = new Set(historyActions().filter((a) => a.type !== "wait" && a.stmt !== undefined).map(lineKey));
@@ -2007,7 +2010,7 @@
   }
 
   async function undoBatch(batchId, trigger) {
-    if (!confirm(tr("stmt.confirmUndo"))) return;
+    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !confirm(tr("stmt.confirmUndo"))) return;
     // The Undo buttons sit in Recent uploads (a side panel) or in step 4: the result is always shown in step 4.
     savedThisRun = true;
     showStep(4);
@@ -2021,6 +2024,7 @@
     try {
       const r = await callApi("undoStatementBatch", { batchId });
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}${r.categoriesRenamedBack ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneRenamed", { n: r.categoriesRenamedBack }))}</p>` : ""}`;
+      practiceINote_("undone", batchId);
       lastBatchId = null;
       historyPlan = null;
       $("statement-history").innerHTML = "";
@@ -2226,4 +2230,129 @@
   $("statement-password-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") closeStatementPassword($("statement-password-input").value);
   });
+  // ---- First-use practice: Import from another app (owner's design, 2026-11-03) ----
+  // Offered on More → My data → Import from another app. The app builds a small made-up CSV in code (StatementTable.practiceFile: three purchases
+  // with a category) and hands it to the REAL file handler, so the person walks the real screens: the file is read, the columns and categories
+  // are checked, the preview, "Add to my history", and the real Undo. The entries are saved with no account (Import never needs one), so there is
+  // no account to make or delete. Only the steps' own buttons are tappable ("Use these lines", Next, Add to my history, Undo), so the person
+  // cannot change the account or the categories and touch anything real. Nothing is created by a special call: the import itself saves, the
+  // real Undo removes it (entries and the category it created), and one cleanup call (removePracticeImport) forgets the made-up file's
+  // remembered layout and finishes an import left half-way (Exit, or the app closed): in the background, also on Exit and — asked first — the
+  // next time the app opens. See backend/PracticeImport.gs.
+  const PRACTICE_I_KEY_ = "tipPracticeImport";
+  let practiceI_ = null;          // { touched, saved, undone, batchId, signature, startedOn }
+  let practiceIRemoving_ = false;
+  let practiceILeftoverAsked_ = false;
+
+  function practiceILoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_I_KEY_) || "null"); } catch (e) { return null; } }
+  function practiceISave_() {
+    try { if (practiceI_) localStorage.setItem(PRACTICE_I_KEY_, JSON.stringify(practiceI_)); else localStorage.removeItem(PRACTICE_I_KEY_); } catch (e) { /* ignore */ }
+  }
+  // Is every file of this run the practice's own? Only while a practice runs (a real import is always asked about).
+  function practiceIOwns_(names) {
+    return !!practiceI_ && Spotlight.isRunning() && names.length > 0 && names.every((n) => StatementTable.PRACTICE_FILE_NAMES.includes(String(n || "")));
+  }
+  function practiceIOwnsBatch_(batchId) { return !!practiceI_ && Spotlight.isRunning() && !!batchId && practiceI_.batchId === batchId; }
+  // What the real screens report back to the practice.
+  function practiceINote_(what, batchId) {
+    if (!practiceI_) return;
+    if (what === "used") practiceI_.touched = true;
+    else if (what === "saved") { practiceI_.touched = true; practiceI_.saved = true; practiceI_.batchId = batchId || ""; }
+    else if (what === "undone" && practiceI_.batchId === batchId) practiceI_.undone = true;
+    else return;
+    practiceISave_();
+  }
+
+  function offerImportTip_() {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps.practiceImport || screenMode !== "import") return;   // an older backend could not clean the practice up
+    offerTip_("import", "import-tip-invite", tr("spot.f.invite"), startImportPractice_);
+  }
+
+  function practiceISteps_() {
+    const root = () => document.querySelector("#statement-results .tm-root");
+    const part = (sel) => () => { const r = root(); return r ? r.querySelector(sel) : null; };
+    const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
+    const cats = () => { const c = part(".tm-cats")(); return c && c.querySelector(".tm-cat-summary") ? c : null; };   // (the category list arrives a moment after the columns)
+    const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
+    const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
+    return [
+      { key: "intro", text: () => tr("spot.f.intro"), button: () => tr("spot.f.start") },
+      { look: true, target: ".stmt-upload-btn", text: () => tr("spot.f.s1"), button: () => tr("spot.f.useFile"),
+        after: () => { practiceIFeed_(); } },
+      { look: true, target: top, text: () => tr("spot.f.s2"), button: () => tr("spot.f.gotIt"), wait: 20000 },
+      { look: true, target: part(".tm-preview"), text: () => tr("spot.f.s3"), button: () => tr("spot.f.gotIt") },
+      { look: true, target: cats, text: () => tr("spot.f.s4"), button: () => tr("spot.f.gotIt"), wait: 20000 },
+      { target: part(".tm-use"), text: () => tr("spot.f.s5"), tap: "#statement-results .tm-use" },
+      { target: "#stmt-next-2", text: () => tr("spot.f.s6"), tap: "#stmt-next-2", wait: 20000 },
+      { look: true, target: () => ($("statement-history-save") ? $("statement-history") : null), text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
+      { target: "#statement-history-save", text: () => tr("spot.f.s8"), tap: "#statement-history-save" },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.f.s9"), button: () => tr("spot.f.gotIt"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.f.saveFailed") },
+      { target: "#stmt-undo-btn", text: () => tr("spot.f.s10"), tap: "#stmt-undo-btn", wait: 15000 },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.f.s11"), button: () => tr("spot.f.finish"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.undone), 90000)) ? true : failed("spot.f.undoFailed") }
+    ];
+  }
+
+  // Builds the made-up file and hands it to the real file handler. The file's layout key is stored FIRST, so a closed app can still forget it.
+  async function practiceIFeed_() {
+    try {
+      const f = StatementTable.practiceFile(I18n.getLang(), todayLocalISO());
+      try {
+        const rows = await StatementTable.readTable(new TextEncoder().encode(f.text), f.name);
+        practiceI_.signature = StatementTable.signature(StatementTable.guessMapping(rows, {}), rows);
+        practiceISave_();
+      } catch (e) { /* no key: the cleanup just has no layout to forget */ }
+      await handleStatementFiles([new File([f.text], f.name, { type: "text/csv" })]);
+    } catch (err) {
+      alert(tr("spot.f.fileFailed", { error: err.message || String(err) }));
+      Spotlight.stop("skipped");
+    }
+  }
+
+  function startImportPractice_() {
+    if (practiceIRemoving_) { showToast_(tr("spot.f.stillRemoving")); return false; }
+    const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop", "statement-added-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+    if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+    if (usable.length || stmtCards().length || historyPlan || savedThisRun) { showToast_(tr("spot.f.busyRun")); return false; }   // the person's own import is in progress
+    practiceI_ = { touched: false, saved: false, undone: false, batchId: "", signature: "", startedOn: todayLocalISO() };
+    practiceISave_();
+    stepNow = 1; renderSteps();
+    window.scrollTo(0, 0);
+    runTip_(practiceISteps_(), async () => {
+      clearRun();   // the practice file leaves the screen
+      stepNow = 1; renderSteps();
+      showToast_(tr("spot.f.removing"));
+      practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.f.removed")); });
+    }, tr("spot.f.note"));
+    return true;
+  }
+
+  async function practiceIRemove_() {
+    if (practiceIRemoving_) return false;
+    const p = practiceI_ || practiceILoad_();
+    if (!p) return true;
+    practiceIRemoving_ = true;
+    try {
+      let ok = true;
+      if (p.touched) {   // (nothing was remembered or saved before "Use these lines": nothing to remove)
+        for (let i = 0; i < 40 && perfInflight_ > 0; i++) await sleep(400);   // a save / undo still on its way lands first
+        try { await callApi("removePracticeImport", { signature: p.signature || "" }); }
+        catch (err) { ok = false; alert(tr("spot.f.removeFailed", { error: err.message })); }
+      }
+      if (ok) { practiceI_ = null; practiceISave_(); }
+      coverage = null;
+      refreshStatementBatches();
+      refreshOtherScreens();
+      return ok;
+    } finally { practiceIRemoving_ = false; }
+  }
+
+  // A practice left behind (the app was closed midway): offered once when the app opens.
+  window.practiceILeftover_ = function () {
+    if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(practiceILoad_() || {}).touched) return;
+    practiceILeftoverAsked_ = true;
+    if (confirm(tr("spot.f.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.f.removed")); });
+  };
 })();

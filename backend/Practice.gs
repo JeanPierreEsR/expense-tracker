@@ -13,6 +13,7 @@ var PRACTICE_ENTRY_NAMES_ = [
   'Practice charge', 'Cargo de práctica',             // Needs review: the capture the person discards
   'Practice trip expense', 'Gasto de viaje de práctica',  // Trips & events: the expense linked to the practice trip
   'Practice coffee shop', 'Cafetería de práctica',    // Tidy my history: the three uncategorised expenses (also marked by external_id 'practice-tidy-')
+  'Practice Lunch', 'Almuerzo De Práctica', 'Practice Dinner', 'Cena De Práctica', 'Practice Ride', 'Paseo De Práctica',   // Import from another app: the three lines of the made-up file, spelled as the import saves them (it capitalises each word)
   'Practice snack', 'Merienda de práctica',           // Recently deleted: the two expenses deleted together (also marked by external_id 'practice-deleted-')
   'Interest and fees, installment 1/3: Practice bank loan',         // Bank loan practice: the installment's interest + fees
   'Intereses y comisiones, cuota 1/3: Préstamo bancario de práctica'
