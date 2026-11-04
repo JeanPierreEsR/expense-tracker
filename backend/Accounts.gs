@@ -52,8 +52,8 @@ function isAccountKind_(kind) {
   return ACCOUNT_KINDS_.indexOf(String(kind)) !== -1 || /^(debit|sueldo)_[a-z]{3}$/.test(String(kind));
 }
 var ACCOUNT_ALIAS_WORDS_ = {
-  en: { debit_pen: 'soles', debit_usd: 'dollars', credit: 'credit', sueldo: 'salary' },
-  es: { debit_pen: 'soles', debit_usd: 'dólares', credit: 'crédito', sueldo: 'sueldo' }
+  en: { debit_pen: 'soles', debit_usd: 'dollars', debit_eur: 'euros', credit: 'credit', sueldo: 'salary' },
+  es: { debit_pen: 'soles', debit_usd: 'dólares', debit_eur: 'euros', credit: 'crédito', sueldo: 'sueldo' }
 };
 // Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
 var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
@@ -80,8 +80,9 @@ function bankShortName_(bankName) {
 
 function accountKindType_(kind) { return kind === 'credit' ? 'credit' : 'debit'; }
 
-// The word after the bank: soles / dólares / crédito / sueldo; another currency's debit account gets its code ("BBVA EUR"),
-// a salary account in another currency stays "sueldo".
+// The word after the bank: soles / dólares / euros / crédito / sueldo. These words are for PERUVIAN banks, which open accounts in
+// soles, dollars and euros (owner, 2026-11-04); any other currency's debit account gets its code ("Bank GBP"), and a salary account
+// in another currency stays "sueldo".
 function accountKindWord_(kind, lang) {
   var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
   if (words[kind]) return words[kind];

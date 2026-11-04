@@ -10174,7 +10174,8 @@ function waShort_(bankName) {
   return b ? b.short : bankName;
 }
 function waWords_() { const c = waCatalog_(); return c.words[welcome_.lang] || c.words.en || {}; }
-// Same rule as accountKindWord_ in backend/Accounts.gs: another currency's debit account is named by its code, a salary account stays "sueldo".
+// Same rule as accountKindWord_ in backend/Accounts.gs: soles / dólares / euros (the words are for Peruvian banks), any other currency's
+// debit account is named by its code, a salary account stays "sueldo".
 function waKindWord_(kind) {
   const w = waWords_();
   if (w[kind]) return w[kind];
