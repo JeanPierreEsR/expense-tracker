@@ -50,6 +50,33 @@ function bringModalToFront_(backdropEl) {
   backdropEl.style.zIndex = topModalZIndex;
 }
 
+// Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
+// with the trimmed text, or null when the person cancels, taps ✕ or taps outside. Sits above the practices' dimmed screen (100000).
+let nameAskDone_ = null;
+function askName_(title) {
+  const backdrop = document.getElementById("name-ask-backdrop");
+  if (nameAskDone_) nameAskDone_(null);
+  I18n.applyStatic(backdrop);
+  document.getElementById("name-ask-title").textContent = String(title || "").replace(/:\s*$/, "");
+  const input = document.getElementById("name-ask-input");
+  input.value = "";
+  document.getElementById("name-ask-error").textContent = "";
+  backdrop.style.zIndex = 100001;
+  backdrop.hidden = false;
+  setTimeout(() => input.focus(), 50);
+  return new Promise((resolve) => {
+    nameAskDone_ = (value) => { nameAskDone_ = null; backdrop.hidden = true; resolve(value); };
+  });
+}
+function nameAskOk_() {
+  const v = document.getElementById("name-ask-input").value.replace(/\s+/g, " ").trim();
+  if (!v) { document.getElementById("name-ask-error").textContent = tr("accounts.errName"); return; }
+  if (nameAskDone_) nameAskDone_(v);
+}
+document.getElementById("name-ask-ok").addEventListener("click", nameAskOk_);
+document.getElementById("name-ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameAskOk_(); } });
+["name-ask-cancel", "name-ask-close"].forEach((id) => document.getElementById(id).addEventListener("click", () => { if (nameAskDone_) nameAskDone_(null); }));
+
 let meta = null;
 let selectedType = "expense";
 // Business pack: the expected payment an income settles (declared up here because selectCurrency can run before the business code below).
@@ -985,7 +1012,11 @@ let languageSynced_ = false;
 function syncLanguageSetting_() {
   if (languageSynced_ || !meta || !meta.settings || !I18n.hasChosenLang()) return;
   languageSynced_ = true;
-  if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).catch(() => {});
+  if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).then((res) => {
+    // The built-in Cash was renamed into this language (2026-11-04): the lists on screen still show the old name.
+    const pm = res && res.cash && (meta.paymentMethods || []).find((p) => String(p.id) === String(res.cash.id));
+    if (pm) { pm.nickname = res.cash.nickname; refreshAccountPickers_(); }
+  }).catch(() => {});
 }
 
 let homeCurFormDone_ = false;
@@ -1618,7 +1649,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
   if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -2183,7 +2214,7 @@ document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
 });
 
 document.getElementById("split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   rememberPerson_(friend);   // a hidden friend with this name comes back instead of a second one being made
@@ -2248,7 +2279,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
 
 document.getElementById("paid_by").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const name = prompt(tr("prompt.friendName"));
+    const name = await askName_(tr("prompt.friendName"));
     e.target.value = "me";
     if (name && name.trim()) {
       const friend = await callApi("addFriend", { name: name.trim() });
@@ -2258,7 +2289,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
       document.getElementById("paid_by").value = friend.id;
     }
   } else if (e.target.value === "__add_payor__") {
-    const name = prompt(tr("prompt.payorName"));
+    const name = await askName_(tr("prompt.payorName"));
     e.target.value = meta.payors.length ? meta.payors[0].id : "";
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
@@ -2270,49 +2301,18 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
   togglePaymentMethodVisibility();
 });
 
-// The type is stored in English in the Sheet (credit, debit, cash, transfer,
-// wallet); the owner may type it in either language.
-const PAYMENT_METHOD_TYPE_WORDS = {
-  credit: "credit", "crédito": "credit", credito: "credit", "tarjeta de crédito": "credit",
-  debit: "debit", "débito": "debit", debito: "debit", "tarjeta de débito": "debit",
-  cash: "cash", efectivo: "cash",
-  transfer: "transfer", transferencia: "transfer",
-  wallet: "wallet", billetera: "wallet"
-};
-function paymentMethodTypeFromAnswer_(answer) {
-  const word = String(answer || "").trim().toLowerCase();
-  return PAYMENT_METHOD_TYPE_WORDS[word] || (word ? word : "credit");
-}
-
 document.getElementById("payment_method").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const nickname = prompt(tr("prompt.paymentMethodName"));
-    if (!nickname || !nickname.trim()) {
-      e.target.value = "";
-      return;
-    }
-    const trimmed = nickname.trim();
-
-    // Reuse an existing one instead of creating a duplicate (e.g. picking
-    // "+ Add payment method…" again and typing "Cash" a second time).
-    const existing = meta.paymentMethods.find((pm) => pm.nickname.trim().toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      document.getElementById("payment_method").value = existing.id;
-      return;
-    }
-
-    const type = paymentMethodTypeFromAnswer_(prompt(tr("prompt.paymentMethodType"), "credit"));
-    const last4 = prompt(tr("prompt.last4")) || "";
-    const pm = await callApi("addPaymentMethod", { nickname: trimmed, type: type.trim(), last_4: last4.trim() });
-    meta.paymentMethods.push(pm);
-    populatePaymentMethodOptions();
-    populateToPaymentMethodOptions();
-    document.getElementById("payment_method").value = pm.id;
+    // The real Add account window (type, bank, currency…) instead of three plain questions in a row (2026-11-04); the new account is
+    // picked here once it is saved.
+    e.target.value = "";
+    openPmModal_(null);
+    pmModalState.selectIn = "payment_method";
   }
 });
 
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.tagName"));
+  const name = await askName_(tr("prompt.tagName"));
   if (name && name.trim()) {
     const tag = await callApi("addTag", { name: name.trim() });
     meta.tags.push(tag);
@@ -10507,8 +10507,8 @@ waEl_("wa-save-account-btn").addEventListener("click", () => {
   renderWaBank_();
 });
 waEl_("wa-bank-back").addEventListener("click", () => { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); });
-waEl_("wa-add-bank-btn").addEventListener("click", () => {
-  const name = (prompt(tr("accounts.bankPrompt")) || "").trim().slice(0, 60);
+waEl_("wa-add-bank-btn").addEventListener("click", async () => {
+  const name = ((await askName_(tr("accounts.bankPrompt"))) || "").trim().slice(0, 60);
   if (!name) return;
   const cat = waCatalog_();
   const existing = cat.main.concat(cat.other).map((b) => b.name).concat(welcome_.customBanks).find((n) => n.toLowerCase() === name.toLowerCase());
@@ -12677,7 +12677,8 @@ function closePmModal_() {
 document.getElementById("pm-bank").addEventListener("change", async (e) => {
   if (!pmModalState) return;
   if (e.target.value !== "__add__") { pmModalState.lastBank = e.target.value; renderPmWallets_(); return; }
-  const name = prompt(tr("accounts.bankPrompt"));
+  const name = await askName_(tr("accounts.bankPrompt"));
+  if (!pmModalState) return;
   if (!name || !name.trim()) { e.target.value = pmModalState.lastBank; return; }
   try {
     const bank = await callApi("addBank", { name: name.trim() });
@@ -12711,7 +12712,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
   if (renamed && plain(nickname) === "yape" && !confirm(tr("wallets.yapeAlone"))) return;
   // Closes at once and saves behind the screen (a refusal, such as a repeated name, comes back as an alert).
-  const state = { id: pmModalState.id, wallets: pmModalState.wallets };
+  const state = { id: pmModalState.id, wallets: pmModalState.wallets, selectIn: pmModalState.selectIn || "" };
   const type = document.getElementById("pm-type").value;
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
@@ -12744,6 +12745,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       const sel = document.getElementById(id);
       if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
     });
+    if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
   }, { nickname, type }), nickname), () => renderAccountsList_());
 });
 
@@ -16045,7 +16047,7 @@ document.getElementById("split-client-select").addEventListener("change", async 
   const value = e.target.value;
   if (!value) return;
   if (value !== "__new__") { applyClientRepays_(value); return; }
-  const name = prompt(tr("business.newClientPrompt"));
+  const name = await askName_(tr("business.newClientPrompt"));
   if (!name || !name.trim()) { e.target.value = ""; return; }
   try {
     const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
@@ -16588,7 +16590,7 @@ document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((tab) 
 });
 
 document.getElementById("recurring-split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   meta.friends.push(friend);
@@ -22211,7 +22213,7 @@ function populateLoanFriendOptions() {
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     loanFriendAdding_ = true;   // (the first-use loan practice waits for the new friend to be picked)
@@ -23193,7 +23195,7 @@ function populateReviewTransferFriendOptions() {
 
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -24182,7 +24184,7 @@ document.getElementById("bill-add-charge").addEventListener("click", () => {
   recomputeBill_();
 });
 document.getElementById("bill-add-friend").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   friend.last_used = todayLocalISO();

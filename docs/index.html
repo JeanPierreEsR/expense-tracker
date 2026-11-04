@@ -2400,6 +2400,23 @@
     </div>
   </div>
 
+  <!-- One small window that asks for a name (a friend, a payer, a bank, a tag) in the app's own style; replaces the phone's plain
+       "prompt" box (2026-11-04). askName_ in app.js. Its layer is above the practices' dimmed screen, so a practice can use it. -->
+  <div id="name-ask-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="name-ask-title"></span>
+        <button type="button" id="name-ask-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <input type="text" id="name-ask-input" maxlength="60" autocomplete="off" autocapitalize="words">
+        <p class="hint" id="name-ask-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="name-ask-ok" data-i18n="common.add">+ Add</button>
+        <button type="button" class="cancel-edit-btn" id="name-ask-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="perf-share-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">

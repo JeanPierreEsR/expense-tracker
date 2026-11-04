@@ -19,7 +19,7 @@ function saveOnboarding(payload) {
   var firstAnswer = String(getSettingsMap().onboarded || '') !== 'yes';
 
   var lang = normalizeLang_(payload.language);
-  if (lang) { setSetting_('language', lang); result.language = lang; }
+  if (lang) { setSetting_('language', lang); result.language = lang; relocalizeCashName_(lang); }   // the built-in Cash follows the language chosen (2026-11-04)
 
   var order = String(payload.dateOrder || '').toLowerCase();
   if (order === 'dmy' || order === 'mdy' || order === 'ymd') { setSetting_('date_format', order); result.dateOrder = order; }

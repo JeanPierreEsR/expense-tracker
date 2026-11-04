@@ -46,3 +46,13 @@ test("the heal renames it on a Spanish copy installed earlier, once", () => {
   assert.equal(cashName(rt), "Efectivo");
   assert.equal(rt.run("relocalizeCashName_(currentLang_())"), 0, "a second run changes nothing");
 });
+
+test("the welcome's language choice renames it too, and setLanguage tells the phone the new name", () => {
+  const rt = englishCash();
+  const res = post(rt, "setLanguage", { lang: "es" }).data;
+  assert.equal(res.cash.nickname, "Efectivo");
+  assert.equal(res.cash.id, rt.run("cashAccountId_()"));
+  post(rt, "setLanguage", { lang: "en" });
+  post(rt, "saveOnboarding", { language: "es", dateOrder: "dmy", homeCurrency: "PEN", currencies: [] });
+  assert.equal(cashName(rt), "Efectivo");
+});

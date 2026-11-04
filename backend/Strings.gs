@@ -749,6 +749,8 @@ function setLanguage(payload) {
   setSetting_('language', lang);
   // Account names that were all made automatically follow the language (Accounts.gs).
   relocalizeAutoAliases_(lang);
-  relocalizeCashName_(lang);
-  return { language: lang };
+  var cashRenamed = relocalizeCashName_(lang);
+  // The phone's lists already hold the old name: say what it is now, so they can be fixed without a reload.
+  var cashId = cashRenamed ? cashAccountId_() : '';
+  return cashRenamed ? { language: lang, cash: { id: cashId, nickname: tr_('pm.cashName', null, lang) } } : { language: lang };
 }

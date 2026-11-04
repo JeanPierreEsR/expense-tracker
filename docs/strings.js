@@ -518,9 +518,6 @@
     // ---- prompt ----
     "prompt.friendName": { en: "Friend's name:", es: "Nombre del amigo:" },
     "prompt.payorName": { en: "Payer's name (e.g. a client or employer):", es: "Nombre del pagador (p. ej. un cliente o empleador):" },
-    "prompt.paymentMethodName": { en: "Account or card name (e.g. \"BCP Visa\"):", es: "Nombre de la cuenta o tarjeta (p. ej. \"BCP Visa\"):" },
-    "prompt.paymentMethodType": { en: "Type: credit, debit, cash, transfer, or wallet?", es: "Tipo (crédito, débito, efectivo, transferencia o billetera):" },
-    "prompt.last4": { en: "Last 4 digits (leave blank if none):", es: "Últimos 4 dígitos (déjalo en blanco si no tiene):" },
     "prompt.tagName": { en: "New tag name:", es: "Nombre de la nueva etiqueta:" },
 
     // ---- repay ----
