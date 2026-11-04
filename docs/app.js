@@ -10037,14 +10037,8 @@ function welcomeCurrencyCodes_() {
   return shown.concat(rest);
 }
 let welcome_ = null;
-// The phone's own region and time zone pre-select main currency, the usual other currencies and the date order (docs/country-guess.js).
-// Nothing is asked of the phone and nothing is sent; the person sees the pick and can change it. null = no guess: soles, as before.
-function welcomeGuess_() {
-  try {
-    const langs = navigator.languages && navigator.languages.length ? Array.from(navigator.languages) : [navigator.language];
-    return CountryGuess.guess({ languages: langs, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" });
-  } catch (e) { return null; }
-}
+// The welcome always starts on soles and day-first (owner, 2026-11-04). It used to guess from the phone's language region
+// (docs/country-guess.js), but an iPhone in Spanish says "es-ES" even in Peru, so Peruvians got euros. The person can change both.
 function welcomeEl_(id) { return document.getElementById(id); }
 function maybeShowWelcome_() {
   const caps = (meta && meta.capabilities) || {};
@@ -10057,9 +10051,8 @@ function maybeShowWelcome_() {
 function startWelcome_(preview) {
   const lang = I18n.getLang();
   welcomeEl_("welcome-preview-exit").hidden = !preview;
-  const guess = welcomeGuess_();
-  welcome_ = { preview: !!preview, appLang: lang, lang, order: guess ? guess.dateOrder : lang === "es" ? "dmy" : "mdy", home: guess ? guess.currency : "PEN",
-    currencies: guess ? guess.others.slice() : ["USD", "EUR"], guess, more: false,
+  welcome_ = { preview: !!preview, appLang: lang, lang, order: "dmy", home: "PEN",
+    currencies: ["USD", "EUR"], more: false,
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
@@ -10114,11 +10107,6 @@ function renderWelcomeMain_() {
     sel.appendChild(o);
   });
   sel.value = welcome_.home;
-  // The pick came from the phone's settings and nothing was changed yet: say so, so it is a visible choice and not a silent one.
-  const g = welcome_.guess;
-  const note = welcomeEl_("welcome-guess-note");
-  note.hidden = !(g && welcome_.home === g.currency && welcome_.order === g.dateOrder);
-  if (!note.hidden) note.textContent = tr("welcome.guessNote", { currency: `${findCurrency(g.currency).flag} ${g.currency}`, dates: tr("welcome.orderShort." + g.dateOrder) });
 }
 welcomeEl_("welcome-main-select").addEventListener("change", (e) => {
   const code = e.target.value;
