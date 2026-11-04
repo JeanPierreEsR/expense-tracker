@@ -49,7 +49,7 @@ test("C5, C9, C6: no 'otra bandeja', no 'gestionado', no 'teléfono' (it is 'cel
     assert.ok(!/tel[eé]fono/i.test(e.es), `${e.key} teléfono`);
   }
   assert.ok(!/tel[eé]fono/i.test(setupEs), "installer (es)");
-  assert.match(get("privacy.signin").es, /solo en tu celular/);
+  assert.match(get("privacy.signin").es, /en tu celular y en tu propia cuenta de Google/);
 });
 
 test("C7, C8: the loan form asks '¿Quién le debe a quién?'; Telegram texts say 'mensaje', not 'tarjeta'", () => {
