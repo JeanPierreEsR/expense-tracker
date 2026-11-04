@@ -1042,8 +1042,10 @@
       if (choice === "") return "";
       const info = catInfo(choice);
       if (!info) return it.name;
-      const norm = StatementTable.catNorm(it.name);
-      return info.protected || info.names.indexOf(norm) !== -1 ? info.name : it.name;
+      // Which name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24), in this order: (1) a category that
+      // already holds entries keeps the app's name; (2) otherwise the file's name. A category the app depends on never changes name.
+      if (info.protected || info.entries > 0) return info.name;
+      return info.names.indexOf(StatementTable.catNorm(it.name)) !== -1 ? info.name : it.name;
     }
     async function loadCategories() {
       const names = fileCategoryNames();
@@ -1063,10 +1065,11 @@
         if (state.catChoice[it.key] === undefined) {
           state.catChoice[it.key] = remembered !== undefined && valid(remembered) ? remembered : (it.action === "match" ? it.categoryId : it.action === "create" ? "create" : "");
           const info = catInfo(state.catChoice[it.key]);
-          const keepApp = state.catSaved["~rename:" + it.key] === false;   // the person chose to keep the app's name last time
-          const mine = state.catSaved["~name:" + it.key];                   // …or typed a name of their own, which the category may already have
+          // A rename the person chose for this layout last time is offered again; otherwise the category keeps its own name.
+          const renamedBefore = state.catSaved["~rename:" + it.key] === true && state.catSaved["~name:" + it.key];
+          const mine = String(renamedBefore || "");
           const alreadyMine = !!(info && mine && info.names.indexOf(StatementTable.catNorm(mine)) !== -1);
-          state.catNames[it.key] = (keepApp || alreadyMine) && info ? info.name : defaultNameFor(it, state.catChoice[it.key]);
+          state.catNames[it.key] = info && mine && !alreadyMine && !info.protected ? mine : defaultNameFor(it, state.catChoice[it.key]);
           const custom = state.catSaved["~custom:" + it.key];                // a new category the person named themselves last time
           if (state.catChoice[it.key] === "create" && custom) { state.catCustom[it.key] = true; state.catNames[it.key] = custom; }
         }
@@ -1120,6 +1123,21 @@
       if (rn) return tr(info.entries ? "table.catWillRename" : "table.catWillRenameEmpty", { from: shownName(rn.from, it.type), to: shownName(rn.to, it.type), n: info.entries || 0 });
       return tr("table.catGoesInto", { name: shownName(info.name, it.type) });
     }
+    // Names that differ (owner, 2026-11-04): a file category that lands in one of the person's categories which already holds entries
+    // under another name ("Food & Drink" → your "Restaurants", 12 entries). Said plainly above the list, so it is never missed.
+    function nameConflicts() {
+      return state.catItems.map((it) => {
+        const info = catInfo(state.catChoice[it.key]);
+        if (!info || !info.entries || info.names.indexOf(StatementTable.catNorm(it.name)) !== -1) return null;
+        return { it, info, renamed: !!renameOf(it) };
+      }).filter(Boolean);
+    }
+    function conflictHtml() {
+      const list = nameConflicts();
+      if (!list.length) return "";
+      const lines = list.map((c) => `<li>${escapeHtml(tr(c.renamed ? "table.conflictRenamed" : "table.conflictKept", { file: shownName(c.it.name, c.it.type), mine: shownName(c.info.name, c.it.type), to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries }))}</li>`).join("");
+      return `<div class="stmt-note warn tm-cat-conflicts"><p style="margin:0 0 4px"><strong>${escapeHtml(tr("table.conflictTitle", { n: list.length }))}</strong></p><ul style="margin:0 0 4px;padding-left:18px">${lines}</ul>${list.some((c) => !c.renamed) ? `<p style="margin:0">${escapeHtml(tr("table.conflictHow"))}</p>` : ""}</div>`;
+    }
     function renderCategories() {
       const box = root.querySelector(".tm-cats");
       if (!state.catItems.length) { box.innerHTML = ""; return; }
@@ -1153,8 +1171,9 @@
         const items = state.catItems.filter((it) => it.type === type);
         return items.length ? `<h4 class="accounts-group-title">${escapeHtml(tr(type === "income" ? "table.catGroupIncome" : "table.catGroupExpense"))}</h4>${items.map(rowHtml).join("")}` : "";
       };
-      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired");
+      const open = nameConflicts().length > 0 || (!Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired"));
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
+        <div class="tm-cat-conflict-box">${conflictHtml()}</div>
         <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${groupHtml("expense")}${groupHtml("income")}
           <p class="hint">${escapeHtml(tr("table.catEdit"))}</p></details>`;
     }
@@ -1187,6 +1206,8 @@
       const it = state.catItems.find((x) => x.key === row.dataset.key);
       row.querySelector(".tm-cat-hint").textContent = rowHint(it);
       root.querySelector(".tm-cat-summary").textContent = categorySummary();
+      const cb = root.querySelector(".tm-cat-conflict-box");
+      if (cb) cb.innerHTML = conflictHtml();
     }
     function renderPreview() {
       const m = currentMapping();
@@ -1291,6 +1312,9 @@
       const m = currentMapping();
       const { lines } = usableLines(StatementTable.applyMapping(rows, m).lines);
       if (!lines.length) return;
+      // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
+      const renames = nameConflicts().filter((c) => c.renamed);
+      if (renames.length && !practiceNoConfirm_(true) && !confirm(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }))) return;
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {
