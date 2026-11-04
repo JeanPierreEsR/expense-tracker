@@ -2432,6 +2432,11 @@ body.income-revealed .sens-mask { display: none; }
 
 /* Welcome questions + tour (first open of an app made by the installer; More → How to use the app) */
 .welcome-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg, #fafaf8); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* Typing on an iPhone: the keyboard shifts the screen and the app behind used to show below the welcome screens (owner, 2026-11-03).
+   The page behind cannot scroll while they are open, and their background is painted beyond their own edges (shadow), so any gap
+   the keyboard opens shows plain background. */
+html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden])) body { overflow: hidden; }
+.welcome-overlay { box-shadow: 0 0 0 100vmax var(--bg, #fafaf8); }
 .welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
