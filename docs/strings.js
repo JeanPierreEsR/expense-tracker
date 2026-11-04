@@ -2336,7 +2336,7 @@
     "wa.mainBanks": { en: "Main banks", es: "Bancos principales" },
     "wa.otherBanks": { en: "Other banks", es: "Otros bancos" },
     "wa.addBank": { en: "+ Add another bank", es: "+ Agregar otro banco" },
-    "wa.banksBack": { en: "‹ Banks", es: "‹ Bancos" },
+    "wa.banksBack": { en: "Back to banks", es: "Volver a bancos" },
     "wa.addAccount": { en: "+ Add account", es: "+ Agregar cuenta" },
     "wa.noAccounts": { en: "No accounts at this bank yet.", es: "Aún no hay cuentas en este banco." },
     "wa.kind": { en: "Type of account", es: "Tipo de cuenta" },
