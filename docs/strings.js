@@ -2168,7 +2168,7 @@
     "tour.back": { en: "Back", es: "Atrás" },
     "tour.next": { en: "Next", es: "Siguiente" },
     "tour.swipe": { en: "Swipe to continue ›", es: "Desliza para continuar ›" },
-    "tour.skip": { en: "Skip", es: "Omitir" },
+    "tour.skip": { en: "Skip all", es: "Omitir todo" },
     "tour.done": { en: "Start using the app", es: "Empezar a usar la app" },
     "tour.flow.title": { en: "Everything that moves your money, in one place", es: "Todo lo que mueve tu dinero, en un solo lugar" },
     "tour.flow.body": { en: "Record every income, expense, transfer and investment and you always know how much came in, how much went out and what you have left. Tap “Next step” or the picture to follow one movement at a time.", es: "Registra cada ingreso, gasto, transferencia e inversión y siempre sabes cuánto entró, cuánto salió y cuánto te queda. Toca “Siguiente paso” o la imagen para seguir un movimiento a la vez." },
