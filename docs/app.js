@@ -6571,7 +6571,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceXLeftover_, 18000);
   setTimeout(practiceYLeftover_, 20000);
   setTimeout(practiceDLeftover_, 22000);
-  setTimeout(() => { if (typeof window.practiceILeftover_ === "function") window.practiceILeftover_(); }, 24000);
+  setTimeout(() => { if (typeof window.statementsPracticeLeftover_ === "function") window.statementsPracticeLeftover_(); }, 24000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
