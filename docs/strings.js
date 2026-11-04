@@ -2339,7 +2339,7 @@
     "tourChoice.pro": { en: "🚀 Advanced features", es: "🚀 Funciones avanzadas" },
     "tourChoice.proHint": { en: "Investments, loans, splitting a bill, programmed items, trips, projections and statements.", es: "Inversiones, préstamos, repartir una boleta, programados, viajes, proyecciones y estados de cuenta." },
     "tourChoice.tips": { en: "💡 Practice tips", es: "💡 Práctica guiada" },
-    "tourChoice.tipsHint": { en: "Show the hands-on practice tips again, like the one in Loans.", es: "Vuelve a mostrar las prácticas guiadas, como la de Préstamos." },
+    "tourChoice.tipsHint": { en: "Show the hands-on practice tips again, like the one in Needs review on Home.", es: "Vuelve a mostrar las prácticas guiadas, como la de “Por revisar” en Inicio." },
     "tour.more.feedback": { en: " “Feedback & privacy” is where you write to JP, choose what you share and see how your data is treated.", es: " En “Comentarios y privacidad” le escribes a JP, eliges lo que compartes y ves cómo se trata tu información." },
     "tour.more.extras": { en: " There, “Extra features” turns on the extras you skipped.", es: " Ahí, “Funciones extra” activa los extras que omitiste." },
     "more.myProfile": { en: "👤 My profile", es: "👤 Mi perfil" },
