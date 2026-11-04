@@ -2344,6 +2344,7 @@ body.income-revealed .sens-mask { display: none; }
 #statement-review-btn { margin-top: 8px; }
 
 .stmt-choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 60px; align-items: center; }
+.stmt-choices > select, .stmt-choices > button, .stmt-choices > label { margin-top: 0; margin-bottom: 0; }   /* one row: equal margins so everything centres on the same line */
 .stmt-choice {
   font-family: inherit; font-size: 0.85rem; padding: 10px 16px; min-height: 44px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
@@ -2950,6 +2951,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .tidy-group-meta { margin: 2px 0 8px; }
 .tidy-group-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .tidy-group-row select { flex: 1 1 160px; min-width: 0; }
+.tidy-group-row .add-inline, .tidy-group-row .add-inline + .add-inline, #perf-copy-btn, #perf-clear-btn { margin: 0; }   /* the stacked-button rule (.add-inline + .add-inline) pushed "Show the lines" 8px below "Apply" */
 .tidy-samples { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.85rem; color: var(--muted); }
 .tidy-samples li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 
@@ -3066,6 +3068,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .own-name-name { margin: 4px 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
 .own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
 .own-name-actions button { flex: 1; }
+#own-name-yes, #own-name-no { margin: 0; }   /* side by side: no stacked-button margins, so both tops line up */
 .review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .review-hint-btn { font-weight: 600; }
@@ -3183,7 +3186,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #export-send-btn { margin-top: 8px; }
 #extras-google-link { margin-bottom: 8px; }
 #extras-takeback-btn { margin-top: 8px; }
-#statement-find-btn { margin-top: 8px; }
+#statement-find-btn, #statement-find-months { margin-top: 0; margin-bottom: 0; }
 #rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
 .tags-list ~ .add-inline { margin-top: 8px; }
 .stmt-find-read-wrap { margin-top: 14px; }
