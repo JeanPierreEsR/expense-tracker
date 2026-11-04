@@ -262,6 +262,7 @@ function routeActionSwitch_(action, payload) {
     case 'addProject': return addProject(payload);
     case 'updateProject': return updateProject(payload);
     case 'deleteProject': return deleteProject(payload);
+    case 'previewBusinessDelete': return previewBusinessDelete(payload);
     case 'deleteBusinessItems': return deleteBusinessItems(payload);
     case 'deleteBusinessPeople': return deleteBusinessPeople(payload);
     case 'getProjectDetail': return getProjectDetail(payload);
@@ -979,6 +980,7 @@ function confirmEntries(payload) {
 function discardEntries(payload) {
   var ids = uniqueIds_(payload && payload.ids);
   var out = { discarded: [], kept: [] };
+  var candidates = [];
   ids.forEach(function (id) {
     var entry = getEntryById_(id);
     if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
@@ -988,6 +990,12 @@ function discardEntries(payload) {
     // silently dropping the choice turned a friend's 30 owed into 20 owed to them (QA round 1, 2026-11-03). Such entries are left for their own Discard.
     var verdict = entryBulkVerdict_(entry);
     if (verdict) { out.kept.push({ id: id, reason: verdict }); return; }
+    candidates.push(id);
+  });
+  // The same 30-day safety copy as the Home bulk delete, written FIRST (a waiting entry is real data: a bulk Discard of 200 had no way back).
+  // Restoring brings each entry back still waiting in Needs review. `batch_id` is only answered when something was discarded.
+  var batchId = candidates.length && typeof snapshotEntriesForUndo_ === 'function' ? snapshotEntriesForUndo_(candidates) : '';
+  candidates.forEach(function (id) {
     try {
       discardEntryWithRepayments_(id, undefined);
       out.discarded.push(id);
@@ -995,6 +1003,7 @@ function discardEntries(payload) {
       out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
     }
   });
+  if (out.discarded.length && batchId) { out.batch_id = batchId; out.undoable = out.discarded.slice(); }
   return out;
 }
 
@@ -1620,7 +1629,13 @@ function addFriend(payload) {
   if (existing) {
     // A HIDDEN friend with this name comes back (with their history) instead of a second person being created.
     if (String(existing.hidden) === 'yes') { setFriendHidden_(existing.id, false); existing.hidden = ''; existing.unhidden = true; }
-    if (phone) { writeFriendPhone_(existing.id, phone); existing.phone = phone; }
+    // A number is only filled in where there is none: typing a name that already exists must not silently replace that friend's number (QA round 2).
+    // `existed` tells the app it was NOT a new person; `phoneKept` that the number it sent was not used.
+    existing.existed = true;
+    if (phone) {
+      if (!String(existing.phone || '').replace(/\D/g, '')) { writeFriendPhone_(existing.id, phone); existing.phone = phone; }
+      else if (String(existing.phone).replace(/\D/g, '') !== phone.replace(/\D/g, '')) existing.phoneKept = true;
+    }
     return existing;
   }
   var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };

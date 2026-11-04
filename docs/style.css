@@ -1087,6 +1087,9 @@ button.primary.danger {
   margin-bottom: 0;
 }
 
+/* The Home bulk sheets (Delete / Change): the red or blue action button stays at the bottom of the sheet while its long content scrolls, so a big batch
+   can be read and the button is never below the fold. */
+#entries-bulk-go, #entries-bulk-cat-go, #entries-bulk-trip-go { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -10px 10px -4px var(--card); }
 .currency-modal {
   background: var(--card);
   width: 100%;
@@ -3271,7 +3274,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .projection-type-heading:first-child { margin-top: 0; }
 
 /* Review queue: money coming in reads green, like everywhere else. */
-.review-item-amount.review-amt-in { color: var(--income); }
+.review-item-amount.review-amt-in, .primary-amt.review-amt-in { color: var(--income); }
 
 .loan-row-projects { display: block; font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-top: 1px; }
 

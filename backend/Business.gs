@@ -382,6 +382,39 @@ function deleteBusinessItems(payload) {
   return out;
 }
 
+// What a bulk delete of companies / projects takes with it besides the items themselves (More → Companies & projects → Edit), so the confirmation can say it:
+// the expected payments of the projects (count and what is still expected per currency) and the IGV payment records of the companies that would really go
+// (a company with projects left or with entries is kept). Answers { expected: { count, byCurrency: [{ currency, amount }] }, igv: { count } }.
+function previewBusinessDelete(payload) {
+  requireBusiness_();
+  ensureBusinessSheets_();
+  payload = payload || {};
+  var projectIds = uniqueIds_(payload.project_ids), companyIds = uniqueIds_(payload.company_ids);
+  var goneProjects = {};
+  var known = {};
+  getProjectRows_().forEach(function (p) { known[String(p.id)] = p; });
+  projectIds.forEach(function (id) { if (known[id]) goneProjects[id] = true; });
+  var byCur = {}, count = 0;
+  getExpectedRows_().forEach(function (x) {
+    if (goneProjects[String(x.project_id)] !== true) return;
+    count++;
+    if (x.status === 'covered') return;
+    byCur[x.currency] = (byCur[x.currency] || 0) + Number(x.amount || 0);
+  });
+  var withProjectsLeft = {}, withEntries = {};
+  getProjectRows_().forEach(function (p) { if (goneProjects[String(p.id)] !== true) withProjectsLeft[String(p.company_id)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.company_id) withEntries[String(e.company_id)] = true; });
+  var goneCompanies = {};
+  var companyKnown = {};
+  getCompanyRows_().forEach(function (c) { companyKnown[String(c.id)] = true; });
+  companyIds.forEach(function (id) { if (companyKnown[id] && !withProjectsLeft[id] && !withEntries[id]) goneCompanies[id] = true; });
+  var igv = getAllRows('IGV Payments').filter(function (r) { return goneCompanies[String(r.company_id)] === true; }).length;
+  return {
+    expected: { count: count, byCurrency: Object.keys(byCur).sort().map(function (c) { return { currency: c, amount: Math.round(byCur[c] * 100) / 100 }; }) },
+    igv: { count: igv }
+  };
+}
+
 // Several clients / suppliers / partners at once (More → Companies & projects → People → Edit). The single delete's rule for each: a person who has loans,
 // shares or paid entries is kept (nothing is deleted behind the owner's back), and so is a trip's group. Answers
 // { deleted: [{id,name}], kept: [{id,name,reason: inUse|client|group|notPerson|missing}] }.

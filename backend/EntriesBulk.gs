@@ -140,8 +140,11 @@ function setEntriesCategory(payload) {
 function undoSetEntriesCategory(payload) {
   var changes = ((payload && payload.changes) || []).map(function (c) { return { id: String(c.id), categoryId: String(c.from || ''), expect: String(c.to || '') }; });
   var reverted = bulkSetEntryCategories_(changes);
+  // Only the entries that really went back lose the Annual tag the move gave them: one that was moved on elsewhere keeps its category AND its tag (QA round 2).
+  var revertedSet = {};
+  reverted.forEach(function (id) { revertedSet[String(id)] = true; });
   var annual = {};
-  ((payload && payload.annualIds) || []).forEach(function (id) { annual[String(id)] = true; });
+  ((payload && payload.annualIds) || []).forEach(function (id) { if (revertedSet[String(id)]) annual[String(id)] = true; });
   if (Object.keys(annual).length) deleteRowsWhere_('Entry Tags', function (r) { return r.tag_id === ANNUAL_TAG_ID && annual[String(r.entry_id)] === true; });
   return { reverted: reverted };
 }
@@ -195,7 +198,7 @@ function snapshotEntriesForUndo_(ids) {
     var payload = { entry: e, splits: splits[id] || [], tags: tags[id] || [], bills: bills[id] || [], loans: loans[id] || [] };
     var text = JSON.stringify(payload);
     if (text.length > 45000) { payload.bills = []; payload.partial = 'bill'; text = JSON.stringify(payload); }   // (a cell holds 50,000 characters)
-    var summary = JSON.stringify({ description: e.description || '', amount: e.amount, currency: e.currency, date: String(e.date || ''), type: e.type, category_id: e.category_id || '' });
+    var summary = JSON.stringify({ description: e.description || '', amount: e.amount, currency: e.currency, date: String(e.date || ''), type: e.type, category_id: e.category_id || '', status: e.status || '', shared: (splits[id] || []).length > 0 });
     rows.push([batchId, stamp, id, summary, text]);
   });
   if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DELETED_ENTRIES_HEADERS_.length).setValues(rows);
@@ -212,7 +215,7 @@ function listDeletedEntries() {
     if (!b) { b = byBatch[r.batch_id] = { batch_id: String(r.batch_id), deleted_at: String(r.deleted_at), entries: [] }; order.push(b); }
     var info = {};
     try { info = JSON.parse(String(r.summary || '{}')); } catch (e) { info = {}; }
-    b.entries.push({ entry_id: String(r.entry_id), description: info.description || '', amount: info.amount, currency: info.currency || '', date: info.date || '', type: info.type || '', category_id: info.category_id || '' });
+    b.entries.push({ entry_id: String(r.entry_id), description: info.description || '', amount: info.amount, currency: info.currency || '', date: info.date || '', type: info.type || '', category_id: info.category_id || '', status: info.status || '', shared: info.shared === true });
   });
   order.sort(function (a, b) { return String(b.deleted_at).localeCompare(String(a.deleted_at)); });
   return { days: DELETED_ENTRIES_DAYS_, batches: order };

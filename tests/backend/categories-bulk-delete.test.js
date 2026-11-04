@@ -113,6 +113,6 @@ test("the screen: pencil beside +, Other has no checkbox, the usage is asked fir
   for (const key of ["catBulk.title", "catBulk.confirmMany", "catBulk.intro", "catBulk.introAll", "catBulk.moveLabel", "catBulk.moveCount", "catBulk.mergeAlert", "catBulk.noTarget",
     "catBulk.moveBtn", "catBulk.moveHint", "catBulk.moveRest", "catBulk.hideBtn", "catBulk.hideHint", "catBulk.hideRest", "catBulk.resultDeleted", "catBulk.resultMoved",
     "catBulk.resultHidden", "catBulk.resultNoTarget", "catBulk.resultHiddenAlready", "catBulk.resultKept", "catBulk.doneDeleted"]) {
-    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: ".+", es: ".+" \\}`), key);
+    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: (".+"|\\{.+\\}), es: (".+"|\\{.+\\}) \\}`), key);
   }
 });
