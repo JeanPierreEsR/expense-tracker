@@ -72,7 +72,7 @@ function askName_(title) {
   const input = document.getElementById("name-ask-input");
   input.value = "";
   document.getElementById("name-ask-error").textContent = "";
-  backdrop.style.zIndex = 100001;
+  backdrop.style.zIndex = 100002;   // above the practices (100000) and a window lifted above them (100001), e.g. "+ Add bank" in Add account
   backdrop.hidden = false;
   setTimeout(() => input.focus(), 50);
   return new Promise((resolve) => {
@@ -299,6 +299,7 @@ function openCurrencyModal(target) {
   currencyPickerTarget = target || "entry";
   const backdrop = document.getElementById("currency-modal-backdrop");
   bringModalToFront_(backdrop);
+  guidedLift_(backdrop);
   backdrop.hidden = false;
   document.getElementById("currency-search").value = "";
   renderCurrencyOptionList("");
@@ -1365,9 +1366,24 @@ function populateToPaymentMethodOptions() {
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  // A platform can be added right here (2026-11-04: a new person who chose Investment had no way on from the form).
+  if (wantPlatforms) {
+    const add = document.createElement("option");
+    add.value = "__add__";
+    add.textContent = tr("form.addPlatform");
+    select.appendChild(add);
+  }
   select.value = previous;
   if (select.value !== previous) select.value = "";
 }
+document.getElementById("to_payment_method").addEventListener("change", (e) => {
+  if (e.target.value !== "__add__") return;
+  e.target.value = "";
+  openPmModal_(null);
+  pmModalState.selectIn = "to_payment_method";
+  document.getElementById("pm-type").value = "investment";
+  document.getElementById("pm-type").dispatchEvent(new Event("change"));
+});
 
 function populateTags() {
   const container = document.getElementById("tags-list");
@@ -6448,6 +6464,8 @@ function openNewEntrySheet_() {
   newEntrySheetOpen_ = true;
   applyNewEntryDate_();   // today, unless an older-dated entry was saved moments ago
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+  // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
+  if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
 }
 
 function closeNewEntrySheet_() {
@@ -12685,6 +12703,7 @@ function openPmModal_(pm) {
   }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
+  guidedLift_(backdrop);
   backdrop.hidden = false;
   if (!pm) document.getElementById("pm-nickname").focus();
 }
@@ -18931,6 +18950,7 @@ function practiceSaveFailed_() {
 // Called from the new-entry save: the practice's own expense is the one with its name, saved while the practice is running.
 function tipNoteSavedEntry_(id, description) {
   practiceINoteSaved_(id, description);   // (the Investments practice's deposit / withdrawal)
+  guidedNoteSaved_(id);                   // (the guided practice's first real entry)
   if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
   const friendId = [...splitFriendIds][0] || "";
   const friend = (meta.friends || []).find((f) => f.id === friendId);
@@ -19216,6 +19236,9 @@ function startPractice_() {
 // One card, three practices, in this order: shared expense -> standalone loan -> bank loan. The next one is offered only after the previous
 // was seen (Show me or Dismiss), and never two at once (they share the card). The last two need a backend that can clean them up.
 function offerLoansTip_() {
+  // The guided practice already had the person record a REAL shared expense (owner, 2026-11-04): the Loans practice then only shows
+  // where it went (nothing is recorded, so nothing is deleted: its usual cleanup would remove a real expense).
+  if (!tipSeen_("loans") && guidedSplit_()) { offerTip_("loans", "loans-tip-invite", tr("spot.g.loansInvite"), startGuidedLoansLook_); return; }
   if (!tipSeen_("loans")) { offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_); return; }
   if (!((meta && meta.capabilities) || {}).practiceLoansMore) return;   // an older backend could not clean the practice up
   if (!tipSeen_("loans-standalone")) { offerTip_("loans-standalone", "loans-tip-invite", tr("spot.l.invite"), () => startLoansMorePractice_("standalone")); return; }
@@ -19225,9 +19248,135 @@ function offerLoansTip_() {
 // More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
 document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
+  try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- Guided practice: the first new entry (owner's design, 2026-11-04; plan "Onboarding test fixes and guided practices") ----
+// Unlike a practice tutorial (made-up data, deleted at the end), a GUIDED practice has the person record something REAL, field by
+// field, and keeps it. The first time a new person taps "+", it starts by itself: what to record (the four types), then each field
+// with one sentence on what it is for, the optional parts with "Not now", Save, and where the entry landed. Exit leaves the form as it
+// is (the usual draft). Marked seen in tipsSeen ("guided-entry") when it starts; More → Practice tips runs it again.
+const GUIDED_ENTRY_KEY_ = "guided-entry";
+const GUIDED_AGAIN_KEY_ = "guidedEntryAgain";   // set by "Practice tips": run it again even though there are entries
+const GUIDED_SPLIT_KEY_ = "guidedSplit";        // { friendId, friendName } when the first entry was shared (the Loans tip then only shows it)
+let guided_ = null;                             // { savedId, split } while it runs
+
+// A window the person opens during the GUIDED practice (the currency list, Add account / platform) goes above its dimmed screen, or it
+// would open where nobody can reach it. Only the guided practice: the practice tutorials light up parts of these windows themselves.
+function guidedLift_(backdrop) {
+  if (guided_ && Spotlight.isRunning()) backdrop.style.zIndex = 100001;
+}
+
+function guidedEntryWanted_() {
+  if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || tipSeen_(GUIDED_ENTRY_KEY_)) return false;
+  if (editingViaPopup || editingEntryId || confirmingPendingId) return false;
+  let again = false;
+  try { again = localStorage.getItem(GUIDED_AGAIN_KEY_) === "1"; } catch (e) { /* storage blocked */ }
+  return again || !(lastRenderedEntries_ || []).length;   // people who already record entries are never interrupted
+}
+function guidedSplit_() {
+  try { const g = JSON.parse(localStorage.getItem(GUIDED_SPLIT_KEY_) || "null"); return g && g.friendId ? g : null; } catch (e) { return null; }
+}
+function guidedNoteSaved_(id) {
+  if (!guided_ || guided_.savedId || !Spotlight.isRunning()) return;
+  guided_.savedId = id;
+  if (selectedType === "expense" && document.getElementById("split-toggle").checked && splitFriendIds.size) {
+    const friendId = [...splitFriendIds][0];
+    const friend = (meta.friends || []).find((f) => f.id === friendId);
+    guided_.split = { friendId, friendName: friend ? friend.name : "" };
+  }
+}
+
+function startGuidedEntry_() {
+  if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
+  markTipSeen_(GUIDED_ENTRY_KEY_);
+  try { localStorage.removeItem(GUIDED_AGAIN_KEY_); } catch (e) { /* ignore */ }
+  guided_ = { savedId: "", split: null };
+  Spotlight.run(guidedEntrySteps_(), {
+    labels: { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async (how) => {
+      if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
+      if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
+      guided_ = null;   // nothing to remove: what the person saved is theirs
+    },
+    busy: () => perfInflight_ > 0
+  });
+}
+
+function guidedEntrySteps_() {
+  const is = (t) => () => selectedType === t;
+  const shownNow = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
+  const amountOk = () => parseFloat(document.getElementById("amount").value) > 0;
+  const next = () => tr("spot.g.next");
+  const splitOn = () => document.getElementById("split-toggle").checked;
+  const lastError = () => document.getElementById("form-error").textContent.trim();
+  // `available` (type only, never what is on screen yet) keeps "3 of 12" right once the type is chosen; `before` checks the screen.
+  const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
+  return [
+    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },
+    { key: "type", target: "#entry-type-tabs", text: () => tr("spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
+    { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
+      until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
+    { target: "#repayment-field", text: () => tr("spot.g.transferKind"), visit: "#transfer-kind", button: next,
+      available: is("transfer"), before: async () => is("transfer")() && shownNow("repayment-field") },
+    { target: "#investment-direction-tabs", text: () => tr("spot.g.invDir"), tap: "#investment-direction-tabs", button: next,
+      available: is("investment"), before: async () => is("investment")() && shownNow("investment-direction-tabs") },
+    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+      until: () => amountOk() && document.activeElement !== document.getElementById("amount"), ok: amountOk, holdsUntil: "save" },
+    { target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
+    { target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
+    { target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
+      available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
+    { target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
+      before: async () => shownNow("payment-method-field") },
+    { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
+      available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
+    { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method",
+      ok: () => !is("investment")() || !!document.getElementById("to_payment_method").value, holdsUntil: "save",
+      available: is("investment"), before: async () => is("investment")() && shownNow("to-payment-method-field") },
+    { target: "#split-field .checkbox-row", text: () => tr("spot.g.split"), until: splitOn, button: () => tr("spot.g.notNow"),
+      available: is("expense"), before: async () => is("expense")() && shownNow("split-field") },
+    { key: "splitFriend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")],
+      text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000,
+      ok: () => !splitOn() || splitFriendIds.size > 0, holdsUntil: "save", available: () => is("expense")() && splitOn(), before: async () => is("expense")() && splitOn() },
+    { target: () => [document.getElementById("split-mode-tabs"), document.getElementById("split-rows"), document.getElementById("split-summary")],
+      text: () => tr("spot.g.splitHow"), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
+    { target: "#tags-field", text: () => tr("spot.g.tags"), tap: "#tags-list", button: next,
+      available: is("expense"), before: async () => is("expense")() && shownNow("tags-field") },
+    { target: "#trip-field", text: () => tr("spot.g.trip"), visit: "#entry-trip", button: next,
+      available: () => is("expense")() && document.getElementById("entry-trip").options.length > 1, before: async () => is("expense")() && shownNow("trip-field") },
+    { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
+      before: async () => { document.getElementById("form-error").textContent = ""; },
+      until: () => !!(guided_ && guided_.savedId) },
+    { look: true, target: () => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null),
+      text: () => tr("spot.g.where"), button: () => tr("spot.g.done"), wait: 15000,
+      before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); },
+      poke: () => { refreshEntryList().catch(() => {}); } }
+  ];
+}
+
+// The Loans tip after a guided practice that recorded a real shared expense: it only SHOWS where the friend's share went.
+function startGuidedLoansLook_() {
+  const g = guidedSplit_();
+  if (!g || Spotlight.isRunning()) return false;
+  const row = () => Array.from(document.querySelectorAll("#loans-owed-to-me-list .loan-row")).find((r) => r.dataset.friendId === g.friendId) || null;
+  Spotlight.run([
+    { target: row, text: () => tr("spot.g.loans2", { name: g.friendName }), tap: row, wait: 30000,
+      before: async () => { showScreen("loans"); }, poke: () => { refreshLoans().catch(() => {}); } },
+    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+      before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
+    { look: true, target: "#record-repayment-btn", text: () => tr("spot.g.loans4"), button: () => tr("spot.g.done"), wait: 15000 }
+  ], {
+    labels: { note: tr("spot.g.lookNote"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async () => { try { localStorage.removeItem(GUIDED_SPLIT_KEY_); } catch (e) { /* ignore */ } },
+    busy: () => perfInflight_ > 0
+  });
+  return true;
+}
 
 // ---- First-use practice: Needs review ----
 // The person sees how an automatic capture waits in "Needs review": two made-up purchases arrive (one server call, createPracticePending),
