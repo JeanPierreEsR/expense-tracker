@@ -10138,7 +10138,33 @@ document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListe
 // ---- Welcome step 2: bank accounts (optional), bank by bank ----
 // Nothing is saved until the last button of step 2: Back keeps everything typed in both steps. The server builds the
 // final names (backend/Accounts.gs); the previews here follow the same rule.
-const WA_KINDS = ["debit_pen", "debit_usd", "credit", "sueldo"];
+// The form asks a TYPE and, for a debit or salary account, a CURRENCY (any currency since 2026-11-04; the list starts on the main
+// currency). They make the `kind` the server keeps: debit_pen / debit_usd / sueldo (soles) as before, 'debit_eur', 'sueldo_usd'… for
+// the rest, 'credit' for a card. An older backend (no accountCurrencies) is offered soles and dollars only.
+const WA_TYPES = ["debit", "sueldo", "credit"];
+function waKindOf_(type, cur) {
+  if (type === "credit") return "credit";
+  if (type === "sueldo") return cur === "PEN" ? "sueldo" : `sueldo_${String(cur).toLowerCase()}`;
+  return `debit_${String(cur || "PEN").toLowerCase()}`;
+}
+const waTypeOf_ = (kind) => kind === "credit" ? "credit" : /^sueldo/.test(kind || "") ? "sueldo" : "debit";
+// The currency a kind names ("" for a card, or an account made before kinds existed).
+function kindCurrency_(kind) {
+  if (kind === "sueldo") return "PEN";
+  const m = /^(?:debit|sueldo)_([a-z]{3})$/.exec(kind || "");
+  return m ? m[1].toUpperCase() : "";
+}
+const waAnyCurrency_ = () => !!((meta && meta.capabilities) || {}).accountCurrencies;
+function waCurrencyChoices_() {
+  if (!waAnyCurrency_()) return ["PEN", "USD"];
+  const first = [welcome_.home].concat(welcome_.currencies);
+  return [...new Set(first.concat(CURRENCIES.map((c) => c.code)))];
+}
+// "Savings or debit account · EUR" under an account in the list.
+function waKindLabel_(kind) {
+  const cur = kindCurrency_(kind);
+  return tr(`wa.type.${waTypeOf_(kind)}`) + (cur ? ` · ${findCurrency(cur).flag} ${cur}` : "");
+}
 const WA_RAILS = ["yape_pen", "yape_usd", "plin_pen"];
 const waEl_ = (id) => document.getElementById(id);
 function waCatalog_() { return (meta && meta.bankCatalog) || { main: [], other: [], words: { en: {}, es: {} } }; }
@@ -10148,10 +10174,17 @@ function waShort_(bankName) {
   return b ? b.short : bankName;
 }
 function waWords_() { const c = waCatalog_(); return c.words[welcome_.lang] || c.words.en || {}; }
+// Same rule as accountKindWord_ in backend/Accounts.gs: another currency's debit account is named by its code, a salary account stays "sueldo".
+function waKindWord_(kind) {
+  const w = waWords_();
+  if (w[kind]) return w[kind];
+  const m = /^(debit|sueldo)_([a-z]{3})$/.exec(kind || "");
+  return m ? (m[1] === "sueldo" ? w.sueldo || "" : m[2].toUpperCase()) : "";
+}
 function waNameFor_(bankName, f) {
   const last4 = /^\d{4}$/.test(f.last4 || "") ? f.last4 : "";
   const show = !!f.showLast4 && !!last4;
-  const base = (f.alias || "").trim() ? f.alias.trim() : `${waShort_(bankName)} ${waWords_()[f.kind] || ""}`.trim();
+  const base = (f.alias || "").trim() ? f.alias.trim() : `${waShort_(bankName)} ${waKindWord_(f.kind)}`.trim();
   return base + (show ? ` (${last4})` : "");
 }
 // Display names for every account typed so far, unique the same way the server makes them.
@@ -10269,7 +10302,8 @@ const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bc
 function walletSlots_(bankName, type, kind) {
   if (type === "credit") return String(bankName || "").trim().toLowerCase() === "interbank" ? ["plin_pen"] : [];
   if (type !== "debit") return [];
-  const usd = kind === "debit_usd", pen = kind === "debit_pen" || kind === "sueldo";
+  const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
+  if (cur && !usd && !pen) return [];   // Yape and Plin move only soles and dollars
   if (isBcp_(bankName)) return usd ? ["yape_usd"] : pen ? ["yape_pen"] : ["yape_pen", "yape_usd"];
   return usd ? [] : ["plin_pen"];
 }
@@ -10304,7 +10338,7 @@ function renderWaBank_() {
     row.className = "wa-account";
     const left = document.createElement("div");
     const nm = document.createElement("div"); nm.className = "wa-account-name"; nm.textContent = names[a.cid];
-    const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = tr(`wa.kind.${a.kind}`);
+    const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = waKindLabel_(a.kind);
     left.appendChild(nm); left.appendChild(sub);
     left.style.cursor = "pointer";
     left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4, wallets: WA_RAILS.filter((k) => welcome_.links[k] === a.cid) }; renderWaBank_(); });
@@ -10317,14 +10351,15 @@ function renderWaBank_() {
   waEl_("wa-form").hidden = !f;
   waEl_("wa-add-account-btn").hidden = !!f;
   if (!f) return;
-  const kinds = waEl_("wa-kinds");
-  kinds.innerHTML = "";
-  WA_KINDS.forEach((k) => {
-    const b = document.createElement("button");
-    b.type = "button"; b.className = "welcome-choice" + (f.kind === k ? " active" : ""); b.textContent = tr(`wa.kind.${k}`);
-    b.addEventListener("click", () => { f.kind = k; renderWaBank_(); });
-    kinds.appendChild(b);
-  });
+  const typeSel = waEl_("wa-type");
+  typeSel.innerHTML = "";
+  WA_TYPES.forEach((t) => { const o = document.createElement("option"); o.value = t; o.textContent = tr(`wa.type.${t}`); typeSel.appendChild(o); });
+  typeSel.value = waTypeOf_(f.kind);
+  const curSel = waEl_("wa-cur");
+  curSel.innerHTML = "";
+  waCurrencyChoices_().forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; curSel.appendChild(o); });
+  curSel.value = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
+  waEl_("wa-cur-box").hidden = f.kind === "credit";
   renderWaWallets_();
   waEl_("wa-alias").value = f.alias;
   waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
@@ -10355,7 +10390,24 @@ function waUpdatePreview_() {
 waEl_("wa-alias").addEventListener("input", (e) => { welcome_.form.alias = e.target.value; waUpdatePreview_(); });
 waEl_("wa-last4").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); welcome_.form.last4 = e.target.value; waUpdatePreview_(); });
 waEl_("wa-show4").addEventListener("change", (e) => { welcome_.form.showLast4 = e.target.checked; waUpdatePreview_(); });
-waEl_("wa-add-account-btn").addEventListener("click", () => { welcome_.form = { cid: null, kind: "debit_pen", alias: "", last4: "", showLast4: false, wallets: [] }; renderWaBank_(); });
+waEl_("wa-add-account-btn").addEventListener("click", () => {
+  const cur = waCurrencyChoices_().includes(welcome_.home) ? welcome_.home : "PEN";
+  welcome_.form = { cid: null, kind: waKindOf_("debit", cur), cur, alias: "", last4: "", showLast4: false, wallets: [] };
+  renderWaBank_();
+});
+// Type and currency: a card has no currency box; switching back from a card keeps the currency picked before.
+waEl_("wa-type").addEventListener("change", (e) => {
+  const f = welcome_.form; if (!f) return;
+  f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
+  f.kind = waKindOf_(e.target.value, f.cur);
+  renderWaBank_();
+});
+waEl_("wa-cur").addEventListener("change", (e) => {
+  const f = welcome_.form; if (!f) return;
+  f.cur = e.target.value;
+  f.kind = waKindOf_(waTypeOf_(f.kind), f.cur);
+  renderWaBank_();
+});
 waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form = null; renderWaBank_(); });
 waEl_("wa-save-account-btn").addEventListener("click", () => {
   const f = welcome_.form;
