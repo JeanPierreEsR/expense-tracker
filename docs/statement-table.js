@@ -729,9 +729,30 @@
     return order.map(function (v) { return { value: v, count: counts[v] }; }).sort(function (a, b) { return b.count - a.count; });
   }
 
+  // The made-up file of the "Import from another app" practice (docs/statements.js § First-use practice): three purchases with a category, as if
+  // exported from another app. Pure: `lang` 'en' | 'es', `todayISO` 'yyyy-mm-dd' (the lines are dated the three days before). The last column
+  // carries a made-up header so this layout can never be mistaken for a real file's (the remembered layout is keyed by the header words).
+  // Descriptions are written the way the import SAVES them (it capitalises each word), which are the practice entry names the server knows (backend/Practice.gs). The amounts end in odd cents on purpose: a round price (12.50) can look like a real entry of the same day, and the import then sends that line to Needs review. Returns { name, text }.
+  var PRACTICE_FILE_NAMES = ['Practice import.csv', 'Importación de práctica.csv'];
+  function practiceFile(lang, todayISO) {
+    var es = String(lang || '').toLowerCase().indexOf('es') === 0;
+    var parts = String(todayISO).split('-').map(Number);
+    var day = function (back) {
+      var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] - back));
+      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    };
+    var head = es ? 'Fecha,Descripción,Monto,Categoría,Archivo de práctica' : 'Date,Description,Amount,Category,Practice file';
+    var lines = es
+      ? [[1, 'Almuerzo De Práctica', '-14.35', 'Restaurantes'], [2, 'Cena De Práctica', '-36.85', 'Restaurantes'], [3, 'Paseo De Práctica', '-7.15', 'Paseos de práctica']]
+      : [[1, 'Practice Lunch', '-14.35', 'Restaurants'], [2, 'Practice Dinner', '-36.85', 'Restaurants'], [3, 'Practice Ride', '-7.15', 'Practice rides']];
+    var text = head + '\n' + lines.map(function (l) { return day(l[0]) + ',' + l[1] + ',' + l[2] + ',' + l[3] + ',practice'; }).join('\n') + '\n';
+    return { name: PRACTICE_FILE_NAMES[es ? 1 : 0], text: text };
+  }
+
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
+    practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES,
     roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

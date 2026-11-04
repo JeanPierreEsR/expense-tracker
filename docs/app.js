@@ -358,7 +358,7 @@ const ONCE_ACTIONS = new Set([
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
-const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
+const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, removePracticeImport: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
   checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
   checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
@@ -3357,7 +3357,7 @@ function unmarkDeleting_(key) { deletingKeys_.delete(key); paintDeleting_(); }
 const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Practice item", "Elemento de práctica", "Practice purchase", "Compra de práctica",
   "Practice charge", "Cargo de práctica", "Practice trip expense", "Gasto de viaje de práctica", "Practice deposit", "Depósito de práctica",
   "Practice withdrawal", "Retiro de práctica", "Practice loan", "Préstamo de práctica", "Practice bank loan", "Préstamo bancario de práctica",
-  "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Merienda de práctica"];
+  "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Merienda de práctica", "Practice Lunch", "Almuerzo De Práctica", "Practice Dinner", "Cena De Práctica", "Practice Ride", "Paseo De Práctica"];
 const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
 function markPracticeDeleting_() {
   (lastRenderedEntries_ || []).forEach((e) => {
@@ -6552,6 +6552,7 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceXLeftover_, 18000);
   setTimeout(practiceYLeftover_, 20000);
   setTimeout(practiceDLeftover_, 22000);
+  setTimeout(() => { if (typeof window.practiceILeftover_ === "function") window.practiceILeftover_(); }, 24000);
   if (homeGlanceBusy_) return homeGlanceBusy_;
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
@@ -10627,6 +10628,7 @@ function buildTourSlide_(key, n, total) {
     body += tr("tour.mydata.pTidy");   // + one line for each My data screen that has a practice
     const cp = (meta && meta.capabilities) || {};
     if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
+    if (cp.practiceImport) body += tr("tour.mydata.pImport");
     body += tr("tour.mydata.pExport");
   }
   // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.

@@ -104,7 +104,7 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
 });
 
 test("the Tidy tour line names the screen and sits with the others", () => {
-  assert.match(app, /tr\("tour\.mydata\.pTidy"\);[^\n]*\n[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
+  assert.match(app, /tr\("tour\.mydata\.pTidy"\);[^\n]*\n[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);[\s\S]{0,120}tr\("tour\.mydata\.pImport"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
   assert.match(STRINGS["tour.mydata.pTidy"].en, /Tidy my history/);
   assert.match(STRINGS["tour.mydata.pTidy"].es, /Ordenar mi historial/);
 });
@@ -125,7 +125,7 @@ test("the Recently deleted practice: invitation box, offered after the list load
   assert.equal((app.match(/callApi\("removePracticeDeleted"/g) || []).length, 1, "one cleanup call");
   assert.equal((app.match(/callApi\("createPracticeDeleted"/g) || []).length, 1, "one call makes the entries");
   assert.match(app, /setTimeout\(practiceDLeftover_, 22000\)/, "a practice left by a closed app is offered for removal");
-  assert.match(app, /"Practice snack", "Merienda de práctica"\]/, "Home marks the practice entries as being deleted");
+  assert.match(app, /"Practice snack", "Merienda de práctica"/, "Home marks the practice entries as being deleted");
   // the steps use the REAL controls: the Home edit mode, the delete sheet, the nav, the More rows and the batch buttons
   for (const id of ["entries-edit-btn", "entries-delete-selected-btn", "entries-bulk-go", "more-my-data-btn", "more-deleted-btn"]) {
     assert.ok(practice.includes(id), id);
@@ -142,4 +142,35 @@ test("the Recently deleted tour line names the screen, only where the screen exi
   assert.match(STRINGS["tour.mydata.pDeleted"].en, /Recently deleted/);
   assert.match(STRINGS["tour.mydata.pDeleted"].es, /Eliminados recientemente/);
   assert.match(app, /cp\.entriesRestore && cp\.practiceDeleted && cp\.entriesBulk\) body \+= tr\("tour\.mydata\.pDeleted"\)/);
+});
+
+test("the Import practice: invitation box in Import mode, offered when the screen opens, flag-gated, texts in both languages, one cleanup call", () => {
+  const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
+  assert.ok(html.includes('id="import-tip-invite"'));
+  assert.match(html, /id="import-tip-invite"[^>]*>/);
+  assert.match(html, /class="card tip-invite stmt-import-only" id="import-tip-invite"/, "shown in Import mode only");
+  assert.match(stm, /if \(next === "import"\) offerImportTip_\(\);/);
+  assert.match(stm, /offerTip_\("import", "import-tip-invite", tr\("spot\.f\.invite"\), startImportPractice_\)/);
+  assert.match(stm, /!caps\.practiceImport \|\| screenMode !== "import"/);
+  for (const k of new Set([...stm.matchAll(/tr\("(spot\.f\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k + " is asked for but missing");
+  for (let i = 1; i <= 11; i++) assert.ok(STRINGS["spot.f.s" + i] && STRINGS["spot.f.s" + i].es, "step " + i);
+  assert.equal((stm.match(/callApi\("removePracticeImport"/g) || []).length, 1, "one cleanup call");
+  assert.match(app, /window\.practiceILeftover_/, "a practice left by a closed app is offered for removal");
+  assert.match(app, /"Practice Lunch", "Almuerzo De Práctica"/, "Home marks the practice entries as being deleted");
+  assert.match(app, /removePracticeImport: 150000/);
+  // the steps use the REAL buttons of the import screens
+  const steps = stm.slice(stm.indexOf("function practiceISteps_()"), stm.indexOf("// Builds the made-up file"));
+  for (const sel of ["tm-use", "#stmt-next-2", "#statement-history-save", "#stmt-undo-btn", ".stmt-upload-btn"]) assert.ok(steps.includes(sel), sel);
+  for (const id of ["stmt-next-2", "statement-history-save"]) assert.ok(html.includes(`id="${id}"`) || stm.includes(`id="${id}"`), id);
+  // only the practice's own file skips the confirm questions, and only while the walkthrough runs
+  assert.match(stm, /practiceNoConfirm_\(practiceIOwns_\(/);
+  assert.match(stm, /practiceNoConfirm_\(practiceIOwnsBatch_\(batchId\)\)/);
+  // the made-up file goes to the real file handler
+  assert.match(stm, /handleStatementFiles\(\[new File\(\[f\.text\], f\.name/);
+});
+
+test("the Import tour line names the screen and only shows where the cleanup exists", () => {
+  assert.match(STRINGS["tour.mydata.pImport"].en, /Import from another app/);
+  assert.match(STRINGS["tour.mydata.pImport"].es, /Importar de otra app/);
+  assert.match(app, /if \(cp\.practiceImport\) body \+= tr\("tour\.mydata\.pImport"\)/);
 });

@@ -123,8 +123,10 @@ function stmtPmForKey_(pms, key) {
   return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
 }
 
+// Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it
+// "PrÁctica" ("Café" -> "CafÉ"). A word starts after anything that is not a letter (accents and ñ included).
 function stmtTitleCase_(text) {
-  return String(text || '').toLowerCase().replace(/\b[a-zñáéíóú]/g, function (c) { return c.toUpperCase(); });
+  return String(text || '').toLowerCase().replace(/(^|[^a-zñáéíóúü])([a-zñáéíóúü])/g, function (m, before, c) { return before + c.toUpperCase(); });
 }
 
 function stmtCleanDescription_(text) {
