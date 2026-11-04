@@ -140,6 +140,7 @@ function buildMonthlySeries_(categoryIds, excludeRecurringIds) {
     return rate != null ? amount * rate : null;
   }
   var annualEntryIds = annualEntryIdSet_();
+  var installmentEntryIds = bankInstallmentEntryIds_();   // a bank loan's interest: its schedule says what comes next (BankLoans.gs)
   var todayStr = formatCalendarDate_(new Date());
 
   ids.forEach(function (id) {
@@ -159,7 +160,7 @@ function buildMonthlySeries_(categoryIds, excludeRecurringIds) {
     });
     var totals = {}, annual = {};
     typed.forEach(function (e) {
-      if (matched[e.id]) return;
+      if (matched[e.id] || installmentEntryIds[e.id]) return;
       var pen = toPen_(Number(e.amount) - (splitSumByEntry[e.id] || 0), e.currency, e.date);
       if (pen == null) return;
       var key = String(e.date).substring(0, 7);

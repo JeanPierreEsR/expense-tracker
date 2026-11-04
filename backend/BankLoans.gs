@@ -341,3 +341,75 @@ function recalculateInstallmentsAfterEarly_(open, after, mode, prevDate) {
   }
   return out;
 }
+
+// ---- Projections: the installments still to pay (owner's request, 2026-11-04) ----------------------------------------------------
+// Each UNPAID installment due in a period is "programmed", split the way recording it splits it: its interest + fees are an
+// EXPENSE (in the category this loan's installments were filed under before, else "Interest", else "Bank fees", else "Other"),
+// its principal is a LOAN payment (never an expense; Projections shows it on its own "Loans" line). Returns
+// { expenses: [{ category_id, date, amount, currency, loan_id, description }], principal: [{ date, amount, currency, loan_id }] }.
+function bankInstallmentsDue_(startDate, endDate) {
+  var out = { expenses: [], principal: [] };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName('Loan Installments')) return out;
+  var rows = getAllRows('Loan Installments').filter(function (r) { var d = String(r.due_date); return d >= startDate && d <= endDate; });
+  if (!rows.length) return out;
+  var loans = rowsById_(getAllRows('Loans'));
+  var friends = rowsById_(getAllRows('Friends'));
+  var lastCategory = bankInstallmentCategoryByLoan_();
+  var fallback = bankInterestFallbackCategory_();
+  var byLoan = {};
+  rows.forEach(function (r) { byLoan[r.loan_id] = true; });
+  Object.keys(byLoan).forEach(function (loanId) {
+    var loan = loans[loanId];
+    if (!loan) return;
+    var who = loan.description || (friends[loan.friend_id] ? friends[loan.friend_id].name : '');
+    loanInstallmentsOf_(loanId).forEach(function (i) {
+      if (i.paid || i.due_date < startDate || i.due_date > endDate) return;
+      var cur = loan.currency || homeCurrency_();
+      var extra = bankRound_(i.interest + i.fees);
+      var cat = lastCategory[loanId] || fallback;
+      if (extra > 0.004 && cat) out.expenses.push({ category_id: cat, date: i.due_date, amount: extra, currency: cur, loan_id: loanId, description: who });
+      if (i.principal > 0.004) out.principal.push({ date: i.due_date, amount: i.principal, currency: cur, loan_id: loanId });
+    });
+  });
+  return out;
+}
+
+// loan id -> the category of its most recent installment's interest entry (only a confirmed entry with a category counts).
+function bankInstallmentCategoryByLoan_() {
+  var out = {}, when = {};
+  var entries = null;
+  getAllRows('Settlements').forEach(function (s) {
+    if (!s.gap_entry_id) return;
+    entries = entries || rowsById_(getAllRows('Entries'));
+    var e = entries[s.gap_entry_id];
+    if (!e || e.status !== 'confirmed' || !e.category_id || e.type !== 'expense') return;
+    if (!when[s.loan_id] || String(e.date) > when[s.loan_id]) { when[s.loan_id] = String(e.date); out[s.loan_id] = e.category_id; }
+  });
+  return out;
+}
+
+// The category an installment's interest goes to when the loan has none yet: "Interest" (the "Paying off debt" pick), else "Bank fees",
+// else "Other" (visible expense categories only).
+function bankInterestFallbackCategory_() {
+  var cats = getAllRows('Categories').filter(function (c) { return c.type === 'expense' && String(c.hidden || '') !== 'yes'; });
+  var keyOf = function (c) { return String(c.key || categoryKeyFromName_(c.name)); };
+  var pick = ['interest', 'bank_fees', 'other'].map(function (k) { return cats.find(function (c) { return keyOf(c) === k; }); }).filter(Boolean)[0];
+  return pick ? pick.id : '';
+}
+
+// Entry ids of the interest + fees of bank-loan installments (and early-payment fees) already recorded. They are kept out of a
+// category's "usual spending" series (ProjectionMethods.gs), exactly like payments explained by a programmed item: the schedule
+// already says what comes next, so learning a monthly rate from them would count the next installment twice.
+function bankInstallmentEntryIds_() {
+  var out = {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName('Loan Installments')) return out;
+  var scheduled = {};
+  getAllRows('Loan Installments').forEach(function (r) {
+    scheduled[r.loan_id] = true;
+    if (r.transfer_entry_id && Number(r.principal) <= 0.004) out[r.transfer_entry_id] = true;   // an interest-only installment's own expense
+  });
+  getAllRows('Settlements').forEach(function (s) { if (s.gap_entry_id && scheduled[s.loan_id]) out[s.gap_entry_id] = true; });
+  return out;
+}

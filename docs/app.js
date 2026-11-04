@@ -17810,6 +17810,12 @@ function renderProjectionsSummary_(p) {
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
     breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
+  // Loans (2026-11-04): money borrowed and repaid counts in What's left, like Overview; a bank loan's installments still to pay add
+  // their principal here (their interest + fees are in Expenses). Shown only when there is something (an older backend sends none).
+  const hasLoans = typeof p.loans === "number" && (Math.abs(p.loans) > 0.004 || p.loansProgrammed > 0.004);
+  if (hasLoans) {
+    breakdownLines.push(tr("projections.lineLoans", { actual: formatPenSigned_(p.loansActual || 0), programmed: formatPen(p.loansProgrammed || 0) }));
+  }
 
   body.innerHTML = `
     <div class="summary-grid">
@@ -17825,6 +17831,10 @@ function renderProjectionsSummary_(p) {
         <span class="summary-label">${tr("summary.investments")}</span>
         <span class="summary-value investment">${formatPenSigned_(p.investments)}</span>
       </div>
+      ${hasLoans ? `<div class="summary-item">
+        <span class="summary-label">${tr("summary.loans")}</span>
+        <span class="summary-value${p.loans > 0.004 ? " pos-green" : ""}">${formatPenSigned_(p.loans)}</span>
+      </div>` : ""}
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
         <span class="summary-value">${formatPenSigned_(p.net)}</span>

@@ -263,6 +263,13 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     if (!recurringByCategory[r.category_id]) recurringByCategory[r.category_id] = [];
     recurringByCategory[r.category_id].push(r);
   });
+  // Bank-loan installments still to pay in the period (BankLoans.gs): their interest + fees are programmed expenses of the category
+  // they are filed under; their principal is a loan payment, summed apart by getProjections (never an expense).
+  var installmentPenByCategory = {};
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).expenses.forEach(function (x) {
+    var pen = toPen_(x.amount, x.currency, x.date);
+    if (pen != null) installmentPenByCategory[x.category_id] = (installmentPenByCategory[x.category_id] || 0) + pen;
+  });
 
   var results = categories.map(function (category) {
     // A category the owner has explicitly marked 'yearly' (period_type
@@ -374,6 +381,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
       if (category.type === 'investment') { baseAmountPen = 0; ratePerMonth = 0; levelPerMonth = 0; }
     }
 
+    var installmentPen = category.type === 'expense' ? (installmentPenByCategory[category.id] || 0) : 0;
+    recurringAmountPen += installmentPen;
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
     var overrideKey = category.id + '|' + bounds.periodKey;
     var hasOverride = overridesByKey[overrideKey] !== undefined;
@@ -418,6 +427,7 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
         if (pen != null) programmedRemainingPen += pen;
       });
     });
+    programmedRemainingPen += installmentPen;   // an unpaid installment is still to come, like an unpaid programmed item
 
     // "Expected remaining" — the YTD monthly rate pro-rated down to just
     // the days actually left in the period (daysLeft/30 "months"), not
@@ -654,6 +664,20 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
     };
   }).filter(function (item) { return item.occurrences > 0; });
 
+  // A bank loan's installments still to pay in this category (their interest + fees), one line per loan.
+  var byLoan = {};
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).expenses.forEach(function (x) {
+    if (x.category_id !== categoryId || !category || category.type !== 'expense') return;
+    var pen = toPen_(x.amount, x.currency, x.date);
+    if (pen == null) return;
+    var it = byLoan[x.loan_id] || (byLoan[x.loan_id] = { id: 'loan:' + x.loan_id, description: tr_('proj.installmentItem', { what: x.description }),
+      amount: x.amount, currency: x.currency, occurrences: 0, amountPen: 0, installments: true });
+    it.occurrences++;
+    it.amountPen += pen;
+    dailyPen[x.date] = (dailyPen[x.date] || 0) + pen;
+  });
+  Object.keys(byLoan).forEach(function (k) { items.push(byLoan[k]); });
+
   items.sort(function (a, b) { return b.amountPen - a.amountPen; });
 
   var occurrences = Object.keys(dailyPen).sort().map(function (date) {
@@ -786,6 +810,20 @@ function getProjections(payload) {
   var investmentsPutInNet = sumByType_('investment', 'totalPen');
   var investments = -investmentsPutInNet;
 
+  // Loans (2026-11-04, owner: a bank loan's installments show in Projections, split in their loan leg and their expense leg). Like
+  // Overview, money borrowed and repaid counts in What's left: the loan flows confirmed so far in the period, minus the principal of
+  // the installments still to pay. The interest + fees are already in Expenses (programmed, in their category).
+  var todayStr = formatCalendarDate_(new Date());
+  var loansActual = todayStr < bounds.startDate ? 0
+    : loanFlowsForPeriod_(bounds.startDate, todayStr < bounds.endDate ? todayStr : bounds.endDate, 'all').netPen;
+  var ratesByCurrency = buildRatesByCurrency_();
+  var loansProgrammed = 0;
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).principal.forEach(function (x) {
+    var rate = x.currency === homeCurrency_() ? 1 : rateToMain_(ratesByCurrency, x.currency, String(x.date).substring(0, 7));
+    if (rate != null) loansProgrammed += x.amount * rate;
+  });
+  var loans = loansActual - loansProgrammed;
+
   return {
     monthLabel: periodLabel,
     defaultMethod: getProjectionDefaultMethod_(),   // the predictor categories use unless they chose their own
@@ -803,6 +841,9 @@ function getProjections(payload) {
     investmentsOut: sumByType_('investment', 'flowOutPen'),
     investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),   // money to be put in
     investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
-    net: income - expenses - investmentsPutInNet
+    loans: loans,
+    loansActual: loansActual,
+    loansProgrammed: loansProgrammed,   // principal of installments still to pay (money going out)
+    net: income - expenses - investmentsPutInNet + loans
   };
 }
