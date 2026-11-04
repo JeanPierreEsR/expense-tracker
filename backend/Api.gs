@@ -387,6 +387,7 @@ function routeActionSwitch_(action, payload) {
     case 'saveOwnerNames': return saveOwnerNames(payload);
     case 'answerOwnName': return answerOwnName(payload);
     case 'applyProfile': return applyProfile(payload);
+    case 'getProfileState': return getProfileState();
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);

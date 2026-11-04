@@ -10201,14 +10201,14 @@ const FITS_GROUPS_ = [
   { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
 ];
 const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
-function fillFitsChips_(box, selected, onToggle) {
+function fillFitsChips_(box, selected, onToggle, compact) {
   box.innerHTML = "";
   FITS_GROUPS_.forEach((g) => {
     const h = document.createElement("h3");
     h.textContent = tr(g.title);
     box.appendChild(h);
     const row = document.createElement("div");
-    row.className = "welcome-choices";
+    row.className = "welcome-choices" + (compact ? " fits-compact" : "");   // (My profile: small side-by-side chips; the welcome keeps the full-width bars)
     g.answers.forEach((a) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -10924,10 +10924,17 @@ async function showMyProfileScreen() {
   ownerNamesEl_("owner-names-input").value = "";
   fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
   fitsEl_("fits-msg").textContent = "";
+  fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   try {
-    renderOwnerNames_(await callApi("getOwnerNames", {}));
+    const [names, state] = await Promise.all([
+      callApi("getOwnerNames", {}),
+      caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null)
+    ]);
+    renderOwnerNames_(names);
+    // A saved pick shows as clicked only while its category still exists (hidden or deleted ones are not clicked any more).
+    if (state && Array.isArray(state.active)) fitsSel_ = state.active.filter((a) => FITS_ANSWERS_.includes(a));
     fitsDraw_();
     drawProfileDates_();
     loading.innerHTML = "";
@@ -13039,8 +13046,16 @@ document.getElementById("categories-add-btn").addEventListener("click", () => op
 let fitsSel_ = [];
 const fitsEl_ = (id) => document.getElementById(id);
 function fitsDraw_() {
-  fillFitsChips_(fitsEl_("fits-chips"), fitsSel_, (a) => { fitsSel_ = fitsToggled_(fitsSel_, a); fitsDraw_(); });
+  fillFitsChips_(fitsEl_("fits-chips"), fitsSel_, (a) => { fitsSel_ = fitsToggled_(fitsSel_, a); fitsDraw_(); }, true);
+  fitsEl_("fits-count").textContent = fitsSel_.length ? tr("prof.fitsPicked", { n: fitsSel_.length }) : tr("prof.fitsNone");
 }
+// The "What fits me" row opens and closes its choices.
+function fitsOpen_(open) {
+  fitsEl_("fits-body").hidden = !open;
+  fitsEl_("fits-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  fitsEl_("fits-chevron").textContent = open ? "⌄" : "›";
+}
+fitsEl_("fits-toggle").addEventListener("click", () => fitsOpen_(fitsEl_("fits-body").hidden));
 document.getElementById("categories-suggest-btn").addEventListener("click", showMyProfileScreen);   // a one-line link on Categories
 fitsEl_("fits-add-btn").addEventListener("click", async () => {
   const btn = fitsEl_("fits-add-btn");
@@ -13049,8 +13064,9 @@ fitsEl_("fits-add-btn").addEventListener("click", async () => {
   try {
     const res = await callApi("applyProfile", { answers: fitsSel_, basics: true });
     if (meta && meta.settings) meta.settings.profile = (res.profile || []).join(",");
-    fitsEl_("fits-msg").textContent = res.added.length ? tr("fits.added", { n: res.added.length }) : tr("fits.none");
-    if (res.added.length) await refreshCategoriesAfterChange_();
+    const changed = res.added.length + (res.restored || []).length;   // new ones, plus hidden ones shown again
+    fitsEl_("fits-msg").textContent = changed ? tr("fits.added", { n: changed }) : tr("fits.none");
+    if (changed) await refreshCategoriesAfterChange_();
   } catch (err) {
     fitsEl_("fits-msg").textContent = tr("fits.failed");
   } finally { btn.disabled = false; }

@@ -2443,6 +2443,11 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .welcome-choices { display: flex; flex-direction: column; gap: 8px; }
 .welcome-choice { text-align: left; min-height: 44px; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
 .welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
+.welcome-choices.fits-compact { flex-direction: row; flex-wrap: wrap; gap: 8px; }   /* My profile → What fits me: small side-by-side chips */
+.fits-compact .welcome-choice { min-height: 40px; padding: 8px 14px; border-radius: 20px; text-align: center; }
+.fits-toggle { width: 100%; }
+#fits-body { padding-top: 6px; }
+#fits-body h3 { margin: 14px 0 8px; }
 .welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
 .welcome-currencies .welcome-choice { padding: 10px 14px; min-height: 44px; }
 .welcome-body { font-size: 1.1em; line-height: 1.5; min-height: 6em; }
