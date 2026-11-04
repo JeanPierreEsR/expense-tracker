@@ -10672,7 +10672,34 @@ function showTourCard_(i, scroll) {
   // The animated mini scene (tour-scenes.js) plays only on the card on screen; the one just left goes back to its starting picture,
   // scrolled to its top, so it is ready for the next visit.
   if (before >= 0 && before !== i && tour_.slides[before]) { tour_.slides[before].el.scrollTop = 0; previewTourSlide_(tour_.slides[before]); }
-  if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, tourSceneCtx_());
+  clearTimeout(tour_.nudgeTimer);
+  if (i > 0) { try { localStorage.setItem(TOUR_SWIPE_KNOWN_KEY_, "1"); } catch (e) { /* storage blocked: it may nudge again next time */ } }
+  const ctx = tourSceneCtx_();
+  if (i === 0 && !tourSwipeKnown_()) ctx.onEnd = () => tourNudgeLater_(0);
+  if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
+}
+// "Swipe to go on" (owner, 2026-11-03): once the first card's animation has played to its end, if the person is still there 7 s later
+// (they have not found the swipe on their own), the card slides a little to the left, the next one peeks in, and it springs back.
+// Up to 3 times, 8 s apart. Never again once they have reached another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
+const TOUR_SWIPE_KNOWN_KEY_ = "tourSwipeKnown";
+function tourSwipeKnown_() { try { return localStorage.getItem(TOUR_SWIPE_KNOWN_KEY_) === "1"; } catch (e) { return false; } }
+function tourNudgeLater_(times) {
+  if (!tour_ || times >= 3) return;
+  clearTimeout(tour_.nudgeTimer);
+  tour_.nudgeTimer = setTimeout(() => {
+    if (!tour_ || tour_.i !== 0 || tour_.holding || tourSwipeKnown_() || welcomeEl_("welcome-overlay").hidden) return;
+    tourNudge_();
+    tourNudgeLater_(times + 1);
+  }, times === 0 ? 7000 : 8000);
+}
+function tourNudge_() {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const els = tour_.slides.slice(0, 2).map((sl) => sl.el).filter((el) => el && el.animate);
+  const frames = [
+    { transform: "translateX(0)" }, { transform: "translateX(-64px)", offset: 0.3 }, { transform: "translateX(0)", offset: 0.55 },
+    { transform: "translateX(-28px)", offset: 0.75 }, { transform: "translateX(0)" }
+  ];
+  els.forEach((el) => el.animate(frames, { duration: 1300, easing: "ease-in-out" }));
 }
 document.getElementById("more-preview-welcome-btn").addEventListener("click", () => {
   if (!welcomeEl_("welcome-overlay").hidden) return;
@@ -10681,6 +10708,7 @@ document.getElementById("more-preview-welcome-btn").addEventListener("click", ()
 welcomeEl_("welcome-preview-exit").addEventListener("click", () => window.location.reload());   // nothing was stored, so a reload puts the app back exactly as it was
 function closeTour_() {
   if (typeof TourScenes !== "undefined") TourScenes.stop();
+  if (tour_) clearTimeout(tour_.nudgeTimer);
   welcomeEl_("welcome-overlay").hidden = true;
   welcomeEl_("welcome-overlay").classList.remove("tour-mode");
   const reload = tour_ && tour_.reloadAfter;
